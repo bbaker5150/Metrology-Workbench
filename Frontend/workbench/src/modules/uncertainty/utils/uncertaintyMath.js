@@ -1105,9 +1105,20 @@ export const getTmdeAbsoluteLimitEntries = (tmdeTolerances) => {
 // Resolve a tolerance object's measuring resolution into the nominal unit's
 // grid spacing. Returns 0 when no usable resolution is present (snap is a no-op).
 export function resolveResolutionNative(toleranceObject, nominalUnit) {
-  const resRaw = parseFloat(toleranceObject?.measuringResolution);
+  // Derived (equation) tolerance objects carry the LSD under `resolution`,
+  // while instrument-range tolerances use `measuringResolution`. The budget
+  // readers already fall back across both keys (see budgetUtils and
+  // calculateUncertaintyFromToleranceObject); mirror that here so the
+  // acceptance-limit snap fires for derived points too — without it their
+  // limits stay un-snapped and TUR diverges from the workbook.
+  const resRaw = parseFloat(
+    toleranceObject?.measuringResolution ?? toleranceObject?.resolution,
+  );
   if (isNaN(resRaw) || resRaw <= 0) return 0;
-  const resUnit = toleranceObject?.measuringResolutionUnit || nominalUnit;
+  const resUnit =
+    toleranceObject?.measuringResolutionUnit ||
+    toleranceObject?.resolutionUnit ||
+    nominalUnit;
   // Same unit -> no conversion. Skipping the SI round-trip avoids introducing
   // floating-point dust (e.g. (0.1 * 6894.76) / 6894.76 = 0.10000000000000002),
   // which the grid-snapping would otherwise have to defend against.

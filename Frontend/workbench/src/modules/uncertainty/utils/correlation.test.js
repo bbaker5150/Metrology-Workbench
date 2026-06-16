@@ -7,6 +7,7 @@ import {
   combineWithCorrelation,
   normalQuantile,
   snapLimitsToResolution,
+  resolveResolutionNative,
   getTmdeAbsoluteLimits,
   getTmdeAbsoluteLimitEntries,
 } from "./uncertaintyMath";
@@ -217,5 +218,56 @@ describe("BRG-3100 4.1.9 full Excel mirror (riskCompute)", () => {
     expect(m.tur).toBeCloseTo(2.6394, 2); // Excel 2.639367
     expect(m.pfa).toBeCloseTo(2.384, 1); // Excel 2.38%
     expect(m.pfr).toBeCloseTo(3.96, 1); // Excel 3.96%
+  });
+
+  // The fixture stores the LSD under `measuringResolution`, but the API
+  // serializes derived (equation) points with the LSD under `resolution`.
+  // resolveResolutionNative must read both, otherwise the acceptance-limit
+  // snap silently no-ops at runtime, widening the tolerance span and pushing
+  // TUR above the workbook value. Rebuild the point in the API's runtime
+  // shape and confirm parity holds.
+  test("derived point still snaps when LSD arrives under the `resolution` key", () => {
+    const fp = path.resolve(
+      __dirname,
+      "../../../../../../Backend/ac_shunt/uncertainty/fixtures/mock/Derived.json",
+    );
+    const session = JSON.parse(fs.readFileSync(fp, "utf8"));
+    const sessionData = {
+      uncReq: session.uncReq,
+      uutTolerance: session.uutTolerance,
+    };
+    const tp = JSON.parse(
+      JSON.stringify(session.testPoints.find((p) => p.section === "4.1.9")),
+    );
+    // Mimic the API serialization: LSD under `resolution`, no `measuringResolution`.
+    const ut = tp.uutTolerance;
+    ut.resolution = ut.measuringResolution;
+    delete ut.measuringResolution;
+    const m = computePointRiskMetrics(tp, sessionData);
+    expect(m.tur).toBeCloseTo(2.6394, 2); // matches the workbook, not the un-snapped 2.69+
+  });
+});
+
+describe("resolveResolutionNative key fallback", () => {
+  test("reads `measuringResolution`, falling back to `resolution`", () => {
+    expect(
+      resolveResolutionNative({ measuringResolution: "0.00001" }, "in-oz"),
+    ).toBeCloseTo(1e-5, 12);
+    // Derived (equation) shape: LSD lives under `resolution`.
+    expect(
+      resolveResolutionNative(
+        { resolution: "0.00001", measuringResolutionUnit: "in-oz" },
+        "in-oz",
+      ),
+    ).toBeCloseTo(1e-5, 12);
+    // measuringResolution wins when both are present.
+    expect(
+      resolveResolutionNative(
+        { measuringResolution: "0.00002", resolution: "0.00001" },
+        "in-oz",
+      ),
+    ).toBeCloseTo(2e-5, 12);
+    // No usable resolution -> 0 (snap becomes a no-op).
+    expect(resolveResolutionNative({}, "in-oz")).toBe(0);
   });
 });
