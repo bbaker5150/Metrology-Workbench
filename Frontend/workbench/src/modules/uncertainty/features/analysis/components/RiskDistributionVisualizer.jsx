@@ -116,6 +116,45 @@ const curvePath = (points, toX, heightScale = 1) => {
   ).toFixed(2)} ${BASELINE} Z`;
 };
 
+// Fill the area under a curve only for the sub-range [fromValue, toValue].
+// Used to shade the out-of-tolerance tails of the true-error distribution so
+// the "bad population" feeding false accepts is visible on the chart.
+const partialCurvePath = (points, toX, fromValue, toValue, heightScale = 1) => {
+  const slice = points.filter(
+    (point) => point.value >= fromValue && point.value <= toValue,
+  );
+  if (slice.length < 2) return "";
+  const line = slice
+    .map(
+      (point, index) =>
+        `${index === 0 ? "M" : "L"} ${toX(point.value).toFixed(2)} ${(
+          BASELINE -
+          point.density * CURVE_HEIGHT * heightScale
+        ).toFixed(2)}`,
+    )
+    .join(" ");
+  return `${line} L ${toX(slice.at(-1).value).toFixed(2)} ${BASELINE} L ${toX(
+    slice[0].value,
+  ).toFixed(2)} ${BASELINE} Z`;
+};
+
+// Standard normal CDF (Abramowitz & Stegun 7.1.26). Used only to label the
+// out-of-tolerance population share on the chart; the reported PFA/PFR still
+// come from the risk engine, not from here.
+const normCdf = (z) => {
+  if (!Number.isFinite(z)) return z > 0 ? 1 : 0;
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const d = 0.3989422804014327 * Math.exp((-z * z) / 2);
+  const p =
+    d *
+    t *
+    (0.319381530 +
+      t *
+        (-0.356563782 +
+          t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return z > 0 ? 1 - p : p;
+};
+
 // Deterministic PRNG so the Monte Carlo cloud is stable between renders.
 const mulberry32 = (seed) => () => {
   seed |= 0;
@@ -164,11 +203,23 @@ const flattenComponents = (calcResults, nativeUnit) => {
   return options;
 };
 
-const MetricPill = ({ label, value, hint, tone = "neutral", onClick }) => (
+const MetricPill = ({
+  label,
+  value,
+  hint,
+  tone = "neutral",
+  onClick,
+  onMouseEnter,
+  onMouseLeave,
+}) => (
   <button
     type="button"
     className={`risk-viz-metric ${tone} ${onClick ? "clickable" : ""}`}
     onClick={onClick}
+    onMouseEnter={onMouseEnter}
+    onMouseLeave={onMouseLeave}
+    onFocus={onMouseEnter}
+    onBlur={onMouseLeave}
   >
     <span>{label}</span>
     <strong>{value}</strong>
@@ -268,6 +319,10 @@ const RiskDistributionVisualizer = ({
   const [riskZoom, setRiskZoom] = useState(1);
   const [mcZoom, setMcZoom] = useState(1);
   const [componentZoom, setComponentZoom] = useState(1);
+  // Cross-highlight between the metric pills / outcome rows and the chart:
+  // "ucal" emphasizes the calibration variance slice + the ±U decision zones,
+  // "risk" emphasizes just the zones and out-of-tolerance tails.
+  const [hovered, setHovered] = useState(null);
   const usesMonteCarlo = results.riskMethod === "empirical";
   const monteCarloStale =
     results.riskMethod !== "empirical" && results.mcStale === true;
@@ -308,6 +363,8 @@ const RiskDistributionVisualizer = ({
   const decisionChart = useMemo(() => {
     const trueSigma = Math.max(Math.abs(finite(results.uUUT)), 1e-12);
     const observedSigma = Math.max(Math.abs(finite(results.uDev)), trueSigma);
+    const calSigma = Math.abs(finite(results.uCal));
+    const expandedU = Math.abs(finite(results.expandedUncertainty));
     const widestSigma = Math.max(trueSigma, observedSigma);
     const domainLow = Math.min(toleranceLow, acceptanceLow, nominal - widestSigma * 4.2);
     const domainHigh = Math.max(toleranceHigh, acceptanceHigh, nominal + widestSigma * 4.2);
@@ -317,32 +374,63 @@ const RiskDistributionVisualizer = ({
     const toX = (value) =>
       PLOT_LEFT + ((value - low) / (high - low)) * (PLOT_RIGHT - PLOT_LEFT);
 
+    const truePoints = buildCurve({
+      kind: "normal",
+      center: nominal,
+      spread: trueSigma,
+      domainLow: low,
+      domainHigh: high,
+    });
+    const observedPoints = buildCurve({
+      kind: "normal",
+      center: nominal,
+      spread: observedSigma,
+      domainLow: low,
+      domainHigh: high,
+    });
+
+    // Out-of-tolerance population: the true-error mass beyond each tolerance
+    // limit. This is the pool a false accept must be drawn from — NOT PFA
+    // itself, which is the joint event of one of these still reading inside
+    // acceptance.
+    const pOOT =
+      (normCdf((toleranceLow - nominal) / trueSigma) +
+        (1 - normCdf((toleranceHigh - nominal) / trueSigma))) *
+      100;
+
+    // ±U decision-risk zones around each acceptance limit: the band where
+    // measurement noise can flip the accept/reject call, so where PFA and PFR
+    // mass actually lives. Wider expanded uncertainty -> wider zones -> more
+    // risk, which ties u_cal/U directly to the outcome.
+    const zoneFor = (limit, key) => {
+      const lo = toX(limit - expandedU);
+      const hi = toX(limit + expandedU);
+      return { key, x: Math.min(lo, hi), width: Math.abs(hi - lo) };
+    };
+    const riskZones =
+      expandedU > 0
+        ? [zoneFor(acceptanceLow, "low"), zoneFor(acceptanceHigh, "high")]
+        : [];
+
     return {
       low,
       high,
       toX,
-      truePath: curvePath(
-        buildCurve({
-          kind: "normal",
-          center: nominal,
-          spread: trueSigma,
-          domainLow: low,
-          domainHigh: high,
-        }),
-        toX,
-        0.82,
-      ),
-      observedPath: curvePath(
-        buildCurve({
-          kind: "normal",
-          center: nominal,
-          spread: observedSigma,
-          domainLow: low,
-          domainHigh: high,
-        }),
-        toX,
-        1,
-      ),
+      trueVar: trueSigma ** 2,
+      calVar: calSigma ** 2,
+      pOOT,
+      riskZones,
+      ootLowPath: partialCurvePath(truePoints, toX, low, toleranceLow, 0.82),
+      ootHighPath: partialCurvePath(truePoints, toX, toleranceHigh, high, 0.82),
+      // Reject mass: the observed-result curve beyond the acceptance limits.
+      // Unlike PFA/PFR (joint events) this is an exact 1-D marginal — the
+      // overall fraction of results the lab rejects. Bigger than the true
+      // out-of-tolerance tails because calibration uncertainty widens the
+      // observed curve; that gap is where false decisions come from.
+      rejectLowPath: partialCurvePath(observedPoints, toX, low, acceptanceLow, 1),
+      rejectHighPath: partialCurvePath(observedPoints, toX, acceptanceHigh, high, 1),
+      truePath: curvePath(truePoints, toX, 0.82),
+      observedPath: curvePath(observedPoints, toX, 1),
     };
   }, [acceptanceHigh, acceptanceLow, nominal, results, toleranceHigh, toleranceLow]);
 
@@ -488,6 +576,16 @@ const RiskDistributionVisualizer = ({
   const pfr = guardbandEnabled ? results.gbResults.GBPFR : results.pfr;
   const calculatedRisk = { fa: pfa, fr: pfr };
 
+  // Variance decomposition behind the two curves: observed spread is the true
+  // spread widened by calibration uncertainty, added in quadrature. Render the
+  // squared (variance) shares since that is what actually adds linearly.
+  const totalVar = decisionChart.trueVar + decisionChart.calVar;
+  const compositionAvailable = Number.isFinite(totalVar) && totalVar > 0;
+  const calShare = compositionAvailable
+    ? (decisionChart.calVar / totalVar) * 100
+    : 0;
+  const trueShare = 100 - calShare;
+
   const guardbandToggle = (
     <label
       className={`risk-viz-guardband ${!guardbandAvailable ? "disabled" : ""}`}
@@ -572,9 +670,102 @@ const RiskDistributionVisualizer = ({
                   <i /> {guardbandEnabled ? "Guardband acceptance" : "Acceptance"}
                 </span>
               )}
+              <span className="oot"><i /> Out of tolerance (true)</span>
+              <span className="reject"><i /> Rejected (observed)</span>
+              {decisionChart.riskZones.length > 0 && (
+                <span className="riskzone"><i /> &plusmn;U decision zone</span>
+              )}
             </div>
             {guardbandToggle}
           </div>
+
+          {compositionAvailable && (
+            <div
+              className={`risk-viz-composition ${
+                hovered === "ucal" ? "emphasize-ucal" : ""
+              }`}
+              data-testid="risk-composition"
+            >
+              <div className="risk-viz-composition-head">
+                <span className="risk-viz-eyebrow">Risk anatomy</span>
+                <p>
+                  What you <strong>observe</strong> is the UUT&apos;s{" "}
+                  <strong>true</strong> spread widened by the{" "}
+                  <strong>calibration</strong> uncertainty. Variances add, so the
+                  squared terms stack &mdash; the bigger the blue slice, the more
+                  the observed curve outruns the true curve and the more decision
+                  risk (PFA / PFR) you carry.
+                </p>
+              </div>
+              <div className="risk-viz-variance-eqn" data-testid="risk-variance-eqn">
+                <span className="total">
+                  &sigma;<sub>obs</sub>
+                  <strong>{formatNumber(results.uDev)}</strong>
+                  <sup>2</sup>
+                </span>
+                <em>=</em>
+                <span className="true">
+                  &sigma;<sub>true</sub>
+                  <strong>{formatNumber(results.uUUT)}</strong>
+                  <sup>2</sup>
+                </span>
+                <em>+</em>
+                <span className="observed">
+                  u<sub>cal</sub>
+                  <strong>{formatNumber(results.uCal)}</strong>
+                  <sup>2</sup>
+                </span>
+                <em className="unit">{results.nativeUnit}</em>
+              </div>
+              <div
+                className="risk-viz-variance-bar"
+                role="img"
+                aria-label={`True variance ${formatNumber(
+                  trueShare,
+                  3,
+                )} percent, calibration variance ${formatNumber(
+                  calShare,
+                  3,
+                )} percent of the observed variance`}
+              >
+                <div
+                  className="seg true"
+                  style={{ width: `${Math.max(0, trueShare)}%` }}
+                  title="True UUT variance"
+                >
+                  <span>
+                    &sigma;<sub>true</sub>
+                    <sup>2</sup> &middot; {formatNumber(trueShare, 3)}%
+                  </span>
+                </div>
+                <div
+                  className="seg observed"
+                  style={{ width: `${Math.max(0, calShare)}%` }}
+                  title="Calibration variance"
+                >
+                  <span>
+                    u<sub>cal</sub>
+                    <sup>2</sup> &middot; {formatNumber(calShare, 3)}%
+                  </span>
+                </div>
+              </div>
+              <div className="risk-viz-variance-legend">
+                <span className="true">
+                  <i /> True UUT spread &sigma;<sub>true</sub> ={" "}
+                  {formatNumber(results.uUUT)} {results.nativeUnit}
+                </span>
+                <span className="observed">
+                  <i /> Calibration u<sub>cal</sub> ={" "}
+                  {formatNumber(results.uCal)} {results.nativeUnit}
+                </span>
+                <span className="total">
+                  Observed &sigma;<sub>obs</sub> = {formatNumber(results.uDev)}{" "}
+                  {results.nativeUnit} &middot; correlation &rho; ={" "}
+                  {formatNumber(results.correlation, 3)}
+                </span>
+              </div>
+            </div>
+          )}
 
           <div className="risk-viz-main-grid">
             <div className="risk-viz-chart-card">
@@ -583,7 +774,7 @@ const RiskDistributionVisualizer = ({
               </div>
               <div className="risk-viz-canvas">
                 <svg
-                  className="risk-viz-svg"
+                  className={`risk-viz-svg ${hovered ? `emphasize-${hovered}` : ""}`}
                   style={{ width: `${riskZoom * 100}%` }}
                   viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
                   role="img"
@@ -624,6 +815,18 @@ const RiskDistributionVisualizer = ({
                   />
                 )}
 
+                {decisionChart.riskZones.map((zone) => (
+                  <rect
+                    key={zone.key}
+                    x={zone.x}
+                    y="56"
+                    width={Math.max(0, zone.width)}
+                    height="196"
+                    className="risk-viz-risk-zone"
+                    data-testid={`risk-zone-${zone.key}`}
+                  />
+                ))}
+
                 <line x1={PLOT_LEFT} x2={PLOT_RIGHT} y1={BASELINE} y2={BASELINE} className="risk-viz-axis" />
                 <line
                   x1={decisionChart.toX(nominal)}
@@ -632,6 +835,21 @@ const RiskDistributionVisualizer = ({
                   y2={BASELINE + 8}
                   className="risk-viz-center-line"
                 />
+
+                {decisionChart.ootLowPath && (
+                  <path
+                    d={decisionChart.ootLowPath}
+                    className="risk-viz-oot-fill"
+                    data-testid="risk-oot-low"
+                  />
+                )}
+                {decisionChart.ootHighPath && (
+                  <path
+                    d={decisionChart.ootHighPath}
+                    className="risk-viz-oot-fill"
+                    data-testid="risk-oot-high"
+                  />
+                )}
 
                 <path
                   d={decisionChart.truePath}
@@ -643,6 +861,54 @@ const RiskDistributionVisualizer = ({
                   fill={`url(#${gradientId}-observed)`}
                   className="risk-viz-observed-curve"
                 />
+
+                {decisionChart.rejectLowPath && (
+                  <path
+                    d={decisionChart.rejectLowPath}
+                    className="risk-viz-reject-fill"
+                    data-testid="risk-reject-low"
+                  />
+                )}
+                {decisionChart.rejectHighPath && (
+                  <path
+                    d={decisionChart.rejectHighPath}
+                    className="risk-viz-reject-fill"
+                    data-testid="risk-reject-high"
+                  />
+                )}
+
+                {/* Acceptance gate on the observed axis: results landing in
+                    this span are accepted, outside it rejected. Its boundaries
+                    are the acceptance limits — coincident with tolerance here,
+                    pulled inward when guardbanded. */}
+                <g className="risk-viz-accept-bracket" data-testid="risk-accept-bracket">
+                  <line
+                    x1={decisionChart.toX(acceptanceLow)}
+                    x2={decisionChart.toX(acceptanceHigh)}
+                    y1="238"
+                    y2="238"
+                  />
+                  <line
+                    x1={decisionChart.toX(acceptanceLow)}
+                    x2={decisionChart.toX(acceptanceLow)}
+                    y1="234"
+                    y2="244"
+                  />
+                  <line
+                    x1={decisionChart.toX(acceptanceHigh)}
+                    x2={decisionChart.toX(acceptanceHigh)}
+                    y1="234"
+                    y2="244"
+                  />
+                  <text
+                    x={decisionChart.toX((acceptanceLow + acceptanceHigh) / 2)}
+                    y="232"
+                    textAnchor="middle"
+                    className="risk-viz-accept-label"
+                  >
+                    {guardbandEnabled ? "Accept (guardbanded)" : "Accept"} &mdash; observed result here
+                  </text>
+                </g>
 
                 <LimitMarker
                   x={decisionChart.toX(toleranceLow)}
@@ -695,10 +961,17 @@ const RiskDistributionVisualizer = ({
               </div>
               <div className="risk-viz-chart-caption">
                 <span>
-                  <strong>True error</strong> models expected UUT population spread.
+                  The same limit lines gate <strong>both</strong> curves:{" "}
+                  <strong>tolerance</strong> on the true curve (purple tails =
+                  out of tolerance, &asymp; {formatNumber(decisionChart.pOOT, 3)}
+                  %) and <strong>acceptance</strong> on the observed curve (amber
+                  tails = rejected).
                 </span>
                 <span>
-                  <strong>Observed result</strong> includes calibration uncertainty.
+                  The observed curve is wider, so its rejected tails outsize the
+                  true out-of-tolerance tails &mdash; that mismatch, inside the{" "}
+                  <strong>&plusmn;U</strong> zones, is the false accept / reject
+                  risk. Click a probability for the exact 2-D integral.
                 </span>
               </div>
             </div>
@@ -715,6 +988,10 @@ const RiskDistributionVisualizer = ({
                   guardbandEnabled ? "gbpfa" : "pfa",
                 ) ? "active" : ""}`}
                 onClick={() => onShowBreakdown(guardbandEnabled ? "gbpfa" : "pfa")}
+                onMouseEnter={() => setHovered("risk")}
+                onMouseLeave={() => setHovered(null)}
+                onFocus={() => setHovered("risk")}
+                onBlur={() => setHovered(null)}
               >
                 <span className="risk-viz-outcome-icon">FA</span>
                 <span>
@@ -730,6 +1007,10 @@ const RiskDistributionVisualizer = ({
                   guardbandEnabled ? "gbpfr" : "pfr",
                 ) ? "active" : ""}`}
                 onClick={() => onShowBreakdown(guardbandEnabled ? "gbpfr" : "pfr")}
+                onMouseEnter={() => setHovered("risk")}
+                onMouseLeave={() => setHovered(null)}
+                onFocus={() => setHovered("risk")}
+                onBlur={() => setHovered(null)}
               >
                 <span className="risk-viz-outcome-icon">FR</span>
                 <span>
@@ -750,6 +1031,8 @@ const RiskDistributionVisualizer = ({
               value={`${formatNumber(results.uCal)} ${results.nativeUnit}`}
               hint="Calibration spread: widens the blue observed curve beyond the purple true-error curve"
               onClick={() => onShowBreakdown("inputs")}
+              onMouseEnter={() => setHovered("ucal")}
+              onMouseLeave={() => setHovered(null)}
             />
             <MetricPill
               label="Expanded uncertainty"

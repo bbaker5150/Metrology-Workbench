@@ -5366,6 +5366,254 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 .risk-viz-legend .acceptance {
   color: var(--risk-viz-acceptance);
 }
+.risk-viz-legend .oot {
+  color: var(--risk-viz-danger);
+}
+.risk-viz-legend .oot i,
+.risk-viz-legend .riskzone i {
+  height: 11px;
+  border-radius: 3px;
+}
+.risk-viz-legend .riskzone {
+  color: var(--risk-viz-acceptance);
+}
+.risk-viz-legend .riskzone i {
+  background: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, currentColor 55%, transparent),
+    color-mix(in srgb, currentColor 55%, transparent) 2px,
+    transparent 2px,
+    transparent 4px
+  );
+  box-shadow: none;
+}
+
+/* --- Risk anatomy: variance composition strip --- */
+.risk-viz-composition {
+  margin: 10px 26px 2px;
+  padding: 14px 16px 12px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--content-background) 88%, transparent);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.risk-viz-composition.emphasize-ucal {
+  border-color: color-mix(in srgb, var(--risk-viz-observed) 45%, var(--border-color));
+  box-shadow: 0 6px 18px -14px
+    color-mix(in srgb, var(--risk-viz-observed) 70%, transparent);
+}
+
+.risk-viz-composition-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 11px;
+}
+
+.risk-viz-composition-head p {
+  margin: 0;
+  max-width: 760px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-color-muted);
+}
+
+.risk-viz-composition-head strong {
+  color: var(--text-color);
+}
+
+.risk-viz-variance-eqn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 9px;
+  margin-bottom: 10px;
+  font-family: var(--readout-font);
+  font-variant-numeric: tabular-nums;
+}
+
+.risk-viz-variance-eqn span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-size: 0.74rem;
+  color: var(--text-color-muted);
+}
+
+.risk-viz-variance-eqn sub {
+  font-size: 0.62em;
+  opacity: 0.8;
+}
+
+.risk-viz-variance-eqn strong {
+  font-size: 1.02rem;
+  color: var(--text-color);
+}
+
+.risk-viz-variance-eqn sup {
+  font-size: 0.64em;
+  color: var(--text-color-muted);
+}
+
+.risk-viz-variance-eqn .true strong {
+  color: var(--risk-viz-true);
+}
+
+.risk-viz-variance-eqn .observed strong {
+  color: var(--risk-viz-observed);
+}
+
+.risk-viz-variance-eqn em {
+  font-style: normal;
+  font-size: 0.95rem;
+  color: var(--text-color-muted);
+}
+
+.risk-viz-variance-eqn .unit {
+  font-size: 0.72rem;
+}
+
+.risk-viz-variance-bar {
+  display: flex;
+  height: 30px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+
+.risk-viz-variance-bar .seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  font-weight: 750;
+  color: #fff;
+  transition: filter 0.16s ease;
+}
+
+.risk-viz-variance-bar .seg sub {
+  font-size: 0.62em;
+}
+.risk-viz-variance-bar .seg sup {
+  font-size: 0.62em;
+}
+
+.risk-viz-variance-bar .seg.true {
+  background: color-mix(in srgb, var(--risk-viz-true) 82%, #000 4%);
+}
+
+.risk-viz-variance-bar .seg.observed {
+  background: color-mix(in srgb, var(--risk-viz-observed) 82%, #000 4%);
+}
+
+.risk-viz-composition.emphasize-ucal .risk-viz-variance-bar .seg.observed {
+  filter: brightness(1.12) saturate(1.2);
+}
+.risk-viz-composition.emphasize-ucal .risk-viz-variance-bar .seg.true {
+  filter: brightness(0.82);
+}
+
+.risk-viz-variance-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 9px;
+  font-size: 0.71rem;
+  color: var(--text-color-muted);
+}
+
+.risk-viz-variance-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.risk-viz-variance-legend i {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+.risk-viz-variance-legend .true {
+  color: var(--risk-viz-true);
+}
+
+.risk-viz-variance-legend .observed {
+  color: var(--risk-viz-observed);
+}
+
+.risk-viz-variance-legend .total {
+  color: var(--text-color);
+  font-weight: 650;
+}
+
+/* --- Shaded risk regions inside the decision SVG --- */
+.risk-viz-oot-fill {
+  fill: color-mix(in srgb, var(--risk-viz-danger) 26%, transparent);
+  stroke: color-mix(in srgb, var(--risk-viz-danger) 55%, transparent);
+  stroke-width: 1;
+  transition: fill 0.16s ease;
+}
+
+.risk-viz-risk-zone {
+  fill: color-mix(in srgb, var(--risk-viz-acceptance) 13%, transparent);
+  stroke: color-mix(in srgb, var(--risk-viz-acceptance) 38%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  transition: fill 0.16s ease, stroke 0.16s ease;
+}
+
+.risk-viz-svg.emphasize-ucal .risk-viz-risk-zone,
+.risk-viz-svg.emphasize-risk .risk-viz-risk-zone {
+  fill: color-mix(in srgb, var(--risk-viz-acceptance) 26%, transparent);
+  stroke: color-mix(in srgb, var(--risk-viz-acceptance) 65%, transparent);
+}
+
+.risk-viz-svg.emphasize-risk .risk-viz-oot-fill {
+  fill: color-mix(in srgb, var(--risk-viz-danger) 40%, transparent);
+}
+
+/* Reject mass: observed-result curve beyond the acceptance limits. Drawn on
+   top of the observed curve so it reads clearly on the thin tails. */
+.risk-viz-reject-fill {
+  fill: color-mix(in srgb, var(--risk-viz-acceptance) 30%, transparent);
+  stroke: color-mix(in srgb, var(--risk-viz-acceptance) 62%, transparent);
+  stroke-width: 1;
+  transition: fill 0.16s ease;
+}
+
+.risk-viz-svg.emphasize-risk .risk-viz-reject-fill {
+  fill: color-mix(in srgb, var(--risk-viz-acceptance) 46%, transparent);
+}
+
+/* Acceptance gate named on the observed axis. */
+.risk-viz-accept-bracket line {
+  stroke: var(--risk-viz-acceptance);
+  stroke-width: 1.4;
+  opacity: 0.85;
+}
+
+.risk-viz-accept-label {
+  fill: color-mix(in srgb, var(--risk-viz-acceptance) 88%, var(--text-color));
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+.risk-viz-legend .reject {
+  color: var(--risk-viz-acceptance);
+}
+.risk-viz-legend .reject i {
+  height: 11px;
+  border-radius: 3px;
+  background: color-mix(in srgb, currentColor 55%, transparent);
+  box-shadow: none;
+}
 
 .risk-viz-guardband {
   display: inline-flex;

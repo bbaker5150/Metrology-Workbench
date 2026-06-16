@@ -74,6 +74,20 @@ test("switches between risk, guardband, and component views", () => {
     screen.getByText(/Green band: full span between the LTL and UTL markers/),
   ).toBeInTheDocument();
 
+  // Risk anatomy strip decomposes observed variance into true + calibration,
+  // and the chart shades the out-of-tolerance tails and the +/-U decision zones.
+  expect(screen.getByTestId("risk-composition")).toBeInTheDocument();
+  expect(screen.getByTestId("risk-variance-eqn")).toHaveTextContent("0.0683");
+  expect(screen.getByTestId("risk-oot-high")).toBeInTheDocument();
+  expect(screen.getByTestId("risk-zone-low")).toBeInTheDocument();
+  expect(screen.getByTestId("risk-zone-high")).toBeInTheDocument();
+
+  // Acceptance is visualized on the observed curve: rejected tails beyond the
+  // acceptance limits plus a named accept window on the observed axis.
+  expect(screen.getByTestId("risk-reject-low")).toBeInTheDocument();
+  expect(screen.getByTestId("risk-reject-high")).toBeInTheDocument();
+  expect(screen.getByTestId("risk-accept-bracket")).toBeInTheDocument();
+
   fireEvent.click(screen.getByLabelText("Apply guardband"));
   expect(screen.getByText("Guardbanded")).toBeInTheDocument();
   expect(screen.getByText("0.48%")).toBeInTheDocument();
