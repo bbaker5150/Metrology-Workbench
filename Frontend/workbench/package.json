@@ -49,6 +49,7 @@
     "start:backend:remote": "cd ../../Backend/ac_shunt && ..\\..\\venv\\Scripts\\python.exe manage.py bootstrap && ..\\..\\venv\\Scripts\\python.exe manage.py runserver 0.0.0.0:8100",
     "dev": "concurrently \"npm run start:backend\" \"npm start\"",
     "dev:remote": "cross-env VITE_BACKEND_PORT=8100 concurrently \"npm run start:backend:remote\" \"npm run start:remote\"",
+    "dev:tunnel": "cross-env VITE_BACKEND_PORT=8100 VITE_API_SAME_ORIGIN=1 concurrently \"npm run start:backend:remote\" \"npm run start:remote\"",
     "dev:mock": "cross-env MOCK_INSTRUMENTS=1 concurrently \"npm run start:backend\" \"npm start\"",
     "electron:dev": "concurrently \"npm run start:backend\" \"cross-env BROWSER=none npm start\" \"wait-on tcp:3000 tcp:8000 && .\\node_modules\\electron\\dist\\electron.exe .\"",
     "electron:dev:mock": "cross-env MOCK_INSTRUMENTS=1 concurrently \"npm run start:backend\" \"cross-env BROWSER=none npm start\" \"wait-on tcp:3000 tcp:8000 && .\\node_modules\\electron\\dist\\electron.exe .\"",

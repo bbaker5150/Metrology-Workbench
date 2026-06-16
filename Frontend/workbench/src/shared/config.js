@@ -28,6 +28,13 @@ const getBaseIp = () => {
 
 export const baseIp = getBaseIp();
 export const BACKEND_PORT = import.meta.env.VITE_BACKEND_PORT ?? "8000";
+export const USE_SAME_ORIGIN_API = import.meta.env.VITE_API_SAME_ORIGIN === "1";
 
-export const API_BASE_URL = `http://${baseIp}:${BACKEND_PORT}/api`;
-export const WS_BASE_URL = `ws://${baseIp}:${BACKEND_PORT}/ws`;
+export const API_BASE_URL = USE_SAME_ORIGIN_API
+  ? "/api"
+  : `http://${baseIp}:${BACKEND_PORT}/api`;
+export const WS_BASE_URL = USE_SAME_ORIGIN_API
+  ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${
+      window.location.host
+    }/ws`
+  : `ws://${baseIp}:${BACKEND_PORT}/ws`;
