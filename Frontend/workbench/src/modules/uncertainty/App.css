@@ -9412,12 +9412,14 @@ body.dark-mode .bug-card {
 .notification-window--danger .notification-window-confirm {
   border-color: var(--status-bad);
   background: var(--status-bad);
+  color: #ffffff;
 }
 
 .notification-window--danger .notification-window-confirm:hover {
   border-color: color-mix(in srgb, var(--status-bad) 82%, #000000);
   background: color-mix(in srgb, var(--status-bad) 82%, #000000);
   box-shadow: 0 4px 12px color-mix(in srgb, var(--status-bad) 24%, transparent);
+  color: #ffffff;
 }
 
 .notification-window--success {
@@ -12646,6 +12648,19 @@ body:not(.dark-mode)
   .uncertainty-module
   .app-chrome-brand-mark {
   background: transparent;
+  box-shadow: none;
+}
+
+body.dark-mode
+  .uncertainty-module
+  .app-chrome-brand-mark {
+  background:
+    radial-gradient(
+      circle at 50% 45%,
+      color-mix(in srgb, var(--primary-color) 16%, transparent) 0%,
+      color-mix(in srgb, var(--primary-color) 7%, transparent) 36%,
+      transparent 58%
+    );
   box-shadow: none;
 }
 

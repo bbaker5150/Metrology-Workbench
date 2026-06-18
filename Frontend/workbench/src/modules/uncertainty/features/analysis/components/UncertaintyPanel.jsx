@@ -227,6 +227,18 @@ const getSpecRows = (tolerance) => {
   return present.map((p) => formatPart(tolerance[p.cfg.key], suffixMap[p.cfg.key]));
 };
 
+const formatResolutionLabel = (range = {}) => {
+  const resolution = range?.resolution ?? range?.measuringResolution;
+  if (resolution === undefined || resolution === null || resolution === "") {
+    return "-";
+  }
+
+  const unit =
+    range?.unit || range?.resolutionUnit || range?.measuringResolutionUnit || "";
+  const unitLabel = getUnitDisplayLabel(unit);
+  return `${resolution}${unitLabel ? ` ${unitLabel}` : ""}`;
+};
+
 // --- SHARED HELPER: Resolve UUT Range ---
 const resolveUutRangeHelper = (
   uut,
@@ -1261,21 +1273,23 @@ const SummaryDashboard = ({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "42%" }} />
+              <col style={{ width: "32%" }} />
+              <col style={{ width: "26%" }} />
               <col style={{ width: "30%" }} />
-              <col style={{ width: "28%" }} />
+              <col style={{ width: "12%" }} />
             </colgroup>
             <thead>
               <tr>
                 <th>Description</th>
-                <th>Range</th>
+                <th>Range(s)</th>
                 <th>Tolerance</th>
+                <th>Resolution</th>
               </tr>
             </thead>
             <tbody>
               {filteredUuts.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={3}>
+                  <td colSpan={4}>
                     No UUTs found in this context.
                   </td>
                 </tr>
@@ -1287,7 +1301,7 @@ const SummaryDashboard = ({
                         key={`uut-area-${row.area.id || row.area.name}`}
                         className="instrument-area-section-row"
                       >
-                        <td colSpan={3}>
+                        <td colSpan={4}>
                           <span style={{ color: row.area.color }}>
                             {row.area.name}
                           </span>
@@ -1400,6 +1414,16 @@ const SummaryDashboard = ({
                         >
                           {specRows[0]}
                         </td>
+                        <td
+                          rowSpan={rowSpan}
+                          className={`cell-value ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
+                          onMouseEnter={() =>
+                            setHoveredCell({ tableId: "uut", colIndex: 3 })
+                          }
+                          title={formatResolutionLabel(activeRange)}
+                        >
+                          {formatResolutionLabel(activeRange)}
+                        </td>
                       </tr>
                       {specRows.slice(1).map((specComp, sIdx) => (
                         <tr
@@ -1468,21 +1492,23 @@ const SummaryDashboard = ({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "42%" }} />
+              <col style={{ width: "32%" }} />
+              <col style={{ width: "26%" }} />
               <col style={{ width: "30%" }} />
-              <col style={{ width: "28%" }} />
+              <col style={{ width: "12%" }} />
             </colgroup>
             <thead>
               <tr>
                 <th>Description</th>
                 <th>Range</th>
                 <th>Error Limit</th>
+                <th>Resolution</th>
               </tr>
             </thead>
             <tbody>
               {filteredTmdes.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={3}>No TMDEs found in session.</td>
+                  <td colSpan={4}>No TMDEs found in session.</td>
                 </tr>
               ) : (
                 getGroupedInstrumentRows(filteredTmdes, "instrument").map((row) => {
@@ -1492,7 +1518,7 @@ const SummaryDashboard = ({
                         key={`tmde-area-${row.area.id || row.area.name}`}
                         className="instrument-area-section-row"
                       >
-                        <td colSpan={3}>
+                        <td colSpan={4}>
                           <span style={{ color: row.area.color }}>
                             {row.area.name}
                           </span>
@@ -1592,6 +1618,16 @@ const SummaryDashboard = ({
                           title={specRows[0]}
                         >
                           {specRows[0]}
+                        </td>
+                        <td
+                          rowSpan={rowSpan}
+                          className={`cell-value ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
+                          onMouseEnter={() =>
+                            setHoveredCell({ tableId: "tmde", colIndex: 3 })
+                          }
+                          title={formatResolutionLabel(activeRange)}
+                        >
+                          {formatResolutionLabel(activeRange)}
                         </td>
                       </tr>
                       {specRows.slice(1).map((specComp, sIdx) => (
@@ -3024,21 +3060,23 @@ function DetailedView({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "28%" }} />
-              <col style={{ width: "42%" }} />
+              <col style={{ width: "32%" }} />
               <col style={{ width: "30%" }} />
+              <col style={{ width: "26%" }} />
+              <col style={{ width: "12%" }} />
             </colgroup>
             <thead>
               <tr>
                 <th>Description</th>
-                <th>Range</th>
+                <th>Range(s)</th>
                 <th>Tolerance</th>
+                <th>Resolution</th>
               </tr>
             </thead>
             <tbody>
               {relevantUuts.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan="3">No associated UUTs found.</td>
+                  <td colSpan="4">No associated UUTs found.</td>
                 </tr>
               ) : (
                 relevantUuts.map((uut) => {
@@ -3131,6 +3169,16 @@ function DetailedView({
                           title={specRows[0]}
                         >
                           {specRows[0]}
+                        </td>
+                        <td
+                          rowSpan={rowSpan}
+                          className={`cell-value ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
+                          onMouseEnter={() =>
+                            setHoveredCell({ tableId: "uut_det", colIndex: 3 })
+                          }
+                          title={formatResolutionLabel(activeRange)}
+                        >
+                          {formatResolutionLabel(activeRange)}
                         </td>
                       </tr>
 
@@ -3652,10 +3700,11 @@ function DetailedView({
                 {/* Direct points toggle usage. Derived points assign each
                     instrument to one mapped input; several instruments may
                     contribute to the same input budget. */}
-                <col style={{ width: isDerived ? "24%" : "50px" }} />
-                <col style={{ width: isDerived ? "30%" : "40%" }} />
-                <col style={{ width: isDerived ? "22%" : "30%" }} />
-                <col style={{ width: isDerived ? "24%" : "30%" }} />
+                <col style={{ width: isDerived ? "22%" : "50px" }} />
+                <col style={{ width: isDerived ? "28%" : "34%" }} />
+                <col style={{ width: isDerived ? "20%" : "26%" }} />
+                <col style={{ width: isDerived ? "20%" : "28%" }} />
+                <col style={{ width: "12%" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -3665,12 +3714,13 @@ function DetailedView({
                   <th>Description</th>
                   <th>Range</th>
                   <th>Error Limit</th>
+                  <th>Resolution</th>
                 </tr>
               </thead>
               <tbody>
                 {relevantTmdes.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan="4">
+                    <td colSpan="5">
                       No TMDEs defined for this measurement area.
                     </td>
                   </tr>
@@ -3897,6 +3947,24 @@ function DetailedView({
                               title={specRows[0]}
                             >
                               {specRows[0]}
+                            </td>
+
+                            <td
+                              rowSpan={rowSpan}
+                              className={`cell-value ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 4 ? "col-hovered" : ""}`}
+                              onMouseEnter={() =>
+                                setHoveredCell({
+                                  tableId: "tmde_det",
+                                  colIndex: 4,
+                                })
+                              }
+                              title={
+                                isChecked
+                                  ? formatResolutionLabel(activeRange)
+                                  : undefined
+                              }
+                            >
+                              {isChecked ? formatResolutionLabel(activeRange) : ""}
                             </td>
                           </tr>
 

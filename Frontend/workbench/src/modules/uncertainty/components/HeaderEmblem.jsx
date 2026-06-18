@@ -20,7 +20,7 @@ function AliveEmblem() {
     const node = ref.current;
     if (!node) return;
     const t = state.clock.elapsedTime;
-    node.rotation.y = Math.sin(t * 0.6) * 0.38;
+    node.rotation.y = Math.sin(t * 0.6) * 0.32;
     node.rotation.x = Math.sin(t * 0.4) * 0.07;
     node.position.y = Math.sin(t * 1.1) * 0.05;
   });

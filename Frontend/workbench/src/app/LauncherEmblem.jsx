@@ -20,8 +20,9 @@ function AliveEmblem() {
     const node = ref.current;
     if (!node) return;
     const t = state.clock.elapsedTime;
-    // ±0.5 rad sway keeps the front face in view at the extremes.
-    node.rotation.y = Math.sin(t * 0.6) * 0.5;
+    // Keep the front face dominant; deeper yaw exposes the model's dark back
+    // disk against dark-mode backgrounds.
+    node.rotation.y = Math.sin(t * 0.6) * 0.34;
     // Subtle vertical tilt + float for a "floating in light" feel.
     node.rotation.x = Math.sin(t * 0.4) * 0.07;
     node.position.y = Math.sin(t * 1.1) * 0.05;
