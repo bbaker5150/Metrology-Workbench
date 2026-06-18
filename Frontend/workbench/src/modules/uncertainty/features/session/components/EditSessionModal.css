@@ -29,6 +29,29 @@
     border-bottom-color: var(--primary-color);
 }
 
+.requirement-field-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+}
+
+.requirement-field-label span {
+    min-width: 0;
+}
+
+.requirement-help-icon {
+    flex: 0 0 auto;
+    color: var(--text-color-muted);
+    opacity: 0.75;
+    font-size: 0.8em;
+}
+
+.requirement-field-label:hover .requirement-help-icon {
+    color: var(--primary-color);
+    opacity: 1;
+}
+
 /* Section Containers */
 .session-panel-container {
     background-color: var(--background-color-secondary);

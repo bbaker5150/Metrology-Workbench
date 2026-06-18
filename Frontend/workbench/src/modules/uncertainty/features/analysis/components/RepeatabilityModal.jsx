@@ -4,7 +4,12 @@ import Select from "react-select";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faTrashAlt, faUndo, faCheck, faChartLine } from "@fortawesome/free-solid-svg-icons";
 import * as math from "mathjs";
-import { unitSystem, unitCategories } from "../../../utils/uncertaintyMath";
+import {
+    getUnitDisplayLabel,
+    unitCategories,
+    unitSystem,
+    unitFilterOption,
+} from "../../../utils/uncertaintyMath";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 
 const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
@@ -22,7 +27,7 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
         const categoryUnits = unitCategories[refCategory] || [referenceUnit];
         const prioritizedOptions = categoryUnits
             .filter((u) => allUnits.includes(u))
-            .map((u) => { usedUnits.add(u); return { value: u, label: u }; });
+            .map((u) => { usedUnits.add(u); return { value: u, label: getUnitDisplayLabel(u) }; });
         options.push({ label: refCategory, options: prioritizedOptions });
     }
 
@@ -30,13 +35,13 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
         if (options.some((opt) => opt.label === label)) return;
         const groupOptions = units
             .filter((u) => allUnits.includes(u) && !usedUnits.has(u))
-            .map((u) => { usedUnits.add(u); return { value: u, label: u }; });
+            .map((u) => { usedUnits.add(u); return { value: u, label: getUnitDisplayLabel(u) }; });
         if (groupOptions.length > 0) options.push({ label, options: groupOptions });
     });
 
     const leftovers = allUnits
         .filter((u) => !usedUnits.has(u) && !["%", "ppm", "dB", "ppb"].includes(u))
-        .map((u) => ({ value: u, label: u }));
+        .map((u) => ({ value: u, label: getUnitDisplayLabel(u) }));
     if (leftovers.length > 0) options.push({ label: "Other", options: leftovers });
 
     return options;
@@ -223,10 +228,11 @@ const RepeatabilityModal = ({
                                 value={
                                     unitOptions
                                         .flatMap(g => g.options ? g.options : g)
-                                        .find(opt => opt.value === selectedUnit) || { value: selectedUnit, label: selectedUnit }
+                                        .find(opt => opt.value === selectedUnit) || { value: selectedUnit, label: getUnitDisplayLabel(selectedUnit) }
                                 }
                                 onChange={(option) => setSelectedUnit(option ? option.value : "")}
                                 options={unitOptions}
+                                filterOption={unitFilterOption}
                                 className="react-select-container"
                                 classNamePrefix="react-select"
                                 placeholder="Unit"

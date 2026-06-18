@@ -6,6 +6,7 @@ import {
   calculateUncertaintyFromToleranceObject,
   unitSystem,
   convertPpmToUnit,
+  getUnitDisplayLabel,
 } from "../../../../utils/uncertaintyMath";
 
 const BreakdownItem = ({ comp, nominal }) => {
@@ -70,7 +71,7 @@ const BreakdownItem = ({ comp, nominal }) => {
           >
             {unitOptions.map((u) => (
               <option key={u} value={u}>
-                {u}
+                {getUnitDisplayLabel(u)}
               </option>
             ))}
           </select>
@@ -262,7 +263,7 @@ const BreakdownDetails = ({ title, toleranceObject, referencePoint }) => {
           >
             {unitOptions.map((u) => (
               <option key={u} value={u}>
-                {u}
+                {getUnitDisplayLabel(u)}
               </option>
             ))}
           </select>
@@ -289,7 +290,7 @@ const BreakdownDetails = ({ title, toleranceObject, referencePoint }) => {
           >
             {unitOptions.map((u) => (
               <option key={u} value={u}>
-                {u}
+                {getUnitDisplayLabel(u)}
               </option>
             ))}
           </select>

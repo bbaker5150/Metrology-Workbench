@@ -142,25 +142,25 @@ export const getBudgetComponentsFromTolerance = (
   };
   
   // --- 1. ACCUMULATE ACCURACY COMPONENTS ---
-  // Reading
+  // % of Indicated Value
   totalAccuracyHalfSpan_Base += calculateComponentSpan(
-      toleranceObject.reading, "Reading", nominalValue
+      toleranceObject.reading, "% of Indicated Value", nominalValue
   );
 
-  // Range (Relative to Full Scale)
+  // % Full Scale (relative to Full Scale)
   const rangeFS = parseFloat(toleranceObject.max) || parseFloat(toleranceObject.range?.value);
   totalAccuracyHalfSpan_Base += calculateComponentSpan(
-    toleranceObject.range, "Range", rangeFS
+    toleranceObject.range, "% Full Scale", rangeFS
   );
 
-  // Floor
+  // Floor Value
   totalAccuracyHalfSpan_Base += calculateComponentSpan(
-      toleranceObject.floor, "Floor", nominalValue
+      toleranceObject.floor, "Floor Value", nominalValue
   );
-  
-  // Readings IV
+
+  // Legacy "Readings (IV)" == a raw Floor Value
   totalAccuracyHalfSpan_Base += calculateComponentSpan(
-      toleranceObject.readings_iv, "Readings (IV)", nominalValue
+      toleranceObject.readings_iv, "Floor Value", nominalValue
   );
 
   // --- 2. CREATE THE UNIFIED ACCURACY COMPONENT ---

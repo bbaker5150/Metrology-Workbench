@@ -91,6 +91,12 @@ export const unitSystem = {
     arcsec: { to_si: 4.84814e-6, quantity: "Angle" },
     rev: { to_si: 6.2831853, quantity: "Angle" },
 
+    // --- Angular Speed --- (SI base: rad/s)
+    "rad/s": { to_si: 1, quantity: "Angular Speed" },
+    rpm: { to_si: 0.10471975512, quantity: "Angular Speed" }, // 2π/60
+    "deg/s": { to_si: 0.0174532925, quantity: "Angular Speed" },
+    "rev/s": { to_si: 6.2831853, quantity: "Angular Speed" },
+
     // --- Volume ---
     "m^3": { to_si: 1, quantity: "Volume" },
     L: { to_si: 0.001, quantity: "Volume" },
@@ -171,6 +177,7 @@ export const unitSystem = {
     // --- Generic / Ratio ---
     "%": { to_si: 0.01, quantity: "Ratio" },
     ppm: { to_si: 1e-6, quantity: "Ratio" },
+    ppb: { to_si: 1e-9, quantity: "Ratio" },
     dB: { to_si: 1, quantity: "Ratio" },
 
     // --- Humidity & Moisture ---
@@ -207,6 +214,55 @@ export const unitSystem = {
   }
 };
 
+export const UNIT_DISPLAY_LABELS = {
+  uV: "µV",
+  uA: "µA",
+  uF: "µF",
+  uH: "µH",
+  us: "µs",
+  um: "µm",
+  ug: "µg",
+  uT: "µT",
+  Ohm: "Ω",
+  kOhm: "kΩ",
+  MOhm: "MΩ",
+  GOhm: "GΩ",
+  mOhm: "mΩ",
+  TOhm: "TΩ",
+  degC: "°C",
+  degF: "°F",
+  Cel: "°C",
+  "degC dp": "°C dp",
+  "degF dp": "°F dp",
+  deg: "°",
+  arcmin: "′",
+  arcsec: "″",
+  rpm: "RPM",
+  "deg/s": "°/s",
+  // Canonical inch label uses a trailing period; "inch" is retained only for
+  // backward compatibility with previously saved data and shown identically.
+  in: "in.",
+  inch: "in.",
+  "m^3": "m³",
+  "g/m^3": "g/m³",
+  "m/s^2": "m/s²",
+  "ft/s^2": "ft/s²",
+  G_accel: "g",
+  "N-m": "N·m",
+  "N-cm": "N·cm",
+  "lb-in": "lbf·in",
+  "lb-ft": "lbf·ft",
+  "ozf-in": "ozf·in",
+  "in-oz": "in·ozf",
+  "in-ozf": "in·ozf",
+  "kgf-m": "kgf·m",
+  "kgf-cm": "kgf·cm",
+  "m^3/s": "m³/s",
+  "%RH": "% RH",
+};
+
+export const getUnitDisplayLabel = (unit) => UNIT_DISPLAY_LABELS[unit] || unit;
+
 export const unitCategories = {
   Voltage: ["V", "mV", "uV", "kV", "nV", "TV"],
   Current: ["A", "mA", "uA", "nA", "pA", "kA"],
@@ -217,11 +273,12 @@ export const unitCategories = {
   Time: ["s", "ms", "us", "ns", "ps", "min", "hr", "day"],
   Temperature: ["Cel", "degF", "degC", "K"],
   Pressure: ["Pa", "kPa", "MPa", "psi", "bar", "mbar", "torr", "inHg", "inH2O", "atm", "hPa"],
-  Length: ["m", "cm", "mm", "um", "nm", "km", "in", "inch", "ft", "yd", "mi"],
+  Length: ["m", "cm", "mm", "um", "nm", "km", "in", "ft", "yd", "mi"],
   Mass: ["kg", "g", "mg", "ug", "lb", "oz", "t"],
   Power: ["W", "mW", "kW", "MW", "dBm"],
   Humidity: ["%RH", "degC dp", "degF dp", "g/m^3", "g/kg", "ppmv", "%v"],
   Angle: ["rad", "deg", "mrad", "arcmin", "arcsec", "rev"],
+  "Angular Speed": ["rpm", "rad/s", "deg/s", "rev/s"],
   Volume: ["m^3", "L", "mL", "gal", "fl-oz"],
   Velocity: ["m/s", "km/h", "mph", "ft/s", "kn"],
   Force: ["N", "kN", "lbf", "ozf", "kgf"],
@@ -232,10 +289,40 @@ export const unitCategories = {
   "Magnetic Field": ["T", "mT", "uT", "G"]
 };
 
+// Reverse lookup: unit key -> its category name, built once from unitCategories.
+const UNIT_TO_CATEGORY = Object.entries(unitCategories).reduce(
+  (acc, [category, units]) => {
+    units.forEach((u) => {
+      acc[u] = category;
+    });
+    return acc;
+  },
+  {}
+);
+
+// react-select `filterOption` for unit dropdowns. Matches the typed text against
+// the unit's display label, its raw value, AND its category name — so typing a
+// category like "angular speed" surfaces every unit in that category instead of
+// returning nothing (react-select's default only matches the option label).
+export const unitFilterOption = (option, rawInput) => {
+  const needle = String(rawInput || "").trim().toLowerCase();
+  if (!needle) return true;
+  const value = String(option?.value || "");
+  const label = String(option?.label || "");
+  const category = UNIT_TO_CATEGORY[value] || "";
+  return (
+    label.toLowerCase().includes(needle) ||
+    value.toLowerCase().includes(needle) ||
+    category.toLowerCase().includes(needle)
+  );
+};
+
 export const convertPpmToUnit = (ppmValue, targetUnit, referencePoint) => {
   const nominalValue = parseFloat(referencePoint?.value);
   if (isNaN(ppmValue) || !referencePoint) return "N/A";
   if (targetUnit === "ppm") return ppmValue;
+  // ppb is purely relative (1 ppm = 1000 ppb), so no nominal is needed.
+  if (targetUnit === "ppb") return ppmValue * 1000;
 
   if (isNaN(nominalValue)) return "N/A";
 
@@ -276,6 +363,11 @@ export const convertToPPM = (
   if (isNaN(parsedValue)) return getExplanation ? { value: NaN } : NaN;
   if (unit === "ppm")
     return getExplanation ? { value: parsedValue } : parsedValue;
+  // ppb is purely relative (1 ppm = 1000 ppb), convert straight to ppm.
+  if (unit === "ppb") {
+    const ppm = parsedValue / 1000;
+    return getExplanation ? { value: ppm } : ppm;
+  }
 
   if (parsedNominal === 0 && fallbackReferenceValue) {
     parsedNominal = parseFloat(fallbackReferenceValue);
@@ -627,16 +719,21 @@ export const getToleranceSummary = (toleranceData) => {
       return null;
     const high = parseFloat(part.high || 0);
     const low = parseFloat(part.low || -high);
+    const unitLabel = getUnitDisplayLabel(part.unit || "");
     if (Math.abs(high + low) < 1e-9 && high > 0)
-      return `±${high} ${part.unit || ""}`;
-    return `+${high}/${low} ${part.unit || ""}`;
+      return `±${high} ${unitLabel}`;
+    return `+${high}/${low} ${unitLabel}`;
   };
 
   const parts = [];
   if (toleranceData.reading) parts.push(formatPart(toleranceData.reading));
   if (toleranceData.readings_iv) parts.push(formatPart(toleranceData.readings_iv));
-  if (toleranceData.range)
-    parts.push(`${formatPart(toleranceData.range)} of FS`);
+  if (toleranceData.range) {
+    // Only append " of FS" when the range actually has a value — otherwise
+    // formatPart returns null and we'd produce a misleading "null of FS".
+    const rangePart = formatPart(toleranceData.range);
+    if (rangePart) parts.push(`${rangePart} of FS`);
+  }
   if (toleranceData.floor) parts.push(formatPart(toleranceData.floor));
   if (toleranceData.db) parts.push(formatPart(toleranceData.db));
 
@@ -720,6 +817,8 @@ export const calculateUncertaintyFromToleranceObject = (
     if (halfSpan === 0) return;
 
     const unit = tolComp.unit;
+    const unitLabel = getUnitDisplayLabel(unit || "");
+    const nominalUnitLabel = getUnitDisplayLabel(nominalUnit || "");
     const divisor = parseFloat(tolComp.distribution) || 1.732;
     const distributionLabel =
       errorDistributions.find((d) => d.value === String(tolComp.distribution))
@@ -727,23 +826,23 @@ export const calculateUncertaintyFromToleranceObject = (
 
     let specString =
       Math.abs(high + low) < 1e-9
-        ? `±${high} ${unit}`
-        : `+${high}/${low} ${unit}`;
+        ? `±${high} ${unitLabel}`
+        : `+${high}/${low} ${unitLabel}`;
 
     let valueInNominalUnits;
     let explanation = "";
 
-    if (unit === "%" || unit === "ppm") {
+    if (unit === "%" || unit === "ppm" || unit === "ppb") {
       valueInNominalUnits =
         halfSpan * unitSystem.units[unit].to_si * baseValueForRelative;
       explanation = `${halfSpan.toExponential(
         3
-      )}${unit} of ${baseValueForRelative}${nominalUnit}`;
+      )}${unitLabel} of ${baseValueForRelative}${nominalUnitLabel}`;
     } else {
       const valueInBase = unitSystem.toBaseUnit(halfSpan, unit);
       const nominalUnitInBase = unitSystem.toBaseUnit(1, nominalUnit);
       valueInNominalUnits = valueInBase / nominalUnitInBase;
-      explanation = `${halfSpan.toExponential(3)} ${unit}`;
+      explanation = `${halfSpan.toExponential(3)} ${unitLabel}`;
     }
 
     const rangeFsValue = parseFloat(toleranceObject.range?.value);
@@ -792,15 +891,17 @@ export const calculateUncertaintyFromToleranceObject = (
     }
   };
 
-  addComponent(toleranceObject.reading, "Reading", nominalValue);
-  addComponent(toleranceObject.readings_iv, "Reading (IV)", nominalValue);
+  addComponent(toleranceObject.reading, "% of Indicated Value", nominalValue);
+  // Legacy "Readings (IV)" held a raw indicated-value error == a Floor Value;
+  // still summed for backward compatibility and labeled accordingly.
+  addComponent(toleranceObject.readings_iv, "Floor Value", nominalValue);
 
   addComponent(
     toleranceObject.range,
-    "Range",
+    "% Full Scale",
     parseFloat(toleranceObject.range?.value) || parseFloat(toleranceObject.max)
   );
-  addComponent(toleranceObject.floor, "Floor", nominalValue);
+  addComponent(toleranceObject.floor, "Floor Value", nominalValue);
 
   const dbTolComp = toleranceObject.db;
   if (dbTolComp && !isNaN(parseFloat(dbTolComp.high))) {
@@ -839,7 +940,7 @@ export const calculateUncertaintyFromToleranceObject = (
             ? `±${highDb} dB`
             : `+${highDb}/${lowDb} dB`;
         breakdown.push({
-          name: "dB",
+          name: "dB Value",
           input: specString,
           explanation: `Calculates to a half-span of ${absoluteDeviation.toExponential(
             3
@@ -1606,7 +1707,7 @@ export const findMatchingTolerances = (instrument, value, unit) => {
           rangeMax: r.max,
           rangeUnit: func.unit,
           resolution: r.resolution,
-          rangeInfo: `${r.min}-${r.max} ${func.unit}`,
+          rangeInfo: `${r.min}-${r.max} ${getUnitDisplayLabel(func.unit)}`,
           id: Date.now() + Math.random() // Unique ID for selection
         });
       }

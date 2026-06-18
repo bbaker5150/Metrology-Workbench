@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTimes, faMinus, faExchangeAlt, faCopy, faRightLeft } from "@fortawesome/free-solid-svg-icons";
-import { unitSystem } from "../../utils/uncertaintyMath";
+import { getUnitDisplayLabel, unitSystem } from "../../utils/uncertaintyMath";
 
 const UnitConverter = ({ isOpen, onClose }) => {
   const [position, setPosition] = useState({ x: 420, y: 150 });
@@ -140,7 +140,11 @@ const UnitConverter = ({ isOpen, onClose }) => {
                     placeholder="Value"
                 />
                 <select value={fromUnit} onChange={(e) => setFromUnit(e.target.value)}>
-                    {activeUnits.map(u => <option key={u} value={u}>{u}</option>)}
+                    {activeUnits.map(u => (
+                      <option key={u} value={u}>
+                        {getUnitDisplayLabel(u)}
+                      </option>
+                    ))}
                 </select>
             </div>
 
@@ -159,7 +163,11 @@ const UnitConverter = ({ isOpen, onClose }) => {
                     </button>
                 </div>
                 <select value={toUnit} onChange={(e) => setToUnit(e.target.value)}>
-                    {activeUnits.map(u => <option key={u} value={u}>{u}</option>)}
+                    {activeUnits.map(u => (
+                      <option key={u} value={u}>
+                        {getUnitDisplayLabel(u)}
+                      </option>
+                    ))}
                 </select>
             </div>
         </div>

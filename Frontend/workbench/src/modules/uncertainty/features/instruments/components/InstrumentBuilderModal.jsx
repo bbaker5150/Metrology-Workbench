@@ -7,7 +7,12 @@ import {
   faLayerGroup, faArrowLeft, faSearch, faChevronDown, faChevronUp, faInfoCircle,
   faCalculator, faCube, faIndustry, faTag, faFingerprint
 } from "@fortawesome/free-solid-svg-icons";
-import { unitSystem, unitCategories } from "../../../utils/uncertaintyMath";
+import {
+  getUnitDisplayLabel,
+  unitCategories,
+  unitSystem,
+  unitFilterOption,
+} from "../../../utils/uncertaintyMath";
 import ToleranceForm from "../../../components/common/ToleranceForm";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 import "./InstrumentBuilderModal.css";
@@ -30,7 +35,7 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
       .filter((u) => allUnits.includes(u))
       .map((u) => {
         usedUnits.add(u);
-        return { value: u, label: u };
+        return { value: u, label: getUnitDisplayLabel(u) };
       });
     options.push({ label: refCategory, options: prioritizedOptions });
   }
@@ -42,7 +47,7 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
       .filter((u) => allUnits.includes(u) && !usedUnits.has(u))
       .map((u) => {
         usedUnits.add(u);
-        return { value: u, label: u };
+        return { value: u, label: getUnitDisplayLabel(u) };
       });
     if (groupOptions.length > 0) {
       options.push({ label, options: groupOptions });
@@ -52,7 +57,7 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
   // Leftovers
   const leftovers = allUnits
     .filter((u) => !usedUnits.has(u) && !["%", "ppm", "dB", "ppb"].includes(u))
-    .map((u) => ({ value: u, label: u }));
+    .map((u) => ({ value: u, label: getUnitDisplayLabel(u) }));
   if (leftovers.length > 0) {
     options.push({ label: "Other", options: leftovers });
   }
@@ -159,7 +164,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
 
     if (tolerances.reading?.high) parts.push(`${fmt(tolerances.reading)}% Rdg`);
     if (tolerances.range?.high) parts.push(`${fmt(tolerances.range)}% ${tolerances.range.value ? 'FS' : 'Rng'}`);
-    if (tolerances.floor?.high) parts.push(`${fmt(tolerances.floor)} ${tolerances.floor.unit || ''}`);
+    if (tolerances.floor?.high) parts.push(`${fmt(tolerances.floor)} ${getUnitDisplayLabel(tolerances.floor.unit || '')}`);
     if (tolerances.db?.high) parts.push(`dB: ${fmt(tolerances.db)}`);
 
     return parts.length > 0 ? parts.join(" + ") : "Custom Spec";
@@ -366,7 +371,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                 <div className="slide-over-title">
                   <h3><FontAwesomeIcon icon={faCalculator} /> Edit Tolerances</h3>
                   <div className="slide-over-subtitle">
-                     Range: {editingRange.min} - {editingRange.max} {activeFunction.unit}
+                     Range: {editingRange.min} - {editingRange.max} {getUnitDisplayLabel(activeFunction.unit)}
                   </div>
                 </div>
                 <button onClick={() => setEditingRange(null)} className="modal-icon-button secondary" title="Close"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
@@ -484,7 +489,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                                       <div>
                                         <h5 style={{ margin: "0 0 10px 0", color: "var(--text-color)", display: "flex", alignItems: "center", gap: "8px" }}>
                                           <FontAwesomeIcon icon={faInfoCircle} color="var(--primary-color)" />
-                                          Specifications: {func.name} (Base Unit: {func.unit})
+                                          Specifications: {func.name} (Base Unit: {getUnitDisplayLabel(func.unit)})
                                         </h5>
                                         <table style={{ width: "100%", fontSize: "0.85rem", backgroundColor: "var(--content-background)", color: "var(--text-color)", borderRadius: "4px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)", border: "1px solid var(--border-color)" }}>
                                           <thead>
@@ -614,6 +619,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                             }
                             onChange={opt => updateActiveFunction('unit', opt.value)}
                             options={categorizedUnitOptions}
+                            filterOption={unitFilterOption}
                             menuPortalTarget={document.body}
                             styles={portalStyle}
                             classNamePrefix="react-select"

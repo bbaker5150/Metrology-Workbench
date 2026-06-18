@@ -113,4 +113,54 @@ describe("UncertaintyApp", () => {
 
     surface.remove();
   });
+
+  test("zooms the measurement equation area around the cursor", async () => {
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>
+    );
+    await screen.findByText(/No Session Available/i);
+
+    const surface = document.createElement("div");
+    surface.className = "measurement-equation-card measurement-equation-zoom-surface";
+    surface.scrollLeft = 20;
+    surface.scrollTop = 30;
+    surface.getBoundingClientRect = () => ({
+      left: 50,
+      top: 100,
+      right: 450,
+      bottom: 300,
+      width: 400,
+      height: 200,
+      x: 50,
+      y: 100,
+      toJSON: () => {},
+    });
+
+    const content = document.createElement("div");
+    content.className = "scoped-zoom-content";
+    const input = document.createElement("input");
+    content.appendChild(input);
+    surface.appendChild(content);
+    document.body.appendChild(surface);
+
+    fireEvent.wheel(input, {
+      ctrlKey: true,
+      deltaY: -100,
+      clientX: 150,
+      clientY: 160,
+    });
+
+    expect(surface.dataset.zoomLevel).toBe("1.1");
+    expect(content.style.zoom).toBe("1.1");
+    expect(surface.scrollLeft).toBeCloseTo(32);
+    expect(surface.scrollTop).toBeCloseTo(39);
+
+    surface.remove();
+  });
 });

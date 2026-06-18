@@ -13,6 +13,15 @@ describe("formatRangeLabel", () => {
     expect(formatRangeLabel({ range: "100", unit: "V" })).toBe("100 V");
   });
 
+  it("displays symbolic unit labels", () => {
+    expect(formatRangeLabel({ min: -328, max: 700, unit: "degF" })).toBe(
+      "-328 to 700 °F",
+    );
+    expect(formatRangeLabel({ range: "-328 to 700 degF", unit: "degF" })).toBe(
+      "-328 to 700 °F",
+    );
+  });
+
   it("formats bounded and unspecified ranges clearly", () => {
     expect(formatRangeLabel({ min: 10, max: 100, unit: "V" })).toBe(
       "10 to 100 V",

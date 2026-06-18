@@ -99,6 +99,15 @@ function createWindow() {
     mainWindow.on('unmaximize', sendMaximizeState);
     mainWindow.webContents.on('did-finish-load', sendMaximizeState);
 
+    // Apply the default UI zoom once on first load (not on every reload, so a
+    // user's manual zoom isn't reset when the renderer reloads in dev).
+    let initialZoomApplied = false;
+    mainWindow.webContents.on('did-finish-load', () => {
+        if (initialZoomApplied) return;
+        initialZoomApplied = true;
+        mainWindow.webContents.setZoomFactor(0.75);
+    });
+
     const isDev = !app.isPackaged;
 
     // --- CONTEXT MENU (INSPECT ELEMENT) ---

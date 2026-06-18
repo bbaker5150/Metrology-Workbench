@@ -26,7 +26,12 @@ import {
   faFingerprint
 } from "@fortawesome/free-solid-svg-icons";
 import { v4 as uuidv4 } from "uuid";
-import { unitSystem, unitCategories } from "../../../utils/uncertaintyMath";
+import {
+  getUnitDisplayLabel,
+  unitCategories,
+  unitSystem,
+  unitFilterOption,
+} from "../../../utils/uncertaintyMath";
 import ToleranceForm from "../../../components/common/ToleranceForm";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
@@ -78,7 +83,7 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
     const categoryUnits = unitCategories[refCategory] || [referenceUnit];
     const prioritizedOptions = categoryUnits
       .filter((u) => allUnits.includes(u))
-      .map((u) => { usedUnits.add(u); return { value: u, label: u }; });
+      .map((u) => { usedUnits.add(u); return { value: u, label: getUnitDisplayLabel(u) }; });
     options.push({ label: refCategory, options: prioritizedOptions });
   }
 
@@ -86,13 +91,13 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
     if (options.some((opt) => opt.label === label)) return;
     const groupOptions = units
       .filter((u) => allUnits.includes(u) && !usedUnits.has(u))
-      .map((u) => { usedUnits.add(u); return { value: u, label: u }; });
+      .map((u) => { usedUnits.add(u); return { value: u, label: getUnitDisplayLabel(u) }; });
     if (groupOptions.length > 0) options.push({ label, options: groupOptions });
   });
 
   const leftovers = allUnits
     .filter((u) => !usedUnits.has(u) && !["%", "ppm", "dB", "ppb"].includes(u))
-    .map((u) => ({ value: u, label: u }));
+    .map((u) => ({ value: u, label: getUnitDisplayLabel(u) }));
   if (leftovers.length > 0) options.push({ label: "Other", options: leftovers });
 
   return options;
@@ -104,7 +109,7 @@ const formatToleranceSummary = (tolerances) => {
     const fmt = (c) => c.symmetric ? `±${c.high}` : `+${c.high}/-${c.low}`;
     if (tolerances.reading?.high) parts.push(`${fmt(tolerances.reading)}% Rdg`);
     if (tolerances.range?.high) parts.push(`${fmt(tolerances.range)}% ${tolerances.range.value ? 'FS' : 'Rng'}`);
-    if (tolerances.floor?.high) parts.push(`${fmt(tolerances.floor)} ${tolerances.floor.unit || ''}`);
+    if (tolerances.floor?.high) parts.push(`${fmt(tolerances.floor)} ${getUnitDisplayLabel(tolerances.floor.unit || '')}`);
     return parts.length > 0 ? <span className="tolerance-badge">{parts.join(" + ")}</span> : <span className="tolerance-badge">Custom Spec</span>;
 };
 
@@ -452,6 +457,17 @@ const UniversalInstrumentModal = ({
         }));
     };
 
+    // Normalize a range field once the user leaves it. Raw onChange keeps typing
+    // fluid (e.g. "0.5"), but on blur we collapse dangerous inputs like "000" or
+    // "015" to a canonical numeric value. Non-numeric/blank entries reset to "".
+    const normalizeRangeBounds = (rangeId, field, value) => {
+        const trimmed = String(value).trim();
+        const numeric = parseFloat(trimmed);
+        const normalized =
+            trimmed === "" || Number.isNaN(numeric) ? "" : String(numeric);
+        if (normalized !== value) updateRangeBounds(rangeId, field, normalized);
+    };
+
     const updateRangeResolutionBudget = (rangeId, checked) => {
         setInstrumentDef(prev => ({
             ...prev,
@@ -789,7 +805,7 @@ const UniversalInstrumentModal = ({
                                 <div className="slide-over-header">
                                     <div className="slide-over-title">
                                         <h3><FontAwesomeIcon icon={faCalculator} /> Edit Tolerances</h3>
-                                        <div className="slide-over-subtitle">Range: {editingRange.min} - {editingRange.max} {activeFunction?.unit}</div>
+                                        <div className="slide-over-subtitle">Range: {editingRange.min} - {editingRange.max} {getUnitDisplayLabel(activeFunction?.unit)}</div>
                                     </div>
                                     <button onClick={() => setEditingRange(null)} className="icon-btn-ghost"><FontAwesomeIcon icon={faTimes} /></button>
                                 </div>
@@ -918,6 +934,7 @@ const UniversalInstrumentModal = ({
                                                     value={categorizedUnitOptions.flatMap(g => g.options ? g.options : g).find(opt => opt.value === activeFunction.unit) || null}
                                                     onChange={opt => updateActiveFunction('unit', opt.value)}
                                                     options={categorizedUnitOptions}
+                                                    filterOption={unitFilterOption}
                                                     menuPortalTarget={document.body}
                                                     styles={portalStyle}
                                                     classNamePrefix="react-select"
@@ -935,13 +952,13 @@ const UniversalInstrumentModal = ({
                                                     <thead>
                                                         <tr>
                                                             <th style={{width:'25%'}}>
-                                                                Min{activeFunction.unit ? ` (${activeFunction.unit})` : ''}
+                                                                Min{activeFunction.unit ? ` (${getUnitDisplayLabel(activeFunction.unit)})` : ''}
                                                             </th>
                                                             <th style={{width:'25%'}}>
-                                                                Max{activeFunction.unit ? ` (${activeFunction.unit})` : ''}
+                                                                Max{activeFunction.unit ? ` (${getUnitDisplayLabel(activeFunction.unit)})` : ''}
                                                             </th>
                                                             <th style={{width:'18%'}}>
-                                                                Resolution{activeFunction.unit ? ` (${activeFunction.unit})` : ''}
+                                                                Resolution{activeFunction.unit ? ` (${getUnitDisplayLabel(activeFunction.unit)})` : ''}
                                                             </th>
                                                             <th style={{width:'22%'}}>Tolerance</th>
                                                             <th style={{width:'10%'}}></th>
@@ -950,11 +967,11 @@ const UniversalInstrumentModal = ({
                                                     <tbody>
                                                         {activeFunction.ranges.map(range => (
                                                             <tr key={range.id}>
-                                                                <td><input type="number" step="any" value={range.min} onChange={e => updateRangeBounds(range.id, 'min', e.target.value)} /></td>
-                                                                <td><input type="number" step="any" value={range.max} onChange={e => updateRangeBounds(range.id, 'max', e.target.value)} /></td>
+                                                                <td><input type="number" step="any" value={range.min} onChange={e => updateRangeBounds(range.id, 'min', e.target.value)} onBlur={e => normalizeRangeBounds(range.id, 'min', e.target.value)} /></td>
+                                                                <td><input type="number" step="any" value={range.max} onChange={e => updateRangeBounds(range.id, 'max', e.target.value)} onBlur={e => normalizeRangeBounds(range.id, 'max', e.target.value)} /></td>
                                                                 <td>
                                                                     <div className="range-resolution-control">
-                                                                        <input type="number" step="any" value={range.resolution ?? 0} onChange={e => updateRangeBounds(range.id, 'resolution', e.target.value)} />
+                                                                        <input type="number" step="any" value={range.resolution ?? 0} onChange={e => updateRangeBounds(range.id, 'resolution', e.target.value)} onBlur={e => normalizeRangeBounds(range.id, 'resolution', e.target.value)} />
                                                                         <label
                                                                             className="range-resolution-budget-toggle"
                                                                             title="Include this range's resolution as a Type B uncertainty component"

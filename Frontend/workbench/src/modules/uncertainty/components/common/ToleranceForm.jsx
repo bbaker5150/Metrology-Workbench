@@ -5,6 +5,8 @@ import {
   unitSystem,
   unitCategories,
   errorDistributions,
+  getUnitDisplayLabel,
+  unitFilterOption,
 } from "../../utils/uncertaintyMath";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrashAlt, faPlus } from "@fortawesome/free-solid-svg-icons";
@@ -29,7 +31,7 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
       .filter((u) => allUnits.includes(u))
       .map((u) => {
         usedUnits.add(u);
-        return { value: u, label: u };
+        return { value: u, label: getUnitDisplayLabel(u) };
       });
 
     options.push({ label: refCategory, options: prioritizedOptions });
@@ -43,7 +45,7 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
       .filter((u) => allUnits.includes(u) && !usedUnits.has(u))
       .map((u) => {
         usedUnits.add(u);
-        return { value: u, label: u };
+        return { value: u, label: getUnitDisplayLabel(u) };
       });
 
     if (groupOptions.length > 0) {
@@ -54,7 +56,7 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
   // 3. Catch-all
   const leftovers = allUnits
     .filter((u) => !usedUnits.has(u) && !["%", "ppm", "dB", "ppb"].includes(u))
-    .map((u) => ({ value: u, label: u }));
+    .map((u) => ({ value: u, label: getUnitDisplayLabel(u) }));
 
   if (leftovers.length > 0) {
     options.push({ label: "Other", options: leftovers });
@@ -71,8 +73,13 @@ const portalStyle = {
 
 // --- Definitions ---
 const componentDefinitions = {
+  // "% of Indicated Value" is the reading-proportional accuracy term. It is
+  // strictly relative (%, ppm, ppb) — it scales with the measured value. An
+  // absolute, fixed indicated-value error is a "Floor Value" instead, so the
+  // former separate "Readings (IV)" (raw indicated value) component is dropped
+  // and any legacy data is migrated to Floor.
   reading: {
-    label: "Reading (e.g., % of Value)",
+    label: "% of Indicated Value",
     defaultState: {
       high: "",
       low: "",
@@ -81,18 +88,8 @@ const componentDefinitions = {
       symmetric: true,
     },
   },
-  readings_iv: {
-    label: "Readings (IV)",
-    defaultState: {
-      high: "",
-      low: "",
-      unit: "", 
-      distribution: "1.732",
-      symmetric: true,
-    },
-  },
   range: {
-    label: "Range (e.g., % of Full Scale)",
+    label: "% Full Scale",
     defaultState: {
       value: "",
       high: "",
@@ -103,7 +100,7 @@ const componentDefinitions = {
     },
   },
   floor: {
-    label: "Floor (Absolute Value)",
+    label: "Floor Value",
     defaultState: {
       high: "",
       low: "",
@@ -113,7 +110,7 @@ const componentDefinitions = {
     },
   },
   db: {
-    label: "dB Component",
+    label: "dB Value",
     defaultState: {
       high: "",
       low: "",
@@ -242,6 +239,19 @@ const ToleranceForm = ({
     };
   }, [isAddComponentVisible]);
 
+  // --- Legacy migration: the former standalone "Readings (IV)" component held a
+  // raw (absolute) indicated-value error, which is mathematically a Floor Value.
+  // Fold it into `floor` when no floor term is present. If a floor already
+  // exists we leave readings_iv intact — the math still sums it — rather than
+  // silently dropping a contribution.
+  useEffect(() => {
+    setTolerance((prev) => {
+      if (!prev || !prev.readings_iv || prev.floor) return prev;
+      const { readings_iv, ...rest } = prev;
+      return { ...rest, floor: readings_iv };
+    });
+  }, [setTolerance]);
+
   // --- Auto-Update Units Hook ---
   useEffect(() => {
     if (!referencePoint?.unit) return;
@@ -352,7 +362,7 @@ const ToleranceForm = ({
       if (!newState.unit) {
         if (referencePoint?.unit) {
           newState.unit = referencePoint.unit;
-        } else if (componentKey === "floor" || componentKey === "readings_iv") {
+        } else if (componentKey === "floor") {
           const validUnits = allUnits.filter(
             (u) => !["%", "ppm", "dB", "ppb"].includes(u)
           );
@@ -453,6 +463,7 @@ const ToleranceForm = ({
                   value={selectedValue || null}
                   onChange={(opt) => handleSelectChange(opt, "unit", key)}
                   options={options}
+                  filterOption={unitFilterOption}
                   className="react-select-container"
                   classNamePrefix="react-select"
                   placeholder="Select..."
@@ -537,6 +548,8 @@ const ToleranceForm = ({
           </div>
         );
     } else {
+        // "% of Indicated Value" (reading) is strictly relative (%/ppm/ppb);
+        // floor is an absolute value, so it only offers physical units.
         const unitOptions = (key === 'reading') ? ratioUnitOptions : physicalUnitOptions;
         content = (
           <div className="config-stack">
@@ -818,6 +831,7 @@ const ToleranceForm = ({
                               )
                             }
                             options={manualUnitOptions}
+                            filterOption={unitFilterOption}
                             className="react-select-container"
                             classNamePrefix="react-select"
                             placeholder="Select..."
@@ -926,6 +940,7 @@ const ToleranceForm = ({
                     handleSelectChange(opt, "measuringResolutionUnit", null, true)
                   }
                   options={physicalUnitOptions}
+                  filterOption={unitFilterOption}
                   className="react-select-container"
                   classNamePrefix="react-select"
                   placeholder="Unit"

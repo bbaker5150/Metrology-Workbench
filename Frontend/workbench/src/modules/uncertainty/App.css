@@ -9615,10 +9615,17 @@ body.theme-cyberpunk .notification-window .window-header {
   border-radius: 8px;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.025);
   padding: 14px;
+  max-width: 900px;
+  overflow: auto;
+}
+
+.measurement-equation-card > .scoped-zoom-content {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-width: 900px;
+  min-width: 100%;
+  box-sizing: border-box;
+  transform-origin: top left;
 }
 
 .measurement-equation-input-row {
@@ -12377,6 +12384,9 @@ body.theme-cyberpunk .theme-selector-minimal {
 }
 
 .session-header-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 0.6rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -12384,7 +12394,28 @@ body.theme-cyberpunk .theme-selector-minimal {
   font-weight: 700;
   margin-bottom: 1px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   opacity: 0.7;
+}
+
+.session-header-label span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.requirement-help-icon {
+  flex: 0 0 auto;
+  color: var(--text-color-muted);
+  opacity: 0.75;
+  font-size: 0.72em;
+}
+
+.session-header-label:hover .requirement-help-icon,
+.requirement-field-label:hover .requirement-help-icon {
+  color: var(--primary-color);
+  opacity: 1;
 }
 
 .session-header-field .session-header-value {

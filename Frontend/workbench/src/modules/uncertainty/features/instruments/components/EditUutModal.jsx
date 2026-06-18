@@ -17,7 +17,12 @@ import {
 import InstrumentLookupModal from "./InstrumentLookupModal";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
-import { unitSystem, unitCategories } from "../../../utils/uncertaintyMath";
+import {
+  getUnitDisplayLabel,
+  unitCategories,
+  unitSystem,
+  unitFilterOption,
+} from "../../../utils/uncertaintyMath";
 import { v4 as uuidv4 } from "uuid";
 
 // Reuse the builder styles for consistency
@@ -58,7 +63,7 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
       .filter((u) => allUnits.includes(u))
       .map((u) => {
         usedUnits.add(u);
-        return { value: u, label: u };
+        return { value: u, label: getUnitDisplayLabel(u) };
       });
     options.push({ label: refCategory, options: prioritizedOptions });
   }
@@ -69,14 +74,14 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
       .filter((u) => allUnits.includes(u) && !usedUnits.has(u))
       .map((u) => {
         usedUnits.add(u);
-        return { value: u, label: u };
+        return { value: u, label: getUnitDisplayLabel(u) };
       });
     if (groupOptions.length > 0) options.push({ label, options: groupOptions });
   });
 
   const leftovers = allUnits
     .filter((u) => !usedUnits.has(u) && !["%", "ppm", "dB", "ppb"].includes(u))
-    .map((u) => ({ value: u, label: u }));
+    .map((u) => ({ value: u, label: getUnitDisplayLabel(u) }));
   if (leftovers.length > 0) options.push({ label: "Other", options: leftovers });
 
   return options;
@@ -152,7 +157,7 @@ const EditUutModal = ({
     
         if (tolerances.reading?.high) parts.push(`${fmt(tolerances.reading)}% Rdg`);
         if (tolerances.range?.high) parts.push(`${fmt(tolerances.range)}% ${tolerances.range.value ? 'FS' : 'Rng'}`);
-        if (tolerances.floor?.high) parts.push(`${fmt(tolerances.floor)} ${tolerances.floor.unit || ''}`);
+        if (tolerances.floor?.high) parts.push(`${fmt(tolerances.floor)} ${getUnitDisplayLabel(tolerances.floor.unit || '')}`);
         if (tolerances.db?.high) parts.push(`dB: ${fmt(tolerances.db)}`);
     
         return parts.length > 0 ? <span className="tolerance-badge">{parts.join(" + ")}</span> : <span className="tolerance-badge">Custom Spec</span>;
@@ -458,6 +463,7 @@ const EditUutModal = ({
                                         }
                                         onChange={opt => updateActiveFunction('unit', opt.value)}
                                         options={categorizedUnitOptions}
+                                        filterOption={unitFilterOption}
                                         menuPortalTarget={document.body}
                                         styles={portalStyle}
                                         classNamePrefix="react-select"

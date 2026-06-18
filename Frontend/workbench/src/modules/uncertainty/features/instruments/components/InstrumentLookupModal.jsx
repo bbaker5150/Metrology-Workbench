@@ -11,6 +11,7 @@ import {
   faGripHorizontal // Added for drag handle
 } from "@fortawesome/free-solid-svg-icons";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
+import { getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
 
 const InstrumentLookupModal = ({
   isOpen,
@@ -82,7 +83,9 @@ const InstrumentLookupModal = ({
         `${fmt(tolerances.range)}% ${tolerances.range.value ? "FS" : "Rng"}`
       );
     if (tolerances.floor?.high)
-      parts.push(`${fmt(tolerances.floor)} ${tolerances.floor.unit || ""}`);
+      parts.push(
+        `${fmt(tolerances.floor)} ${getUnitDisplayLabel(tolerances.floor.unit || "")}`
+      );
 
     return parts.length > 0 ? parts.join(" + ") : "Custom";
   };
@@ -371,7 +374,7 @@ const InstrumentLookupModal = ({
                                     color="var(--primary-color)"
                                   />
                                   Specifications: {func.name} (Base Unit:{" "}
-                                  {func.unit})
+                                  {getUnitDisplayLabel(func.unit)})
                                 </h5>
                                 <table
                                   style={{

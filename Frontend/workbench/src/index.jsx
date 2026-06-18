@@ -7,6 +7,7 @@ import './index.css';
 import './shared/apiClient';
 import { ThemeProvider } from './shared/ThemeContext';
 import { NotificationProvider } from './shared/NotificationContext';
+import ZoomToast from './shared/ZoomToast';
 import { router } from './app/routes';
 
 // Apply the persisted theme to <body> before first paint. The AC-Shunt
@@ -28,6 +29,7 @@ root.render(
     <ThemeProvider>
       <NotificationProvider>
         <RouterProvider router={router} />
+        <ZoomToast />
       </NotificationProvider>
     </ThemeProvider>
   </React.StrictMode>

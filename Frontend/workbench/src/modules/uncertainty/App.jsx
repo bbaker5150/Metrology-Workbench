@@ -89,6 +89,7 @@ import {
   resolvePointAreaId,
   resolveAreaWorkspacePoint,
 } from "./utils/areaWorkspace";
+import { UNCERTAINTY_REQUIREMENT_FIELDS } from "./constants/constants";
 import {
   getRemainingCutPoints,
   preparePointForPaste,
@@ -97,6 +98,7 @@ import {
   getSidebarPointRange,
   getVisibleSidebarPointOrder,
 } from "./utils/sidebarPointSelection";
+import { ZOOM_TOAST_EVENT } from "../../shared/ZoomToast";
 
 const getSidebarGridTemplate = (visibleColumns) => {
   const parts = [];
@@ -162,6 +164,7 @@ const getMinSidebarWidth = (visibleColumns) => {
 
 const SCOPED_ZOOM_SURFACE_SELECTOR = [
   ".measurement-point-list",
+  ".measurement-equation-zoom-surface",
   ".panel-table-container",
   ".instrument-table-container",
   ".budget-section-table-wrap",
@@ -209,6 +212,9 @@ const getScopedZoomKey = (surface) => {
   if (surface.classList.contains("measurement-point-list")) {
     return "measurement-points";
   }
+  if (surface.classList.contains("measurement-equation-zoom-surface")) {
+    return "measurement-equation";
+  }
 
   const surfaceClass = [
     "panel-table-container",
@@ -225,13 +231,32 @@ const getScopedZoomKey = (surface) => {
   return `${surfaceClass}:${matchingSurfaces.indexOf(surface)}`;
 };
 
+// Friendly labels for the zoom toast, keyed by the scoped surface class.
+const SCOPED_ZOOM_LABELS = {
+  "measurement-points": "Point list",
+  "measurement-equation": "Equation",
+  "panel-table-container": "Table",
+  "instrument-table-container": "Instrument table",
+  "budget-section-table-wrap": "Budget table",
+  "lookup-table-container": "Lookup table",
+  "ranges-table-container": "Ranges table",
+};
+
+const getScopedZoomLabel = (zoomKey) => {
+  if (!zoomKey) return "Zoom";
+  return SCOPED_ZOOM_LABELS[zoomKey.split(":")[0]] || "Zoom";
+};
+
 const getScopedZoomTarget = (eventTarget) => {
   if (!(eventTarget instanceof Element)) return null;
 
   const surface = eventTarget.closest(SCOPED_ZOOM_SURFACE_SELECTOR);
   if (!surface) return null;
 
-  if (surface.classList.contains("measurement-point-list")) {
+  if (
+    surface.classList.contains("measurement-point-list") ||
+    surface.classList.contains("measurement-equation-zoom-surface")
+  ) {
     const content = surface.querySelector(":scope > .scoped-zoom-content");
     return content ? { surface, content } : null;
   }
@@ -857,16 +882,28 @@ const SidebarSessionHeader = ({
     });
   };
 
-  const renderEditableField = (field, value, label, inputType = "text") => {
+  const renderEditableField = (field, value, label, inputType = "text", tooltip) => {
     const isRequirement = field.startsWith("uncReq.");
+    const helpText = tooltip || `Edit ${label}`;
     return (
       <div className="session-header-field">
-        <span className="session-header-label">{label}</span>
+        <span className="session-header-label" title={helpText}>
+          <span>{label}</span>
+          {isRequirement && (
+            <FontAwesomeIcon
+              icon={faQuestionCircle}
+              className="requirement-help-icon"
+              aria-hidden="true"
+            />
+          )}
+        </span>
         {editingField === field ? (
           <input
             type={inputType}
             autoFocus
             value={isRequirement ? value ?? "" : tempValue}
+            aria-label={label}
+            title={helpText}
             onChange={(e) => {
               if (isRequirement) {
                 updateRequirement(field, e.target.value);
@@ -883,7 +920,7 @@ const SidebarSessionHeader = ({
           <div
             onClick={(e) => startEdit(e, field, value)}
             className="session-header-value"
-            title={`Edit ${label}`}
+            title={helpText}
           >
             {inputType === "date" ? formatDate(value) : value || "-"}
           </div>
@@ -978,22 +1015,15 @@ const SidebarSessionHeader = ({
         </button>
         {isRequirementsOpen && (
           <div className="session-requirements-grid">
-            {renderEditableField(
-              "uncReq.uncertaintyConfidence",
-              requirements.uncertaintyConfidence,
-              "Confidence %",
-              "number",
+            {UNCERTAINTY_REQUIREMENT_FIELDS.map((field) =>
+              renderEditableField(
+                `uncReq.${field.name}`,
+                requirements[field.name],
+                field.sidebarLabel,
+                "number",
+                field.tooltip,
+              ),
             )}
-            {renderEditableField("uncReq.reliability", requirements.reliability, "Meas Rel %", "number")}
-            {renderEditableField("uncReq.calInt", requirements.calInt, "Cal Interval", "number")}
-            {renderEditableField(
-              "uncReq.measRelCalcAssumed",
-              requirements.measRelCalcAssumed,
-              "Calc/Assumed %",
-              "number",
-            )}
-            {renderEditableField("uncReq.neededTUR", requirements.neededTUR, "Needed TUR", "number")}
-            {renderEditableField("uncReq.reqPFA", requirements.reqPFA, "Req PFA %", "number")}
           </div>
         )}
       </div>
@@ -1500,7 +1530,9 @@ function App() {
       root.querySelectorAll(SCOPED_ZOOM_SURFACE_SELECTOR).forEach((surface) => {
         const key = getScopedZoomKey(surface);
         const zoom = scopedZoomLevels[key] || 1;
-        const content = surface.classList.contains("measurement-point-list")
+        const content =
+          surface.classList.contains("measurement-point-list") ||
+          surface.classList.contains("measurement-equation-zoom-surface")
           ? surface.querySelector(":scope > .scoped-zoom-content")
           : surface.querySelector(":scope > table");
         if (!content) return;
@@ -1989,6 +2021,18 @@ function App() {
           [zoomKey]: nextZoom,
         }));
       }
+
+      // Surface this panel's scoped zoom level in the shared bottom-right toast,
+      // since scoped zoom is independent of the global page zoom and otherwise
+      // has no visible readout.
+      window.dispatchEvent(
+        new CustomEvent(ZOOM_TOAST_EVENT, {
+          detail: {
+            label: getScopedZoomLabel(zoomKey),
+            percent: Math.round(nextZoom * 100),
+          },
+        }),
+      );
 
       surface.scrollLeft = logicalX * nextZoom - cursorX;
       surface.scrollTop = logicalY * nextZoom - cursorY;
@@ -2520,9 +2564,34 @@ function App() {
   };
 
   const handleEditTmde = (tmde) => {
+    let dataWithColor = tmde;
+
+    // Mirror handleEditUut: the TMDE record carries the area id/name but not its
+    // color, so look the color up from the session areas. Without this the edit
+    // modal defaults to blue even when the area is shown red in the point list.
+    if (tmde && tmde.measurementAreaId && currentSessionData?.measurementAreas) {
+      const area = currentSessionData.measurementAreas.find(
+        (a) => a.id === tmde.measurementAreaId,
+      );
+      if (area) {
+        dataWithColor = { ...tmde, measurementAreaColor: area.color };
+      }
+    } else if (
+      tmde &&
+      tmde.measurementArea &&
+      currentSessionData?.measurementAreas
+    ) {
+      const area = currentSessionData.measurementAreas.find(
+        (a) => a.name === tmde.measurementArea,
+      );
+      if (area) {
+        dataWithColor = { ...tmde, measurementAreaColor: area.color };
+      }
+    }
+
     setInstrumentModalConfig({
       mode: "tmde",
-      data: tmde,
+      data: dataWithColor,
       associateToPointId: null,
     });
     setIsInstrumentBuilderOpen(true);
@@ -2705,24 +2774,45 @@ function App() {
       (data.type === "library" && data.useAs === "tmde")
     ) {
       const cleanAreaName = String(data.measurementArea || "").trim();
-      const matchedArea = (currentSessionData.measurementAreas || []).find(
-        (area) =>
-          area.id === data.measurementAreaId ||
-          (cleanAreaName &&
-            area.name.toLowerCase() === cleanAreaName.toLowerCase()),
-      );
-      const resolvedAreaId =
-        matchedArea?.id ||
+      let updatedMeasurementAreas = [
+        ...(currentSessionData.measurementAreas || []),
+      ];
+      let resolvedAreaId =
         data.measurementAreaId ||
         currentTestPoints.find((tp) => tp.id === selectedTestPointId)
           ?.measurementAreaId ||
         selectedAreaId ||
         null;
-      const resolvedArea =
-        matchedArea ||
-        (currentSessionData.measurementAreas || []).find(
-          (area) => area.id === resolvedAreaId,
+
+      // Mirror the UUT branch: a typed area name must create (or recolor) its
+      // measurement area so a brand-new TMDE area persists. Previously this
+      // branch only looked up existing areas, so a new area name/color was
+      // silently dropped and the TMDE ended up with no valid area id.
+      if (cleanAreaName) {
+        const existingAreaIndex = updatedMeasurementAreas.findIndex(
+          (a) => a.name.toLowerCase() === cleanAreaName.toLowerCase(),
         );
+        if (existingAreaIndex >= 0) {
+          resolvedAreaId = updatedMeasurementAreas[existingAreaIndex].id;
+          if (data.measurementAreaColor) {
+            updatedMeasurementAreas[existingAreaIndex] = {
+              ...updatedMeasurementAreas[existingAreaIndex],
+              color: data.measurementAreaColor,
+            };
+          }
+        } else {
+          const newArea = {
+            id: uuidv4(),
+            name: cleanAreaName,
+            color: data.measurementAreaColor || "#3498db",
+          };
+          updatedMeasurementAreas.push(newArea);
+          resolvedAreaId = newArea.id;
+        }
+      }
+      const resolvedArea = updatedMeasurementAreas.find(
+        (area) => area.id === resolvedAreaId,
+      );
       let newTmde = {};
       if (data.type === "library") {
         newTmde = {
@@ -2766,6 +2856,7 @@ function App() {
       updateSession({
         ...currentSessionData,
         tmdes: updatedTmdes,
+        measurementAreas: updatedMeasurementAreas,
         testPoints: refreshedTestPoints,
       });
     }

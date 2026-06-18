@@ -11,10 +11,12 @@ import {
   faTrash,
   faMicroscope,
   faTools,
-  faLayerGroup
+  faLayerGroup,
+  faQuestionCircle
 } from "@fortawesome/free-solid-svg-icons";
 import NotificationModal from '../../../components/modals/NotificationModal';
 import UniversalInstrumentModal from "../../instruments/components/UniversalInstrumentModal";
+import { UNCERTAINTY_REQUIREMENT_FIELDS } from "../../../constants/constants";
 
 // Import the new polished CSS
 import "./EditSessionModal.css";
@@ -521,61 +523,27 @@ const EditSessionModal = ({
           {/* --- TAB: REQUIREMENTS --- */}
           {activeSection === "requirements" && (
             <div className="details-grid">
-               <div className="form-section">
-                <label>Uncertainty Confidence (%)</label>
-                <input
-                  type="number"
-                  name="uncertaintyConfidence"
-                  value={formData.uncReq?.uncertaintyConfidence || ""}
-                  onChange={handleReqChange}
-                  placeholder="e.g., 95"
-                />
-              </div>
-              <div className="form-section">
-                <label>Meas Rel Target (%)</label>
-                <input
-                  type="number"
-                  name="reliability"
-                  value={formData.uncReq?.reliability || ""}
-                  onChange={handleReqChange}
-                />
-              </div>
-              <div className="form-section">
-                <label>Calibration Interval</label>
-                <input
-                  type="number"
-                  name="calInt"
-                  value={formData.uncReq?.calInt || ""}
-                  onChange={handleReqChange}
-                />
-              </div>
-              <div className="form-section">
-                <label>Meas Rel Calc/Assumed (%)</label>
-                <input
-                  type="number"
-                  name="measRelCalcAssumed"
-                  value={formData.uncReq?.measRelCalcAssumed || ""}
-                  onChange={handleReqChange}
-                />
-              </div>
-              <div className="form-section">
-                <label>TUR Needed For Assumed Meas Rel</label>
-                <input
-                  type="number"
-                  name="neededTUR"
-                  value={formData.uncReq?.neededTUR || ""}
-                  onChange={handleReqChange}
-                />
-              </div>
-              <div className="form-section">
-                <label>PFA Required (%)</label>
-                <input
-                  type="number"
-                  name="reqPFA"
-                  value={formData.uncReq?.reqPFA || ""}
-                  onChange={handleReqChange}
-                />
-              </div>
+              {UNCERTAINTY_REQUIREMENT_FIELDS.map((field) => (
+                <div className="form-section" key={field.name}>
+                  <label className="requirement-field-label" title={field.tooltip}>
+                    <span>{field.label}</span>
+                    <FontAwesomeIcon
+                      icon={faQuestionCircle}
+                      className="requirement-help-icon"
+                      aria-hidden="true"
+                    />
+                  </label>
+                  <input
+                    type="number"
+                    name={field.name}
+                    value={formData.uncReq?.[field.name] || ""}
+                    onChange={handleReqChange}
+                    placeholder={field.placeholder}
+                    aria-label={field.label}
+                    title={field.tooltip}
+                  />
+                </div>
+              ))}
             </div>
           )}
 

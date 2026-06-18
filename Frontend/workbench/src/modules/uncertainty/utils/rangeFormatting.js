@@ -1,3 +1,5 @@
+import { getUnitDisplayLabel } from "./uncertaintyMath";
+
 const escapeRegExp = (value) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -16,6 +18,7 @@ export const formatRangeLabel = (range = {}, { preferBounds = false } = {}) => {
     ? boundedLabel || explicitLabel || "Full Range"
     : explicitLabel || boundedLabel || "Full Range";
   const unit = typeof range.unit === "string" ? range.unit.trim() : "";
+  const unitLabel = getUnitDisplayLabel(unit);
 
   if (!unit || rangeText === "Full Range") return rangeText;
 
@@ -24,5 +27,7 @@ export const formatRangeLabel = (range = {}, { preferBounds = false } = {}) => {
     "i",
   );
 
-  return unitAtEnd.test(rangeText) ? rangeText : `${rangeText} ${unit}`;
+  return unitAtEnd.test(rangeText)
+    ? rangeText.replace(unitAtEnd, (match) => match.replace(unit, unitLabel))
+    : `${rangeText} ${unitLabel}`;
 };

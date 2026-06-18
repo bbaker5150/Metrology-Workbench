@@ -2,7 +2,15 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import ReactDOM from "react-dom";
 import Select from "react-select";
 import ToleranceForm from "../../../components/common/ToleranceForm";
-import { unitSystem, findInstrumentTolerance, findMatchingTolerances, getToleranceSummary, unitCategories } from "../../../utils/uncertaintyMath";
+import {
+  findInstrumentTolerance,
+  findMatchingTolerances,
+  getToleranceSummary,
+  getUnitDisplayLabel,
+  unitCategories,
+  unitSystem,
+  unitFilterOption,
+} from "../../../utils/uncertaintyMath";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faPlus, faBookOpen, faGripHorizontal } from "@fortawesome/free-solid-svg-icons";
 import InstrumentLookupModal from "./InstrumentLookupModal";
@@ -24,7 +32,7 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
     const categoryUnits = unitCategories[refCategory] || [referenceUnit];
     const prioritizedOptions = categoryUnits
       .filter((u) => allUnits.includes(u))
-      .map((u) => { usedUnits.add(u); return { value: u, label: u }; });
+      .map((u) => { usedUnits.add(u); return { value: u, label: getUnitDisplayLabel(u) }; });
     options.push({ label: refCategory, options: prioritizedOptions });
   }
 
@@ -32,13 +40,13 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
     if (options.some((opt) => opt.label === label)) return;
     const groupOptions = units
       .filter((u) => allUnits.includes(u) && !usedUnits.has(u))
-      .map((u) => { usedUnits.add(u); return { value: u, label: u }; });
+      .map((u) => { usedUnits.add(u); return { value: u, label: getUnitDisplayLabel(u) }; });
     if (groupOptions.length > 0) options.push({ label, options: groupOptions });
   });
 
   const leftovers = allUnits
     .filter((u) => !usedUnits.has(u) && !["%", "ppm", "dB", "ppb"].includes(u))
-    .map((u) => ({ value: u, label: u }));
+    .map((u) => ({ value: u, label: getUnitDisplayLabel(u) }));
   if (leftovers.length > 0) options.push({ label: "Other", options: leftovers });
 
   return options;
@@ -485,6 +493,7 @@ const AddTmdeModal = ({
                         })
                       }
                       options={physicalUnitOptions}
+                      filterOption={unitFilterOption}
                       className="react-select-container"
                       classNamePrefix="react-select"
                       placeholder="Unit"

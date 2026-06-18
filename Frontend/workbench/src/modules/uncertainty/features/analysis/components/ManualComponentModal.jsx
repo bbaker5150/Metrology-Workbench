@@ -3,7 +3,11 @@ import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faPenSquare } from "@fortawesome/free-solid-svg-icons";
 import ConversionInfo from "../../../components/common/ConversionInfo";
-import { convertToPPM, unitSystem } from "../../../utils/uncertaintyMath";
+import {
+  convertToPPM,
+  getUnitDisplayLabel,
+  unitSystem,
+} from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 
 // Resolution is no longer entered here. It is a per-range instrument field
@@ -263,7 +267,7 @@ const ManualComponentModal = ({
       <select name="unit" value={component.unit} onChange={handleChange}>
         {unitOptions.map((u) => (
           <option key={u} value={u}>
-            {u}
+            {getUnitDisplayLabel(u)}
           </option>
         ))}
       </select>

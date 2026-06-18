@@ -13,7 +13,12 @@ import {
   faTrashAlt,
 } from "@fortawesome/free-solid-svg-icons";
 import { v4 as uuidv4 } from "uuid";
-import { unitSystem, unitCategories } from "../../../utils/uncertaintyMath";
+import {
+  getUnitDisplayLabel,
+  unitSystem,
+  unitCategories,
+  unitFilterOption,
+} from "../../../utils/uncertaintyMath";
 // Shared, engine-verified f(x) symbol catalog.
 import { symbolCategories } from "../../../utils/equationSymbols";
 import NotificationModal from "../../../components/modals/NotificationModal";
@@ -118,7 +123,7 @@ const AddTestPointModal = ({
           label: category,
           options: validUnits.map((u) => {
             usedUnits.add(u);
-            return { value: u, label: u };
+            return { value: u, label: getUnitDisplayLabel(u) };
           }),
         });
       }
@@ -127,7 +132,7 @@ const AddTestPointModal = ({
     const leftovers = allSupportedUnits
       .filter((u) => !usedUnits.has(u))
       .sort()
-      .map((u) => ({ value: u, label: u }));
+      .map((u) => ({ value: u, label: getUnitDisplayLabel(u) }));
 
     if (leftovers.length > 0) options.push({ label: "Other", options: leftovers });
     return options;
@@ -622,6 +627,7 @@ const AddTestPointModal = ({
                       setFormData((prev) => ({ ...prev, paramUnit: opt ? opt.value : "" }))
                     }
                     options={groupedUnitOptions}
+                    filterOption={unitFilterOption}
                     placeholder="Unit"
                     classNamePrefix="react-select"
                     menuPortalTarget={document.body}
@@ -763,6 +769,7 @@ const AddTestPointModal = ({
                         setFormData((prev) => ({ ...prev, qualUnit: opt ? opt.value : "" }))
                       }
                       options={groupedUnitOptions}
+                      filterOption={unitFilterOption}
                       placeholder="Unit"
                       classNamePrefix="react-select"
                       menuPortalTarget={document.body}

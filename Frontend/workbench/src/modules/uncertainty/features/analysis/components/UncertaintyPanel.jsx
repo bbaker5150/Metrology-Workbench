@@ -96,6 +96,7 @@ import {
   getAbsoluteLimits,
   calculateUncertaintyFromToleranceObject,
   convertPpmToUnit,
+  getUnitDisplayLabel,
   unitSystem,
   unitCategories,
   errorDistributions,
@@ -119,123 +120,111 @@ const handleRowSelection = (e, id, setSelected) => {
   );
 };
 
-// --- HELPER: Decompose Tolerance into Rows (Intuitive Format) ---
-// --- HELPER: Decompose Tolerance into Rows (Intuitive Format) ---
+// --- HELPER: Decompose Tolerance into a compact single-line spec ---
+// A multi-component spec is ONE ± uncertainty made of several terms, so it is
+// rendered on a single line as e.g. "±(2% iv + 0.1% fs + 0.5 V)" rather than
+// stacked rows (which waste vertical space and imply the terms are separate or
+// apply to different ranges). "iv" = indicated value, "fs" = full scale; the
+// absolute Floor term carries just its unit. Asymmetric components can't be
+// represented by a single ± wrapper, so those fall back to explicit per-term
+// rows. Returns an array of lines (usually length 1) — the table renders the
+// first line in the spec cell and any extras as spanned rows.
 const getSpecRows = (tolerance) => {
   if (!tolerance) return ["-"];
-  const rows = [];
 
-  // Helper to format a single component part (similar to uncertaintyMath utils)
-  const formatPart = (part, suffix = "") => {
-    if (
-      !part ||
-      (isNaN(parseFloat(part.high)) &&
-        isNaN(parseFloat(part.low)) &&
-        isNaN(parseFloat(part.value)))
-    )
-      return null;
-
-    // Handle "value" property legacy/alternative
-    if (part.high === undefined && part.value !== undefined) {
-      return `± ${part.value} ${part.unit || ""} ${suffix}`.trim();
-    }
-
-    const high = parseFloat(part.high || 0);
-    const low = parseFloat(part.low || -high);
-    const unit = part.unit || "";
-
-    let valStr = "";
-    if (Math.abs(high + low) < 1e-9 && high > 0) {
-      valStr = `± ${high}`;
-    } else {
-      valStr = `+${high}/${low}`;
-    }
-
-    return `${valStr} ${unit} ${suffix}`.trim();
-  };
-
-  // 1. Explicit sub-components (recursion)
+  // Explicit sub-components (recursion): one combined line per sub-tolerance.
   if (Array.isArray(tolerance.tolerances) && tolerance.tolerances.length > 0) {
-    tolerance.tolerances.forEach((t) => {
-      rows.push(...getSpecRows(t));
-    });
+    const rows = [];
+    tolerance.tolerances.forEach((t) => rows.push(...getSpecRows(t)));
     return rows;
   }
 
-  // 2. Standard Components - Check for existence and format
-  let foundComponent = false;
+  // Components in display order, each with its abbreviation tag. Floor and dB
+  // carry no tag (Floor is a bare absolute value; dB's unit is shown inline).
+  const componentConfig = [
+    { key: "reading", tag: "iv" },
+    { key: "range", tag: "fs" },
+    { key: "floor", tag: "" },
+    { key: "readings_iv", tag: "" }, // legacy raw indicated value == a Floor
+    { key: "offset", tag: "offset" },
+    { key: "linearity", tag: "lin" },
+    { key: "db", tag: "", unit: "dB" },
+  ];
 
-  // Reading
-  if (tolerance.reading) {
-    const txt = formatPart(tolerance.reading, "of Reading");
-    if (txt) {
-      rows.push(txt);
-      foundComponent = true;
+  const parseComp = (part, unitOverride) => {
+    if (!part) return null;
+    const hasHL =
+      !isNaN(parseFloat(part.high)) || !isNaN(parseFloat(part.low));
+    const hasVal = !isNaN(parseFloat(part.value));
+    if (!hasHL && !hasVal) return null;
+
+    const unit = unitOverride || part.unit || "";
+    // Legacy "± value" shape (no high/low).
+    if (part.high === undefined && hasVal) {
+      return { mag: Math.abs(parseFloat(part.value)), symmetric: true, unit };
     }
+    const high = parseFloat(part.high || 0);
+    const low = parseFloat(part.low || -high);
+    return {
+      mag: Math.abs(high),
+      symmetric: Math.abs(high + low) < 1e-9,
+      high,
+      low,
+      unit,
+    };
+  };
+
+  const termText = (comp, tag) => {
+    const unitLabel = getUnitDisplayLabel(comp.unit || "");
+    // No space before "%"; a space before any worded/physical unit.
+    const join = unitLabel === "%" || unitLabel === "" ? "" : " ";
+    const base = `${comp.mag}${join}${unitLabel}`.trim();
+    return tag ? `${base} ${tag}` : base;
+  };
+
+  const present = [];
+  let anyAsymmetric = false;
+  for (const cfg of componentConfig) {
+    const comp = parseComp(tolerance[cfg.key], cfg.unit);
+    if (!comp) continue;
+    present.push({ comp, cfg });
+    if (!comp.symmetric) anyAsymmetric = true;
   }
 
-  // Readings (IV)
-  if (tolerance.readings_iv) {
-    const txt = formatPart(tolerance.readings_iv, "of Reading (IV)");
-    if (txt) {
-      rows.push(txt);
-      foundComponent = true;
+  if (present.length === 0) return [getToleranceSummary(tolerance)];
+
+  if (!anyAsymmetric) {
+    if (present.length === 1) {
+      return [`± ${termText(present[0].comp, present[0].cfg.tag)}`];
     }
+    const inner = present
+      .map((p) => termText(p.comp, p.cfg.tag))
+      .join(" + ");
+    return [`±(${inner})`];
   }
 
-  // Range (Full Scale)
-  if (tolerance.range) {
-    // Some structures might use 'range' as the value wrapper
-    const txt = formatPart(tolerance.range, "of Range");
-    if (txt) {
-      rows.push(txt);
-      foundComponent = true;
+  // Asymmetric fallback: explicit per-component rows with a descriptive suffix.
+  const suffixMap = {
+    reading: "of Indicated Value",
+    range: "of Full Scale",
+    floor: "Floor Value",
+    readings_iv: "Floor Value",
+    offset: "Offset",
+    linearity: "Linearity",
+    db: "dB",
+  };
+  const formatPart = (part, suffix = "") => {
+    if (part.high === undefined && part.value !== undefined) {
+      return `± ${part.value} ${getUnitDisplayLabel(part.unit || "")} ${suffix}`.trim();
     }
-  }
-
-  // Floor
-  if (tolerance.floor) {
-    const txt = formatPart(tolerance.floor, "Floor");
-    if (txt) {
-      rows.push(txt);
-      foundComponent = true;
-    }
-  }
-
-  // Offset
-  if (tolerance.offset) {
-    const txt = formatPart(tolerance.offset, "Offset");
-    if (txt) {
-      rows.push(txt);
-      foundComponent = true;
-    }
-  }
-
-  // Linearity
-  if (tolerance.linearity) {
-    const txt = formatPart(tolerance.linearity, "Linearity");
-    if (txt) {
-      rows.push(txt);
-      foundComponent = true;
-    }
-  }
-
-  // dB
-  if (tolerance.db) {
-    const txt = formatPart(tolerance.db, ""); // unit usually inside
-    if (txt) {
-      rows.push(txt);
-      foundComponent = true;
-    }
-  }
-
-  // 3. Fallback
-  if (!foundComponent || rows.length === 0) {
-    const summary = getToleranceSummary(tolerance);
-    return [summary];
-  }
-
-  return rows;
+    const high = parseFloat(part.high || 0);
+    const low = parseFloat(part.low || -high);
+    const unit = getUnitDisplayLabel(part.unit || "");
+    const valStr =
+      Math.abs(high + low) < 1e-9 && high > 0 ? `± ${high}` : `+${high}/${low}`;
+    return `${valStr} ${unit} ${suffix}`.trim();
+  };
+  return present.map((p) => formatPart(tolerance[p.cfg.key], suffixMap[p.cfg.key]));
 };
 
 // --- SHARED HELPER: Resolve UUT Range ---
@@ -1148,7 +1137,7 @@ const SummaryDashboard = ({
               <tr>
                 <th>Description</th>
                 <th>Range</th>
-                <th>Specification</th>
+                <th>Tolerance</th>
                 {showAreaColumn && <th>Area</th>}
               </tr>
             </thead>
@@ -1359,7 +1348,7 @@ const SummaryDashboard = ({
               <tr>
                 <th>Description</th>
                 <th>Range</th>
-                <th>Specification</th>
+                <th>Error Limit</th>
               </tr>
             </thead>
             <tbody>
@@ -1694,7 +1683,7 @@ function DetailedView({
           label: category,
           options: validUnits.map((u) => {
             usedUnits.add(u);
-            return { value: u, label: u };
+            return { value: u, label: getUnitDisplayLabel(u) };
           }),
         });
       }
@@ -1703,7 +1692,7 @@ function DetailedView({
     const leftovers = allSupportedUnits
       .filter((u) => !usedUnits.has(u))
       .sort()
-      .map((u) => ({ value: u, label: u }));
+      .map((u) => ({ value: u, label: getUnitDisplayLabel(u) }));
 
     if (leftovers.length > 0) {
       options.push({ label: "Other", options: leftovers });
@@ -2895,7 +2884,7 @@ function DetailedView({
               <tr>
                 <th>Description</th>
                 <th>Range</th>
-                <th>Specification</th>
+                <th>Tolerance</th>
               </tr>
             </thead>
             <tbody>
@@ -3173,7 +3162,8 @@ function DetailedView({
         {isDerived && equationDisplayData && (
           <div className="measurement-equation-block">
             <h3 className="panel-section-title">Measurement Equation</h3>
-            <div className="measurement-equation-card">
+            <div className="measurement-equation-card measurement-equation-zoom-surface">
+              <div className="scoped-zoom-content">
               <div className="add-point-equation-input measurement-equation-input-row">
                 <input
                   ref={equationInputRef}
@@ -3454,6 +3444,7 @@ function DetailedView({
                   </div>
                 </div>
               )}
+              </div>
             </div>
           </div>
         )}
@@ -3522,7 +3513,7 @@ function DetailedView({
                   </th>
                   <th>Description</th>
                   <th>Range</th>
-                  <th>Specification</th>
+                  <th>Error Limit</th>
                 </tr>
               </thead>
               <tbody>

@@ -87,7 +87,7 @@ const WORKFLOW_STEPS = [
         <h4>Defining the UUT</h4>
         <p>Click on the add UUT button to set the specifications for the device you are testing.</p>
         <ul>
-          <li><strong>Manual Entry:</strong> Type a description and add tolerance components manually (Reading %, Floor, etc.).</li>
+          <li><strong>Manual Entry:</strong> Type a description and add tolerance components manually (Indicated Value, Floor Value, etc.).</li>
           <li><strong>Library Import:</strong> Click the <FontAwesomeIcon icon={faBookOpen} /> icon to search the database. Selecting an instrument automatically populates the description and tolerance specs.</li>
         </ul>
         <p>If utilizing an instrument from the library import, ensure the imported range tolerance covers your intended measurement points.</p>
