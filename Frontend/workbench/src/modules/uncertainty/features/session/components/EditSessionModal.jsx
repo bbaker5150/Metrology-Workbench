@@ -160,11 +160,160 @@ const EditSessionModal = ({
 
   // --- Instruments Tab Logic ---
 
-  const getAreaColor = (areaName) => {
-      // Robust lookup: Try to find by Name (case-insensitive) to match UUT's area
-      const cleanName = (areaName || "").trim().toLowerCase();
-      const area = formData.measurementAreas?.find(a => (a.name || "").trim().toLowerCase() === cleanName);
-      return area ? area.color : 'var(--text-color-muted)';
+  const findAreaForInstrument = (instrument = {}, source = "session") => {
+      const areas = formData.measurementAreas || [];
+      const nestedInstrument = instrument.instrument || {};
+      const linkedLibraryInstrument = (instruments || []).find((libraryInst) => {
+          const candidateIds = [
+              instrument.libraryInstrumentId,
+              nestedInstrument.libraryInstrumentId,
+              nestedInstrument.id,
+          ].filter(Boolean);
+          return candidateIds.some((id) => String(id) === String(libraryInst.id));
+      });
+
+      if (source === "instrument") {
+          const areaName =
+              nestedInstrument.measurementArea ||
+              linkedLibraryInstrument?.measurementArea ||
+              instrument.measurementArea ||
+              "";
+          const areaColor =
+              nestedInstrument.measurementAreaColor ||
+              linkedLibraryInstrument?.measurementAreaColor ||
+              instrument.measurementAreaColor ||
+              "var(--text-color-muted)";
+          const cleanName = areaName.trim().toLowerCase();
+          const matchByName = cleanName
+              ? areas.find(a => (a.name || "").trim().toLowerCase() === cleanName)
+              : null;
+
+          return {
+              id:
+                  matchByName?.id ||
+                  nestedInstrument.measurementAreaId ||
+                  linkedLibraryInstrument?.measurementAreaId ||
+                  `instrument:${cleanName || "unassigned"}`,
+              name: areaName.trim() || matchByName?.name || "Unassigned",
+              color: matchByName?.color || areaColor,
+          };
+      }
+
+      const areaId = instrument.measurementAreaId;
+      const areaName = instrument.measurementArea || "";
+
+      if (areaId) {
+          const matchById = areas.find(a => String(a.id) === String(areaId));
+          if (matchById) return matchById;
+      }
+
+      const cleanName = areaName.trim().toLowerCase();
+      if (cleanName) {
+          const matchByName = areas.find(a => (a.name || "").trim().toLowerCase() === cleanName);
+          if (matchByName) return matchByName;
+      }
+
+      if (cleanName || instrument.measurementAreaColor || nestedInstrument.measurementAreaColor) {
+          return {
+              id: areaId || `ad-hoc:${cleanName || "unassigned"}`,
+              name: areaName.trim() || "Unassigned",
+              color:
+                  instrument.measurementAreaColor ||
+                  nestedInstrument.measurementAreaColor ||
+                  linkedLibraryInstrument?.measurementAreaColor ||
+                  "var(--text-color-muted)",
+          };
+      }
+
+      return {
+          id: "unassigned",
+          name: "Unassigned",
+          color: "var(--text-color-muted)",
+      };
+  };
+
+  const getAreaGroups = (items = [], source = "session") => {
+      const areaOrder = new Map(
+          (formData.measurementAreas || []).map((area, index) => [String(area.id), index])
+      );
+      const groups = new Map();
+
+      items.forEach((item, index) => {
+          const area = findAreaForInstrument(item, source);
+          const key = area.id || area.name || "unassigned";
+          if (!groups.has(key)) {
+              groups.set(key, {
+                  area,
+                  order:
+                      area.id && areaOrder.has(String(area.id))
+                          ? areaOrder.get(String(area.id))
+                          : Number.MAX_SAFE_INTEGER,
+                  items: [],
+              });
+          }
+          groups.get(key).items.push({ item, index });
+      });
+
+      return Array.from(groups.values())
+          .map(group => ({
+              ...group,
+              items: group.items.sort((a, b) => {
+                  const aLabel = (a.item.description || a.item.name || "").toLowerCase();
+                  const bLabel = (b.item.description || b.item.name || "").toLowerCase();
+                  return aLabel.localeCompare(bLabel);
+              }),
+          }))
+          .sort((a, b) => {
+              if (a.order !== b.order) return a.order - b.order;
+              if (a.area.name === "Unassigned") return 1;
+              if (b.area.name === "Unassigned") return -1;
+              return a.area.name.localeCompare(b.area.name);
+          });
+  };
+
+  const ensureMeasurementArea = (areas, resultData, { allowCreate = true } = {}) => {
+      const assignedAreaName = (resultData.measurementArea || "").trim();
+      const assignedAreaId = resultData.measurementAreaId || "";
+      let currentAreas = [...areas];
+      let finalAreaId = assignedAreaId || null;
+      let finalAreaName = assignedAreaName;
+
+      const existingAreaIndex = currentAreas.findIndex((area) => {
+          if (assignedAreaId && String(area.id) === String(assignedAreaId)) return true;
+          return (
+              assignedAreaName &&
+              area.name.toLowerCase() === assignedAreaName.toLowerCase()
+          );
+      });
+
+      if (existingAreaIndex >= 0) {
+          const existingArea = currentAreas[existingAreaIndex];
+          finalAreaId = existingArea.id;
+          finalAreaName = existingArea.name;
+          if (resultData.measurementAreaColor) {
+              currentAreas[existingAreaIndex] = {
+                  ...existingArea,
+                  color: resultData.measurementAreaColor,
+              };
+          }
+      } else if (assignedAreaName && allowCreate) {
+          finalAreaId = uuidv4();
+          const newColor =
+              resultData.measurementAreaColor ||
+              PRESET_COLORS[currentAreas.length % PRESET_COLORS.length];
+          currentAreas.push({
+              id: finalAreaId,
+              name: assignedAreaName,
+              color: newColor,
+          });
+      }
+
+      if (!allowCreate && existingAreaIndex < 0) {
+          finalAreaId = null;
+          finalAreaName = "";
+      }
+
+      return { currentAreas, finalAreaId, finalAreaName };
   };
 
   const handleAddArea = () => {
@@ -202,12 +351,48 @@ const EditSessionModal = ({
       
       // FIX: Pre-inject the existing area color so the modal initializes correctly.
       // If we don't do this, the modal defaults to Blue, which overwrites your work on save.
-      if (mode === 'uut' && data && data.measurementArea) {
-          const color = getAreaColor(data.measurementArea);
+      if (mode === 'uut' && data) {
+          const area = findAreaForInstrument(data);
+          const color = area.color;
           // Only inject if it's a valid color
           if (color && !color.startsWith('var(--')) {
-              enhancedData = { ...data, measurementAreaColor: color };
+              enhancedData = {
+                  ...data,
+                  measurementArea: data.measurementArea || area.name,
+                  measurementAreaId: data.measurementAreaId || area.id,
+                  measurementAreaColor: color
+              };
           }
+      } else if (mode === 'tmde' && data) {
+          const nestedInstrument = data.instrument || {};
+          const linkedLibraryInstrument = (instruments || []).find((libraryInst) => {
+              const candidateIds = [
+                  data.libraryInstrumentId,
+                  nestedInstrument.libraryInstrumentId,
+                  nestedInstrument.id,
+              ].filter(Boolean);
+              return candidateIds.some((id) => String(id) === String(libraryInst.id));
+          });
+          const ownershipArea = findAreaForInstrument(data);
+          const instrumentAreaName =
+              nestedInstrument.measurementArea ||
+              linkedLibraryInstrument?.measurementArea ||
+              data.measurementArea ||
+              ownershipArea.name ||
+              "";
+          const instrumentAreaColor =
+              nestedInstrument.measurementAreaColor ||
+              linkedLibraryInstrument?.measurementAreaColor ||
+              data.measurementAreaColor ||
+              ownershipArea.color ||
+              "#3498db";
+
+          enhancedData = {
+              ...data,
+              measurementAreaId: data.measurementAreaId || ownershipArea.id,
+              measurementArea: instrumentAreaName,
+              measurementAreaColor: instrumentAreaColor,
+          };
       }
       
       setActiveInstrumentModal({ mode, data: enhancedData, index });
@@ -230,53 +415,16 @@ const EditSessionModal = ({
       const { mode, index } = activeInstrumentModal;
 
       if (mode === 'uut') {
-          const rawAreaName = resultData.measurementArea || "";
-          const assignedAreaName = rawAreaName.trim();
-          
-          console.log(`[EditSessionModal] Processing UUT. Assigned Area Name: "${assignedAreaName}"`);
+          console.log(`[EditSessionModal] Processing UUT. Assigned Area Name: "${resultData.measurementArea || ""}"`);
 
           setFormData(prev => {
               const newUuts = [...prev.uuts];
-              let currentAreas = [...prev.measurementAreas];
-              let finalAreaId = null;
-              
-              if (assignedAreaName) {
-                  // Find area by name (case-insensitive)
-                  const existingAreaIndex = currentAreas.findIndex(a => a.name.toLowerCase() === assignedAreaName.toLowerCase());
-                  
-                  if (existingAreaIndex >= 0) {
-                      console.log(`[EditSessionModal] Found EXISTING area at index ${existingAreaIndex}. ID: ${currentAreas[existingAreaIndex].id}`);
-                      finalAreaId = currentAreas[existingAreaIndex].id;
-                      
-                      // FIX: Force update color if provided
-                      if (resultData.measurementAreaColor) {
-                          console.log(`[EditSessionModal] UPDATING area color from ${currentAreas[existingAreaIndex].color} to ${resultData.measurementAreaColor}`);
-                          currentAreas[existingAreaIndex] = {
-                              ...currentAreas[existingAreaIndex],
-                              color: resultData.measurementAreaColor
-                          };
-                      } else {
-                          console.warn("[EditSessionModal] Existing area found, but NO color provided in resultData to update.");
-                      }
-                  } else {
-                      console.log("[EditSessionModal] Area does not exist. Creating NEW area.");
-                      finalAreaId = uuidv4();
-                      const newColor = resultData.measurementAreaColor || PRESET_COLORS[currentAreas.length % PRESET_COLORS.length];
-                      console.log(`[EditSessionModal] New Area Color: ${newColor}`);
-                      
-                      currentAreas.push({ 
-                          id: finalAreaId, 
-                          name: assignedAreaName, 
-                          color: newColor 
-                      });
-                  }
-              } else {
-                  console.warn("[EditSessionModal] No measurement area name provided.");
-              }
+              const { currentAreas, finalAreaId, finalAreaName } =
+                  ensureMeasurementArea(prev.measurementAreas || [], resultData);
 
               const uutToSave = {
                   ...resultData,
-                  measurementArea: assignedAreaName, 
+                  measurementArea: finalAreaName,
                   measurementAreaId: finalAreaId,    
                   measurementAreaColor: resultData.measurementAreaColor 
               };
@@ -296,12 +444,31 @@ const EditSessionModal = ({
           console.log("[EditSessionModal] Processing TMDE save...");
           setFormData(prev => {
               const newTmdes = [...prev.tmdes];
+              const { currentAreas, finalAreaId, finalAreaName } =
+                  ensureMeasurementArea(prev.measurementAreas || [], resultData, {
+                      allowCreate: false,
+                  });
+              const tmdeToSave = {
+                  ...resultData,
+                  measurementArea: finalAreaName || "",
+                  measurementAreaId: finalAreaId,
+                  measurementAreaColor: resultData.measurementAreaColor,
+                  instrument: {
+                      ...(resultData.instrument || {}),
+                      ...(resultData.measurementArea
+                          ? { measurementArea: resultData.measurementArea }
+                          : {}),
+                      ...(resultData.measurementAreaColor
+                          ? { measurementAreaColor: resultData.measurementAreaColor }
+                          : {}),
+                  },
+              };
               if (index !== null) {
-                  newTmdes[index] = { ...newTmdes[index], ...resultData };
+                  newTmdes[index] = { ...newTmdes[index], ...tmdeToSave };
               } else {
-                  newTmdes.push({ id: uuidv4(), ...resultData });
+                  newTmdes.push({ id: uuidv4(), ...tmdeToSave });
               }
-              return { ...prev, tmdes: newTmdes };
+              return { ...prev, tmdes: newTmdes, measurementAreas: currentAreas };
           });
       }
       
@@ -612,28 +779,35 @@ const EditSessionModal = ({
                             <div className="empty-list-placeholder">No UUTs added. Click "Add UUT" to begin.</div>
                         ) : (
                             <div className="resource-list">
-                                {formData.uuts.map((uut, idx) => {
-                                    const areaColor = getAreaColor(uut.measurementArea);
-                                    return (
-                                        <div key={uut.id || idx} className="resource-item" style={{ borderLeft: `4px solid ${areaColor}` }}>
-                                            <div className="resource-info">
-                                                <span className="resource-main-text">{uut.description}</span>
-                                                <span className="resource-sub-text">
-                                                    <span style={{ color: areaColor, fontWeight: 500 }}>{uut.measurementArea || "Unassigned"}</span> 
-                                                    {uut.instrument && ` • ${uut.instrument.manufacturer} ${uut.instrument.model}`}
-                                                </span>
-                                            </div>
-                                            <div className="resource-actions">
-                                                <button className="action-icon-btn" onClick={() => openInstrumentModal('uut', uut, idx)} title="Edit">
-                                                    <FontAwesomeIcon icon={faEdit} />
-                                                </button>
-                                                <button className="action-icon-btn danger" onClick={() => handleDeleteItem('uuts', idx)} title="Delete">
-                                                    <FontAwesomeIcon icon={faTrash} />
-                                                </button>
-                                            </div>
+                                {getAreaGroups(formData.uuts).map(({ area, items }) => (
+                                    <div key={`uut-area-${area.id || area.name}`} className="resource-area-section">
+                                        <div className="resource-area-heading" style={{ color: area.color }}>
+                                            <span className="resource-area-dot" style={{ backgroundColor: area.color }} />
+                                            <span>{area.name}</span>
+                                            <span className="resource-area-count">({items.length})</span>
                                         </div>
-                                    );
-                                })}
+                                        <div className="resource-area-items">
+                                            {items.map(({ item: uut, index: idx }) => (
+                                                <div key={uut.id || idx} className="resource-item" style={{ borderLeft: `4px solid ${area.color}` }}>
+                                                    <div className="resource-info">
+                                                        <span className="resource-main-text">{uut.description}</span>
+                                                        <span className="resource-sub-text">
+                                                            {uut.instrument ? `${uut.instrument.manufacturer || ""} ${uut.instrument.model || ""}`.trim() : "Manual UUT"}
+                                                        </span>
+                                                    </div>
+                                                    <div className="resource-actions">
+                                                        <button className="action-icon-btn" onClick={() => openInstrumentModal('uut', uut, idx)} title="Edit">
+                                                            <FontAwesomeIcon icon={faEdit} />
+                                                        </button>
+                                                        <button className="action-icon-btn danger" onClick={() => handleDeleteItem('uuts', idx)} title="Delete">
+                                                            <FontAwesomeIcon icon={faTrash} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </div>
@@ -656,22 +830,33 @@ const EditSessionModal = ({
                              <div className="empty-list-placeholder">No TMDEs added.</div>
                         ) : (
                              <div className="resource-list">
-                                {formData.tmdes.map((tmde, idx) => (
-                                    <div key={tmde.id || idx} className="resource-item">
-                                        <div className="resource-info">
-                                            <span className="resource-main-text">{tmde.name}</span>
-                                            <span className="resource-sub-text">
-                                                ID: {tmde.assetId || "N/A"} • Qty: {tmde.quantity || 1}
-                                                {tmde.instrument && ` • ${tmde.instrument.manufacturer} ${tmde.instrument.model}`}
-                                            </span>
+                                {getAreaGroups(formData.tmdes, "instrument").map(({ area, items }) => (
+                                    <div key={`tmde-area-${area.id || area.name}`} className="resource-area-section">
+                                        <div className="resource-area-heading" style={{ color: area.color }}>
+                                            <span className="resource-area-dot" style={{ backgroundColor: area.color }} />
+                                            <span>{area.name}</span>
+                                            <span className="resource-area-count">({items.length})</span>
                                         </div>
-                                        <div className="resource-actions">
-                                            <button className="action-icon-btn" onClick={() => openInstrumentModal('tmde', tmde, idx)} title="Edit">
-                                                <FontAwesomeIcon icon={faEdit} />
-                                            </button>
-                                            <button className="action-icon-btn danger" onClick={() => handleDeleteItem('tmdes', idx)} title="Delete">
-                                                <FontAwesomeIcon icon={faTrash} />
-                                            </button>
+                                        <div className="resource-area-items">
+                                            {items.map(({ item: tmde, index: idx }) => (
+                                                <div key={tmde.id || idx} className="resource-item" style={{ borderLeft: `4px solid ${area.color}` }}>
+                                                    <div className="resource-info">
+                                                        <span className="resource-main-text">{tmde.name}</span>
+                                                        <span className="resource-sub-text">
+                                                            ID: {tmde.assetId || "N/A"} | Qty: {tmde.quantity || 1}
+                                                            {tmde.instrument && ` | ${tmde.instrument.manufacturer || ""} ${tmde.instrument.model || ""}`}
+                                                        </span>
+                                                    </div>
+                                                    <div className="resource-actions">
+                                                        <button className="action-icon-btn" onClick={() => openInstrumentModal('tmde', tmde, idx)} title="Edit">
+                                                            <FontAwesomeIcon icon={faEdit} />
+                                                        </button>
+                                                        <button className="action-icon-btn danger" onClick={() => handleDeleteItem('tmdes', idx)} title="Delete">
+                                                            <FontAwesomeIcon icon={faTrash} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
                                 ))}

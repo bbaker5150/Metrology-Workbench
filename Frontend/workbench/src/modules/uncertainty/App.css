@@ -2335,6 +2335,27 @@ body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
   border-top: 1px dashed var(--border-color);
 }
 
+.industry-table tbody tr.instrument-area-section-row {
+  background: var(--background-color-secondary);
+  pointer-events: none;
+}
+
+.industry-table tbody tr.instrument-area-section-row td {
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.instrument-area-section-count {
+  margin-left: 8px;
+  color: var(--text-color-muted);
+  font-weight: 700;
+}
+
 /* 2. Selected: JOIN the rows visually by removing the separator */
 .industry-table tr.selected-row.spec-row td {
   border-top: none; /* or 1px solid transparent if spacing is needed */

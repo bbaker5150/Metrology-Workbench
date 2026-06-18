@@ -28,6 +28,8 @@ export const formatRangeLabel = (range = {}, { preferBounds = false } = {}) => {
   );
 
   return unitAtEnd.test(rangeText)
-    ? rangeText.replace(unitAtEnd, (match) => match.replace(unit, unitLabel))
+    ? rangeText.replace(unitAtEnd, (match) =>
+        match.replace(new RegExp(escapeRegExp(unit), "i"), unitLabel),
+      )
     : `${rangeText} ${unitLabel}`;
 };

@@ -20,6 +20,12 @@ describe("formatRangeLabel", () => {
     expect(formatRangeLabel({ range: "-328 to 700 degF", unit: "degF" })).toBe(
       "-328 to 700 °F",
     );
+    expect(formatRangeLabel({ range: "-328 to 700 DEGF", unit: "degF" })).toBe(
+      "-328 to 700 °F",
+    );
+    expect(formatRangeLabel({ min: 0, max: 1000, unit: "uV" })).toBe(
+      "0 to 1000 µV",
+    );
   });
 
   it("formats bounded and unspecified ranges clearly", () => {

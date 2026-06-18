@@ -987,6 +987,7 @@ export const getToleranceErrorSummary = (toleranceObject, referencePoint) => {
 
   const nominalValue = parseFloat(referencePoint.value);
   const nominalUnit = referencePoint.unit;
+  const nominalUnitLabel = getUnitDisplayLabel(nominalUnit || "");
 
   if (breakdown.length === 0) {
     return "Not Calculated";
@@ -1012,12 +1013,12 @@ export const getToleranceErrorSummary = (toleranceObject, referencePoint) => {
     Math.abs(totalHighDeviation + totalLowDeviation) < 1e-9 &&
     totalHighDeviation > 0
   ) {
-    return `±${totalHighDeviation.toPrecision(3)} ${nominalUnit}`;
+    return `±${totalHighDeviation.toPrecision(3)} ${nominalUnitLabel}`;
   }
 
   return `+${totalHighDeviation.toPrecision(
     3
-  )} / ${totalLowDeviation.toPrecision(3)} ${nominalUnit}`;
+  )} / ${totalLowDeviation.toPrecision(3)} ${nominalUnitLabel}`;
 };
 
 export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
@@ -1031,13 +1032,15 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
   );
 
   if (breakdown.length === 0) {
-    const nominal = `${parseFloat(referencePoint.value).toPrecision(7)} ${referencePoint.unit
-      }`;
+    const nominal = `${parseFloat(referencePoint.value).toPrecision(
+      7,
+    )} ${getUnitDisplayLabel(referencePoint.unit || "")}`;
     return { high: nominal, low: nominal };
   }
 
   const nominalValue = parseFloat(referencePoint.value);
   const nominalUnit = referencePoint.unit;
+  const nominalUnitLabel = getUnitDisplayLabel(nominalUnit || "");
 
   const specComponents = breakdown.filter(
     (comp) => comp.absoluteHigh !== undefined && comp.absoluteLow !== undefined
@@ -1063,8 +1066,8 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
   );
 
   return {
-    high: `${snappedHigh.toPrecision(7)} ${nominalUnit}`,
-    low: `${snappedLow.toPrecision(7)} ${nominalUnit}`,
+    high: `${snappedHigh.toPrecision(7)} ${nominalUnitLabel}`,
+    low: `${snappedLow.toPrecision(7)} ${nominalUnitLabel}`,
   };
 };
 
@@ -1092,6 +1095,7 @@ export const getTmdeAbsoluteLimits = (tmdeTolerances, uutNominal) => {
 
   const nominalValue = parseFloat(uutNominal.value);
   const nominalUnit = uutNominal.unit;
+  const nominalUnitLabel = getUnitDisplayLabel(nominalUnit || "");
   const targetUnitInfo = unitSystem.units[nominalUnit];
   if (isNaN(nominalValue) || !targetUnitInfo || isNaN(targetUnitInfo.to_si)) {
     return { high: "N/A", low: "N/A" };
@@ -1151,8 +1155,8 @@ export const getTmdeAbsoluteLimits = (tmdeTolerances, uutNominal) => {
   const finalHigh = nominalValue + totalHighDev;
   const finalLow = nominalValue + totalLowDev;
   return {
-    high: `${finalHigh.toPrecision(7)} ${nominalUnit}`,
-    low: `${finalLow.toPrecision(7)} ${nominalUnit}`,
+    high: `${finalHigh.toPrecision(7)} ${nominalUnitLabel}`,
+    low: `${finalLow.toPrecision(7)} ${nominalUnitLabel}`,
   };
 };
 

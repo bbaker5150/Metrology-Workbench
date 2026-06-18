@@ -98,6 +98,7 @@ import {
   getSidebarPointRange,
   getVisibleSidebarPointOrder,
 } from "./utils/sidebarPointSelection";
+import { formatRangeLabel } from "./utils/rangeFormatting";
 import { ZOOM_TOAST_EVENT } from "../../shared/ZoomToast";
 
 const getSidebarGridTemplate = (visibleColumns) => {
@@ -779,20 +780,10 @@ const getAllUutRanges = (uut) => {
     ranges = [{ ...uut.tolerance, source: "single", isSingle: true }];
   }
 
-  // Add a display label for the sidebar
+  // Add a display label for the sidebar using the same unit-symbol formatter as
+  // the main analysis tables (degF -> °F, uV -> µV, Ohm -> Ω, etc.).
   const finalRanges = ranges.map((r, index) => {
-    let label = "";
-    // Prioritize explicit Min/Max range display
-    if (r.min !== undefined && r.max !== undefined) {
-      label = `${r.min} to ${r.max}`;
-    } else {
-      label = r.range || "Range";
-    }
-
-    // Add Unit to label if not present
-    if (r.unit && !label.includes(r.unit)) {
-      label += ` ${r.unit}`;
-    }
+    let label = formatRangeLabel(r, { preferBounds: true });
 
     // Prepend Function Name if available
     if (r.functionName) {
@@ -2554,11 +2545,11 @@ function App() {
     setIsInstrumentBuilderOpen(true);
   };
 
-  const handleAddTmde = () => {
+  const handleAddTmde = (options = {}) => {
     setInstrumentModalConfig({
       mode: "tmde",
       data: null,
-      associateToPointId: null,
+      associateToPointId: options.associateToPointId || selectedTestPointId || null,
     });
     setIsInstrumentBuilderOpen(true);
   };
@@ -2566,27 +2557,47 @@ function App() {
   const handleEditTmde = (tmde) => {
     let dataWithColor = tmde;
 
-    // Mirror handleEditUut: the TMDE record carries the area id/name but not its
-    // color, so look the color up from the session areas. Without this the edit
-    // modal defaults to blue even when the area is shown red in the point list.
-    if (tmde && tmde.measurementAreaId && currentSessionData?.measurementAreas) {
-      const area = currentSessionData.measurementAreas.find(
-        (a) => a.id === tmde.measurementAreaId,
+    if (tmde) {
+      const sessionAreas = currentSessionData?.measurementAreas || [];
+      const nestedInstrument = tmde.instrument || {};
+      const linkedLibraryInstrument = (instruments || []).find((inst) => {
+        const candidateIds = [
+          tmde.libraryInstrumentId,
+          nestedInstrument.libraryInstrumentId,
+          nestedInstrument.id,
+        ].filter(Boolean);
+        return candidateIds.some((id) => String(id) === String(inst.id));
+      });
+      const matchedSessionArea = sessionAreas.find(
+        (area) =>
+          (tmde.measurementAreaId &&
+            String(area.id) === String(tmde.measurementAreaId)) ||
+          (tmde.measurementArea &&
+            area.name.toLowerCase() === tmde.measurementArea.toLowerCase()),
       );
-      if (area) {
-        dataWithColor = { ...tmde, measurementAreaColor: area.color };
-      }
-    } else if (
-      tmde &&
-      tmde.measurementArea &&
-      currentSessionData?.measurementAreas
-    ) {
-      const area = currentSessionData.measurementAreas.find(
-        (a) => a.name === tmde.measurementArea,
-      );
-      if (area) {
-        dataWithColor = { ...tmde, measurementAreaColor: area.color };
-      }
+      const instrumentAreaName =
+        nestedInstrument.measurementArea ||
+        linkedLibraryInstrument?.measurementArea ||
+        tmde.measurementArea ||
+        matchedSessionArea?.name ||
+        "";
+      const instrumentAreaColor =
+        nestedInstrument.measurementAreaColor ||
+        linkedLibraryInstrument?.measurementAreaColor ||
+        tmde.measurementAreaColor ||
+        matchedSessionArea?.color ||
+        "";
+
+      // For TMDEs, measurementAreaId is session/table ownership, while the
+      // editable measurementArea text belongs to the instrument/library
+      // metadata. Show the instrument metadata in the builder without changing
+      // the session area that makes this TMDE visible on the active point.
+      dataWithColor = {
+        ...tmde,
+        measurementAreaId: tmde.measurementAreaId || matchedSessionArea?.id || "",
+        measurementArea: instrumentAreaName,
+        measurementAreaColor: instrumentAreaColor || "#3498db",
+      };
     }
 
     setInstrumentModalConfig({
@@ -2777,65 +2788,73 @@ function App() {
       let updatedMeasurementAreas = [
         ...(currentSessionData.measurementAreas || []),
       ];
+      const existingTmde = (currentSessionData.tmdes || []).find(
+        (tmde) => tmde.id === data.id,
+      );
+      const associationPoint = currentTestPoints.find(
+        (tp) => tp.id === instrumentModalConfig.associateToPointId,
+      );
+      const contextPoint = currentTestPoints.find(
+        (tp) => tp.id === selectedTestPointId,
+      );
+      const dataAreaExists = updatedMeasurementAreas.some(
+        (area) => String(area.id) === String(data.measurementAreaId),
+      );
       let resolvedAreaId =
-        data.measurementAreaId ||
-        currentTestPoints.find((tp) => tp.id === selectedTestPointId)
-          ?.measurementAreaId ||
+        existingTmde?.measurementAreaId ||
+        associationPoint?.measurementAreaId ||
+        contextPoint?.measurementAreaId ||
         selectedAreaId ||
+        (dataAreaExists ? data.measurementAreaId : null) ||
         null;
 
-      // Mirror the UUT branch: a typed area name must create (or recolor) its
-      // measurement area so a brand-new TMDE area persists. Previously this
-      // branch only looked up existing areas, so a new area name/color was
-      // silently dropped and the TMDE ended up with no valid area id.
-      if (cleanAreaName) {
-        const existingAreaIndex = updatedMeasurementAreas.findIndex(
-          (a) => a.name.toLowerCase() === cleanAreaName.toLowerCase(),
-        );
-        if (existingAreaIndex >= 0) {
-          resolvedAreaId = updatedMeasurementAreas[existingAreaIndex].id;
-          if (data.measurementAreaColor) {
-            updatedMeasurementAreas[existingAreaIndex] = {
-              ...updatedMeasurementAreas[existingAreaIndex],
-              color: data.measurementAreaColor,
-            };
-          }
-        } else {
-          const newArea = {
-            id: uuidv4(),
-            name: cleanAreaName,
-            color: data.measurementAreaColor || "#3498db",
-          };
-          updatedMeasurementAreas.push(newArea);
-          resolvedAreaId = newArea.id;
-        }
+      // TMDE library metadata often has its own category/area label (e.g.
+      // "Weight"). That label must NOT create a session measurement area in the
+      // sidebar. Only resolve TMDE ownership to an already-existing session area
+      // or the current point/area context; preserve the library label inside the
+      // nested instrument snapshot for editing/display.
+      if (!resolvedAreaId && cleanAreaName) {
+        resolvedAreaId =
+          updatedMeasurementAreas.find(
+            (a) => a.name.toLowerCase() === cleanAreaName.toLowerCase(),
+          )?.id || null;
       }
       const resolvedArea = updatedMeasurementAreas.find(
         (area) => area.id === resolvedAreaId,
       );
+      const getTmdeInstrumentSnapshot = (instrument) => {
+        const snapshot = { ...(instrument || {}) };
+        if (cleanAreaName) snapshot.measurementArea = cleanAreaName;
+        if (data.measurementAreaColor) {
+          snapshot.measurementAreaColor = data.measurementAreaColor;
+        }
+        return snapshot;
+      };
       let newTmde = {};
       if (data.type === "library") {
+        const instrumentSnapshot = getTmdeInstrumentSnapshot(data);
         newTmde = {
           id: uuidv4(),
           name: `${data.manufacturer} ${data.model}`,
           quantity: 1,
           assetId: "",
-          instrument: { ...data },
+          instrument: instrumentSnapshot,
           isInstrumentBased: true,
           measurementAreaId: resolvedAreaId,
-          measurementArea: resolvedArea?.name || cleanAreaName,
+          measurementArea: resolvedArea?.name || "",
         };
         delete newTmde.instrument.useAs;
       } else {
+        const instrumentSnapshot = getTmdeInstrumentSnapshot(data.instrument);
         newTmde = {
           id: data.id || uuidv4(),
           name: data.name,
           quantity: data.quantity,
           assetId: data.assetId,
-          instrument: data.instrument,
+          instrument: instrumentSnapshot,
           isInstrumentBased: true,
           measurementAreaId: resolvedAreaId,
-          measurementArea: resolvedArea?.name || cleanAreaName,
+          measurementArea: resolvedArea?.name || "",
         };
       }
       const existingTmdeIndex = (currentSessionData.tmdes || []).findIndex(
@@ -2945,8 +2964,6 @@ function App() {
     const uuts = [...(currentSessionData.uuts || [])];
 
     instrumentList.forEach((inst) => {
-      const areaId = ensureAreaId(inst.measurementArea, inst.measurementAreaColor);
-      const areaName = areas.find((a) => a.id === areaId)?.name || "";
       const label =
         `${inst.manufacturer || ""} ${inst.model || ""}`.trim() ||
         inst.description ||
@@ -2954,6 +2971,11 @@ function App() {
       const instrument = { ...inst };
       delete instrument.useAs;
       if (useAs === "uut") {
+        const areaId = ensureAreaId(
+          inst.measurementArea,
+          inst.measurementAreaColor,
+        );
+        const areaName = areas.find((a) => a.id === areaId)?.name || "";
         uuts.push({
           id: uuidv4(),
           description: inst.description || label,
@@ -2962,6 +2984,8 @@ function App() {
           instrument,
         });
       } else {
+        const areaId = selectedAreaId || null;
+        const areaName = areas.find((a) => a.id === areaId)?.name || "";
         tmdes.push({
           id: uuidv4(),
           name: label,

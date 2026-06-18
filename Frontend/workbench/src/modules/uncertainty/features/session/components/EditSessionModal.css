@@ -146,6 +146,40 @@
 .resource-list {
     display: flex;
     flex-direction: column;
+    gap: 18px;
+}
+
+.resource-area-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.resource-area-heading {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0;
+}
+
+.resource-area-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.12);
+}
+
+.resource-area-count {
+    color: var(--text-color-muted);
+    font-weight: 700;
+}
+
+.resource-area-items {
+    display: flex;
+    flex-direction: column;
     gap: 10px;
 }
 

@@ -897,6 +897,7 @@ const SummaryDashboard = ({
   // Global UUT Selection (synced with sidebar Quick Add)
   currentUutSelection = [],
   setCurrentUutSelection,
+  instruments = [],
 }) => {
   // --- SELECTION STATE ---
   // Use global UUT selection for sync with sidebar Quick Add
@@ -1005,6 +1006,138 @@ const SummaryDashboard = ({
       showAreaColumn: isSessionView,
     };
   }, [viewMode, contextId, sessionData, rangeData, uutId]);
+
+  const getInstrumentArea = useCallback(
+    (instrument = {}, source = "session") => {
+      const nestedInstrument = instrument.instrument || {};
+      const linkedLibraryInstrument = (instruments || []).find((libraryInst) => {
+        const candidateIds = [
+          instrument.libraryInstrumentId,
+          nestedInstrument.libraryInstrumentId,
+          nestedInstrument.id,
+        ].filter(Boolean);
+        return candidateIds.some(
+          (id) => String(id) === String(libraryInst.id),
+        );
+      });
+      const areas = sessionData.measurementAreas || [];
+
+      if (source === "instrument") {
+        const areaName =
+          nestedInstrument.measurementArea ||
+          linkedLibraryInstrument?.measurementArea ||
+          instrument.measurementArea ||
+          "";
+        const areaColor =
+          nestedInstrument.measurementAreaColor ||
+          linkedLibraryInstrument?.measurementAreaColor ||
+          instrument.measurementAreaColor ||
+          "var(--text-color-muted)";
+        const cleanAreaName = areaName.trim().toLowerCase();
+        const matchingSessionArea = cleanAreaName
+          ? areas.find((area) => area.name.toLowerCase() === cleanAreaName)
+          : null;
+
+        return {
+          id:
+            matchingSessionArea?.id ||
+            nestedInstrument.measurementAreaId ||
+            linkedLibraryInstrument?.measurementAreaId ||
+            `instrument:${cleanAreaName || "unassigned"}`,
+          name: areaName.trim() || matchingSessionArea?.name || "Unassigned",
+          color: matchingSessionArea?.color || areaColor,
+        };
+      }
+
+      const areaId = instrument.measurementAreaId;
+      const areaName = instrument.measurementArea || "";
+
+      if (areaId) {
+        const byId = areas.find((area) => String(area.id) === String(areaId));
+        if (byId) return byId;
+      }
+
+      const cleanAreaName = areaName.trim().toLowerCase();
+      if (cleanAreaName) {
+        const byName = areas.find(
+          (area) => area.name.toLowerCase() === cleanAreaName,
+        );
+        if (byName) return byName;
+      }
+
+      return {
+        id: areaId || `unassigned:${cleanAreaName || "none"}`,
+        name: areaName.trim() || "Unassigned",
+        color:
+          instrument.measurementAreaColor ||
+          nestedInstrument.measurementAreaColor ||
+          linkedLibraryInstrument?.measurementAreaColor ||
+          "var(--text-color-muted)",
+      };
+    },
+    [instruments, sessionData.measurementAreas],
+  );
+
+  const getGroupedInstrumentRows = useCallback(
+    (items = [], source = "session") => {
+      if (!showAreaColumn) {
+        return items.map((item, index) => ({ type: "item", item, index }));
+      }
+
+      const areaOrder = new Map(
+        (sessionData.measurementAreas || []).map((area, index) => [
+          String(area.id),
+          index,
+        ]),
+      );
+      const groups = new Map();
+
+      items.forEach((item, index) => {
+        const area = getInstrumentArea(item, source);
+        const key = area.id || area.name || "unassigned";
+        if (!groups.has(key)) {
+          groups.set(key, {
+            type: "area",
+            area,
+            order: areaOrder.has(String(area.id))
+              ? areaOrder.get(String(area.id))
+              : Number.MAX_SAFE_INTEGER,
+            items: [],
+          });
+        }
+        groups.get(key).items.push({ type: "item", item, index });
+      });
+
+      return Array.from(groups.values())
+        .sort((a, b) => {
+          if (a.order !== b.order) return a.order - b.order;
+          if (a.area.name === "Unassigned") return 1;
+          if (b.area.name === "Unassigned") return -1;
+          return a.area.name.localeCompare(b.area.name);
+        })
+        .flatMap((group) => [
+          group,
+          ...group.items.sort((a, b) => {
+            const aLabel = (
+              a.item.description ||
+              a.item.name ||
+              ""
+            ).toLowerCase();
+            const bLabel = (
+              b.item.description ||
+              b.item.name ||
+              ""
+            ).toLowerCase();
+            return aLabel.localeCompare(bLabel);
+          }),
+        ]);
+    },
+    [
+      getInstrumentArea,
+      sessionData.measurementAreas,
+      showAreaColumn,
+    ],
+  );
 
   // --- HANDLERS ---
 
@@ -1128,28 +1261,45 @@ const SummaryDashboard = ({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: showAreaColumn ? "34%" : "42%" }} />
-              <col style={{ width: showAreaColumn ? "26%" : "30%" }} />
-              <col style={{ width: showAreaColumn ? "25%" : "28%" }} />
-              {showAreaColumn && <col style={{ width: "15%" }} />}
+              <col style={{ width: "42%" }} />
+              <col style={{ width: "30%" }} />
+              <col style={{ width: "28%" }} />
             </colgroup>
             <thead>
               <tr>
                 <th>Description</th>
                 <th>Range</th>
                 <th>Tolerance</th>
-                {showAreaColumn && <th>Area</th>}
               </tr>
             </thead>
             <tbody>
               {filteredUuts.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={showAreaColumn ? 4 : 3}>
+                  <td colSpan={3}>
                     No UUTs found in this context.
                   </td>
                 </tr>
               ) : (
-                filteredUuts.map((uut) => {
+                getGroupedInstrumentRows(filteredUuts).map((row) => {
+                  if (row.type === "area") {
+                    return (
+                      <tr
+                        key={`uut-area-${row.area.id || row.area.name}`}
+                        className="instrument-area-section-row"
+                      >
+                        <td colSpan={3}>
+                          <span style={{ color: row.area.color }}>
+                            {row.area.name}
+                          </span>
+                          <span className="instrument-area-section-count">
+                            ({row.items.length})
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  const uut = row.item;
                   let resolution = resolveUutRangeHelper(
                     uut,
                     localRangeIndices,
@@ -1185,16 +1335,6 @@ const SummaryDashboard = ({
                   const specRows = getSpecRows(activeRange);
                   const rowSpan = specRows.length > 0 ? specRows.length : 1;
                   const isSelected = selectedUutIds.includes(uut.id);
-
-                  const area = sessionData.measurementAreas?.find(
-                    (a) =>
-                      a.id === uut.measurementAreaId ||
-                      a.name === uut.measurementArea,
-                  );
-                  const areaName = area
-                    ? area.name
-                    : uut.measurementArea || "-";
-                  const areaColor = area?.color || "var(--text-color-muted)";
 
                   return (
                     <React.Fragment key={uut.id}>
@@ -1260,18 +1400,6 @@ const SummaryDashboard = ({
                         >
                           {specRows[0]}
                         </td>
-                        {showAreaColumn && (
-                          <td
-                            rowSpan={rowSpan}
-                            className={`cell-area ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
-                            onMouseEnter={() =>
-                              setHoveredCell({ tableId: "uut", colIndex: 3 })
-                            }
-                            title={areaName}
-                          >
-                            <span style={{ color: areaColor }}>{areaName}</span>
-                          </td>
-                        )}
                       </tr>
                       {specRows.slice(1).map((specComp, sIdx) => (
                         <tr
@@ -1323,7 +1451,7 @@ const SummaryDashboard = ({
             )}
             <button
               className="btn-add-item"
-              onClick={onAddTmde}
+              onClick={() => onAddTmde && onAddTmde()}
               title="Add New TMDE"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
@@ -1357,7 +1485,27 @@ const SummaryDashboard = ({
                   <td colSpan={3}>No TMDEs found in session.</td>
                 </tr>
               ) : (
-                filteredTmdes.map((tmde, idx) => {
+                getGroupedInstrumentRows(filteredTmdes, "instrument").map((row) => {
+                  if (row.type === "area") {
+                    return (
+                      <tr
+                        key={`tmde-area-${row.area.id || row.area.name}`}
+                        className="instrument-area-section-row"
+                      >
+                        <td colSpan={3}>
+                          <span style={{ color: row.area.color }}>
+                            {row.area.name}
+                          </span>
+                          <span className="instrument-area-section-count">
+                            ({row.items.length})
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  const tmde = row.item;
+                  const idx = row.index;
                   const resolution = resolveUutRangeHelper(
                     tmde,
                     tmdeRangeIndices,
@@ -3480,7 +3628,10 @@ function DetailedView({
               )}
               <button
                 className="btn-add-item"
-                onClick={onAddTmde}
+                onClick={() =>
+                  onAddTmde &&
+                  onAddTmde({ associateToPointId: testPointData.id })
+                }
                 title="Add New TMDE"
               >
                 <FontAwesomeIcon icon={faPlus} size="xs" />
@@ -3909,6 +4060,7 @@ const UncertaintyPanel = (props) => {
         onEditUut={props.onEditUut}
         onEditTmde={props.onEditTmde}
         onAddTmde={props.onAddTmde}
+        instruments={props.instruments || []}
       />
     );
   }
