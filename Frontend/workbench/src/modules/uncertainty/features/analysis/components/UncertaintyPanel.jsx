@@ -38,10 +38,21 @@ import { resolvePointAreaId } from "../../../utils/areaWorkspace";
 
 // --- Constants ---
 const customUnitSelectStyles = {
-  control: (provided) => ({
-    ...provided,
-    minHeight: "30px",
-    height: "30px",
+  menuPortal: (base) => ({ ...base, zIndex: 99999 }),
+  menu: (base) => ({
+    ...base,
+    zIndex: 99999,
+    width: "max-content",
+    minWidth: "100%",
+  }),
+  menuList: (base) => ({
+    ...base,
+    overflowX: "hidden",
+  }),
+  control: (base) => ({
+    ...base,
+    minHeight: "24px",
+    height: "24px",
     fontSize: "0.85rem",
     backgroundColor: "var(--input-background)",
     borderColor: "var(--border-color)",
@@ -51,31 +62,41 @@ const customUnitSelectStyles = {
       borderColor: "var(--primary-color)",
     },
   }),
-  menu: (provided) => ({
-    ...provided,
-    zIndex: 9999,
-    backgroundColor: "var(--header-background)",
-    border: "1px solid var(--border-color)",
-    boxShadow: "var(--box-shadow-glow)",
+  valueContainer: (base) => ({
+    ...base,
+    height: "24px",
+    padding: "0 4px",
+    display: "flex",
+    alignItems: "center",
   }),
-  singleValue: (provided) => ({
-    ...provided,
+  singleValue: (base) => ({
+    ...base,
     color: "var(--text-color)",
+    margin: 0,
   }),
-  input: (provided) => ({
-    ...provided,
+  input: (base) => ({
+    ...base,
     color: "var(--text-color)",
+    margin: 0,
+    padding: 0,
   }),
-  option: (provided, state) => ({
-    ...provided,
-    backgroundColor: state.isSelected
-      ? "var(--primary-color)"
-      : state.isFocused
-        ? "var(--primary-color-light)"
-        : "transparent",
-    color: state.isSelected ? "#ffffff" : "var(--text-color)",
-    cursor: "pointer",
-    fontSize: "0.85rem",
+  indicatorsContainer: (base) => ({
+    ...base,
+    height: "24px",
+  }),
+  dropdownIndicator: (base) => ({
+    ...base,
+    padding: "0 4px",
+    color: "var(--text-color-muted)",
+  }),
+  clearIndicator: (base) => ({
+    ...base,
+    padding: "0 2px",
+  }),
+  indicatorSeparator: () => ({ display: "none" }),
+  option: (base) => ({
+    ...base,
+    whiteSpace: "nowrap",
   }),
 };
 
@@ -102,6 +123,7 @@ import {
   getUnitDisplayLabel,
   unitSystem,
   unitCategories,
+  unitFilterOption,
   errorDistributions,
 } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
@@ -135,6 +157,72 @@ const descSearchItemStyle = {
   cursor: "pointer",
   fontSize: "0.85rem",
   borderBottom: "1px solid var(--border-color)",
+};
+
+const buildGroupedUnitOptions = () => {
+  const allSupportedUnits = Object.keys(unitSystem.units);
+  const options = [];
+  const usedUnits = new Set();
+
+  Object.entries(unitCategories).forEach(([category, units]) => {
+    const validUnits = units.filter((unit) => allSupportedUnits.includes(unit));
+    if (validUnits.length > 0) {
+      options.push({
+        label: category,
+        options: validUnits.map((unit) => {
+          usedUnits.add(unit);
+          return { value: unit, label: getUnitDisplayLabel(unit) };
+        }),
+      });
+    }
+  });
+
+  const leftovers = allSupportedUnits
+    .filter((unit) => !usedUnits.has(unit))
+    .sort()
+    .map((unit) => ({ value: unit, label: getUnitDisplayLabel(unit) }));
+
+  if (leftovers.length > 0) options.push({ label: "Other", options: leftovers });
+  return options;
+};
+
+const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit" }) => {
+  const groupedUnitOptions = useMemo(() => buildGroupedUnitOptions(), []);
+  const flatUnitOptions = useMemo(
+    () => groupedUnitOptions.flatMap((group) => group.options || []),
+    [groupedUnitOptions],
+  );
+  const selectedOption =
+    flatUnitOptions.find((option) => option.value === value) || null;
+  const unitWidth = useMemo(() => {
+    const longestLabelLength = Math.max(
+      4,
+      ...flatUnitOptions.map((option) => String(option.label || option.value || "").length),
+    );
+    return `${Math.min(longestLabelLength + 5, 14)}ch`;
+  }, [flatUnitOptions]);
+
+  return (
+    <div
+      className="inline-unit-select"
+      onMouseDown={(e) => e.stopPropagation()}
+      aria-label={ariaLabel}
+      style={{ "--inline-unit-width": unitWidth }}
+    >
+      <Select
+        value={selectedOption}
+        onChange={(option) => onChange(option ? option.value : "")}
+        options={groupedUnitOptions}
+        filterOption={unitFilterOption}
+        placeholder="Unit"
+        className="react-select-container inline-unit-react-select"
+        classNamePrefix="react-select"
+        menuPortalTarget={document.body}
+        menuPosition="fixed"
+        styles={customUnitSelectStyles}
+      />
+    </div>
+  );
 };
 
 // Read/write a UUT/TMDE's tolerance for a specific range, matched by range id.
@@ -352,6 +440,7 @@ const EditableDescriptionCell = ({
   onChangeArea,
 }) => {
   const [local, setLocal] = useState({ make, model, name });
+  const [editing, setEditing] = useState(false);
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
   useEffect(() => {
@@ -382,7 +471,10 @@ const EditableDescriptionCell = ({
       setLocal((s) => ({ ...s, [field]: e.target.value }));
       setOpen(true);
     },
-    onFocus: () => setOpen(true),
+    onFocus: () => {
+      setEditing(true);
+      setOpen(true);
+    },
     // Read the live DOM value on blur (not closure state) so a commit is never
     // missed when focus moves in the same tick as the last keystroke.
     onBlur: (e) => {
@@ -390,7 +482,13 @@ const EditableDescriptionCell = ({
       const baseline = { make, model, name }[field] || "";
       if (next !== baseline) onCommit(field, next);
       // Delay so an onMouseDown pick on a dropdown row registers first.
-      setTimeout(() => setOpen(false), 150);
+      setTimeout(() => {
+        const root = anchorRef.current;
+        if (!root || !root.contains(document.activeElement)) {
+          setEditing(false);
+          setOpen(false);
+        }
+      }, 150);
     },
     onKeyDown: (e) => {
       if (e.key === "Enter") e.currentTarget.blur();
@@ -401,25 +499,43 @@ const EditableDescriptionCell = ({
   });
 
   const anchor = anchorRef.current?.getBoundingClientRect();
+  const combinedDescription =
+    [local.make, local.name, local.model].filter(Boolean).join(" ") ||
+    "Click to add description";
   return (
-    <div ref={anchorRef} style={{ position: "relative" }}>
-      <input
-        {...props("name")}
-        placeholder="Name / label"
-        style={{ ...inlineDescInputStyle, fontWeight: 600 }}
-      />
-      <div style={{ display: "flex", gap: "4px", marginTop: "2px" }}>
-        <input
-          {...props("make")}
-          placeholder="Make"
-          style={{ ...inlineDescInputStyle, fontSize: "0.8rem", color: "var(--text-color-muted)" }}
-        />
-        <input
-          {...props("model")}
-          placeholder="Model"
-          style={{ ...inlineDescInputStyle, fontSize: "0.8rem", color: "var(--text-color-muted)" }}
-        />
-      </div>
+    <div ref={anchorRef} className="inline-desc-cell">
+      {editing ? (
+        <div className="inline-desc-fields" onMouseDown={(e) => e.stopPropagation()}>
+          <label className="inline-desc-field">
+            <input {...props("make")} placeholder="MFG" className="inline-desc-subinput" />
+            <span>MFG</span>
+          </label>
+          <label className="inline-desc-field">
+            <input {...props("name")} placeholder="Make" className="inline-desc-subinput" />
+            <span>Make</span>
+          </label>
+          <label className="inline-desc-field">
+            <input {...props("model")} placeholder="Model" className="inline-desc-subinput" />
+            <span>Model</span>
+          </label>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className={`inline-desc-combined${combinedDescription === "Click to add description" ? " is-empty" : ""}`}
+          title="Edit manufacturer, model, and name"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => {
+            setEditing(true);
+            setOpen(true);
+            requestAnimationFrame(() => {
+              anchorRef.current?.querySelector("input")?.focus();
+            });
+          }}
+        >
+          {combinedDescription}
+        </button>
+      )}
 
       {onChangeArea && (
         <select
@@ -498,15 +614,22 @@ const EditableDescriptionCell = ({
   );
 };
 
-// Inline-editable Resolution cell: a numeric input (commit on blur) plus the
-// range unit as a read-only suffix.
-const ResolutionCellInput = ({ value = "", unit = "", onCommit }) => {
+// Inline-editable Resolution cell: numeric resolution plus an optional
+// resolution unit. If no specific resolution unit is stored, it falls back to
+// the active range unit.
+const ResolutionCellInput = ({
+  value = "",
+  unit = "",
+  fallbackUnit = "",
+  onCommit,
+  onCommitUnit,
+}) => {
   const [v, setV] = useState(() => toPlainNumber(value));
   useEffect(() => {
     setV(toPlainNumber(value));
   }, [value]);
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+    <span className="inline-resolution-editor">
       <input
         type="text"
         inputMode="decimal"
@@ -520,28 +643,19 @@ const ResolutionCellInput = ({ value = "", unit = "", onCommit }) => {
           if (e.key === "Enter") e.currentTarget.blur();
         }}
         onMouseDown={(e) => e.stopPropagation()}
-        style={{ ...inlineDescInputStyle, width: "70px" }}
+        className="inline-tolerance-input inline-resolution-input"
       />
-      {unit ? (
-        <span style={{ fontSize: "0.78rem", color: "var(--text-color-muted)" }}>
-          {getUnitDisplayLabel(unit)}
-        </span>
-      ) : null}
+      <UnitSelect
+        value={unit || fallbackUnit || ""}
+        ariaLabel="Resolution unit"
+        onChange={onCommitUnit}
+      />
     </span>
   );
 };
 
 // Inline range editor: editable min/max for the active range, with a compact
 // switcher when an instrument has more than one range.
-const rangeBoundStyle = {
-  width: "62px",
-  background: "transparent",
-  border: "1px solid var(--border-color)",
-  borderRadius: "4px",
-  padding: "2px 4px",
-  color: "var(--text-color)",
-  fontSize: "0.82rem",
-};
 const TOLERANCE_TYPE_OPTIONS = [
   { key: "reading", label: "% IV", title: "Percent of indicated value" },
   { key: "range", label: "% FS", title: "Percent of full scale" },
@@ -602,17 +716,21 @@ const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) =>
     symmetric: true,
   };
 };
-const componentMagnitude = (component = {}, typeKey = "") => {
-  if (component.high !== undefined && component.high !== null && component.high !== "") {
-    return toPlainNumber(component.high);
+const componentLimitMagnitude = (component = {}, side = "high", typeKey = "") => {
+  const raw = component?.[side];
+  if (raw !== undefined && raw !== null && raw !== "") {
+    return toPlainNumber(Math.abs(parseFloat(raw)));
+  }
+  if (side === "low" && component?.high !== undefined && component.high !== "") {
+    return toPlainNumber(Math.abs(parseFloat(component.high)));
   }
   if (
     typeKey !== "range" &&
-    component.value !== undefined &&
+    component?.value !== undefined &&
     component.value !== null &&
     component.value !== ""
   ) {
-    return toPlainNumber(component.value);
+    return toPlainNumber(Math.abs(parseFloat(component.value)));
   }
   return "";
 };
@@ -625,45 +743,47 @@ const componentUnitLabel = (typeKey, component = {}, activeRange = {}) => {
   if (typeKey === "db") return "dB";
   return "";
 };
+const toleranceInputStyleFor = (value, { minCh = 5, maxCh = 12 } = {}) => {
+  const length = String(value ?? "").trim().length || minCh;
+  const ch = Math.min(Math.max(length + 2, minCh), maxCh);
+  return {
+    width: `${ch}ch`,
+    flexBasis: `${ch}ch`,
+  };
+};
 
-const ToleranceTypeSelect = ({ value, onChange }) => (
-  <select
-    className="session-selector inline-tolerance-type"
-    value={value}
-    onChange={(e) => onChange(e.target.value)}
-    onMouseDown={(e) => e.stopPropagation()}
-  >
-    {TOLERANCE_TYPE_OPTIONS.map((opt) => (
-      <option key={opt.key} value={opt.key} title={opt.title}>
-        {opt.label}
-      </option>
-    ))}
-  </select>
-);
+const activeToleranceTypeKeys = (tolerance = {}) =>
+  TOLERANCE_TYPE_OPTIONS.filter((opt) =>
+    Object.prototype.hasOwnProperty.call(tolerance || {}, opt.key),
+  ).map((opt) => opt.key);
 
-const InlineToleranceCell = ({
+const ToleranceTermEditor = ({
   tolerance = {},
   activeRange = {},
   typeKey,
-  editable,
+  selectedType,
+  showHighSign = true,
+  onSelectType,
   onCommit,
 }) => {
   const component =
     getToleranceComponent(tolerance, typeKey) ||
     defaultToleranceComponent(typeKey, activeRange, tolerance);
-  const [value, setValue] = useState(() => componentMagnitude(component, typeKey));
+  const [highValue, setHighValue] = useState(() =>
+    componentLimitMagnitude(component, "high", typeKey),
+  );
+  const [lowValue, setLowValue] = useState(() =>
+    componentLimitMagnitude(component, "low", typeKey),
+  );
   const [fullScale, setFullScale] = useState(() =>
     toPlainNumber(component.value ?? activeRange?.max ?? ""),
   );
 
   useEffect(() => {
-    setValue(componentMagnitude(component, typeKey));
+    setHighValue(componentLimitMagnitude(component, "high", typeKey));
+    setLowValue(componentLimitMagnitude(component, "low", typeKey));
     setFullScale(toPlainNumber(component.value ?? activeRange?.max ?? ""));
   }, [typeKey, component.high, component.low, component.value, activeRange?.max]);
-
-  if (!editable) {
-    return <>{getSpecRows(tolerance)[0]}</>;
-  }
 
   const commit = (patch = {}) => {
     const next = {
@@ -673,14 +793,30 @@ const InlineToleranceCell = ({
     };
     onCommit(typeKey, next);
   };
-  const commitValue = (raw) => {
+  const commitLimit = (side, raw) => {
     const trimmed = String(raw ?? "").trim();
-    if (trimmed === componentMagnitude(component, typeKey)) return;
     const parsed = parseFloat(trimmed);
+    const next = {
+      high:
+        component.high ??
+        (highValue === "" ? "" : String(Math.abs(parseFloat(highValue)))),
+      low:
+        component.low ??
+        (lowValue === "" ? "" : String(-Math.abs(parseFloat(lowValue)))),
+    };
+    if (side === "high") {
+      next.high = trimmed === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
+    } else {
+      next.low = trimmed === "" || Number.isNaN(parsed) ? "" : String(-Math.abs(parsed));
+    }
+    const high = parseFloat(next.high);
+    const low = parseFloat(next.low);
     commit({
-      high: trimmed,
-      low: trimmed === "" || Number.isNaN(parsed) ? "" : String(-Math.abs(parsed)),
-      symmetric: true,
+      ...next,
+      symmetric:
+        !Number.isNaN(high) &&
+        !Number.isNaN(low) &&
+        Math.abs(high + low) < 1e-9,
     });
   };
   const commitFullScale = (raw) => {
@@ -688,26 +824,50 @@ const InlineToleranceCell = ({
     if (trimmed === String(component.value ?? activeRange?.max ?? "")) return;
     commit({ value: trimmed });
   };
+  const typeLabel = componentUnitLabel(typeKey, component, activeRange);
+  const typeOption = TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === typeKey);
 
   return (
-    <div className="inline-tolerance-editor" onMouseDown={(e) => e.stopPropagation()}>
-      <span className="inline-tolerance-symbol">±</span>
-      <input
-        type="text"
-        inputMode="decimal"
-        value={value}
-        placeholder="0"
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={(e) => commitValue(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-        className="inline-tolerance-input"
-      />
-      <span className="inline-tolerance-unit">
-        {componentUnitLabel(typeKey, component, activeRange)}
+    <span className="inline-tolerance-term">
+      <span className="inline-tolerance-limits">
+        {showHighSign && <span className="inline-tolerance-symbol">+</span>}
+        <input
+          type="text"
+          inputMode="decimal"
+          value={highValue}
+          placeholder="0"
+          onChange={(e) => setHighValue(e.target.value)}
+          onBlur={(e) => commitLimit("high", e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          className="inline-tolerance-input"
+          style={toleranceInputStyleFor(highValue)}
+        />
+        <span className="inline-tolerance-symbol">-</span>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={lowValue}
+          placeholder="0"
+          onChange={(e) => setLowValue(e.target.value)}
+          onBlur={(e) => commitLimit("low", e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          className="inline-tolerance-input"
+          style={toleranceInputStyleFor(lowValue)}
+        />
       </span>
+      {typeLabel && (
+        <button
+          type="button"
+          className={`inline-tolerance-chip inline-tolerance-chip--in-cell${typeKey === selectedType ? " is-active" : ""}`}
+          title={`Select ${typeOption?.label || typeLabel} tolerance term`}
+          onClick={() => onSelectType?.(typeKey)}
+        >
+          {typeLabel}
+        </button>
+      )}
       {typeKey === "range" && (
         <span className="inline-tolerance-fs">
-          <span>FS</span>
+          <span>(FS=</span>
           <input
             type="text"
             inputMode="decimal"
@@ -717,9 +877,52 @@ const InlineToleranceCell = ({
             onBlur={(e) => commitFullScale(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
             className="inline-tolerance-input inline-tolerance-input--fs"
+            style={toleranceInputStyleFor(fullScale, { minCh: 6, maxCh: 14 })}
           />
+          <span>{getUnitDisplayLabel(activeRange?.unit || "")}</span>
+          <span>)</span>
         </span>
       )}
+    </span>
+  );
+};
+
+const InlineToleranceCell = ({
+  tolerance = {},
+  activeRange = {},
+  typeKey,
+  selectedType,
+  editable,
+  onSelectType,
+  onCommit,
+}) => {
+  if (!editable) {
+    return <>{getSpecRows(tolerance)[0]}</>;
+  }
+
+  const activeKeys = activeToleranceTypeKeys(tolerance);
+  const visibleKeys = activeKeys.length > 0 ? activeKeys : [typeKey];
+
+  return (
+    <div className="inline-tolerance-editor" onMouseDown={(e) => e.stopPropagation()}>
+      {visibleKeys.map((key, index) => (
+        <span
+          key={key}
+          className={`inline-tolerance-term-group${key === selectedType ? " is-active" : ""}`}
+          onMouseDown={() => onSelectType?.(key)}
+        >
+          {index > 0 && <span className="inline-tolerance-plus">+</span>}
+          <ToleranceTermEditor
+            tolerance={tolerance}
+            activeRange={activeRange}
+            typeKey={key}
+            selectedType={selectedType}
+            showHighSign={index === 0}
+            onSelectType={onSelectType}
+            onCommit={onCommit}
+          />
+        </span>
+      ))}
     </div>
   );
 };
@@ -730,6 +933,7 @@ const RangeCell = ({
   editable,
   onSelect,
   onEditBound,
+  onEditUnit,
 }) => {
   if (!editable) {
     return (
@@ -746,7 +950,7 @@ const RangeCell = ({
       </select>
     );
   }
-  const unit = activeRange.unit;
+  const unit = activeRange.unit || "";
   return (
     <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
       <div className="inline-range-main">
@@ -758,7 +962,7 @@ const RangeCell = ({
           placeholder="min"
           onBlur={(e) => onEditBound("min", e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-          style={rangeBoundStyle}
+          className="inline-tolerance-input inline-range-bound-input"
         />
         <span style={{ color: "var(--text-color-muted)" }}>–</span>
         <input
@@ -769,13 +973,13 @@ const RangeCell = ({
           placeholder="max"
           onBlur={(e) => onEditBound("max", e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-          style={rangeBoundStyle}
+          className="inline-tolerance-input inline-range-bound-input"
         />
-        {unit ? (
-          <span style={{ fontSize: "0.78rem", color: "var(--text-color-muted)" }}>
-            {getUnitDisplayLabel(unit)}
-          </span>
-        ) : null}
+        <UnitSelect
+          value={unit}
+          ariaLabel="Range unit"
+          onChange={(value) => onEditUnit(value)}
+        />
         {ranges.length > 1 && (
           <span className="inline-range-select-shell" title="Switch range">
             <select
@@ -809,14 +1013,15 @@ const SymbolButton = ({ symbol, title, onSymbolClick }) => (
   </button>
 );
 
+const isInlineRowControlTarget = (target) =>
+  target.closest(
+    "input, select, textarea, button, .inline-desc-search, .inline-range-editor, .inline-tolerance-editor",
+  );
+
 const handleRowSelection = (e, id, setSelected) => {
   // Let inline editors handle their own clicks; only bare row areas toggle
   // selection (so the user can still select an instrument to copy/cut/delete).
-  if (
-    e.target.closest(
-      "input, select, textarea, button, .cell-tolerance, .inline-desc-search, .inline-range-editor, .inline-tolerance-editor",
-    )
-  ) {
+  if (isInlineRowControlTarget(e.target)) {
     return;
   }
   setSelected((prev) =>
@@ -938,7 +1143,7 @@ const formatResolutionLabel = (range = {}) => {
   }
 
   const unit =
-    range?.unit || range?.resolutionUnit || range?.measuringResolutionUnit || "";
+    range?.resolutionUnit || range?.measuringResolutionUnit || range?.unit || "";
   const unitLabel = getUnitDisplayLabel(unit);
   return `${resolution}${unitLabel ? ` ${unitLabel}` : ""}`;
 };
@@ -966,7 +1171,7 @@ const resolveUutRangeHelper = (
         ...r,
         ...(r.tolerances || {}),
         functionName: fn.name,
-        unit: fn.unit || r.unit,
+        unit: r.unit || fn.unit,
       })),
     );
   } else if (
@@ -1620,6 +1825,8 @@ const SummaryDashboard = ({
 }) => {
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
   const [toleranceTypes, setToleranceTypes] = useState({});
+  const [selectedToleranceKey, setSelectedToleranceKey] = useState(null);
+  const [openToleranceAddMenu, setOpenToleranceAddMenu] = useState(null);
 
   // Recolor a measurement area inline from its subsection header (replaces the
   // old per-instrument color picker). Writes straight to the session's area
@@ -1964,6 +2171,14 @@ const SummaryDashboard = ({
   const setSelectedToleranceType = (kind, item, activeRange, typeKey) => {
     const key = toleranceTypeKey(kind, item, activeRange?.id);
     setToleranceTypes((prev) => ({ ...prev, [key]: typeKey }));
+    setSelectedToleranceKey(key);
+    if (kind === "uut") {
+      setSelectedUutIds([item.id]);
+      setSelectedTmdeIds([]);
+    } else {
+      setSelectedTmdeIds([item.id]);
+      setSelectedUutIds([]);
+    }
     const cur = getItemRangeTolerance(item, activeRange?.id) || {};
     if (!cur[typeKey]) {
       const updatedItem = applyItemRangeTolerance(item, activeRange?.id, {
@@ -1975,16 +2190,17 @@ const SummaryDashboard = ({
   };
   const setRangeToleranceComponent = (kind, item, activeRange, typeKey, component) => {
     if (!onSessionSave) return;
+    setSelectedToleranceKey(toleranceTypeKey(kind, item, activeRange?.id));
     const cur = getItemRangeTolerance(item, activeRange?.id) || {};
     const next = { ...cur, [typeKey]: component };
     const updatedItem = applyItemRangeTolerance(item, activeRange?.id, next);
     persistInlineItem(kind, updatedItem);
   };
 
-  // --- Inline "add blank row to area" (the per-area (+)) ---
+  // --- Inline "add blank row to area" ---
   // Creates an empty UUT/TMDE already scoped to the clicked area, so the user
-  // fills it in directly in the table (no modal). Library search + load/sync
-  // prompts layer on top of this in a later slice.
+  // fills it in directly in the table. Fresh inline rows are pinned above the
+  // grouped area sections so the user immediately sees where the new row landed.
   const handleAddUutToArea = (area) => {
     if (!onSessionSave) return;
     const newUut = {
@@ -2002,7 +2218,12 @@ const SummaryDashboard = ({
         functions: [],
       },
     };
-    onSessionSave({ ...sessionData, uuts: [...(sessionData.uuts || []), newUut] });
+    setPinnedInlineUutIds((prev) => [
+      newUut.id,
+      ...prev.filter((id) => id !== newUut.id),
+    ]);
+    setSelectedUutIds([newUut.id]);
+    onSessionSave({ ...sessionData, uuts: [newUut, ...(sessionData.uuts || [])] });
   };
   const handleAddTmdeToArea = (area) => {
     if (!onSessionSave) return;
@@ -2025,13 +2246,28 @@ const SummaryDashboard = ({
         measurementAreaColor: area.color,
       },
     };
-    onSessionSave({ ...sessionData, tmdes: [...(sessionData.tmdes || []), newTmde] });
+    setPinnedInlineTmdeIds((prev) => [
+      newTmde.id,
+      ...prev.filter((id) => id !== newTmde.id),
+    ]);
+    setSelectedTmdeIds([newTmde.id]);
+    onSessionSave({ ...sessionData, tmdes: [newTmde, ...(sessionData.tmdes || [])] });
   };
 
   // Inline edit of the range's measuring resolution (the Resolution column).
   const setRangeResolution = (kind, item, rangeId, value) => {
     if (!onSessionSave) return;
     const updatedItem = applyItemRangePatch(item, rangeId, { resolution: value });
+    persistInlineItem(kind, updatedItem);
+  };
+  const setRangeResolutionUnit = (kind, item, rangeId, value) => {
+    if (!onSessionSave) return;
+    const updatedItem = applyItemRangePatch(item, rangeId, { resolutionUnit: value });
+    persistInlineItem(kind, updatedItem);
+  };
+  const setRangeUnit = (kind, item, rangeId, value) => {
+    if (!onSessionSave) return;
+    const updatedItem = applyItemRangePatch(item, rangeId, { unit: value });
     persistInlineItem(kind, updatedItem);
   };
 
@@ -2132,6 +2368,8 @@ const SummaryDashboard = ({
 
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
+  const [pinnedInlineUutIds, setPinnedInlineUutIds] = useState([]);
+  const [pinnedInlineTmdeIds, setPinnedInlineTmdeIds] = useState([]);
 
   const getSelectedRangeTarget = (kind) => {
     const ids = kind === "uut" ? selectedUutIds : selectedTmdeIds;
@@ -2202,6 +2440,130 @@ const SummaryDashboard = ({
         >
           <FontAwesomeIcon icon={faTrashAlt} size="xs" />
         </button>
+      </span>
+    );
+  };
+
+  const getSelectedToleranceTarget = (kind) => {
+    const target = getSelectedRangeTarget(kind);
+    if (!target) return null;
+    const tolerance =
+      getItemRangeTolerance(target.item, target.activeRange?.id) ||
+      target.activeRange ||
+      {};
+    const key = toleranceTypeKey(kind, target.item, target.activeRange?.id);
+    const selectedType = getSelectedToleranceType(kind, target.item, target.activeRange);
+    const configuredTypes = activeToleranceTypeKeys(tolerance);
+    const missingTypes = TOLERANCE_TYPE_OPTIONS.filter(
+      (opt) => !configuredTypes.includes(opt.key),
+    );
+    return {
+      ...target,
+      key,
+      tolerance,
+      selectedType,
+      configuredTypes,
+      missingTypes,
+      hasSelectedTolerance: selectedToleranceKey === key,
+    };
+  };
+
+  const handleAddSelectedToleranceType = (kind, typeKey) => {
+    const target = getSelectedToleranceTarget(kind);
+    if (!target || !typeKey) return;
+    const next = {
+      ...target.tolerance,
+      [typeKey]:
+        target.tolerance[typeKey] ||
+        defaultToleranceComponent(typeKey, target.activeRange, target.tolerance),
+    };
+    const updatedItem = applyItemRangeTolerance(
+      target.item,
+      target.activeRange?.id,
+      next,
+    );
+    persistInlineItem(kind, updatedItem);
+    setToleranceTypes((prev) => ({
+      ...prev,
+      [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: typeKey,
+    }));
+    setSelectedToleranceKey(target.key);
+    setOpenToleranceAddMenu(null);
+  };
+
+  const handleRemoveSelectedToleranceType = (kind) => {
+    const target = getSelectedToleranceTarget(kind);
+    if (!target || !target.hasSelectedTolerance || !target.tolerance[target.selectedType]) {
+      return;
+    }
+    const next = { ...target.tolerance };
+    delete next[target.selectedType];
+    const remaining = activeToleranceTypeKeys(next);
+    const nextSelected = remaining[0] || "reading";
+    const updatedItem = applyItemRangeTolerance(
+      target.item,
+      target.activeRange?.id,
+      next,
+    );
+    persistInlineItem(kind, updatedItem);
+    setToleranceTypes((prev) => ({
+      ...prev,
+      [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: nextSelected,
+    }));
+    setSelectedToleranceKey(null);
+  };
+
+  const renderToleranceHeaderActions = (kind) => {
+    if (!onSessionSave) return null;
+
+    const target = getSelectedToleranceTarget(kind);
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    const canAdd = Boolean(target && target.missingTypes.length > 0);
+    const canRemove = Boolean(
+      target && target.hasSelectedTolerance && target.tolerance[target.selectedType],
+    );
+    const menuOpen = openToleranceAddMenu === kind;
+
+    return (
+      <span className="range-header-actions tolerance-header-actions" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className="range-header-action-btn range-header-action-btn--add"
+          title={canAdd ? `Add tolerance term to selected ${label}` : `Select one ${label} with an available tolerance type`}
+          aria-label={`Add tolerance term to selected ${label}`}
+          disabled={!canAdd}
+          onClick={() => setOpenToleranceAddMenu((prev) => (prev === kind ? null : kind))}
+        >
+          <FontAwesomeIcon icon={faPlus} size="xs" />
+        </button>
+        <button
+          type="button"
+          className="range-header-action-btn range-header-action-btn--delete"
+          title={
+            canRemove
+              ? `Remove selected ${TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === target.selectedType)?.label || "tolerance"} term`
+              : `Select a configured tolerance term to remove`
+          }
+          aria-label={`Remove selected tolerance term from selected ${label}`}
+          disabled={!canRemove}
+          onClick={() => handleRemoveSelectedToleranceType(kind)}
+        >
+          <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+        </button>
+        {menuOpen && target && (
+          <div className="tolerance-add-menu">
+            {target.missingTypes.map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                className="tolerance-add-menu-item"
+                onClick={() => handleAddSelectedToleranceType(kind, opt.key)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
       </span>
     );
   };
@@ -2377,9 +2739,22 @@ const SummaryDashboard = ({
   );
 
   const getGroupedInstrumentRows = useCallback(
-    (items = [], source = "session") => {
+    (items = [], source = "session", pinnedIds = []) => {
+      const pinnedSet = new Set(pinnedIds);
+      const pinnedRows = [];
+      const groupedItems = [];
+
+      items.forEach((item, index) => {
+        const row = { type: "item", item, index };
+        if (pinnedSet.has(item.id)) {
+          pinnedRows.push(row);
+        } else {
+          groupedItems.push(row);
+        }
+      });
+
       if (!showAreaColumn) {
-        return items.map((item, index) => ({ type: "item", item, index }));
+        return [...pinnedRows, ...groupedItems];
       }
 
       const areaOrder = new Map(
@@ -2390,8 +2765,8 @@ const SummaryDashboard = ({
       );
       const groups = new Map();
 
-      items.forEach((item, index) => {
-        const area = getInstrumentArea(item, source);
+      groupedItems.forEach((row) => {
+        const area = getInstrumentArea(row.item, source);
         const key = area.id || area.name || "unassigned";
         if (!groups.has(key)) {
           groups.set(key, {
@@ -2403,10 +2778,10 @@ const SummaryDashboard = ({
             items: [],
           });
         }
-        groups.get(key).items.push({ type: "item", item, index });
+        groups.get(key).items.push(row);
       });
 
-      return Array.from(groups.values())
+      const groupedRows = Array.from(groups.values())
         .sort((a, b) => {
           if (a.order !== b.order) return a.order - b.order;
           if (a.area.name === "Unassigned") return 1;
@@ -2429,6 +2804,8 @@ const SummaryDashboard = ({
             return aLabel.localeCompare(bLabel);
           }),
         ]);
+
+      return [...pinnedRows, ...groupedRows];
     },
     [
       getInstrumentArea,
@@ -2441,10 +2818,18 @@ const SummaryDashboard = ({
 
   // Selection Handlers (Wrapped)
   // Selection Handlers (Wrapped)
-  const handleUutClick = (e, id) =>
+  const handleUutClick = (e, id) => {
+    if (!isInlineRowControlTarget(e.target)) {
+      setSelectedToleranceKey(null);
+    }
     handleRowSelection(e, id, setSelectedUutIds);
-  const handleTmdeClick = (e, id) =>
+  };
+  const handleTmdeClick = (e, id) => {
+    if (!isInlineRowControlTarget(e.target)) {
+      setSelectedToleranceKey(null);
+    }
     handleRowSelection(e, id, setSelectedTmdeIds);
+  };
 
   // NEW: Batch Delete for UUTs
   const handleDeleteSelectedUuts = useCallback(() => {
@@ -2563,13 +2948,12 @@ const SummaryDashboard = ({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "24%" }} />
-              <col style={{ width: "23%" }} />
-              <col style={{ width: "14%" }} />
-              <col style={{ width: "9%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "29%" }} />
+              <col style={{ width: "11%" }} />
               <col style={{ width: "12%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: "8%" }} />
+              <col style={{ width: "6%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -2580,8 +2964,12 @@ const SummaryDashboard = ({
                     {renderRangeHeaderActions("uut")}
                   </span>
                 </th>
-                <th>Tolerance</th>
-                <th>Type</th>
+                <th>
+                  <span className="range-header-cell">
+                    <span>Tolerance</span>
+                    {renderToleranceHeaderActions("uut")}
+                  </span>
+                </th>
                 <th>Distribution</th>
                 <th>Resolution</th>
                 <th>Sync</th>
@@ -2590,19 +2978,19 @@ const SummaryDashboard = ({
             <tbody>
               {filteredUuts.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={7}>
+                  <td colSpan={6}>
                     No UUTs found in this context.
                   </td>
                 </tr>
               ) : (
-                getGroupedInstrumentRows(filteredUuts).map((row) => {
+                getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds).map((row) => {
                   if (row.type === "area") {
                     return (
                       <tr
                         key={`uut-area-${row.area.id || row.area.name}`}
                         className="instrument-area-section-row"
                       >
-                        <td colSpan={7}>
+                        <td colSpan={6}>
                           {renderAreaColorSwatch(row.area)}
                           <span style={{ color: row.area.color }}>
                             {row.area.name}
@@ -2733,6 +3121,9 @@ const SummaryDashboard = ({
                             onEditBound={(field, value) =>
                               handleEditRangeBound("uut", uut, activeRange?.id, field, value)
                             }
+                            onEditUnit={(value) =>
+                              setRangeUnit("uut", uut, activeRange?.id, value)
+                            }
                           />
                         </td>
                         <td
@@ -2747,7 +3138,16 @@ const SummaryDashboard = ({
                               tolerance={activeTolerance}
                               activeRange={activeRange}
                               typeKey={selectedToleranceType}
+                              selectedType={
+                                selectedToleranceKey ===
+                                toleranceTypeKey("uut", uut, activeRange?.id)
+                                  ? selectedToleranceType
+                                  : null
+                              }
                               editable={!!onSessionSave}
+                              onSelectType={(typeKey) =>
+                                setSelectedToleranceType("uut", uut, activeRange, typeKey)
+                              }
                               onCommit={(typeKey, component) =>
                                 setRangeToleranceComponent(
                                   "uut",
@@ -2760,23 +3160,6 @@ const SummaryDashboard = ({
                             />
                           ) : (
                             specRows[0]
-                          )}
-                        </td>
-                        <td
-                          rowSpan={rowSpan}
-                          className="cell-tolerance-type"
-                          title="Tolerance type"
-                          style={{ verticalAlign: "top" }}
-                        >
-                          {onSessionSave ? (
-                            <ToleranceTypeSelect
-                              value={selectedToleranceType}
-                              onChange={(typeKey) =>
-                                setSelectedToleranceType("uut", uut, activeRange, typeKey)
-                              }
-                            />
-                          ) : (
-                            selectedToleranceType
                           )}
                         </td>
                         <td
@@ -2814,9 +3197,13 @@ const SummaryDashboard = ({
                           {onSessionSave ? (
                             <ResolutionCellInput
                               value={activeRange?.resolution ?? activeRange?.measuringResolution}
-                              unit={activeRange?.unit}
+                              unit={activeRange?.resolutionUnit ?? activeRange?.measuringResolutionUnit}
+                              fallbackUnit={activeRange?.unit}
                               onCommit={(v) =>
                                 setRangeResolution("uut", uut, activeRange?.id, v)
+                              }
+                              onCommitUnit={(value) =>
+                                setRangeResolutionUnit("uut", uut, activeRange?.id, value)
                               }
                             />
                           ) : (
@@ -2902,13 +3289,12 @@ const SummaryDashboard = ({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "24%" }} />
-              <col style={{ width: "23%" }} />
-              <col style={{ width: "14%" }} />
-              <col style={{ width: "9%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "29%" }} />
+              <col style={{ width: "11%" }} />
               <col style={{ width: "12%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: "8%" }} />
+              <col style={{ width: "6%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -2919,8 +3305,12 @@ const SummaryDashboard = ({
                     {renderRangeHeaderActions("tmde")}
                   </span>
                 </th>
-                <th>Error Limit</th>
-                <th>Type</th>
+                <th>
+                  <span className="range-header-cell">
+                    <span>Error Limit</span>
+                    {renderToleranceHeaderActions("tmde")}
+                  </span>
+                </th>
                 <th>Distribution</th>
                 <th>Resolution</th>
                 <th>Sync</th>
@@ -2929,17 +3319,17 @@ const SummaryDashboard = ({
             <tbody>
               {filteredTmdes.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={7}>No TMDEs found in session.</td>
+                  <td colSpan={6}>No TMDEs found in session.</td>
                 </tr>
               ) : (
-                getGroupedInstrumentRows(filteredTmdes, "instrument").map((row) => {
+                getGroupedInstrumentRows(filteredTmdes, "instrument", pinnedInlineTmdeIds).map((row) => {
                   if (row.type === "area") {
                     return (
                       <tr
                         key={`tmde-area-${row.area.id || row.area.name}`}
                         className="instrument-area-section-row"
                       >
-                        <td colSpan={7}>
+                        <td colSpan={6}>
                           {renderAreaColorSwatch(row.area)}
                           <span style={{ color: row.area.color }}>
                             {row.area.name}
@@ -3059,6 +3449,9 @@ const SummaryDashboard = ({
                             onEditBound={(field, value) =>
                               handleEditRangeBound("tmde", tmde, activeRange?.id, field, value)
                             }
+                            onEditUnit={(value) =>
+                              setRangeUnit("tmde", tmde, activeRange?.id, value)
+                            }
                           />
                         </td>
                         <td
@@ -3073,7 +3466,16 @@ const SummaryDashboard = ({
                               tolerance={activeTolerance}
                               activeRange={activeRange}
                               typeKey={selectedToleranceType}
+                              selectedType={
+                                selectedToleranceKey ===
+                                toleranceTypeKey("tmde", tmde, activeRange?.id)
+                                  ? selectedToleranceType
+                                  : null
+                              }
                               editable={!!onSessionSave}
+                              onSelectType={(typeKey) =>
+                                setSelectedToleranceType("tmde", tmde, activeRange, typeKey)
+                              }
                               onCommit={(typeKey, component) =>
                                 setRangeToleranceComponent(
                                   "tmde",
@@ -3086,23 +3488,6 @@ const SummaryDashboard = ({
                             />
                           ) : (
                             specRows[0]
-                          )}
-                        </td>
-                        <td
-                          rowSpan={rowSpan}
-                          className="cell-tolerance-type"
-                          title="Error-limit type"
-                          style={{ verticalAlign: "top" }}
-                        >
-                          {onSessionSave ? (
-                            <ToleranceTypeSelect
-                              value={selectedToleranceType}
-                              onChange={(typeKey) =>
-                                setSelectedToleranceType("tmde", tmde, activeRange, typeKey)
-                              }
-                            />
-                          ) : (
-                            selectedToleranceType
                           )}
                         </td>
                         <td
@@ -3140,9 +3525,13 @@ const SummaryDashboard = ({
                           {onSessionSave ? (
                             <ResolutionCellInput
                               value={activeRange?.resolution ?? activeRange?.measuringResolution}
-                              unit={activeRange?.unit}
+                              unit={activeRange?.resolutionUnit ?? activeRange?.measuringResolutionUnit}
+                              fallbackUnit={activeRange?.unit}
                               onCommit={(v) =>
                                 setRangeResolution("tmde", tmde, activeRange?.id, v)
+                              }
+                              onCommitUnit={(value) =>
+                                setRangeResolutionUnit("tmde", tmde, activeRange?.id, value)
                               }
                             />
                           ) : (
