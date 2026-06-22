@@ -3582,6 +3582,8 @@ const SummaryDashboard = ({
 function DetailedView({
   testPointData,
   sessionData,
+  onSessionSave,
+  instruments = [],
   calcResults,
   calculationError,
   uutNominal,
@@ -3641,6 +3643,71 @@ function DetailedView({
     colIndex: null,
   });
   const [hoveredRowId, setHoveredRowId] = useState(null);
+
+  // --- Inline UUT description editing in the detail view (parity with the
+  // Session Overview). Edits the SESSION uut/instrument via onSessionSave, same
+  // as SummaryDashboard. name -> uut.description; make/model -> nested instrument.
+  const handleDetailUutDescEdit = (uutId, field, value) => {
+    if (!onSessionSave) return;
+    const updatedUuts = (sessionData.uuts || []).map((u) => {
+      if (u.id !== uutId) return u;
+      if (field === "name") return { ...u, description: value };
+      const key = field === "make" ? "manufacturer" : "model";
+      return { ...u, instrument: { ...(u.instrument || {}), [key]: value } };
+    });
+    onSessionSave({ ...sessionData, uuts: updatedUuts });
+  };
+
+  // --- Inline range/tolerance/resolution editing in the detail view (parity
+  // with the Session Overview). All edits persist the whole session via
+  // onSessionSave, mirroring SummaryDashboard's persistInlineItem but without the
+  // library auto-save side effect (that lives on the overview).
+  const persistInlineItemDetail = (kind, updatedItem) => {
+    if (!onSessionSave) return;
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    onSessionSave({
+      ...sessionData,
+      [listKey]: (sessionData[listKey] || []).map((it) =>
+        it.id === updatedItem.id ? updatedItem : it,
+      ),
+    });
+  };
+  const handleEditRangeBoundDetail = (kind, item, rangeId, field, value) =>
+    persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, { [field]: value }));
+  const setRangeUnitDetail = (kind, item, rangeId, value) =>
+    persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, { unit: value }));
+  const setRangeResolutionDetail = (kind, item, rangeId, value) =>
+    persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, { resolution: value }));
+  const setRangeResolutionUnitDetail = (kind, item, rangeId, value) =>
+    persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, { resolutionUnit: value }));
+  // Which tolerance term is currently being edited (for highlight) — keyed by
+  // item + range so the active sub-term survives a re-render.
+  const [selectedDetailTol, setSelectedDetailTol] = useState(null);
+  const detailTolKey = (kind, item, rangeId) =>
+    `${kind}:${item?.id || ""}:${rangeId || "default"}`;
+  const setDetailTolType = (kind, item, activeRange, typeKey) => {
+    if (!onSessionSave) return;
+    setSelectedDetailTol({ key: detailTolKey(kind, item, activeRange?.id), typeKey });
+    const cur = getItemRangeTolerance(item, activeRange?.id) || {};
+    if (!cur[typeKey]) {
+      persistInlineItemDetail(
+        kind,
+        applyItemRangeTolerance(item, activeRange?.id, {
+          ...cur,
+          [typeKey]: defaultToleranceComponent(typeKey, activeRange, cur),
+        }),
+      );
+    }
+  };
+  const setDetailTolComponent = (kind, item, activeRange, typeKey, component) => {
+    if (!onSessionSave) return;
+    setSelectedDetailTol({ key: detailTolKey(kind, item, activeRange?.id), typeKey });
+    const cur = getItemRangeTolerance(item, activeRange?.id) || {};
+    persistInlineItemDetail(
+      kind,
+      applyItemRangeTolerance(item, activeRange?.id, { ...cur, [typeKey]: component }),
+    );
+  };
 
   const equationInputRef = useRef(null);
   const symbolMenuRef = useRef(null);
@@ -5037,7 +5104,18 @@ function DetailedView({
                           }}
                         >
                           <div className="uut-description-content">
-                            <span>{uut.description}</span>
+                            {onSessionSave ? (
+                              <EditableDescriptionCell
+                                name={uut.description}
+                                make={uut.instrument?.manufacturer}
+                                model={uut.instrument?.model}
+                                onCommit={(field, value) =>
+                                  handleDetailUutDescEdit(uut.id, field, value)
+                                }
+                              />
+                            ) : (
+                              <span>{uut.description}</span>
+                            )}
                             {isActivePointUut && (
                               <span className="active-uut-badge">
                                 Active UUT
@@ -5053,29 +5131,28 @@ function DetailedView({
                             setHoveredCell({ tableId: "uut_det", colIndex: 1 })
                           }
                           onClick={(e) => e.stopPropagation()}
+                          style={{ verticalAlign: "top" }}
                         >
-                          <select
-                            className="session-selector"
-                            value={activeIndex}
-                            onChange={(e) =>
+                          <RangeCell
+                            ranges={ranges}
+                            activeIndex={activeIndex}
+                            activeRange={activeRange}
+                            editable={!!onSessionSave}
+                            onSelect={(idx) =>
                               handleRangeChange(
                                 uut.id,
-                                parseInt(e.target.value),
+                                idx,
                                 ranges,
                                 isActivePointUut,
                               )
                             }
-                          >
-                            {ranges.map((range, idx) => {
-                              return (
-                                <option key={idx} value={idx}>
-                                  {formatRangeLabel(range, {
-                                    preferBounds: true,
-                                  })}
-                                </option>
-                              );
-                            })}
-                          </select>
+                            onEditBound={(field, value) =>
+                              handleEditRangeBoundDetail("uut", uut, activeRange?.id, field, value)
+                            }
+                            onEditUnit={(value) =>
+                              setRangeUnitDetail("uut", uut, activeRange?.id, value)
+                            }
+                          />
                         </td>
 
                         <td
@@ -5083,9 +5160,45 @@ function DetailedView({
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut_det", colIndex: 2 })
                           }
+                          onClick={(e) => e.stopPropagation()}
                           title={specRows[0]}
                         >
-                          {specRows[0]}
+                          {onSessionSave ? (
+                            <InlineToleranceCell
+                              tolerance={
+                                getItemRangeTolerance(uut, activeRange?.id) ||
+                                activeRange ||
+                                {}
+                              }
+                              activeRange={activeRange}
+                              typeKey={firstToleranceType(
+                                getItemRangeTolerance(uut, activeRange?.id) ||
+                                  activeRange ||
+                                  {},
+                              )}
+                              selectedType={
+                                selectedDetailTol?.key ===
+                                detailTolKey("uut", uut, activeRange?.id)
+                                  ? selectedDetailTol.typeKey
+                                  : null
+                              }
+                              editable={!!onSessionSave}
+                              onSelectType={(typeKey) =>
+                                setDetailTolType("uut", uut, activeRange, typeKey)
+                              }
+                              onCommit={(typeKey, component) =>
+                                setDetailTolComponent(
+                                  "uut",
+                                  uut,
+                                  activeRange,
+                                  typeKey,
+                                  component,
+                                )
+                              }
+                            />
+                          ) : (
+                            specRows[0]
+                          )}
                         </td>
                         <td
                           rowSpan={rowSpan}
@@ -5093,9 +5206,24 @@ function DetailedView({
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut_det", colIndex: 3 })
                           }
+                          onClick={(e) => e.stopPropagation()}
                           title={formatResolutionLabel(activeRange)}
                         >
-                          {formatResolutionLabel(activeRange)}
+                          {onSessionSave ? (
+                            <ResolutionCellInput
+                              value={activeRange?.resolution ?? activeRange?.measuringResolution}
+                              unit={activeRange?.resolutionUnit ?? activeRange?.measuringResolutionUnit}
+                              fallbackUnit={activeRange?.unit}
+                              onCommit={(v) =>
+                                setRangeResolutionDetail("uut", uut, activeRange?.id, v)
+                              }
+                              onCommitUnit={(value) =>
+                                setRangeResolutionUnitDetail("uut", uut, activeRange?.id, value)
+                              }
+                            />
+                          ) : (
+                            formatResolutionLabel(activeRange)
+                          )}
                         </td>
                       </tr>
 

@@ -810,6 +810,8 @@ function Analysis({
                 tmdeTolerancesData={tmdeTolerancesData}
                 riskResults={riskResults}
                 onSaveInstrument={onSaveInstrument}
+                onSessionSave={onSessionSave}
+                instruments={instruments}
                 // UI State
                 showContribution={showContribution}
                 setShowContribution={setShowContribution}
