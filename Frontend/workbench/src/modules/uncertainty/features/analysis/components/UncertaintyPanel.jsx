@@ -3986,6 +3986,16 @@ function DetailedView({
       kind,
       applyItemRangePatch(item, rangeId, { resolutionUnit: value }),
     );
+  // Spec-band distribution (the Distribution column) — writes the divisor back to
+  // the same range tolerance the tolerance editor owns.
+  const setRangeBandDistributionDetail = (kind, item, rangeId, value) => {
+    if (!onSessionSave) return;
+    const cur = getItemRangeTolerance(item, rangeId) || {};
+    persistInlineItemDetail(
+      kind,
+      applyItemRangeTolerance(item, rangeId, applyBandDistribution(cur, value)),
+    );
+  };
   const handleAddRangeDetail = (kind, item, activeRangeId, currentCount) => {
     if (!onSessionSave) return;
     const { item: updated } = addRangeToItem(item, activeRangeId);
@@ -5623,11 +5633,12 @@ function DetailedView({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "30%" }} />
               <col style={{ width: "26%" }} />
               <col style={{ width: "22%" }} />
+              <col style={{ width: "20%" }} />
               <col style={{ width: "12%" }} />
-              <col style={{ width: "10%" }} />
+              <col style={{ width: "12%" }} />
+              <col style={{ width: "8%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -5644,6 +5655,7 @@ function DetailedView({
                     {renderToleranceHeaderActionsDetail("uut")}
                   </span>
                 </th>
+                <th>Distribution</th>
                 <th>Resolution</th>
                 <th>Sync</th>
               </tr>
@@ -5651,7 +5663,7 @@ function DetailedView({
             <tbody>
               {relevantUuts.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan="5">No associated UUTs found.</td>
+                  <td colSpan="6">No associated UUTs found.</td>
                 </tr>
               ) : (
                 relevantUuts.map((uut) => {
@@ -5821,6 +5833,46 @@ function DetailedView({
                         </td>
                         <td
                           rowSpan={rowSpan}
+                          className="cell-distribution"
+                          title="Spec band distribution"
+                          style={{ verticalAlign: "top" }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {onSessionSave &&
+                          getBandDistDivisor(
+                            getItemRangeTolerance(uut, activeRange?.id) ||
+                              activeRange,
+                          ) ? (
+                            <select
+                              className="session-selector"
+                              value={getBandDistDivisor(
+                                getItemRangeTolerance(uut, activeRange?.id) ||
+                                  activeRange,
+                              )}
+                              onChange={(e) =>
+                                setRangeBandDistributionDetail(
+                                  "uut",
+                                  uut,
+                                  activeRange?.id,
+                                  e.target.value,
+                                )
+                              }
+                            >
+                              {errorDistributions.map((d) => (
+                                <option key={d.value} value={d.value}>
+                                  {d.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            getBandDistLabel(
+                              getItemRangeTolerance(uut, activeRange?.id) ||
+                                activeRange,
+                            )
+                          )}
+                        </td>
+                        <td
+                          rowSpan={rowSpan}
                           className={`cell-value ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut_det", colIndex: 3 })
@@ -5889,140 +5941,6 @@ function DetailedView({
         </div>
         </div>
 
-        {/* 2. MEASUREMENT POINT TABLE */}
-        <div className="panel-card measurement-point-card">
-        <div className="panel-card-header">
-          <div className="panel-card-title">
-            <FontAwesomeIcon icon={faRulerCombined} />
-            <span>Measurement Point</span>
-          </div>
-          <div className="panel-card-actions">
-            {!hasMeasurementPoint && (
-              <button
-                className="btn-add-item"
-                onClick={handleActionAdd}
-                title="Add Measurement Point"
-              >
-                <FontAwesomeIcon icon={faPlus} size="xs" />
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="panel-table-container">
-          <table
-            className="instrument-summary-table industry-table"
-            style={{ width: "100%", tableLayout: "fixed" }}
-          >
-            <colgroup>
-              {showSectionColumn && <col style={{ width: "24%" }} />}
-              <col style={{ width: showSectionColumn ? "24%" : "30%" }} />
-              <col style={{ width: showSectionColumn ? "14%" : "18%" }} />
-              <col style={{ width: showSectionColumn ? "38%" : "52%" }} />
-            </colgroup>
-            <thead>
-              <tr>
-                {showSectionColumn && <th style={{ paddingLeft: "20px" }}>Section</th>}
-                <th>Point</th>
-                <th>Unit</th>
-                <th>Tolerance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {hasMeasurementPoint ? (
-                <tr>
-                  {showSectionColumn && (
-                    <td style={{ paddingLeft: "20px" }}>
-                      <div
-                        style={{ fontWeight: 600, color: "var(--text-color)" }}
-                      >
-                        <EditableCell
-                          value={testPointData.section}
-                          onSave={(val) =>
-                            onUpdateTestPoint &&
-                            onUpdateTestPoint({ section: val })
-                          }
-                          placeholder="General"
-                        />
-                      </div>
-                    </td>
-                  )}
-
-                  <td style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {/* Match the Section cell's weight/size so the two inline
-                        inputs read as one cohesive set; the point keeps the
-                        primary color to signal it's the nominal value. */}
-                    <div
-                      style={{
-                        fontWeight: 600,
-                        color: "var(--primary-color)",
-                      }}
-                    >
-                      <EditableCell
-                        value={uutNominal?.value}
-                        onSave={(val) =>
-                          onInlineUutUpdate && onInlineUutUpdate("nominal", val)
-                        }
-                        type="number"
-                        placeholder="0.00"
-                      />
-                    </div>
-                  </td>
-
-                  <td>
-                    <div style={{ fontWeight: 600, paddingLeft: "4px" }}>
-                      {uutNominal?.unit}
-                    </div>
-                  </td>
-
-                  <td>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      {isUnassigned &&
-                      (!activeResolvedTolerance ||
-                        Object.keys(activeResolvedTolerance).length === 0) ? (
-                        <span
-                          style={{
-                            fontWeight: 400,
-                            color: "var(--text-color-muted)",
-                            fontStyle: "italic",
-                          }}
-                        >
-                          No UUT / Spec
-                        </span>
-                      ) : (
-                        <span
-                          style={{
-                            fontWeight: 600,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            color: "var(--text-color)",
-                          }}
-                        >
-                          {calculatedToleranceDisplay}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-
-                </tr>
-              ) : (
-                <tr className="panel-empty-row">
-                  <td colSpan={showSectionColumn ? 4 : 3}>
-                    No active point. Select a UUT range on the left and define a
-                    point.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        </div>
       </div>
 
       {/* --- MIDDLE ROW: EQUATION --- */}
@@ -6374,12 +6292,13 @@ function DetailedView({
                 {/* Direct points toggle usage. Derived points assign each
                     instrument to one mapped input; several instruments may
                     contribute to the same input budget. */}
-                <col style={{ width: isDerived ? "20%" : "48px" }} />
-                <col style={{ width: isDerived ? "26%" : "30%" }} />
-                <col style={{ width: isDerived ? "18%" : "24%" }} />
-                <col style={{ width: isDerived ? "18%" : "24%" }} />
+                <col style={{ width: isDerived ? "18%" : "44px" }} />
+                <col style={{ width: isDerived ? "24%" : "26%" }} />
+                <col style={{ width: isDerived ? "16%" : "20%" }} />
+                <col style={{ width: isDerived ? "16%" : "18%" }} />
                 <col style={{ width: "12%" }} />
-                <col style={{ width: "9%" }} />
+                <col style={{ width: "12%" }} />
+                <col style={{ width: "8%" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -6399,6 +6318,7 @@ function DetailedView({
                       {renderToleranceHeaderActionsDetail("tmde")}
                     </span>
                   </th>
+                  <th>Distribution</th>
                   <th>Resolution</th>
                   <th>Sync</th>
                 </tr>
@@ -6406,7 +6326,7 @@ function DetailedView({
               <tbody>
                 {relevantTmdes.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan="6">
+                    <td colSpan="7">
                       No TMDEs defined for this measurement area.
                     </td>
                   </tr>
@@ -6722,6 +6642,53 @@ function DetailedView({
                                 />
                               ) : (
                                 specRows[0]
+                              )}
+                            </td>
+
+                            <td
+                              rowSpan={rowSpan}
+                              className="cell-distribution"
+                              title="Spec band distribution"
+                              style={{ verticalAlign: "top" }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {onSessionSave &&
+                              getBandDistDivisor(
+                                getItemRangeTolerance(
+                                  masterTmde,
+                                  activeRange?.id,
+                                ) || activeRange,
+                              ) ? (
+                                <select
+                                  className="session-selector"
+                                  value={getBandDistDivisor(
+                                    getItemRangeTolerance(
+                                      masterTmde,
+                                      activeRange?.id,
+                                    ) || activeRange,
+                                  )}
+                                  onChange={(e) =>
+                                    setRangeBandDistributionDetail(
+                                      "tmde",
+                                      masterTmde,
+                                      activeRange?.id,
+                                      e.target.value,
+                                    )
+                                  }
+                                >
+                                  {errorDistributions.map((d) => (
+                                    <option key={d.value} value={d.value}>
+                                      {d.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                getBandDistLabel(
+                                  getItemRangeTolerance(
+                                    masterTmde,
+                                    activeRange?.id,
+                                  ) || activeRange,
+                                )
                               )}
                             </td>
 
