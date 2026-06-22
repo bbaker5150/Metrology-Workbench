@@ -3658,6 +3658,19 @@ function DetailedView({
     onSessionSave({ ...sessionData, uuts: updatedUuts });
   };
 
+  // TMDE description parity: field "name" maps to the TMDE's label (t.name, NOT
+  // description — matching the Session Overview); make/model nest on instrument.
+  const handleDetailTmdeDescEdit = (tmdeId, field, value) => {
+    if (!onSessionSave) return;
+    const updatedTmdes = (sessionData.tmdes || []).map((t) => {
+      if (t.id !== tmdeId) return t;
+      if (field === "name") return { ...t, name: value };
+      const key = field === "make" ? "manufacturer" : "model";
+      return { ...t, instrument: { ...(t.instrument || {}), [key]: value } };
+    });
+    onSessionSave({ ...sessionData, tmdes: updatedTmdes });
+  };
+
   // --- Inline range/tolerance/resolution editing in the detail view (parity
   // with the Session Overview). All edits persist the whole session via
   // onSessionSave, mirroring SummaryDashboard's persistInlineItem but without the
@@ -5931,17 +5944,33 @@ function DetailedView({
                                   colIndex: 1,
                                 })
                               }
+                              onClick={(e) => e.stopPropagation()}
                             >
-                              <div
-                                style={{
-                                  fontWeight: 600,
-                                  color: isChecked
-                                    ? "var(--primary-color)"
-                                    : "var(--text-color)",
-                                }}
-                              >
-                                {safeDescription}
-                              </div>
+                              {onSessionSave ? (
+                                <EditableDescriptionCell
+                                  name={masterTmde.name}
+                                  make={masterTmde.instrument?.manufacturer}
+                                  model={masterTmde.instrument?.model}
+                                  onCommit={(field, value) =>
+                                    handleDetailTmdeDescEdit(
+                                      masterTmde.id,
+                                      field,
+                                      value,
+                                    )
+                                  }
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    fontWeight: 600,
+                                    color: isChecked
+                                      ? "var(--primary-color)"
+                                      : "var(--text-color)",
+                                  }}
+                                >
+                                  {safeDescription}
+                                </div>
+                              )}
                             </td>
 
                             <td
@@ -5954,31 +5983,34 @@ function DetailedView({
                                 })
                               }
                               onClick={(e) => e.stopPropagation()}
+                              style={{ verticalAlign: "top" }}
                             >
-                              <select
-                                className="session-selector"
-                                value={activeIndex}
-                                onChange={(e) =>
-                                  handleTmdeRangeChange(
+                              <RangeCell
+                                ranges={ranges}
+                                activeIndex={activeIndex}
+                                activeRange={activeRange}
+                                editable={!!onSessionSave}
+                                onSelect={(idx) =>
+                                  handleTmdeRangeChange(masterTmde, idx, ranges)
+                                }
+                                onEditBound={(field, value) =>
+                                  handleEditRangeBoundDetail(
+                                    "tmde",
                                     masterTmde,
-                                    parseInt(e.target.value),
-                                    ranges,
+                                    activeRange?.id,
+                                    field,
+                                    value,
                                   )
                                 }
-                              >
-                                {ranges.map((range, rIdx) => {
-                                  // Show the actual measurement range (min–max),
-                                  // not the spec string — the full spec already
-                                  // lives in the Specification column.
-                                  return (
-                                    <option key={rIdx} value={rIdx}>
-                                      {formatRangeLabel(range, {
-                                        preferBounds: true,
-                                      })}
-                                    </option>
-                                  );
-                                })}
-                              </select>
+                                onEditUnit={(value) =>
+                                  setRangeUnitDetail(
+                                    "tmde",
+                                    masterTmde,
+                                    activeRange?.id,
+                                    value,
+                                  )
+                                }
+                              />
                             </td>
 
                             <td
@@ -5989,9 +6021,60 @@ function DetailedView({
                                   colIndex: 3,
                                 })
                               }
+                              onClick={(e) => e.stopPropagation()}
                               title={specRows[0]}
                             >
-                              {specRows[0]}
+                              {onSessionSave ? (
+                                <InlineToleranceCell
+                                  tolerance={
+                                    getItemRangeTolerance(
+                                      masterTmde,
+                                      activeRange?.id,
+                                    ) ||
+                                    activeRange ||
+                                    {}
+                                  }
+                                  activeRange={activeRange}
+                                  typeKey={firstToleranceType(
+                                    getItemRangeTolerance(
+                                      masterTmde,
+                                      activeRange?.id,
+                                    ) ||
+                                      activeRange ||
+                                      {},
+                                  )}
+                                  selectedType={
+                                    selectedDetailTol?.key ===
+                                    detailTolKey(
+                                      "tmde",
+                                      masterTmde,
+                                      activeRange?.id,
+                                    )
+                                      ? selectedDetailTol.typeKey
+                                      : null
+                                  }
+                                  editable={!!onSessionSave}
+                                  onSelectType={(typeKey) =>
+                                    setDetailTolType(
+                                      "tmde",
+                                      masterTmde,
+                                      activeRange,
+                                      typeKey,
+                                    )
+                                  }
+                                  onCommit={(typeKey, component) =>
+                                    setDetailTolComponent(
+                                      "tmde",
+                                      masterTmde,
+                                      activeRange,
+                                      typeKey,
+                                      component,
+                                    )
+                                  }
+                                />
+                              ) : (
+                                specRows[0]
+                              )}
                             </td>
 
                             <td
@@ -6003,13 +6086,42 @@ function DetailedView({
                                   colIndex: 4,
                                 })
                               }
-                              title={
-                                isChecked
-                                  ? formatResolutionLabel(activeRange)
-                                  : undefined
-                              }
+                              onClick={(e) => e.stopPropagation()}
+                              title={formatResolutionLabel(activeRange)}
                             >
-                              {isChecked ? formatResolutionLabel(activeRange) : ""}
+                              {onSessionSave ? (
+                                <ResolutionCellInput
+                                  value={
+                                    activeRange?.resolution ??
+                                    activeRange?.measuringResolution
+                                  }
+                                  unit={
+                                    activeRange?.resolutionUnit ??
+                                    activeRange?.measuringResolutionUnit
+                                  }
+                                  fallbackUnit={activeRange?.unit}
+                                  onCommit={(v) =>
+                                    setRangeResolutionDetail(
+                                      "tmde",
+                                      masterTmde,
+                                      activeRange?.id,
+                                      v,
+                                    )
+                                  }
+                                  onCommitUnit={(value) =>
+                                    setRangeResolutionUnitDetail(
+                                      "tmde",
+                                      masterTmde,
+                                      activeRange?.id,
+                                      value,
+                                    )
+                                  }
+                                />
+                              ) : isChecked ? (
+                                formatResolutionLabel(activeRange)
+                              ) : (
+                                ""
+                              )}
                             </td>
                           </tr>
 
