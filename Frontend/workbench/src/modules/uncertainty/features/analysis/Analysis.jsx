@@ -70,6 +70,7 @@ function Analysis({
 
   // Global Data Props (Lifted from App.js)
   instruments,
+  onSaveInstrument,
   customEquations = [],
   onSaveCustomEquation,
   onDeleteCustomEquation,
@@ -730,6 +731,8 @@ function Analysis({
             sessionData={sessionData}
             onSessionSave={onSessionSave}
             instruments={instruments}
+            onSaveInstrument={onSaveInstrument}
+            setNotification={setNotification}
             currentUutSelection={currentUutSelection}
             selectedTablePointIds={selectedTablePointIds}
             // Actions & Navigation
@@ -806,6 +809,7 @@ function Analysis({
                 uutToleranceData={uutToleranceData}
                 tmdeTolerancesData={tmdeTolerancesData}
                 riskResults={riskResults}
+                onSaveInstrument={onSaveInstrument}
                 // UI State
                 showContribution={showContribution}
                 setShowContribution={setShowContribution}

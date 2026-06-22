@@ -3666,6 +3666,9 @@ function App() {
             cancelText={appNotification.cancelText}
             isIconConfirm={appNotification.isIconConfirm}
             onConfirm={appNotification.onConfirm}
+            secondaryText={appNotification.secondaryText}
+            onSecondary={appNotification.onSecondary}
+            secondaryIsPrimary={appNotification.secondaryIsPrimary}
             inputLabel={appNotification.inputLabel}
             inputPlaceholder={appNotification.inputPlaceholder}
             initialInputValue={appNotification.initialInputValue}
@@ -4966,6 +4969,7 @@ function App() {
                     onDecrementTmdeQuantity={decrementTmdeQuantity}
                     onDeleteUut={handleDeleteUut}
                     instruments={instruments}
+                    onSaveInstrument={saveInstrument}
                     customEquations={customEquations}
                     onSaveCustomEquation={saveCustomEquation}
                     onDeleteCustomEquation={deleteCustomEquation}
