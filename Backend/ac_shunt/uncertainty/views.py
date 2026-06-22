@@ -88,14 +88,53 @@ def session_detail(request, session_id):
 # --------------------------------------------------------------------------- #
 # Instruments (global library)
 # --------------------------------------------------------------------------- #
+def _library_password():
+    """Shared password gating writes to the validated (shared) library.
+
+    Configurable via the ``UNCERTAINTY_LIBRARY_PASSWORD`` env/setting; defaults
+    to a well-known dev value. This is the deliberately-simple "for now" gate —
+    swap for per-user permissions later without touching call sites.
+    """
+    return getattr(settings, "UNCERTAINTY_LIBRARY_PASSWORD", "calibrate")
+
+
 @api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def instruments(request):
     if request.method == "GET":
-        return Response(
-            [serializers.instrument_to_dict(i) for i in models.Instrument.objects.all()]
-        )
-    obj = serializers.save_instrument(request.data)
+        owner = request.query_params.get("owner")
+        scope = request.query_params.get("scope")
+        qs = models.Instrument.objects.all()
+
+        if scope in (models.Instrument.SCOPE_LOCAL, models.Instrument.SCOPE_VALIDATED):
+            qs = qs.filter(scope=scope)
+            if scope == models.Instrument.SCOPE_LOCAL and owner:
+                qs = qs.filter(owner=owner)
+        elif owner:
+            # Default view for a known user: every validated instrument plus
+            # that user's own local history.
+            from django.db.models import Q
+
+            qs = qs.filter(
+                Q(scope=models.Instrument.SCOPE_VALIDATED)
+                | Q(scope=models.Instrument.SCOPE_LOCAL, owner=owner)
+            )
+        # No params -> return everything (back-compat with the current client).
+
+        return Response([serializers.instrument_to_dict(i) for i in qs])
+
+    # POST -> upsert. Writing/keeping an instrument at validated scope requires
+    # the shared password; local saves are unguarded.
+    data = request.data
+    incoming_scope = data.get("scope")
+    if incoming_scope == models.Instrument.SCOPE_VALIDATED:
+        if (data.get("password") or "") != _library_password():
+            return Response(
+                {"detail": "Invalid shared-library password."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+    obj = serializers.save_instrument(data)
     return Response(serializers.instrument_to_dict(obj), status=status.HTTP_201_CREATED)
 
 

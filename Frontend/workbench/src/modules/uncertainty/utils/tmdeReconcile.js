@@ -41,6 +41,7 @@ export const reconcileTmdeInstances = (tmdeTolerances, masterTmdes) => {
 
   const seenMasters = new Set();
   const reconciled = [];
+  let prunedOrphan = false;
 
   for (const inst of tmdeTolerances) {
     if (!inst) continue;
@@ -48,6 +49,7 @@ export const reconcileTmdeInstances = (tmdeTolerances, masterTmdes) => {
 
     // Orphan: the master this instance came from is gone from the session.
     if (knowMasters && !validIds.has(masterId) && !validIds.has(inst.id)) {
+      prunedOrphan = true;
       continue;
     }
 
@@ -59,6 +61,24 @@ export const reconcileTmdeInstances = (tmdeTolerances, masterTmdes) => {
     seenMasters.add(key);
 
     reconciled.push(inst);
+  }
+
+  // Safety net: if EVERY instance got pruned as an "orphan" while masters do
+  // exist, that's almost certainly an id-scheme mismatch (instances linked to
+  // their masters by a different id, e.g. a fixture without `sourceId`) rather
+  // than genuinely-deleted masters. Wiping the whole budget — and silently
+  // zeroing its uncertainty and risk — is far worse than keeping the instances,
+  // so fall back to a de-duplicated copy of the originals (still collapsing any
+  // stacked duplicates, so the "6×" double-counting stays fixed).
+  if (reconciled.length === 0 && prunedOrphan && tmdeTolerances.length > 0) {
+    const seen = new Set();
+    return tmdeTolerances.filter((inst) => {
+      if (!inst) return false;
+      const key = String(masterIdOf(inst) ?? inst.id ?? "");
+      if (key && seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 
   return reconciled;

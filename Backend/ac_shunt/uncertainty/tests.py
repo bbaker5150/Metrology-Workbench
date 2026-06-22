@@ -209,3 +209,74 @@ class InstrumentAndBugReportTests(APITestCase):
 
         listing = self.client.get("/api/uncertainty/bug_reports/")
         self.assertEqual(len(listing.data), 1)
+
+
+class InstrumentLibraryScopeTests(APITestCase):
+    """Local/validated scoping + the shared-library password gate."""
+
+    databases = {"default", "uncertainty"}
+
+    def test_new_instrument_without_scope_defaults_to_local(self):
+        post = self.client.post(
+            "/api/uncertainty/instruments/",
+            {"id": "loc-1", "manufacturer": "Keysight", "model": "34470A", "owner": "userA"},
+            format="json",
+        )
+        self.assertEqual(post.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(post.data["scope"], "local")
+        self.assertEqual(post.data["owner"], "userA")
+
+    def test_validated_write_requires_password(self):
+        denied = self.client.post(
+            "/api/uncertainty/instruments/",
+            {"id": "val-1", "manufacturer": "Fluke", "model": "5730A", "scope": "validated"},
+            format="json",
+        )
+        self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(models.Instrument.objects.count(), 0)
+
+        ok = self.client.post(
+            "/api/uncertainty/instruments/",
+            {
+                "id": "val-1", "manufacturer": "Fluke", "model": "5730A",
+                "scope": "validated", "password": "calibrate",
+            },
+            format="json",
+        )
+        self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(ok.data["scope"], "validated")
+
+    def test_legacy_resave_does_not_demote_validated(self):
+        self.client.post(
+            "/api/uncertainty/instruments/",
+            {"id": "val-2", "model": "3458A", "scope": "validated", "password": "calibrate"},
+            format="json",
+        )
+        # A scope-less re-save (legacy path) must keep it validated.
+        resave = self.client.post(
+            "/api/uncertainty/instruments/",
+            {"id": "val-2", "model": "3458A", "description": "edited"},
+            format="json",
+        )
+        self.assertEqual(resave.data["scope"], "validated")
+        self.assertEqual(resave.data["description"], "edited")
+
+    def test_owner_filter_returns_validated_plus_own_local(self):
+        self.client.post(
+            "/api/uncertainty/instruments/",
+            {"id": "v", "model": "V", "scope": "validated", "password": "calibrate"},
+            format="json",
+        )
+        self.client.post(
+            "/api/uncertainty/instruments/",
+            {"id": "a", "model": "A", "scope": "local", "owner": "userA"},
+            format="json",
+        )
+        self.client.post(
+            "/api/uncertainty/instruments/",
+            {"id": "b", "model": "B", "scope": "local", "owner": "userB"},
+            format="json",
+        )
+        listing = self.client.get("/api/uncertainty/instruments/", {"owner": "userA"})
+        ids = {i["id"] for i in listing.data}
+        self.assertEqual(ids, {"v", "a"})  # validated + userA's local, not userB's

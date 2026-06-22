@@ -894,11 +894,15 @@ export const useUncertaintyCalculation = (
     testPointData.coverageFactorOverride,
     testPointData.useEffectiveDofByGroup,
     onDataSave,
-    testPointData.is_detailed_uncertainty_calculated,
-    testPointData.expanded_uncertainty,
-    testPointData.calculatedBudgetComponents,
-    testPointData.calculatedBudgetGroups,
-    testPointData.expanded_uncertainty_absolute_base
+    // NOTE: the computed OUTPUT fields this effect persists via onDataSave —
+    // is_detailed_uncertainty_calculated, expanded_uncertainty(_absolute_base),
+    // calculatedBudgetComponents, calculatedBudgetGroups — are intentionally
+    // NOT dependencies. They are only read for the change-detection guard
+    // (`resultsHaveChanged`), and listing them caused a save→re-run→save
+    // feedback loop ("Maximum update depth exceeded") whenever that JSON
+    // comparison flapped instead of converging. The effect already re-runs on
+    // every relevant INPUT change (and onDataSave is a stable useCallback), so
+    // the stored outputs read here are always current.
   ]);
 
   return { calcResults, calculationError };

@@ -1,0 +1,239 @@
+/*
+ * Inline-editable UUT/TMDE table (feature/inline-instrument-tables).
+ * Shared between the Session Overview and the measurement-point view.
+ * All colors via CSS vars so it themes with the rest of the app.
+ */
+
+.inline-instr-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.9rem;
+  color: var(--text-color);
+}
+
+.inline-instr-table thead th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-color-muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.inline-instr-row td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.inline-instr-row:hover td {
+  background: var(--hover-background, rgba(127, 127, 127, 0.06));
+}
+
+/* Left color rail keyed to the measurement area */
+.inline-instr-row td:first-child {
+  border-left: 4px solid var(--row-area-color, transparent);
+}
+
+/* --- Description: make / model / name sub-fields --- */
+.inline-desc-cell {
+  display: flex;
+  gap: 6px;
+  position: relative;
+  min-width: 320px;
+}
+.inline-desc-cell input {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: var(--text-color);
+  font-size: 0.88rem;
+}
+.inline-desc-cell input:hover {
+  border-color: var(--border-color);
+}
+.inline-desc-cell input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  background: var(--input-background);
+}
+.inline-desc-make { width: 30%; }
+.inline-desc-model { width: 30%; }
+.inline-desc-name { width: 40%; font-weight: 500; }
+
+/* --- Library search dropdown --- */
+.inline-search-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--input-background);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  z-index: 50;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.inline-search-item {
+  padding: 8px 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+.inline-search-item:last-child { border-bottom: none; }
+.inline-search-item:hover,
+.inline-search-item.active {
+  background: var(--primary-color);
+  color: #fff;
+}
+.inline-search-item .si-main { font-weight: 500; }
+.inline-search-item .si-sub {
+  font-size: 0.78rem;
+  color: var(--text-color-muted);
+  margin-left: auto;
+}
+.inline-search-item:hover .si-sub,
+.inline-search-item.active .si-sub { color: rgba(255, 255, 255, 0.85); }
+.inline-search-empty {
+  padding: 10px;
+  font-size: 0.8rem;
+  color: var(--text-color-muted);
+  font-style: italic;
+}
+
+/* --- Generic editable cell inputs --- */
+.inline-cell-input {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: var(--text-color);
+  font-size: 0.88rem;
+}
+.inline-cell-input:hover { border-color: var(--border-color); }
+.inline-cell-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  background: var(--input-background);
+}
+.inline-qty-input { width: 56px; }
+
+/* --- Tolerance cell (opens popover) --- */
+.inline-tol-cell {
+  cursor: pointer;
+  font-family: Consolas, "SF Mono", monospace;
+  font-size: 0.82rem;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px dashed transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.inline-tol-cell:hover {
+  border-color: var(--border-color);
+  background: var(--input-background);
+}
+.inline-tol-cell .tol-edit-icon {
+  opacity: 0;
+  font-size: 0.75rem;
+  color: var(--text-color-muted);
+}
+.inline-tol-cell:hover .tol-edit-icon { opacity: 1; }
+.inline-tol-empty { color: var(--text-color-muted); font-style: italic; }
+
+/* --- Distribution column --- */
+.inline-dist-select {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: var(--text-color);
+  font-size: 0.82rem;
+}
+.inline-dist-select:hover { border-color: var(--border-color); }
+
+/* --- Sync icon --- */
+.inline-sync-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 4px;
+}
+.inline-sync-green { color: #2ecc71; }
+.inline-sync-red { color: #e74c3c; }
+.inline-sync-none { visibility: hidden; }
+
+/* --- Row actions --- */
+.inline-row-actions { display: flex; gap: 4px; }
+.inline-icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.inline-icon-btn:hover { color: var(--text-color); background: var(--input-background); }
+.inline-icon-btn.danger:hover { color: #e74c3c; }
+
+/* --- Area subsection (Session Overview) --- */
+.inline-area-section { margin-bottom: 18px; }
+.inline-area-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  font-weight: 600;
+}
+.inline-area-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+.inline-area-dot:hover { border-color: var(--text-color); }
+.inline-area-add {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-color-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+}
+.inline-area-add:hover { color: var(--primary-color); border-color: var(--primary-color); }
+
+/* --- Tolerance popover --- */
+.inline-tol-popover {
+  position: fixed;
+  z-index: 999999;
+  width: 420px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--component-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  padding: 16px;
+}
+.inline-tol-popover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.inline-tol-popover-header h5 { margin: 0; font-size: 0.95rem; }

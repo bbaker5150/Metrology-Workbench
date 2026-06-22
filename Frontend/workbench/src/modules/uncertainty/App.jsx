@@ -877,7 +877,9 @@ const SidebarSessionHeader = ({
     const isRequirement = field.startsWith("uncReq.");
     const helpText = tooltip || `Edit ${label}`;
     return (
-      <div className="session-header-field">
+      // `field` is unique per row, so it doubles as the React key for the
+      // requirement-list .map() (and is harmless for the fixed grid fields).
+      <div className="session-header-field" key={field}>
         <span className="session-header-label" title={helpText}>
           <span>{label}</span>
           {isRequirement && (

@@ -728,6 +728,8 @@ function Analysis({
             // Data
             testPointData={testPointData}
             sessionData={sessionData}
+            onSessionSave={onSessionSave}
+            instruments={instruments}
             currentUutSelection={currentUutSelection}
             selectedTablePointIds={selectedTablePointIds}
             // Actions & Navigation

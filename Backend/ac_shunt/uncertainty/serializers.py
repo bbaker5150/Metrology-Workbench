@@ -167,6 +167,10 @@ def instrument_to_dict(i):
         "measurementAreaColor": i.measurement_area_color,
         "type": i.instrument_type,
         "functions": i.functions or [],
+        "scope": i.scope,
+        "owner": i.owner,
+        "sourceId": i.source_id,
+        "validatedSnapshot": i.validated_snapshot or None,
     }
 
 
@@ -357,18 +361,35 @@ def save_session(data):
 
 
 def save_instrument(data):
-    obj, _ = models.Instrument.objects.update_or_create(
-        id=_cid(data.get("id")),
-        defaults={
-            "manufacturer": data.get("manufacturer", "") or "",
-            "model": data.get("model", "") or "",
-            "description": data.get("description", "") or "",
-            "measurement_area": data.get("measurementArea", "") or "",
-            "measurement_area_color": data.get("measurementAreaColor", "") or "",
-            "instrument_type": data.get("type", "") or "",
-            "functions": data.get("functions") or [],
-        },
-    )
+    """Upsert a library instrument.
+
+    Scope is preserved when the payload omits it, so a legacy save path (which
+    doesn't know about scopes) can't silently demote a ``validated`` instrument
+    to ``local``. Brand-new instruments with no scope default to ``local`` — the
+    safe choice, since promotion to ``validated`` is password-gated upstream.
+    """
+    pk = _cid(data.get("id"))
+    existing = models.Instrument.objects.filter(id=pk).first()
+    scope = data.get("scope") or (existing.scope if existing else models.Instrument.SCOPE_LOCAL)
+
+    defaults = {
+        "manufacturer": data.get("manufacturer", "") or "",
+        "model": data.get("model", "") or "",
+        "description": data.get("description", "") or "",
+        "measurement_area": data.get("measurementArea", "") or "",
+        "measurement_area_color": data.get("measurementAreaColor", "") or "",
+        "instrument_type": data.get("type", "") or "",
+        "functions": data.get("functions") or [],
+        "scope": scope,
+        "owner": data.get("owner", "") or (existing.owner if existing else ""),
+        "source_id": data.get("sourceId", "") or (existing.source_id if existing else ""),
+    }
+    # Only overwrite the snapshot when the caller explicitly supplies one
+    # (e.g. on a sync), so ordinary edits don't wipe the divergence baseline.
+    if "validatedSnapshot" in data:
+        defaults["validated_snapshot"] = data.get("validatedSnapshot")
+
+    obj, _ = models.Instrument.objects.update_or_create(id=pk, defaults=defaults)
     return obj
 
 

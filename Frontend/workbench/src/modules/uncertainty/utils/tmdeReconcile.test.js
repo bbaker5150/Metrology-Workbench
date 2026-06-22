@@ -54,6 +54,22 @@ describe("reconcileTmdeInstances", () => {
     expect(out).toHaveLength(3);
   });
 
+  it("keeps instances (de-duped) when EVERY one looks orphaned (id-scheme mismatch)", () => {
+    // Instances linked to their masters by a scheme the masters don't share
+    // (e.g. a fixture without sourceId, numeric ids vs slug masters). This is a
+    // mismatch, not genuine deletion — wiping the whole budget (zeroing its
+    // uncertainty + risk) would be wrong, so all distinct instances are kept.
+    const slugMasters = [{ id: "tmde_beam" }, { id: "tmde_weight" }];
+    const tols = [
+      { id: 1749465600161, variableType: "Length" },
+      { id: 1749465600162, variableType: "Weight" },
+      { id: 1749465600162, variableType: "Weight" }, // stacked dup still collapses
+    ];
+    const out = reconcileTmdeInstances(tols, slugMasters);
+    expect(out).toHaveLength(2);
+    expect(out.map((t) => t.variableType).sort()).toEqual(["Length", "Weight"]);
+  });
+
   it("is a no-op when the master list is unknown (still loading)", () => {
     const tols = [{ id: "weight", sourceId: "weight" }];
     expect(reconcileTmdeInstances(tols, [])).toHaveLength(1);

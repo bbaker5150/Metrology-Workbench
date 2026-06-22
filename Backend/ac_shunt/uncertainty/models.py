@@ -199,7 +199,30 @@ class NoteImage(models.Model):
 
 
 class Instrument(models.Model):
-    """Global instrument library entry (not session-scoped)."""
+    """Instrument library entry (not session-scoped).
+
+    The library is split into two scopes (feature/inline-instrument-tables):
+
+      - ``validated`` — the curated, shared library. Writing to it is gated
+        behind a shared password (see ``views.instruments``). Every user sees
+        all validated instruments.
+      - ``local`` — a per-user history of instruments that user has created or
+        loaded, scoped by ``owner`` (a client-generated device/user key, since
+        there is no auth yet). Auto-saved on every edit, never password-gated.
+        A user only sees their own local instruments.
+
+    A local instrument that originated from a validated one keeps ``source_id``
+    (the validated instrument's id) and ``validated_snapshot`` (the validated
+    definition at load/sync time). The frontend diffs the live row against the
+    snapshot to drive the green (in sync) / red (diverged) sync indicator.
+    """
+
+    SCOPE_LOCAL = "local"
+    SCOPE_VALIDATED = "validated"
+    SCOPE_CHOICES = [
+        (SCOPE_LOCAL, "Local (user)"),
+        (SCOPE_VALIDATED, "Validated (shared)"),
+    ]
 
     # Client id may be a uuid or numeric string -> CharField PK.
     id = models.CharField(max_length=64, primary_key=True)
@@ -211,6 +234,16 @@ class Instrument(models.Model):
     instrument_type = models.CharField(max_length=64, blank=True, default="")
     # functions[] -> ranges[] -> tolerances{} : irregular nested tree -> JSON.
     functions = models.JSONField(default=list, blank=True)
+
+    # Library scope + sync linkage. Existing rows backfill to "validated" via
+    # the data migration (they predate the local library and were the de-facto
+    # shared catalog).
+    scope = models.CharField(
+        max_length=16, choices=SCOPE_CHOICES, default=SCOPE_VALIDATED
+    )
+    owner = models.CharField(max_length=128, blank=True, default="")
+    source_id = models.CharField(max_length=64, blank=True, default="")
+    validated_snapshot = models.JSONField(default=dict, blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

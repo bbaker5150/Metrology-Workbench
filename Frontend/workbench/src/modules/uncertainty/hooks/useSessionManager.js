@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import axios from "axios";
 import { UNCERTAINTY_API } from "../constants/constants";
+import { getDeviceKey } from "../utils/deviceKey";
 
 const MAX_UNDO_STEPS = 50;
 const UNDO_COALESCE_MS = 800;
@@ -225,7 +226,11 @@ const useSessionManager = () => {
   // --- 1.1 Load Shared Data (Instruments & Bugs) ---
   const loadSharedData = useCallback(async () => {
     try {
-      const instRes = await axios.get(`${UNCERTAINTY_API}/instruments/`);
+      // Load the validated (shared) library plus this user's own local
+      // instruments — the backend resolves both from the owner key.
+      const instRes = await axios.get(`${UNCERTAINTY_API}/instruments/`, {
+        params: { owner: getDeviceKey() },
+      });
       setInstruments(Array.isArray(instRes.data) ? instRes.data : []);
     } catch (e) {
       console.error("Failed to load instruments from backend", e);
@@ -331,19 +336,34 @@ const useSessionManager = () => {
   }, []);
 
   // --- 2.1 Persist Instrument ---
+  // Stamp the owner key and default new instruments to the local library.
+  // A validated save (scope === "validated") must additionally carry a
+  // `password`; that flow is driven by the caller (sync action), not here.
   const saveInstrument = useCallback(async (instrument) => {
+    const payload = {
+      ...instrument,
+      owner: instrument.owner || getDeviceKey(),
+      scope: instrument.scope || "local",
+    };
+
     setInstruments((prev) => {
-      const existingIdx = prev.findIndex((i) => i.id === instrument.id);
+      const existingIdx = prev.findIndex((i) => i.id === payload.id);
       if (existingIdx > -1) {
         const next = [...prev];
-        next[existingIdx] = instrument;
+        next[existingIdx] = payload;
         return next;
       }
-      return [...prev, instrument];
+      return [...prev, payload];
     });
 
     try {
-      await axios.post(`${UNCERTAINTY_API}/instruments/`, instrument);
+      const res = await axios.post(`${UNCERTAINTY_API}/instruments/`, payload);
+      // Reconcile with the server's canonical record (scope/snapshot resolution).
+      if (res?.data?.id) {
+        setInstruments((prev) =>
+          prev.map((i) => (i.id === res.data.id ? res.data : i)),
+        );
+      }
     } catch (e) {
       console.error("Failed to save instrument to backend", e);
     }
