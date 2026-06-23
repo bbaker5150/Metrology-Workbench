@@ -1849,9 +1849,6 @@ const SummaryDashboard = ({
   // NEW PROPS PASSED DOWN FROM APP/ANALYSIS
   onDeleteUut,
   onDeleteTmdeDefinition,
-  onEditUut,
-  onAddTmde,
-  onEditTmde,
   onSessionSave,
   // Global UUT Selection (synced with sidebar Quick Add)
   currentUutSelection = [],
@@ -3057,11 +3054,7 @@ const SummaryDashboard = ({
             )}
             <button
               className="btn-add-item"
-              onClick={() =>
-                onSessionSave
-                  ? handleAddUutToArea({})
-                  : onEditUut && onEditUut(null)
-              }
+              onClick={() => handleAddUutToArea({})}
               title="Add New UUT"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
@@ -3184,7 +3177,6 @@ const SummaryDashboard = ({
                         className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleUutClick(e, uut.id)}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
-                        onDoubleClick={() => onEditUut && onEditUut(uut)}
                         style={{
                           cursor: "pointer",
                           borderBottom:
@@ -3355,7 +3347,6 @@ const SummaryDashboard = ({
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           style={{ cursor: "pointer" }}
                           onClick={(e) => handleUutClick(e, uut.id)}
-                          onDoubleClick={() => onEditUut && onEditUut(uut)}
                         >
                           <td
                             className={`cell-tolerance ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
@@ -3398,11 +3389,7 @@ const SummaryDashboard = ({
             )}
             <button
               className="btn-add-item"
-              onClick={() =>
-                onSessionSave
-                  ? handleAddTmdeToArea({})
-                  : onAddTmde && onAddTmde()
-              }
+              onClick={() => handleAddTmdeToArea({})}
               title="Add New TMDE"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
@@ -3499,7 +3486,6 @@ const SummaryDashboard = ({
                         className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleTmdeClick(e, tmde.id)}
                         onMouseEnter={() => setHoveredRowId(tmde.id)}
-                        onDoubleClick={() => onEditTmde && onEditTmde(tmde)}
                         style={{
                           cursor: "pointer",
                           borderBottom:
@@ -3683,7 +3669,6 @@ const SummaryDashboard = ({
                           style={{ cursor: "pointer" }}
                           onClick={(e) => handleTmdeClick(e, tmde.id)}
                           onMouseEnter={() => setHoveredRowId(tmde.id)}
-                          onDoubleClick={() => onEditTmde && onEditTmde(tmde)}
                         >
                           <td
                             className={`cell-tolerance ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
@@ -3745,9 +3730,6 @@ function DetailedView({
   onDeleteCustomEquation,
 
   // NEW PROPS FOR ACTIONS
-  onAddTmde,
-  onEditUut,
-  onEditTmde,
   onDeleteUut,
   onDeleteTmdeDefinition,
   onApplyToSessionPoints,
@@ -5793,14 +5775,7 @@ function DetailedView({
             )}
             <button
               className="btn-add-item"
-              onClick={() =>
-                onSessionSave
-                  ? handleAddUutInlineDetail()
-                  : onEditUut &&
-                    onEditUut(null, {
-                      associateToPointId: testPointData.id,
-                    })
-              }
+              onClick={() => handleAddUutInlineDetail()}
               title="Add New UUT"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
@@ -5873,8 +5848,7 @@ function DetailedView({
                           cursor: "pointer",
                         }}
                         onClick={(e) => handleUutClick(e, uut.id)}
-                        onDoubleClick={() => onEditUut && onEditUut(uut)}
-                        title="Click to select, Double-click to edit UUT details"
+                        title="Click to select"
                       >
                         <td
                           rowSpan={rowSpan}
@@ -6450,12 +6424,7 @@ function DetailedView({
               )}
               <button
                 className="btn-add-item"
-                onClick={() =>
-                  onSessionSave
-                    ? handleAddTmdeInlineDetail()
-                    : onAddTmde &&
-                      onAddTmde({ associateToPointId: testPointData.id })
-                }
+                onClick={() => handleAddTmdeInlineDetail()}
                 title="Add New TMDE"
               >
                 <FontAwesomeIcon icon={faPlus} size="xs" />
@@ -6567,21 +6536,8 @@ function DetailedView({
                               opacity: isChecked ? 1 : isSelectedRow ? 1 : 0.7,
                               cursor: "pointer",
                             }}
-                            // Click Handlers
                             onClick={(e) => handleTmdeClick(e, masterTmde.id)}
-                            onDoubleClick={(e) => {
-                              // Don't open the editor when the user is double-
-                              // clicking a value field (input/select) or an
-                              // inline-editable cell to edit it in place.
-                              if (
-                                e.target.closest(
-                                  'input, select, textarea, .editable-cell-display, .tmde-input-assignment',
-                                )
-                              )
-                                return;
-                              onEditTmde && onEditTmde(masterTmde);
-                            }}
-                            title="Click to select, Double-click to edit TMDE details"
+                            title="Click to select"
                           >
                             <td
                               rowSpan={rowSpan}
@@ -7089,9 +7045,6 @@ const UncertaintyPanel = (props) => {
         // New Actions Passed Down
         onDeleteUut={props.onDeleteUut}
         onDeleteTmdeDefinition={props.onDeleteTmdeDefinition}
-        onEditUut={props.onEditUut}
-        onEditTmde={props.onEditTmde}
-        onAddTmde={props.onAddTmde}
         onSessionSave={props.onSessionSave}
         instruments={props.instruments || []}
         onSaveInstrument={props.onSaveInstrument}
@@ -7103,9 +7056,6 @@ const UncertaintyPanel = (props) => {
   return (
     <DetailedView
       {...props}
-      onAddTmde={props.onAddTmde}
-      onEditUut={props.onEditUut}
-      onEditTmde={props.onEditTmde}
       onDeleteUut={props.onDeleteUut}
       onDeleteTmdeDefinition={props.onDeleteTmdeDefinition}
     />

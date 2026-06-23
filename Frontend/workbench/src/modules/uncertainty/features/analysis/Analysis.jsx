@@ -92,11 +92,6 @@ function Analysis({
   onAnalysisModeChange = () => {},
   preferredShowContribution = false,
   onShowContributionChange = () => {},
-
-  // --- NEW: Handlers passed from App.jsx to control Global Modal ---
-  onEditUut,
-  onAddTmde,
-  onEditTmde,
 }) {
   // =========================================================================
   // 1. STATE MANAGEMENT
@@ -747,9 +742,6 @@ function Analysis({
             // Instrument Management
             onDeleteUut={onDeleteUut}
             onDeleteTmdeDefinition={onDeleteTmdeDefinition}
-            onEditUut={onEditUut}
-            onEditTmde={onEditTmde}
-            onAddTmde={onAddTmde}
             // Defaults/Nulls for irrelevant props in Summary View
             calcResults={null}
             calculationError={null}
@@ -824,9 +816,6 @@ function Analysis({
                 onEditManualComponent={handleEditComponent}
                 onRemoveComponent={handleRemoveComponent}
                 // Handlers: Instruments
-                onAddTmde={onAddTmde}
-                onEditTmde={onEditTmde}
-                onEditUut={onEditUut}
                 onDeleteTmdeDefinition={onDeleteTmdeDefinition}
                 onDecrementTmdeQuantity={onDecrementTmdeQuantity}
                 onDeleteUut={onDeleteUut}

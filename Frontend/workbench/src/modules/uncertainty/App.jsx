@@ -2566,68 +2566,9 @@ function App() {
     setIsInstrumentBuilderOpen(true);
   };
 
-  const handleAddTmde = (options = {}) => {
-    setInstrumentModalConfig({
-      mode: "tmde",
-      data: null,
-      associateToPointId: options.associateToPointId || selectedTestPointId || null,
-    });
-    setIsInstrumentBuilderOpen(true);
-  };
-
-  const handleEditTmde = (tmde) => {
-    let dataWithColor = tmde;
-
-    if (tmde) {
-      const sessionAreas = currentSessionData?.measurementAreas || [];
-      const nestedInstrument = tmde.instrument || {};
-      const linkedLibraryInstrument = (instruments || []).find((inst) => {
-        const candidateIds = [
-          tmde.libraryInstrumentId,
-          nestedInstrument.libraryInstrumentId,
-          nestedInstrument.id,
-        ].filter(Boolean);
-        return candidateIds.some((id) => String(id) === String(inst.id));
-      });
-      const matchedSessionArea = sessionAreas.find(
-        (area) =>
-          (tmde.measurementAreaId &&
-            String(area.id) === String(tmde.measurementAreaId)) ||
-          (tmde.measurementArea &&
-            area.name.toLowerCase() === tmde.measurementArea.toLowerCase()),
-      );
-      const instrumentAreaName =
-        nestedInstrument.measurementArea ||
-        linkedLibraryInstrument?.measurementArea ||
-        tmde.measurementArea ||
-        matchedSessionArea?.name ||
-        "";
-      const instrumentAreaColor =
-        nestedInstrument.measurementAreaColor ||
-        linkedLibraryInstrument?.measurementAreaColor ||
-        tmde.measurementAreaColor ||
-        matchedSessionArea?.color ||
-        "";
-
-      // For TMDEs, measurementAreaId is session/table ownership, while the
-      // editable measurementArea text belongs to the instrument/library
-      // metadata. Show the instrument metadata in the builder without changing
-      // the session area that makes this TMDE visible on the active point.
-      dataWithColor = {
-        ...tmde,
-        measurementAreaId: tmde.measurementAreaId || matchedSessionArea?.id || "",
-        measurementArea: instrumentAreaName,
-        measurementAreaColor: instrumentAreaColor || "#3498db",
-      };
-    }
-
-    setInstrumentModalConfig({
-      mode: "tmde",
-      data: dataWithColor,
-      associateToPointId: null,
-    });
-    setIsInstrumentBuilderOpen(true);
-  };
+  // handleAddTmde / handleEditTmde removed: TMDE create/edit is now fully inline
+  // in the Session Overview and measurement-point tables. The UniversalInstrument
+  // Modal remains only for the library browser and the EditSessionModal tab.
 
   const handleOpenLibrary = () => {
     setInstrumentModalConfig({
@@ -4973,9 +4914,6 @@ function App() {
                     onApplyToSessionPoints={handleApplyToSessionPoints}
                     onSessionSave={updateSession}
                     onSaveTestPoint={handleSaveTestPoint}
-                    onEditUut={handleEditUut}
-                    onAddTmde={handleAddTmde}
-                    onEditTmde={handleEditTmde}
                     defaultTestPoint={defaultTestPoint}
                     setContextMenu={setContextMenu}
                     setBreakdownPoint={setBreakdownPoint}
