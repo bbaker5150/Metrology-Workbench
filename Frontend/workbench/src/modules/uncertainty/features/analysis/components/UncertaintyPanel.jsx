@@ -519,21 +519,22 @@ const EditableDescriptionCell = ({
   onCommit,
   instruments = [],
   onPickLibrary,
-  areas = [],
-  currentAreaId = "",
-  onChangeArea,
-  onCreateArea,
+  currentAreaName = "",
+  onCommitAreaName,
 }) => {
   const [local, setLocal] = useState({ make, model, name });
+  const [localAreaName, setLocalAreaName] = useState(
+    currentAreaName || "Unassigned",
+  );
   const [editing, setEditing] = useState(false);
   const [open, setOpen] = useState(false);
-  // Inline "create a new measurement area" state for the area control.
-  const [creatingArea, setCreatingArea] = useState(false);
-  const [newAreaName, setNewAreaName] = useState("");
   const anchorRef = useRef(null);
   useEffect(() => {
     setLocal({ make, model, name });
   }, [make, model, name]);
+  useEffect(() => {
+    setLocalAreaName(currentAreaName || "Unassigned");
+  }, [currentAreaName]);
 
   // Live library matches as the user types (make/model/name). Token-AND search
   // over the user's local + shared library (the `instruments` prop).
@@ -625,75 +626,45 @@ const EditableDescriptionCell = ({
         </button>
       )}
 
-      {onChangeArea &&
-        (creatingArea ? (
-          <input
-            autoFocus
-            className="inline-area-create-input"
-            placeholder="New area name…"
-            value={newAreaName}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => setNewAreaName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.currentTarget.blur();
-              if (e.key === "Escape") {
-                setNewAreaName("");
-                setCreatingArea(false);
-              }
-            }}
-            onBlur={() => {
-              const trimmed = newAreaName.trim();
-              if (trimmed) onCreateArea?.(trimmed);
-              setNewAreaName("");
-              setCreatingArea(false);
-            }}
-            title="Name the new measurement area"
-            style={{
-              marginTop: "3px",
-              width: "100%",
-              background: "var(--input-background, transparent)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "4px",
-              color: "var(--text-color)",
-              fontSize: "0.72rem",
-              padding: "1px 4px",
-            }}
-          />
-        ) : (
-          <select
-            value={currentAreaId || ""}
-            onChange={(e) => {
-              if (e.target.value === "__create__") {
-                setCreatingArea(true);
-                return;
-              }
-              onChangeArea(e.target.value);
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            title="Measurement area"
-            style={{
-              marginTop: "3px",
-              width: "100%",
-              background: "transparent",
-              border: "1px solid transparent",
-              borderRadius: "4px",
-              color: "var(--text-color-muted)",
-              fontSize: "0.72rem",
-              padding: "1px 4px",
-              cursor: "pointer",
-            }}
-          >
-            <option value="">Unassigned</option>
-            {areas.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-            {onCreateArea && <option value="__create__">＋ New area…</option>}
-          </select>
-        ))}
+      {onCommitAreaName && (
+        <input
+          className="inline-area-create-input"
+          value={localAreaName}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onFocus={() => {
+            if (localAreaName === "Unassigned") setLocalAreaName("");
+          }}
+          onChange={(e) => setLocalAreaName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") {
+              setLocalAreaName(currentAreaName || "Unassigned");
+              e.currentTarget.blur();
+            }
+          }}
+          onBlur={(e) => {
+            const next = e.target.value.trim();
+            const normalized = next || "Unassigned";
+            setLocalAreaName(normalized);
+            if (normalized !== (currentAreaName || "Unassigned")) {
+              onCommitAreaName(next);
+            }
+          }}
+          title="Measurement area"
+          aria-label="Measurement area"
+          style={{
+            marginTop: "3px",
+            width: "100%",
+            background: "transparent",
+            border: "1px solid transparent",
+            borderRadius: "4px",
+            color: "var(--text-color-muted)",
+            fontSize: "0.72rem",
+            padding: "1px 4px",
+          }}
+        />
+      )}
 
       {open &&
         results.length > 0 &&
@@ -1962,6 +1933,95 @@ const SummaryDashboard = ({
     onSessionSave({ ...sessionData, measurementAreas: updatedAreas });
   };
 
+  const handleAreaNameChange = (area, rawName) => {
+    if (!onSessionSave || !area?.id) return;
+    const name = String(rawName || "").trim();
+    if (!name || name === area.name || name.toLowerCase() === "unassigned") return;
+
+    const areas = sessionData.measurementAreas || [];
+    const targetArea = areas.find(
+      (candidate) =>
+        candidate.id !== area.id &&
+        String(candidate.name || "").toLowerCase() === name.toLowerCase(),
+    );
+    const finalArea = targetArea || { ...area, name };
+    const finalAreaId = finalArea.id;
+
+    const moveUut = (uut) =>
+      uut.measurementAreaId === area.id || uut.measurementArea === area.name
+        ? {
+            ...uut,
+            measurementAreaId: finalAreaId,
+            measurementArea: finalArea.name,
+            measurementAreaColor: finalArea.color,
+          }
+        : uut;
+    const moveTmde = (tmde) =>
+      tmde.measurementAreaId === area.id ||
+      tmde.measurementArea === area.name ||
+      tmde.instrument?.measurementArea === area.name
+        ? {
+            ...tmde,
+            measurementAreaId: finalAreaId,
+            measurementArea: finalArea.name,
+            instrument: {
+              ...(tmde.instrument || {}),
+              measurementArea: finalArea.name,
+              measurementAreaColor: finalArea.color,
+            },
+          }
+        : tmde;
+
+    onSessionSave({
+      ...sessionData,
+      measurementAreas: targetArea
+        ? areas.filter((candidate) => candidate.id !== area.id)
+        : areas.map((candidate) => (candidate.id === area.id ? finalArea : candidate)),
+      uuts: (sessionData.uuts || []).map(moveUut),
+      tmdes: (sessionData.tmdes || []).map(moveTmde),
+      testPoints: (sessionData.testPoints || []).map((point) =>
+        point.measurementAreaId === area.id
+          ? { ...point, measurementAreaId: finalAreaId }
+          : point,
+      ),
+    });
+  };
+
+  const renderAreaNameEditor = (area) => {
+    const canEdit = Boolean(onSessionSave && area?.id);
+    if (!canEdit) {
+      return <span style={{ color: area.color }}>{area.name}</span>;
+    }
+    return (
+      <input
+        className="inline-area-header-input"
+        defaultValue={area.name}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            e.currentTarget.value = area.name;
+            e.currentTarget.blur();
+          }
+        }}
+        onBlur={(e) => handleAreaNameChange(area, e.target.value)}
+        title="Edit measurement area name"
+        aria-label="Measurement area subsection name"
+        style={{
+          color: area.color,
+          background: "transparent",
+          border: "1px solid transparent",
+          borderRadius: "4px",
+          font: "inherit",
+          fontWeight: 700,
+          padding: "1px 4px",
+          minWidth: "120px",
+        }}
+      />
+    );
+  };
+
   // Inline make/model/name edits from the Description cell. `name` is the
   // session label (uut.description / tmde.name); make+model live on the nested
   // instrument definition. Persisted through the whole-session save.
@@ -2437,6 +2497,32 @@ const SummaryDashboard = ({
     );
     setPinnedInlineTmdeIds((prev) => prev.filter((id) => id !== tmdeId));
     onSessionSave({ ...sessionData, measurementAreas: areas, tmdes: updatedTmdes });
+  };
+
+  const handleCommitUutAreaName = (uutId, rawName) => {
+    const trimmed = String(rawName || "").trim();
+    if (!trimmed || trimmed.toLowerCase() === "unassigned") {
+      handleChangeUutArea(uutId, "");
+      return;
+    }
+    const existing = (sessionData.measurementAreas || []).find(
+      (area) => String(area.name || "").toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (existing) handleChangeUutArea(uutId, existing.id);
+    else handleCreateUutArea(uutId, trimmed);
+  };
+
+  const handleCommitTmdeAreaName = (tmdeId, rawName) => {
+    const trimmed = String(rawName || "").trim();
+    if (!trimmed || trimmed.toLowerCase() === "unassigned") {
+      handleChangeTmdeArea(tmdeId, "");
+      return;
+    }
+    const existing = (sessionData.measurementAreas || []).find(
+      (area) => String(area.name || "").toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (existing) handleChangeTmdeArea(tmdeId, existing.id);
+    else handleCreateTmdeArea(tmdeId, trimmed);
   };
 
   const toleranceTypeKey = (kind, item, rangeId) =>
@@ -3268,9 +3354,7 @@ const SummaryDashboard = ({
                       >
                         <td colSpan={6}>
                           {renderAreaColorSwatch(row.area)}
-                          <span style={{ color: row.area.color }}>
-                            {row.area.name}
-                          </span>
+                          {renderAreaNameEditor(row.area)}
                         </td>
                       </tr>
                     );
@@ -3353,24 +3437,15 @@ const SummaryDashboard = ({
                               onPickLibrary={(inst) =>
                                 promptLibraryPick("uut", uut.id, inst)
                               }
-                              areas={sessionData.measurementAreas || []}
-                              currentAreaId={
-                                uut.measurementAreaId &&
-                                (sessionData.measurementAreas || []).some(
+                              currentAreaName={
+                                uut.measurementArea ||
+                                (sessionData.measurementAreas || []).find(
                                   (a) => a.id === uut.measurementAreaId,
-                                )
-                                  ? uut.measurementAreaId
-                                  : (sessionData.measurementAreas || []).find(
-                                      (a) =>
-                                        (a.name || "").toLowerCase() ===
-                                        (uut.measurementArea || "").toLowerCase(),
-                                    )?.id || ""
+                                )?.name ||
+                                ""
                               }
-                              onChangeArea={(areaId) =>
-                                handleChangeUutArea(uut.id, areaId)
-                              }
-                              onCreateArea={(name) =>
-                                handleCreateUutArea(uut.id, name)
+                              onCommitAreaName={(name) =>
+                                handleCommitUutAreaName(uut.id, name)
                               }
                               onCommit={(field, value) =>
                                 handleUutDescriptionEdit(uut.id, field, value)
@@ -3604,9 +3679,7 @@ const SummaryDashboard = ({
                       >
                         <td colSpan={6}>
                           {renderAreaColorSwatch(row.area)}
-                          <span style={{ color: row.area.color }}>
-                            {row.area.name}
-                          </span>
+                          {renderAreaNameEditor(row.area)}
                         </td>
                       </tr>
                     );
@@ -3665,23 +3738,13 @@ const SummaryDashboard = ({
                               onPickLibrary={(inst) =>
                                 promptLibraryPick("tmde", tmde.id, inst)
                               }
-                              areas={sessionData.measurementAreas || []}
-                              currentAreaId={
-                                (sessionData.measurementAreas || []).find(
-                                  (a) =>
-                                    (a.name || "").toLowerCase() ===
-                                    (
-                                      tmde.instrument?.measurementArea ||
-                                      tmde.measurementArea ||
-                                      ""
-                                    ).toLowerCase(),
-                                )?.id || ""
+                              currentAreaName={
+                                tmde.instrument?.measurementArea ||
+                                tmde.measurementArea ||
+                                ""
                               }
-                              onChangeArea={(areaId) =>
-                                handleChangeTmdeArea(tmde.id, areaId)
-                              }
-                              onCreateArea={(name) =>
-                                handleCreateTmdeArea(tmde.id, name)
+                              onCommitAreaName={(name) =>
+                                handleCommitTmdeAreaName(tmde.id, name)
                               }
                               onCommit={(field, value) =>
                                 handleTmdeDescriptionEdit(tmde.id, field, value)
@@ -4435,6 +4498,32 @@ function DetailedView({
         : t,
     );
     onSessionSave({ ...sessionData, measurementAreas: areas, tmdes: updatedTmdes });
+  };
+
+  const handleCommitUutAreaName = (uutId, rawName) => {
+    const trimmed = String(rawName || "").trim();
+    if (!trimmed || trimmed.toLowerCase() === "unassigned") {
+      handleChangeUutArea(uutId, "");
+      return;
+    }
+    const existing = (sessionData.measurementAreas || []).find(
+      (area) => String(area.name || "").toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (existing) handleChangeUutArea(uutId, existing.id);
+    else handleCreateUutArea(uutId, trimmed);
+  };
+
+  const handleCommitTmdeAreaName = (tmdeId, rawName) => {
+    const trimmed = String(rawName || "").trim();
+    if (!trimmed || trimmed.toLowerCase() === "unassigned") {
+      handleChangeTmdeArea(tmdeId, "");
+      return;
+    }
+    const existing = (sessionData.measurementAreas || []).find(
+      (area) => String(area.name || "").toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (existing) handleChangeTmdeArea(tmdeId, existing.id);
+    else handleCreateTmdeArea(tmdeId, trimmed);
   };
 
   // --- Range bounds / unit / resolution / add / remove ---
@@ -6141,23 +6230,13 @@ function DetailedView({
                                 onPickLibrary={(inst) =>
                                   promptLibraryPick("uut", uut.id, inst)
                                 }
-                                areas={sessionData.measurementAreas || []}
-                                currentAreaId={
-                                  (sessionData.measurementAreas || []).find(
-                                    (a) =>
-                                      (a.name || "").toLowerCase() ===
-                                      (
-                                        uut.measurementArea ||
-                                        uut.instrument?.measurementArea ||
-                                        ""
-                                      ).toLowerCase(),
-                                  )?.id || ""
+                                currentAreaName={
+                                  uut.measurementArea ||
+                                  uut.instrument?.measurementArea ||
+                                  ""
                                 }
-                                onChangeArea={(areaId) =>
-                                  handleChangeUutArea(uut.id, areaId)
-                                }
-                                onCreateArea={(name) =>
-                                  handleCreateUutArea(uut.id, name)
+                                onCommitAreaName={(name) =>
+                                  handleCommitUutAreaName(uut.id, name)
                                 }
                                 onCommit={(field, value) =>
                                   handleDetailUutDescEdit(uut.id, field, value)
@@ -6910,23 +6989,13 @@ function DetailedView({
                                   onPickLibrary={(inst) =>
                                     promptLibraryPick("tmde", masterTmde.id, inst)
                                   }
-                                  areas={sessionData.measurementAreas || []}
-                                  currentAreaId={
-                                    (sessionData.measurementAreas || []).find(
-                                      (a) =>
-                                        (a.name || "").toLowerCase() ===
-                                        (
-                                          masterTmde.instrument?.measurementArea ||
-                                          masterTmde.measurementArea ||
-                                          ""
-                                        ).toLowerCase(),
-                                    )?.id || ""
+                                  currentAreaName={
+                                    masterTmde.instrument?.measurementArea ||
+                                    masterTmde.measurementArea ||
+                                    ""
                                   }
-                                  onChangeArea={(areaId) =>
-                                    handleChangeTmdeArea(masterTmde.id, areaId)
-                                  }
-                                  onCreateArea={(name) =>
-                                    handleCreateTmdeArea(masterTmde.id, name)
+                                  onCommitAreaName={(name) =>
+                                    handleCommitTmdeAreaName(masterTmde.id, name)
                                   }
                                   onCommit={(field, value) =>
                                     handleDetailTmdeDescEdit(

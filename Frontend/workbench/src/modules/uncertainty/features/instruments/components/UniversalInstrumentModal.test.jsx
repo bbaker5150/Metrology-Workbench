@@ -84,7 +84,7 @@ const toggleResolutionBudget = () => {
 };
 
 describe("UniversalInstrumentModal library synchronization", () => {
-  test("new instruments default to undefined measurement area and adopt existing area color by name", () => {
+  test("new instruments default to unassigned measurement area and adopt existing area color by name", () => {
     renderModal({
       mode: "uut",
       initialData: null,
@@ -97,7 +97,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     const areaInput = screen.getByLabelText("Measurement Area");
     const colorInput = screen.getByLabelText("Measurement area color");
 
-    expect(areaInput).toHaveValue("undefined");
+    expect(areaInput).toHaveValue("Unassigned");
     expect(colorInput).toHaveValue("#3498db");
 
     fireEvent.change(areaInput, { target: { value: "Flow" } });

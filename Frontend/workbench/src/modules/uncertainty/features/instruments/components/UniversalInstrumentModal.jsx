@@ -113,7 +113,7 @@ const formatToleranceSummary = (tolerances) => {
     return parts.length > 0 ? <span className="tolerance-badge">{parts.join(" + ")}</span> : <span className="tolerance-badge">Custom Spec</span>;
 };
 
-const DEFAULT_MEASUREMENT_AREA_NAME = "undefined";
+const DEFAULT_MEASUREMENT_AREA_NAME = "Unassigned";
 const DEFAULT_MEASUREMENT_AREA_COLOR = "#3498db";
 
 const getComparableLibraryInstrument = (instrument) => ({

@@ -2655,20 +2655,24 @@ function App() {
     if (data.type === "uut") {
       const rawName = data.measurementArea || "";
       const cleanName = rawName.trim();
+      const hasNamedArea =
+        cleanName && cleanName.toLowerCase() !== "unassigned";
       const associationPoint = currentTestPoints.find(
         (point) => point.id === instrumentModalConfig.associateToPointId,
       );
       let resolvedAreaId =
-        data.measurementAreaId ||
-        associationPoint?.measurementAreaId ||
-        selectedAreaId ||
-        null;
+        hasNamedArea
+          ? data.measurementAreaId ||
+            associationPoint?.measurementAreaId ||
+            selectedAreaId ||
+            null
+          : null;
       let updatedMeasurementAreas = [
         ...(currentSessionData.measurementAreas || []),
       ];
 
       // Handle Measurement Area Logic
-      if (cleanName) {
+      if (hasNamedArea) {
         const existingAreaIndex = updatedMeasurementAreas.findIndex(
           (a) => a.name.toLowerCase() === cleanName.toLowerCase(),
         );
@@ -2702,7 +2706,7 @@ function App() {
       }
       const resolvedAreaName =
         updatedMeasurementAreas.find((area) => area.id === resolvedAreaId)
-          ?.name || cleanName;
+          ?.name || (hasNamedArea ? cleanName : "");
 
       const newUut = {
         id: data.id || uuidv4(),
@@ -2747,6 +2751,8 @@ function App() {
       (data.type === "library" && data.useAs === "tmde")
     ) {
       const cleanAreaName = String(data.measurementArea || "").trim();
+      const hasNamedArea =
+        cleanAreaName && cleanAreaName.toLowerCase() !== "unassigned";
       let updatedMeasurementAreas = [
         ...(currentSessionData.measurementAreas || []),
       ];
@@ -2763,19 +2769,21 @@ function App() {
         (area) => String(area.id) === String(data.measurementAreaId),
       );
       let resolvedAreaId =
-        existingTmde?.measurementAreaId ||
-        associationPoint?.measurementAreaId ||
-        contextPoint?.measurementAreaId ||
-        selectedAreaId ||
-        (dataAreaExists ? data.measurementAreaId : null) ||
-        null;
+        hasNamedArea
+          ? existingTmde?.measurementAreaId ||
+            associationPoint?.measurementAreaId ||
+            contextPoint?.measurementAreaId ||
+            selectedAreaId ||
+            (dataAreaExists ? data.measurementAreaId : null) ||
+            null
+          : null;
 
       // TMDE library metadata often has its own category/area label (e.g.
       // "Weight"). That label must NOT create a session measurement area in the
       // sidebar. Only resolve TMDE ownership to an already-existing session area
       // or the current point/area context; preserve the library label inside the
       // nested instrument snapshot for editing/display.
-      if (!resolvedAreaId && cleanAreaName) {
+      if (!resolvedAreaId && hasNamedArea) {
         resolvedAreaId =
           updatedMeasurementAreas.find(
             (a) => a.name.toLowerCase() === cleanAreaName.toLowerCase(),
@@ -2786,9 +2794,12 @@ function App() {
       );
       const getTmdeInstrumentSnapshot = (instrument) => {
         const snapshot = { ...(instrument || {}) };
-        if (cleanAreaName) snapshot.measurementArea = cleanAreaName;
+        if (hasNamedArea) snapshot.measurementArea = cleanAreaName;
+        else snapshot.measurementArea = "";
         if (data.measurementAreaColor) {
-          snapshot.measurementAreaColor = data.measurementAreaColor;
+          snapshot.measurementAreaColor = hasNamedArea
+            ? data.measurementAreaColor
+            : "";
         }
         return snapshot;
       };
