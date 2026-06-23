@@ -35,6 +35,7 @@ import {
   assessTmdeCompatibility,
 } from "../../../utils/tmdeCompatibility";
 import { resolvePointAreaId } from "../../../utils/areaWorkspace";
+import { createInstanceFromDefinition } from "../../../utils/instrumentFactory";
 
 // --- Constants ---
 const customUnitSelectStyles = {
@@ -54,7 +55,7 @@ const customUnitSelectStyles = {
     minHeight: "24px",
     height: "24px",
     fontSize: "0.85rem",
-    backgroundColor: "var(--input-background)",
+    backgroundColor: "transparent",
     borderColor: "var(--border-color)",
     color: "var(--text-color)",
     boxShadow: "none",
@@ -129,6 +130,7 @@ import {
 import { oldErrorDistributions } from "../utils/budgetUtils";
 import { computeSyncState, buildValidatedSnapshot } from "../../../utils/instrumentSync";
 import { v4 as uuidv4 } from "uuid";
+import useInstrumentSync from "../../../hooks/useInstrumentSync";
 
 // Auto-assigned colors for areas created on the fly when a picked library
 // instrument brings a measurement area the session doesn't have yet.
@@ -387,17 +389,57 @@ const applyBandDistribution = (tolerance = {}, value) => {
 // Green/red/none sync indicator for a UUT/TMDE row, from its validated-library
 // linkage (feature/inline-instrument-tables). Nested under .instrument when the
 // row carries a full instrument definition.
-const SyncBadge = ({ item }) => {
+const SyncBadge = ({ item, onSync }) => {
   const state = computeSyncState(item?.instrument || item || {});
-  if (state === "none") return <span style={{ color: "var(--text-color-muted)" }}>—</span>;
+  if (state === "none") {
+    return (
+      <button
+        type="button"
+        className="inline-sync-badge inline-sync-badge--none"
+        onClick={(event) => {
+          event.stopPropagation();
+          onSync?.();
+        }}
+        disabled={!onSync}
+        title={onSync ? "Sync to shared library" : "Not synced with shared library"}
+        aria-label="Sync to shared library"
+      >
+        -
+      </button>
+    );
+  }
   const green = state === "green";
   return (
-    <FontAwesomeIcon
-      icon={green ? faLink : faLinkSlash}
-      title={green ? "Synced with shared library" : "Diverged from shared library"}
-      style={{ color: green ? "#2ecc71" : "#e74c3c" }}
-    />
+    <button
+      type="button"
+      className={`inline-sync-badge ${
+        green ? "inline-sync-badge--green" : "inline-sync-badge--red"
+      }`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSync?.();
+      }}
+      disabled={!onSync}
+      title={
+        green
+          ? "Synced with shared library"
+          : "Diverged from shared library - click to re-sync"
+      }
+      aria-label={
+        green
+          ? "Synced with shared library"
+          : "Diverged from shared library - re-sync"
+      }
+    >
+      <FontAwesomeIcon icon={green ? faLink : faLinkSlash} />
+    </button>
   );
+};
+
+const syncDiffSummary = (diffs = []) => {
+  if (!diffs.length) return "This instrument will be promoted to the shared library.";
+  const fields = diffs.map((diff) => diff.field).join(", ");
+  return `Changed shared-library fields: ${fields}.`;
 };
 
 // Inline-editable Description cell: make / model / name as three tabbable
@@ -709,6 +751,7 @@ const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) =>
     };
   }
   return {
+    value: "",
     high: "",
     low: "",
     unit: "%",
@@ -717,6 +760,14 @@ const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) =>
   };
 };
 const componentLimitMagnitude = (component = {}, side = "high", typeKey = "") => {
+  if (
+    typeKey === "reading" &&
+    component?.value !== undefined &&
+    component.value !== null &&
+    component.value !== ""
+  ) {
+    return toPlainNumber(Math.abs(parseFloat(component.value)));
+  }
   const raw = component?.[side];
   if (raw !== undefined && raw !== null && raw !== "") {
     return toPlainNumber(Math.abs(parseFloat(raw)));
@@ -796,6 +847,16 @@ const ToleranceTermEditor = ({
   const commitLimit = (side, raw) => {
     const trimmed = String(raw ?? "").trim();
     const parsed = parseFloat(trimmed);
+    if (typeKey === "reading") {
+      const magnitude = trimmed === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
+      commit({
+        value: magnitude,
+        high: magnitude,
+        low: magnitude === "" ? "" : String(-Math.abs(parsed)),
+        symmetric: true,
+      });
+      return;
+    }
     const next = {
       high:
         component.high ??
@@ -842,18 +903,22 @@ const ToleranceTermEditor = ({
           className="inline-tolerance-input"
           style={toleranceInputStyleFor(highValue)}
         />
-        <span className="inline-tolerance-symbol">-</span>
-        <input
-          type="text"
-          inputMode="decimal"
-          value={lowValue}
-          placeholder="0"
-          onChange={(e) => setLowValue(e.target.value)}
-          onBlur={(e) => commitLimit("low", e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-          className="inline-tolerance-input"
-          style={toleranceInputStyleFor(lowValue)}
-        />
+        {typeKey !== "reading" && (
+          <>
+            <span className="inline-tolerance-symbol">-</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={lowValue}
+              placeholder="0"
+              onChange={(e) => setLowValue(e.target.value)}
+              onBlur={(e) => commitLimit("low", e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              className="inline-tolerance-input"
+              style={toleranceInputStyleFor(lowValue)}
+            />
+          </>
+        )}
       </span>
       {typeLabel && (
         <button
@@ -1245,6 +1310,53 @@ const resolveUutRangeHelper = (
   };
 };
 
+const stableSpecString = (value) => {
+  const normalize = (input) => {
+    if (input === undefined) return null;
+    if (input === null || typeof input !== "object") return input;
+    if (Array.isArray(input)) return input.map(normalize);
+    return Object.keys(input)
+      .sort()
+      .reduce((acc, key) => {
+        if (key === "_index") return acc;
+        acc[key] = normalize(input[key]);
+        return acc;
+      }, {});
+  };
+  return JSON.stringify(normalize(value || {}));
+};
+
+const specsDiffer = (a, b) => stableSpecString(a) !== stableSpecString(b);
+
+const pointUsesUut = (point = {}, uutId) =>
+  String(point.activeUutId || "") === String(uutId) ||
+  (point.associatedUutIds || []).some((id) => String(id) === String(uutId));
+
+const findUpdatedUutToleranceForPoint = (previousUut, updatedUut, point) => {
+  if (!point?.uutTolerance) return null;
+  const previousResolution = resolveUutRangeHelper(
+    previousUut,
+    {},
+    point.uutTolerance,
+    point.testPointInfo?.parameter || null,
+  );
+  const previousRange = previousResolution.activeRange || point.uutTolerance;
+  const updatedRanges = resolveUutRangeHelper(updatedUut, {}, null, null).ranges;
+  const updatedRange =
+    updatedRanges.find(
+      (range) => previousRange.id && range.id && String(range.id) === String(previousRange.id),
+    ) ||
+    updatedRanges.find(
+      (range) =>
+        previousRange.range &&
+        range.range === previousRange.range &&
+        (!previousRange.functionName || range.functionName === previousRange.functionName),
+    ) ||
+    updatedRanges.find((range) => range._index === previousRange._index);
+
+  return updatedRange || null;
+};
+
 // --- SHARED HELPER: Calculate Tolerance & Limits (Core Logic) ---
 const calculateToleranceMetrics = (activeTolerance, nominalObj) => {
   const nominalVal = parseFloat(nominalObj?.value);
@@ -1368,81 +1480,6 @@ const calculateToleranceMetrics = (activeTolerance, nominalObj) => {
 };
 
 // --- HELPERS FOR EQUATION EDITOR ---
-
-// --- RE-INSERTED EDITABLE CELL COMPONENT ---
-const EditableCell = ({
-  value,
-  onSave,
-  type = "text",
-  suffix = "",
-  style = {},
-  placeholder = "",
-  className = "",
-}) => {
-  const [isEditing, setIsEditing] = useState(false);
-
-  // FIX: Default to "" if value is null/undefined
-  const [currentValue, setCurrentValue] = useState(value ?? "");
-
-  // FIX: Update effect to also handle null/undefined
-  useEffect(() => {
-    setCurrentValue(value ?? "");
-  }, [value]);
-
-  const handleBlur = () => {
-    setIsEditing(false);
-    const cleanVal =
-      typeof currentValue === "string" ? currentValue.trim() : currentValue;
-    if (cleanVal != value) {
-      onSave(cleanVal);
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") {
-      handleBlur();
-    }
-  };
-
-  if (isEditing) {
-    return (
-      <input
-        autoFocus
-        type={type}
-        // FIX: Ensure value is never undefined in the input tag
-        value={currentValue ?? ""}
-        onChange={(e) => setCurrentValue(e.target.value)}
-        onBlur={handleBlur}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        className={className}
-        style={{
-          width: "100%",
-          padding: "4px",
-          boxSizing: "border-box",
-          ...style,
-        }}
-      />
-    );
-  }
-  return (
-    <div
-      onClick={() => setIsEditing(true)}
-      style={{
-        cursor: "text",
-        minHeight: "20px",
-        borderBottom: "1px dashed var(--border-color)",
-        paddingBottom: "2px",
-        color: !value && placeholder ? "var(--text-color-muted)" : "inherit",
-        ...style,
-      }}
-      className={`editable-cell-display ${className}`}
-      title="Click to edit"
-    >
-      {value || placeholder} {suffix}
-    </div>
-  );
-};
 
 // ---  Inline Quick Add Row Component ---
 const QuickAddRow = ({
@@ -1827,6 +1864,7 @@ const SummaryDashboard = ({
   const [toleranceTypes, setToleranceTypes] = useState({});
   const [selectedToleranceKey, setSelectedToleranceKey] = useState(null);
   const [openToleranceAddMenu, setOpenToleranceAddMenu] = useState(null);
+  const { syncToShared, getDiff } = useInstrumentSync();
 
   // Recolor a measurement area inline from its subsection header (replaces the
   // old per-instrument color picker). Writes straight to the session's area
@@ -1877,6 +1915,73 @@ const SummaryDashboard = ({
     };
   };
 
+  const replaceSyncedItem = (kind, item, syncedInstrument) => {
+    if (!onSessionSave || !syncedInstrument) return;
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    const updatedItem = {
+      ...item,
+      libraryInstrumentId: syncedInstrument.id,
+      instrument: {
+        ...syncedInstrument,
+        measurementArea:
+          item.instrument?.measurementArea || syncedInstrument.measurementArea || "",
+        measurementAreaColor:
+          item.instrument?.measurementAreaColor ||
+          syncedInstrument.measurementAreaColor ||
+          "",
+      },
+    };
+    onSessionSave({
+      ...sessionData,
+      [listKey]: (sessionData[listKey] || []).map((existing) =>
+        existing.id === item.id ? updatedItem : existing,
+      ),
+    });
+  };
+
+  const handleSyncItem = (kind, item) => {
+    if (!setNotification || !item) return;
+    const instrument = itemInstrumentForLibrary(kind, item);
+    const state = computeSyncState(instrument);
+    const label = libraryLabel(instrument);
+
+    if (state === "green") {
+      setNotification({
+        title: "Already Synced",
+        message: `${label} already matches the shared library snapshot.`,
+      });
+      return;
+    }
+
+    setNotification({
+      title: state === "red" ? "Re-sync Instrument" : "Sync Instrument",
+      message: `${syncDiffSummary(getDiff(instrument))} Enter the shared-library password to sync ${label}.`,
+      inputLabel: "Shared library password",
+      inputPlaceholder: "Password",
+      confirmText: state === "red" ? "Re-sync" : "Sync",
+      validateInput: (value) => (!value.trim() ? "Password is required." : ""),
+      onConfirm: async (password) => {
+        const result = await syncToShared(instrument, password);
+        if (result.ok && result.instrument) {
+          replaceSyncedItem(kind, item, result.instrument);
+          setLocalLibraryChoices((prev) => ({
+            ...prev,
+            [`${kind}:${item.id}`]: "shared",
+          }));
+          setNotification({
+            title: "Sync Complete",
+            message: `${label} is now synced with the shared library.`,
+          });
+          return;
+        }
+        setNotification({
+          title: "Sync Error",
+          message: result.message || "Could not sync this instrument.",
+        });
+      },
+    });
+  };
+
   const saveItemInstrumentToLocalLibrary = (kind, item) => {
     if (!onSaveInstrument || !item) return;
     const instrument = itemInstrumentForLibrary(kind, item);
@@ -1919,13 +2024,38 @@ const SummaryDashboard = ({
     });
   };
 
+  const refreshSessionPointsForUut = (previousItem, updatedItem) => {
+    if (!previousItem || !updatedItem) return sessionData.testPoints || [];
+    return (sessionData.testPoints || []).map((point) => {
+      if (!pointUsesUut(point, updatedItem.id)) return point;
+      const nextTolerance = findUpdatedUutToleranceForPoint(
+        previousItem,
+        updatedItem,
+        point,
+      );
+      if (!nextTolerance || !specsDiffer(point.uutTolerance, nextTolerance)) {
+        return point;
+      }
+      return { ...point, uutTolerance: nextTolerance };
+    });
+  };
+
   const persistInlineItem = (kind, updatedItem, { maybePromptLocal = false } = {}) => {
     const listKey = kind === "uut" ? "uuts" : "tmdes";
-    onSessionSave({
+    const previousItem = (sessionData[listKey] || []).find(
+      (item) => item.id === updatedItem.id,
+    );
+    const nextSession = {
       ...sessionData,
       [listKey]: (sessionData[listKey] || []).map((it) =>
         it.id === updatedItem.id ? updatedItem : it,
       ),
+    };
+    if (kind === "uut") {
+      nextSession.testPoints = refreshSessionPointsForUut(previousItem, updatedItem);
+    }
+    onSessionSave({
+      ...nextSession,
     });
     if (
       onSaveInstrument &&
@@ -2970,9 +3100,9 @@ const SummaryDashboard = ({
                     {renderToleranceHeaderActions("uut")}
                   </span>
                 </th>
-                <th>Distribution</th>
+                <th className="cell-distribution">Distribution</th>
                 <th>Resolution</th>
-                <th>Sync</th>
+                <th className="cell-sync">Sync</th>
               </tr>
             </thead>
             <tbody>
@@ -3215,7 +3345,7 @@ const SummaryDashboard = ({
                           className="cell-sync"
                           style={{ textAlign: "center" }}
                         >
-                          <SyncBadge item={uut} />
+                          <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
                         </td>
                       </tr>
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
@@ -3311,9 +3441,9 @@ const SummaryDashboard = ({
                     {renderToleranceHeaderActions("tmde")}
                   </span>
                 </th>
-                <th>Distribution</th>
+                <th className="cell-distribution">Distribution</th>
                 <th>Resolution</th>
-                <th>Sync</th>
+                <th className="cell-sync">Sync</th>
               </tr>
             </thead>
             <tbody>
@@ -3543,7 +3673,7 @@ const SummaryDashboard = ({
                           className="cell-sync"
                           style={{ textAlign: "center" }}
                         >
-                          <SyncBadge item={tmde} />
+                          <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
                         </td>
                       </tr>
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
@@ -3596,7 +3726,6 @@ function DetailedView({
   onInlineUutUpdate,
   onInlineTmdeUpdate,
   onBudgetRowContextMenu,
-  onDefineTestPoint,
   onShowDerivedBreakdown,
   onShowRiskBreakdown,
   showContribution,
@@ -3607,8 +3736,6 @@ function DetailedView({
   riskResults,
   setNotification,
   onToggleUut,
-  onDeleteTestPoint,
-  currentUutSelection = [],
   activeRangeIndices = {},
   onRangeSelectionChange,
 
@@ -3658,6 +3785,7 @@ function DetailedView({
   const [selectedToleranceKey, setSelectedToleranceKey] = useState(null);
   const [openToleranceAddMenu, setOpenToleranceAddMenu] = useState(null);
   const [localRangeIndices, setLocalRangeIndices] = useState({});
+  const { syncToShared, getDiff } = useInstrumentSync();
 
   const rowLabel = (kind, item) =>
     kind === "uut" ? item?.description || "" : item?.name || "";
@@ -3682,6 +3810,73 @@ function DetailedView({
       measurementAreaColor: areaColor,
       scope: inst.scope || "local",
     };
+  };
+
+  const replaceSyncedItem = (kind, item, syncedInstrument) => {
+    if (!onSessionSave || !syncedInstrument) return;
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    const updatedItem = {
+      ...item,
+      libraryInstrumentId: syncedInstrument.id,
+      instrument: {
+        ...syncedInstrument,
+        measurementArea:
+          item.instrument?.measurementArea || syncedInstrument.measurementArea || "",
+        measurementAreaColor:
+          item.instrument?.measurementAreaColor ||
+          syncedInstrument.measurementAreaColor ||
+          "",
+      },
+    };
+    onSessionSave({
+      ...sessionData,
+      [listKey]: (sessionData[listKey] || []).map((existing) =>
+        existing.id === item.id ? updatedItem : existing,
+      ),
+    });
+  };
+
+  const handleSyncItem = (kind, item) => {
+    if (!setNotification || !item) return;
+    const instrument = itemInstrumentForLibrary(kind, item);
+    const state = computeSyncState(instrument);
+    const label = libraryLabel(instrument);
+
+    if (state === "green") {
+      setNotification({
+        title: "Already Synced",
+        message: `${label} already matches the shared library snapshot.`,
+      });
+      return;
+    }
+
+    setNotification({
+      title: state === "red" ? "Re-sync Instrument" : "Sync Instrument",
+      message: `${syncDiffSummary(getDiff(instrument))} Enter the shared-library password to sync ${label}.`,
+      inputLabel: "Shared library password",
+      inputPlaceholder: "Password",
+      confirmText: state === "red" ? "Re-sync" : "Sync",
+      validateInput: (value) => (!value.trim() ? "Password is required." : ""),
+      onConfirm: async (password) => {
+        const result = await syncToShared(instrument, password);
+        if (result.ok && result.instrument) {
+          replaceSyncedItem(kind, item, result.instrument);
+          setLocalLibraryChoices((prev) => ({
+            ...prev,
+            [`${kind}:${item.id}`]: "shared",
+          }));
+          setNotification({
+            title: "Sync Complete",
+            message: `${label} is now synced with the shared library.`,
+          });
+          return;
+        }
+        setNotification({
+          title: "Sync Error",
+          message: result.message || "Could not sync this instrument.",
+        });
+      },
+    });
   };
   const saveItemInstrumentToLocalLibrary = (kind, item) => {
     if (!onSaveInstrument || !item) return;
@@ -3723,6 +3918,34 @@ function DetailedView({
       onSecondary: sessionOnly,
     });
   };
+  const refreshPointTmdeInstance = (updatedItem) => {
+    if (!onUpdateTestPoint || !updatedItem) return;
+    let touched = false;
+    const nextTolerances = (tmdeTolerancesData || []).map((instance) => {
+      const matchesMaster =
+        String(instance.id) === String(updatedItem.id) ||
+        String(instance.sourceId) === String(updatedItem.id);
+      if (!matchesMaster) return instance;
+
+      touched = true;
+      return createInstanceFromDefinition(updatedItem, {
+        existingId: instance.id,
+        quantity: instance.quantity ?? 1,
+        assetId: instance.assetId || "",
+        userFunctionName: instance.functionName || "",
+        userRangeIndex:
+          instance._index ??
+          tmdeRangeIndices[updatedItem.id] ??
+          0,
+        userMeasurement: instance.measurementPoint,
+        userVariable: instance.variableType || "",
+      });
+    });
+
+    if (touched) {
+      onUpdateTestPoint({ tmdeTolerances: nextTolerances });
+    }
+  };
   const persistInlineItemDetail = (
     kind,
     updatedItem,
@@ -3745,6 +3968,9 @@ function DetailedView({
       saveItemInstrumentToLocalLibrary(kind, updatedItem);
     } else if (maybePromptLocal) {
       promptLocalLibrarySave(kind, updatedItem);
+    }
+    if (kind === "tmde") {
+      refreshPointTmdeInstance(updatedItem);
     }
   };
 
@@ -4521,7 +4747,6 @@ function DetailedView({
   ]);
 
   const isDerived = testPointData.measurementType === "derived";
-  const isUnassigned = associatedUutIds.length === 0;
 
   const availableVariables = useMemo(() => {
     if (!isDerived) return [];
@@ -4571,24 +4796,6 @@ function DetailedView({
       // Non-active UUTs only set the shared default used when defining new points.
       onRangeSelectionChange((prev) => ({ ...prev, [uutId]: newIndex }));
     }
-  };
-
-  const handleActionAdd = () => {
-    if (!currentUutSelection || currentUutSelection.length === 0) {
-      onDefineTestPoint([], null);
-      return;
-    }
-
-    const primaryUutId = currentUutSelection[0];
-    const primaryUut = relevantUuts.find((u) => u.id === primaryUutId);
-    let resolvedTolerance = null;
-
-    if (primaryUut) {
-      const { activeRange } = resolveUutRange(primaryUut);
-      resolvedTolerance = activeRange;
-    }
-
-    onDefineTestPoint(currentUutSelection, resolvedTolerance);
   };
 
   const handleEquationChange = (newEquationString) => {
@@ -5465,13 +5672,6 @@ function DetailedView({
       uutNominal.value !== undefined &&
       uutNominal.value !== "" &&
       uutNominal.value !== null);
-  // This detailed table shows a single active point, so the Section column is
-  // driven purely by whether THIS point has a section. If it was left blank
-  // when the point was added, no Section column is shown (#4).
-  const showSectionColumn = useMemo(
-    () => Boolean(String(testPointData.section || "").trim()),
-    [testPointData.section],
-  );
   const hasUnassignedVariables =
     isDerived && equationDisplayData?.variables.some((v) => !v.isAssigned);
 
@@ -5565,27 +5765,11 @@ function DetailedView({
   // Auto-Save Effect
   useEffect(() => {
     if (activeResolvedTolerance && uutToleranceData) {
-      const isDifferent =
-        activeResolvedTolerance.range !== uutToleranceData.range ||
-        activeResolvedTolerance.min != uutToleranceData.min ||
-        activeResolvedTolerance.max != uutToleranceData.max ||
-        activeResolvedTolerance.unit !== uutToleranceData.unit;
-
-      if (isDifferent && onUpdateTestPoint) {
+      if (specsDiffer(activeResolvedTolerance, uutToleranceData) && onUpdateTestPoint) {
         onUpdateTestPoint({ uutTolerance: activeResolvedTolerance });
       }
     }
   }, [activeResolvedTolerance, uutToleranceData, onUpdateTestPoint]);
-
-  const calculatedToleranceDisplay = useMemo(() => {
-    const summary = getToleranceErrorSummary(
-      activeResolvedTolerance,
-      uutNominal,
-    );
-    return summary === "Not Set" || summary === "Not Calculated"
-      ? "No Range / Spec"
-      : summary;
-  }, [activeResolvedTolerance, uutNominal]);
 
   return (
     <div className="configuration-panel">
@@ -5655,9 +5839,9 @@ function DetailedView({
                     {renderToleranceHeaderActionsDetail("uut")}
                   </span>
                 </th>
-                <th>Distribution</th>
+                <th className="cell-distribution">Distribution</th>
                 <th>Resolution</th>
-                <th>Sync</th>
+                <th className="cell-sync">Sync</th>
               </tr>
             </thead>
             <tbody>
@@ -5677,7 +5861,7 @@ function DetailedView({
                     (!testPointData.activeUutId &&
                       associatedUutIds[0] === uut.id);
                   const specRows = getSpecRows(activeRange);
-                  const rowSpan = specRows.length > 0 ? specRows.length : 1;
+                  const rowSpan = !onSessionSave && specRows.length > 0 ? specRows.length : 1;
                   const isSelected = selectedUutIds.includes(uut.id);
 
                   return (
@@ -5783,7 +5967,7 @@ function DetailedView({
                             setHoveredCell({ tableId: "uut_det", colIndex: 2 })
                           }
                           onClick={(e) => e.stopPropagation()}
-                          title={specRows[0]}
+                          title={!onSessionSave ? specRows[0] : undefined}
                         >
                           {onSessionSave ? (
                             <InlineToleranceCell
@@ -5902,11 +6086,11 @@ function DetailedView({
                           style={{ textAlign: "center" }}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <SyncBadge item={uut} />
+                          <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
                         </td>
                       </tr>
 
-                      {specRows.slice(1).map((specComp, sIdx) => (
+                      {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${uut.id}-spec-${sIdx}`}
                           className={`spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
@@ -6318,9 +6502,9 @@ function DetailedView({
                       {renderToleranceHeaderActionsDetail("tmde")}
                     </span>
                   </th>
-                  <th>Distribution</th>
+                  <th className="cell-distribution">Distribution</th>
                   <th>Resolution</th>
-                  <th>Sync</th>
+                  <th className="cell-sync">Sync</th>
                 </tr>
               </thead>
               <tbody>
@@ -6365,7 +6549,7 @@ function DetailedView({
 
                       const effectiveTolerance = activeRange;
                       const specRows = getSpecRows(effectiveTolerance);
-                      const rowSpan = specRows.length > 0 ? specRows.length : 1;
+                      const rowSpan = !onSessionSave && specRows.length > 0 ? specRows.length : 1;
 
                       const safeDescription =
                         masterTmde.description ||
@@ -6589,7 +6773,7 @@ function DetailedView({
                                 })
                               }
                               onClick={(e) => e.stopPropagation()}
-                              title={specRows[0]}
+                              title={!onSessionSave ? specRows[0] : undefined}
                             >
                               {onSessionSave ? (
                                 <InlineToleranceCell
@@ -6744,11 +6928,11 @@ function DetailedView({
                               style={{ textAlign: "center" }}
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <SyncBadge item={masterTmde} />
+                              <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} />
                             </td>
                           </tr>
 
-                          {specRows.slice(1).map((specComp, sIdx) => (
+                          {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                             <tr
                               key={`${masterTmde.id}-${idx}-spec-${sIdx}`}
                               className={`spec-row ${isChecked ? "active-point-tmde-spec-row" : ""} ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "hovered-spec-row" : ""}`}

@@ -387,6 +387,10 @@ const UncertaintyBudgetTable = ({
   }
 
   const renderDistributionCell = (component) => {
+    if (component.sourceTmdeId || component.isCore || component.isResolution) {
+      return <span>{component.distribution || "Normal"}</span>;
+    }
+
     if (component.originalInput !== undefined) {
       if (component.type === "A") {
         return <span>{component.distribution || "Normal"}</span>;

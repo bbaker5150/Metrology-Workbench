@@ -163,6 +163,25 @@ const getMinSidebarWidth = (visibleColumns) => {
   return width;
 };
 
+const formatInstrumentIdentity = (item = {}) => {
+  const inst = item.instrument || item;
+  const make = String(inst.manufacturer || item.manufacturer || "").trim();
+  const model = String(inst.model || item.model || "").trim();
+  const name = String(
+    item.description ||
+      item.name ||
+      inst.description ||
+      inst.name ||
+      "",
+  ).trim();
+  const prefix = [make, model].filter(Boolean).join(" ");
+  if (!prefix) return name || "Instrument";
+  if (!name) return prefix;
+  return name.toLowerCase().startsWith(prefix.toLowerCase())
+    ? name
+    : `${prefix} ${name}`;
+};
+
 const SCOPED_ZOOM_SURFACE_SELECTOR = [
   ".measurement-point-list",
   ".measurement-equation-zoom-surface",
@@ -4351,7 +4370,9 @@ function App() {
                                       icon={faMicroscope}
                                       style={{ opacity: 0.6 }}
                                     />
-                                    <span>{group.description}</span>
+                                    <span title={formatInstrumentIdentity(group)}>
+                                      {formatInstrumentIdentity(group)}
+                                    </span>
                                   </div>
                                   <div className="uut-actions-group">
                                     <button

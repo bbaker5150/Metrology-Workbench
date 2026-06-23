@@ -7309,6 +7309,49 @@ body.theme-orbital.dark-mode .session-selector option {
   color: var(--orbital-cyan);
 }
 
+body.dark-mode .uncertainty-module .industry-table .session-selector,
+body.dark-mode .uncertainty-module .industry-table .session-selector:focus,
+body.dark-mode .uncertainty-module .industry-table .session-selector:active {
+  background-color: var(--input-background);
+  color: var(--text-color);
+}
+
+body.dark-mode .uncertainty-module .industry-table .session-selector option,
+body.dark-mode .uncertainty-module .industry-table .tmde-input-assignment option {
+  background-color: var(--input-background);
+  color: var(--text-color);
+}
+
+body.theme-cyberpunk.dark-mode
+  .uncertainty-module
+  .industry-table
+  .session-selector,
+body.theme-cyberpunk.dark-mode
+  .uncertainty-module
+  .industry-table
+  .session-selector:focus,
+body.theme-cyberpunk.dark-mode
+  .uncertainty-module
+  .industry-table
+  .session-selector:active {
+  background-color: var(--input-background);
+  color: var(--text-color);
+}
+
+body.theme-cyberpunk.dark-mode
+  .uncertainty-module
+  .industry-table
+  .session-selector
+  option,
+body.theme-cyberpunk.dark-mode
+  .uncertainty-module
+  .industry-table
+  .tmde-input-assignment
+  option {
+  background-color: var(--input-background);
+  color: var(--text-color);
+}
+
 .session-actions {
   display: flex;
   gap: 4px;
@@ -10337,8 +10380,9 @@ body.theme-cyberpunk .notification-window .window-header {
   box-shadow: none;
 }
 
-/* Selects inside panel tables fill their cell */
-.panel-table-container .session-selector {
+/* Legacy non-inline table selects can fill their cell. Inline instrument table
+   selects are compact controls and are styled below. */
+.panel-table-container .session-selector:not(.cell-distribution .session-selector) {
   width: 100%;
   padding: 4px 8px;
 }
@@ -10412,6 +10456,66 @@ input.inline-desc-subinput {
   box-sizing: border-box;
 }
 
+.inline-sync-badge {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.instrument-summary-table th.cell-sync,
+.instrument-summary-table td.cell-sync,
+.industry-table th.cell-sync,
+.industry-table td.cell-sync {
+  width: 52px;
+  min-width: 52px;
+  max-width: 52px;
+  text-align: center;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.instrument-summary-table td.cell-sync,
+.industry-table td.cell-sync {
+  vertical-align: middle;
+}
+
+.instrument-summary-table td.cell-sync .inline-sync-badge,
+.industry-table td.cell-sync .inline-sync-badge {
+  margin: 0 auto;
+}
+
+.inline-sync-badge:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+  border-color: color-mix(in srgb, var(--primary-color) 28%, transparent);
+}
+
+.inline-sync-badge:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.inline-sync-badge--green {
+  color: #2ecc71;
+}
+
+.inline-sync-badge--red {
+  color: #e74c3c;
+}
+
+.inline-sync-badge--none {
+  color: var(--text-color-muted);
+}
+
 .inline-range-editor,
 .inline-tolerance-editor {
   display: inline-flex;
@@ -10441,6 +10545,9 @@ input.inline-desc-subinput {
   min-height: 24px !important;
   height: 24px !important;
   border-radius: 4px !important;
+  background-color: transparent !important;
+  background: transparent !important;
+  border-color: var(--border-color) !important;
 }
 
 .inline-unit-react-select .react-select__value-container {
@@ -10506,6 +10613,24 @@ input.inline-desc-subinput {
   height: 100%;
   opacity: 0;
   cursor: pointer;
+}
+
+.uncertainty-module .industry-table .session-selector,
+.uncertainty-module .instrument-summary-table .session-selector,
+.uncertainty-module .industry-table .tmde-input-assignment {
+  height: 24px;
+  min-height: 24px;
+  max-height: 24px;
+  width: auto;
+  min-width: 98px;
+  padding: 2px 24px 2px 7px;
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--text-color);
+  border-color: var(--border-color);
+  font-size: 0.78rem;
+  line-height: 18px;
+  box-sizing: border-box;
 }
 
 .range-header-cell {
@@ -12206,6 +12331,88 @@ body.theme-cyberpunk .uut-row::before {
   cursor: default;
 }
 
+.instrument-summary-table tbody tr.selected-row .session-selector,
+.instrument-summary-table tbody tr.selected-row .react-select__control,
+.instrument-summary-table tbody tr.selected-spec-row .session-selector,
+.instrument-summary-table tbody tr.selected-spec-row .react-select__control {
+  background-color: transparent !important;
+  background: transparent !important;
+  border-color: color-mix(
+    in srgb,
+    var(--table-selected-border) 42%,
+    var(--border-color)
+  ) !important;
+}
+
+.instrument-summary-table tbody tr.selected-row .react-select__single-value,
+.instrument-summary-table tbody tr.selected-row .react-select__input-container,
+.instrument-summary-table tbody tr.selected-spec-row .react-select__single-value,
+.instrument-summary-table tbody tr.selected-spec-row .react-select__input-container {
+  color: var(--text-color) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-start
+  .session-selector,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-start
+  .tmde-input-assignment,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-start
+  .react-select__control,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-continuation
+  .session-selector,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-continuation
+  .tmde-input-assignment,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-continuation
+  .react-select__control {
+  background-color: transparent !important;
+  background: transparent !important;
+  border-color: color-mix(
+    in srgb,
+    var(--table-selected-border) 42%,
+    var(--border-color)
+  ) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-start
+  .react-select__single-value,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-start
+  .react-select__input-container,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-continuation
+  .react-select__single-value,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-continuation
+  .react-select__input-container {
+  color: var(--text-color) !important;
+}
+
 /* 6. Prevent Column Hover on Selected Rows */
 .industry-table tr.selected-row td.col-hovered {
   background-color: transparent !important;
@@ -13249,6 +13456,25 @@ body:not(.dark-mode)
   font-size: 0.85rem;
   line-height: 30px;
   box-shadow: none;
+}
+
+.uncertainty-module .industry-table .session-selector,
+.uncertainty-module .instrument-summary-table .session-selector,
+.uncertainty-module .industry-table .tmde-input-assignment {
+  height: 24px;
+  min-height: 24px;
+  max-height: 24px;
+  width: auto;
+  min-width: 98px;
+  padding: 2px 24px 2px 7px;
+  border-radius: 4px;
+  background-color: transparent;
+  background: transparent;
+  color: var(--text-color);
+  border-color: var(--border-color);
+  font-size: 0.78rem;
+  line-height: 18px;
+  box-sizing: border-box;
 }
 
 .uncertainty-module .sidebar-view-controls {
