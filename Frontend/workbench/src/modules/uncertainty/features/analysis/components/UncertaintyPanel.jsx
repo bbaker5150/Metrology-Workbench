@@ -249,7 +249,7 @@ const getItemRangeTolerance = (item, rangeId) => {
   return item?.tolerance || inst.tolerance || {};
 };
 // Merge a shallow patch into the matched range (e.g. {tolerances}, {resolution}).
-const applyItemRangePatch = (item, rangeId, rangePatch) => {
+export const applyItemRangePatch = (item, rangeId, rangePatch) => {
   const inst = item?.instrument || {};
   const has = (ranges) => (ranges || []).some((r) => sameId(r.id, rangeId));
   const patch = (ranges) =>
@@ -273,11 +273,53 @@ const applyItemRangePatch = (item, rangeId, rangePatch) => {
   if (has(item?.ranges)) {
     return { ...item, ranges: patch(item.ranges) };
   }
-  // No matching range: only a tolerance patch has a sensible default home.
-  if (rangePatch.tolerances !== undefined) {
+  // No matching range. A pure tolerance edit has a sensible flat home, but a
+  // freshly added inline instrument has no real range yet (its row renders a
+  // synthetic "default" range), so a unit/min/max/resolution edit would patch
+  // nothing and be silently dropped. Materialize a range to carry the edit.
+  const isToleranceOnly =
+    rangePatch.tolerances !== undefined &&
+    Object.keys(rangePatch).length === 1;
+  if (isToleranceOnly) {
     return { ...item, tolerance: rangePatch.tolerances };
   }
-  return item;
+  const seededRange = {
+    id: uuidv4(),
+    min: "",
+    max: "",
+    unit: "",
+    resolution: "",
+    tolerances: item?.tolerance || inst.tolerance || {},
+    ...rangePatch,
+  };
+  const existingFunctions = Array.isArray(inst.functions) ? inst.functions : [];
+  if (existingFunctions.length > 0) {
+    // Attach to the first function so units stay grouped under it.
+    return {
+      ...item,
+      instrument: {
+        ...inst,
+        functions: existingFunctions.map((fn, i) =>
+          i === 0
+            ? {
+                ...fn,
+                unit: fn.unit || rangePatch.unit || "",
+                ranges: [...(fn.ranges || []), seededRange],
+              }
+            : fn,
+        ),
+      },
+    };
+  }
+  return {
+    ...item,
+    instrument: {
+      ...inst,
+      functions: [
+        { id: uuidv4(), name: "", unit: rangePatch.unit || "", ranges: [seededRange] },
+      ],
+    },
+  };
 };
 const applyItemRangeTolerance = (item, rangeId, tolerance) =>
   applyItemRangePatch(item, rangeId, { tolerances: tolerance });
@@ -480,10 +522,14 @@ const EditableDescriptionCell = ({
   areas = [],
   currentAreaId = "",
   onChangeArea,
+  onCreateArea,
 }) => {
   const [local, setLocal] = useState({ make, model, name });
   const [editing, setEditing] = useState(false);
   const [open, setOpen] = useState(false);
+  // Inline "create a new measurement area" state for the area control.
+  const [creatingArea, setCreatingArea] = useState(false);
+  const [newAreaName, setNewAreaName] = useState("");
   const anchorRef = useRef(null);
   useEffect(() => {
     setLocal({ make, model, name });
@@ -579,33 +625,75 @@ const EditableDescriptionCell = ({
         </button>
       )}
 
-      {onChangeArea && (
-        <select
-          value={currentAreaId || ""}
-          onChange={(e) => onChangeArea(e.target.value)}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-          title="Measurement area"
-          style={{
-            marginTop: "3px",
-            width: "100%",
-            background: "transparent",
-            border: "1px solid transparent",
-            borderRadius: "4px",
-            color: "var(--text-color-muted)",
-            fontSize: "0.72rem",
-            padding: "1px 4px",
-            cursor: "pointer",
-          }}
-        >
-          <option value="">Unassigned</option>
-          {areas.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-      )}
+      {onChangeArea &&
+        (creatingArea ? (
+          <input
+            autoFocus
+            className="inline-area-create-input"
+            placeholder="New area name…"
+            value={newAreaName}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setNewAreaName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") {
+                setNewAreaName("");
+                setCreatingArea(false);
+              }
+            }}
+            onBlur={() => {
+              const trimmed = newAreaName.trim();
+              if (trimmed) onCreateArea?.(trimmed);
+              setNewAreaName("");
+              setCreatingArea(false);
+            }}
+            title="Name the new measurement area"
+            style={{
+              marginTop: "3px",
+              width: "100%",
+              background: "var(--input-background, transparent)",
+              border: "1px solid var(--border-color)",
+              borderRadius: "4px",
+              color: "var(--text-color)",
+              fontSize: "0.72rem",
+              padding: "1px 4px",
+            }}
+          />
+        ) : (
+          <select
+            value={currentAreaId || ""}
+            onChange={(e) => {
+              if (e.target.value === "__create__") {
+                setCreatingArea(true);
+                return;
+              }
+              onChangeArea(e.target.value);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            title="Measurement area"
+            style={{
+              marginTop: "3px",
+              width: "100%",
+              background: "transparent",
+              border: "1px solid transparent",
+              borderRadius: "4px",
+              color: "var(--text-color-muted)",
+              fontSize: "0.72rem",
+              padding: "1px 4px",
+              cursor: "pointer",
+            }}
+          >
+            <option value="">Unassigned</option>
+            {areas.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+            {onCreateArea && <option value="__create__">＋ New area…</option>}
+          </select>
+        ))}
 
       {open &&
         results.length > 0 &&
@@ -2267,6 +2355,55 @@ const SummaryDashboard = ({
     onSessionSave({ ...sessionData, tmdes: updatedTmdes });
   };
 
+  // Create a new measurement area inline from the area control and assign it,
+  // so a new instrument can define its own area without a sidebar round-trip.
+  const handleCreateUutArea = (uutId, name) => {
+    if (!onSessionSave) return;
+    const trimmed = (name || "").trim();
+    if (!trimmed) return;
+    const { areas, area } = ensureAreaForInstrument(
+      sessionData.measurementAreas || [],
+      { measurementArea: trimmed },
+    );
+    if (!area) return;
+    const updatedUuts = (sessionData.uuts || []).map((u) =>
+      u.id === uutId
+        ? {
+            ...u,
+            measurementAreaId: area.id,
+            measurementArea: area.name,
+            measurementAreaColor: area.color,
+          }
+        : u,
+    );
+    onSessionSave({ ...sessionData, measurementAreas: areas, uuts: updatedUuts });
+  };
+  const handleCreateTmdeArea = (tmdeId, name) => {
+    if (!onSessionSave) return;
+    const trimmed = (name || "").trim();
+    if (!trimmed) return;
+    const { areas, area } = ensureAreaForInstrument(
+      sessionData.measurementAreas || [],
+      { measurementArea: trimmed },
+    );
+    if (!area) return;
+    const updatedTmdes = (sessionData.tmdes || []).map((t) =>
+      t.id === tmdeId
+        ? {
+            ...t,
+            measurementAreaId: area.id,
+            measurementArea: area.name,
+            instrument: {
+              ...(t.instrument || {}),
+              measurementArea: area.name,
+              measurementAreaColor: area.color,
+            },
+          }
+        : t,
+    );
+    onSessionSave({ ...sessionData, measurementAreas: areas, tmdes: updatedTmdes });
+  };
+
   const toleranceTypeKey = (kind, item, rangeId) =>
     `${kind}:${item?.id || ""}:${rangeId || "default"}`;
   const getSelectedToleranceType = (kind, item, activeRange) => {
@@ -3197,6 +3334,9 @@ const SummaryDashboard = ({
                               onChangeArea={(areaId) =>
                                 handleChangeUutArea(uut.id, areaId)
                               }
+                              onCreateArea={(name) =>
+                                handleCreateUutArea(uut.id, name)
+                              }
                               onCommit={(field, value) =>
                                 handleUutDescriptionEdit(uut.id, field, value)
                               }
@@ -3504,6 +3644,9 @@ const SummaryDashboard = ({
                               }
                               onChangeArea={(areaId) =>
                                 handleChangeTmdeArea(tmde.id, areaId)
+                              }
+                              onCreateArea={(name) =>
+                                handleCreateTmdeArea(tmde.id, name)
                               }
                               onCommit={(field, value) =>
                                 handleTmdeDescriptionEdit(tmde.id, field, value)
@@ -4188,6 +4331,55 @@ function DetailedView({
         : t,
     );
     onSessionSave({ ...sessionData, tmdes: updatedTmdes });
+  };
+
+  // Create a new measurement area inline from the area control and assign it,
+  // so a new instrument can define its own area without a sidebar round-trip.
+  const handleCreateUutArea = (uutId, name) => {
+    if (!onSessionSave) return;
+    const trimmed = (name || "").trim();
+    if (!trimmed) return;
+    const { areas, area } = ensureAreaForInstrument(
+      sessionData.measurementAreas || [],
+      { measurementArea: trimmed },
+    );
+    if (!area) return;
+    const updatedUuts = (sessionData.uuts || []).map((u) =>
+      u.id === uutId
+        ? {
+            ...u,
+            measurementAreaId: area.id,
+            measurementArea: area.name,
+            measurementAreaColor: area.color,
+          }
+        : u,
+    );
+    onSessionSave({ ...sessionData, measurementAreas: areas, uuts: updatedUuts });
+  };
+  const handleCreateTmdeArea = (tmdeId, name) => {
+    if (!onSessionSave) return;
+    const trimmed = (name || "").trim();
+    if (!trimmed) return;
+    const { areas, area } = ensureAreaForInstrument(
+      sessionData.measurementAreas || [],
+      { measurementArea: trimmed },
+    );
+    if (!area) return;
+    const updatedTmdes = (sessionData.tmdes || []).map((t) =>
+      t.id === tmdeId
+        ? {
+            ...t,
+            measurementAreaId: area.id,
+            measurementArea: area.name,
+            instrument: {
+              ...(t.instrument || {}),
+              measurementArea: area.name,
+              measurementAreaColor: area.color,
+            },
+          }
+        : t,
+    );
+    onSessionSave({ ...sessionData, measurementAreas: areas, tmdes: updatedTmdes });
   };
 
   // --- Range bounds / unit / resolution / add / remove ---
@@ -5906,6 +6098,9 @@ function DetailedView({
                                 onChangeArea={(areaId) =>
                                   handleChangeUutArea(uut.id, areaId)
                                 }
+                                onCreateArea={(name) =>
+                                  handleCreateUutArea(uut.id, name)
+                                }
                                 onCommit={(field, value) =>
                                   handleDetailUutDescEdit(uut.id, field, value)
                                 }
@@ -6671,6 +6866,9 @@ function DetailedView({
                                   }
                                   onChangeArea={(areaId) =>
                                     handleChangeTmdeArea(masterTmde.id, areaId)
+                                  }
+                                  onCreateArea={(name) =>
+                                    handleCreateTmdeArea(masterTmde.id, name)
                                   }
                                   onCommit={(field, value) =>
                                     handleDetailTmdeDescEdit(

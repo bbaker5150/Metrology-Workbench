@@ -131,6 +131,13 @@ export const unitSystem = {
     torr: { to_si: 133.322, quantity: "Pressure" },
     atm: { to_si: 101325, quantity: "Pressure" },
     inH2O: { to_si: 249.089, quantity: "Pressure" },
+    // "inWa" (inches of water) is the same physical unit as inH2O; kept as a
+    // distinct selectable alias because many flow/pressure calibration procedures
+    // label it this way. Related water-column units below.
+    inWa: { to_si: 249.089, quantity: "Pressure" },
+    ftH2O: { to_si: 2989.07, quantity: "Pressure" },
+    cmH2O: { to_si: 98.0665, quantity: "Pressure" },
+    mmH2O: { to_si: 9.80665, quantity: "Pressure" },
 
     // --- Force ---
     N: { to_si: 1, quantity: "Force" },
@@ -155,6 +162,13 @@ export const unitSystem = {
     "L/min": { to_si: 1.66667e-5, quantity: "Flow" },
     cfm: { to_si: 0.000471947, quantity: "Flow" },
     gpm: { to_si: 6.30902e-5, quantity: "Flow" },
+    // Standard volumetric flow units (treated volumetrically at standard
+    // conditions). sccm = 1 cm^3/min, slpm = 1 L/min, scfh = 1 ft^3/hr,
+    // scfm = 1 ft^3/min.
+    sccm: { to_si: 1.66667e-8, quantity: "Flow" },
+    slpm: { to_si: 1.66667e-5, quantity: "Flow" },
+    scfh: { to_si: 7.86579e-6, quantity: "Flow" },
+    scfm: { to_si: 0.000471947, quantity: "Flow" },
 
     // --- Energy ---
     J: { to_si: 1, quantity: "Energy" },
@@ -259,6 +273,16 @@ export const UNIT_DISPLAY_LABELS = {
   "kgf-cm": "kgf·cm",
   "m^3/s": "m³/s",
   "%RH": "% RH",
+  // Pressure (water column) — render the chemical subscript for clarity.
+  inH2O: "inH₂O",
+  ftH2O: "ftH₂O",
+  cmH2O: "cmH₂O",
+  mmH2O: "mmH₂O",
+  // Standard volumetric flow units conventionally shown uppercase.
+  sccm: "SCCM",
+  slpm: "SLPM",
+  scfh: "SCFH",
+  scfm: "SCFM",
 };
 
 export const getUnitDisplayLabel = (unit) => UNIT_DISPLAY_LABELS[unit] || unit;
@@ -272,7 +296,7 @@ export const unitCategories = {
   Frequency: ["Hz", "kHz", "MHz", "GHz", "THz"],
   Time: ["s", "ms", "us", "ns", "ps", "min", "hr", "day"],
   Temperature: ["Cel", "degF", "degC", "K"],
-  Pressure: ["Pa", "kPa", "MPa", "psi", "bar", "mbar", "torr", "inHg", "inH2O", "atm", "hPa"],
+  Pressure: ["Pa", "kPa", "MPa", "psi", "bar", "mbar", "torr", "inHg", "inH2O", "inWa", "ftH2O", "cmH2O", "mmH2O", "atm", "hPa"],
   Length: ["m", "cm", "mm", "um", "nm", "km", "in", "ft", "yd", "mi"],
   Mass: ["kg", "g", "mg", "ug", "lb", "oz", "t"],
   Power: ["W", "mW", "kW", "MW", "dBm"],
@@ -283,7 +307,7 @@ export const unitCategories = {
   Velocity: ["m/s", "km/h", "mph", "ft/s", "kn"],
   Force: ["N", "kN", "lbf", "ozf", "kgf"],
   Torque: ["N-m", "N-cm", "lb-in", "lb-ft", "ozf-in", "in-oz", "in-ozf", "kgf-m", "kgf-cm"],
-  Flow: ["m^3/s", "L/min", "cfm", "gpm"],
+  Flow: ["m^3/s", "L/min", "cfm", "gpm", "sccm", "slpm", "scfh", "scfm"],
   Energy: ["J", "kJ", "Wh", "kWh", "BTU", "cal"],
   Illuminance: ["lx", "fc"],
   "Magnetic Field": ["T", "mT", "uT", "G"]
