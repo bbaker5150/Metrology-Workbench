@@ -548,17 +548,42 @@ const EditableDescriptionCell = ({
     .trim()
     .toLowerCase();
   const tokens = query.split(/\s+/).filter(Boolean);
-  const results =
-    onPickLibrary && tokens.length
-      ? (instruments || [])
-          .filter((inst) => {
-            const hay = `${inst.manufacturer || ""} ${inst.model || ""} ${
-              inst.description || ""
-            }`.toLowerCase();
-            return tokens.every((t) => hay.includes(t));
-          })
-          .slice(0, 8)
-      : [];
+  const results = useMemo(() => {
+    if (!onPickLibrary || !tokens.length) return [];
+    const matches = (instruments || []).filter((inst) => {
+      const hay = `${inst.manufacturer || ""} ${inst.model || ""} ${
+        inst.description || ""
+      }`.toLowerCase();
+      return tokens.every((t) => hay.includes(t));
+    });
+    // Collapse each shared instrument and its linked local copies into one
+    // "family": always surface the shared (in-sync) version, and only also list
+    // a local when it actually diverges from shared (the changed version). This
+    // stops an auto-created, unchanged local copy from hiding the shared entry.
+    const families = new Map();
+    const standalone = [];
+    matches.forEach((inst) => {
+      const family =
+        inst.sourceId || (inst.scope === "validated" ? inst.id : null);
+      if (!family) {
+        standalone.push(inst);
+        return;
+      }
+      if (!families.has(family)) families.set(family, { shared: null, locals: [] });
+      const grp = families.get(family);
+      if (inst.scope === "validated") grp.shared = inst;
+      else grp.locals.push(inst);
+    });
+    const ordered = [];
+    families.forEach((grp) => {
+      if (grp.shared) ordered.push(grp.shared);
+      grp.locals.forEach((loc) => {
+        if (!grp.shared || diffFromSnapshot(loc).length > 0) ordered.push(loc);
+      });
+    });
+    return [...ordered, ...standalone].slice(0, 8);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instruments, query, onPickLibrary]);
 
   const props = (field) => ({
     value: local[field] || "",
@@ -2020,63 +2045,46 @@ const SummaryDashboard = ({
     });
   };
 
+  // Rename a measurement-area subsection header.
+  //  - UUT: rename the area in place (handleAreaNameChange). This updates the
+  //    sidebar point list — the old name no longer lingers and no duplicate
+  //    area is spawned.
+  //  - TMDE: only re-label the TMDE grouping (the nested instrument's area
+  //    name). The sidebar point list is driven by UUTs, so a TMDE rename must
+  //    never add or rename a sidebar measurement area.
   const handleAreaGroupNameChange = (area, rows, kind, rawName) => {
+    if (!onSessionSave) return;
+    if (kind === "uut") {
+      handleAreaNameChange(area, rawName);
+      return;
+    }
     const name = String(rawName || "").trim();
-    if (!onSessionSave || !name || name.toLowerCase() === "unassigned") return;
-    if (name === area.name) return;
-
+    if (!name || name === area.name || name.toLowerCase() === "unassigned") return;
     const areas = sessionData.measurementAreas || [];
-    const existingArea = areas.find(
-      (candidate) =>
-        String(candidate.name || "").toLowerCase() === name.toLowerCase(),
+    const matchingSessionArea = areas.find(
+      (candidate) => String(candidate.name || "").toLowerCase() === name.toLowerCase(),
     );
     const color =
-      typeof area.color === "string" && area.color.startsWith("#")
-        ? area.color
-        : AREA_PALETTE[areas.length % AREA_PALETTE.length];
-    const targetArea =
-      existingArea || { id: uuidv4(), name, color, hiddenFromSidebar: area.hiddenFromSidebar };
+      matchingSessionArea?.color ||
+      (typeof area.color === "string" && area.color.startsWith("#") ? area.color : undefined);
     const targetIds = new Set((rows || []).map((row) => row.item?.id).filter(Boolean));
-
-    const updatedUuts =
-      kind === "uut"
-        ? (sessionData.uuts || []).map((uut) =>
-            targetIds.has(uut.id)
-              ? {
-                  ...uut,
-                  measurementAreaId: targetArea.id,
-                  measurementArea: targetArea.name,
-                  measurementAreaColor: targetArea.color,
-                }
-              : uut,
-          )
-        : sessionData.uuts;
-    const updatedTmdes =
-      kind === "tmde"
-        ? (sessionData.tmdes || []).map((tmde) =>
-            targetIds.has(tmde.id)
-              ? {
-                  ...tmde,
-                  measurementAreaId: targetArea.id,
-                  measurementArea: targetArea.name,
-                  instrument: {
-                    ...(tmde.instrument || {}),
-                    measurementArea: targetArea.name,
-                    measurementAreaColor: targetArea.color,
-                  },
-                }
-              : tmde,
-          )
-        : sessionData.tmdes;
-
-    onSessionSave({
-      ...sessionData,
-      measurementAreas: existingArea
-        ? areas
-        : [...areas, targetArea],
-      uuts: updatedUuts,
-      tmdes: updatedTmdes,
-    });
+    const updatedTmdes = (sessionData.tmdes || []).map((tmde) =>
+      targetIds.has(tmde.id)
+        ? {
+            ...tmde,
+            measurementArea: name,
+            measurementAreaId: matchingSessionArea?.id || "",
+            instrument: {
+              ...(tmde.instrument || {}),
+              measurementArea: name,
+              measurementAreaId: matchingSessionArea?.id || undefined,
+              ...(color ? { measurementAreaColor: color } : {}),
+            },
+          }
+        : tmde,
+    );
+    // Intentionally leave measurementAreas untouched (no new sidebar area).
+    onSessionSave({ ...sessionData, tmdes: updatedTmdes });
   };
 
   const renderAreaNameEditor = (area, rows = [], kind = "uut") => {
