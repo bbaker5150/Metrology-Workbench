@@ -474,6 +474,30 @@ const syncDiffSummary = (diffs = []) => {
   return `Changed shared-library fields: ${fields}.`;
 };
 
+// Route a potentially-destructive (or easy-to-misclick) action through the
+// shared notification modal so it always asks first. Falls back to running the
+// action directly if no notification setter is available.
+const confirmViaNotification = (
+  setNotification,
+  { title, message, confirmText = "Confirm", onConfirm },
+) => {
+  if (!setNotification) {
+    onConfirm?.();
+    return;
+  }
+  setNotification({
+    title,
+    message,
+    confirmText,
+    secondaryText: "Cancel",
+    onConfirm: () => {
+      setNotification(null);
+      onConfirm?.();
+    },
+    onSecondary: () => setNotification(null),
+  });
+};
+
 // Inline-editable Description cell: make / model / name as three tabbable
 // sub-fields (feature/inline-instrument-tables). Edits stay local while typing
 // and commit on blur, so we PUT the session once per field, not per keystroke.
@@ -1022,7 +1046,19 @@ const InlineToleranceCell = ({
   }
 
   const activeKeys = activeToleranceTypeKeys(tolerance);
-  const visibleKeys = activeKeys.length > 0 ? activeKeys : [typeKey];
+  // No tolerance configured yet — don't auto-show a %IV term. Prompt the user to
+  // add one via the column header (+); a new instrument starts with no tolerance.
+  if (activeKeys.length === 0) {
+    return (
+      <div
+        className="inline-tolerance-editor inline-tolerance-empty"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <span className="inline-tol-empty">Set tolerance…</span>
+      </div>
+    );
+  }
+  const visibleKeys = activeKeys;
 
   return (
     <div className="inline-tolerance-editor" onMouseDown={(e) => e.stopPropagation()}>
@@ -2846,18 +2882,26 @@ const SummaryDashboard = ({
   const handleAddSelectedRange = (kind) => {
     const target = getSelectedRangeTarget(kind);
     if (!target) return;
-    handleAddRange(
-      kind,
-      target.item,
-      target.activeRange?.id,
-      target.ranges.length,
-    );
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    confirmViaNotification(setNotification, {
+      title: "Add Range",
+      message: `Add a new range to this ${label}?`,
+      confirmText: "Add Range",
+      onConfirm: () =>
+        handleAddRange(kind, target.item, target.activeRange?.id, target.ranges.length),
+    });
   };
 
   const handleRemoveSelectedRange = (kind) => {
     const target = getSelectedRangeTarget(kind);
     if (!target || target.ranges.length <= 1) return;
-    handleRemoveRange(kind, target.item, target.activeRange?.id);
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    confirmViaNotification(setNotification, {
+      title: "Delete Range",
+      message: `Delete the active range from this ${label}? This can't be undone.`,
+      confirmText: "Delete",
+      onConfirm: () => handleRemoveRange(kind, target.item, target.activeRange?.id),
+    });
   };
 
   const renderRangeHeaderActions = (kind) => {
@@ -2950,21 +2994,31 @@ const SummaryDashboard = ({
     if (!target || !target.hasSelectedTolerance || !target.tolerance[target.selectedType]) {
       return;
     }
-    const next = { ...target.tolerance };
-    delete next[target.selectedType];
-    const remaining = activeToleranceTypeKeys(next);
-    const nextSelected = remaining[0] || "reading";
-    const updatedItem = applyItemRangeTolerance(
-      target.item,
-      target.activeRange?.id,
-      next,
-    );
-    persistInlineItem(kind, updatedItem);
-    setToleranceTypes((prev) => ({
-      ...prev,
-      [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: nextSelected,
-    }));
-    setSelectedToleranceKey(null);
+    const termLabel =
+      TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === target.selectedType)?.label ||
+      "tolerance";
+    confirmViaNotification(setNotification, {
+      title: "Delete Tolerance Term",
+      message: `Delete the ${termLabel} tolerance term? This can't be undone.`,
+      confirmText: "Delete",
+      onConfirm: () => {
+        const next = { ...target.tolerance };
+        delete next[target.selectedType];
+        const remaining = activeToleranceTypeKeys(next);
+        const nextSelected = remaining[0] || "reading";
+        const updatedItem = applyItemRangeTolerance(
+          target.item,
+          target.activeRange?.id,
+          next,
+        );
+        persistInlineItem(kind, updatedItem);
+        setToleranceTypes((prev) => ({
+          ...prev,
+          [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: nextSelected,
+        }));
+        setSelectedToleranceKey(null);
+      },
+    });
   };
 
   const renderToleranceHeaderActions = (kind) => {
@@ -4727,17 +4781,25 @@ function DetailedView({
   const handleAddSelectedRangeDetail = (kind) => {
     const target = getSelectedRangeTargetDetail(kind);
     if (!target) return;
-    handleAddRangeDetail(
-      kind,
-      target.item,
-      target.activeRange?.id,
-      target.ranges.length,
-    );
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    confirmViaNotification(setNotification, {
+      title: "Add Range",
+      message: `Add a new range to this ${label}?`,
+      confirmText: "Add Range",
+      onConfirm: () =>
+        handleAddRangeDetail(kind, target.item, target.activeRange?.id, target.ranges.length),
+    });
   };
   const handleRemoveSelectedRangeDetail = (kind) => {
     const target = getSelectedRangeTargetDetail(kind);
     if (!target || target.ranges.length <= 1) return;
-    handleRemoveRangeDetail(kind, target.item, target.activeRange?.id);
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    confirmViaNotification(setNotification, {
+      title: "Delete Range",
+      message: `Delete the active range from this ${label}? This can't be undone.`,
+      confirmText: "Delete",
+      onConfirm: () => handleRemoveRangeDetail(kind, target.item, target.activeRange?.id),
+    });
   };
   const renderRangeHeaderActionsDetail = (kind) => {
     if (!onSessionSave) return null;
@@ -4825,19 +4887,29 @@ function DetailedView({
       !target.tolerance[target.selectedType]
     )
       return;
-    const next = { ...target.tolerance };
-    delete next[target.selectedType];
-    const remaining = activeToleranceTypeKeys(next);
-    const nextSelected = remaining[0] || "reading";
-    persistInlineItemDetail(
-      kind,
-      applyItemRangeTolerance(target.item, target.activeRange?.id, next),
-    );
-    setToleranceTypes((prev) => ({
-      ...prev,
-      [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: nextSelected,
-    }));
-    setSelectedToleranceKey(null);
+    const termLabel =
+      TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === target.selectedType)?.label ||
+      "tolerance";
+    confirmViaNotification(setNotification, {
+      title: "Delete Tolerance Term",
+      message: `Delete the ${termLabel} tolerance term? This can't be undone.`,
+      confirmText: "Delete",
+      onConfirm: () => {
+        const next = { ...target.tolerance };
+        delete next[target.selectedType];
+        const remaining = activeToleranceTypeKeys(next);
+        const nextSelected = remaining[0] || "reading";
+        persistInlineItemDetail(
+          kind,
+          applyItemRangeTolerance(target.item, target.activeRange?.id, next),
+        );
+        setToleranceTypes((prev) => ({
+          ...prev,
+          [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: nextSelected,
+        }));
+        setSelectedToleranceKey(null);
+      },
+    });
   };
   const renderToleranceHeaderActionsDetail = (kind) => {
     if (!onSessionSave) return null;
