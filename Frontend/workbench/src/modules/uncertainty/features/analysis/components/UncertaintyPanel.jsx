@@ -770,6 +770,8 @@ const ResolutionCellInput = ({
   fallbackUnit = "",
   onCommit,
   onCommitUnit,
+  useResolution = false,
+  onToggleUse,
 }) => {
   const [v, setV] = useState(() => toPlainNumber(value));
   useEffect(() => {
@@ -797,6 +799,20 @@ const ResolutionCellInput = ({
         ariaLabel="Resolution unit"
         onChange={onCommitUnit}
       />
+      {onToggleUse && (
+        <label
+          className="inline-resolution-use"
+          title="Include this resolution in the uncertainty budget"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={!!useResolution}
+            onChange={(e) => onToggleUse(e.target.checked)}
+          />
+        </label>
+      )}
     </span>
   );
 };
@@ -2763,6 +2779,11 @@ const SummaryDashboard = ({
     const updatedItem = applyItemRangePatch(item, rangeId, { resolutionUnit: value });
     persistInlineItem(kind, updatedItem);
   };
+  const setRangeUseResolution = (kind, item, rangeId, checked) => {
+    if (!onSessionSave) return;
+    const updatedItem = applyItemRangePatch(item, rangeId, { includeResolutionInBudget: checked });
+    persistInlineItem(kind, updatedItem);
+  };
   const setRangeUnit = (kind, item, rangeId, value) => {
     if (!onSessionSave) return;
     const updatedItem = applyItemRangePatch(item, rangeId, { unit: value });
@@ -3460,11 +3481,10 @@ const SummaryDashboard = ({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
+              <col style={{ width: "24%" }} />
               <col style={{ width: "22%" }} />
-              <col style={{ width: "20%" }} />
-              <col style={{ width: "29%" }} />
-              <col style={{ width: "11%" }} />
-              <col style={{ width: "12%" }} />
+              <col style={{ width: "32%" }} />
+              <col style={{ width: "16%" }} />
               <col style={{ width: "6%" }} />
             </colgroup>
             <thead>
@@ -3482,7 +3502,6 @@ const SummaryDashboard = ({
                     {renderToleranceHeaderActions("uut")}
                   </span>
                 </th>
-                <th className="cell-distribution">Distribution</th>
                 <th>Resolution</th>
                 <th className="cell-sync">Sync</th>
               </tr>
@@ -3490,7 +3509,7 @@ const SummaryDashboard = ({
             <tbody>
               {filteredUuts.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={6}>
+                  <td colSpan={5}>
                     No UUTs found in this context.
                   </td>
                 </tr>
@@ -3504,7 +3523,7 @@ const SummaryDashboard = ({
                         onDragOver={allowInstrumentDrop}
                         onDrop={handleInstrumentDropOnArea("uut", row.area.id || "")}
                       >
-                        <td colSpan={6}>
+                        <td colSpan={5}>
                           {renderAreaColorSwatch(row.area)}
                           {renderAreaNameEditor(row.area, row.items, "uut")}
                         </td>
@@ -3609,7 +3628,7 @@ const SummaryDashboard = ({
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut", colIndex: 1 })
                           }
-                          style={{ verticalAlign: "top" }}
+                          style={{ verticalAlign: "middle" }}
                         >
                           <RangeCell
                             ranges={ranges}
@@ -3665,30 +3684,6 @@ const SummaryDashboard = ({
                         </td>
                         <td
                           rowSpan={rowSpan}
-                          className="cell-distribution"
-                          title="Spec band distribution"
-                          style={{ verticalAlign: "top" }}
-                        >
-                          {onSessionSave && getBandDistDivisor(activeTolerance) ? (
-                            <select
-                              className="session-selector"
-                              value={getBandDistDivisor(activeTolerance)}
-                              onChange={(e) =>
-                                setRangeBandDistribution("uut", uut, activeRange?.id, e.target.value)
-                              }
-                            >
-                              {errorDistributions.map((d) => (
-                                <option key={d.value} value={d.value}>
-                                  {d.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            getBandDistLabel(activeTolerance)
-                          )}
-                        </td>
-                        <td
-                          rowSpan={rowSpan}
                           className={`cell-value ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut", colIndex: 3 })
@@ -3705,6 +3700,10 @@ const SummaryDashboard = ({
                               }
                               onCommitUnit={(value) =>
                                 setRangeResolutionUnit("uut", uut, activeRange?.id, value)
+                              }
+                              useResolution={activeRange?.includeResolutionInBudget}
+                              onToggleUse={(checked) =>
+                                setRangeUseResolution("uut", uut, activeRange?.id, checked)
                               }
                             />
                           ) : (
@@ -3922,7 +3921,7 @@ const SummaryDashboard = ({
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "tmde", colIndex: 1 })
                           }
-                          style={{ verticalAlign: "top" }}
+                          style={{ verticalAlign: "middle" }}
                         >
                           <RangeCell
                             ranges={ranges}
@@ -3980,7 +3979,7 @@ const SummaryDashboard = ({
                           rowSpan={rowSpan}
                           className="cell-distribution"
                           title="Spec band distribution"
-                          style={{ verticalAlign: "top" }}
+                          style={{ verticalAlign: "middle" }}
                         >
                           {onSessionSave && getBandDistDivisor(activeTolerance) ? (
                             <select
@@ -4018,6 +4017,10 @@ const SummaryDashboard = ({
                               }
                               onCommitUnit={(value) =>
                                 setRangeResolutionUnit("tmde", tmde, activeRange?.id, value)
+                              }
+                              useResolution={activeRange?.includeResolutionInBudget}
+                              onToggleUse={(checked) =>
+                                setRangeUseResolution("tmde", tmde, activeRange?.id, checked)
                               }
                             />
                           ) : (
@@ -4691,6 +4694,11 @@ function DetailedView({
     persistInlineItemDetail(
       kind,
       applyItemRangePatch(item, rangeId, { resolutionUnit: value }),
+    );
+  const setRangeUseResolutionDetail = (kind, item, rangeId, checked) =>
+    persistInlineItemDetail(
+      kind,
+      applyItemRangePatch(item, rangeId, { includeResolutionInBudget: checked }),
     );
   // Spec-band distribution (the Distribution column) — writes the divisor back to
   // the same range tolerance the tolerance editor owns.
@@ -6314,11 +6322,10 @@ function DetailedView({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "26%" }} />
+              <col style={{ width: "28%" }} />
+              <col style={{ width: "24%" }} />
               <col style={{ width: "22%" }} />
-              <col style={{ width: "20%" }} />
-              <col style={{ width: "12%" }} />
-              <col style={{ width: "12%" }} />
+              <col style={{ width: "18%" }} />
               <col style={{ width: "8%" }} />
             </colgroup>
             <thead>
@@ -6336,7 +6343,6 @@ function DetailedView({
                     {renderToleranceHeaderActionsDetail("uut")}
                   </span>
                 </th>
-                <th className="cell-distribution">Distribution</th>
                 <th>Resolution</th>
                 <th className="cell-sync">Sync</th>
               </tr>
@@ -6344,7 +6350,7 @@ function DetailedView({
             <tbody>
               {relevantUuts.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan="6">No associated UUTs found.</td>
+                  <td colSpan="5">No associated UUTs found.</td>
                 </tr>
               ) : (
                 relevantUuts.map((uut) => {
@@ -6417,7 +6423,7 @@ function DetailedView({
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut_det", colIndex: 1 })
                           }
-                          style={{ verticalAlign: "top" }}
+                          style={{ verticalAlign: "middle" }}
                         >
                           <RangeCell
                             ranges={ranges}
@@ -6496,45 +6502,6 @@ function DetailedView({
                         </td>
                         <td
                           rowSpan={rowSpan}
-                          className="cell-distribution"
-                          title="Spec band distribution"
-                          style={{ verticalAlign: "top" }}
-                        >
-                          {onSessionSave &&
-                          getBandDistDivisor(
-                            getItemRangeTolerance(uut, activeRange?.id) ||
-                              activeRange,
-                          ) ? (
-                            <select
-                              className="session-selector"
-                              value={getBandDistDivisor(
-                                getItemRangeTolerance(uut, activeRange?.id) ||
-                                  activeRange,
-                              )}
-                              onChange={(e) =>
-                                setRangeBandDistributionDetail(
-                                  "uut",
-                                  uut,
-                                  activeRange?.id,
-                                  e.target.value,
-                                )
-                              }
-                            >
-                              {errorDistributions.map((d) => (
-                                <option key={d.value} value={d.value}>
-                                  {d.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            getBandDistLabel(
-                              getItemRangeTolerance(uut, activeRange?.id) ||
-                                activeRange,
-                            )
-                          )}
-                        </td>
-                        <td
-                          rowSpan={rowSpan}
                           className={`cell-value ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut_det", colIndex: 3 })
@@ -6551,6 +6518,10 @@ function DetailedView({
                               }
                               onCommitUnit={(value) =>
                                 setRangeResolutionUnitDetail("uut", uut, activeRange?.id, value)
+                              }
+                              useResolution={activeRange?.includeResolutionInBudget}
+                              onToggleUse={(checked) =>
+                                setRangeUseResolutionDetail("uut", uut, activeRange?.id, checked)
                               }
                             />
                           ) : (
@@ -7178,7 +7149,7 @@ function DetailedView({
                                   colIndex: 2,
                                 })
                               }
-                              style={{ verticalAlign: "top" }}
+                              style={{ verticalAlign: "middle" }}
                             >
                               <RangeCell
                                 ranges={ranges}
@@ -7276,7 +7247,7 @@ function DetailedView({
                               rowSpan={rowSpan}
                               className="cell-distribution"
                               title="Spec band distribution"
-                              style={{ verticalAlign: "top" }}
+                              style={{ verticalAlign: "middle" }}
                             >
                               {onSessionSave &&
                               getBandDistDivisor(
@@ -7354,6 +7325,15 @@ function DetailedView({
                                       masterTmde,
                                       activeRange?.id,
                                       value,
+                                    )
+                                  }
+                                  useResolution={activeRange?.includeResolutionInBudget}
+                                  onToggleUse={(checked) =>
+                                    setRangeUseResolutionDetail(
+                                      "tmde",
+                                      masterTmde,
+                                      activeRange?.id,
+                                      checked,
                                     )
                                   }
                                 />

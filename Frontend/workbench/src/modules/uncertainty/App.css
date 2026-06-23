@@ -10592,6 +10592,18 @@ input.inline-desc-subinput {
   max-width: 100%;
 }
 
+/* "Use this resolution in the budget" toggle, sits right of the unit dropdown. */
+.inline-resolution-use {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  margin-left: 2px;
+}
+.inline-resolution-use input[type="checkbox"] {
+  cursor: pointer;
+  margin: 0;
+}
+
 .inline-range-select-shell {
   position: relative;
   width: 22px;
