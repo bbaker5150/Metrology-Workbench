@@ -2222,30 +2222,11 @@ const SummaryDashboard = ({
   };
 
   const promptLibraryPick = (kind, itemId, inst) => {
-    const applyLoad = () => {
-      if (kind === "uut") applyPickedLibraryUut(itemId, inst, { track: false });
-      else applyPickedLibraryTmde(itemId, inst, { track: false });
-      setNotification?.(null);
-    };
-    const applyTrack = () => {
-      if (kind === "uut") applyPickedLibraryUut(itemId, inst, { track: true });
-      else applyPickedLibraryTmde(itemId, inst, { track: true });
-      setNotification?.(null);
-    };
-    if (!setNotification) {
-      applyTrack();
-      return;
-    }
-    setNotification({
-      title: "Load Instrument",
-      message:
-        "Load a local copy, or load and track it against the shared library so the sync badge shows future divergence?",
-      confirmText: "Load",
-      secondaryText: "Load & Track",
-      secondaryIsPrimary: true,
-      onConfirm: applyLoad,
-      onSecondary: applyTrack,
-    });
+    // Clicking a library match loads it immediately as a local copy — no
+    // confirmation dialog (it was easy to miss, leaving only the typed text).
+    // Tracking against the shared library stays available via the Sync badge.
+    if (kind === "uut") applyPickedLibraryUut(itemId, inst, { track: false });
+    else applyPickedLibraryTmde(itemId, inst, { track: false });
   };
 
   // --- Reassign an instrument to a different measurement area ---
@@ -3900,8 +3881,20 @@ function DetailedView({
       onSecondary: sessionOnly,
     });
   };
-  const refreshPointTmdeInstance = (updatedItem) => {
+  const refreshPointTmdeInstance = (updatedItem, { reselectRange = false } = {}) => {
     if (!onUpdateTestPoint || !updatedItem) return;
+    // When the underlying instrument is swapped wholesale (library pick), the old
+    // instance's range index no longer maps to the new range list — pick a range
+    // that covers this point instead (Priority C). For plain inline edits the
+    // ranges are stable, so keep the user's current selection.
+    const reselectedIndex = reselectRange
+      ? resolveUutRangeHelper(
+          updatedItem,
+          {},
+          null,
+          isDerived ? null : uutNominal,
+        ).activeIndex
+      : null;
     let touched = false;
     const nextTolerances = (tmdeTolerancesData || []).map((instance) => {
       const matchesMaster =
@@ -3916,6 +3909,7 @@ function DetailedView({
         assetId: instance.assetId || "",
         userFunctionName: instance.functionName || "",
         userRangeIndex:
+          reselectedIndex ??
           instance._index ??
           tmdeRangeIndices[updatedItem.id] ??
           0,
@@ -4061,10 +4055,18 @@ function DetailedView({
     "Instrument";
   const applyPickedLibraryUut = (uutId, inst, options = {}) => {
     if (!onSessionSave) return;
-    const { areas, area } = ensureAreaForInstrument(
-      sessionData.measurementAreas || [],
-      inst,
+    // In the per-point detail view the row is shown in the context of the active
+    // measurement area (relevantUuts filters by it). Keep the UUT in its current
+    // area instead of relocating it to the library instrument's stored area —
+    // otherwise the row drops out of this view and only reappears in the
+    // area-grouped Session Overview. Adopt the library area only if unassigned.
+    const currentUut = (sessionData.uuts || []).find((u) => u.id === uutId);
+    const hasExistingArea = !!(
+      currentUut?.measurementAreaId || currentUut?.measurementArea
     );
+    const { areas, area } = hasExistingArea
+      ? { areas: sessionData.measurementAreas || [], area: null }
+      : ensureAreaForInstrument(sessionData.measurementAreas || [], inst);
     let updatedItem = null;
     const updatedUuts = (sessionData.uuts || []).map((u) =>
       u.id === uutId
@@ -4089,10 +4091,29 @@ function DetailedView({
   };
   const applyPickedLibraryTmde = (tmdeId, inst, options = {}) => {
     if (!onSessionSave) return;
-    const { areas, area } = ensureAreaForInstrument(
-      sessionData.measurementAreas || [],
-      inst,
+    // Keep the TMDE in its current measurement area (see applyPickedLibraryUut):
+    // the detail table renders relevantTmdes filtered by the active area, so
+    // relocating it to the library instrument's area would hide the row here and
+    // only show it in the Session Overview. Adopt the library area if unassigned.
+    const currentTmde = (sessionData.tmdes || []).find((t) => t.id === tmdeId);
+    const hasExistingArea = !!(
+      currentTmde?.measurementAreaId ||
+      currentTmde?.measurementArea ||
+      currentTmde?.instrument?.measurementArea
     );
+    const { areas, area } = hasExistingArea
+      ? { areas: sessionData.measurementAreas || [], area: null }
+      : ensureAreaForInstrument(sessionData.measurementAreas || [], inst);
+    const keepAreaName = hasExistingArea
+      ? currentTmde?.instrument?.measurementArea ||
+        currentTmde?.measurementArea ||
+        ""
+      : "";
+    const keepAreaColor = hasExistingArea
+      ? currentTmde?.instrument?.measurementAreaColor ||
+        currentTmde?.measurementAreaColor ||
+        ""
+      : "";
     let updatedItem = null;
     const updatedTmdes = (sessionData.tmdes || []).map((t) =>
       t.id === tmdeId
@@ -4106,10 +4127,12 @@ function DetailedView({
               : {}),
             instrument: {
               ...instrumentDefFromLibrary(t.instrument, inst, options),
-              measurementArea: area ? area.name : inst.measurementArea || "",
+              measurementArea: area
+                ? area.name
+                : keepAreaName || inst.measurementArea || "",
               measurementAreaColor: area
                 ? area.color
-                : inst.measurementAreaColor || "",
+                : keepAreaColor || inst.measurementAreaColor || "",
             },
           })
         : t,
@@ -4121,34 +4144,16 @@ function DetailedView({
     // instance from the new master so the detail table (which renders the
     // per-point instance for an assigned TMDE) and the risk calc reflect the
     // loaded instrument. Without this the master updates (the Session Overview
-    // shows it) but the measurement-point row stays empty.
-    if (updatedItem) refreshPointTmdeInstance(updatedItem);
+    // shows it) but the measurement-point row stays empty. Reselect the range so
+    // the picked instrument lands on a range that covers this point.
+    if (updatedItem) refreshPointTmdeInstance(updatedItem, { reselectRange: true });
   };
   const promptLibraryPick = (kind, itemId, inst) => {
-    const applyLoad = () => {
-      if (kind === "uut") applyPickedLibraryUut(itemId, inst, { track: false });
-      else applyPickedLibraryTmde(itemId, inst, { track: false });
-      setNotification?.(null);
-    };
-    const applyTrack = () => {
-      if (kind === "uut") applyPickedLibraryUut(itemId, inst, { track: true });
-      else applyPickedLibraryTmde(itemId, inst, { track: true });
-      setNotification?.(null);
-    };
-    if (!setNotification) {
-      applyTrack();
-      return;
-    }
-    setNotification({
-      title: "Load Instrument",
-      message:
-        "Load a local copy, or load and track it against the shared library so the sync badge shows future divergence?",
-      confirmText: "Load",
-      secondaryText: "Load & Track",
-      secondaryIsPrimary: true,
-      onConfirm: applyLoad,
-      onSecondary: applyTrack,
-    });
+    // Clicking a library match loads it immediately as a local copy — no
+    // confirmation dialog (it was easy to miss, leaving only the typed text).
+    // Tracking against the shared library stays available via the Sync badge.
+    if (kind === "uut") applyPickedLibraryUut(itemId, inst, { track: false });
+    else applyPickedLibraryTmde(itemId, inst, { track: false });
   };
   const handleChangeUutArea = (uutId, areaId) => {
     if (!onSessionSave) return;
@@ -5473,11 +5478,14 @@ function DetailedView({
     if (isChecked) {
       const sourceTmde = sessionData.tmdes.find((t) => t.id === tmdeId);
       if (sourceTmde) {
+        // Auto-select the range that covers this point (Priority C) rather than
+        // defaulting to range 0 — otherwise a multi-range TMDE whose first range
+        // doesn't cover the point would be rejected as "Incompatible".
         const resolution = resolveUutRangeHelper(
           sourceTmde,
           tmdeRangeIndices,
           null,
-          null,
+          isDerived ? null : uutNominal,
         );
         const activeRange = resolution.activeRange || {};
         const compatibility = assessTmdeCompatibility(
@@ -5919,7 +5927,6 @@ function DetailedView({
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut_det", colIndex: 1 })
                           }
-                          onClick={(e) => e.stopPropagation()}
                           style={{ verticalAlign: "top" }}
                         >
                           <RangeCell
@@ -5949,7 +5956,6 @@ function DetailedView({
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut_det", colIndex: 2 })
                           }
-                          onClick={(e) => e.stopPropagation()}
                           title={!onSessionSave ? specRows[0] : undefined}
                         >
                           {onSessionSave ? (
@@ -6003,7 +6009,6 @@ function DetailedView({
                           className="cell-distribution"
                           title="Spec band distribution"
                           style={{ verticalAlign: "top" }}
-                          onClick={(e) => e.stopPropagation()}
                         >
                           {onSessionSave &&
                           getBandDistDivisor(
@@ -6044,7 +6049,6 @@ function DetailedView({
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut_det", colIndex: 3 })
                           }
-                          onClick={(e) => e.stopPropagation()}
                           title={formatResolutionLabel(activeRange)}
                         >
                           {onSessionSave ? (
@@ -6067,7 +6071,6 @@ function DetailedView({
                           rowSpan={rowSpan}
                           className="cell-sync"
                           style={{ textAlign: "center" }}
-                          onClick={(e) => e.stopPropagation()}
                         >
                           <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
                         </td>
@@ -6514,11 +6517,14 @@ function DetailedView({
                       // const referencePoint = tmdeInstance.measurementPoint || { value: '', unit: '' }; // Removed unused reference
 
                       const savedTolerance = isChecked ? tmdeInstance : null;
+                      // Pass the point's nominal so an unassigned TMDE defaults to
+                      // a range that actually covers this measurement point
+                      // (resolveUutRangeHelper Priority C) instead of range 0.
                       const resolution = resolveUutRangeHelper(
                         masterTmde,
                         tmdeRangeIndices,
                         savedTolerance,
-                        null,
+                        isDerived ? null : uutNominal,
                       );
                       const { ranges, activeIndex, activeRange } = resolution;
                       const compatibility = isDerived
@@ -6641,7 +6647,6 @@ function DetailedView({
                                   colIndex: 1,
                                 })
                               }
-                              onClick={(e) => e.stopPropagation()}
                             >
                               {onSessionSave ? (
                                 <EditableDescriptionCell
@@ -6698,7 +6703,6 @@ function DetailedView({
                                   colIndex: 2,
                                 })
                               }
-                              onClick={(e) => e.stopPropagation()}
                               style={{ verticalAlign: "top" }}
                             >
                               <RangeCell
@@ -6737,7 +6741,6 @@ function DetailedView({
                                   colIndex: 3,
                                 })
                               }
-                              onClick={(e) => e.stopPropagation()}
                               title={!onSessionSave ? specRows[0] : undefined}
                             >
                               {onSessionSave ? (
@@ -6799,7 +6802,6 @@ function DetailedView({
                               className="cell-distribution"
                               title="Spec band distribution"
                               style={{ verticalAlign: "top" }}
-                              onClick={(e) => e.stopPropagation()}
                             >
                               {onSessionSave &&
                               getBandDistDivisor(
@@ -6850,7 +6852,6 @@ function DetailedView({
                                   colIndex: 4,
                                 })
                               }
-                              onClick={(e) => e.stopPropagation()}
                               title={formatResolutionLabel(activeRange)}
                             >
                               {onSessionSave ? (
@@ -6891,7 +6892,6 @@ function DetailedView({
                               rowSpan={rowSpan}
                               className="cell-sync"
                               style={{ textAlign: "center" }}
-                              onClick={(e) => e.stopPropagation()}
                             >
                               <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} />
                             </td>
