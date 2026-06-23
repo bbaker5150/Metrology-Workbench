@@ -2072,7 +2072,13 @@ const SummaryDashboard = ({
     const instrument = itemInstrumentForLibrary(kind, item);
     onSaveInstrument({
       ...instrument,
-      scope: instrument.scope === "validated" ? "local" : instrument.scope || "local",
+      scope: "local",
+      sourceId:
+        instrument.sourceId ||
+        (instrument.scope === "validated" ? instrument.id : undefined),
+      validatedSnapshot:
+        instrument.validatedSnapshot ||
+        (instrument.scope === "validated" ? buildValidatedSnapshot(instrument) : null),
     });
   };
 
@@ -2210,7 +2216,7 @@ const SummaryDashboard = ({
   // Populate the row from the library instrument; if the instrument carries a
   // measurement area the session doesn't have yet, create it on the fly so the
   // row drops into a (new) area subsection automatically.
-  const ensureAreaForInstrument = (areas, inst) => {
+  const ensureAreaForInstrument = (areas, inst, { hiddenFromSidebar = false } = {}) => {
     const areaName = (inst.measurementArea || "").trim();
     if (!areaName) return { areas, area: null };
     const existing = (areas || []).find(
@@ -2222,22 +2228,32 @@ const SummaryDashboard = ({
       inst.measurementAreaColor.startsWith("#")
         ? inst.measurementAreaColor
         : AREA_PALETTE[(areas || []).length % AREA_PALETTE.length];
-    const area = { id: uuidv4(), name: areaName, color };
+    const area = { id: uuidv4(), name: areaName, color, hiddenFromSidebar };
     return { areas: [...(areas || []), area], area };
   };
 
-  const instrumentDefFromLibrary = (existing, inst, { track = false } = {}) => ({
+  const findLinkedLocalInstrument = (inst) => {
+    const sourceId = inst?.sourceId || (inst?.scope === "validated" ? inst.id : null);
+    if (!sourceId) return null;
+    return (instruments || []).find(
+      (candidate) =>
+        candidate.scope === "local" &&
+        String(candidate.sourceId) === String(sourceId),
+    );
+  };
+
+  const instrumentDefFromLibrary = (existing, inst, { track = false, localCopy = false } = {}) => ({
     ...(existing || {}),
     id: existing?.id || uuidv4(),
     manufacturer: inst.manufacturer || "",
     model: inst.model || "",
     description: inst.description || "",
     functions: inst.functions || [],
-    libraryInstrumentId: track ? inst.id : undefined,
-    scope: track ? inst.scope : "local",
-    sourceId: track ? inst.sourceId || inst.id : undefined,
+    libraryInstrumentId: track ? inst.sourceId || inst.id : undefined,
+    scope: track ? (localCopy ? "local" : inst.scope) : "local",
+    sourceId: track ? inst.sourceId || (inst.scope === "validated" ? inst.id : undefined) : undefined,
     validatedSnapshot:
-      track && inst.scope === "validated"
+      track && (inst.scope === "validated" || localCopy)
         ? buildValidatedSnapshot(inst)
         : track
           ? existing?.validatedSnapshot || inst.validatedSnapshot || null
@@ -2261,7 +2277,7 @@ const SummaryDashboard = ({
         ? (updatedItem = {
             ...u,
             description: libraryLabel(inst),
-            libraryInstrumentId: options.track ? inst.id : undefined,
+            libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
             ...(area
               ? {
                   measurementAreaId: area.id,
@@ -2274,7 +2290,7 @@ const SummaryDashboard = ({
         : u,
     );
     onSessionSave({ ...sessionData, measurementAreas: areas, uuts: updatedUuts });
-    if (updatedItem && !options.track) saveItemInstrumentToLocalLibrary("uut", updatedItem);
+    if (updatedItem && (!options.track || options.saveLocal)) saveItemInstrumentToLocalLibrary("uut", updatedItem);
   };
 
   const applyPickedLibraryTmde = (tmdeId, inst, options = {}) => {
@@ -2282,6 +2298,7 @@ const SummaryDashboard = ({
     const { areas, area } = ensureAreaForInstrument(
       sessionData.measurementAreas || [],
       inst,
+      { hiddenFromSidebar: true },
     );
     let updatedItem = null;
     const updatedTmdes = (sessionData.tmdes || []).map((t) =>
@@ -2290,7 +2307,7 @@ const SummaryDashboard = ({
             ...t,
             name: libraryLabel(inst),
             isInstrumentBased: true,
-            libraryInstrumentId: options.track ? inst.id : undefined,
+            libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
             ...(area
               ? { measurementAreaId: area.id, measurementArea: area.name }
               : {}),
@@ -2306,15 +2323,21 @@ const SummaryDashboard = ({
         : t,
     );
     onSessionSave({ ...sessionData, measurementAreas: areas, tmdes: updatedTmdes });
-    if (updatedItem && !options.track) saveItemInstrumentToLocalLibrary("tmde", updatedItem);
+    if (updatedItem && (!options.track || options.saveLocal)) saveItemInstrumentToLocalLibrary("tmde", updatedItem);
   };
 
   const promptLibraryPick = (kind, itemId, inst) => {
     // Clicking a library match loads it immediately as a local copy — no
     // confirmation dialog (it was easy to miss, leaving only the typed text).
     // Tracking against the shared library stays available via the Sync badge.
-    if (kind === "uut") applyPickedLibraryUut(itemId, inst, { track: false });
-    else applyPickedLibraryTmde(itemId, inst, { track: false });
+    const linkedLocal = findLinkedLocalInstrument(inst);
+    const pickedInstrument = linkedLocal || inst;
+    const options =
+      inst.scope === "validated" && !linkedLocal
+        ? { track: true, localCopy: true, saveLocal: true }
+        : { track: Boolean(pickedInstrument.sourceId || pickedInstrument.scope === "validated") };
+    if (kind === "uut") applyPickedLibraryUut(itemId, pickedInstrument, options);
+    else applyPickedLibraryTmde(itemId, pickedInstrument, options);
   };
 
   // --- Reassign an instrument to a different measurement area ---
@@ -2373,6 +2396,7 @@ const SummaryDashboard = ({
     const { areas, area } = ensureAreaForInstrument(
       sessionData.measurementAreas || [],
       { measurementArea: trimmed },
+      { hiddenFromSidebar: true },
     );
     if (!area) return;
     const updatedUuts = (sessionData.uuts || []).map((u) =>
@@ -4000,8 +4024,13 @@ function DetailedView({
     const instrument = itemInstrumentForLibrary(kind, item);
     onSaveInstrument({
       ...instrument,
-      scope:
-        instrument.scope === "validated" ? "local" : instrument.scope || "local",
+      scope: "local",
+      sourceId:
+        instrument.sourceId ||
+        (instrument.scope === "validated" ? instrument.id : undefined),
+      validatedSnapshot:
+        instrument.validatedSnapshot ||
+        (instrument.scope === "validated" ? buildValidatedSnapshot(instrument) : null),
     });
   };
   const promptLocalLibrarySave = (kind, item) => {
@@ -4171,7 +4200,7 @@ function DetailedView({
   };
 
   // --- Library pick from the description dropdown (auto-creates the area) ---
-  const ensureAreaForInstrument = (areas, inst) => {
+  const ensureAreaForInstrument = (areas, inst, { hiddenFromSidebar = false } = {}) => {
     const areaName = (inst.measurementArea || "").trim();
     if (!areaName) return { areas, area: null };
     const existing = (areas || []).find(
@@ -4183,21 +4212,30 @@ function DetailedView({
       inst.measurementAreaColor.startsWith("#")
         ? inst.measurementAreaColor
         : AREA_PALETTE[(areas || []).length % AREA_PALETTE.length];
-    const area = { id: uuidv4(), name: areaName, color };
+    const area = { id: uuidv4(), name: areaName, color, hiddenFromSidebar };
     return { areas: [...(areas || []), area], area };
   };
-  const instrumentDefFromLibrary = (existing, inst, { track = false } = {}) => ({
+  const findLinkedLocalInstrument = (inst) => {
+    const sourceId = inst?.sourceId || (inst?.scope === "validated" ? inst.id : null);
+    if (!sourceId) return null;
+    return (instruments || []).find(
+      (candidate) =>
+        candidate.scope === "local" &&
+        String(candidate.sourceId) === String(sourceId),
+    );
+  };
+  const instrumentDefFromLibrary = (existing, inst, { track = false, localCopy = false } = {}) => ({
     ...(existing || {}),
     id: existing?.id || uuidv4(),
     manufacturer: inst.manufacturer || "",
     model: inst.model || "",
     description: inst.description || "",
     functions: inst.functions || [],
-    libraryInstrumentId: track ? inst.id : undefined,
-    scope: track ? inst.scope : "local",
-    sourceId: track ? inst.sourceId || inst.id : undefined,
+    libraryInstrumentId: track ? inst.sourceId || inst.id : undefined,
+    scope: track ? (localCopy ? "local" : inst.scope) : "local",
+    sourceId: track ? inst.sourceId || (inst.scope === "validated" ? inst.id : undefined) : undefined,
     validatedSnapshot:
-      track && inst.scope === "validated"
+      track && (inst.scope === "validated" || localCopy)
         ? buildValidatedSnapshot(inst)
         : track
           ? existing?.validatedSnapshot || inst.validatedSnapshot || null
@@ -4227,7 +4265,7 @@ function DetailedView({
         ? (updatedItem = {
             ...u,
             description: libraryLabel(inst),
-            libraryInstrumentId: options.track ? inst.id : undefined,
+            libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
             ...(area
               ? {
                   measurementAreaId: area.id,
@@ -4240,7 +4278,7 @@ function DetailedView({
         : u,
     );
     onSessionSave({ ...sessionData, measurementAreas: areas, uuts: updatedUuts });
-    if (updatedItem && !options.track)
+    if (updatedItem && (!options.track || options.saveLocal))
       saveItemInstrumentToLocalLibrary("uut", updatedItem);
   };
   const applyPickedLibraryTmde = (tmdeId, inst, options = {}) => {
@@ -4250,14 +4288,13 @@ function DetailedView({
     // relocating it to the library instrument's area would hide the row here and
     // only show it in the Session Overview. Adopt the library area if unassigned.
     const currentTmde = (sessionData.tmdes || []).find((t) => t.id === tmdeId);
-    const hasExistingArea = !!(
-      currentTmde?.measurementAreaId ||
-      currentTmde?.measurementArea ||
-      currentTmde?.instrument?.measurementArea
-    );
-    const { areas, area } = hasExistingArea
+    const hasExistingArea = !!(currentTmde?.measurementAreaId || currentTmde?.measurementArea);
+    const hasCategory = !!currentTmde?.instrument?.measurementArea;
+    const { areas, area } = hasExistingArea || hasCategory
       ? { areas: sessionData.measurementAreas || [], area: null }
-      : ensureAreaForInstrument(sessionData.measurementAreas || [], inst);
+      : ensureAreaForInstrument(sessionData.measurementAreas || [], inst, {
+          hiddenFromSidebar: true,
+        });
     const keepAreaName = hasExistingArea
       ? currentTmde?.instrument?.measurementArea ||
         currentTmde?.measurementArea ||
@@ -4275,7 +4312,7 @@ function DetailedView({
             ...t,
             name: libraryLabel(inst),
             isInstrumentBased: true,
-            libraryInstrumentId: options.track ? inst.id : undefined,
+            libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
             ...(area
               ? { measurementAreaId: area.id, measurementArea: area.name }
               : {}),
@@ -4292,7 +4329,7 @@ function DetailedView({
         : t,
     );
     onSessionSave({ ...sessionData, measurementAreas: areas, tmdes: updatedTmdes });
-    if (updatedItem && !options.track)
+    if (updatedItem && (!options.track || options.saveLocal))
       saveItemInstrumentToLocalLibrary("tmde", updatedItem);
     // Picking from the library is an inline edit too: rebuild this point's TMDE
     // instance from the new master so the detail table (which renders the
@@ -4306,8 +4343,14 @@ function DetailedView({
     // Clicking a library match loads it immediately as a local copy — no
     // confirmation dialog (it was easy to miss, leaving only the typed text).
     // Tracking against the shared library stays available via the Sync badge.
-    if (kind === "uut") applyPickedLibraryUut(itemId, inst, { track: false });
-    else applyPickedLibraryTmde(itemId, inst, { track: false });
+    const linkedLocal = findLinkedLocalInstrument(inst);
+    const pickedInstrument = linkedLocal || inst;
+    const options =
+      inst.scope === "validated" && !linkedLocal
+        ? { track: true, localCopy: true, saveLocal: true }
+        : { track: Boolean(pickedInstrument.sourceId || pickedInstrument.scope === "validated") };
+    if (kind === "uut") applyPickedLibraryUut(itemId, pickedInstrument, options);
+    else applyPickedLibraryTmde(itemId, pickedInstrument, options);
   };
   const handleChangeUutArea = (uutId, areaId) => {
     if (!onSessionSave) return;
@@ -4353,6 +4396,7 @@ function DetailedView({
     const { areas, area } = ensureAreaForInstrument(
       sessionData.measurementAreas || [],
       { measurementArea: trimmed },
+      { hiddenFromSidebar: true },
     );
     if (!area) return;
     const updatedUuts = (sessionData.uuts || []).map((u) =>
@@ -4890,6 +4934,7 @@ function DetailedView({
   const activeMeasurementArea = sessionData.measurementAreas?.find(
     (area) => area.id === activeMeasurementAreaId,
   );
+  const isDerived = testPointData.measurementType === "derived";
 
   // Keep the instrument inventory stable while moving between points. A point
   // only highlights its linked UUT; it does not hide the area's other choices.
@@ -4907,6 +4952,7 @@ function DetailedView({
 
   const relevantTmdes = useMemo(() => {
     const allTmdes = sessionData.tmdes || [];
+    if (testPointData.measurementType === "derived") return allTmdes;
     if (!activeMeasurementAreaId) return allTmdes;
     return allTmdes.filter((tmde) => {
       if (tmde.measurementAreaId) {
@@ -4941,11 +4987,10 @@ function DetailedView({
   }, [
     sessionData.tmdes,
     sessionData.testPoints,
+    testPointData.measurementType,
     activeMeasurementAreaId,
     activeMeasurementArea?.name,
   ]);
-
-  const isDerived = testPointData.measurementType === "derived";
 
   const availableVariables = useMemo(() => {
     if (!isDerived) return [];
@@ -5598,14 +5643,16 @@ function DetailedView({
   const handleAssignTmdeToInput = (masterTmde, variableType) => {
     const existing = tmdeTolerancesData.find(
       (tmde) =>
-        tmde.id === masterTmde.id || tmde.sourceId === masterTmde.id,
+        String(tmde.id) === String(masterTmde.id) ||
+        String(tmde.sourceId) === String(masterTmde.id),
     );
 
     if (!variableType) {
       onUpdateTestPoint({
         tmdeTolerances: tmdeTolerancesData.filter(
           (tmde) =>
-            tmde.id !== masterTmde.id && tmde.sourceId !== masterTmde.id,
+            String(tmde.id) !== String(masterTmde.id) &&
+            String(tmde.sourceId) !== String(masterTmde.id),
         ),
       });
       return;
@@ -6710,8 +6757,8 @@ function DetailedView({
 
                     const activeInstances = tmdeTolerancesData.filter(
                       (t) =>
-                        t.id === masterTmde.id ||
-                        (t.sourceId && t.sourceId === masterTmde.id),
+                        String(t.id) === String(masterTmde.id) ||
+                        (t.sourceId && String(t.sourceId) === String(masterTmde.id)),
                     );
                     const rowsToRender =
                       activeInstances.length > 0

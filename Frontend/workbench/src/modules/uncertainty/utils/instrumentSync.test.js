@@ -109,6 +109,7 @@ describe("instrumentSync", () => {
   it("buildSyncPayload promotes to validated, re-snapshots, and carries the password", () => {
     const diverged = validated({ description: "Edited locally", scope: "local", sourceId: "v1" });
     const payload = buildSyncPayload(diverged, "calibrate");
+    expect(payload.id).toBe("v1");
     expect(payload.scope).toBe("validated");
     expect(payload.password).toBe("calibrate");
     expect(payload.sourceId).toBe("v1");

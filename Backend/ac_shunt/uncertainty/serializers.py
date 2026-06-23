@@ -95,7 +95,12 @@ def test_point_to_dict(tp):
 
 
 def area_to_dict(a):
-    return {"id": _coerce_id(a.cid), "name": a.name, "color": a.color}
+    return {
+        "id": _coerce_id(a.cid),
+        "name": a.name,
+        "color": a.color,
+        "hiddenFromSidebar": a.hidden_from_sidebar,
+    }
 
 
 def uut_to_dict(u):
@@ -258,6 +263,7 @@ def save_session(data):
             cid=_cid(a.get("id")),
             name=a.get("name", "") or "",
             color=a.get("color", "") or "",
+            hidden_from_sidebar=bool(a.get("hiddenFromSidebar", False)),
         )
 
     for u in data.get("uuts", []) or []:

@@ -3443,8 +3443,16 @@ function App() {
         return !parentExistsInArea;
       });
 
+      if (
+        area.hiddenFromSidebar &&
+        uutGroups.length === 0 &&
+        unassignedPoints.length === 0
+      ) {
+        return null;
+      }
+
       return { ...area, uutGroups, unassignedPoints };
-    });
+    }).filter(Boolean);
   }, [currentSessionData, currentTestPoints]);
 
   // Exact top-to-bottom order of the point rows currently visible in the

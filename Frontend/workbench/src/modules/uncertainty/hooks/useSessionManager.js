@@ -150,6 +150,7 @@ const useSessionManager = () => {
   const sessionsRef = useRef([]);
   const selectedSessionIdRef = useRef(null);
   const selectedTestPointIdRef = useRef(null);
+  const instrumentsRef = useRef([]);
   const undoHistoryRef = useRef(new Map());
   const persistTimersRef = useRef(new Map());
   const pendingPersistRef = useRef(new Map());
@@ -162,6 +163,26 @@ const useSessionManager = () => {
   useEffect(() => {
     selectedTestPointIdRef.current = selectedTestPointId;
   }, [selectedTestPointId]);
+
+  const replaceInstruments = useCallback((updater) => {
+    const nextInstruments =
+      typeof updater === "function" ? updater(instrumentsRef.current) : updater;
+    instrumentsRef.current = nextInstruments;
+    setInstruments(nextInstruments);
+    return nextInstruments;
+  }, []);
+
+  const dedupeLibraryInstruments = useCallback((items) => {
+    const seenLinkedLocal = new Set();
+    return (items || []).filter((instrument) => {
+      if (instrument?.scope !== "local" || !instrument.sourceId) return true;
+      const owner = instrument.owner || getDeviceKey();
+      const key = `${owner}:${instrument.sourceId}`;
+      if (seenLinkedLocal.has(key)) return false;
+      seenLinkedLocal.add(key);
+      return true;
+    });
+  }, []);
 
   const replaceSessions = useCallback((updater) => {
     const nextSessions =
@@ -231,7 +252,9 @@ const useSessionManager = () => {
       const instRes = await axios.get(`${UNCERTAINTY_API}/instruments/`, {
         params: { owner: getDeviceKey() },
       });
-      setInstruments(Array.isArray(instRes.data) ? instRes.data : []);
+      replaceInstruments(
+        dedupeLibraryInstruments(Array.isArray(instRes.data) ? instRes.data : []),
+      );
     } catch (e) {
       console.error("Failed to load instruments from backend", e);
     }
@@ -252,7 +275,7 @@ const useSessionManager = () => {
     } catch (e) {
       console.error("Failed to load bug reports from backend", e);
     }
-  }, []);
+  }, [dedupeLibraryInstruments, replaceInstruments]);
 
   useEffect(() => {
     loadSharedData();
@@ -340,44 +363,67 @@ const useSessionManager = () => {
   // A validated save (scope === "validated") must additionally carry a
   // `password`; that flow is driven by the caller (sync action), not here.
   const saveInstrument = useCallback(async (instrument) => {
-    const payload = {
+    let payload = {
       ...instrument,
       owner: instrument.owner || getDeviceKey(),
       scope: instrument.scope || "local",
     };
 
-    setInstruments((prev) => {
+    if (payload.scope === "local" && payload.sourceId) {
+      const existingLinkedLocal = instrumentsRef.current.find(
+        (i) =>
+          i.scope === "local" &&
+          i.sourceId === payload.sourceId &&
+          (i.owner || getDeviceKey()) === payload.owner,
+      );
+      if (existingLinkedLocal) {
+        payload = { ...payload, id: existingLinkedLocal.id };
+      }
+    }
+
+    replaceInstruments((prev) => {
       const existingIdx = prev.findIndex((i) => i.id === payload.id);
+      const withoutDuplicateLinkedLocals =
+        payload.scope === "local" && payload.sourceId
+          ? prev.filter(
+              (i) =>
+                i.id === payload.id ||
+                i.scope !== "local" ||
+                i.sourceId !== payload.sourceId ||
+                (i.owner || getDeviceKey()) !== payload.owner,
+            )
+          : prev;
       if (existingIdx > -1) {
-        const next = [...prev];
-        next[existingIdx] = payload;
+        const next = [...withoutDuplicateLinkedLocals];
+        const nextIdx = next.findIndex((i) => i.id === payload.id);
+        next[nextIdx] = payload;
         return next;
       }
-      return [...prev, payload];
+      return [...withoutDuplicateLinkedLocals, payload];
     });
 
     try {
       const res = await axios.post(`${UNCERTAINTY_API}/instruments/`, payload);
       // Reconcile with the server's canonical record (scope/snapshot resolution).
       if (res?.data?.id) {
-        setInstruments((prev) =>
+        replaceInstruments((prev) =>
           prev.map((i) => (i.id === res.data.id ? res.data : i)),
         );
       }
     } catch (e) {
       console.error("Failed to save instrument to backend", e);
     }
-  }, []);
+  }, [replaceInstruments]);
 
   // --- 2.2 Delete Instrument ---
   const deleteInstrument = useCallback(async (instrumentId) => {
-    setInstruments((prev) => prev.filter((i) => i.id !== instrumentId));
+    replaceInstruments((prev) => prev.filter((i) => i.id !== instrumentId));
     try {
       await axios.delete(`${UNCERTAINTY_API}/instruments/${instrumentId}/`);
     } catch (e) {
       console.error("Failed to delete instrument from backend", e);
     }
-  }, []);
+  }, [replaceInstruments]);
 
   // --- 2.2.1 Persist Custom Equation (global library, like instruments) ---
   const saveCustomEquation = useCallback(async (equation) => {

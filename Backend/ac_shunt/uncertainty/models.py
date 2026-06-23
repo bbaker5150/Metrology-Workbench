@@ -69,6 +69,7 @@ class MeasurementArea(models.Model):
     cid = models.CharField(max_length=64)
     name = models.CharField(max_length=255, blank=True, default="")
     color = models.CharField(max_length=32, blank=True, default="")
+    hidden_from_sidebar = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["id"]

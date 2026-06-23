@@ -87,6 +87,7 @@ export const computeSyncState = (instrument = {}) => {
  */
 export const buildSyncPayload = (instrument = {}, password = "") => ({
   ...instrument,
+  id: instrument.sourceId || instrument.id,
   scope: "validated",
   sourceId: instrument.sourceId || instrument.id,
   validatedSnapshot: buildValidatedSnapshot(instrument),
