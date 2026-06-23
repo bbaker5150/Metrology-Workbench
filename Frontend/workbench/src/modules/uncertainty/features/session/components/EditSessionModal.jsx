@@ -510,6 +510,7 @@ const EditSessionModal = ({
             mode={activeInstrumentModal.mode}
             initialData={activeInstrumentModal.data}
             instruments={instruments}
+            measurementAreas={formData.measurementAreas || []}
           />
       )}
 

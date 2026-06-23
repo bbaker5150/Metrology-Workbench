@@ -3700,15 +3700,9 @@ function App() {
           onDelete={deleteInstrument}
           onBatchAdd={handleBatchAddInstruments}
           instruments={instruments}
+          measurementAreas={currentSessionData?.measurementAreas || []}
           mode={instrumentModalConfig.mode}
           initialData={instrumentModalConfig.data}
-          defaultMeasurementArea={(currentSessionData?.measurementAreas || []).find(
-            (area) =>
-              area.id ===
-              (currentTestPoints.find(
-                (point) => point.id === selectedTestPointId,
-              )?.measurementAreaId || selectedAreaId),
-          )}
         />
 
         <NotificationModal

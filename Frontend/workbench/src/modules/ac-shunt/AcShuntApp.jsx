@@ -22,9 +22,9 @@ import {
 } from "./contexts/InstrumentContext";
 import { useTheme } from "../../shared/ThemeContext";
 import { useNotifications } from "../../shared/NotificationContext";
-import "bootstrap/dist/css/bootstrap.min.css";
+import bootstrapStyles from "bootstrap/dist/css/bootstrap.min.css?inline";
 import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug, FaEye, FaEyeSlash, FaStickyNote, FaRegClock } from "react-icons/fa";
-import "./App.css";
+import acShuntStyles from "./App.css?inline";
 import { arrayMove } from "@dnd-kit/sortable";
 import { gsap } from "gsap";
 import { AVAILABLE_FREQUENCIES, API_BASE_URL } from "./constants/constants";
@@ -47,6 +47,22 @@ const shouldReduceMotion = () =>
   typeof window !== "undefined" &&
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const useScopedAcShuntStyles = () => {
+  useLayoutEffect(() => {
+    document.body.classList.add("ac-shunt-active");
+
+    const style = document.createElement("style");
+    style.dataset.module = "ac-shunt";
+    style.textContent = `${bootstrapStyles}\n${acShuntStyles}`;
+    document.head.appendChild(style);
+
+    return () => {
+      document.body.classList.remove("ac-shunt-active");
+      style.remove();
+    };
+  }, []);
+};
 
 // Helper functions for corrections (getShuntCorrectionForPoint, getTVCCorrectionForPoint)
 const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntSn, shuntsData) => {
@@ -1628,6 +1644,8 @@ function CoinModel({ onReset, isActive }) {
 }
 
 function App() {
+  useScopedAcShuntStyles();
+
   // ThemeProvider now lives at the workbench root (index.jsx) so every
   // module shares one theme. InstrumentContextProvider stays scoped here —
   // only the AC-Shunt module pays for the instrument WebSockets/state.

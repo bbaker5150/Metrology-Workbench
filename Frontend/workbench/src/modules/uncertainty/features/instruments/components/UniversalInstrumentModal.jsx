@@ -113,6 +113,9 @@ const formatToleranceSummary = (tolerances) => {
     return parts.length > 0 ? <span className="tolerance-badge">{parts.join(" + ")}</span> : <span className="tolerance-badge">Custom Spec</span>;
 };
 
+const DEFAULT_MEASUREMENT_AREA_NAME = "undefined";
+const DEFAULT_MEASUREMENT_AREA_COLOR = "#3498db";
+
 const getComparableLibraryInstrument = (instrument) => ({
     manufacturer: instrument?.manufacturer || "",
     model: instrument?.model || "",
@@ -129,7 +132,7 @@ const UniversalInstrumentModal = ({
     mode = 'library', // 'uut', 'tmde', 'library'
     initialData = null,
     instruments = [],
-    defaultMeasurementArea = null
+    measurementAreas = []
 }) => {
     const [viewMode, setViewMode] = useState("edit");
     const [effectiveMode, setEffectiveMode] = useState(mode);
@@ -149,9 +152,9 @@ const UniversalInstrumentModal = ({
 
     const [metaData, setMetaData] = useState({
         name: "", 
-        measurementArea: "",
+        measurementArea: DEFAULT_MEASUREMENT_AREA_NAME,
         measurementAreaId: "",
-        measurementAreaColor: "#3498db", 
+        measurementAreaColor: DEFAULT_MEASUREMENT_AREA_COLOR, 
         quantity: 1, 
         assetId: "" 
     });
@@ -211,9 +214,9 @@ const UniversalInstrumentModal = ({
 
                 setMetaData({
                     name: initialData.description || initialData.name || "",
-                    measurementArea: initialData.measurementArea || "",
+                    measurementArea: initialData.measurementArea || DEFAULT_MEASUREMENT_AREA_NAME,
                     measurementAreaId: initialData.measurementAreaId || "",
-                    measurementAreaColor: initialData.measurementAreaColor || "#3498db",
+                    measurementAreaColor: initialData.measurementAreaColor || DEFAULT_MEASUREMENT_AREA_COLOR,
                     quantity: initialData.quantity || 1, 
                     assetId: initialData.assetId || ""
                 });
@@ -228,9 +231,9 @@ const UniversalInstrumentModal = ({
                 );
                 setMetaData({
                     name: "",
-                    measurementArea: defaultMeasurementArea?.name || "",
-                    measurementAreaId: defaultMeasurementArea?.id || "",
-                    measurementAreaColor: defaultMeasurementArea?.color || "#3498db",
+                    measurementArea: DEFAULT_MEASUREMENT_AREA_NAME,
+                    measurementAreaId: "",
+                    measurementAreaColor: DEFAULT_MEASUREMENT_AREA_COLOR,
                     quantity: 1,
                     assetId: ""
                 });
@@ -238,7 +241,7 @@ const UniversalInstrumentModal = ({
                 setActiveFunctionId(null);
             }
         }
-    }, [isOpen, initialData, mode, defaultMeasurementArea]);
+    }, [isOpen, initialData, mode]);
 
     const filteredInstruments = useMemo(() => {
         if (!searchTerm) return instruments;
@@ -363,8 +366,8 @@ const UniversalInstrumentModal = ({
         // --- FIX: Fully populate MetaData from Library Item ---
         setMetaData({
             name: inst.description || "", // Populate description for library edit
-            measurementArea: inst.measurementArea || "", // Restore saved area
-            measurementAreaColor: inst.measurementAreaColor || "#3498db", // Restore saved color
+            measurementArea: inst.measurementArea || DEFAULT_MEASUREMENT_AREA_NAME, // Restore saved area
+            measurementAreaColor: inst.measurementAreaColor || DEFAULT_MEASUREMENT_AREA_COLOR, // Restore saved color
             quantity: 1, 
             assetId: ""
         });
@@ -400,17 +403,34 @@ const UniversalInstrumentModal = ({
         setInitialInstrumentSignature(
             JSON.stringify(getComparableLibraryInstrument(newInstrument))
         );
-        setMetaData(prev => ({...prev, name: "", measurementArea: "", measurementAreaColor: "#3498db"}));
+        setMetaData(prev => ({
+            ...prev,
+            name: "",
+            measurementArea: DEFAULT_MEASUREMENT_AREA_NAME,
+            measurementAreaId: "",
+            measurementAreaColor: DEFAULT_MEASUREMENT_AREA_COLOR
+        }));
         setActiveFunctionId(null);
         setViewMode("edit");
     };
 
     const handleMetaChange = (field, value) => {
-        setMetaData(prev => ({
-            ...prev,
-            [field]: value,
-            ...(field === "measurementArea" ? { measurementAreaId: "" } : {})
-        }));
+        setMetaData(prev => {
+            const patch = { [field]: value };
+            if (field === "measurementArea") {
+                const cleanName = String(value || "").trim();
+                const existingArea = (measurementAreas || []).find(
+                    (area) => String(area.name || "").toLowerCase() === cleanName.toLowerCase()
+                );
+                patch.measurementAreaId = existingArea?.id || "";
+                patch.measurementAreaColor =
+                    existingArea?.color || prev.measurementAreaColor || DEFAULT_MEASUREMENT_AREA_COLOR;
+            }
+            return {
+                ...prev,
+                ...patch
+            };
+        });
     };
 
     const handleAddFunction = () => {
@@ -879,6 +899,7 @@ const UniversalInstrumentModal = ({
                                             value={metaData.measurementArea} 
                                             onChange={e => handleMetaChange('measurementArea', e.target.value)} 
                                             placeholder=" " 
+                                            aria-label="Measurement Area"
                                         />
                                         <label>Measurement Area</label>
                                         <FontAwesomeIcon icon={faLayerGroup} className="input-icon" />
