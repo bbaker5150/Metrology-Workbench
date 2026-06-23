@@ -10386,6 +10386,16 @@ body.theme-cyberpunk .notification-window .window-header {
   vertical-align: top;
 }
 
+/* In the inline-editable tables, center the range / tolerance / resolution
+   inputs so they line up with the description and sync icon (read-only
+   multi-spec rows above keep their top alignment). */
+.instrument-summary-table td.cell-tolerance:has(.inline-tolerance-editor),
+.instrument-summary-table td.cell-value:has(.inline-range-editor),
+.instrument-summary-table td.cell-value:has(.inline-resolution-editor),
+.instrument-summary-table td.cell-distribution:has(.session-selector) {
+  vertical-align: middle;
+}
+
 /* Tables inside panel cards fill fully */
 .panel-table-container .instrument-summary-table {
   width: 100%;

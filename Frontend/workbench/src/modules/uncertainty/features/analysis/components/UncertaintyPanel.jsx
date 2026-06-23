@@ -800,18 +800,15 @@ const ResolutionCellInput = ({
         onChange={onCommitUnit}
       />
       {onToggleUse && (
-        <label
+        <input
+          type="checkbox"
           className="inline-resolution-use"
           title="Include this resolution in the uncertainty budget"
+          checked={!!useResolution}
+          onChange={(e) => onToggleUse(e.target.checked)}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
-        >
-          <input
-            type="checkbox"
-            checked={!!useResolution}
-            onChange={(e) => onToggleUse(e.target.checked)}
-          />
-        </label>
+        />
       )}
     </span>
   );
@@ -2007,6 +2004,34 @@ const SummaryDashboard = ({
     onSessionSave({ ...sessionData, measurementAreas: updatedAreas });
   };
 
+  // TMDE areas aren't always backed by a sidebar measurement area (their
+  // grouping keys off the nested instrument's area name/color). Recolor the
+  // matching session area when one exists AND stamp the color onto every grouped
+  // TMDE, so the swatch works even for TMDE-only areas.
+  const handleTmdeAreaColorChange = (area, rows, color) => {
+    if (!onSessionSave) return;
+    const targetIds = new Set(
+      (rows || []).map((row) => row.item?.id).filter(Boolean),
+    );
+    const updatedAreas = (sessionData.measurementAreas || []).map((a) =>
+      String(a.id) === String(area.id) ? { ...a, color } : a,
+    );
+    const updatedTmdes = (sessionData.tmdes || []).map((t) =>
+      targetIds.has(t.id)
+        ? {
+            ...t,
+            measurementAreaColor: color,
+            instrument: { ...(t.instrument || {}), measurementAreaColor: color },
+          }
+        : t,
+    );
+    onSessionSave({
+      ...sessionData,
+      measurementAreas: updatedAreas,
+      tmdes: updatedTmdes,
+    });
+  };
+
   const handleAreaNameChange = (area, rawName) => {
     if (!onSessionSave || !area?.id) return;
     const name = String(rawName || "").trim();
@@ -2828,7 +2853,7 @@ const SummaryDashboard = ({
 
   // A header color swatch that opens the native picker on click. Falls back to a
   // plain dot for the synthetic "Unassigned" group (no real area id to write).
-  const renderAreaColorSwatch = (area) => {
+  const renderAreaColorSwatch = (area, rows = [], kind = "uut") => {
     const hasId = Boolean(area.id);
     const color =
       typeof area.color === "string" && area.color.startsWith("#")
@@ -2863,7 +2888,11 @@ const SummaryDashboard = ({
         <input
           type="color"
           value={color}
-          onChange={(e) => handleAreaColorChange(area.id, e.target.value)}
+          onChange={(e) =>
+            kind === "tmde"
+              ? handleTmdeAreaColorChange(area, rows, e.target.value)
+              : handleAreaColorChange(area.id, e.target.value)
+          }
           style={{
             position: "absolute",
             top: 0,
@@ -3524,7 +3553,7 @@ const SummaryDashboard = ({
                         onDrop={handleInstrumentDropOnArea("uut", row.area.id || "")}
                       >
                         <td colSpan={5}>
-                          {renderAreaColorSwatch(row.area)}
+                          {renderAreaColorSwatch(row.area, row.items, "uut")}
                           {renderAreaNameEditor(row.area, row.items, "uut")}
                         </td>
                       </tr>
@@ -3827,7 +3856,7 @@ const SummaryDashboard = ({
                         onDrop={handleInstrumentDropOnArea("tmde", row.area.id || "")}
                       >
                         <td colSpan={6}>
-                          {renderAreaColorSwatch(row.area)}
+                          {renderAreaColorSwatch(row.area, row.items, "tmde")}
                           {renderAreaNameEditor(row.area, row.items, "tmde")}
                         </td>
                       </tr>
