@@ -1942,23 +1942,17 @@ const SummaryDashboard = ({
   const handleAreaGroupNameChange = (area, rows, kind, rawName) => {
     const name = String(rawName || "").trim();
     if (!onSessionSave || !name || name.toLowerCase() === "unassigned") return;
+    if (name === area.name) return;
 
-    const existingArea = (sessionData.measurementAreas || []).find(
+    const areas = sessionData.measurementAreas || [];
+    const existingArea = areas.find(
       (candidate) =>
         String(candidate.name || "").toLowerCase() === name.toLowerCase(),
     );
-    const isExistingRealArea = (sessionData.measurementAreas || []).some(
-      (candidate) => candidate.id === area.id,
-    );
-    if (isExistingRealArea) {
-      handleAreaNameChange(area, name);
-      return;
-    }
-
     const color =
       typeof area.color === "string" && area.color.startsWith("#")
         ? area.color
-        : AREA_PALETTE[(sessionData.measurementAreas || []).length % AREA_PALETTE.length];
+        : AREA_PALETTE[areas.length % AREA_PALETTE.length];
     const targetArea =
       existingArea || { id: uuidv4(), name, color, hiddenFromSidebar: area.hiddenFromSidebar };
     const targetIds = new Set((rows || []).map((row) => row.item?.id).filter(Boolean));
@@ -1997,8 +1991,8 @@ const SummaryDashboard = ({
     onSessionSave({
       ...sessionData,
       measurementAreas: existingArea
-        ? sessionData.measurementAreas || []
-        : [...(sessionData.measurementAreas || []), targetArea],
+        ? areas
+        : [...areas, targetArea],
       uuts: updatedUuts,
       tmdes: updatedTmdes,
     });
