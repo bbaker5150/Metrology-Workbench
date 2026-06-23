@@ -519,22 +519,14 @@ const EditableDescriptionCell = ({
   onCommit,
   instruments = [],
   onPickLibrary,
-  currentAreaName = "",
-  onCommitAreaName,
 }) => {
   const [local, setLocal] = useState({ make, model, name });
-  const [localAreaName, setLocalAreaName] = useState(
-    currentAreaName || "Unassigned",
-  );
   const [editing, setEditing] = useState(false);
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
   useEffect(() => {
     setLocal({ make, model, name });
   }, [make, model, name]);
-  useEffect(() => {
-    setLocalAreaName(currentAreaName || "Unassigned");
-  }, [currentAreaName]);
 
   // Live library matches as the user types (make/model/name). Token-AND search
   // over the user's local + shared library (the `instruments` prop).
@@ -624,46 +616,6 @@ const EditableDescriptionCell = ({
         >
           {combinedDescription}
         </button>
-      )}
-
-      {onCommitAreaName && (
-        <input
-          className="inline-area-create-input"
-          value={localAreaName}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-          onFocus={() => {
-            if (localAreaName === "Unassigned") setLocalAreaName("");
-          }}
-          onChange={(e) => setLocalAreaName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-            if (e.key === "Escape") {
-              setLocalAreaName(currentAreaName || "Unassigned");
-              e.currentTarget.blur();
-            }
-          }}
-          onBlur={(e) => {
-            const next = e.target.value.trim();
-            const normalized = next || "Unassigned";
-            setLocalAreaName(normalized);
-            if (normalized !== (currentAreaName || "Unassigned")) {
-              onCommitAreaName(next);
-            }
-          }}
-          title="Measurement area"
-          aria-label="Measurement area"
-          style={{
-            marginTop: "3px",
-            width: "100%",
-            background: "transparent",
-            border: "1px solid transparent",
-            borderRadius: "4px",
-            color: "var(--text-color-muted)",
-            fontSize: "0.72rem",
-            padding: "1px 4px",
-          }}
-        />
       )}
 
       {open &&
@@ -1987,8 +1939,73 @@ const SummaryDashboard = ({
     });
   };
 
-  const renderAreaNameEditor = (area) => {
-    const canEdit = Boolean(onSessionSave && area?.id);
+  const handleAreaGroupNameChange = (area, rows, kind, rawName) => {
+    const name = String(rawName || "").trim();
+    if (!onSessionSave || !name || name.toLowerCase() === "unassigned") return;
+
+    const existingArea = (sessionData.measurementAreas || []).find(
+      (candidate) =>
+        String(candidate.name || "").toLowerCase() === name.toLowerCase(),
+    );
+    const isExistingRealArea = (sessionData.measurementAreas || []).some(
+      (candidate) => candidate.id === area.id,
+    );
+    if (isExistingRealArea) {
+      handleAreaNameChange(area, name);
+      return;
+    }
+
+    const color =
+      typeof area.color === "string" && area.color.startsWith("#")
+        ? area.color
+        : AREA_PALETTE[(sessionData.measurementAreas || []).length % AREA_PALETTE.length];
+    const targetArea =
+      existingArea || { id: uuidv4(), name, color, hiddenFromSidebar: area.hiddenFromSidebar };
+    const targetIds = new Set((rows || []).map((row) => row.item?.id).filter(Boolean));
+
+    const updatedUuts =
+      kind === "uut"
+        ? (sessionData.uuts || []).map((uut) =>
+            targetIds.has(uut.id)
+              ? {
+                  ...uut,
+                  measurementAreaId: targetArea.id,
+                  measurementArea: targetArea.name,
+                  measurementAreaColor: targetArea.color,
+                }
+              : uut,
+          )
+        : sessionData.uuts;
+    const updatedTmdes =
+      kind === "tmde"
+        ? (sessionData.tmdes || []).map((tmde) =>
+            targetIds.has(tmde.id)
+              ? {
+                  ...tmde,
+                  measurementAreaId: targetArea.id,
+                  measurementArea: targetArea.name,
+                  instrument: {
+                    ...(tmde.instrument || {}),
+                    measurementArea: targetArea.name,
+                    measurementAreaColor: targetArea.color,
+                  },
+                }
+              : tmde,
+          )
+        : sessionData.tmdes;
+
+    onSessionSave({
+      ...sessionData,
+      measurementAreas: existingArea
+        ? sessionData.measurementAreas || []
+        : [...(sessionData.measurementAreas || []), targetArea],
+      uuts: updatedUuts,
+      tmdes: updatedTmdes,
+    });
+  };
+
+  const renderAreaNameEditor = (area, rows = [], kind = "uut") => {
+    const canEdit = Boolean(onSessionSave);
     if (!canEdit) {
       return <span style={{ color: area.color }}>{area.name}</span>;
     }
@@ -2005,7 +2022,7 @@ const SummaryDashboard = ({
             e.currentTarget.blur();
           }
         }}
-        onBlur={(e) => handleAreaNameChange(area, e.target.value)}
+        onBlur={(e) => handleAreaGroupNameChange(area, rows, kind, e.target.value)}
         title="Edit measurement area name"
         aria-label="Measurement area subsection name"
         style={{
@@ -3354,7 +3371,7 @@ const SummaryDashboard = ({
                       >
                         <td colSpan={6}>
                           {renderAreaColorSwatch(row.area)}
-                          {renderAreaNameEditor(row.area)}
+                          {renderAreaNameEditor(row.area, row.items, "uut")}
                         </td>
                       </tr>
                     );
@@ -3436,16 +3453,6 @@ const SummaryDashboard = ({
                               instruments={instruments}
                               onPickLibrary={(inst) =>
                                 promptLibraryPick("uut", uut.id, inst)
-                              }
-                              currentAreaName={
-                                uut.measurementArea ||
-                                (sessionData.measurementAreas || []).find(
-                                  (a) => a.id === uut.measurementAreaId,
-                                )?.name ||
-                                ""
-                              }
-                              onCommitAreaName={(name) =>
-                                handleCommitUutAreaName(uut.id, name)
                               }
                               onCommit={(field, value) =>
                                 handleUutDescriptionEdit(uut.id, field, value)
@@ -3679,7 +3686,7 @@ const SummaryDashboard = ({
                       >
                         <td colSpan={6}>
                           {renderAreaColorSwatch(row.area)}
-                          {renderAreaNameEditor(row.area)}
+                          {renderAreaNameEditor(row.area, row.items, "tmde")}
                         </td>
                       </tr>
                     );
@@ -3737,14 +3744,6 @@ const SummaryDashboard = ({
                               instruments={instruments}
                               onPickLibrary={(inst) =>
                                 promptLibraryPick("tmde", tmde.id, inst)
-                              }
-                              currentAreaName={
-                                tmde.instrument?.measurementArea ||
-                                tmde.measurementArea ||
-                                ""
-                              }
-                              onCommitAreaName={(name) =>
-                                handleCommitTmdeAreaName(tmde.id, name)
                               }
                               onCommit={(field, value) =>
                                 handleTmdeDescriptionEdit(tmde.id, field, value)
@@ -6230,14 +6229,6 @@ function DetailedView({
                                 onPickLibrary={(inst) =>
                                   promptLibraryPick("uut", uut.id, inst)
                                 }
-                                currentAreaName={
-                                  uut.measurementArea ||
-                                  uut.instrument?.measurementArea ||
-                                  ""
-                                }
-                                onCommitAreaName={(name) =>
-                                  handleCommitUutAreaName(uut.id, name)
-                                }
                                 onCommit={(field, value) =>
                                   handleDetailUutDescEdit(uut.id, field, value)
                                 }
@@ -6988,14 +6979,6 @@ function DetailedView({
                                   instruments={instruments}
                                   onPickLibrary={(inst) =>
                                     promptLibraryPick("tmde", masterTmde.id, inst)
-                                  }
-                                  currentAreaName={
-                                    masterTmde.instrument?.measurementArea ||
-                                    masterTmde.measurementArea ||
-                                    ""
-                                  }
-                                  onCommitAreaName={(name) =>
-                                    handleCommitTmdeAreaName(masterTmde.id, name)
                                   }
                                   onCommit={(field, value) =>
                                     handleDetailTmdeDescEdit(
