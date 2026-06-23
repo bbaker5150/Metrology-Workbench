@@ -2034,6 +2034,7 @@ const SummaryDashboard = ({
           fontWeight: 700,
           padding: "1px 4px",
           minWidth: "120px",
+          pointerEvents: "auto",
         }}
       />
     );
@@ -2582,17 +2583,17 @@ const SummaryDashboard = ({
 
   // --- Inline "add blank row to area" ---
   // Creates an empty UUT/TMDE already scoped to the clicked area, so the user
-  // fills it in directly in the table. Fresh inline rows are pinned above the
-  // grouped area sections so the user immediately sees where the new row landed.
+  // fills it in directly in the table. Rows without an area flow into the
+  // synthetic "Unassigned" subsection, whose header can then be renamed.
   const handleAddUutToArea = (area) => {
     if (!onSessionSave) return;
     const newUut = {
       id: uuidv4(),
       name: "",
       description: "",
-      measurementAreaId: area.id,
-      measurementArea: area.name,
-      measurementAreaColor: area.color,
+      measurementAreaId: area.id || "",
+      measurementArea: area.name || "",
+      measurementAreaColor: area.color || "",
       instrument: {
         id: uuidv4(),
         manufacturer: "",
@@ -2601,10 +2602,6 @@ const SummaryDashboard = ({
         functions: [],
       },
     };
-    setPinnedInlineUutIds((prev) => [
-      newUut.id,
-      ...prev.filter((id) => id !== newUut.id),
-    ]);
     setSelectedUutIds([newUut.id]);
     onSessionSave({ ...sessionData, uuts: [newUut, ...(sessionData.uuts || [])] });
   };
@@ -2616,8 +2613,8 @@ const SummaryDashboard = ({
       quantity: 1,
       assetId: "",
       isInstrumentBased: false,
-      measurementAreaId: area.id,
-      measurementArea: area.name,
+      measurementAreaId: area.id || "",
+      measurementArea: area.name || "",
       instrument: {
         id: uuidv4(),
         manufacturer: "",
@@ -2625,14 +2622,10 @@ const SummaryDashboard = ({
         description: "",
         functions: [],
         // TMDE grouping keys off the nested instrument's area name.
-        measurementArea: area.name,
-        measurementAreaColor: area.color,
+        measurementArea: area.name || "",
+        measurementAreaColor: area.color || "",
       },
     };
-    setPinnedInlineTmdeIds((prev) => [
-      newTmde.id,
-      ...prev.filter((id) => id !== newTmde.id),
-    ]);
     setSelectedTmdeIds([newTmde.id]);
     onSessionSave({ ...sessionData, tmdes: [newTmde, ...(sessionData.tmdes || [])] });
   };

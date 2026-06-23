@@ -2356,6 +2356,20 @@ body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
   font-weight: 700;
 }
 
+.inline-area-header-input {
+  pointer-events: auto;
+  cursor: text;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.inline-area-header-input:hover,
+.inline-area-header-input:focus {
+  background: var(--input-background);
+  border-color: var(--border-color);
+  outline: none;
+}
+
 /* 2. Selected: JOIN the rows visually by removing the separator */
 .industry-table tr.selected-row.spec-row td {
   border-top: none; /* or 1px solid transparent if spacing is needed */
