@@ -4,6 +4,7 @@
 import React, {
   useState,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useCallback,
@@ -128,7 +129,11 @@ import {
   errorDistributions,
 } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
-import { computeSyncState, buildValidatedSnapshot } from "../../../utils/instrumentSync";
+import {
+  computeSyncState,
+  buildValidatedSnapshot,
+  diffFromSnapshot,
+} from "../../../utils/instrumentSync";
 import { v4 as uuidv4 } from "uuid";
 import useInstrumentSync from "../../../hooks/useInstrumentSync";
 
@@ -432,24 +437,9 @@ const applyBandDistribution = (tolerance = {}, value) => {
 // linkage (feature/inline-instrument-tables). Nested under .instrument when the
 // row carries a full instrument definition.
 const SyncBadge = ({ item, onSync }) => {
+  // Two states only: green (in sync with the shared library) or red (out of
+  // sync — a local-only / diverged instrument that can be synced).
   const state = computeSyncState(item?.instrument || item || {});
-  if (state === "none") {
-    return (
-      <button
-        type="button"
-        className="inline-sync-badge inline-sync-badge--none"
-        onClick={(event) => {
-          event.stopPropagation();
-          onSync?.();
-        }}
-        disabled={!onSync}
-        title={onSync ? "Sync to shared library" : "Not synced with shared library"}
-        aria-label="Sync to shared library"
-      >
-        -
-      </button>
-    );
-  }
   const green = state === "green";
   return (
     <button
@@ -464,13 +454,13 @@ const SyncBadge = ({ item, onSync }) => {
       disabled={!onSync}
       title={
         green
-          ? "Synced with shared library"
-          : "Diverged from shared library - click to re-sync"
+          ? "In sync with shared library"
+          : "Out of sync (local) - click to sync to the shared library"
       }
       aria-label={
         green
-          ? "Synced with shared library"
-          : "Diverged from shared library - re-sync"
+          ? "In sync with shared library"
+          : "Out of sync (local) - sync to the shared library"
       }
     >
       <FontAwesomeIcon icon={green ? faLink : faLinkSlash} />
@@ -579,7 +569,60 @@ const EditableDescriptionCell = ({
     className: "inline-desc-input",
   });
 
-  const anchor = anchorRef.current?.getBoundingClientRect();
+  // Keep the portaled dropdown glued to the cell while the table scrolls, and
+  // flip it above the row when there isn't room below (so the list never gets
+  // truncated off the bottom of the page with no way to reach the rest).
+  const [menuPos, setMenuPos] = useState(null);
+  const updateMenuPos = useCallback(() => {
+    const el = anchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const margin = 8;
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const flipUp = spaceBelow < 200 && spaceAbove > spaceBelow;
+    setMenuPos({
+      left: rect.left,
+      width: rect.width,
+      flipUp,
+      top: flipUp ? undefined : rect.bottom + 2,
+      bottom: flipUp ? window.innerHeight - rect.top + 2 : undefined,
+      maxHeight: Math.max(120, Math.min(280, flipUp ? spaceAbove : spaceBelow)),
+    });
+  }, []);
+  const showMenu = open && results.length > 0;
+  useLayoutEffect(() => {
+    if (!showMenu) {
+      setMenuPos(null);
+      return undefined;
+    }
+    updateMenuPos();
+    // Capture-phase scroll so the menu tracks any scrolling ancestor (the
+    // table container), not just the window.
+    window.addEventListener("scroll", updateMenuPos, true);
+    window.addEventListener("resize", updateMenuPos);
+    return () => {
+      window.removeEventListener("scroll", updateMenuPos, true);
+      window.removeEventListener("resize", updateMenuPos);
+    };
+  }, [showMenu, updateMenuPos]);
+
+  // Subtitle for a dropdown entry: "shared", or — for a local entry — what
+  // differs from its shared origin, shown in place of the measurement area.
+  const describeEntry = (inst) => {
+    if (inst.scope === "validated") return "shared";
+    if (!inst.sourceId && !inst.validatedSnapshot) return "local · new";
+    const diffs = diffFromSnapshot(inst);
+    if (!diffs.length) return "local";
+    const labelFor = {
+      manufacturer: "mfg",
+      model: "model",
+      description: "name",
+      functions: "functions",
+    };
+    return `local · ${diffs.map((d) => labelFor[d.field] || d.field).join(", ")} changed`;
+  };
+
   const combinedDescription =
     [local.make, local.name, local.model].filter(Boolean).join(" ") ||
     "Click to add description";
@@ -618,17 +661,20 @@ const EditableDescriptionCell = ({
         </button>
       )}
 
-      {open &&
-        results.length > 0 &&
-        anchor &&
+      {showMenu &&
+        menuPos &&
         ReactDOM.createPortal(
           <div
             className="inline-desc-search"
             style={{
               ...descSearchDropdownStyle,
               position: "fixed",
-              top: anchor.bottom + 2,
-              left: anchor.left,
+              left: menuPos.left,
+              minWidth: Math.max(260, menuPos.width || 0),
+              maxHeight: menuPos.maxHeight,
+              ...(menuPos.flipUp
+                ? { bottom: menuPos.bottom }
+                : { top: menuPos.top }),
             }}
           >
             {results.map((inst) => (
@@ -655,8 +701,7 @@ const EditableDescriptionCell = ({
                     color: "var(--text-color-muted)",
                   }}
                 >
-                  {inst.scope === "validated" ? "shared" : "local"}
-                  {inst.measurementArea ? ` · ${inst.measurementArea}` : ""}
+                  {describeEntry(inst)}
                 </span>
               </div>
             ))}
@@ -2100,6 +2145,7 @@ const SummaryDashboard = ({
     if (!setNotification || !item) return;
     const instrument = itemInstrumentForLibrary(kind, item);
     const state = computeSyncState(instrument);
+    const linked = Boolean(instrument.sourceId) || instrument.scope === "validated";
     const label = libraryLabel(instrument);
 
     if (state === "green") {
@@ -2111,11 +2157,11 @@ const SummaryDashboard = ({
     }
 
     setNotification({
-      title: state === "red" ? "Re-sync Instrument" : "Sync Instrument",
+      title: linked ? "Re-sync Instrument" : "Sync Instrument",
       message: `${syncDiffSummary(getDiff(instrument))} Enter the shared-library password to sync ${label}.`,
       inputLabel: "Shared library password",
       inputPlaceholder: "Password",
-      confirmText: state === "red" ? "Re-sync" : "Sync",
+      confirmText: linked ? "Re-sync" : "Sync",
       validateInput: (value) => (!value.trim() ? "Password is required." : ""),
       onConfirm: async (password) => {
         const result = await syncToShared(instrument, password);
@@ -2154,37 +2200,16 @@ const SummaryDashboard = ({
     });
   };
 
+  // New inline instruments are always saved to the local library automatically
+  // (they stay local / out-of-sync until the user explicitly syncs them to the
+  // shared library). The old "Save Local vs Session Only" prompt was removed.
   const promptLocalLibrarySave = (kind, item) => {
     if (!onSaveInstrument || !item?.instrument) return;
     const key = `${kind}:${item.id}`;
-    if (localLibraryChoices[key]) {
-      if (localLibraryChoices[key] === "local") {
-        saveItemInstrumentToLocalLibrary(kind, item);
-      }
-      return;
-    }
-    const saveLocal = () => {
-      setLocalLibraryChoices((prev) => ({ ...prev, [key]: "local" }));
-      saveItemInstrumentToLocalLibrary(kind, item);
-      setNotification?.(null);
-    };
-    const sessionOnly = () => {
-      setLocalLibraryChoices((prev) => ({ ...prev, [key]: "session" }));
-      setNotification?.(null);
-    };
-    if (!setNotification) {
-      saveLocal();
-      return;
-    }
-    setNotification({
-      title: "Save Instrument",
-      message:
-        "Save this new inline instrument to your local library so it appears in future searches?",
-      confirmText: "Save Local",
-      secondaryText: "Session Only",
-      onConfirm: saveLocal,
-      onSecondary: sessionOnly,
-    });
+    setLocalLibraryChoices((prev) =>
+      prev[key] === "local" ? prev : { ...prev, [key]: "local" },
+    );
+    saveItemInstrumentToLocalLibrary(kind, item);
   };
 
   const refreshSessionPointsForUut = (previousItem, updatedItem) => {
@@ -2304,16 +2329,6 @@ const SummaryDashboard = ({
     return { areas: [...(areas || []), area], area };
   };
 
-  const findLinkedLocalInstrument = (inst) => {
-    const sourceId = inst?.sourceId || (inst?.scope === "validated" ? inst.id : null);
-    if (!sourceId) return null;
-    return (instruments || []).find(
-      (candidate) =>
-        candidate.scope === "local" &&
-        String(candidate.sourceId) === String(sourceId),
-    );
-  };
-
   const instrumentDefFromLibrary = (existing, inst, { track = false, localCopy = false } = {}) => ({
     ...(existing || {}),
     id: existing?.id || uuidv4(),
@@ -2399,17 +2414,16 @@ const SummaryDashboard = ({
   };
 
   const promptLibraryPick = (kind, itemId, inst) => {
-    // Clicking a library match loads it immediately as a local copy — no
-    // confirmation dialog (it was easy to miss, leaving only the typed text).
-    // Tracking against the shared library stays available via the Sync badge.
-    const linkedLocal = findLinkedLocalInstrument(inst);
-    const pickedInstrument = linkedLocal || inst;
-    const options =
-      inst.scope === "validated" && !linkedLocal
-        ? { track: true, localCopy: true, saveLocal: true }
-        : { track: Boolean(pickedInstrument.sourceId || pickedInstrument.scope === "validated") };
-    if (kind === "uut") applyPickedLibraryUut(itemId, pickedInstrument, options);
-    else applyPickedLibraryTmde(itemId, pickedInstrument, options);
+    // Load exactly the entry the user picked — never silently substitute a
+    // diverged local copy for the shared one (or vice-versa). Picking the
+    // shared (validated) entry gives the in-sync version; picking a local entry
+    // gives that local version. Tracking stays available via the Sync badge.
+    const isShared = inst.scope === "validated";
+    const options = isShared
+      ? { track: true, localCopy: false }
+      : { track: Boolean(inst.sourceId) };
+    if (kind === "uut") applyPickedLibraryUut(itemId, inst, options);
+    else applyPickedLibraryTmde(itemId, inst, options);
   };
 
   // --- Reassign an instrument to a different measurement area ---
@@ -2418,7 +2432,26 @@ const SummaryDashboard = ({
   // pinned to the top of the table; once it has an area it must flow into that
   // area's subsection, so we drop the pin here too — otherwise the row stays
   // stranded above the groups and never appears to "move" into the area.
-  const handleChangeUutArea = (uutId, areaId) => {
+  // Moving a shared (in-sync) instrument to a different area detaches it from
+  // the shared definition: keep the link (sourceId/snapshot) so it can be
+  // re-synced, but force it out of sync. Already-local instruments are left as
+  // they are. Only invoked when `markLocal` is requested (drag-and-drop).
+  const markInstrumentLocalIfShared = (instrument) => {
+    if (!instrument) return instrument;
+    if (computeSyncState(instrument) !== "green") return instrument;
+    return {
+      ...instrument,
+      scope: "local",
+      sourceId:
+        instrument.sourceId ||
+        (instrument.scope === "validated" ? instrument.id : undefined),
+      validatedSnapshot:
+        instrument.validatedSnapshot || buildValidatedSnapshot(instrument),
+      localOverride: true,
+    };
+  };
+
+  const handleChangeUutArea = (uutId, areaId, { markLocal = false } = {}) => {
     if (!onSessionSave) return;
     const area = (sessionData.measurementAreas || []).find(
       (a) => String(a.id) === String(areaId),
@@ -2430,33 +2463,84 @@ const SummaryDashboard = ({
             measurementAreaId: area ? area.id : "",
             measurementArea: area ? area.name : "",
             measurementAreaColor: area ? area.color : "",
+            instrument: markLocal
+              ? markInstrumentLocalIfShared(u.instrument)
+              : u.instrument,
           }
         : u,
     );
     setPinnedInlineUutIds((prev) => prev.filter((id) => id !== uutId));
     onSessionSave({ ...sessionData, uuts: updatedUuts });
   };
-  const handleChangeTmdeArea = (tmdeId, areaId) => {
+  const handleChangeTmdeArea = (tmdeId, areaId, { markLocal = false } = {}) => {
     if (!onSessionSave) return;
     const area = (sessionData.measurementAreas || []).find(
       (a) => String(a.id) === String(areaId),
     );
-    const updatedTmdes = (sessionData.tmdes || []).map((t) =>
-      t.id === tmdeId
-        ? {
-            ...t,
-            measurementAreaId: area ? area.id : "",
-            measurementArea: area ? area.name : "",
-            instrument: {
-              ...(t.instrument || {}),
-              measurementArea: area ? area.name : "",
-              measurementAreaColor: area ? area.color : "",
-            },
-          }
-        : t,
-    );
+    const updatedTmdes = (sessionData.tmdes || []).map((t) => {
+      if (t.id !== tmdeId) return t;
+      const withArea = {
+        ...(t.instrument || {}),
+        measurementArea: area ? area.name : "",
+        measurementAreaColor: area ? area.color : "",
+      };
+      return {
+        ...t,
+        measurementAreaId: area ? area.id : "",
+        measurementArea: area ? area.name : "",
+        instrument: markLocal ? markInstrumentLocalIfShared(withArea) : withArea,
+      };
+    });
     setPinnedInlineTmdeIds((prev) => prev.filter((id) => id !== tmdeId));
     onSessionSave({ ...sessionData, tmdes: updatedTmdes });
+  };
+
+  // --- Drag a UUT/TMDE row from one measurement-area subsection to another ---
+  // Dragging carries { id, kind } via the dataTransfer; dropping onto an area
+  // header (or any row in that area) reassigns the instrument's area. Dragging a
+  // shared instrument also flips it out of sync (markLocal).
+  const [draggingInstrumentId, setDraggingInstrumentId] = useState(null);
+  const handleInstrumentDragStart = (kind, item) => (e) => {
+    // Don't hijack text selection / clicks inside the row's editable controls.
+    if (
+      e.target.closest(
+        "input, select, textarea, button, a, .inline-desc-fields",
+      )
+    ) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", JSON.stringify({ id: item.id, kind }));
+    setDraggingInstrumentId(item.id);
+  };
+  const handleInstrumentDragEnd = () => setDraggingInstrumentId(null);
+  const allowInstrumentDrop = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+  const resolveItemAreaId = (kind, item) => {
+    if (!item) return "";
+    if (kind === "uut") return item.measurementAreaId || "";
+    if (item.measurementAreaId) return item.measurementAreaId;
+    const name = item.instrument?.measurementArea || item.measurementArea || "";
+    const area = (sessionData.measurementAreas || []).find(
+      (a) => name && a.name === name,
+    );
+    return area ? area.id : "";
+  };
+  const handleInstrumentDropOnArea = (kind, targetAreaId) => (e) => {
+    e.preventDefault();
+    let payload = null;
+    try {
+      payload = JSON.parse(e.dataTransfer.getData("text/plain"));
+    } catch {
+      payload = null;
+    }
+    setDraggingInstrumentId(null);
+    if (!payload || payload.kind !== kind) return;
+    if (kind === "uut") handleChangeUutArea(payload.id, targetAreaId, { markLocal: true });
+    else handleChangeTmdeArea(payload.id, targetAreaId, { markLocal: true });
   };
 
   // Create a new measurement area inline from the area control and assign it,
@@ -3355,6 +3439,8 @@ const SummaryDashboard = ({
                       <tr
                         key={`uut-area-${row.area.id || row.area.name}`}
                         className="instrument-area-section-row"
+                        onDragOver={allowInstrumentDrop}
+                        onDrop={handleInstrumentDropOnArea("uut", row.area.id || "")}
                       >
                         <td colSpan={6}>
                           {renderAreaColorSwatch(row.area)}
@@ -3418,8 +3504,14 @@ const SummaryDashboard = ({
                         className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleUutClick(e, uut.id)}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
+                        draggable={!!onSessionSave && showAreaColumn}
+                        onDragStart={handleInstrumentDragStart("uut", uut)}
+                        onDragEnd={handleInstrumentDragEnd}
+                        onDragOver={allowInstrumentDrop}
+                        onDrop={handleInstrumentDropOnArea("uut", resolveItemAreaId("uut", uut))}
                         style={{
                           cursor: "pointer",
+                          opacity: draggingInstrumentId === uut.id ? 0.4 : undefined,
                           borderBottom:
                             specRows.length > 1 ? "none" : undefined,
                         }}
@@ -3670,6 +3762,8 @@ const SummaryDashboard = ({
                       <tr
                         key={`tmde-area-${row.area.id || row.area.name}`}
                         className="instrument-area-section-row"
+                        onDragOver={allowInstrumentDrop}
+                        onDrop={handleInstrumentDropOnArea("tmde", row.area.id || "")}
                       >
                         <td colSpan={6}>
                           {renderAreaColorSwatch(row.area)}
@@ -3709,8 +3803,14 @@ const SummaryDashboard = ({
                         className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleTmdeClick(e, tmde.id)}
                         onMouseEnter={() => setHoveredRowId(tmde.id)}
+                        draggable={!!onSessionSave && showAreaColumn}
+                        onDragStart={handleInstrumentDragStart("tmde", tmde)}
+                        onDragEnd={handleInstrumentDragEnd}
+                        onDragOver={allowInstrumentDrop}
+                        onDrop={handleInstrumentDropOnArea("tmde", resolveItemAreaId("tmde", tmde))}
                         style={{
                           cursor: "pointer",
+                          opacity: draggingInstrumentId === tmde.id ? 0.4 : undefined,
                           borderBottom:
                             specRows.length > 1 ? "none" : undefined,
                         }}
@@ -4030,6 +4130,7 @@ function DetailedView({
     if (!setNotification || !item) return;
     const instrument = itemInstrumentForLibrary(kind, item);
     const state = computeSyncState(instrument);
+    const linked = Boolean(instrument.sourceId) || instrument.scope === "validated";
     const label = libraryLabel(instrument);
 
     if (state === "green") {
@@ -4041,11 +4142,11 @@ function DetailedView({
     }
 
     setNotification({
-      title: state === "red" ? "Re-sync Instrument" : "Sync Instrument",
+      title: linked ? "Re-sync Instrument" : "Sync Instrument",
       message: `${syncDiffSummary(getDiff(instrument))} Enter the shared-library password to sync ${label}.`,
       inputLabel: "Shared library password",
       inputPlaceholder: "Password",
-      confirmText: state === "red" ? "Re-sync" : "Sync",
+      confirmText: linked ? "Re-sync" : "Sync",
       validateInput: (value) => (!value.trim() ? "Password is required." : ""),
       onConfirm: async (password) => {
         const result = await syncToShared(instrument, password);
@@ -4389,17 +4490,16 @@ function DetailedView({
     if (updatedItem) refreshPointTmdeInstance(updatedItem, { reselectRange: true });
   };
   const promptLibraryPick = (kind, itemId, inst) => {
-    // Clicking a library match loads it immediately as a local copy — no
-    // confirmation dialog (it was easy to miss, leaving only the typed text).
-    // Tracking against the shared library stays available via the Sync badge.
-    const linkedLocal = findLinkedLocalInstrument(inst);
-    const pickedInstrument = linkedLocal || inst;
-    const options =
-      inst.scope === "validated" && !linkedLocal
-        ? { track: true, localCopy: true, saveLocal: true }
-        : { track: Boolean(pickedInstrument.sourceId || pickedInstrument.scope === "validated") };
-    if (kind === "uut") applyPickedLibraryUut(itemId, pickedInstrument, options);
-    else applyPickedLibraryTmde(itemId, pickedInstrument, options);
+    // Load exactly the entry the user picked — never silently substitute a
+    // diverged local copy for the shared one (or vice-versa). Picking the
+    // shared (validated) entry gives the in-sync version; picking a local entry
+    // gives that local version. Tracking stays available via the Sync badge.
+    const isShared = inst.scope === "validated";
+    const options = isShared
+      ? { track: true, localCopy: false }
+      : { track: Boolean(inst.sourceId) };
+    if (kind === "uut") applyPickedLibraryUut(itemId, inst, options);
+    else applyPickedLibraryTmde(itemId, inst, options);
   };
   const handleChangeUutArea = (uutId, areaId) => {
     if (!onSessionSave) return;
