@@ -2319,10 +2319,15 @@ const SummaryDashboard = ({
 
   // --- Reassign an instrument to a different measurement area ---
   // UUT area lives on the session row; TMDE grouping keys off the nested
-  // instrument's area name, so update both there.
+  // instrument's area name, so update both there. A freshly added inline row is
+  // pinned to the top of the table; once it has an area it must flow into that
+  // area's subsection, so we drop the pin here too — otherwise the row stays
+  // stranded above the groups and never appears to "move" into the area.
   const handleChangeUutArea = (uutId, areaId) => {
     if (!onSessionSave) return;
-    const area = (sessionData.measurementAreas || []).find((a) => a.id === areaId);
+    const area = (sessionData.measurementAreas || []).find(
+      (a) => String(a.id) === String(areaId),
+    );
     const updatedUuts = (sessionData.uuts || []).map((u) =>
       u.id === uutId
         ? {
@@ -2333,11 +2338,14 @@ const SummaryDashboard = ({
           }
         : u,
     );
+    setPinnedInlineUutIds((prev) => prev.filter((id) => id !== uutId));
     onSessionSave({ ...sessionData, uuts: updatedUuts });
   };
   const handleChangeTmdeArea = (tmdeId, areaId) => {
     if (!onSessionSave) return;
-    const area = (sessionData.measurementAreas || []).find((a) => a.id === areaId);
+    const area = (sessionData.measurementAreas || []).find(
+      (a) => String(a.id) === String(areaId),
+    );
     const updatedTmdes = (sessionData.tmdes || []).map((t) =>
       t.id === tmdeId
         ? {
@@ -2352,6 +2360,7 @@ const SummaryDashboard = ({
           }
         : t,
     );
+    setPinnedInlineTmdeIds((prev) => prev.filter((id) => id !== tmdeId));
     onSessionSave({ ...sessionData, tmdes: updatedTmdes });
   };
 
@@ -2376,6 +2385,7 @@ const SummaryDashboard = ({
           }
         : u,
     );
+    setPinnedInlineUutIds((prev) => prev.filter((id) => id !== uutId));
     onSessionSave({ ...sessionData, measurementAreas: areas, uuts: updatedUuts });
   };
   const handleCreateTmdeArea = (tmdeId, name) => {
@@ -2401,6 +2411,7 @@ const SummaryDashboard = ({
           }
         : t,
     );
+    setPinnedInlineTmdeIds((prev) => prev.filter((id) => id !== tmdeId));
     onSessionSave({ ...sessionData, measurementAreas: areas, tmdes: updatedTmdes });
   };
 
