@@ -4016,6 +4016,9 @@ function DetailedView({
       } else {
         promptLocalLibrarySave("tmde", updatedItem);
       }
+      // Keep this point's TMDE instance in sync with the edited master (parity
+      // with persistInlineItemDetail), so an assigned TMDE's row/risk update.
+      refreshPointTmdeInstance(updatedItem);
     }
   };
 
@@ -4114,6 +4117,12 @@ function DetailedView({
     onSessionSave({ ...sessionData, measurementAreas: areas, tmdes: updatedTmdes });
     if (updatedItem && !options.track)
       saveItemInstrumentToLocalLibrary("tmde", updatedItem);
+    // Picking from the library is an inline edit too: rebuild this point's TMDE
+    // instance from the new master so the detail table (which renders the
+    // per-point instance for an assigned TMDE) and the risk calc reflect the
+    // loaded instrument. Without this the master updates (the Session Overview
+    // shows it) but the measurement-point row stays empty.
+    if (updatedItem) refreshPointTmdeInstance(updatedItem);
   };
   const promptLibraryPick = (kind, itemId, inst) => {
     const applyLoad = () => {
