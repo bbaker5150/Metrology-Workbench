@@ -156,6 +156,11 @@ const AREA_PALETTE = [
 //   { kind: "uut"|"tmde", mode: "copy"|"cut", item }
 let instrumentClipboard = null;
 
+// Cross-view clipboard for copy/cut/paste of a single RANGE row (distinct from
+// the instrument clipboard above). Lets the user build one range and duplicate
+// it across an instrument's many ranges.  { kind: "uut"|"tmde", range }
+let rangeClipboard = null;
+
 // Build a pasted instrument row. "copy" gets fresh ids (a true duplicate);
 // "cut" preserves the original id (a move) and is applied to the source row.
 const buildPastedInstrumentRow = (src, kind, area, mode) => {
@@ -310,6 +315,20 @@ const getItemRangeTolerance = (item, rangeId) => {
   if (r3) return r3.tolerances || r3.tolerance || {};
   return item?.tolerance || inst.tolerance || {};
 };
+// The raw stored range object (clean min/max/unit/resolution + nested
+// tolerances), used by the range clipboard so a paste duplicates the real range
+// rather than the resolved/flattened render copy.
+const findItemRange = (item, rangeId) => {
+  const inst = item?.instrument || {};
+  const find = (ranges) => (ranges || []).find((r) => sameId(r.id, rangeId));
+  if (Array.isArray(inst.functions)) {
+    for (const fn of inst.functions) {
+      const r = find(fn.ranges);
+      if (r) return r;
+    }
+  }
+  return find(inst.ranges) || find(item?.ranges) || null;
+};
 // Merge a shallow patch into the matched range (e.g. {tolerances}, {resolution}).
 export const applyItemRangePatch = (item, rangeId, rangePatch) => {
   const inst = item?.instrument || {};
@@ -386,11 +405,35 @@ export const applyItemRangePatch = (item, rangeId, rangePatch) => {
 const applyItemRangeTolerance = (item, rangeId, tolerance) =>
   applyItemRangePatch(item, rangeId, { tolerances: tolerance });
 
+// Copy a tolerance's TERM STRUCTURE but blank the numbers, so a freshly-added
+// range inherits the same tolerance components (e.g. %IV + %FS + Floor) as the
+// range it was added from — the user just fills in values. Keeps each term's
+// unit/distribution/symmetric shape; drops sub-tolerance arrays (would carry
+// values) and preserves scalar config like bandDistribution.
+const blankToleranceFrom = (sourceTol = {}) => {
+  if (!sourceTol || typeof sourceTol !== "object") return {};
+  const out = {};
+  Object.entries(sourceTol).forEach(([key, comp]) => {
+    if (Array.isArray(comp)) return;
+    if (comp && typeof comp === "object") {
+      const next = { ...comp };
+      if ("high" in next) next.high = "";
+      if ("low" in next) next.low = "";
+      if ("value" in next) next.value = "";
+      out[key] = next;
+    } else {
+      out[key] = comp;
+    }
+  });
+  return out;
+};
+
 // Add a blank range alongside the active range (same function), or remove one.
 // Returns { item, newRangeId? }. At least one range is always kept.
 const addRangeToItem = (item, activeRangeId) => {
   const inst = item?.instrument || {};
-  const newRange = { id: uuidv4(), min: "", max: "", unit: "", resolution: "", tolerances: {} };
+  const seededTolerances = blankToleranceFrom(getItemRangeTolerance(item, activeRangeId));
+  const newRange = { id: uuidv4(), min: "", max: "", unit: "", resolution: "", tolerances: seededTolerances };
   if (Array.isArray(inst.functions) && inst.functions.length) {
     let fnIdx = inst.functions.findIndex((fn) =>
       (fn.ranges || []).some((r) => sameId(r.id, activeRangeId)),
@@ -417,6 +460,41 @@ const addRangeToItem = (item, activeRangeId) => {
   ];
   return {
     item: { ...item, instrument: { ...inst, functions: [{ id: uuidv4(), name: "", ranges: seeded }] } },
+    newRangeId: newRange.id,
+  };
+};
+
+// Deep-clone a range for the range clipboard / paste, with a fresh id so the
+// pasted copy is an independent duplicate.
+const cloneRangeForPaste = (range = {}) => {
+  const clone = JSON.parse(JSON.stringify(range || {}));
+  clone.id = uuidv4();
+  return clone;
+};
+
+// Append a pasted (cloned) range next to the active range, mirroring
+// addRangeToItem's function/array placement. Returns { item, newRangeId }.
+const pasteRangeIntoItem = (item, activeRangeId, clipRange) => {
+  const inst = item?.instrument || {};
+  const newRange = cloneRangeForPaste(clipRange);
+  if (Array.isArray(inst.functions) && inst.functions.length) {
+    let fnIdx = inst.functions.findIndex((fn) =>
+      (fn.ranges || []).some((r) => sameId(r.id, activeRangeId)),
+    );
+    if (fnIdx < 0) fnIdx = 0;
+    const functions = inst.functions.map((fn, i) =>
+      i === fnIdx ? { ...fn, ranges: [...(fn.ranges || []), newRange] } : fn,
+    );
+    return { item: { ...item, instrument: { ...inst, functions } }, newRangeId: newRange.id };
+  }
+  if (Array.isArray(inst.ranges)) {
+    return {
+      item: { ...item, instrument: { ...inst, ranges: [...inst.ranges, newRange] } },
+      newRangeId: newRange.id,
+    };
+  }
+  return {
+    item: { ...item, instrument: { ...inst, functions: [{ id: uuidv4(), name: "", ranges: [newRange] }] } },
     newRangeId: newRange.id,
   };
 };
@@ -1296,13 +1374,60 @@ const RangeCell = ({
   );
 };
 
+// A range that isn't fully entered yet — a freshly-added one with a blank
+// bound. These float to the TOP of the expanded list so the new row sits right
+// under the header controls while the user fills it in.
+const rangeIsIncomplete = (range = {}) => {
+  if (range?.isSingleValue) {
+    return !Number.isFinite(parseFloat(range.value ?? range.min));
+  }
+  return (
+    !Number.isFinite(parseFloat(range?.min)) ||
+    !Number.isFinite(parseFloat(range?.max))
+  );
+};
+
+const rangeLowerBound = (range = {}) => {
+  const raw = range?.isSingleValue ? (range.value ?? range.min) : range?.min;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : 0;
+};
+
 const getVisibleRangeRows = (ranges = [], activeIndex = 0, activeRange = {}, showAll = false) => {
   if (showAll && ranges.length > 0) {
-    return ranges.map((range, index) => ({
-      range,
-      index,
-      key: range?.id || `${index}`,
-    }));
+    // Order for the expanded "view all ranges" list:
+    //   1. Incomplete (newly-added) ranges first, so the empty row the user is
+    //      filling in sits at the top under the header controls.
+    //   2. Then existing ranges, grouped by unit in first-seen order (so V and Ω
+    //      ranges don't interleave) and sorted lowest-to-highest within a unit.
+    // Once a new range's bounds are committed it stops being "incomplete" and
+    // sorts into its proper ascending slot within its unit group.
+    // Each row keeps its ORIGINAL array index — activation / active-range
+    // tracking is index-based; only the display order changes.
+    const unitOrder = new Map();
+    ranges.forEach((r) => {
+      const u = r?.unit || "";
+      if (!unitOrder.has(u)) unitOrder.set(u, unitOrder.size);
+    });
+    return ranges
+      .map((range, index) => ({
+        range,
+        index,
+        key: range?.id || `${index}`,
+      }))
+      .sort((a, b) => {
+        const ai = rangeIsIncomplete(a.range);
+        const bi = rangeIsIncomplete(b.range);
+        if (ai !== bi) return ai ? -1 : 1;
+        if (ai && bi) return a.index - b.index;
+        const ua = unitOrder.get(a.range?.unit || "") ?? 0;
+        const ub = unitOrder.get(b.range?.unit || "") ?? 0;
+        if (ua !== ub) return ua - ub;
+        const la = rangeLowerBound(a.range);
+        const lb = rangeLowerBound(b.range);
+        if (la !== lb) return la - lb;
+        return a.index - b.index;
+      });
   }
   return [
     {
@@ -1513,10 +1638,24 @@ const resolveUutRangeHelper = (
   // Priority B: Saved Tolerance (Robust Match)
   if (activeIndex === -1 && savedTolerance) {
     activeIndex = allRanges.findIndex((r) => {
-      // ID Match (Best)
+      // Stable range/function ids are preferred because function names and row
+      // order can change as multifunction instruments evolve.
+      if (
+        r.rangeId &&
+        savedTolerance.rangeId &&
+        String(r.rangeId) === String(savedTolerance.rangeId)
+      ) {
+        return (
+          !savedTolerance.functionId ||
+          !r.functionId ||
+          String(savedTolerance.functionId) === String(r.functionId)
+        );
+      }
+
+      // Legacy ID Match
       if (r.id && savedTolerance.id && r.id === savedTolerance.id) return true;
 
-      // Name Match
+      // Legacy Name Match
       if (savedTolerance.range && r.range && savedTolerance.range === r.range) {
         return savedTolerance.functionName
           ? savedTolerance.functionName === r.functionName
@@ -1527,11 +1666,19 @@ const resolveUutRangeHelper = (
       const minMatch = r.min == savedTolerance.min;
       const maxMatch = r.max == savedTolerance.max;
       const unitMatch = (r.unit || "") === (savedTolerance.unit || "");
+      const functionIdMatch =
+        savedTolerance.functionId && r.functionId
+          ? String(savedTolerance.functionId) === String(r.functionId)
+          : true;
       const funcMatch = r.functionName === savedTolerance.functionName; // strict function name
 
       // Looser function match if one is missing? No, stay strict.
       return (
-        minMatch && maxMatch && unitMatch && (!r.functionName || funcMatch)
+        minMatch &&
+        maxMatch &&
+        unitMatch &&
+        functionIdMatch &&
+        (!r.functionName || funcMatch)
       );
     });
   }
@@ -1589,6 +1736,15 @@ const findUpdatedUutToleranceForPoint = (previousUut, updatedUut, point) => {
   const previousRange = previousResolution.activeRange || point.uutTolerance;
   const updatedRanges = resolveUutRangeHelper(updatedUut, {}, null, null).ranges;
   const updatedRange =
+    updatedRanges.find(
+      (range) =>
+        previousRange.rangeId &&
+        range.rangeId &&
+        String(range.rangeId) === String(previousRange.rangeId) &&
+        (!previousRange.functionId ||
+          !range.functionId ||
+          String(range.functionId) === String(previousRange.functionId)),
+    ) ||
     updatedRanges.find(
       (range) => previousRange.id && range.id && String(range.id) === String(previousRange.id),
     ) ||
@@ -2452,7 +2608,9 @@ const SummaryDashboard = ({
           existingId: instance.id,
           quantity: instance.quantity ?? 1,
           assetId: instance.assetId || "",
+          userFunctionId: instance.functionId || "",
           userFunctionName: instance.functionName || "",
+          userRangeId: instance.rangeId || "",
           userRangeIndex: instance._index ?? 0,
           userMeasurement: instance.measurementPoint,
           userVariable: instance.variableType || "",
@@ -2983,7 +3141,15 @@ const SummaryDashboard = ({
     const { item: updated, newRangeId } = addRangeToItem(item, activeRangeId);
     persistItem(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
-    setIdx((prev) => ({ ...prev, [item.id]: currentCount })); // appended → last index
+    // The new range is appended within ONE function, so its flattened index
+    // isn't necessarily the last slot (a multi-function instrument keeps later
+    // functions' ranges after it). Resolve its real index by id so it becomes
+    // the active range; fall back to the appended-last assumption.
+    const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
+    const newIdx = newRangeId
+      ? resolved.findIndex((r) => sameId(r.id, newRangeId))
+      : -1;
+    setIdx((prev) => ({ ...prev, [item.id]: newIdx >= 0 ? newIdx : currentCount }));
     if (newRangeId) {
       setNewRangeKeys((prev) => {
         const next = new Set(prev);
@@ -3345,6 +3511,141 @@ const SummaryDashboard = ({
   });
   const [hoveredRowId, setHoveredRowId] = useState(null);
 
+  // Activate a single range row in the expanded "view all ranges" view. Unlike a
+  // normal instrument-row click (which toggles selection), this ALWAYS selects
+  // the instrument and marks the clicked range as active, so the Range/Tolerance
+  // column-header +/- buttons reliably target that specific range (e.g. adding a
+  // tolerance term to a freshly-added range). Wired as onMouseDownCapture so it
+  // fires before inner controls' own mousedown — clicking a tolerance component
+  // on another range makes THAT range active too.
+  const activateRangeRow = (kind, itemId, index) => {
+    if (kind === "uut") setSelectedUutIds([itemId]);
+    else setSelectedTmdeIds([itemId]);
+    const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
+    setIdx((prev) => ({ ...prev, [itemId]: index }));
+  };
+
+  // Per-range <td> cells for the expanded "view all ranges" rows. In expanded
+  // mode each range is its OWN real table row (see the showAllRanges branches
+  // below), so these cells line up column-for-column instead of drifting like
+  // the old per-cell `.range-stack` columns did. Only ever used in onSessionSave
+  // mode (the eye toggle is hidden otherwise), so we render the editable path
+  // directly. `kind` is "uut" | "tmde".
+  const renderRangeRowCells = (kind, item, range, { includeDistribution, canDelete }) => {
+    const setRangeIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
+    const tableId = kind;
+    const tolerance = getItemRangeTolerance(item, range?.id) || range;
+    const typeKey = getSelectedToleranceType(kind, item, range);
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    const deleteRange = () => {
+      if (!canDelete) return;
+      confirmViaNotification(setNotification, {
+        title: "Delete Range",
+        message: `Delete this range from this ${label}? This can't be undone.`,
+        confirmText: "Delete",
+        onConfirm: () => handleRemoveRange(kind, item, range?.id),
+      });
+    };
+
+    return (
+      <>
+        <td
+          className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
+          onMouseEnter={() => setHoveredCell({ tableId, colIndex: 1 })}
+        >
+          <div className="range-row-cell">
+            <RangeCell
+              ranges={[range]}
+              activeIndex={0}
+              activeRange={range}
+              editable
+              allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
+              onSelect={(idx) => setRangeIdx((prev) => ({ ...prev, [item.id]: idx }))}
+              onEditBound={(field, value) => handleEditRangeBound(kind, item, range?.id, field, value)}
+              onEditUnit={(value) => setRangeUnit(kind, item, range?.id, value)}
+              onPatchRange={(patch) => patchRange(kind, item, range?.id, patch)}
+            />
+            <button
+              type="button"
+              className="range-row-delete"
+              title={canDelete ? "Delete this range" : "An instrument must keep at least one range"}
+              aria-label="Delete this range"
+              disabled={!canDelete}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteRange();
+              }}
+            >
+              <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+            </button>
+          </div>
+        </td>
+
+        <td
+          className={`cell-tolerance ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
+          onMouseEnter={() => setHoveredCell({ tableId, colIndex: 2 })}
+          title={getSpecRows(tolerance)[0]}
+        >
+          <InlineToleranceCell
+            tolerance={tolerance}
+            activeRange={range}
+            typeKey={typeKey}
+            selectedType={
+              selectedToleranceKey === toleranceTypeKey(kind, item, range?.id)
+                ? typeKey
+                : null
+            }
+            editable
+            onSelectType={(nextTypeKey) =>
+              setSelectedToleranceType(kind, item, range, nextTypeKey)
+            }
+            onCommit={(nextTypeKey, component) =>
+              setRangeToleranceComponent(kind, item, range, nextTypeKey, component)
+            }
+          />
+        </td>
+
+        {includeDistribution && (
+          <td className="cell-distribution" title="Spec band distribution">
+            {getBandDistDivisor(tolerance) ? (
+              <select
+                className="session-selector"
+                value={getBandDistDivisor(tolerance)}
+                onChange={(e) =>
+                  setRangeBandDistribution(kind, item, range?.id, e.target.value)
+                }
+              >
+                {errorDistributions.map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              getBandDistLabel(tolerance)
+            )}
+          </td>
+        )}
+
+        <td
+          className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
+          onMouseEnter={() => setHoveredCell({ tableId, colIndex: 3 })}
+          title={formatResolutionLabel(range)}
+        >
+          <ResolutionCellInput
+            value={range?.resolution ?? range?.measuringResolution}
+            unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
+            fallbackUnit={range?.unit}
+            onCommit={(v) => setRangeResolution(kind, item, range?.id, v)}
+            onCommitUnit={(value) => setRangeResolutionUnit(kind, item, range?.id, value)}
+            useResolution={range?.includeResolutionInBudget}
+            onToggleUse={(checked) => setRangeUseResolution(kind, item, range?.id, checked)}
+          />
+        </td>
+      </>
+    );
+  };
+
   // Filter Data based on Hierarchy
   const {
     filteredUuts,
@@ -3412,16 +3713,29 @@ const SummaryDashboard = ({
           return false;
         const ptTol = tp.uutTolerance;
         if (!ptTol) return false;
+        if (rangeData.rangeId && ptTol.rangeId) {
+          const rangeIdMatch =
+            String(rangeData.rangeId) === String(ptTol.rangeId);
+          const functionIdMatch =
+            !rangeData.functionId ||
+            !ptTol.functionId ||
+            String(rangeData.functionId) === String(ptTol.functionId);
+          if (rangeIdMatch && functionIdMatch) return true;
+        }
         if (rangeData._id !== undefined && ptTol._id !== undefined) {
           if (rangeData._id === ptTol._id) return true;
         }
         const minMatch = ptTol.min == rangeData.min;
         const maxMatch = ptTol.max == rangeData.max;
         const unitMatch = (ptTol.unit || "") === (rangeData.unit || "");
+        const functionIdMatch =
+          rangeData.functionId && ptTol.functionId
+            ? String(ptTol.functionId) === String(rangeData.functionId)
+            : true;
         const funcMatch = rangeData.functionName
           ? ptTol.functionName === rangeData.functionName
           : true;
-        return minMatch && maxMatch && unitMatch && funcMatch;
+        return minMatch && maxMatch && unitMatch && functionIdMatch && funcMatch;
       });
       displayTitle = rangeData.label || "Range Detail";
       displaySubtitle = `${uut?.description || "UUT"} (${uut?.model || ""})`;
@@ -3713,6 +4027,82 @@ const SummaryDashboard = ({
     setRowMenu({ x: e.clientX, y: e.clientY, items });
   };
 
+  // --- Range-row clipboard (copy/cut/paste a single range) ---
+  const copyRange = (kind, item, rangeId) => {
+    const r = findItemRange(item, rangeId);
+    if (!r) return;
+    const clone = JSON.parse(JSON.stringify(r));
+    if (!clone.unit) {
+      // Function-based instruments keep the unit on the function, not the range.
+      // Capture the resolved unit so a pasted copy keeps its own unit group even
+      // if dropped next to a different-unit range.
+      const fn = (item?.instrument?.functions || []).find((f) =>
+        (f.ranges || []).some((x) => sameId(x.id, rangeId)),
+      );
+      if (fn?.unit) clone.unit = fn.unit;
+    }
+    rangeClipboard = { kind, range: clone };
+  };
+  const cutRange = (kind, item, range, totalRanges) => {
+    copyRange(kind, item, range?.id);
+    if (totalRanges > 1) handleRemoveRange(kind, item, range?.id);
+  };
+  const pasteRange = (kind, item, activeRangeId) => {
+    if (!onSessionSave || !rangeClipboard || rangeClipboard.kind !== kind) return;
+    const { item: updated, newRangeId } = pasteRangeIntoItem(
+      item,
+      activeRangeId,
+      rangeClipboard.range,
+    );
+    persistItem(kind, updated);
+    const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
+    const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
+    const newIdx = resolved.findIndex((r) => sameId(r.id, newRangeId));
+    if (newIdx >= 0) setIdx((prev) => ({ ...prev, [item.id]: newIdx }));
+  };
+  const openRangeRowMenu = (e, kind, item, range, index, totalRanges) => {
+    if (!onSessionSave) return;
+    e.preventDefault();
+    e.stopPropagation();
+    activateRangeRow(kind, item.id, index);
+    const canPaste = !!rangeClipboard && rangeClipboard.kind === kind;
+    const canDelete = totalRanges > 1;
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    const items = [
+      { label: "Copy Range", icon: faCopy, action: () => copyRange(kind, item, range?.id) },
+    ];
+    if (canDelete) {
+      items.push({
+        label: "Cut Range",
+        icon: faScissors,
+        action: () => cutRange(kind, item, range, totalRanges),
+      });
+    }
+    if (canPaste) {
+      items.push({
+        label: "Paste Range",
+        icon: faPaste,
+        action: () => pasteRange(kind, item, range?.id),
+      });
+    }
+    if (canDelete) {
+      items.push({ type: "divider" });
+      items.push({
+        label: "Delete Range",
+        icon: faTrashAlt,
+        className: "destructive",
+        action: () =>
+          confirmViaNotification(setNotification, {
+            title: "Delete Range",
+            message: `Delete this range from this ${label}? This can't be undone.`,
+            confirmText: "Delete",
+            onConfirm: () => handleRemoveRange(kind, item, range?.id),
+          }),
+      });
+    }
+    setRowMenu({ x: e.clientX, y: e.clientY, items });
+  };
+
   useEffect(() => {
     const onKey = (e) => {
       if (!onSessionSave || !(e.ctrlKey || e.metaKey)) return;
@@ -3733,6 +4123,29 @@ const SummaryDashboard = ({
         (k === "uut" ? sessionData.uuts : sessionData.tmdes)?.find(
           (x) => x.id === id,
         );
+
+      // When the selected instrument is expanded (view-all-ranges), copy/cut/
+      // paste act on the ACTIVE RANGE rather than the whole instrument.
+      if (kind && isShowingAllRanges(kind, oneUut || oneTmde)) {
+        const target = getSelectedRangeTarget(kind);
+        if (target?.activeRange) {
+          if (key === "c" || key === "x") {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            copyRange(kind, target.item, target.activeRange.id);
+            if (key === "x" && target.ranges.length > 1) {
+              handleRemoveRange(kind, target.item, target.activeRange.id);
+            }
+            return;
+          }
+          if (key === "v" && rangeClipboard && rangeClipboard.kind === kind) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            pasteRange(kind, target.item, target.activeRange.id);
+            return;
+          }
+        }
+      }
 
       if ((key === "c" || key === "x") && kind) {
         const item = findItem(kind, oneUut || oneTmde);
@@ -3762,7 +4175,7 @@ const SummaryDashboard = ({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedUutIds, selectedTmdeIds, sessionData, onSessionSave]);
+  }, [selectedUutIds, selectedTmdeIds, sessionData, onSessionSave, localRangeIndices, tmdeRangeIndices, expandedRangeKeys]);
 
   const resolveRangeWrapper = (uut, indices, savedTol, nominal) => {
     return resolveUutRangeHelper(uut, indices, savedTol, nominal);
@@ -3897,13 +4310,26 @@ const SummaryDashboard = ({
                     localRangeIndices[uut.id] === undefined
                   ) {
                     const matchIndex = resolution.ranges.findIndex((r) => {
+                      if (rangeData.rangeId && r.rangeId) {
+                        const rangeIdMatch =
+                          String(r.rangeId) === String(rangeData.rangeId);
+                        const functionIdMatch =
+                          !rangeData.functionId ||
+                          !r.functionId ||
+                          String(r.functionId) === String(rangeData.functionId);
+                        if (rangeIdMatch && functionIdMatch) return true;
+                      }
                       if (rangeData._id !== undefined && r._index !== undefined)
                         return r._index === rangeData._id;
                       const minMatch = r.min == rangeData.min;
                       const maxMatch = r.max == rangeData.max;
                       const unitMatch =
                         (r.unit || "") === (rangeData.unit || "");
-                      return minMatch && maxMatch && unitMatch;
+                      const functionIdMatch =
+                        rangeData.functionId && r.functionId
+                          ? String(r.functionId) === String(rangeData.functionId)
+                          : true;
+                      return minMatch && maxMatch && unitMatch && functionIdMatch;
                     });
 
                     if (matchIndex !== -1) {
@@ -3937,6 +4363,75 @@ const SummaryDashboard = ({
                     activeRange,
                     showAllRanges,
                   );
+
+                  // Expanded "view all ranges": one real <tr> per range so the
+                  // Range / Tolerance / Resolution columns line up row-for-row.
+                  // Description + Sync span the group via rowSpan; clicking a row
+                  // selects that range so the header +/-/tolerance buttons act on it.
+                  if (showAllRanges) {
+                    const n = visibleRangeRows.length;
+                    const canDelete = ranges.length > 1;
+                    const activeRangeIndex = localRangeIndices[uut.id] ?? activeIndex;
+                    return (
+                      <React.Fragment key={uut.id}>
+                        {visibleRangeRows.map(({ range, index, key }, i) => {
+                          const isActiveRange = index === activeRangeIndex;
+                          return (
+                            <tr
+                              key={key}
+                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                              onMouseEnter={() => setHoveredRowId(uut.id)}
+                              onContextMenu={(e) => openRangeRowMenu(e, "uut", uut, range, index, n)}
+                              onMouseDownCapture={() => activateRangeRow("uut", uut.id, index)}
+                              onClick={(e) => {
+                                if (!isInlineRowControlTarget(e.target)) {
+                                  setSelectedToleranceKey(null);
+                                }
+                              }}
+                              style={{ cursor: "pointer" }}
+                            >
+                              {i === 0 && (
+                                <td
+                                  rowSpan={n}
+                                  className={`cell-description ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                  onMouseEnter={() =>
+                                    setHoveredCell({ tableId: "uut", colIndex: 0 })
+                                  }
+                                  title={uut.description}
+                                >
+                                  <EditableDescriptionCell
+                                    name={uut.description}
+                                    make={uut.instrument?.manufacturer}
+                                    model={uut.instrument?.model}
+                                    instruments={instruments}
+                                    onPickLibrary={(inst) =>
+                                      promptLibraryPick("uut", uut.id, inst)
+                                    }
+                                    onCommit={(field, value) =>
+                                      handleUutDescriptionEdit(uut.id, field, value)
+                                    }
+                                  />
+                                </td>
+                              )}
+                              {renderRangeRowCells("uut", uut, range, {
+                                includeDistribution: false,
+                                canDelete,
+                              })}
+                              {i === 0 && (
+                                <td
+                                  rowSpan={n}
+                                  className="cell-sync"
+                                  style={{ textAlign: "center" }}
+                                >
+                                  <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  }
 
                   return (
                     <React.Fragment key={uut.id}>
@@ -4253,6 +4748,74 @@ const SummaryDashboard = ({
                     showAllRanges,
                   );
 
+                  // Expanded "view all ranges": one real <tr> per range (see the
+                  // UUT block above for the rationale). TMDE adds the Distribution
+                  // per-range cell.
+                  if (showAllRanges) {
+                    const n = visibleRangeRows.length;
+                    const canDelete = ranges.length > 1;
+                    const activeRangeIndex = tmdeRangeIndices[tmde.id] ?? activeIndex;
+                    return (
+                      <React.Fragment key={tmde.id || idx}>
+                        {visibleRangeRows.map(({ range, index, key }, i) => {
+                          const isActiveRange = index === activeRangeIndex;
+                          return (
+                            <tr
+                              key={key}
+                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
+                              onMouseEnter={() => setHoveredRowId(tmde.id)}
+                              onContextMenu={(e) => openRangeRowMenu(e, "tmde", tmde, range, index, n)}
+                              onMouseDownCapture={() => activateRangeRow("tmde", tmde.id, index)}
+                              onClick={(e) => {
+                                if (!isInlineRowControlTarget(e.target)) {
+                                  setSelectedToleranceKey(null);
+                                }
+                              }}
+                              style={{ cursor: "pointer" }}
+                            >
+                              {i === 0 && (
+                                <td
+                                  rowSpan={n}
+                                  className={`cell-description ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                  onMouseEnter={() =>
+                                    setHoveredCell({ tableId: "tmde", colIndex: 0 })
+                                  }
+                                  title={tmde.name}
+                                >
+                                  <EditableDescriptionCell
+                                    name={tmde.name}
+                                    make={tmde.instrument?.manufacturer}
+                                    model={tmde.instrument?.model}
+                                    instruments={instruments}
+                                    onPickLibrary={(inst) =>
+                                      promptLibraryPick("tmde", tmde.id, inst)
+                                    }
+                                    onCommit={(field, value) =>
+                                      handleTmdeDescriptionEdit(tmde.id, field, value)
+                                    }
+                                  />
+                                </td>
+                              )}
+                              {renderRangeRowCells("tmde", tmde, range, {
+                                includeDistribution: true,
+                                canDelete,
+                              })}
+                              {i === 0 && (
+                                <td
+                                  rowSpan={n}
+                                  className="cell-sync"
+                                  style={{ textAlign: "center" }}
+                                >
+                                  <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  }
+
                   return (
                     <React.Fragment key={tmde.id || idx}>
                       <tr
@@ -4547,6 +5110,10 @@ function DetailedView({
     left: 0,
   });
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
+  // Declared here (alongside the other range-index state) so it precedes the
+  // keydown effect that lists it as a dependency — otherwise referencing it in
+  // the deps array hits a temporal dead zone during render.
+  const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [newRangeKeys, setNewRangeKeys] = useState(() => new Set());
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
 
@@ -4627,6 +5194,83 @@ function DetailedView({
     });
     setRowMenu({ x: e.clientX, y: e.clientY, items });
   };
+
+  // --- Range-row clipboard (copy/cut/paste a single range) ---
+  const copyRange = (kind, item, rangeId) => {
+    const r = findItemRange(item, rangeId);
+    if (!r) return;
+    const clone = JSON.parse(JSON.stringify(r));
+    if (!clone.unit) {
+      // Function-based instruments keep the unit on the function, not the range.
+      // Capture the resolved unit so a pasted copy keeps its own unit group even
+      // if dropped next to a different-unit range.
+      const fn = (item?.instrument?.functions || []).find((f) =>
+        (f.ranges || []).some((x) => sameId(x.id, rangeId)),
+      );
+      if (fn?.unit) clone.unit = fn.unit;
+    }
+    rangeClipboard = { kind, range: clone };
+  };
+  const cutRange = (kind, item, range, totalRanges) => {
+    copyRange(kind, item, range?.id);
+    if (totalRanges > 1) handleRemoveRangeDetail(kind, item, range?.id);
+  };
+  const pasteRange = (kind, item, activeRangeId) => {
+    if (!onSessionSave || !rangeClipboard || rangeClipboard.kind !== kind) return;
+    const { item: updated, newRangeId } = pasteRangeIntoItem(
+      item,
+      activeRangeId,
+      rangeClipboard.range,
+    );
+    persistInlineItemDetail(kind, updated);
+    const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
+    const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
+    const newIdx = resolved.findIndex((r) => sameId(r.id, newRangeId));
+    if (newIdx >= 0) setIdx((prev) => ({ ...prev, [item.id]: newIdx }));
+  };
+  const openRangeRowMenu = (e, kind, item, range, index, totalRanges) => {
+    if (!onSessionSave) return;
+    e.preventDefault();
+    e.stopPropagation();
+    activateRangeRowDetail(kind, item.id, index);
+    const canPaste = !!rangeClipboard && rangeClipboard.kind === kind;
+    const canDelete = totalRanges > 1;
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    const items = [
+      { label: "Copy Range", icon: faCopy, action: () => copyRange(kind, item, range?.id) },
+    ];
+    if (canDelete) {
+      items.push({
+        label: "Cut Range",
+        icon: faScissors,
+        action: () => cutRange(kind, item, range, totalRanges),
+      });
+    }
+    if (canPaste) {
+      items.push({
+        label: "Paste Range",
+        icon: faPaste,
+        action: () => pasteRange(kind, item, range?.id),
+      });
+    }
+    if (canDelete) {
+      items.push({ type: "divider" });
+      items.push({
+        label: "Delete Range",
+        icon: faTrashAlt,
+        className: "destructive",
+        action: () =>
+          confirmViaNotification(setNotification, {
+            title: "Delete Range",
+            message: `Delete this range from this ${label}? This can't be undone.`,
+            confirmText: "Delete",
+            onConfirm: () => handleRemoveRangeDetail(kind, item, range?.id),
+          }),
+      });
+    }
+    setRowMenu({ x: e.clientX, y: e.clientY, items });
+  };
+
   useEffect(() => {
     const onKey = (e) => {
       if (!onSessionSave || !(e.ctrlKey || e.metaKey)) return;
@@ -4647,6 +5291,29 @@ function DetailedView({
         (k === "uut" ? sessionData.uuts : sessionData.tmdes)?.find(
           (x) => x.id === id,
         );
+
+      // Expanded instrument → copy/cut/paste act on the active range.
+      if (kind && isShowingAllRangesDetail(kind, oneUut || oneTmde)) {
+        const target = getSelectedRangeTargetDetail(kind);
+        if (target?.activeRange) {
+          if (key === "c" || key === "x") {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            copyRange(kind, target.item, target.activeRange.id);
+            if (key === "x" && target.ranges.length > 1) {
+              handleRemoveRangeDetail(kind, target.item, target.activeRange.id);
+            }
+            return;
+          }
+          if (key === "v" && rangeClipboard && rangeClipboard.kind === kind) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            pasteRange(kind, target.item, target.activeRange.id);
+            return;
+          }
+        }
+      }
+
       if ((key === "c" || key === "x") && kind) {
         const item = findItem(kind, oneUut || oneTmde);
         if (item) {
@@ -4671,7 +5338,7 @@ function DetailedView({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedUutIds, selectedTmdeIds, sessionData, onSessionSave]);
+  }, [selectedUutIds, selectedTmdeIds, sessionData, onSessionSave, localRangeIndices, tmdeRangeIndices, expandedRangeKeys]);
 
   // Industry Grade Highlighting State
   // Industry Grade Highlighting State
@@ -4693,7 +5360,6 @@ function DetailedView({
   const [toleranceTypes, setToleranceTypes] = useState({});
   const [selectedToleranceKey, setSelectedToleranceKey] = useState(null);
   const [openToleranceAddMenu, setOpenToleranceAddMenu] = useState(null);
-  const [localRangeIndices, setLocalRangeIndices] = useState({});
   const { syncToShared, getDiff } = useInstrumentSync();
 
   const rowLabel = (kind, item) =>
@@ -4859,7 +5525,9 @@ function DetailedView({
         existingId: instance.id,
         quantity: instance.quantity ?? 1,
         assetId: instance.assetId || "",
+        userFunctionId: instance.functionId || "",
         userFunctionName: instance.functionName || "",
+        userRangeId: instance.rangeId || "",
         userRangeIndex:
           reselectedIndex ??
           instance._index ??
@@ -5271,7 +5939,13 @@ function DetailedView({
     const { item: updated, newRangeId } = addRangeToItem(item, activeRangeId);
     persistInlineItemDetail(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
-    setIdx((prev) => ({ ...prev, [item.id]: currentCount }));
+    // Resolve the new range's real flattened index by id (it's appended within
+    // one function, not necessarily the last slot — see handleAddRange).
+    const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
+    const newIdx = newRangeId
+      ? resolved.findIndex((r) => sameId(r.id, newRangeId))
+      : -1;
+    setIdx((prev) => ({ ...prev, [item.id]: newIdx >= 0 ? newIdx : currentCount }));
     if (newRangeId) {
       setNewRangeKeys((prev) => {
         const next = new Set(prev);
@@ -5443,6 +6117,137 @@ function DetailedView({
       </span>
     );
   };
+
+  // Detailed-View counterparts of activateRangeRow / renderRangeRowCells (see
+  // the Session-Overview panel). Same behaviour, wired to the *Detail handlers
+  // and this view's extra columns. `cols` carries the per-column index used for
+  // column-hover highlighting, which differs between the UUT and TMDE tables.
+  const activateRangeRowDetail = (kind, itemId, index) => {
+    if (kind === "uut") setSelectedUutIds([itemId]);
+    else setSelectedTmdeIds([itemId]);
+    const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
+    setIdx((prev) => ({ ...prev, [itemId]: index }));
+  };
+
+  const renderRangeRowCellsDetail = (
+    kind,
+    item,
+    range,
+    { includeDistribution, canDelete, cols },
+  ) => {
+    const tableId = kind === "uut" ? "uut_det" : "tmde_det";
+    const tolerance = getItemRangeTolerance(item, range?.id) || range || {};
+    const typeKey = getSelectedToleranceTypeDetail(kind, item, range);
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    const deleteRange = () => {
+      if (!canDelete) return;
+      confirmViaNotification(setNotification, {
+        title: "Delete Range",
+        message: `Delete this range from this ${label}? This can't be undone.`,
+        confirmText: "Delete",
+        onConfirm: () => handleRemoveRangeDetail(kind, item, range?.id),
+      });
+    };
+
+    return (
+      <>
+        <td
+          className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.range ? "col-hovered" : ""}`}
+          onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.range })}
+        >
+          <div className="range-row-cell">
+            <RangeCell
+              ranges={[range]}
+              activeIndex={0}
+              activeRange={range}
+              editable
+              allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
+              onSelect={() => {}}
+              onEditBound={(field, value) => handleEditRangeBoundDetail(kind, item, range?.id, field, value)}
+              onEditUnit={(value) => setRangeUnitDetail(kind, item, range?.id, value)}
+              onPatchRange={(patch) => patchRangeDetail(kind, item, range?.id, patch)}
+            />
+            <button
+              type="button"
+              className="range-row-delete"
+              title={canDelete ? "Delete this range" : "An instrument must keep at least one range"}
+              aria-label="Delete this range"
+              disabled={!canDelete}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteRange();
+              }}
+            >
+              <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+            </button>
+          </div>
+        </td>
+
+        <td
+          className={`cell-tolerance ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.tol ? "col-hovered" : ""}`}
+          onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.tol })}
+          title={getSpecRows(tolerance)[0]}
+        >
+          <InlineToleranceCell
+            tolerance={tolerance}
+            activeRange={range}
+            typeKey={typeKey}
+            selectedType={
+              selectedToleranceKey === toleranceTypeKey(kind, item, range?.id)
+                ? typeKey
+                : null
+            }
+            editable
+            onSelectType={(nextTypeKey) =>
+              setSelectedToleranceTypeDetail(kind, item, range, nextTypeKey)
+            }
+            onCommit={(nextTypeKey, component) =>
+              setRangeToleranceComponentDetail(kind, item, range, nextTypeKey, component)
+            }
+          />
+        </td>
+
+        {includeDistribution && (
+          <td className="cell-distribution" title="Spec band distribution">
+            {getBandDistDivisor(tolerance) ? (
+              <select
+                className="session-selector"
+                value={getBandDistDivisor(tolerance)}
+                onChange={(e) =>
+                  setRangeBandDistributionDetail(kind, item, range?.id, e.target.value)
+                }
+              >
+                {errorDistributions.map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              getBandDistLabel(tolerance)
+            )}
+          </td>
+        )}
+
+        <td
+          className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.res ? "col-hovered" : ""}`}
+          onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.res })}
+          title={formatResolutionLabel(range)}
+        >
+          <ResolutionCellInput
+            value={range?.resolution ?? range?.measuringResolution}
+            unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
+            fallbackUnit={range?.unit}
+            onCommit={(v) => setRangeResolutionDetail(kind, item, range?.id, v)}
+            onCommitUnit={(value) => setRangeResolutionUnitDetail(kind, item, range?.id, value)}
+            useResolution={range?.includeResolutionInBudget}
+            onToggleUse={(checked) => setRangeUseResolutionDetail(kind, item, range?.id, checked)}
+          />
+        </td>
+      </>
+    );
+  };
+
   const getSelectedToleranceTargetDetail = (kind) => {
     const target = getSelectedRangeTargetDetail(kind);
     if (!target) return null;
@@ -6969,6 +7774,85 @@ function DetailedView({
                     showAllRanges,
                   );
 
+                  // Expanded "view all ranges": one real <tr> per range so the
+                  // columns line up (see the Session-Overview panel for rationale).
+                  if (showAllRanges) {
+                    const n = visibleRangeRows.length;
+                    const canDelete = ranges.length > 1;
+                    const activeRangeIndex = localRangeIndices[uut.id] ?? activeIndex;
+                    return (
+                      <React.Fragment key={uut.id}>
+                        {visibleRangeRows.map(({ range, index, key }, i) => {
+                          const isActiveRange = index === activeRangeIndex;
+                          return (
+                            <tr
+                              key={key}
+                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                              onMouseEnter={() => setHoveredRowId(uut.id)}
+                              onContextMenu={(e) => openRangeRowMenu(e, "uut", uut, range, index, n)}
+                              onMouseDownCapture={() => activateRangeRowDetail("uut", uut.id, index)}
+                              onClick={(e) => {
+                                if (!isInlineRowControlTarget(e.target)) {
+                                  setSelectedToleranceKey(null);
+                                }
+                              }}
+                              style={{ cursor: "pointer" }}
+                            >
+                              {i === 0 && (
+                                <td
+                                  rowSpan={n}
+                                  className={`cell-description ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                  onMouseEnter={() =>
+                                    setHoveredCell({ tableId: "uut_det", colIndex: 0 })
+                                  }
+                                  style={{
+                                    color: isActivePointUut
+                                      ? "var(--primary-color)"
+                                      : isLinked
+                                        ? "var(--primary-color)"
+                                        : undefined,
+                                  }}
+                                >
+                                  <div className="uut-description-content">
+                                    <EditableDescriptionCell
+                                      name={uut.description}
+                                      make={uut.instrument?.manufacturer}
+                                      model={uut.instrument?.model}
+                                      instruments={instruments}
+                                      onPickLibrary={(inst) =>
+                                        promptLibraryPick("uut", uut.id, inst)
+                                      }
+                                      onCommit={(field, value) =>
+                                        handleDetailUutDescEdit(uut.id, field, value)
+                                      }
+                                    />
+                                    {isActivePointUut && (
+                                      <span className="active-uut-badge">Active UUT</span>
+                                    )}
+                                  </div>
+                                </td>
+                              )}
+                              {renderRangeRowCellsDetail("uut", uut, range, {
+                                includeDistribution: false,
+                                canDelete,
+                                cols: { range: 1, tol: 2, res: 3 },
+                              })}
+                              {i === 0 && (
+                                <td
+                                  rowSpan={n}
+                                  className="cell-sync"
+                                  style={{ textAlign: "center" }}
+                                >
+                                  <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  }
+
                   return (
                     <React.Fragment key={uut.id}>
                       <tr
@@ -7638,6 +8522,147 @@ function DetailedView({
                         (masterTmde.instrument
                           ? `${masterTmde.instrument.manufacturer} ${masterTmde.instrument.model}`
                           : "Unknown TMDE");
+
+                      // Expanded "view all ranges": one real <tr> per range. The
+                      // checkbox/derived assignment (col 0) and description (col 1)
+                      // span the group via rowSpan on the first range row.
+                      if (showAllRanges) {
+                        const n = visibleRangeRows.length;
+                        const canDelete = ranges.length > 1;
+                        const activeRangeIndex =
+                          tmdeRangeIndices[masterTmde.id] ?? activeIndex;
+                        const renderUsageCell = () =>
+                          isDerived ? (
+                            <select
+                              className="tmde-input-assignment"
+                              value={isChecked ? tmdeInstance.variableType || "" : ""}
+                              onChange={(e) =>
+                                handleAssignTmdeToInput(masterTmde, e.target.value)
+                              }
+                              aria-label={`Assign ${safeDescription} to equation input`}
+                            >
+                              <option value="">Not used</option>
+                              {availableVariables.map((variableType) => (
+                                <option key={variableType} value={variableType}>
+                                  {variableType}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (!isChecked && !compatibility.compatible) {
+                                  setNotification({
+                                    title: "Can't Use This TMDE",
+                                    message: `${compatibility.reason} Adjust the TMDE's range/unit (or the measurement point) so it covers this point, then try again.`,
+                                  });
+                                  return;
+                                }
+                                handleToggleTmdeUsage(masterTmde.id, e.target.checked);
+                              }}
+                              title={
+                                compatibility.compatible
+                                  ? "Use this TMDE"
+                                  : `Can't use: ${compatibility.reason}`
+                              }
+                              style={{
+                                cursor:
+                                  !isChecked && !compatibility.compatible
+                                    ? "not-allowed"
+                                    : "pointer",
+                                opacity:
+                                  !isChecked && !compatibility.compatible ? 0.5 : 1,
+                              }}
+                            />
+                          );
+                        return (
+                          <React.Fragment key={`${masterTmde.id}-${idx}`}>
+                            {visibleRangeRows.map(({ range, index, key }, i) => {
+                              const isActiveRange = index === activeRangeIndex;
+                              return (
+                                <tr
+                                  key={key}
+                                  className={`tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isChecked ? " active-point-tmde-row" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                                  onMouseEnter={() => setHoveredRowId(masterTmde.id)}
+                                  onContextMenu={(e) =>
+                                    openRangeRowMenu(e, "tmde", masterTmde, range, index, n)
+                                  }
+                                  onMouseDownCapture={() =>
+                                    activateRangeRowDetail("tmde", masterTmde.id, index)
+                                  }
+                                  onClick={(e) => {
+                                    if (!isInlineRowControlTarget(e.target)) {
+                                      setSelectedToleranceKey(null);
+                                    }
+                                  }}
+                                  style={{
+                                    opacity: isChecked || isSelectedRow ? 1 : 0.7,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  {i === 0 && (
+                                    <td
+                                      rowSpan={n}
+                                      style={{
+                                        textAlign: isDerived ? "left" : "center",
+                                        verticalAlign: "middle",
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                      onMouseEnter={() =>
+                                        setHoveredCell({ tableId: "tmde_det", colIndex: 0 })
+                                      }
+                                    >
+                                      {renderUsageCell()}
+                                    </td>
+                                  )}
+                                  {i === 0 && (
+                                    <td
+                                      rowSpan={n}
+                                      className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
+                                      onMouseEnter={() =>
+                                        setHoveredCell({ tableId: "tmde_det", colIndex: 1 })
+                                      }
+                                    >
+                                      <EditableDescriptionCell
+                                        name={masterTmde.name}
+                                        make={masterTmde.instrument?.manufacturer}
+                                        model={masterTmde.instrument?.model}
+                                        instruments={instruments}
+                                        onPickLibrary={(inst) =>
+                                          promptLibraryPick("tmde", masterTmde.id, inst)
+                                        }
+                                        onCommit={(field, value) =>
+                                          handleDetailTmdeDescEdit(masterTmde.id, field, value)
+                                        }
+                                      />
+                                    </td>
+                                  )}
+                                  {renderRangeRowCellsDetail("tmde", masterTmde, range, {
+                                    includeDistribution: true,
+                                    canDelete,
+                                    cols: { range: 2, tol: 3, res: 4 },
+                                  })}
+                                  {i === 0 && (
+                                    <td
+                                      rowSpan={n}
+                                      className="cell-sync"
+                                      style={{ textAlign: "center" }}
+                                    >
+                                      <SyncBadge
+                                        item={masterTmde}
+                                        onSync={() => handleSyncItem("tmde", masterTmde)}
+                                      />
+                                    </td>
+                                  )}
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                        );
+                      }
 
                       return (
                         <React.Fragment key={`${masterTmde.id}-${idx}`}>

@@ -10343,6 +10343,14 @@ body.theme-cyberpunk .notification-window .window-header {
     color-mix(in srgb, var(--table-header-bg) 60%, var(--content-background)),
     var(--table-header-bg)
   );
+  /* Keep the column headers — and their Range/Tolerance add·delete·view
+     action buttons — reachable while scrolling a long range list inside the
+     fixed-height .panel-table-container. border-collapse drops a sticky cell's
+     own border in Chromium, so the bottom rule is drawn with a box-shadow. */
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  box-shadow: inset 0 -1px 0 var(--border-color);
 }
 
 .instrument-summary-table td {
@@ -10811,6 +10819,101 @@ input.inline-desc-subinput {
 .range-stack-row > .inline-resolution-editor,
 .range-stack-row > .session-selector {
   width: 100%;
+}
+
+/* ------------------------------------------------------------------ */
+/* Expanded "view all ranges": each range is its own real table row.  */
+/* The <tr> boundary keeps Range / Tolerance / Resolution aligned      */
+/* column-for-column; these rules just group the rows of one          */
+/* instrument into a visual block and mark the active range.          */
+/* ------------------------------------------------------------------ */
+.industry-table tbody tr.inline-range-row > td {
+  vertical-align: middle;
+  border-bottom: 1px dashed var(--border-color);
+}
+
+/* Separate one instrument's range block from the next with a solid rule. */
+.industry-table tbody tr.inline-range-row--first > td {
+  border-top: 1px solid var(--border-color-strong);
+}
+
+.industry-table tbody tr.inline-range-row--last > td {
+  border-bottom: 1px solid var(--border-color-strong);
+}
+
+/* rowSpan Description / Sync cells stay top-aligned over the group. */
+.industry-table tbody tr.inline-range-row--first > td.cell-description,
+.industry-table tbody tr.inline-range-row--first > td.cell-sync {
+  vertical-align: middle;
+}
+
+/* Selected instrument: a faint tie on the rowSpan Description/Sync cells   */
+/* so the user can see which instrument owns the active range, WITHOUT      */
+/* repainting every range row (which read as "whole instrument selected").  */
+.industry-table tbody tr.inline-range-row.instrument-selected > td.cell-description,
+.industry-table tbody tr.inline-range-row.instrument-selected > td.cell-sync {
+  background-color: rgba(var(--primary-rgb), 0.04);
+}
+
+/* Active range: the single highlighted row. This is the primary selection */
+/* indicator in the expanded view, so the header +/- and tolerance buttons */
+/* visibly act on this row.                                                 */
+.industry-table tbody tr.inline-range-row.is-active-range > td {
+  background-color: rgba(var(--primary-rgb), 0.1);
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+/* Don't double-tint the rowSpan cells; keep the accent on the range cells. */
+.industry-table tbody tr.inline-range-row.is-active-range > td.cell-description,
+.industry-table tbody tr.inline-range-row.is-active-range > td.cell-sync {
+  box-shadow: none;
+}
+
+/* Range cell: editor fills the row, delete tucks to the right edge. */
+.range-row-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.range-row-cell > .inline-range-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.range-row-delete {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--border-radius);
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+/* Reveal the delete affordance when the row is hovered or active. */
+.industry-table tbody tr.inline-range-row:hover .range-row-delete,
+.industry-table tbody tr.inline-range-row.is-active-range .range-row-delete {
+  opacity: 1;
+}
+
+.range-row-delete:hover:not(:disabled) {
+  background: rgba(255, 82, 82, 0.12);
+  color: var(--status-bad);
+}
+
+.range-row-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0;
 }
 
 .tolerance-add-menu {
