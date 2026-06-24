@@ -76,3 +76,53 @@ describe("getBudgetComponentsFromTolerance - manual Type B components", () => {
     expect(comps.filter((c) => c.isManual)).toHaveLength(0);
   });
 });
+
+// Resolution joins the budget as a rectangular Type B component, u = LSD/(2*√3),
+// and is RSS'd with the other components by the calculation hook.
+describe("getBudgetComponentsFromTolerance - resolution component", () => {
+  const ref = { value: "10", unit: "psig" };
+
+  test("inline `resolution` + opt-in yields u = LSD/(2*sqrt(3))", () => {
+    const comps = getBudgetComponentsFromTolerance(
+      {
+        name: "UUT",
+        resolution: "0.01",
+        resolutionUnit: "psig",
+        includeResolutionInBudget: true,
+      },
+      ref,
+    );
+    const res = comps.find((c) => c.isResolution);
+    expect(res).toBeTruthy();
+    expect(res.name).toBe("UUT - Resolution");
+    expect(res.type).toBe("B");
+    expect(res.dof).toBe(Infinity);
+    // u = 0.01 / 2 / sqrt(3) = 0.0028868 psig; relative to 10 psig = 288.68 ppm
+    expect(res.value_native).toBeCloseTo(0.0028868, 6);
+    expect(res.value).toBeCloseTo(288.68, 1);
+  });
+
+  test("no resolution component unless opted in", () => {
+    const comps = getBudgetComponentsFromTolerance(
+      { name: "UUT", resolution: "0.01", resolutionUnit: "psig" },
+      ref,
+    );
+    expect(comps.find((c) => c.isResolution)).toBeFalsy();
+  });
+
+  test("measuringResolution is still honored and wins over resolution", () => {
+    const comps = getBudgetComponentsFromTolerance(
+      {
+        name: "TMDE",
+        resolution: "0.01",
+        measuringResolution: "0.02",
+        measuringResolutionUnit: "psig",
+        includeResolutionInBudget: true,
+      },
+      ref,
+    );
+    const res = comps.find((c) => c.isResolution);
+    // 0.02 / 2 / sqrt(3) = 0.0057735 psig
+    expect(res.value_native).toBeCloseTo(0.0057735, 6);
+  });
+});

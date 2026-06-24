@@ -3,13 +3,19 @@
  * (feature/inline-instrument-tables). No React, no I/O — unit-testable in
  * isolation. The hook `useInstrumentSync` layers persistence on top.
  *
- * Sync states (drive the row's green/red/none icon):
- *   - "none"  : a local-only instrument with no validated origin. No icon.
- *   - "green" : linked to a validated instrument and identical to the snapshot.
- *   - "red"   : linked to a validated instrument but locally diverged.
+ * Sync states (drive the row's green/red icon). There are only TWO states:
+ * you are either on the shared (in-sync) version of an instrument, or on a
+ * local (out-of-sync) version of it.
+ *   - "green" : linked to the shared library and identical to the snapshot.
+ *   - "red"   : everything else — a brand-new local-only instrument, a copy
+ *               that diverged from its shared origin, or one explicitly marked
+ *               local (e.g. dragged to a new measurement area).
  *
  * The "snapshot" is the validated instrument definition captured at load/sync
  * time (`validatedSnapshot`). We diff the live row's defining fields against it.
+ *
+ * `SYNC_NONE` is retained only for backwards-compatible imports; the resolver
+ * never returns it anymore.
  */
 
 export const SYNC_NONE = "none";
@@ -71,9 +77,17 @@ export const diffFromSnapshot = (instrument = {}) => {
   return diffs;
 };
 
-/** Resolve the sync indicator state for an instrument. */
+/**
+ * Resolve the sync indicator state for an instrument. Only ever green or red:
+ *   - An explicit `localOverride` (e.g. set when an instrument is dragged into a
+ *     new measurement area) forces red.
+ *   - An instrument with no validated origin is a local-only / brand-new one, so
+ *     it is out of sync (red) until the user syncs it to the shared library.
+ *   - A linked instrument is green only while it still matches its snapshot.
+ */
 export const computeSyncState = (instrument = {}) => {
-  if (!isValidatedLinked(instrument)) return SYNC_NONE;
+  if (instrument.localOverride) return SYNC_RED;
+  if (!isValidatedLinked(instrument)) return SYNC_RED;
   // Linked but with no captured snapshot yet -> treat as in-sync (green): it
   // was just loaded/created as validated and hasn't been edited.
   if (!instrument.validatedSnapshot) return SYNC_GREEN;
@@ -91,5 +105,8 @@ export const buildSyncPayload = (instrument = {}, password = "") => ({
   scope: "validated",
   sourceId: instrument.sourceId || instrument.id,
   validatedSnapshot: buildValidatedSnapshot(instrument),
+  // Syncing reconciles the local copy with the shared library, so any local
+  // override (e.g. a drag-induced area change) is no longer "out of sync".
+  localOverride: false,
   password,
 });

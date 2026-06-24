@@ -27,10 +27,14 @@ const validated = (overrides = {}) => ({
 });
 
 describe("instrumentSync", () => {
-  it("a local-only instrument is unlinked and shows no icon", () => {
+  it("a local-only instrument is unlinked and reads as out of sync (red)", () => {
     const local = { id: "l1", manufacturer: "Keysight", model: "34470A", scope: "local" };
     expect(isValidatedLinked(local)).toBe(false);
-    expect(computeSyncState(local)).toBe(SYNC_NONE);
+    expect(computeSyncState(local)).toBe(SYNC_RED);
+  });
+
+  it("an explicit localOverride forces red even when the snapshot matches", () => {
+    expect(computeSyncState(validated({ localOverride: true }))).toBe(SYNC_RED);
   });
 
   it("a validated instrument matching its snapshot is green", () => {

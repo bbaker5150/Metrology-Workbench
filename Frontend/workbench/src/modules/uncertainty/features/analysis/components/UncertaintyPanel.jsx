@@ -4,6 +4,7 @@
 import React, {
   useState,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useCallback,
@@ -27,7 +28,11 @@ import {
   faLink,
   faLinkSlash,
   faChevronDown,
+  faCopy,
+  faPaste,
+  faScissors,
 } from "@fortawesome/free-solid-svg-icons";
+import ContextMenu from "../../../components/common/ContextMenu";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
 import { getNextInstrumentSelection } from "../../../utils/instrumentSelection";
 import {
@@ -128,7 +133,11 @@ import {
   errorDistributions,
 } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
-import { computeSyncState, buildValidatedSnapshot } from "../../../utils/instrumentSync";
+import {
+  computeSyncState,
+  buildValidatedSnapshot,
+  diffFromSnapshot,
+} from "../../../utils/instrumentSync";
 import { v4 as uuidv4 } from "uuid";
 import useInstrumentSync from "../../../hooks/useInstrumentSync";
 
@@ -138,6 +147,54 @@ const AREA_PALETTE = [
   "#3498db", "#e67e22", "#2ecc71", "#9b59b6",
   "#e74c3c", "#1abc9c", "#f1c40f", "#34495e",
 ];
+
+// Cross-view clipboard for cut/copy/paste of UUT/TMDE instrument rows. Kept at
+// module scope (not React state) so a copy in one table view can be pasted in
+// another, and so it doesn't trigger re-renders on its own.
+//   { kind: "uut"|"tmde", mode: "copy"|"cut", item }
+let instrumentClipboard = null;
+
+// Build a pasted instrument row. "copy" gets fresh ids (a true duplicate);
+// "cut" preserves the original id (a move) and is applied to the source row.
+const buildPastedInstrumentRow = (src, kind, area, mode) => {
+  const areaFields =
+    kind === "uut"
+      ? {
+          measurementAreaId: area ? area.id : "",
+          measurementArea: area ? area.name : "",
+          measurementAreaColor: area ? area.color : "",
+        }
+      : {
+          measurementAreaId: area ? area.id : "",
+          measurementArea: area ? area.name : "",
+        };
+  const nestedArea =
+    kind === "tmde"
+      ? {
+          measurementArea: area ? area.name : src.instrument?.measurementArea || "",
+          measurementAreaColor: area
+            ? area.color
+            : src.instrument?.measurementAreaColor || "",
+        }
+      : {};
+  if (mode === "cut") {
+    return {
+      ...src,
+      ...areaFields,
+      instrument: src.instrument
+        ? { ...src.instrument, ...nestedArea }
+        : src.instrument,
+    };
+  }
+  return {
+    ...src,
+    id: uuidv4(),
+    ...areaFields,
+    instrument: src.instrument
+      ? { ...src.instrument, id: uuidv4(), ...nestedArea }
+      : src.instrument,
+  };
+};
 // Library-search dropdown shown under the description make/model fields.
 // Portaled to <body> with fixed positioning so the cell's overflow:hidden
 // (App.css) can't clip it. Position/top/left are set inline at render.
@@ -432,24 +489,9 @@ const applyBandDistribution = (tolerance = {}, value) => {
 // linkage (feature/inline-instrument-tables). Nested under .instrument when the
 // row carries a full instrument definition.
 const SyncBadge = ({ item, onSync }) => {
+  // Two states only: green (in sync with the shared library) or red (out of
+  // sync — a local-only / diverged instrument that can be synced).
   const state = computeSyncState(item?.instrument || item || {});
-  if (state === "none") {
-    return (
-      <button
-        type="button"
-        className="inline-sync-badge inline-sync-badge--none"
-        onClick={(event) => {
-          event.stopPropagation();
-          onSync?.();
-        }}
-        disabled={!onSync}
-        title={onSync ? "Sync to shared library" : "Not synced with shared library"}
-        aria-label="Sync to shared library"
-      >
-        -
-      </button>
-    );
-  }
   const green = state === "green";
   return (
     <button
@@ -464,13 +506,13 @@ const SyncBadge = ({ item, onSync }) => {
       disabled={!onSync}
       title={
         green
-          ? "Synced with shared library"
-          : "Diverged from shared library - click to re-sync"
+          ? "In sync with shared library"
+          : "Out of sync (local) - click to sync to the shared library"
       }
       aria-label={
         green
-          ? "Synced with shared library"
-          : "Diverged from shared library - re-sync"
+          ? "In sync with shared library"
+          : "Out of sync (local) - sync to the shared library"
       }
     >
       <FontAwesomeIcon icon={green ? faLink : faLinkSlash} />
@@ -482,6 +524,30 @@ const syncDiffSummary = (diffs = []) => {
   if (!diffs.length) return "This instrument will be promoted to the shared library.";
   const fields = diffs.map((diff) => diff.field).join(", ");
   return `Changed shared-library fields: ${fields}.`;
+};
+
+// Route a potentially-destructive (or easy-to-misclick) action through the
+// shared notification modal so it always asks first. Falls back to running the
+// action directly if no notification setter is available.
+const confirmViaNotification = (
+  setNotification,
+  { title, message, confirmText = "Confirm", onConfirm },
+) => {
+  if (!setNotification) {
+    onConfirm?.();
+    return;
+  }
+  setNotification({
+    title,
+    message,
+    confirmText,
+    secondaryText: "Cancel",
+    onConfirm: () => {
+      setNotification(null);
+      onConfirm?.();
+    },
+    onSecondary: () => setNotification(null),
+  });
 };
 
 // Inline-editable Description cell: make / model / name as three tabbable
@@ -534,17 +600,42 @@ const EditableDescriptionCell = ({
     .trim()
     .toLowerCase();
   const tokens = query.split(/\s+/).filter(Boolean);
-  const results =
-    onPickLibrary && tokens.length
-      ? (instruments || [])
-          .filter((inst) => {
-            const hay = `${inst.manufacturer || ""} ${inst.model || ""} ${
-              inst.description || ""
-            }`.toLowerCase();
-            return tokens.every((t) => hay.includes(t));
-          })
-          .slice(0, 8)
-      : [];
+  const results = useMemo(() => {
+    if (!onPickLibrary || !tokens.length) return [];
+    const matches = (instruments || []).filter((inst) => {
+      const hay = `${inst.manufacturer || ""} ${inst.model || ""} ${
+        inst.description || ""
+      }`.toLowerCase();
+      return tokens.every((t) => hay.includes(t));
+    });
+    // Collapse each shared instrument and its linked local copies into one
+    // "family": always surface the shared (in-sync) version, and only also list
+    // a local when it actually diverges from shared (the changed version). This
+    // stops an auto-created, unchanged local copy from hiding the shared entry.
+    const families = new Map();
+    const standalone = [];
+    matches.forEach((inst) => {
+      const family =
+        inst.sourceId || (inst.scope === "validated" ? inst.id : null);
+      if (!family) {
+        standalone.push(inst);
+        return;
+      }
+      if (!families.has(family)) families.set(family, { shared: null, locals: [] });
+      const grp = families.get(family);
+      if (inst.scope === "validated") grp.shared = inst;
+      else grp.locals.push(inst);
+    });
+    const ordered = [];
+    families.forEach((grp) => {
+      if (grp.shared) ordered.push(grp.shared);
+      grp.locals.forEach((loc) => {
+        if (!grp.shared || diffFromSnapshot(loc).length > 0) ordered.push(loc);
+      });
+    });
+    return [...ordered, ...standalone].slice(0, 8);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instruments, query, onPickLibrary]);
 
   const props = (field) => ({
     value: local[field] || "",
@@ -579,7 +670,60 @@ const EditableDescriptionCell = ({
     className: "inline-desc-input",
   });
 
-  const anchor = anchorRef.current?.getBoundingClientRect();
+  // Keep the portaled dropdown glued to the cell while the table scrolls, and
+  // flip it above the row when there isn't room below (so the list never gets
+  // truncated off the bottom of the page with no way to reach the rest).
+  const [menuPos, setMenuPos] = useState(null);
+  const updateMenuPos = useCallback(() => {
+    const el = anchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const margin = 8;
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const flipUp = spaceBelow < 200 && spaceAbove > spaceBelow;
+    setMenuPos({
+      left: rect.left,
+      width: rect.width,
+      flipUp,
+      top: flipUp ? undefined : rect.bottom + 2,
+      bottom: flipUp ? window.innerHeight - rect.top + 2 : undefined,
+      maxHeight: Math.max(120, Math.min(280, flipUp ? spaceAbove : spaceBelow)),
+    });
+  }, []);
+  const showMenu = open && results.length > 0;
+  useLayoutEffect(() => {
+    if (!showMenu) {
+      setMenuPos(null);
+      return undefined;
+    }
+    updateMenuPos();
+    // Capture-phase scroll so the menu tracks any scrolling ancestor (the
+    // table container), not just the window.
+    window.addEventListener("scroll", updateMenuPos, true);
+    window.addEventListener("resize", updateMenuPos);
+    return () => {
+      window.removeEventListener("scroll", updateMenuPos, true);
+      window.removeEventListener("resize", updateMenuPos);
+    };
+  }, [showMenu, updateMenuPos]);
+
+  // Subtitle for a dropdown entry: "shared", or — for a local entry — what
+  // differs from its shared origin, shown in place of the measurement area.
+  const describeEntry = (inst) => {
+    if (inst.scope === "validated") return "shared";
+    if (!inst.sourceId && !inst.validatedSnapshot) return "local · new";
+    const diffs = diffFromSnapshot(inst);
+    if (!diffs.length) return "local";
+    const labelFor = {
+      manufacturer: "mfg",
+      model: "model",
+      description: "name",
+      functions: "functions",
+    };
+    return `local · ${diffs.map((d) => labelFor[d.field] || d.field).join(", ")} changed`;
+  };
+
   const combinedDescription =
     [local.make, local.name, local.model].filter(Boolean).join(" ") ||
     "Click to add description";
@@ -618,17 +762,20 @@ const EditableDescriptionCell = ({
         </button>
       )}
 
-      {open &&
-        results.length > 0 &&
-        anchor &&
+      {showMenu &&
+        menuPos &&
         ReactDOM.createPortal(
           <div
             className="inline-desc-search"
             style={{
               ...descSearchDropdownStyle,
               position: "fixed",
-              top: anchor.bottom + 2,
-              left: anchor.left,
+              left: menuPos.left,
+              minWidth: Math.max(260, menuPos.width || 0),
+              maxHeight: menuPos.maxHeight,
+              ...(menuPos.flipUp
+                ? { bottom: menuPos.bottom }
+                : { top: menuPos.top }),
             }}
           >
             {results.map((inst) => (
@@ -655,8 +802,7 @@ const EditableDescriptionCell = ({
                     color: "var(--text-color-muted)",
                   }}
                 >
-                  {inst.scope === "validated" ? "shared" : "local"}
-                  {inst.measurementArea ? ` · ${inst.measurementArea}` : ""}
+                  {describeEntry(inst)}
                 </span>
               </div>
             ))}
@@ -676,6 +822,8 @@ const ResolutionCellInput = ({
   fallbackUnit = "",
   onCommit,
   onCommitUnit,
+  useResolution = false,
+  onToggleUse,
 }) => {
   const [v, setV] = useState(() => toPlainNumber(value));
   useEffect(() => {
@@ -703,6 +851,17 @@ const ResolutionCellInput = ({
         ariaLabel="Resolution unit"
         onChange={onCommitUnit}
       />
+      {onToggleUse && (
+        <input
+          type="checkbox"
+          className="inline-resolution-use"
+          title="Include this resolution in the uncertainty budget"
+          checked={!!useResolution}
+          onChange={(e) => onToggleUse(e.target.checked)}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        />
+      )}
     </span>
   );
 };
@@ -977,7 +1136,19 @@ const InlineToleranceCell = ({
   }
 
   const activeKeys = activeToleranceTypeKeys(tolerance);
-  const visibleKeys = activeKeys.length > 0 ? activeKeys : [typeKey];
+  // No tolerance configured yet — don't auto-show a %IV term. Prompt the user to
+  // add one via the column header (+); a new instrument starts with no tolerance.
+  if (activeKeys.length === 0) {
+    return (
+      <div
+        className="inline-tolerance-editor inline-tolerance-empty"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <span className="inline-tol-empty">Set tolerance…</span>
+      </div>
+    );
+  }
+  const visibleKeys = activeKeys;
 
   return (
     <div className="inline-tolerance-editor" onMouseDown={(e) => e.stopPropagation()}>
@@ -1010,6 +1181,7 @@ const RangeCell = ({
   onSelect,
   onEditBound,
   onEditUnit,
+  onPatchRange,
 }) => {
   if (!editable) {
     return (
@@ -1027,30 +1199,68 @@ const RangeCell = ({
     );
   }
   const unit = activeRange.unit || "";
+  // A range can be a single value (e.g. a 30 kg weight) instead of a min–max
+  // span. We mirror the value into min and max so all downstream math (%FS,
+  // value-based range homing, etc.) keeps working unchanged.
+  const isSingle = !!activeRange.isSingleValue;
+  const singleValue = activeRange.value ?? activeRange.max ?? activeRange.min ?? "";
+  const switchToSingle = () => {
+    const v = activeRange.max ?? activeRange.min ?? "";
+    onPatchRange?.({ isSingleValue: true, value: v, min: v, max: v });
+  };
+  const switchToRange = () => onPatchRange?.({ isSingleValue: false });
+  const commitSingle = (raw) =>
+    onPatchRange?.({ isSingleValue: true, value: raw, min: raw, max: raw });
   return (
     <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
       <div className="inline-range-main">
-        <input
-          key={`min-${activeRange.id}`}
-          type="text"
-          inputMode="decimal"
-          defaultValue={toPlainNumber(activeRange.min)}
-          placeholder="min"
-          onBlur={(e) => onEditBound("min", e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-          className="inline-tolerance-input inline-range-bound-input"
-        />
-        <span style={{ color: "var(--text-color-muted)" }}>–</span>
-        <input
-          key={`max-${activeRange.id}`}
-          type="text"
-          inputMode="decimal"
-          defaultValue={toPlainNumber(activeRange.max)}
-          placeholder="max"
-          onBlur={(e) => onEditBound("max", e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-          className="inline-tolerance-input inline-range-bound-input"
-        />
+        {onPatchRange && (
+          <button
+            type="button"
+            className="inline-range-mode-toggle"
+            title={isSingle ? "Switch to a min–max range" : "Switch to a single value"}
+            aria-label={isSingle ? "Switch to a min–max range" : "Switch to a single value"}
+            onClick={isSingle ? switchToRange : switchToSingle}
+          >
+            {isSingle ? "↔" : "•"}
+          </button>
+        )}
+        {isSingle ? (
+          <input
+            key={`val-${activeRange.id}`}
+            type="text"
+            inputMode="decimal"
+            defaultValue={toPlainNumber(singleValue)}
+            placeholder="value"
+            onBlur={(e) => commitSingle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+            className="inline-tolerance-input inline-range-bound-input"
+          />
+        ) : (
+          <>
+            <input
+              key={`min-${activeRange.id}`}
+              type="text"
+              inputMode="decimal"
+              defaultValue={toPlainNumber(activeRange.min)}
+              placeholder="min"
+              onBlur={(e) => onEditBound("min", e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              className="inline-tolerance-input inline-range-bound-input"
+            />
+            <span style={{ color: "var(--text-color-muted)" }}>–</span>
+            <input
+              key={`max-${activeRange.id}`}
+              type="text"
+              inputMode="decimal"
+              defaultValue={toPlainNumber(activeRange.max)}
+              placeholder="max"
+              onBlur={(e) => onEditBound("max", e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              className="inline-tolerance-input inline-range-bound-input"
+            />
+          </>
+        )}
         <UnitSelect
           value={unit}
           ariaLabel="Range unit"
@@ -1885,6 +2095,34 @@ const SummaryDashboard = ({
     onSessionSave({ ...sessionData, measurementAreas: updatedAreas });
   };
 
+  // TMDE areas aren't always backed by a sidebar measurement area (their
+  // grouping keys off the nested instrument's area name/color). Recolor the
+  // matching session area when one exists AND stamp the color onto every grouped
+  // TMDE, so the swatch works even for TMDE-only areas.
+  const handleTmdeAreaColorChange = (area, rows, color) => {
+    if (!onSessionSave) return;
+    const targetIds = new Set(
+      (rows || []).map((row) => row.item?.id).filter(Boolean),
+    );
+    const updatedAreas = (sessionData.measurementAreas || []).map((a) =>
+      String(a.id) === String(area.id) ? { ...a, color } : a,
+    );
+    const updatedTmdes = (sessionData.tmdes || []).map((t) =>
+      targetIds.has(t.id)
+        ? {
+            ...t,
+            measurementAreaColor: color,
+            instrument: { ...(t.instrument || {}), measurementAreaColor: color },
+          }
+        : t,
+    );
+    onSessionSave({
+      ...sessionData,
+      measurementAreas: updatedAreas,
+      tmdes: updatedTmdes,
+    });
+  };
+
   const handleAreaNameChange = (area, rawName) => {
     if (!onSessionSave || !area?.id) return;
     const name = String(rawName || "").trim();
@@ -1939,63 +2177,46 @@ const SummaryDashboard = ({
     });
   };
 
+  // Rename a measurement-area subsection header.
+  //  - UUT: rename the area in place (handleAreaNameChange). This updates the
+  //    sidebar point list — the old name no longer lingers and no duplicate
+  //    area is spawned.
+  //  - TMDE: only re-label the TMDE grouping (the nested instrument's area
+  //    name). The sidebar point list is driven by UUTs, so a TMDE rename must
+  //    never add or rename a sidebar measurement area.
   const handleAreaGroupNameChange = (area, rows, kind, rawName) => {
+    if (!onSessionSave) return;
+    if (kind === "uut") {
+      handleAreaNameChange(area, rawName);
+      return;
+    }
     const name = String(rawName || "").trim();
-    if (!onSessionSave || !name || name.toLowerCase() === "unassigned") return;
-    if (name === area.name) return;
-
+    if (!name || name === area.name || name.toLowerCase() === "unassigned") return;
     const areas = sessionData.measurementAreas || [];
-    const existingArea = areas.find(
-      (candidate) =>
-        String(candidate.name || "").toLowerCase() === name.toLowerCase(),
+    const matchingSessionArea = areas.find(
+      (candidate) => String(candidate.name || "").toLowerCase() === name.toLowerCase(),
     );
     const color =
-      typeof area.color === "string" && area.color.startsWith("#")
-        ? area.color
-        : AREA_PALETTE[areas.length % AREA_PALETTE.length];
-    const targetArea =
-      existingArea || { id: uuidv4(), name, color, hiddenFromSidebar: area.hiddenFromSidebar };
+      matchingSessionArea?.color ||
+      (typeof area.color === "string" && area.color.startsWith("#") ? area.color : undefined);
     const targetIds = new Set((rows || []).map((row) => row.item?.id).filter(Boolean));
-
-    const updatedUuts =
-      kind === "uut"
-        ? (sessionData.uuts || []).map((uut) =>
-            targetIds.has(uut.id)
-              ? {
-                  ...uut,
-                  measurementAreaId: targetArea.id,
-                  measurementArea: targetArea.name,
-                  measurementAreaColor: targetArea.color,
-                }
-              : uut,
-          )
-        : sessionData.uuts;
-    const updatedTmdes =
-      kind === "tmde"
-        ? (sessionData.tmdes || []).map((tmde) =>
-            targetIds.has(tmde.id)
-              ? {
-                  ...tmde,
-                  measurementAreaId: targetArea.id,
-                  measurementArea: targetArea.name,
-                  instrument: {
-                    ...(tmde.instrument || {}),
-                    measurementArea: targetArea.name,
-                    measurementAreaColor: targetArea.color,
-                  },
-                }
-              : tmde,
-          )
-        : sessionData.tmdes;
-
-    onSessionSave({
-      ...sessionData,
-      measurementAreas: existingArea
-        ? areas
-        : [...areas, targetArea],
-      uuts: updatedUuts,
-      tmdes: updatedTmdes,
-    });
+    const updatedTmdes = (sessionData.tmdes || []).map((tmde) =>
+      targetIds.has(tmde.id)
+        ? {
+            ...tmde,
+            measurementArea: name,
+            measurementAreaId: matchingSessionArea?.id || "",
+            instrument: {
+              ...(tmde.instrument || {}),
+              measurementArea: name,
+              measurementAreaId: matchingSessionArea?.id || undefined,
+              ...(color ? { measurementAreaColor: color } : {}),
+            },
+          }
+        : tmde,
+    );
+    // Intentionally leave measurementAreas untouched (no new sidebar area).
+    onSessionSave({ ...sessionData, tmdes: updatedTmdes });
   };
 
   const renderAreaNameEditor = (area, rows = [], kind = "uut") => {
@@ -2100,6 +2321,7 @@ const SummaryDashboard = ({
     if (!setNotification || !item) return;
     const instrument = itemInstrumentForLibrary(kind, item);
     const state = computeSyncState(instrument);
+    const linked = Boolean(instrument.sourceId) || instrument.scope === "validated";
     const label = libraryLabel(instrument);
 
     if (state === "green") {
@@ -2111,11 +2333,11 @@ const SummaryDashboard = ({
     }
 
     setNotification({
-      title: state === "red" ? "Re-sync Instrument" : "Sync Instrument",
+      title: linked ? "Re-sync Instrument" : "Sync Instrument",
       message: `${syncDiffSummary(getDiff(instrument))} Enter the shared-library password to sync ${label}.`,
       inputLabel: "Shared library password",
       inputPlaceholder: "Password",
-      confirmText: state === "red" ? "Re-sync" : "Sync",
+      confirmText: linked ? "Re-sync" : "Sync",
       validateInput: (value) => (!value.trim() ? "Password is required." : ""),
       onConfirm: async (password) => {
         const result = await syncToShared(instrument, password);
@@ -2154,37 +2376,16 @@ const SummaryDashboard = ({
     });
   };
 
+  // New inline instruments are always saved to the local library automatically
+  // (they stay local / out-of-sync until the user explicitly syncs them to the
+  // shared library). The old "Save Local vs Session Only" prompt was removed.
   const promptLocalLibrarySave = (kind, item) => {
     if (!onSaveInstrument || !item?.instrument) return;
     const key = `${kind}:${item.id}`;
-    if (localLibraryChoices[key]) {
-      if (localLibraryChoices[key] === "local") {
-        saveItemInstrumentToLocalLibrary(kind, item);
-      }
-      return;
-    }
-    const saveLocal = () => {
-      setLocalLibraryChoices((prev) => ({ ...prev, [key]: "local" }));
-      saveItemInstrumentToLocalLibrary(kind, item);
-      setNotification?.(null);
-    };
-    const sessionOnly = () => {
-      setLocalLibraryChoices((prev) => ({ ...prev, [key]: "session" }));
-      setNotification?.(null);
-    };
-    if (!setNotification) {
-      saveLocal();
-      return;
-    }
-    setNotification({
-      title: "Save Instrument",
-      message:
-        "Save this new inline instrument to your local library so it appears in future searches?",
-      confirmText: "Save Local",
-      secondaryText: "Session Only",
-      onConfirm: saveLocal,
-      onSecondary: sessionOnly,
-    });
+    setLocalLibraryChoices((prev) =>
+      prev[key] === "local" ? prev : { ...prev, [key]: "local" },
+    );
+    saveItemInstrumentToLocalLibrary(kind, item);
   };
 
   const refreshSessionPointsForUut = (previousItem, updatedItem) => {
@@ -2203,6 +2404,39 @@ const SummaryDashboard = ({
     });
   };
 
+  // Re-sync every point's per-point TMDE instances with an edited master so a
+  // change made in the Session Overview (e.g. ticking "use resolution", editing
+  // a tolerance/range) flows straight into each point's budget — instead of
+  // waiting for the instance to be rebuilt in the Detailed View. The instance's
+  // per-point config (range index, quantity, asset id, variable, reading) is
+  // preserved; only the spec carried from the master is refreshed.
+  const refreshSessionPointsForTmde = (updatedItem) => {
+    if (!updatedItem) return sessionData.testPoints || [];
+    return (sessionData.testPoints || []).map((point) => {
+      const instances = point.tmdeTolerances;
+      if (!Array.isArray(instances) || instances.length === 0) return point;
+      let touched = false;
+      const nextInstances = instances.map((instance) => {
+        if (!instance) return instance;
+        const matchesMaster =
+          String(instance.id) === String(updatedItem.id) ||
+          String(instance.sourceId) === String(updatedItem.id);
+        if (!matchesMaster) return instance;
+        touched = true;
+        return createInstanceFromDefinition(updatedItem, {
+          existingId: instance.id,
+          quantity: instance.quantity ?? 1,
+          assetId: instance.assetId || "",
+          userFunctionName: instance.functionName || "",
+          userRangeIndex: instance._index ?? 0,
+          userMeasurement: instance.measurementPoint,
+          userVariable: instance.variableType || "",
+        });
+      });
+      return touched ? { ...point, tmdeTolerances: nextInstances } : point;
+    });
+  };
+
   const persistInlineItem = (kind, updatedItem, { maybePromptLocal = false } = {}) => {
     const listKey = kind === "uut" ? "uuts" : "tmdes";
     const previousItem = (sessionData[listKey] || []).find(
@@ -2216,6 +2450,8 @@ const SummaryDashboard = ({
     };
     if (kind === "uut") {
       nextSession.testPoints = refreshSessionPointsForUut(previousItem, updatedItem);
+    } else {
+      nextSession.testPoints = refreshSessionPointsForTmde(updatedItem);
     }
     onSessionSave({
       ...nextSession,
@@ -2304,16 +2540,6 @@ const SummaryDashboard = ({
     return { areas: [...(areas || []), area], area };
   };
 
-  const findLinkedLocalInstrument = (inst) => {
-    const sourceId = inst?.sourceId || (inst?.scope === "validated" ? inst.id : null);
-    if (!sourceId) return null;
-    return (instruments || []).find(
-      (candidate) =>
-        candidate.scope === "local" &&
-        String(candidate.sourceId) === String(sourceId),
-    );
-  };
-
   const instrumentDefFromLibrary = (existing, inst, { track = false, localCopy = false } = {}) => ({
     ...(existing || {}),
     id: existing?.id || uuidv4(),
@@ -2399,17 +2625,16 @@ const SummaryDashboard = ({
   };
 
   const promptLibraryPick = (kind, itemId, inst) => {
-    // Clicking a library match loads it immediately as a local copy — no
-    // confirmation dialog (it was easy to miss, leaving only the typed text).
-    // Tracking against the shared library stays available via the Sync badge.
-    const linkedLocal = findLinkedLocalInstrument(inst);
-    const pickedInstrument = linkedLocal || inst;
-    const options =
-      inst.scope === "validated" && !linkedLocal
-        ? { track: true, localCopy: true, saveLocal: true }
-        : { track: Boolean(pickedInstrument.sourceId || pickedInstrument.scope === "validated") };
-    if (kind === "uut") applyPickedLibraryUut(itemId, pickedInstrument, options);
-    else applyPickedLibraryTmde(itemId, pickedInstrument, options);
+    // Load exactly the entry the user picked — never silently substitute a
+    // diverged local copy for the shared one (or vice-versa). Picking the
+    // shared (validated) entry gives the in-sync version; picking a local entry
+    // gives that local version. Tracking stays available via the Sync badge.
+    const isShared = inst.scope === "validated";
+    const options = isShared
+      ? { track: true, localCopy: false }
+      : { track: Boolean(inst.sourceId) };
+    if (kind === "uut") applyPickedLibraryUut(itemId, inst, options);
+    else applyPickedLibraryTmde(itemId, inst, options);
   };
 
   // --- Reassign an instrument to a different measurement area ---
@@ -2418,7 +2643,26 @@ const SummaryDashboard = ({
   // pinned to the top of the table; once it has an area it must flow into that
   // area's subsection, so we drop the pin here too — otherwise the row stays
   // stranded above the groups and never appears to "move" into the area.
-  const handleChangeUutArea = (uutId, areaId) => {
+  // Moving a shared (in-sync) instrument to a different area detaches it from
+  // the shared definition: keep the link (sourceId/snapshot) so it can be
+  // re-synced, but force it out of sync. Already-local instruments are left as
+  // they are. Only invoked when `markLocal` is requested (drag-and-drop).
+  const markInstrumentLocalIfShared = (instrument) => {
+    if (!instrument) return instrument;
+    if (computeSyncState(instrument) !== "green") return instrument;
+    return {
+      ...instrument,
+      scope: "local",
+      sourceId:
+        instrument.sourceId ||
+        (instrument.scope === "validated" ? instrument.id : undefined),
+      validatedSnapshot:
+        instrument.validatedSnapshot || buildValidatedSnapshot(instrument),
+      localOverride: true,
+    };
+  };
+
+  const handleChangeUutArea = (uutId, areaId, { markLocal = false } = {}) => {
     if (!onSessionSave) return;
     const area = (sessionData.measurementAreas || []).find(
       (a) => String(a.id) === String(areaId),
@@ -2430,33 +2674,84 @@ const SummaryDashboard = ({
             measurementAreaId: area ? area.id : "",
             measurementArea: area ? area.name : "",
             measurementAreaColor: area ? area.color : "",
+            instrument: markLocal
+              ? markInstrumentLocalIfShared(u.instrument)
+              : u.instrument,
           }
         : u,
     );
     setPinnedInlineUutIds((prev) => prev.filter((id) => id !== uutId));
     onSessionSave({ ...sessionData, uuts: updatedUuts });
   };
-  const handleChangeTmdeArea = (tmdeId, areaId) => {
+  const handleChangeTmdeArea = (tmdeId, areaId, { markLocal = false } = {}) => {
     if (!onSessionSave) return;
     const area = (sessionData.measurementAreas || []).find(
       (a) => String(a.id) === String(areaId),
     );
-    const updatedTmdes = (sessionData.tmdes || []).map((t) =>
-      t.id === tmdeId
-        ? {
-            ...t,
-            measurementAreaId: area ? area.id : "",
-            measurementArea: area ? area.name : "",
-            instrument: {
-              ...(t.instrument || {}),
-              measurementArea: area ? area.name : "",
-              measurementAreaColor: area ? area.color : "",
-            },
-          }
-        : t,
-    );
+    const updatedTmdes = (sessionData.tmdes || []).map((t) => {
+      if (t.id !== tmdeId) return t;
+      const withArea = {
+        ...(t.instrument || {}),
+        measurementArea: area ? area.name : "",
+        measurementAreaColor: area ? area.color : "",
+      };
+      return {
+        ...t,
+        measurementAreaId: area ? area.id : "",
+        measurementArea: area ? area.name : "",
+        instrument: markLocal ? markInstrumentLocalIfShared(withArea) : withArea,
+      };
+    });
     setPinnedInlineTmdeIds((prev) => prev.filter((id) => id !== tmdeId));
     onSessionSave({ ...sessionData, tmdes: updatedTmdes });
+  };
+
+  // --- Drag a UUT/TMDE row from one measurement-area subsection to another ---
+  // Dragging carries { id, kind } via the dataTransfer; dropping onto an area
+  // header (or any row in that area) reassigns the instrument's area. Dragging a
+  // shared instrument also flips it out of sync (markLocal).
+  const [draggingInstrumentId, setDraggingInstrumentId] = useState(null);
+  const handleInstrumentDragStart = (kind, item) => (e) => {
+    // Don't hijack text selection / clicks inside the row's editable controls.
+    if (
+      e.target.closest(
+        "input, select, textarea, button, a, .inline-desc-fields",
+      )
+    ) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", JSON.stringify({ id: item.id, kind }));
+    setDraggingInstrumentId(item.id);
+  };
+  const handleInstrumentDragEnd = () => setDraggingInstrumentId(null);
+  const allowInstrumentDrop = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+  const resolveItemAreaId = (kind, item) => {
+    if (!item) return "";
+    if (kind === "uut") return item.measurementAreaId || "";
+    if (item.measurementAreaId) return item.measurementAreaId;
+    const name = item.instrument?.measurementArea || item.measurementArea || "";
+    const area = (sessionData.measurementAreas || []).find(
+      (a) => name && a.name === name,
+    );
+    return area ? area.id : "";
+  };
+  const handleInstrumentDropOnArea = (kind, targetAreaId) => (e) => {
+    e.preventDefault();
+    let payload = null;
+    try {
+      payload = JSON.parse(e.dataTransfer.getData("text/plain"));
+    } catch {
+      payload = null;
+    }
+    setDraggingInstrumentId(null);
+    if (!payload || payload.kind !== kind) return;
+    if (kind === "uut") handleChangeUutArea(payload.id, targetAreaId, { markLocal: true });
+    else handleChangeTmdeArea(payload.id, targetAreaId, { markLocal: true });
   };
 
   // Create a new measurement area inline from the area control and assign it,
@@ -2635,6 +2930,11 @@ const SummaryDashboard = ({
     const updatedItem = applyItemRangePatch(item, rangeId, { resolutionUnit: value });
     persistInlineItem(kind, updatedItem);
   };
+  const setRangeUseResolution = (kind, item, rangeId, checked) => {
+    if (!onSessionSave) return;
+    const updatedItem = applyItemRangePatch(item, rangeId, { includeResolutionInBudget: checked });
+    persistInlineItem(kind, updatedItem);
+  };
   const setRangeUnit = (kind, item, rangeId, value) => {
     if (!onSessionSave) return;
     const updatedItem = applyItemRangePatch(item, rangeId, { unit: value });
@@ -2648,6 +2948,10 @@ const SummaryDashboard = ({
   const handleEditRangeBound = (kind, item, rangeId, field, value) => {
     if (!onSessionSave) return;
     persistItem(kind, applyItemRangePatch(item, rangeId, { [field]: value }));
+  };
+  const patchRange = (kind, item, rangeId, patch) => {
+    if (!onSessionSave) return;
+    persistItem(kind, applyItemRangePatch(item, rangeId, patch));
   };
   const handleAddRange = (kind, item, activeRangeId, currentCount) => {
     if (!onSessionSave) return;
@@ -2679,7 +2983,7 @@ const SummaryDashboard = ({
 
   // A header color swatch that opens the native picker on click. Falls back to a
   // plain dot for the synthetic "Unassigned" group (no real area id to write).
-  const renderAreaColorSwatch = (area) => {
+  const renderAreaColorSwatch = (area, rows = [], kind = "uut") => {
     const hasId = Boolean(area.id);
     const color =
       typeof area.color === "string" && area.color.startsWith("#")
@@ -2714,7 +3018,11 @@ const SummaryDashboard = ({
         <input
           type="color"
           value={color}
-          onChange={(e) => handleAreaColorChange(area.id, e.target.value)}
+          onChange={(e) =>
+            kind === "tmde"
+              ? handleTmdeAreaColorChange(area, rows, e.target.value)
+              : handleAreaColorChange(area.id, e.target.value)
+          }
           style={{
             position: "absolute",
             top: 0,
@@ -2762,18 +3070,26 @@ const SummaryDashboard = ({
   const handleAddSelectedRange = (kind) => {
     const target = getSelectedRangeTarget(kind);
     if (!target) return;
-    handleAddRange(
-      kind,
-      target.item,
-      target.activeRange?.id,
-      target.ranges.length,
-    );
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    confirmViaNotification(setNotification, {
+      title: "Add Range",
+      message: `Add a new range to this ${label}?`,
+      confirmText: "Add Range",
+      onConfirm: () =>
+        handleAddRange(kind, target.item, target.activeRange?.id, target.ranges.length),
+    });
   };
 
   const handleRemoveSelectedRange = (kind) => {
     const target = getSelectedRangeTarget(kind);
     if (!target || target.ranges.length <= 1) return;
-    handleRemoveRange(kind, target.item, target.activeRange?.id);
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    confirmViaNotification(setNotification, {
+      title: "Delete Range",
+      message: `Delete the active range from this ${label}? This can't be undone.`,
+      confirmText: "Delete",
+      onConfirm: () => handleRemoveRange(kind, target.item, target.activeRange?.id),
+    });
   };
 
   const renderRangeHeaderActions = (kind) => {
@@ -2866,21 +3182,31 @@ const SummaryDashboard = ({
     if (!target || !target.hasSelectedTolerance || !target.tolerance[target.selectedType]) {
       return;
     }
-    const next = { ...target.tolerance };
-    delete next[target.selectedType];
-    const remaining = activeToleranceTypeKeys(next);
-    const nextSelected = remaining[0] || "reading";
-    const updatedItem = applyItemRangeTolerance(
-      target.item,
-      target.activeRange?.id,
-      next,
-    );
-    persistInlineItem(kind, updatedItem);
-    setToleranceTypes((prev) => ({
-      ...prev,
-      [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: nextSelected,
-    }));
-    setSelectedToleranceKey(null);
+    const termLabel =
+      TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === target.selectedType)?.label ||
+      "tolerance";
+    confirmViaNotification(setNotification, {
+      title: "Delete Tolerance Term",
+      message: `Delete the ${termLabel} tolerance term? This can't be undone.`,
+      confirmText: "Delete",
+      onConfirm: () => {
+        const next = { ...target.tolerance };
+        delete next[target.selectedType];
+        const remaining = activeToleranceTypeKeys(next);
+        const nextSelected = remaining[0] || "reading";
+        const updatedItem = applyItemRangeTolerance(
+          target.item,
+          target.activeRange?.id,
+          next,
+        );
+        persistInlineItem(kind, updatedItem);
+        setToleranceTypes((prev) => ({
+          ...prev,
+          [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: nextSelected,
+        }));
+        setSelectedToleranceKey(null);
+      },
+    });
   };
 
   const renderToleranceHeaderActions = (kind) => {
@@ -3245,6 +3571,125 @@ const SummaryDashboard = ({
     handleDeleteSelectedTmdes,
   ]);
 
+  // --- Cut / copy / paste of instrument rows (context menu + ctrl-c/x/v) ---
+  const [rowMenu, setRowMenu] = useState(null);
+
+  const copyInstrument = (kind, item, mode = "copy") => {
+    instrumentClipboard = { kind, mode, item: JSON.parse(JSON.stringify(item)) };
+  };
+
+  const pasteInstrument = (kind, targetAreaId) => {
+    if (!onSessionSave || !instrumentClipboard) return;
+    const clip = instrumentClipboard;
+    if (clip.kind !== kind) return;
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    const area = (sessionData.measurementAreas || []).find(
+      (a) => String(a.id) === String(targetAreaId),
+    );
+    if (clip.mode === "cut") {
+      const moved = buildPastedInstrumentRow(clip.item, kind, area, "cut");
+      const list = (sessionData[listKey] || []).map((row) =>
+        row.id === clip.item.id ? moved : row,
+      );
+      instrumentClipboard = null;
+      onSessionSave({ ...sessionData, [listKey]: list });
+    } else {
+      const clone = buildPastedInstrumentRow(clip.item, kind, area, "copy");
+      if (kind === "uut") setSelectedUutIds([clone.id]);
+      else setSelectedTmdeIds([clone.id]);
+      onSessionSave({
+        ...sessionData,
+        [listKey]: [clone, ...(sessionData[listKey] || [])],
+      });
+    }
+  };
+
+  const deleteInstrumentRow = (kind, id) => {
+    if (kind === "uut") onDeleteUut?.([id]);
+    else onDeleteTmdeDefinition?.([id]);
+  };
+
+  const openInstrumentRowMenu = (e, kind, item) => {
+    if (!onSessionSave) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (kind === "uut") setSelectedUutIds([item.id]);
+    else setSelectedTmdeIds([item.id]);
+    const canPaste = !!instrumentClipboard && instrumentClipboard.kind === kind;
+    const areaId =
+      kind === "uut" ? item.measurementAreaId : resolveItemAreaId("tmde", item);
+    const items = [
+      { label: "Copy", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
+      { label: "Cut", icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
+    ];
+    if (canPaste) {
+      items.push({
+        label: "Paste",
+        icon: faPaste,
+        action: () => pasteInstrument(kind, areaId),
+      });
+    }
+    items.push({ type: "divider" });
+    items.push({
+      label: "Delete",
+      icon: faTrashAlt,
+      className: "destructive",
+      action: () => deleteInstrumentRow(kind, item.id),
+    });
+    setRowMenu({ x: e.clientX, y: e.clientY, items });
+  };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!onSessionSave || !(e.ctrlKey || e.metaKey)) return;
+      const ae = document.activeElement;
+      if (
+        ae &&
+        (ae.tagName === "INPUT" ||
+          ae.tagName === "TEXTAREA" ||
+          ae.isContentEditable)
+      ) {
+        return;
+      }
+      const key = e.key.toLowerCase();
+      const oneUut = selectedUutIds.length === 1 ? selectedUutIds[0] : null;
+      const oneTmde = selectedTmdeIds.length === 1 ? selectedTmdeIds[0] : null;
+      const kind = oneUut ? "uut" : oneTmde ? "tmde" : null;
+      const findItem = (k, id) =>
+        (k === "uut" ? sessionData.uuts : sessionData.tmdes)?.find(
+          (x) => x.id === id,
+        );
+
+      if ((key === "c" || key === "x") && kind) {
+        const item = findItem(kind, oneUut || oneTmde);
+        if (item) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          copyInstrument(kind, item, key === "x" ? "cut" : "copy");
+        }
+      } else if (key === "v" && instrumentClipboard) {
+        const pasteKind = instrumentClipboard.kind;
+        // Only handle paste when a row of the clipboard's kind is selected, so
+        // we never steal Ctrl+V from the app's point/UUT clipboard.
+        const haveTarget =
+          (pasteKind === "uut" && oneUut) || (pasteKind === "tmde" && oneTmde);
+        if (!haveTarget) return;
+        const areaId =
+          pasteKind === "uut"
+            ? (findItem("uut", oneUut) || {}).measurementAreaId || ""
+            : resolveItemAreaId("tmde", findItem("tmde", oneTmde) || {});
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        pasteInstrument(pasteKind, areaId);
+      }
+    };
+    // Capture phase so this preempts the app-level point/UUT clipboard handler
+    // when an instrument-table row is the active selection.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUutIds, selectedTmdeIds, sessionData, onSessionSave]);
+
   const resolveRangeWrapper = (uut, indices, savedTol, nominal) => {
     return resolveUutRangeHelper(uut, indices, savedTol, nominal);
   };
@@ -3314,11 +3759,10 @@ const SummaryDashboard = ({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
+              <col style={{ width: "24%" }} />
               <col style={{ width: "22%" }} />
-              <col style={{ width: "20%" }} />
-              <col style={{ width: "29%" }} />
-              <col style={{ width: "11%" }} />
-              <col style={{ width: "12%" }} />
+              <col style={{ width: "32%" }} />
+              <col style={{ width: "16%" }} />
               <col style={{ width: "6%" }} />
             </colgroup>
             <thead>
@@ -3336,7 +3780,6 @@ const SummaryDashboard = ({
                     {renderToleranceHeaderActions("uut")}
                   </span>
                 </th>
-                <th className="cell-distribution">Distribution</th>
                 <th>Resolution</th>
                 <th className="cell-sync">Sync</th>
               </tr>
@@ -3344,7 +3787,7 @@ const SummaryDashboard = ({
             <tbody>
               {filteredUuts.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={6}>
+                  <td colSpan={5}>
                     No UUTs found in this context.
                   </td>
                 </tr>
@@ -3355,9 +3798,11 @@ const SummaryDashboard = ({
                       <tr
                         key={`uut-area-${row.area.id || row.area.name}`}
                         className="instrument-area-section-row"
+                        onDragOver={allowInstrumentDrop}
+                        onDrop={handleInstrumentDropOnArea("uut", row.area.id || "")}
                       >
-                        <td colSpan={6}>
-                          {renderAreaColorSwatch(row.area)}
+                        <td colSpan={5}>
+                          {renderAreaColorSwatch(row.area, row.items, "uut")}
                           {renderAreaNameEditor(row.area, row.items, "uut")}
                         </td>
                       </tr>
@@ -3417,9 +3862,16 @@ const SummaryDashboard = ({
                       <tr
                         className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleUutClick(e, uut.id)}
+                        onContextMenu={(e) => openInstrumentRowMenu(e, "uut", uut)}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
+                        draggable={!!onSessionSave && showAreaColumn}
+                        onDragStart={handleInstrumentDragStart("uut", uut)}
+                        onDragEnd={handleInstrumentDragEnd}
+                        onDragOver={allowInstrumentDrop}
+                        onDrop={handleInstrumentDropOnArea("uut", resolveItemAreaId("uut", uut))}
                         style={{
                           cursor: "pointer",
+                          opacity: draggingInstrumentId === uut.id ? 0.4 : undefined,
                           borderBottom:
                             specRows.length > 1 ? "none" : undefined,
                         }}
@@ -3455,7 +3907,7 @@ const SummaryDashboard = ({
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut", colIndex: 1 })
                           }
-                          style={{ verticalAlign: "top" }}
+                          style={{ verticalAlign: "middle" }}
                         >
                           <RangeCell
                             ranges={ranges}
@@ -3470,6 +3922,9 @@ const SummaryDashboard = ({
                             }
                             onEditUnit={(value) =>
                               setRangeUnit("uut", uut, activeRange?.id, value)
+                            }
+                            onPatchRange={(patch) =>
+                              patchRange("uut", uut, activeRange?.id, patch)
                             }
                           />
                         </td>
@@ -3511,30 +3966,6 @@ const SummaryDashboard = ({
                         </td>
                         <td
                           rowSpan={rowSpan}
-                          className="cell-distribution"
-                          title="Spec band distribution"
-                          style={{ verticalAlign: "top" }}
-                        >
-                          {onSessionSave && getBandDistDivisor(activeTolerance) ? (
-                            <select
-                              className="session-selector"
-                              value={getBandDistDivisor(activeTolerance)}
-                              onChange={(e) =>
-                                setRangeBandDistribution("uut", uut, activeRange?.id, e.target.value)
-                              }
-                            >
-                              {errorDistributions.map((d) => (
-                                <option key={d.value} value={d.value}>
-                                  {d.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            getBandDistLabel(activeTolerance)
-                          )}
-                        </td>
-                        <td
-                          rowSpan={rowSpan}
                           className={`cell-value ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut", colIndex: 3 })
@@ -3551,6 +3982,10 @@ const SummaryDashboard = ({
                               }
                               onCommitUnit={(value) =>
                                 setRangeResolutionUnit("uut", uut, activeRange?.id, value)
+                              }
+                              useResolution={activeRange?.includeResolutionInBudget}
+                              onToggleUse={(checked) =>
+                                setRangeUseResolution("uut", uut, activeRange?.id, checked)
                               }
                             />
                           ) : (
@@ -3670,9 +4105,11 @@ const SummaryDashboard = ({
                       <tr
                         key={`tmde-area-${row.area.id || row.area.name}`}
                         className="instrument-area-section-row"
+                        onDragOver={allowInstrumentDrop}
+                        onDrop={handleInstrumentDropOnArea("tmde", row.area.id || "")}
                       >
                         <td colSpan={6}>
-                          {renderAreaColorSwatch(row.area)}
+                          {renderAreaColorSwatch(row.area, row.items, "tmde")}
                           {renderAreaNameEditor(row.area, row.items, "tmde")}
                         </td>
                       </tr>
@@ -3708,9 +4145,16 @@ const SummaryDashboard = ({
                       <tr
                         className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleTmdeClick(e, tmde.id)}
+                        onContextMenu={(e) => openInstrumentRowMenu(e, "tmde", tmde)}
                         onMouseEnter={() => setHoveredRowId(tmde.id)}
+                        draggable={!!onSessionSave && showAreaColumn}
+                        onDragStart={handleInstrumentDragStart("tmde", tmde)}
+                        onDragEnd={handleInstrumentDragEnd}
+                        onDragOver={allowInstrumentDrop}
+                        onDrop={handleInstrumentDropOnArea("tmde", resolveItemAreaId("tmde", tmde))}
                         style={{
                           cursor: "pointer",
+                          opacity: draggingInstrumentId === tmde.id ? 0.4 : undefined,
                           borderBottom:
                             specRows.length > 1 ? "none" : undefined,
                         }}
@@ -3760,7 +4204,7 @@ const SummaryDashboard = ({
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "tmde", colIndex: 1 })
                           }
-                          style={{ verticalAlign: "top" }}
+                          style={{ verticalAlign: "middle" }}
                         >
                           <RangeCell
                             ranges={ranges}
@@ -3775,6 +4219,9 @@ const SummaryDashboard = ({
                             }
                             onEditUnit={(value) =>
                               setRangeUnit("tmde", tmde, activeRange?.id, value)
+                            }
+                            onPatchRange={(patch) =>
+                              patchRange("tmde", tmde, activeRange?.id, patch)
                             }
                           />
                         </td>
@@ -3818,7 +4265,7 @@ const SummaryDashboard = ({
                           rowSpan={rowSpan}
                           className="cell-distribution"
                           title="Spec band distribution"
-                          style={{ verticalAlign: "top" }}
+                          style={{ verticalAlign: "middle" }}
                         >
                           {onSessionSave && getBandDistDivisor(activeTolerance) ? (
                             <select
@@ -3856,6 +4303,10 @@ const SummaryDashboard = ({
                               }
                               onCommitUnit={(value) =>
                                 setRangeResolutionUnit("tmde", tmde, activeRange?.id, value)
+                              }
+                              useResolution={activeRange?.includeResolutionInBudget}
+                              onToggleUse={(checked) =>
+                                setRangeUseResolution("tmde", tmde, activeRange?.id, checked)
                               }
                             />
                           ) : (
@@ -3898,6 +4349,7 @@ const SummaryDashboard = ({
         </div>
       </div>
 
+      <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
     </div>
   );
 };
@@ -3953,6 +4405,124 @@ function DetailedView({
   const [selectedUutIds, setSelectedUutIds] = useState([]);
   const [selectedTmdeIds, setSelectedTmdeIds] = useState([]);
   const [equationTmdeSelections, setEquationTmdeSelections] = useState({});
+
+  // --- Cut / copy / paste of instrument rows (shared module clipboard) ---
+  const [rowMenu, setRowMenu] = useState(null);
+  const resolveDetailAreaId = (kind, item) => {
+    if (!item) return "";
+    if (kind === "uut") return item.measurementAreaId || "";
+    if (item.measurementAreaId) return item.measurementAreaId;
+    const name = item.instrument?.measurementArea || item.measurementArea || "";
+    const area = (sessionData.measurementAreas || []).find(
+      (a) => name && a.name === name,
+    );
+    return area ? area.id : "";
+  };
+  const copyInstrument = (kind, item, mode = "copy") => {
+    instrumentClipboard = { kind, mode, item: JSON.parse(JSON.stringify(item)) };
+  };
+  const pasteInstrument = (kind, targetAreaId) => {
+    if (!onSessionSave || !instrumentClipboard) return;
+    const clip = instrumentClipboard;
+    if (clip.kind !== kind) return;
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    const area = (sessionData.measurementAreas || []).find(
+      (a) => String(a.id) === String(targetAreaId),
+    );
+    if (clip.mode === "cut") {
+      const moved = buildPastedInstrumentRow(clip.item, kind, area, "cut");
+      const list = (sessionData[listKey] || []).map((row) =>
+        row.id === clip.item.id ? moved : row,
+      );
+      instrumentClipboard = null;
+      onSessionSave({ ...sessionData, [listKey]: list });
+    } else {
+      const clone = buildPastedInstrumentRow(clip.item, kind, area, "copy");
+      if (kind === "uut") setSelectedUutIds([clone.id]);
+      else setSelectedTmdeIds([clone.id]);
+      onSessionSave({
+        ...sessionData,
+        [listKey]: [clone, ...(sessionData[listKey] || [])],
+      });
+    }
+  };
+  const deleteInstrumentRow = (kind, id) => {
+    if (kind === "uut") onDeleteUut?.([id]);
+    else onDeleteTmdeDefinition?.([id]);
+  };
+  const openInstrumentRowMenu = (e, kind, item) => {
+    if (!onSessionSave) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (kind === "uut") setSelectedUutIds([item.id]);
+    else setSelectedTmdeIds([item.id]);
+    const canPaste = !!instrumentClipboard && instrumentClipboard.kind === kind;
+    const areaId = resolveDetailAreaId(kind, item);
+    const items = [
+      { label: "Copy", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
+      { label: "Cut", icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
+    ];
+    if (canPaste) {
+      items.push({
+        label: "Paste",
+        icon: faPaste,
+        action: () => pasteInstrument(kind, areaId),
+      });
+    }
+    items.push({ type: "divider" });
+    items.push({
+      label: "Delete",
+      icon: faTrashAlt,
+      className: "destructive",
+      action: () => deleteInstrumentRow(kind, item.id),
+    });
+    setRowMenu({ x: e.clientX, y: e.clientY, items });
+  };
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!onSessionSave || !(e.ctrlKey || e.metaKey)) return;
+      const ae = document.activeElement;
+      if (
+        ae &&
+        (ae.tagName === "INPUT" ||
+          ae.tagName === "TEXTAREA" ||
+          ae.isContentEditable)
+      ) {
+        return;
+      }
+      const key = e.key.toLowerCase();
+      const oneUut = selectedUutIds.length === 1 ? selectedUutIds[0] : null;
+      const oneTmde = selectedTmdeIds.length === 1 ? selectedTmdeIds[0] : null;
+      const kind = oneUut ? "uut" : oneTmde ? "tmde" : null;
+      const findItem = (k, id) =>
+        (k === "uut" ? sessionData.uuts : sessionData.tmdes)?.find(
+          (x) => x.id === id,
+        );
+      if ((key === "c" || key === "x") && kind) {
+        const item = findItem(kind, oneUut || oneTmde);
+        if (item) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          copyInstrument(kind, item, key === "x" ? "cut" : "copy");
+        }
+      } else if (key === "v" && instrumentClipboard) {
+        const pasteKind = instrumentClipboard.kind;
+        const haveTarget =
+          (pasteKind === "uut" && oneUut) || (pasteKind === "tmde" && oneTmde);
+        if (!haveTarget) return;
+        const areaId = resolveDetailAreaId(
+          pasteKind,
+          findItem(pasteKind, pasteKind === "uut" ? oneUut : oneTmde) || {},
+        );
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        pasteInstrument(pasteKind, areaId);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUutIds, selectedTmdeIds, sessionData, onSessionSave]);
 
   // Industry Grade Highlighting State
   // Industry Grade Highlighting State
@@ -4030,6 +4600,7 @@ function DetailedView({
     if (!setNotification || !item) return;
     const instrument = itemInstrumentForLibrary(kind, item);
     const state = computeSyncState(instrument);
+    const linked = Boolean(instrument.sourceId) || instrument.scope === "validated";
     const label = libraryLabel(instrument);
 
     if (state === "green") {
@@ -4041,11 +4612,11 @@ function DetailedView({
     }
 
     setNotification({
-      title: state === "red" ? "Re-sync Instrument" : "Sync Instrument",
+      title: linked ? "Re-sync Instrument" : "Sync Instrument",
       message: `${syncDiffSummary(getDiff(instrument))} Enter the shared-library password to sync ${label}.`,
       inputLabel: "Shared library password",
       inputPlaceholder: "Password",
-      confirmText: state === "red" ? "Re-sync" : "Sync",
+      confirmText: linked ? "Re-sync" : "Sync",
       validateInput: (value) => (!value.trim() ? "Password is required." : ""),
       onConfirm: async (password) => {
         const result = await syncToShared(instrument, password);
@@ -4389,17 +4960,16 @@ function DetailedView({
     if (updatedItem) refreshPointTmdeInstance(updatedItem, { reselectRange: true });
   };
   const promptLibraryPick = (kind, itemId, inst) => {
-    // Clicking a library match loads it immediately as a local copy — no
-    // confirmation dialog (it was easy to miss, leaving only the typed text).
-    // Tracking against the shared library stays available via the Sync badge.
-    const linkedLocal = findLinkedLocalInstrument(inst);
-    const pickedInstrument = linkedLocal || inst;
-    const options =
-      inst.scope === "validated" && !linkedLocal
-        ? { track: true, localCopy: true, saveLocal: true }
-        : { track: Boolean(pickedInstrument.sourceId || pickedInstrument.scope === "validated") };
-    if (kind === "uut") applyPickedLibraryUut(itemId, pickedInstrument, options);
-    else applyPickedLibraryTmde(itemId, pickedInstrument, options);
+    // Load exactly the entry the user picked — never silently substitute a
+    // diverged local copy for the shared one (or vice-versa). Picking the
+    // shared (validated) entry gives the in-sync version; picking a local entry
+    // gives that local version. Tracking stays available via the Sync badge.
+    const isShared = inst.scope === "validated";
+    const options = isShared
+      ? { track: true, localCopy: false }
+      : { track: Boolean(inst.sourceId) };
+    if (kind === "uut") applyPickedLibraryUut(itemId, inst, options);
+    else applyPickedLibraryTmde(itemId, inst, options);
   };
   const handleChangeUutArea = (uutId, areaId) => {
     if (!onSessionSave) return;
@@ -4520,6 +5090,8 @@ function DetailedView({
     );
   const setRangeUnitDetail = (kind, item, rangeId, value) =>
     persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, { unit: value }));
+  const patchRangeDetail = (kind, item, rangeId, patch) =>
+    persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, patch));
   const setRangeResolutionDetail = (kind, item, rangeId, value) =>
     persistInlineItemDetail(
       kind,
@@ -4529,6 +5101,11 @@ function DetailedView({
     persistInlineItemDetail(
       kind,
       applyItemRangePatch(item, rangeId, { resolutionUnit: value }),
+    );
+  const setRangeUseResolutionDetail = (kind, item, rangeId, checked) =>
+    persistInlineItemDetail(
+      kind,
+      applyItemRangePatch(item, rangeId, { includeResolutionInBudget: checked }),
     );
   // Spec-band distribution (the Distribution column) — writes the divisor back to
   // the same range tolerance the tolerance editor owns.
@@ -4627,17 +5204,25 @@ function DetailedView({
   const handleAddSelectedRangeDetail = (kind) => {
     const target = getSelectedRangeTargetDetail(kind);
     if (!target) return;
-    handleAddRangeDetail(
-      kind,
-      target.item,
-      target.activeRange?.id,
-      target.ranges.length,
-    );
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    confirmViaNotification(setNotification, {
+      title: "Add Range",
+      message: `Add a new range to this ${label}?`,
+      confirmText: "Add Range",
+      onConfirm: () =>
+        handleAddRangeDetail(kind, target.item, target.activeRange?.id, target.ranges.length),
+    });
   };
   const handleRemoveSelectedRangeDetail = (kind) => {
     const target = getSelectedRangeTargetDetail(kind);
     if (!target || target.ranges.length <= 1) return;
-    handleRemoveRangeDetail(kind, target.item, target.activeRange?.id);
+    const label = kind === "uut" ? "UUT" : "TMDE";
+    confirmViaNotification(setNotification, {
+      title: "Delete Range",
+      message: `Delete the active range from this ${label}? This can't be undone.`,
+      confirmText: "Delete",
+      onConfirm: () => handleRemoveRangeDetail(kind, target.item, target.activeRange?.id),
+    });
   };
   const renderRangeHeaderActionsDetail = (kind) => {
     if (!onSessionSave) return null;
@@ -4725,19 +5310,29 @@ function DetailedView({
       !target.tolerance[target.selectedType]
     )
       return;
-    const next = { ...target.tolerance };
-    delete next[target.selectedType];
-    const remaining = activeToleranceTypeKeys(next);
-    const nextSelected = remaining[0] || "reading";
-    persistInlineItemDetail(
-      kind,
-      applyItemRangeTolerance(target.item, target.activeRange?.id, next),
-    );
-    setToleranceTypes((prev) => ({
-      ...prev,
-      [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: nextSelected,
-    }));
-    setSelectedToleranceKey(null);
+    const termLabel =
+      TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === target.selectedType)?.label ||
+      "tolerance";
+    confirmViaNotification(setNotification, {
+      title: "Delete Tolerance Term",
+      message: `Delete the ${termLabel} tolerance term? This can't be undone.`,
+      confirmText: "Delete",
+      onConfirm: () => {
+        const next = { ...target.tolerance };
+        delete next[target.selectedType];
+        const remaining = activeToleranceTypeKeys(next);
+        const nextSelected = remaining[0] || "reading";
+        persistInlineItemDetail(
+          kind,
+          applyItemRangeTolerance(target.item, target.activeRange?.id, next),
+        );
+        setToleranceTypes((prev) => ({
+          ...prev,
+          [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: nextSelected,
+        }));
+        setSelectedToleranceKey(null);
+      },
+    });
   };
   const renderToleranceHeaderActionsDetail = (kind) => {
     if (!onSessionSave) return null;
@@ -6134,11 +6729,10 @@ function DetailedView({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "26%" }} />
+              <col style={{ width: "28%" }} />
+              <col style={{ width: "24%" }} />
               <col style={{ width: "22%" }} />
-              <col style={{ width: "20%" }} />
-              <col style={{ width: "12%" }} />
-              <col style={{ width: "12%" }} />
+              <col style={{ width: "18%" }} />
               <col style={{ width: "8%" }} />
             </colgroup>
             <thead>
@@ -6156,7 +6750,6 @@ function DetailedView({
                     {renderToleranceHeaderActionsDetail("uut")}
                   </span>
                 </th>
-                <th className="cell-distribution">Distribution</th>
                 <th>Resolution</th>
                 <th className="cell-sync">Sync</th>
               </tr>
@@ -6164,7 +6757,7 @@ function DetailedView({
             <tbody>
               {relevantUuts.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan="6">No associated UUTs found.</td>
+                  <td colSpan="5">No associated UUTs found.</td>
                 </tr>
               ) : (
                 relevantUuts.map((uut) => {
@@ -6190,6 +6783,7 @@ function DetailedView({
                           cursor: "pointer",
                         }}
                         onClick={(e) => handleUutClick(e, uut.id)}
+                        onContextMenu={(e) => openInstrumentRowMenu(e, "uut", uut)}
                         title="Click to select"
                       >
                         <td
@@ -6237,7 +6831,7 @@ function DetailedView({
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut_det", colIndex: 1 })
                           }
-                          style={{ verticalAlign: "top" }}
+                          style={{ verticalAlign: "middle" }}
                         >
                           <RangeCell
                             ranges={ranges}
@@ -6257,6 +6851,9 @@ function DetailedView({
                             }
                             onEditUnit={(value) =>
                               setRangeUnitDetail("uut", uut, activeRange?.id, value)
+                            }
+                            onPatchRange={(patch) =>
+                              patchRangeDetail("uut", uut, activeRange?.id, patch)
                             }
                           />
                         </td>
@@ -6316,45 +6913,6 @@ function DetailedView({
                         </td>
                         <td
                           rowSpan={rowSpan}
-                          className="cell-distribution"
-                          title="Spec band distribution"
-                          style={{ verticalAlign: "top" }}
-                        >
-                          {onSessionSave &&
-                          getBandDistDivisor(
-                            getItemRangeTolerance(uut, activeRange?.id) ||
-                              activeRange,
-                          ) ? (
-                            <select
-                              className="session-selector"
-                              value={getBandDistDivisor(
-                                getItemRangeTolerance(uut, activeRange?.id) ||
-                                  activeRange,
-                              )}
-                              onChange={(e) =>
-                                setRangeBandDistributionDetail(
-                                  "uut",
-                                  uut,
-                                  activeRange?.id,
-                                  e.target.value,
-                                )
-                              }
-                            >
-                              {errorDistributions.map((d) => (
-                                <option key={d.value} value={d.value}>
-                                  {d.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            getBandDistLabel(
-                              getItemRangeTolerance(uut, activeRange?.id) ||
-                                activeRange,
-                            )
-                          )}
-                        </td>
-                        <td
-                          rowSpan={rowSpan}
                           className={`cell-value ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut_det", colIndex: 3 })
@@ -6371,6 +6929,10 @@ function DetailedView({
                               }
                               onCommitUnit={(value) =>
                                 setRangeResolutionUnitDetail("uut", uut, activeRange?.id, value)
+                              }
+                              useResolution={activeRange?.includeResolutionInBudget}
+                              onToggleUse={(checked) =>
+                                setRangeUseResolutionDetail("uut", uut, activeRange?.id, checked)
                               }
                             />
                           ) : (
@@ -6862,6 +7424,9 @@ function DetailedView({
                               cursor: "pointer",
                             }}
                             onClick={(e) => handleTmdeClick(e, masterTmde.id)}
+                            onContextMenu={(e) =>
+                              openInstrumentRowMenu(e, "tmde", masterTmde)
+                            }
                             title="Click to select"
                           >
                             <td
@@ -6998,7 +7563,7 @@ function DetailedView({
                                   colIndex: 2,
                                 })
                               }
-                              style={{ verticalAlign: "top" }}
+                              style={{ verticalAlign: "middle" }}
                             >
                               <RangeCell
                                 ranges={ranges}
@@ -7023,6 +7588,14 @@ function DetailedView({
                                     masterTmde,
                                     activeRange?.id,
                                     value,
+                                  )
+                                }
+                                onPatchRange={(patch) =>
+                                  patchRangeDetail(
+                                    "tmde",
+                                    masterTmde,
+                                    activeRange?.id,
+                                    patch,
                                   )
                                 }
                               />
@@ -7096,7 +7669,7 @@ function DetailedView({
                               rowSpan={rowSpan}
                               className="cell-distribution"
                               title="Spec band distribution"
-                              style={{ verticalAlign: "top" }}
+                              style={{ verticalAlign: "middle" }}
                             >
                               {onSessionSave &&
                               getBandDistDivisor(
@@ -7174,6 +7747,15 @@ function DetailedView({
                                       masterTmde,
                                       activeRange?.id,
                                       value,
+                                    )
+                                  }
+                                  useResolution={activeRange?.includeResolutionInBudget}
+                                  onToggleUse={(checked) =>
+                                    setRangeUseResolutionDetail(
+                                      "tmde",
+                                      masterTmde,
+                                      activeRange?.id,
+                                      checked,
                                     )
                                   }
                                 />
@@ -7312,6 +7894,7 @@ function DetailedView({
           </p>
         </div>
       )}
+      <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
     </div>
   );
 }

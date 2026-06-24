@@ -10386,6 +10386,16 @@ body.theme-cyberpunk .notification-window .window-header {
   vertical-align: top;
 }
 
+/* In the inline-editable tables, center the range / tolerance / resolution
+   inputs so they line up with the description and sync icon (read-only
+   multi-spec rows above keep their top alignment). */
+.instrument-summary-table td.cell-tolerance:has(.inline-tolerance-editor),
+.instrument-summary-table td.cell-value:has(.inline-range-editor),
+.instrument-summary-table td.cell-value:has(.inline-resolution-editor),
+.instrument-summary-table td.cell-distribution:has(.session-selector) {
+  vertical-align: middle;
+}
+
 /* Tables inside panel cards fill fully */
 .panel-table-container .instrument-summary-table {
   width: 100%;
@@ -10590,6 +10600,37 @@ input.inline-desc-subinput {
   width: 100%;
   min-width: 0;
   max-width: 100%;
+}
+
+/* Range / single-value mode toggle in the Range column. */
+.inline-range-mode-toggle {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.inline-range-mode-toggle:hover {
+  color: var(--text-color);
+  border-color: var(--primary-color);
+}
+
+/* "Use this resolution in the budget" toggle, sits right of the unit dropdown. */
+.inline-resolution-use {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  margin-left: 2px;
+}
+.inline-resolution-use input[type="checkbox"] {
+  cursor: pointer;
+  margin: 0;
 }
 
 .inline-range-select-shell {

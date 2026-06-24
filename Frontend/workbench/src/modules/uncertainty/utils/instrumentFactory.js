@@ -16,17 +16,35 @@ import { v4 as uuidv4 } from 'uuid';
 const flattenSpecs = (range, unitFn) => {
     // 1. Identify where specs are hiding (Legacy vs Modern)
     const rawSpecs = range.tolerances || range.tolerance || {};
-    
+
     // 2. Construct the flat object
     return {
         // Core Range Props
         min: range.min,
         max: range.max,
         unit: unitFn || range.unit || "",
-        
-        // Resolution can be at root (legacy) or inside specs (modern)
-        resolution: range.resolution || rawSpecs.resolution,
-        
+
+        // Resolution can be at root (legacy) or inside specs (modern). Carry the
+        // unit and the budget opt-in flag too, so the uncertainty budget can
+        // include the measuring-resolution component for this instance (the
+        // budget readers fall back across `resolution`/`measuringResolution`).
+        resolution: range.resolution ?? rawSpecs.resolution,
+        resolutionUnit: range.resolutionUnit ?? rawSpecs.resolutionUnit,
+        includeResolutionInBudget:
+            range.includeResolutionInBudget ?? rawSpecs.includeResolutionInBudget,
+        measuringResolution: range.measuringResolution ?? rawSpecs.measuringResolution,
+        measuringResolutionUnit:
+            range.measuringResolutionUnit ?? rawSpecs.measuringResolutionUnit,
+        measuringResolutionDistribution:
+            range.measuringResolutionDistribution ??
+            rawSpecs.measuringResolutionDistribution,
+
+        // Single-value (point) range: preserve the flag/value so a point-style
+        // range (e.g. a 30 kg weight) round-trips through the instance.
+        ...(range.isSingleValue
+            ? { isSingleValue: true, value: range.value }
+            : {}),
+
         // Spread the nested specs (reading, floor, range, etc.) to the root
         ...rawSpecs
     };

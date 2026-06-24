@@ -271,13 +271,21 @@ export const getBudgetComponentsFromTolerance = (
   // Only included when the instrument/UUT explicitly opted in (#10). Modeled as
   // a rectangular distribution spanning one least-significant-digit, i.e.
   // u = LSD / (2*sqrt(3)).
-  const resVal = parseFloat(toleranceObject.measuringResolution);
+  // The LSD lives under `measuringResolution` (instrument-range tolerances) or
+  // `resolution` (inline tables / derived equation tolerances); read both, and
+  // mirror the unit/distribution fallbacks the same way.
+  const resVal = parseFloat(
+    toleranceObject.measuringResolution ?? toleranceObject.resolution,
+  );
   if (
     toleranceObject.includeResolutionInBudget &&
     !isNaN(resVal) &&
     resVal > 0
   ) {
-    const resUnit = toleranceObject.measuringResolutionUnit || nominalUnit;
+    const resUnit =
+      toleranceObject.measuringResolutionUnit ||
+      toleranceObject.resolutionUnit ||
+      nominalUnit;
     const resBase = unitSystem.toBaseUnit(resVal, resUnit);
     if (!isNaN(resBase) && resBase > 0) {
       // Resolution rounding spans one LSD (half-width = LSD/2). The divisor is
@@ -288,7 +296,10 @@ export const getBudgetComponentsFromTolerance = (
       const resDistEntry = errorDistributions.find(
         (d) =>
           parseFloat(d.value) ===
-          parseFloat(toleranceObject.measuringResolutionDistribution),
+          parseFloat(
+            toleranceObject.measuringResolutionDistribution ??
+              toleranceObject.resolutionDistribution,
+          ),
       );
       const resDistRaw = resDistEntry ? resDistEntry.value : "1.732";
       const resDivisor = parseFloat(resDistRaw) || 1.732;
