@@ -10404,6 +10404,39 @@ body.theme-cyberpunk .notification-window .window-header {
   box-shadow: none;
 }
 
+.panel-table-container .equipment-summary-table {
+  min-width: 1020px;
+}
+
+.panel-table-container .equipment-detail-table {
+  min-width: 1120px;
+}
+
+.equipment-summary-table th,
+.equipment-summary-table td,
+.equipment-detail-table th,
+.equipment-detail-table td {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.equipment-summary-table .inline-range-editor,
+.equipment-summary-table .inline-tolerance-editor,
+.equipment-summary-table .inline-resolution-editor,
+.equipment-detail-table .inline-range-editor,
+.equipment-detail-table .inline-tolerance-editor,
+.equipment-detail-table .inline-resolution-editor {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.equipment-summary-table .cell-distribution .session-selector,
+.equipment-detail-table .cell-distribution .session-selector,
+.equipment-detail-table .tmde-input-assignment {
+  width: 100%;
+  min-width: 0;
+}
+
 /* Legacy non-inline table selects can fill their cell. Inline instrument table
    selects are compact controls and are styled below. */
 .panel-table-container .session-selector:not(.cell-distribution .session-selector) {
@@ -10595,11 +10628,16 @@ input.inline-desc-subinput {
 .inline-resolution-editor {
   display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
   width: 100%;
   min-width: 0;
   max-width: 100%;
+}
+
+.instrument-summary-table td.cell-value:has(.inline-resolution-editor) {
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 /* Range / single-value mode toggle in the Range column. */
@@ -10744,9 +10782,35 @@ input.inline-desc-subinput {
   transform: none;
 }
 
+.range-header-action-btn--view.is-active {
+  color: var(--primary-color);
+  border-color: color-mix(in srgb, var(--primary-color) 42%, transparent);
+  background: rgba(var(--primary-rgb), 0.08);
+}
+
 .range-header-action-btn:disabled {
   cursor: not-allowed;
   opacity: 0.4;
+}
+
+.range-stack {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+}
+
+.range-stack-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.range-stack-row > .inline-range-editor,
+.range-stack-row > .inline-tolerance-editor,
+.range-stack-row > .inline-resolution-editor,
+.range-stack-row > .session-selector {
+  width: 100%;
 }
 
 .tolerance-add-menu {
@@ -10876,8 +10940,9 @@ input.inline-range-bound-input {
 }
 
 input.inline-resolution-input {
-  width: 70px;
-  flex-basis: 70px;
+  width: 92px;
+  flex: 1 1 92px;
+  min-width: 82px;
 }
 
 .inline-tolerance-unit,

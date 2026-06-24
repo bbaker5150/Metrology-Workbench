@@ -31,6 +31,8 @@ import {
   faCopy,
   faPaste,
   faScissors,
+  faEye,
+  faEyeSlash,
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
@@ -245,7 +247,7 @@ const buildGroupedUnitOptions = () => {
   return options;
 };
 
-const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit" }) => {
+const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) => {
   const groupedUnitOptions = useMemo(() => buildGroupedUnitOptions(), []);
   const flatUnitOptions = useMemo(
     () => groupedUnitOptions.flatMap((group) => group.options || []),
@@ -266,7 +268,7 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit" }) => {
       className="inline-unit-select"
       onMouseDown={(e) => e.stopPropagation()}
       aria-label={ariaLabel}
-      style={{ "--inline-unit-width": unitWidth }}
+      style={{ "--inline-unit-width": width || unitWidth }}
     >
       <Select
         value={selectedOption}
@@ -290,6 +292,9 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit" }) => {
 // concern). Handles the common instrument.functions[].ranges[] shape plus the
 // instrument.ranges / item.ranges / single-default fallbacks.
 const sameId = (a, b) => String(a) === String(b);
+const rangeStateKey = (kind, itemId, rangeId) =>
+  `${kind}:${itemId || ""}:${rangeId || "default"}`;
+const itemStateKey = (kind, itemId) => `${kind}:${itemId || ""}`;
 const getItemRangeTolerance = (item, rangeId) => {
   const inst = item?.instrument || {};
   const find = (ranges) => (ranges || []).find((r) => sameId(r.id, rangeId));
@@ -850,6 +855,7 @@ const ResolutionCellInput = ({
         value={unit || fallbackUnit || ""}
         ariaLabel="Resolution unit"
         onChange={onCommitUnit}
+        width="58px"
       />
       {onToggleUse && (
         <input
@@ -1182,6 +1188,7 @@ const RangeCell = ({
   onEditBound,
   onEditUnit,
   onPatchRange,
+  allowSingleToggle = false,
 }) => {
   if (!editable) {
     return (
@@ -1214,7 +1221,7 @@ const RangeCell = ({
   return (
     <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
       <div className="inline-range-main">
-        {onPatchRange && (
+        {onPatchRange && allowSingleToggle && (
           <button
             type="button"
             className="inline-range-mode-toggle"
@@ -1265,6 +1272,7 @@ const RangeCell = ({
           value={unit}
           ariaLabel="Range unit"
           onChange={(value) => onEditUnit(value)}
+          width="58px"
         />
         {ranges.length > 1 && (
           <span className="inline-range-select-shell" title="Switch range">
@@ -1288,6 +1296,23 @@ const RangeCell = ({
   );
 };
 
+const getVisibleRangeRows = (ranges = [], activeIndex = 0, activeRange = {}, showAll = false) => {
+  if (showAll && ranges.length > 0) {
+    return ranges.map((range, index) => ({
+      range,
+      index,
+      key: range?.id || `${index}`,
+    }));
+  }
+  return [
+    {
+      range: activeRange || ranges[activeIndex] || {},
+      index: activeIndex || 0,
+      key: activeRange?.id || `${activeIndex || 0}`,
+    },
+  ];
+};
+
 const SymbolButton = ({ symbol, title, onSymbolClick }) => (
   <button
     type="button"
@@ -1301,7 +1326,7 @@ const SymbolButton = ({ symbol, title, onSymbolClick }) => (
 
 const isInlineRowControlTarget = (target) =>
   target.closest(
-    "input, select, textarea, button, .inline-desc-search, .inline-range-editor, .inline-tolerance-editor",
+    "input, select, textarea, button, .inline-desc-search, .react-select__control, .react-select__menu",
   );
 
 const handleRowSelection = (e, id, setSelected) => {
@@ -2955,14 +2980,26 @@ const SummaryDashboard = ({
   };
   const handleAddRange = (kind, item, activeRangeId, currentCount) => {
     if (!onSessionSave) return;
-    const { item: updated } = addRangeToItem(item, activeRangeId);
+    const { item: updated, newRangeId } = addRangeToItem(item, activeRangeId);
     persistItem(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     setIdx((prev) => ({ ...prev, [item.id]: currentCount })); // appended → last index
+    if (newRangeId) {
+      setNewRangeKeys((prev) => {
+        const next = new Set(prev);
+        next.add(rangeStateKey(kind, item.id, newRangeId));
+        return next;
+      });
+    }
   };
   const handleRemoveRange = (kind, item, rangeId) => {
     if (!onSessionSave) return;
     persistItem(kind, removeRangeFromItem(item, rangeId));
+    setNewRangeKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(rangeStateKey(kind, item.id, rangeId));
+      return next;
+    });
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     setIdx((prev) => {
       const next = { ...prev };
@@ -2973,6 +3010,19 @@ const SummaryDashboard = ({
 
   // Inline edit of the spec-band distribution from the Distribution column —
   // writes back to the same instrument range spec the tolerance popover edits.
+  const toggleShowAllRanges = (kind, itemId) => {
+    setExpandedRangeKeys((prev) => {
+      const next = new Set(prev);
+      const key = itemStateKey(kind, itemId);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const isShowingAllRanges = (kind, itemId) =>
+    expandedRangeKeys.has(itemStateKey(kind, itemId));
+
   const setRangeBandDistribution = (kind, item, rangeId, value) => {
     if (!onSessionSave) return;
     const cur = getItemRangeTolerance(item, rangeId) || {};
@@ -3046,6 +3096,8 @@ const SummaryDashboard = ({
 
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
+  const [newRangeKeys, setNewRangeKeys] = useState(() => new Set());
+  const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
   const [pinnedInlineUutIds, setPinnedInlineUutIds] = useState([]);
   const [pinnedInlineTmdeIds, setPinnedInlineTmdeIds] = useState([]);
 
@@ -3099,6 +3151,8 @@ const SummaryDashboard = ({
     const label = kind === "uut" ? "UUT" : "TMDE";
     const canAdd = Boolean(target);
     const canRemove = Boolean(target && target.ranges.length > 1);
+    const canToggleAll = canRemove;
+    const showingAll = Boolean(target && isShowingAllRanges(kind, target.item.id));
 
     return (
       <span className="range-header-actions" onClick={(e) => e.stopPropagation()}>
@@ -3125,6 +3179,26 @@ const SummaryDashboard = ({
           onClick={() => handleRemoveSelectedRange(kind)}
         >
           <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+        </button>
+        <button
+          type="button"
+          className={`range-header-action-btn range-header-action-btn--view${showingAll ? " is-active" : ""}`}
+          title={
+            canToggleAll
+              ? showingAll
+                ? `Show active range only for selected ${label}`
+                : `Show all ranges for selected ${label}`
+              : `Select one ${label} with multiple ranges to view all ranges`
+          }
+          aria-label={
+            showingAll
+              ? `Show active range only for selected ${label}`
+              : `Show all ranges for selected ${label}`
+          }
+          disabled={!canToggleAll}
+          onClick={() => toggleShowAllRanges(kind, target.item.id)}
+        >
+          <FontAwesomeIcon icon={showingAll ? faEyeSlash : faEye} size="xs" />
         </button>
       </span>
     );
@@ -3856,6 +3930,13 @@ const SummaryDashboard = ({
                       ? specRows.length
                       : 1;
                   const isSelected = selectedUutIds.includes(uut.id);
+                  const showAllRanges = isShowingAllRanges("uut", uut.id);
+                  const visibleRangeRows = getVisibleRangeRows(
+                    ranges,
+                    activeIndex,
+                    activeRange,
+                    showAllRanges,
+                  );
 
                   return (
                     <React.Fragment key={uut.id}>
@@ -3909,24 +3990,33 @@ const SummaryDashboard = ({
                           }
                           style={{ verticalAlign: "middle" }}
                         >
-                          <RangeCell
-                            ranges={ranges}
-                            activeIndex={activeIndex}
-                            activeRange={activeRange}
-                            editable={!!onSessionSave}
-                            onSelect={(idx) =>
-                              setLocalRangeIndices((prev) => ({ ...prev, [uut.id]: idx }))
-                            }
-                            onEditBound={(field, value) =>
-                              handleEditRangeBound("uut", uut, activeRange?.id, field, value)
-                            }
-                            onEditUnit={(value) =>
-                              setRangeUnit("uut", uut, activeRange?.id, value)
-                            }
-                            onPatchRange={(patch) =>
-                              patchRange("uut", uut, activeRange?.id, patch)
-                            }
-                          />
+                          <div className={showAllRanges ? "range-stack" : undefined}>
+                            {visibleRangeRows.map(({ range, index, key }) => (
+                              <div className="range-stack-row" key={key}>
+                                <RangeCell
+                                  ranges={showAllRanges ? [range] : ranges}
+                                  activeIndex={showAllRanges ? 0 : activeIndex}
+                                  activeRange={range}
+                                  editable={!!onSessionSave}
+                                  allowSingleToggle={newRangeKeys.has(
+                                    rangeStateKey("uut", uut.id, range?.id),
+                                  )}
+                                  onSelect={(idx) =>
+                                    setLocalRangeIndices((prev) => ({ ...prev, [uut.id]: idx }))
+                                  }
+                                  onEditBound={(field, value) =>
+                                    handleEditRangeBound("uut", uut, range?.id, field, value)
+                                  }
+                                  onEditUnit={(value) =>
+                                    setRangeUnit("uut", uut, range?.id, value)
+                                  }
+                                  onPatchRange={(patch) =>
+                                    patchRange("uut", uut, range?.id, patch)
+                                  }
+                                />
+                              </div>
+                            ))}
+                          </div>
                         </td>
                         <td
                           className={`cell-tolerance ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
@@ -3935,34 +4025,44 @@ const SummaryDashboard = ({
                           }
                           title={specRows[0]}
                         >
-                          {onSessionSave ? (
-                            <InlineToleranceCell
-                              tolerance={activeTolerance}
-                              activeRange={activeRange}
-                              typeKey={selectedToleranceType}
-                              selectedType={
-                                selectedToleranceKey ===
-                                toleranceTypeKey("uut", uut, activeRange?.id)
-                                  ? selectedToleranceType
-                                  : null
-                              }
-                              editable={!!onSessionSave}
-                              onSelectType={(typeKey) =>
-                                setSelectedToleranceType("uut", uut, activeRange, typeKey)
-                              }
-                              onCommit={(typeKey, component) =>
-                                setRangeToleranceComponent(
-                                  "uut",
-                                  uut,
-                                  activeRange,
-                                  typeKey,
-                                  component,
-                                )
-                              }
-                            />
-                          ) : (
-                            specRows[0]
-                          )}
+                          <div className={showAllRanges ? "range-stack" : undefined}>
+                            {visibleRangeRows.map(({ range, key }) => {
+                              const tolerance = getItemRangeTolerance(uut, range?.id) || range;
+                              const typeKey = getSelectedToleranceType("uut", uut, range);
+                              return (
+                                <div className="range-stack-row" key={key}>
+                                  {onSessionSave ? (
+                                    <InlineToleranceCell
+                                      tolerance={tolerance}
+                                      activeRange={range}
+                                      typeKey={typeKey}
+                                      selectedType={
+                                        selectedToleranceKey ===
+                                        toleranceTypeKey("uut", uut, range?.id)
+                                          ? typeKey
+                                          : null
+                                      }
+                                      editable={!!onSessionSave}
+                                      onSelectType={(nextTypeKey) =>
+                                        setSelectedToleranceType("uut", uut, range, nextTypeKey)
+                                      }
+                                      onCommit={(nextTypeKey, component) =>
+                                        setRangeToleranceComponent(
+                                          "uut",
+                                          uut,
+                                          range,
+                                          nextTypeKey,
+                                          component,
+                                        )
+                                      }
+                                    />
+                                  ) : (
+                                    getSpecRows(tolerance)[0]
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </td>
                         <td
                           rowSpan={rowSpan}
@@ -3972,25 +4072,31 @@ const SummaryDashboard = ({
                           }
                           title={formatResolutionLabel(activeRange)}
                         >
-                          {onSessionSave ? (
-                            <ResolutionCellInput
-                              value={activeRange?.resolution ?? activeRange?.measuringResolution}
-                              unit={activeRange?.resolutionUnit ?? activeRange?.measuringResolutionUnit}
-                              fallbackUnit={activeRange?.unit}
-                              onCommit={(v) =>
-                                setRangeResolution("uut", uut, activeRange?.id, v)
-                              }
-                              onCommitUnit={(value) =>
-                                setRangeResolutionUnit("uut", uut, activeRange?.id, value)
-                              }
-                              useResolution={activeRange?.includeResolutionInBudget}
-                              onToggleUse={(checked) =>
-                                setRangeUseResolution("uut", uut, activeRange?.id, checked)
-                              }
-                            />
-                          ) : (
-                            formatResolutionLabel(activeRange)
-                          )}
+                          <div className={showAllRanges ? "range-stack" : undefined}>
+                            {visibleRangeRows.map(({ range, key }) => (
+                              <div className="range-stack-row" key={key}>
+                                {onSessionSave ? (
+                                  <ResolutionCellInput
+                                    value={range?.resolution ?? range?.measuringResolution}
+                                    unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
+                                    fallbackUnit={range?.unit}
+                                    onCommit={(v) =>
+                                      setRangeResolution("uut", uut, range?.id, v)
+                                    }
+                                    onCommitUnit={(value) =>
+                                      setRangeResolutionUnit("uut", uut, range?.id, value)
+                                    }
+                                    useResolution={range?.includeResolutionInBudget}
+                                    onToggleUse={(checked) =>
+                                      setRangeUseResolution("uut", uut, range?.id, checked)
+                                    }
+                                  />
+                                ) : (
+                                  formatResolutionLabel(range)
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </td>
                         <td
                           rowSpan={rowSpan}
@@ -4058,7 +4164,7 @@ const SummaryDashboard = ({
         </div>
         <div className="panel-table-container">
           <table
-            className="instrument-summary-table industry-table"
+            className="instrument-summary-table industry-table equipment-summary-table"
             onMouseLeave={() => {
               setHoveredCell({ tableId: null, colIndex: null });
               setHoveredRowId(null);
@@ -4066,12 +4172,12 @@ const SummaryDashboard = ({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "22%" }} />
+              <col style={{ width: "21%" }} />
+              <col style={{ width: "24%" }} />
               <col style={{ width: "20%" }} />
-              <col style={{ width: "29%" }} />
-              <col style={{ width: "11%" }} />
               <col style={{ width: "12%" }} />
-              <col style={{ width: "6%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "5%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -4139,6 +4245,13 @@ const SummaryDashboard = ({
                       ? specRows.length
                       : 1;
                   const isSelected = selectedTmdeIds.includes(tmde.id);
+                  const showAllRanges = isShowingAllRanges("tmde", tmde.id);
+                  const visibleRangeRows = getVisibleRangeRows(
+                    ranges,
+                    activeIndex,
+                    activeRange,
+                    showAllRanges,
+                  );
 
                   return (
                     <React.Fragment key={tmde.id || idx}>
@@ -4206,24 +4319,33 @@ const SummaryDashboard = ({
                           }
                           style={{ verticalAlign: "middle" }}
                         >
-                          <RangeCell
-                            ranges={ranges}
-                            activeIndex={activeIndex}
-                            activeRange={activeRange}
-                            editable={!!onSessionSave}
-                            onSelect={(idx) =>
-                              setTmdeRangeIndices((prev) => ({ ...prev, [tmde.id]: idx }))
-                            }
-                            onEditBound={(field, value) =>
-                              handleEditRangeBound("tmde", tmde, activeRange?.id, field, value)
-                            }
-                            onEditUnit={(value) =>
-                              setRangeUnit("tmde", tmde, activeRange?.id, value)
-                            }
-                            onPatchRange={(patch) =>
-                              patchRange("tmde", tmde, activeRange?.id, patch)
-                            }
-                          />
+                          <div className={showAllRanges ? "range-stack" : undefined}>
+                            {visibleRangeRows.map(({ range, key }) => (
+                              <div className="range-stack-row" key={key}>
+                                <RangeCell
+                                  ranges={showAllRanges ? [range] : ranges}
+                                  activeIndex={showAllRanges ? 0 : activeIndex}
+                                  activeRange={range}
+                                  editable={!!onSessionSave}
+                                  allowSingleToggle={newRangeKeys.has(
+                                    rangeStateKey("tmde", tmde.id, range?.id),
+                                  )}
+                                  onSelect={(idx) =>
+                                    setTmdeRangeIndices((prev) => ({ ...prev, [tmde.id]: idx }))
+                                  }
+                                  onEditBound={(field, value) =>
+                                    handleEditRangeBound("tmde", tmde, range?.id, field, value)
+                                  }
+                                  onEditUnit={(value) =>
+                                    setRangeUnit("tmde", tmde, range?.id, value)
+                                  }
+                                  onPatchRange={(patch) =>
+                                    patchRange("tmde", tmde, range?.id, patch)
+                                  }
+                                />
+                              </div>
+                            ))}
+                          </div>
                         </td>
                         <td
                           className={`cell-tolerance ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
@@ -4232,34 +4354,44 @@ const SummaryDashboard = ({
                           }
                           title={specRows[0]}
                         >
-                          {onSessionSave ? (
-                            <InlineToleranceCell
-                              tolerance={activeTolerance}
-                              activeRange={activeRange}
-                              typeKey={selectedToleranceType}
-                              selectedType={
-                                selectedToleranceKey ===
-                                toleranceTypeKey("tmde", tmde, activeRange?.id)
-                                  ? selectedToleranceType
-                                  : null
-                              }
-                              editable={!!onSessionSave}
-                              onSelectType={(typeKey) =>
-                                setSelectedToleranceType("tmde", tmde, activeRange, typeKey)
-                              }
-                              onCommit={(typeKey, component) =>
-                                setRangeToleranceComponent(
-                                  "tmde",
-                                  tmde,
-                                  activeRange,
-                                  typeKey,
-                                  component,
-                                )
-                              }
-                            />
-                          ) : (
-                            specRows[0]
-                          )}
+                          <div className={showAllRanges ? "range-stack" : undefined}>
+                            {visibleRangeRows.map(({ range, key }) => {
+                              const tolerance = getItemRangeTolerance(tmde, range?.id) || range;
+                              const typeKey = getSelectedToleranceType("tmde", tmde, range);
+                              return (
+                                <div className="range-stack-row" key={key}>
+                                  {onSessionSave ? (
+                                    <InlineToleranceCell
+                                      tolerance={tolerance}
+                                      activeRange={range}
+                                      typeKey={typeKey}
+                                      selectedType={
+                                        selectedToleranceKey ===
+                                        toleranceTypeKey("tmde", tmde, range?.id)
+                                          ? typeKey
+                                          : null
+                                      }
+                                      editable={!!onSessionSave}
+                                      onSelectType={(nextTypeKey) =>
+                                        setSelectedToleranceType("tmde", tmde, range, nextTypeKey)
+                                      }
+                                      onCommit={(nextTypeKey, component) =>
+                                        setRangeToleranceComponent(
+                                          "tmde",
+                                          tmde,
+                                          range,
+                                          nextTypeKey,
+                                          component,
+                                        )
+                                      }
+                                    />
+                                  ) : (
+                                    getSpecRows(tolerance)[0]
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </td>
                         <td
                           rowSpan={rowSpan}
@@ -4267,23 +4399,32 @@ const SummaryDashboard = ({
                           title="Spec band distribution"
                           style={{ verticalAlign: "middle" }}
                         >
-                          {onSessionSave && getBandDistDivisor(activeTolerance) ? (
-                            <select
-                              className="session-selector"
-                              value={getBandDistDivisor(activeTolerance)}
-                              onChange={(e) =>
-                                setRangeBandDistribution("tmde", tmde, activeRange?.id, e.target.value)
-                              }
-                            >
-                              {errorDistributions.map((d) => (
-                                <option key={d.value} value={d.value}>
-                                  {d.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            getBandDistLabel(activeTolerance)
-                          )}
+                          <div className={showAllRanges ? "range-stack" : undefined}>
+                            {visibleRangeRows.map(({ range, key }) => {
+                              const tolerance = getItemRangeTolerance(tmde, range?.id) || range;
+                              return (
+                                <div className="range-stack-row" key={key}>
+                                  {onSessionSave && getBandDistDivisor(tolerance) ? (
+                                    <select
+                                      className="session-selector"
+                                      value={getBandDistDivisor(tolerance)}
+                                      onChange={(e) =>
+                                        setRangeBandDistribution("tmde", tmde, range?.id, e.target.value)
+                                      }
+                                    >
+                                      {errorDistributions.map((d) => (
+                                        <option key={d.value} value={d.value}>
+                                          {d.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    getBandDistLabel(tolerance)
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </td>
                         <td
                           rowSpan={rowSpan}
@@ -4293,25 +4434,31 @@ const SummaryDashboard = ({
                           }
                           title={formatResolutionLabel(activeRange)}
                         >
-                          {onSessionSave ? (
-                            <ResolutionCellInput
-                              value={activeRange?.resolution ?? activeRange?.measuringResolution}
-                              unit={activeRange?.resolutionUnit ?? activeRange?.measuringResolutionUnit}
-                              fallbackUnit={activeRange?.unit}
-                              onCommit={(v) =>
-                                setRangeResolution("tmde", tmde, activeRange?.id, v)
-                              }
-                              onCommitUnit={(value) =>
-                                setRangeResolutionUnit("tmde", tmde, activeRange?.id, value)
-                              }
-                              useResolution={activeRange?.includeResolutionInBudget}
-                              onToggleUse={(checked) =>
-                                setRangeUseResolution("tmde", tmde, activeRange?.id, checked)
-                              }
-                            />
-                          ) : (
-                            formatResolutionLabel(activeRange)
-                          )}
+                          <div className={showAllRanges ? "range-stack" : undefined}>
+                            {visibleRangeRows.map(({ range, key }) => (
+                              <div className="range-stack-row" key={key}>
+                                {onSessionSave ? (
+                                  <ResolutionCellInput
+                                    value={range?.resolution ?? range?.measuringResolution}
+                                    unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
+                                    fallbackUnit={range?.unit}
+                                    onCommit={(v) =>
+                                      setRangeResolution("tmde", tmde, range?.id, v)
+                                    }
+                                    onCommitUnit={(value) =>
+                                      setRangeResolutionUnit("tmde", tmde, range?.id, value)
+                                    }
+                                    useResolution={range?.includeResolutionInBudget}
+                                    onToggleUse={(checked) =>
+                                      setRangeUseResolution("tmde", tmde, range?.id, checked)
+                                    }
+                                  />
+                                ) : (
+                                  formatResolutionLabel(range)
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </td>
                         <td
                           rowSpan={rowSpan}
@@ -4400,6 +4547,8 @@ function DetailedView({
     left: 0,
   });
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
+  const [newRangeKeys, setNewRangeKeys] = useState(() => new Set());
+  const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
 
   // --- NEW: Local Selection State ---
   const [selectedUutIds, setSelectedUutIds] = useState([]);
@@ -5119,14 +5268,26 @@ function DetailedView({
   };
   const handleAddRangeDetail = (kind, item, activeRangeId, currentCount) => {
     if (!onSessionSave) return;
-    const { item: updated } = addRangeToItem(item, activeRangeId);
+    const { item: updated, newRangeId } = addRangeToItem(item, activeRangeId);
     persistInlineItemDetail(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     setIdx((prev) => ({ ...prev, [item.id]: currentCount }));
+    if (newRangeId) {
+      setNewRangeKeys((prev) => {
+        const next = new Set(prev);
+        next.add(rangeStateKey(kind, item.id, newRangeId));
+        return next;
+      });
+    }
   };
   const handleRemoveRangeDetail = (kind, item, rangeId) => {
     if (!onSessionSave) return;
     persistInlineItemDetail(kind, removeRangeFromItem(item, rangeId));
+    setNewRangeKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(rangeStateKey(kind, item.id, rangeId));
+      return next;
+    });
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     setIdx((prev) => {
       const next = { ...prev };
@@ -5134,6 +5295,19 @@ function DetailedView({
       return next;
     });
   };
+
+  const toggleShowAllRangesDetail = (kind, itemId) => {
+    setExpandedRangeKeys((prev) => {
+      const next = new Set(prev);
+      const key = itemStateKey(kind, itemId);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const isShowingAllRangesDetail = (kind, itemId) =>
+    expandedRangeKeys.has(itemStateKey(kind, itemId));
 
   // --- Tolerance term machine (matches SummaryDashboard) ---
   const toleranceTypeKey = (kind, item, rangeId) =>
@@ -5230,6 +5404,10 @@ function DetailedView({
     const label = kind === "uut" ? "UUT" : "TMDE";
     const canAdd = Boolean(target);
     const canRemove = Boolean(target && target.ranges.length > 1);
+    const canToggleAll = canRemove;
+    const showingAll = Boolean(
+      target && isShowingAllRangesDetail(kind, target.item.id),
+    );
     return (
       <span className="range-header-actions" onClick={(e) => e.stopPropagation()}>
         <button
@@ -5251,6 +5429,16 @@ function DetailedView({
           onClick={() => handleRemoveSelectedRangeDetail(kind)}
         >
           <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+        </button>
+        <button
+          type="button"
+          className={`range-header-action-btn range-header-action-btn--view${showingAll ? " is-active" : ""}`}
+          title={canToggleAll ? (showingAll ? `Show active range only for selected ${label}` : `Show all ranges for selected ${label}`) : `Select one ${label} with multiple ranges to view all ranges`}
+          aria-label={showingAll ? `Show active range only for selected ${label}` : `Show all ranges for selected ${label}`}
+          disabled={!canToggleAll}
+          onClick={() => toggleShowAllRangesDetail(kind, target.item.id)}
+        >
+          <FontAwesomeIcon icon={showingAll ? faEyeSlash : faEye} size="xs" />
         </button>
       </span>
     );
@@ -6773,6 +6961,13 @@ function DetailedView({
                   const specRows = getSpecRows(activeRange);
                   const rowSpan = !onSessionSave && specRows.length > 0 ? specRows.length : 1;
                   const isSelected = selectedUutIds.includes(uut.id);
+                  const showAllRanges = isShowingAllRangesDetail("uut", uut.id);
+                  const visibleRangeRows = getVisibleRangeRows(
+                    ranges,
+                    activeIndex,
+                    activeRange,
+                    showAllRanges,
+                  );
 
                   return (
                     <React.Fragment key={uut.id}>
@@ -6833,29 +7028,38 @@ function DetailedView({
                           }
                           style={{ verticalAlign: "middle" }}
                         >
-                          <RangeCell
-                            ranges={ranges}
-                            activeIndex={activeIndex}
-                            activeRange={activeRange}
-                            editable={!!onSessionSave}
-                            onSelect={(idx) =>
-                              handleRangeChange(
-                                uut.id,
-                                idx,
-                                ranges,
-                                isActivePointUut,
-                              )
-                            }
-                            onEditBound={(field, value) =>
-                              handleEditRangeBoundDetail("uut", uut, activeRange?.id, field, value)
-                            }
-                            onEditUnit={(value) =>
-                              setRangeUnitDetail("uut", uut, activeRange?.id, value)
-                            }
-                            onPatchRange={(patch) =>
-                              patchRangeDetail("uut", uut, activeRange?.id, patch)
-                            }
-                          />
+                          <div className={showAllRanges ? "range-stack" : undefined}>
+                            {visibleRangeRows.map(({ range, key }) => (
+                              <div className="range-stack-row" key={key}>
+                                <RangeCell
+                                  ranges={showAllRanges ? [range] : ranges}
+                                  activeIndex={showAllRanges ? 0 : activeIndex}
+                                  activeRange={range}
+                                  editable={!!onSessionSave}
+                                  allowSingleToggle={newRangeKeys.has(
+                                    rangeStateKey("uut", uut.id, range?.id),
+                                  )}
+                                  onSelect={(idx) =>
+                                    handleRangeChange(
+                                      uut.id,
+                                      idx,
+                                      ranges,
+                                      isActivePointUut,
+                                    )
+                                  }
+                                  onEditBound={(field, value) =>
+                                    handleEditRangeBoundDetail("uut", uut, range?.id, field, value)
+                                  }
+                                  onEditUnit={(value) =>
+                                    setRangeUnitDetail("uut", uut, range?.id, value)
+                                  }
+                                  onPatchRange={(patch) =>
+                                    patchRangeDetail("uut", uut, range?.id, patch)
+                                  }
+                                />
+                              </div>
+                            ))}
+                          </div>
                         </td>
 
                         <td
@@ -6865,51 +7069,56 @@ function DetailedView({
                           }
                           title={!onSessionSave ? specRows[0] : undefined}
                         >
-                          {onSessionSave ? (
-                            <InlineToleranceCell
-                              tolerance={
-                                getItemRangeTolerance(uut, activeRange?.id) ||
-                                activeRange ||
-                                {}
-                              }
-                              activeRange={activeRange}
-                              typeKey={getSelectedToleranceTypeDetail(
+                          <div className={showAllRanges ? "range-stack" : undefined}>
+                            {visibleRangeRows.map(({ range, key }) => {
+                              const tolerance =
+                                getItemRangeTolerance(uut, range?.id) ||
+                                range ||
+                                {};
+                              const typeKey = getSelectedToleranceTypeDetail(
                                 "uut",
                                 uut,
-                                activeRange,
-                              )}
-                              selectedType={
-                                selectedToleranceKey ===
-                                toleranceTypeKey("uut", uut, activeRange?.id)
-                                  ? getSelectedToleranceTypeDetail(
-                                      "uut",
-                                      uut,
-                                      activeRange,
-                                    )
-                                  : null
-                              }
-                              editable={!!onSessionSave}
-                              onSelectType={(typeKey) =>
-                                setSelectedToleranceTypeDetail(
-                                  "uut",
-                                  uut,
-                                  activeRange,
-                                  typeKey,
-                                )
-                              }
-                              onCommit={(typeKey, component) =>
-                                setRangeToleranceComponentDetail(
-                                  "uut",
-                                  uut,
-                                  activeRange,
-                                  typeKey,
-                                  component,
-                                )
-                              }
-                            />
-                          ) : (
-                            specRows[0]
-                          )}
+                                range,
+                              );
+                              return (
+                                <div className="range-stack-row" key={key}>
+                                  {onSessionSave ? (
+                                    <InlineToleranceCell
+                                      tolerance={tolerance}
+                                      activeRange={range}
+                                      typeKey={typeKey}
+                                      selectedType={
+                                        selectedToleranceKey ===
+                                        toleranceTypeKey("uut", uut, range?.id)
+                                          ? typeKey
+                                          : null
+                                      }
+                                      editable={!!onSessionSave}
+                                      onSelectType={(nextTypeKey) =>
+                                        setSelectedToleranceTypeDetail(
+                                          "uut",
+                                          uut,
+                                          range,
+                                          nextTypeKey,
+                                        )
+                                      }
+                                      onCommit={(nextTypeKey, component) =>
+                                        setRangeToleranceComponentDetail(
+                                          "uut",
+                                          uut,
+                                          range,
+                                          nextTypeKey,
+                                          component,
+                                        )
+                                      }
+                                    />
+                                  ) : (
+                                    getSpecRows(tolerance)[0]
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </td>
                         <td
                           rowSpan={rowSpan}
@@ -6919,25 +7128,31 @@ function DetailedView({
                           }
                           title={formatResolutionLabel(activeRange)}
                         >
-                          {onSessionSave ? (
-                            <ResolutionCellInput
-                              value={activeRange?.resolution ?? activeRange?.measuringResolution}
-                              unit={activeRange?.resolutionUnit ?? activeRange?.measuringResolutionUnit}
-                              fallbackUnit={activeRange?.unit}
-                              onCommit={(v) =>
-                                setRangeResolutionDetail("uut", uut, activeRange?.id, v)
-                              }
-                              onCommitUnit={(value) =>
-                                setRangeResolutionUnitDetail("uut", uut, activeRange?.id, value)
-                              }
-                              useResolution={activeRange?.includeResolutionInBudget}
-                              onToggleUse={(checked) =>
-                                setRangeUseResolutionDetail("uut", uut, activeRange?.id, checked)
-                              }
-                            />
-                          ) : (
-                            formatResolutionLabel(activeRange)
-                          )}
+                          <div className={showAllRanges ? "range-stack" : undefined}>
+                            {visibleRangeRows.map(({ range, key }) => (
+                              <div className="range-stack-row" key={key}>
+                                {onSessionSave ? (
+                                  <ResolutionCellInput
+                                    value={range?.resolution ?? range?.measuringResolution}
+                                    unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
+                                    fallbackUnit={range?.unit}
+                                    onCommit={(v) =>
+                                      setRangeResolutionDetail("uut", uut, range?.id, v)
+                                    }
+                                    onCommitUnit={(value) =>
+                                      setRangeResolutionUnitDetail("uut", uut, range?.id, value)
+                                    }
+                                    useResolution={range?.includeResolutionInBudget}
+                                    onToggleUse={(checked) =>
+                                      setRangeUseResolutionDetail("uut", uut, range?.id, checked)
+                                    }
+                                  />
+                                ) : (
+                                  formatResolutionLabel(range)
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </td>
                         <td
                           rowSpan={rowSpan}
@@ -7318,7 +7533,7 @@ function DetailedView({
 
           <div className="panel-table-container">
             <table
-              className="instrument-summary-table industry-table"
+              className="instrument-summary-table industry-table equipment-detail-table"
               onMouseLeave={() => {
                 setHoveredCell({ tableId: null, colIndex: null });
                 setHoveredRowId(null);
@@ -7329,13 +7544,13 @@ function DetailedView({
                 {/* Direct points toggle usage. Derived points assign each
                     instrument to one mapped input; several instruments may
                     contribute to the same input budget. */}
-                <col style={{ width: isDerived ? "18%" : "44px" }} />
-                <col style={{ width: isDerived ? "24%" : "26%" }} />
-                <col style={{ width: isDerived ? "16%" : "20%" }} />
-                <col style={{ width: isDerived ? "16%" : "18%" }} />
-                <col style={{ width: "12%" }} />
-                <col style={{ width: "12%" }} />
-                <col style={{ width: "8%" }} />
+                <col style={{ width: isDerived ? "10%" : "5%" }} />
+                <col style={{ width: isDerived ? "20%" : "25%" }} />
+                <col style={{ width: "22%" }} />
+                <col style={{ width: "15%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "18%" }} />
+                <col style={{ width: "5%" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -7406,6 +7621,16 @@ function DetailedView({
                       const effectiveTolerance = activeRange;
                       const specRows = getSpecRows(effectiveTolerance);
                       const rowSpan = !onSessionSave && specRows.length > 0 ? specRows.length : 1;
+                      const showAllRanges = isShowingAllRangesDetail(
+                        "tmde",
+                        masterTmde.id,
+                      );
+                      const visibleRangeRows = getVisibleRangeRows(
+                        ranges,
+                        activeIndex,
+                        activeRange,
+                        showAllRanges,
+                      );
 
                       const safeDescription =
                         masterTmde.description ||
@@ -7433,7 +7658,7 @@ function DetailedView({
                               rowSpan={rowSpan}
                               style={{
                                 textAlign: isDerived ? "left" : "center",
-                                verticalAlign: "top",
+                                verticalAlign: "middle",
                               }}
                               onClick={(e) => e.stopPropagation()}
                               className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
@@ -7565,40 +7790,49 @@ function DetailedView({
                               }
                               style={{ verticalAlign: "middle" }}
                             >
-                              <RangeCell
-                                ranges={ranges}
-                                activeIndex={activeIndex}
-                                activeRange={activeRange}
-                                editable={!!onSessionSave}
-                                onSelect={(idx) =>
-                                  handleTmdeRangeChange(masterTmde, idx, ranges)
-                                }
-                                onEditBound={(field, value) =>
-                                  handleEditRangeBoundDetail(
-                                    "tmde",
-                                    masterTmde,
-                                    activeRange?.id,
-                                    field,
-                                    value,
-                                  )
-                                }
-                                onEditUnit={(value) =>
-                                  setRangeUnitDetail(
-                                    "tmde",
-                                    masterTmde,
-                                    activeRange?.id,
-                                    value,
-                                  )
-                                }
-                                onPatchRange={(patch) =>
-                                  patchRangeDetail(
-                                    "tmde",
-                                    masterTmde,
-                                    activeRange?.id,
-                                    patch,
-                                  )
-                                }
-                              />
+                              <div className={showAllRanges ? "range-stack" : undefined}>
+                                {visibleRangeRows.map(({ range, key }) => (
+                                  <div className="range-stack-row" key={key}>
+                                    <RangeCell
+                                      ranges={showAllRanges ? [range] : ranges}
+                                      activeIndex={showAllRanges ? 0 : activeIndex}
+                                      activeRange={range}
+                                      editable={!!onSessionSave}
+                                      allowSingleToggle={newRangeKeys.has(
+                                        rangeStateKey("tmde", masterTmde.id, range?.id),
+                                      )}
+                                      onSelect={(idx) =>
+                                        handleTmdeRangeChange(masterTmde, idx, ranges)
+                                      }
+                                      onEditBound={(field, value) =>
+                                        handleEditRangeBoundDetail(
+                                          "tmde",
+                                          masterTmde,
+                                          range?.id,
+                                          field,
+                                          value,
+                                        )
+                                      }
+                                      onEditUnit={(value) =>
+                                        setRangeUnitDetail(
+                                          "tmde",
+                                          masterTmde,
+                                          range?.id,
+                                          value,
+                                        )
+                                      }
+                                      onPatchRange={(patch) =>
+                                        patchRangeDetail(
+                                          "tmde",
+                                          masterTmde,
+                                          range?.id,
+                                          patch,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                ))}
+                              </div>
                             </td>
 
                             <td
@@ -7611,58 +7845,63 @@ function DetailedView({
                               }
                               title={!onSessionSave ? specRows[0] : undefined}
                             >
-                              {onSessionSave ? (
-                                <InlineToleranceCell
-                                  tolerance={
+                              <div className={showAllRanges ? "range-stack" : undefined}>
+                                {visibleRangeRows.map(({ range, key }) => {
+                                  const tolerance =
                                     getItemRangeTolerance(
                                       masterTmde,
-                                      activeRange?.id,
+                                      range?.id,
                                     ) ||
-                                    activeRange ||
-                                    {}
-                                  }
-                                  activeRange={activeRange}
-                                  typeKey={getSelectedToleranceTypeDetail(
+                                    range ||
+                                    {};
+                                  const typeKey = getSelectedToleranceTypeDetail(
                                     "tmde",
                                     masterTmde,
-                                    activeRange,
-                                  )}
-                                  selectedType={
-                                    selectedToleranceKey ===
-                                    toleranceTypeKey(
-                                      "tmde",
-                                      masterTmde,
-                                      activeRange?.id,
-                                    )
-                                      ? getSelectedToleranceTypeDetail(
-                                          "tmde",
-                                          masterTmde,
-                                          activeRange,
-                                        )
-                                      : null
-                                  }
-                                  editable={!!onSessionSave}
-                                  onSelectType={(typeKey) =>
-                                    setSelectedToleranceTypeDetail(
-                                      "tmde",
-                                      masterTmde,
-                                      activeRange,
-                                      typeKey,
-                                    )
-                                  }
-                                  onCommit={(typeKey, component) =>
-                                    setRangeToleranceComponentDetail(
-                                      "tmde",
-                                      masterTmde,
-                                      activeRange,
-                                      typeKey,
-                                      component,
-                                    )
-                                  }
-                                />
-                              ) : (
-                                specRows[0]
-                              )}
+                                    range,
+                                  );
+                                  return (
+                                    <div className="range-stack-row" key={key}>
+                                      {onSessionSave ? (
+                                        <InlineToleranceCell
+                                          tolerance={tolerance}
+                                          activeRange={range}
+                                          typeKey={typeKey}
+                                          selectedType={
+                                            selectedToleranceKey ===
+                                            toleranceTypeKey(
+                                              "tmde",
+                                              masterTmde,
+                                              range?.id,
+                                            )
+                                              ? typeKey
+                                              : null
+                                          }
+                                          editable={!!onSessionSave}
+                                          onSelectType={(nextTypeKey) =>
+                                            setSelectedToleranceTypeDetail(
+                                              "tmde",
+                                              masterTmde,
+                                              range,
+                                              nextTypeKey,
+                                            )
+                                          }
+                                          onCommit={(nextTypeKey, component) =>
+                                            setRangeToleranceComponentDetail(
+                                              "tmde",
+                                              masterTmde,
+                                              range,
+                                              nextTypeKey,
+                                              component,
+                                            )
+                                          }
+                                        />
+                                      ) : (
+                                        getSpecRows(tolerance)[0]
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </td>
 
                             <td
@@ -7671,44 +7910,39 @@ function DetailedView({
                               title="Spec band distribution"
                               style={{ verticalAlign: "middle" }}
                             >
-                              {onSessionSave &&
-                              getBandDistDivisor(
-                                getItemRangeTolerance(
-                                  masterTmde,
-                                  activeRange?.id,
-                                ) || activeRange,
-                              ) ? (
-                                <select
-                                  className="session-selector"
-                                  value={getBandDistDivisor(
-                                    getItemRangeTolerance(
-                                      masterTmde,
-                                      activeRange?.id,
-                                    ) || activeRange,
-                                  )}
-                                  onChange={(e) =>
-                                    setRangeBandDistributionDetail(
-                                      "tmde",
-                                      masterTmde,
-                                      activeRange?.id,
-                                      e.target.value,
-                                    )
-                                  }
-                                >
-                                  {errorDistributions.map((d) => (
-                                    <option key={d.value} value={d.value}>
-                                      {d.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                getBandDistLabel(
-                                  getItemRangeTolerance(
-                                    masterTmde,
-                                    activeRange?.id,
-                                  ) || activeRange,
-                                )
-                              )}
+                              <div className={showAllRanges ? "range-stack" : undefined}>
+                                {visibleRangeRows.map(({ range, key }) => {
+                                  const tolerance =
+                                    getItemRangeTolerance(masterTmde, range?.id) || range;
+                                  return (
+                                    <div className="range-stack-row" key={key}>
+                                      {onSessionSave &&
+                                      getBandDistDivisor(tolerance) ? (
+                                        <select
+                                          className="session-selector"
+                                          value={getBandDistDivisor(tolerance)}
+                                          onChange={(e) =>
+                                            setRangeBandDistributionDetail(
+                                              "tmde",
+                                              masterTmde,
+                                              range?.id,
+                                              e.target.value,
+                                            )
+                                          }
+                                        >
+                                          {errorDistributions.map((d) => (
+                                            <option key={d.value} value={d.value}>
+                                              {d.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      ) : (
+                                        getBandDistLabel(tolerance)
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </td>
 
                             <td
@@ -7722,48 +7956,54 @@ function DetailedView({
                               }
                               title={formatResolutionLabel(activeRange)}
                             >
-                              {onSessionSave ? (
-                                <ResolutionCellInput
-                                  value={
-                                    activeRange?.resolution ??
-                                    activeRange?.measuringResolution
-                                  }
-                                  unit={
-                                    activeRange?.resolutionUnit ??
-                                    activeRange?.measuringResolutionUnit
-                                  }
-                                  fallbackUnit={activeRange?.unit}
-                                  onCommit={(v) =>
-                                    setRangeResolutionDetail(
-                                      "tmde",
-                                      masterTmde,
-                                      activeRange?.id,
-                                      v,
-                                    )
-                                  }
-                                  onCommitUnit={(value) =>
-                                    setRangeResolutionUnitDetail(
-                                      "tmde",
-                                      masterTmde,
-                                      activeRange?.id,
-                                      value,
-                                    )
-                                  }
-                                  useResolution={activeRange?.includeResolutionInBudget}
-                                  onToggleUse={(checked) =>
-                                    setRangeUseResolutionDetail(
-                                      "tmde",
-                                      masterTmde,
-                                      activeRange?.id,
-                                      checked,
-                                    )
-                                  }
-                                />
-                              ) : isChecked ? (
-                                formatResolutionLabel(activeRange)
-                              ) : (
-                                ""
-                              )}
+                              <div className={showAllRanges ? "range-stack" : undefined}>
+                                {visibleRangeRows.map(({ range, key }) => (
+                                  <div className="range-stack-row" key={key}>
+                                    {onSessionSave ? (
+                                      <ResolutionCellInput
+                                        value={
+                                          range?.resolution ??
+                                          range?.measuringResolution
+                                        }
+                                        unit={
+                                          range?.resolutionUnit ??
+                                          range?.measuringResolutionUnit
+                                        }
+                                        fallbackUnit={range?.unit}
+                                        onCommit={(v) =>
+                                          setRangeResolutionDetail(
+                                            "tmde",
+                                            masterTmde,
+                                            range?.id,
+                                            v,
+                                          )
+                                        }
+                                        onCommitUnit={(value) =>
+                                          setRangeResolutionUnitDetail(
+                                            "tmde",
+                                            masterTmde,
+                                            range?.id,
+                                            value,
+                                          )
+                                        }
+                                        useResolution={range?.includeResolutionInBudget}
+                                        onToggleUse={(checked) =>
+                                          setRangeUseResolutionDetail(
+                                            "tmde",
+                                            masterTmde,
+                                            range?.id,
+                                            checked,
+                                          )
+                                        }
+                                      />
+                                    ) : isChecked ? (
+                                      formatResolutionLabel(range)
+                                    ) : (
+                                      ""
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
                             </td>
                             <td
                               rowSpan={rowSpan}
