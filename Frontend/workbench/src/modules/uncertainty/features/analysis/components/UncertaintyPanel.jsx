@@ -1181,6 +1181,7 @@ const RangeCell = ({
   onSelect,
   onEditBound,
   onEditUnit,
+  onPatchRange,
 }) => {
   if (!editable) {
     return (
@@ -1198,30 +1199,68 @@ const RangeCell = ({
     );
   }
   const unit = activeRange.unit || "";
+  // A range can be a single value (e.g. a 30 kg weight) instead of a min–max
+  // span. We mirror the value into min and max so all downstream math (%FS,
+  // value-based range homing, etc.) keeps working unchanged.
+  const isSingle = !!activeRange.isSingleValue;
+  const singleValue = activeRange.value ?? activeRange.max ?? activeRange.min ?? "";
+  const switchToSingle = () => {
+    const v = activeRange.max ?? activeRange.min ?? "";
+    onPatchRange?.({ isSingleValue: true, value: v, min: v, max: v });
+  };
+  const switchToRange = () => onPatchRange?.({ isSingleValue: false });
+  const commitSingle = (raw) =>
+    onPatchRange?.({ isSingleValue: true, value: raw, min: raw, max: raw });
   return (
     <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
       <div className="inline-range-main">
-        <input
-          key={`min-${activeRange.id}`}
-          type="text"
-          inputMode="decimal"
-          defaultValue={toPlainNumber(activeRange.min)}
-          placeholder="min"
-          onBlur={(e) => onEditBound("min", e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-          className="inline-tolerance-input inline-range-bound-input"
-        />
-        <span style={{ color: "var(--text-color-muted)" }}>–</span>
-        <input
-          key={`max-${activeRange.id}`}
-          type="text"
-          inputMode="decimal"
-          defaultValue={toPlainNumber(activeRange.max)}
-          placeholder="max"
-          onBlur={(e) => onEditBound("max", e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-          className="inline-tolerance-input inline-range-bound-input"
-        />
+        {onPatchRange && (
+          <button
+            type="button"
+            className="inline-range-mode-toggle"
+            title={isSingle ? "Switch to a min–max range" : "Switch to a single value"}
+            aria-label={isSingle ? "Switch to a min–max range" : "Switch to a single value"}
+            onClick={isSingle ? switchToRange : switchToSingle}
+          >
+            {isSingle ? "↔" : "•"}
+          </button>
+        )}
+        {isSingle ? (
+          <input
+            key={`val-${activeRange.id}`}
+            type="text"
+            inputMode="decimal"
+            defaultValue={toPlainNumber(singleValue)}
+            placeholder="value"
+            onBlur={(e) => commitSingle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+            className="inline-tolerance-input inline-range-bound-input"
+          />
+        ) : (
+          <>
+            <input
+              key={`min-${activeRange.id}`}
+              type="text"
+              inputMode="decimal"
+              defaultValue={toPlainNumber(activeRange.min)}
+              placeholder="min"
+              onBlur={(e) => onEditBound("min", e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              className="inline-tolerance-input inline-range-bound-input"
+            />
+            <span style={{ color: "var(--text-color-muted)" }}>–</span>
+            <input
+              key={`max-${activeRange.id}`}
+              type="text"
+              inputMode="decimal"
+              defaultValue={toPlainNumber(activeRange.max)}
+              placeholder="max"
+              onBlur={(e) => onEditBound("max", e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              className="inline-tolerance-input inline-range-bound-input"
+            />
+          </>
+        )}
         <UnitSelect
           value={unit}
           ariaLabel="Range unit"
@@ -2875,6 +2914,10 @@ const SummaryDashboard = ({
     if (!onSessionSave) return;
     persistItem(kind, applyItemRangePatch(item, rangeId, { [field]: value }));
   };
+  const patchRange = (kind, item, rangeId, patch) => {
+    if (!onSessionSave) return;
+    persistItem(kind, applyItemRangePatch(item, rangeId, patch));
+  };
   const handleAddRange = (kind, item, activeRangeId, currentCount) => {
     if (!onSessionSave) return;
     const { item: updated } = addRangeToItem(item, activeRangeId);
@@ -3845,6 +3888,9 @@ const SummaryDashboard = ({
                             onEditUnit={(value) =>
                               setRangeUnit("uut", uut, activeRange?.id, value)
                             }
+                            onPatchRange={(patch) =>
+                              patchRange("uut", uut, activeRange?.id, patch)
+                            }
                           />
                         </td>
                         <td
@@ -4138,6 +4184,9 @@ const SummaryDashboard = ({
                             }
                             onEditUnit={(value) =>
                               setRangeUnit("tmde", tmde, activeRange?.id, value)
+                            }
+                            onPatchRange={(patch) =>
+                              patchRange("tmde", tmde, activeRange?.id, patch)
                             }
                           />
                         </td>
@@ -4888,6 +4937,8 @@ function DetailedView({
     );
   const setRangeUnitDetail = (kind, item, rangeId, value) =>
     persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, { unit: value }));
+  const patchRangeDetail = (kind, item, rangeId, patch) =>
+    persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, patch));
   const setRangeResolutionDetail = (kind, item, rangeId, value) =>
     persistInlineItemDetail(
       kind,
@@ -6647,6 +6698,9 @@ function DetailedView({
                             onEditUnit={(value) =>
                               setRangeUnitDetail("uut", uut, activeRange?.id, value)
                             }
+                            onPatchRange={(patch) =>
+                              patchRangeDetail("uut", uut, activeRange?.id, patch)
+                            }
                           />
                         </td>
 
@@ -7377,6 +7431,14 @@ function DetailedView({
                                     masterTmde,
                                     activeRange?.id,
                                     value,
+                                  )
+                                }
+                                onPatchRange={(patch) =>
+                                  patchRangeDetail(
+                                    "tmde",
+                                    masterTmde,
+                                    activeRange?.id,
+                                    patch,
                                   )
                                 }
                               />

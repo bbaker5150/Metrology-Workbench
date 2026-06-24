@@ -10602,6 +10602,25 @@ input.inline-desc-subinput {
   max-width: 100%;
 }
 
+/* Range / single-value mode toggle in the Range column. */
+.inline-range-mode-toggle {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.inline-range-mode-toggle:hover {
+  color: var(--text-color);
+  border-color: var(--primary-color);
+}
+
 /* "Use this resolution in the budget" toggle, sits right of the unit dropdown. */
 .inline-resolution-use {
   display: inline-flex;
