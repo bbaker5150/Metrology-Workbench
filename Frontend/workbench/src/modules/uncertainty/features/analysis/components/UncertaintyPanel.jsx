@@ -4371,6 +4371,124 @@ function DetailedView({
   const [selectedTmdeIds, setSelectedTmdeIds] = useState([]);
   const [equationTmdeSelections, setEquationTmdeSelections] = useState({});
 
+  // --- Cut / copy / paste of instrument rows (shared module clipboard) ---
+  const [rowMenu, setRowMenu] = useState(null);
+  const resolveDetailAreaId = (kind, item) => {
+    if (!item) return "";
+    if (kind === "uut") return item.measurementAreaId || "";
+    if (item.measurementAreaId) return item.measurementAreaId;
+    const name = item.instrument?.measurementArea || item.measurementArea || "";
+    const area = (sessionData.measurementAreas || []).find(
+      (a) => name && a.name === name,
+    );
+    return area ? area.id : "";
+  };
+  const copyInstrument = (kind, item, mode = "copy") => {
+    instrumentClipboard = { kind, mode, item: JSON.parse(JSON.stringify(item)) };
+  };
+  const pasteInstrument = (kind, targetAreaId) => {
+    if (!onSessionSave || !instrumentClipboard) return;
+    const clip = instrumentClipboard;
+    if (clip.kind !== kind) return;
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    const area = (sessionData.measurementAreas || []).find(
+      (a) => String(a.id) === String(targetAreaId),
+    );
+    if (clip.mode === "cut") {
+      const moved = buildPastedInstrumentRow(clip.item, kind, area, "cut");
+      const list = (sessionData[listKey] || []).map((row) =>
+        row.id === clip.item.id ? moved : row,
+      );
+      instrumentClipboard = null;
+      onSessionSave({ ...sessionData, [listKey]: list });
+    } else {
+      const clone = buildPastedInstrumentRow(clip.item, kind, area, "copy");
+      if (kind === "uut") setSelectedUutIds([clone.id]);
+      else setSelectedTmdeIds([clone.id]);
+      onSessionSave({
+        ...sessionData,
+        [listKey]: [clone, ...(sessionData[listKey] || [])],
+      });
+    }
+  };
+  const deleteInstrumentRow = (kind, id) => {
+    if (kind === "uut") onDeleteUut?.([id]);
+    else onDeleteTmdeDefinition?.([id]);
+  };
+  const openInstrumentRowMenu = (e, kind, item) => {
+    if (!onSessionSave) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (kind === "uut") setSelectedUutIds([item.id]);
+    else setSelectedTmdeIds([item.id]);
+    const canPaste = !!instrumentClipboard && instrumentClipboard.kind === kind;
+    const areaId = resolveDetailAreaId(kind, item);
+    const items = [
+      { label: "Copy", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
+      { label: "Cut", icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
+    ];
+    if (canPaste) {
+      items.push({
+        label: "Paste",
+        icon: faPaste,
+        action: () => pasteInstrument(kind, areaId),
+      });
+    }
+    items.push({ type: "divider" });
+    items.push({
+      label: "Delete",
+      icon: faTrashAlt,
+      className: "destructive",
+      action: () => deleteInstrumentRow(kind, item.id),
+    });
+    setRowMenu({ x: e.clientX, y: e.clientY, items });
+  };
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!onSessionSave || !(e.ctrlKey || e.metaKey)) return;
+      const ae = document.activeElement;
+      if (
+        ae &&
+        (ae.tagName === "INPUT" ||
+          ae.tagName === "TEXTAREA" ||
+          ae.isContentEditable)
+      ) {
+        return;
+      }
+      const key = e.key.toLowerCase();
+      const oneUut = selectedUutIds.length === 1 ? selectedUutIds[0] : null;
+      const oneTmde = selectedTmdeIds.length === 1 ? selectedTmdeIds[0] : null;
+      const kind = oneUut ? "uut" : oneTmde ? "tmde" : null;
+      const findItem = (k, id) =>
+        (k === "uut" ? sessionData.uuts : sessionData.tmdes)?.find(
+          (x) => x.id === id,
+        );
+      if ((key === "c" || key === "x") && kind) {
+        const item = findItem(kind, oneUut || oneTmde);
+        if (item) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          copyInstrument(kind, item, key === "x" ? "cut" : "copy");
+        }
+      } else if (key === "v" && instrumentClipboard) {
+        const pasteKind = instrumentClipboard.kind;
+        const haveTarget =
+          (pasteKind === "uut" && oneUut) || (pasteKind === "tmde" && oneTmde);
+        if (!haveTarget) return;
+        const areaId = resolveDetailAreaId(
+          pasteKind,
+          findItem(pasteKind, pasteKind === "uut" ? oneUut : oneTmde) || {},
+        );
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        pasteInstrument(pasteKind, areaId);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUutIds, selectedTmdeIds, sessionData, onSessionSave]);
+
   // Industry Grade Highlighting State
   // Industry Grade Highlighting State
   const [hoveredCell, setHoveredCell] = useState({
@@ -6630,6 +6748,7 @@ function DetailedView({
                           cursor: "pointer",
                         }}
                         onClick={(e) => handleUutClick(e, uut.id)}
+                        onContextMenu={(e) => openInstrumentRowMenu(e, "uut", uut)}
                         title="Click to select"
                       >
                         <td
@@ -7270,6 +7389,9 @@ function DetailedView({
                               cursor: "pointer",
                             }}
                             onClick={(e) => handleTmdeClick(e, masterTmde.id)}
+                            onContextMenu={(e) =>
+                              openInstrumentRowMenu(e, "tmde", masterTmde)
+                            }
                             title="Click to select"
                           >
                             <td
@@ -7737,6 +7859,7 @@ function DetailedView({
           </p>
         </div>
       )}
+      <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
     </div>
   );
 }
