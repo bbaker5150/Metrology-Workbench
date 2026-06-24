@@ -2404,6 +2404,39 @@ const SummaryDashboard = ({
     });
   };
 
+  // Re-sync every point's per-point TMDE instances with an edited master so a
+  // change made in the Session Overview (e.g. ticking "use resolution", editing
+  // a tolerance/range) flows straight into each point's budget — instead of
+  // waiting for the instance to be rebuilt in the Detailed View. The instance's
+  // per-point config (range index, quantity, asset id, variable, reading) is
+  // preserved; only the spec carried from the master is refreshed.
+  const refreshSessionPointsForTmde = (updatedItem) => {
+    if (!updatedItem) return sessionData.testPoints || [];
+    return (sessionData.testPoints || []).map((point) => {
+      const instances = point.tmdeTolerances;
+      if (!Array.isArray(instances) || instances.length === 0) return point;
+      let touched = false;
+      const nextInstances = instances.map((instance) => {
+        if (!instance) return instance;
+        const matchesMaster =
+          String(instance.id) === String(updatedItem.id) ||
+          String(instance.sourceId) === String(updatedItem.id);
+        if (!matchesMaster) return instance;
+        touched = true;
+        return createInstanceFromDefinition(updatedItem, {
+          existingId: instance.id,
+          quantity: instance.quantity ?? 1,
+          assetId: instance.assetId || "",
+          userFunctionName: instance.functionName || "",
+          userRangeIndex: instance._index ?? 0,
+          userMeasurement: instance.measurementPoint,
+          userVariable: instance.variableType || "",
+        });
+      });
+      return touched ? { ...point, tmdeTolerances: nextInstances } : point;
+    });
+  };
+
   const persistInlineItem = (kind, updatedItem, { maybePromptLocal = false } = {}) => {
     const listKey = kind === "uut" ? "uuts" : "tmdes";
     const previousItem = (sessionData[listKey] || []).find(
@@ -2417,6 +2450,8 @@ const SummaryDashboard = ({
     };
     if (kind === "uut") {
       nextSession.testPoints = refreshSessionPointsForUut(previousItem, updatedItem);
+    } else {
+      nextSession.testPoints = refreshSessionPointsForTmde(updatedItem);
     }
     onSessionSave({
       ...nextSession,
