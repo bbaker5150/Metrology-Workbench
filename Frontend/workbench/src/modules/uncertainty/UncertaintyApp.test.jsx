@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeAll, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 // The analysis tree transitively imports the full Plotly bundle; stub it so the
@@ -78,6 +78,7 @@ beforeEach(() => {
   apiMock.post.mockClear();
   apiMock.put.mockClear();
   apiMock.delete.mockClear();
+  window.localStorage.clear();
 });
 
 describe("UncertaintyApp", () => {
@@ -182,6 +183,88 @@ describe("UncertaintyApp", () => {
     fireEvent.click(screen.getByTitle("Expand All"));
 
     expect(await screen.findByText("Voltage")).toBeInTheDocument();
+  });
+
+  test("renaming a synthetic overview area repairs stale sidebar area references", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 1,
+        name: "Stale Area Session",
+        analyst: "",
+        organization: "NPSL",
+        document: "",
+        documentDate: "2026-06-25",
+        measurementAreas: [
+          { id: "area-electrical", name: "Electrical", color: "#e74c3c" },
+        ],
+        uuts: [
+          {
+            id: "uut-fluke",
+            description: "Fluke 87V TRUE RMS MULTIMETER 87V",
+            measurementArea: "Electrical 33",
+            measurementAreaColor: "#95a5a6",
+            instrument: {
+              id: "inst-fluke",
+              manufacturer: "Fluke",
+              model: "87V",
+              functions: [
+                {
+                  id: "fn-dcv",
+                  name: "DC Voltage",
+                  unit: "V",
+                  ranges: [{ id: "range-dcv", min: "0", max: "65", unit: "V" }],
+                },
+              ],
+            },
+          },
+        ],
+        tmdes: [],
+        testPoints: [
+          {
+            id: "tp-fluke",
+            section: "1",
+            measurementAreaId: "area-electrical",
+            associatedUutIds: ["uut-fluke"],
+            testPointInfo: {
+              parameter: { name: "Voltage", value: "10", unit: "V" },
+            },
+            uutTolerance: {
+              functionId: "fn-dcv",
+              functionName: "DC Voltage",
+              rangeId: "range-dcv",
+              min: "0",
+              max: "65",
+              unit: "V",
+            },
+            tmdeTolerances: [],
+            specifications: {},
+            components: [],
+          },
+        ],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>
+    );
+
+    const overviewAreaInput = await screen.findByDisplayValue("Electrical 33");
+    fireEvent.change(overviewAreaInput, {
+      target: { value: "Electrical Fixed" },
+    });
+    fireEvent.blur(overviewAreaInput);
+
+    await waitFor(() => {
+      expect(screen.getByText("Electrical Fixed")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Electrical")).not.toBeInTheDocument();
   });
 
   test("zooms a table around the cursor without zooming the page", async () => {

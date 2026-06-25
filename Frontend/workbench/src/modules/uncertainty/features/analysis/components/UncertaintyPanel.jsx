@@ -304,6 +304,41 @@ const itemStateKey = (kind, itemId) => `${kind}:${itemId || ""}`;
 const cleanFunctionName = (value) => String(value || "").trim();
 const functionNameMatches = (a, b) =>
   cleanFunctionName(a).toLowerCase() === cleanFunctionName(b).toLowerCase();
+const cleanAreaName = (value) => String(value || "").trim();
+const areaNameKey = (value) => cleanAreaName(value).toLowerCase();
+
+const findCanonicalArea = (areas = [], area = {}) => {
+  const byId = area?.id
+    ? areas.find((candidate) => String(candidate.id) === String(area.id))
+    : null;
+  if (byId) return byId;
+
+  const key = areaNameKey(area?.name);
+  return key
+    ? areas.find((candidate) => areaNameKey(candidate.name) === key) || null
+    : null;
+};
+
+const referencesArea = (record = {}, area = {}, canonicalArea = null) => {
+  const areaIds = [area?.id, canonicalArea?.id]
+    .filter(Boolean)
+    .map((id) => String(id));
+  const areaNames = [area?.name, canonicalArea?.name]
+    .map(areaNameKey)
+    .filter(Boolean);
+  const hasId = (id) => id && areaIds.includes(String(id));
+  const hasName = (name) => {
+    const key = areaNameKey(name);
+    return key && areaNames.includes(key);
+  };
+
+  return (
+    hasId(record.measurementAreaId) ||
+    hasName(record.measurementArea) ||
+    hasId(record.instrument?.measurementAreaId) ||
+    hasName(record.instrument?.measurementArea)
+  );
+};
 const getItemFunctionOptions = (item = {}) => {
   const names = new Set();
   (item.instrument?.functions || []).forEach((fn) => {
@@ -2457,12 +2492,83 @@ const SummaryDashboard = ({
   // Recolor a measurement area inline from its subsection header (replaces the
   // old per-instrument color picker). Writes straight to the session's area
   // list so every UUT/TMDE grouped under it re-tints immediately.
-  const handleAreaColorChange = (areaId, color) => {
-    if (!onSessionSave || !areaId) return;
-    const updatedAreas = (sessionData.measurementAreas || []).map((a) =>
-      a.id === areaId ? { ...a, color } : a,
+  const findAreaForGroupRows = (area, rows = []) => {
+    const areas = sessionData.measurementAreas || [];
+    const canonicalArea = findCanonicalArea(areas, area);
+    if (canonicalArea) return canonicalArea;
+
+    const itemIds = new Set(
+      (rows || [])
+        .map((row) => row.item?.id)
+        .filter(Boolean)
+        .map((id) => String(id)),
     );
-    onSessionSave({ ...sessionData, measurementAreas: updatedAreas });
+    if (!itemIds.size) return null;
+
+    const pointAreaIds = (sessionData.testPoints || [])
+      .filter((point) =>
+        (point.associatedUutIds || []).some((id) => itemIds.has(String(id))),
+      )
+      .map((point) => point.measurementAreaId)
+      .filter(Boolean);
+    const uniquePointAreaIds = Array.from(
+      new Set(pointAreaIds.map((id) => String(id))),
+    );
+    if (uniquePointAreaIds.length !== 1) return null;
+
+    return (
+      areas.find((candidate) => String(candidate.id) === uniquePointAreaIds[0]) ||
+      null
+    );
+  };
+
+  const handleAreaColorChange = (area, rows, color) => {
+    if (!onSessionSave || !area) return;
+    const areas = sessionData.measurementAreas || [];
+    const canonicalArea = findAreaForGroupRows(area, rows);
+    const finalArea = canonicalArea ? { ...canonicalArea, color } : null;
+
+    const updatedAreas = canonicalArea
+      ? areas.map((candidate) =>
+          String(candidate.id) === String(canonicalArea.id) ? finalArea : candidate,
+        )
+      : areas;
+    const updatedUuts = (sessionData.uuts || []).map((uut) =>
+      referencesArea(uut, area, canonicalArea)
+        ? {
+            ...uut,
+            ...(finalArea
+              ? { measurementAreaId: finalArea.id, measurementArea: finalArea.name }
+              : {}),
+            measurementAreaColor: color,
+          }
+        : uut,
+    );
+    const updatedTmdes = (sessionData.tmdes || []).map((tmde) =>
+      referencesArea(tmde, area, canonicalArea)
+        ? {
+            ...tmde,
+            ...(finalArea
+              ? { measurementAreaId: finalArea.id, measurementArea: finalArea.name }
+              : {}),
+            measurementAreaColor: color,
+            instrument: {
+              ...(tmde.instrument || {}),
+              ...(finalArea
+                ? { measurementAreaId: finalArea.id, measurementArea: finalArea.name }
+                : {}),
+              measurementAreaColor: color,
+            },
+          }
+        : tmde,
+    );
+
+    onSessionSave({
+      ...sessionData,
+      measurementAreas: updatedAreas,
+      uuts: updatedUuts,
+      tmdes: updatedTmdes,
+    });
   };
 
   // TMDE areas aren't always backed by a sidebar measurement area (their
@@ -2493,22 +2599,29 @@ const SummaryDashboard = ({
     });
   };
 
-  const handleAreaNameChange = (area, rawName) => {
-    if (!onSessionSave || !area?.id) return;
+  const handleAreaNameChange = (area, rows, rawName) => {
+    if (!onSessionSave || !area) return;
     const name = String(rawName || "").trim();
     if (!name || name === area.name || name.toLowerCase() === "unassigned") return;
 
     const areas = sessionData.measurementAreas || [];
+    const sourceArea = findAreaForGroupRows(area, rows);
+    const sourceRef = sourceArea || area;
     const targetArea = areas.find(
       (candidate) =>
-        candidate.id !== area.id &&
+        String(candidate.id) !== String(sourceArea?.id || area.id) &&
         String(candidate.name || "").toLowerCase() === name.toLowerCase(),
     );
-    const finalArea = targetArea || { ...area, name };
+    const finalArea = targetArea || { ...sourceRef, name };
     const finalAreaId = finalArea.id;
 
+    const movedUutIds = new Set(
+      (sessionData.uuts || [])
+        .filter((uut) => referencesArea(uut, area, sourceArea))
+        .map((uut) => String(uut.id)),
+    );
     const moveUut = (uut) =>
-      uut.measurementAreaId === area.id || uut.measurementArea === area.name
+      movedUutIds.has(String(uut.id))
         ? {
             ...uut,
             measurementAreaId: finalAreaId,
@@ -2517,33 +2630,44 @@ const SummaryDashboard = ({
           }
         : uut;
     const moveTmde = (tmde) =>
-      tmde.measurementAreaId === area.id ||
-      tmde.measurementArea === area.name ||
-      tmde.instrument?.measurementArea === area.name
+      referencesArea(tmde, area, sourceArea)
         ? {
             ...tmde,
             measurementAreaId: finalAreaId,
             measurementArea: finalArea.name,
+            measurementAreaColor: finalArea.color,
             instrument: {
               ...(tmde.instrument || {}),
+              measurementAreaId: finalAreaId,
               measurementArea: finalArea.name,
               measurementAreaColor: finalArea.color,
             },
           }
         : tmde;
+    const movePoint = (point) =>
+      referencesArea(point, area, sourceArea) ||
+      (point.associatedUutIds || []).some((id) => movedUutIds.has(String(id)))
+        ? {
+            ...point,
+            measurementAreaId: finalAreaId,
+            measurementArea: finalArea.name,
+          }
+        : point;
 
     onSessionSave({
       ...sessionData,
-      measurementAreas: targetArea
-        ? areas.filter((candidate) => candidate.id !== area.id)
-        : areas.map((candidate) => (candidate.id === area.id ? finalArea : candidate)),
+      measurementAreas: sourceArea
+        ? targetArea
+          ? areas.filter(
+              (candidate) => String(candidate.id) !== String(sourceArea.id),
+            )
+          : areas.map((candidate) =>
+              String(candidate.id) === String(sourceArea.id) ? finalArea : candidate,
+            )
+        : areas,
       uuts: (sessionData.uuts || []).map(moveUut),
       tmdes: (sessionData.tmdes || []).map(moveTmde),
-      testPoints: (sessionData.testPoints || []).map((point) =>
-        point.measurementAreaId === area.id
-          ? { ...point, measurementAreaId: finalAreaId }
-          : point,
-      ),
+      testPoints: (sessionData.testPoints || []).map(movePoint),
     });
   };
 
@@ -2557,7 +2681,7 @@ const SummaryDashboard = ({
   const handleAreaGroupNameChange = (area, rows, kind, rawName) => {
     if (!onSessionSave) return;
     if (kind === "uut") {
-      handleAreaNameChange(area, rawName);
+      handleAreaNameChange(area, rows, rawName);
       return;
     }
     const name = String(rawName || "").trim();
@@ -3430,7 +3554,7 @@ const SummaryDashboard = ({
           onChange={(e) =>
             kind === "tmde"
               ? handleTmdeAreaColorChange(area, rows, e.target.value)
-              : handleAreaColorChange(area.id, e.target.value)
+              : handleAreaColorChange(area, rows, e.target.value)
           }
           style={{
             position: "absolute",

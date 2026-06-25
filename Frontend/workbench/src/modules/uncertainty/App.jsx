@@ -3226,12 +3226,40 @@ function App() {
     const oldName = area.name;
     // Keep the denormalized `measurementArea` name in sync on every record that
     // references this area (by id, or by the old name for legacy rows).
+    const areaUutIds = new Set(
+      (currentSessionData.uuts || [])
+        .filter(
+          (uut) =>
+            uut.measurementAreaId === areaId || uut.measurementArea === oldName,
+        )
+        .map((uut) => String(uut.id)),
+    );
     const syncName = (arr) =>
-      (arr || []).map((x) =>
-        x.measurementAreaId === areaId || x.measurementArea === oldName
-          ? { ...x, measurementArea: name }
-          : x,
+      (arr || []).map((x) => {
+        const matchesArea =
+          x.measurementAreaId === areaId ||
+          x.measurementArea === oldName ||
+          x.instrument?.measurementAreaId === areaId ||
+          x.instrument?.measurementArea === oldName;
+        if (!matchesArea) return x;
+        return {
+          ...x,
+          measurementArea: name,
+          ...(x.instrument
+            ? { instrument: { ...x.instrument, measurementArea: name } }
+            : {}),
+        };
+      });
+    const syncPointName = (point) => {
+      const matchesArea =
+        point.measurementAreaId === areaId || point.measurementArea === oldName;
+      const followsAreaUut = (point.associatedUutIds || []).some((id) =>
+        areaUutIds.has(String(id)),
       );
+      return matchesArea || followsAreaUut
+        ? { ...point, measurementAreaId: areaId, measurementArea: name }
+        : point;
+    };
     updateSession({
       ...currentSessionData,
       measurementAreas: currentSessionData.measurementAreas.map((a) =>
@@ -3239,7 +3267,7 @@ function App() {
       ),
       uuts: syncName(currentSessionData.uuts),
       tmdes: syncName(currentSessionData.tmdes),
-      testPoints: syncName(currentSessionData.testPoints),
+      testPoints: (currentSessionData.testPoints || []).map(syncPointName),
     });
   };
 
