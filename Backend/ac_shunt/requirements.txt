@@ -14,7 +14,6 @@ channels-redis
 
 # Data + scientific processing used by calibration logic/scripts
 numpy
-pandas
 
 # Instrument + DB drivers
 PyVISA

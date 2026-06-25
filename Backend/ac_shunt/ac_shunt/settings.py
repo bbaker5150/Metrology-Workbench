@@ -21,7 +21,6 @@ def get_resource_path(relative_path):
     return os.path.join(BASE_DIR, relative_path)
 
 # Use these variables in your views/logic to access your data files
-CORRECTIONS_FILE = get_resource_path("corrections.xlsx")
 UNCERTAINTY_FILE = get_resource_path("uncertainty_data.json")
 
 # ---------------------------------------------------------

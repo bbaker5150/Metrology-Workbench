@@ -138,18 +138,23 @@ function ConfigurationModal({
     const currentInAmps = parseFloat(inputCurrent);
 
     if (shuntRangeInAmps !== null && currentInAmps && shuntsDatabase.length > 0) {
-      // Find all shunts in the DB matching the chosen range and current
-      // Using an epsilon comparison for safe floating-point match
-      const matchedShunts = shuntsDatabase.filter(s => 
-        Math.abs(parseFloat(s.range) - shuntRangeInAmps) < 1e-6 && 
-        Math.abs(parseFloat(s.current) - currentInAmps) < 1e-6
+      // Find all shunt devices in the DB matching the chosen range. Each
+      // device's corrections now live under dated Reports of Calibration —
+      // we read from the active report and match the input current at the
+      // correction level. Using an epsilon comparison for safe FP match.
+      const matchedShunts = shuntsDatabase.filter(s =>
+        Math.abs(parseFloat(s.range) - shuntRangeInAmps) < 1e-6
       );
 
       const traceableFreqs = new Set();
       matchedShunts.forEach(shunt => {
-        if (shunt.corrections) {
-          shunt.corrections.forEach(c => traceableFreqs.add(Number(c.frequency)));
-        }
+        const reports = shunt.reports || [];
+        const activeReport = reports.find(r => r.is_active) || reports[0];
+        (activeReport?.corrections || []).forEach(c => {
+          if (Math.abs(parseFloat(c.current) - currentInAmps) < 1e-6) {
+            traceableFreqs.add(Number(c.frequency));
+          }
+        });
       });
 
       if (traceableFreqs.size > 0) {

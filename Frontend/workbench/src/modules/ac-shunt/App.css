@@ -5827,6 +5827,97 @@ body.dark-mode .corrections-session-tvc-grid > .corrections-card-body {
   width: 36px;
 }
 
+/* --- Shunt point rows carry an extra leading Current column --- */
+.corrections-points-table--shunt .corrections-points-thead,
+.corrections-points-table--shunt .corrections-points-row {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1fr) 36px;
+}
+
+/* --- Report of Calibration timeline bar --- */
+.corrections-report-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--background-color);
+}
+
+.corrections-report-bar-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.corrections-report-bar .corrections-card-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* --- Report metadata strip --- */
+.corrections-report-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.corrections-report-meta:empty {
+  display: none;
+}
+
+.corrections-report-meta-item {
+  font-size: 0.75rem;
+  color: var(--text-color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.corrections-report-meta-note {
+  font-size: 0.75rem;
+  color: var(--text-color-muted);
+  font-style: italic;
+}
+
+.corrections-active-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.12);
+  border: 1px solid rgba(22, 163, 74, 0.3);
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.corrections-form-field--wide {
+  grid-column: 1 / -1;
+}
+
+.corrections-session-tvc-card {
+  min-width: 0;
+}
+
+body.dark-mode .corrections-report-bar {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+body.dark-mode .corrections-active-badge {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(74, 222, 128, 0.32);
+}
+
 /* --- Nested confirmation modal --- */
 .modal-overlay--nested {
   z-index: 1400;
@@ -5947,7 +6038,9 @@ body.dark-mode .corrections-card-select:focus-visible {
 
 @media (max-width: 640px) {
   .corrections-points-thead,
-  .corrections-points-row {
+  .corrections-points-row,
+  .corrections-points-table--shunt .corrections-points-thead,
+  .corrections-points-table--shunt .corrections-points-row {
     grid-template-columns: 1fr 36px;
     row-gap: 6px;
   }

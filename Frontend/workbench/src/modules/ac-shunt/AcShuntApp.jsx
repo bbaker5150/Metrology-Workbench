@@ -64,6 +64,15 @@ const useScopedAcShuntStyles = () => {
   }, []);
 };
 
+// Corrections now live under dated Reports of Calibration; the active
+// report (latest-dated, or operator-pinned) is the one that feeds live
+// math. This mirrors the backend's fetch_automatic_corrections lookup.
+const getActiveReport = (device) => {
+  const reports = device?.reports || [];
+  if (reports.length === 0) return null;
+  return reports.find((r) => r.is_active) || reports[0];
+};
+
 // Helper functions for corrections (getShuntCorrectionForPoint, getTVCCorrectionForPoint)
 const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntSn, shuntsData) => {
   if (!point || !shuntRangeInAmps || !shuntsData || shuntsData.length === 0 || !shuntSn)
@@ -72,15 +81,21 @@ const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntSn, shuntsData
   const pointCurrent = parseFloat(point.current);
   const epsilon = 1e-9;
 
-  const shunt = shuntsData.find(
-    (s) =>
-      String(s.serial_number) === String(shuntSn) && // <-- ADD SERIAL NUMBER CHECK
-      Math.abs(parseFloat(s.range) - shuntRangeInAmps) < epsilon &&
-      Math.abs(parseFloat(s.current) - pointCurrent) < epsilon
-  );
-  if (shunt && shunt.corrections) {
-    const correction = shunt.corrections.find(
-      (c) => parseFloat(c.frequency) === point.frequency
+  // Prefer a manual device over an imported one when both exist.
+  const shunt = [...shuntsData]
+    .filter(
+      (s) =>
+        String(s.serial_number) === String(shuntSn) &&
+        Math.abs(parseFloat(s.range) - shuntRangeInAmps) < epsilon
+    )
+    .sort((a, b) => (b.is_manual ? 1 : 0) - (a.is_manual ? 1 : 0))[0];
+
+  const activeReport = getActiveReport(shunt);
+  if (activeReport && Array.isArray(activeReport.corrections)) {
+    const correction = activeReport.corrections.find(
+      (c) =>
+        Math.abs(parseFloat(c.current) - pointCurrent) < epsilon &&
+        parseFloat(c.frequency) === point.frequency
     );
     return correction
       ? {
@@ -94,10 +109,11 @@ const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntSn, shuntsData
 const getTVCCorrectionForPoint = (point, tvcSn, tvcsData) => {
   if (!point || !tvcsData || tvcsData.length === 0 || !tvcSn) return null;
   const tvc = tvcsData.find((t) => String(t.serial_number) === String(tvcSn));
-  if (!tvc || !Array.isArray(tvc.corrections) || tvc.corrections.length === 0)
+  const activeReport = getActiveReport(tvc);
+  if (!activeReport || !Array.isArray(activeReport.corrections) || activeReport.corrections.length === 0)
     return null;
   const targetFreq = point.frequency;
-  const sorted = [...tvc.corrections].sort((a, b) => a.frequency - b.frequency);
+  const sorted = [...activeReport.corrections].sort((a, b) => a.frequency - b.frequency);
   const exactMatch = sorted.find((m) => m.frequency === targetFreq);
   if (exactMatch) return exactMatch.ac_dc_difference;
   if (targetFreq < 1000) {

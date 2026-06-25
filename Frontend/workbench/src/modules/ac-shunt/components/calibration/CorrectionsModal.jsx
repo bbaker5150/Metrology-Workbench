@@ -7,28 +7,49 @@ import React, {
 } from "react";
 import axios from "axios";
 import { useInstruments } from "../../contexts/InstrumentContext";
-import { FaTimes, FaSave, FaArrowLeft, FaPlus, FaEdit, FaTrash, FaCheck } from "react-icons/fa";
+import {
+  FaTimes,
+  FaSave,
+  FaArrowLeft,
+  FaPlus,
+  FaEdit,
+  FaTrash,
+  FaCheck,
+  FaThumbtack,
+  FaHistory,
+} from "react-icons/fa";
 import { AMPLIFIER_RANGES_A, API_BASE_URL } from "../../constants/constants";
 import AnimatedModalShell from "../shared/AnimatedModalShell";
 
 // --- Static Initial State ---
-const initialManualFormState = {
-  id: null,
+const emptyShuntPoint = () => ({ id: null, current: "", frequency: "", val1: "", val2: "" });
+const emptyTvcPoint = () => ({ id: null, frequency: "", val1: "", val2: "" });
+
+const initialEditorState = {
+  // device identity
+  deviceId: null,
   model_name: "",
   serial_number: "",
   range: "",
-  current: "",
   test_voltage: "",
   remark: "",
   is_manual: true,
-  points: [{ id: null, frequency: "", val1: "", val2: "" }],
+  // report identity + metadata
+  reportId: null,
+  calibration_date: "",
+  report_number: "",
+  received_date: "",
+  notes: "",
+  // correction points
+  points: [emptyShuntPoint()],
 };
 
 // --- Clean, Minimalist Icon Button Component ---
-const IconBtn = ({ icon, onClick, title, variant, disabled, type = "button" }) => {
+const IconBtn = ({ icon, onClick, title, variant, disabled, type = "button", active }) => {
   const className =
     "cal-results-excel-icon-btn" +
-    (variant === "danger" ? " cal-results-excel-icon-btn--danger" : "");
+    (variant === "danger" ? " cal-results-excel-icon-btn--danger" : "") +
+    (active ? " is-active" : "");
   return (
     <button
       type={type}
@@ -141,12 +162,12 @@ const PasswordModal = ({ isOpen, title, message, onConfirm, onCancel }) => {
           </button>
         </header>
         <form onSubmit={handleSubmit}>
-          <div className="confirm-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div className="confirm-modal-body" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             <p className="confirm-modal-message">{message}</p>
             <input
               type="password"
               className="corrections-points-input"
-              style={{ width: '100%', padding: '10px', boxSizing: 'border-box' }}
+              style={{ width: "100%", padding: "10px", boxSizing: "border-box" }}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter authorization password"
@@ -169,6 +190,34 @@ const PasswordModal = ({ isOpen, title, message, onConfirm, onCancel }) => {
   );
 };
 
+// --- Helpers -----------------------------------------------------------
+const makeDeviceKey = (serial, range, isManual) =>
+  `${serial}|${range}|${isManual ? "M" : "I"}`;
+
+const formatReportDate = (iso) => {
+  if (!iso) return "Undated";
+  // iso is "YYYY-MM-DD" from DRF; render without timezone drift.
+  const [y, m, d] = String(iso).split("-");
+  if (!y || !m || !d) return iso;
+  return `${m}/${d}/${y}`;
+};
+
+const reportSortValue = (report) =>
+  report?.calibration_date ? Date.parse(report.calibration_date) : -Infinity;
+
+const sortReports = (reports = []) =>
+  [...reports].sort((a, b) => {
+    const byDate = reportSortValue(b) - reportSortValue(a);
+    if (byDate !== 0) return byDate;
+    // Newest created first as a stable tiebreak for undated reports.
+    return (b.id || 0) - (a.id || 0);
+  });
+
+const pickActiveReport = (reports = []) => {
+  if (reports.length === 0) return null;
+  return reports.find((r) => r.is_active) || sortReports(reports)[0];
+};
+
 function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueTestPoints }) {
   const {
     standardInstrumentSerial,
@@ -188,419 +237,338 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
   const [isSaving, setIsSaving] = useState(false);
   const [shuntsData, setShuntsData] = useState([]);
   const [tvcsData, setTvcsData] = useState([]);
-  const [selectedShuntSn, setSelectedShuntSn] = useState("");
 
   const [primaryTab, setPrimaryTab] = useState("AC Shunt");
   const [shuntView, setShuntView] = useState("Corrections");
+
+  // Device + report selection (per tab).
+  const [selectedShuntKey, setSelectedShuntKey] = useState("");
+  const [selectedShuntReportId, setSelectedShuntReportId] = useState(null);
   const [auxiliaryTvcSn, setAuxiliaryTvcSn] = useState("");
+  const [selectedTvcReportId, setSelectedTvcReportId] = useState(null);
 
-  const [isManualFormOpen, setIsManualFormOpen] = useState(false);
-  const [manualType, setManualType] = useState("shunt");
-  const [isEditing, setIsEditing] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, type: null, serialNumber: null });
+  // Editor (add / edit a Report of Calibration).
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editorType, setEditorType] = useState("shunt");
+  const [editorMode, setEditorMode] = useState("device-new"); // device-new | report-new | report-edit
+  const [editorForm, setEditorForm] = useState(initialEditorState);
+
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, kind: null, payload: null });
   const [addPointsConfirm, setAddPointsConfirm] = useState({ isOpen: false, row: null, headers: null, isMismatch: false });
-
-  // State tracking authorization interception
-  const [passwordGate, setPasswordGate] = useState({ isOpen: false, type: null, identifier: null });
-
-  const [manualForm, setManualForm] = useState(initialManualFormState);
+  const [passwordGate, setPasswordGate] = useState({ isOpen: false, action: null });
 
   const notify = useCallback((msg, type = "info") => {
-    if (showNotification) {
-      showNotification(msg, type);
-    } else {
-      alert(msg);
-    }
+    if (showNotification) showNotification(msg, type);
+    else alert(msg);
   }, [showNotification]);
 
   const fetchData = useCallback(async () => {
-    if (isFirstFetch.current) {
-      setIsLoading(true);
-    }
-
+    if (isFirstFetch.current) setIsLoading(true);
     try {
       const timestamp = new Date().getTime();
       const [shuntsRes, tvcsRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/shunts/?t=${timestamp}`),
         axios.get(`${API_BASE_URL}/tvcs/?t=${timestamp}`),
       ]);
-
-      const shunts = shuntsRes.data || [];
-      const tvcs = tvcsRes.data || [];
-      setShuntsData(shunts);
-      setTvcsData(tvcs);
-
+      setShuntsData(shuntsRes.data || []);
+      setTvcsData(tvcsRes.data || []);
       isFirstFetch.current = false;
-
-      if (shunts.length > 0) {
-        const pickKeyForSerial = (serial) => {
-          if (!serial) return null;
-          const matches = shunts.filter(
-            (s) => String(s.serial_number) === String(serial)
-          );
-          if (matches.length === 0) return null;
-          matches.sort(
-            (a, b) => (b.is_manual ? 1 : 0) - (a.is_manual ? 1 : 0)
-          );
-          const m = matches[0];
-          return `${String(m.serial_number)}|${m.range}|${m.current}|${m.is_manual ? "M" : "I"}`;
-        };
-
-        const standardKey = pickKeyForSerial(standardInstrumentSerial);
-        const testKey = pickKeyForSerial(testInstrumentSerial);
-        const fallbackKey =
-          shunts.length > 0
-            ? `${String(shunts[0].serial_number)}|${shunts[0].range}|${shunts[0].current}|${shunts[0].is_manual ? "M" : "I"}`
-            : "";
-
-        setSelectedShuntSn((prev) => {
-          if (!prev) {
-            if (standardKey) return standardKey;
-            if (testKey) return testKey;
-            return fallbackKey;
-          }
-          return prev;
-        });
-      }
     } catch (error) {
       console.error("Failed to fetch correction data:", error);
       notify("Failed to load instrument database.", "error");
     } finally {
       setIsLoading(false);
     }
-  }, [standardInstrumentSerial, testInstrumentSerial, notify]);
-
-  useEffect(() => {
-    setIsManualFormOpen(false);
-    setManualForm(initialManualFormState);
-  }, [primaryTab]);
+  }, [notify]);
 
   useEffect(() => {
     if (isOpen) {
       setShuntView("Corrections");
-      setAuxiliaryTvcSn("");
-      setSelectedShuntSn("");
-      setIsManualFormOpen(false);
+      setIsEditorOpen(false);
       fetchData();
     }
   }, [isOpen, fetchData]);
 
   useEffect(() => {
-    if (isManualFormOpen && manualType === "shunt" && !isEditing) {
-      const rangeVal = parseFloat(manualForm.range);
-      const currentVal = parseFloat(manualForm.current);
+    setIsEditorOpen(false);
+  }, [primaryTab]);
 
-      if (!isNaN(rangeVal) && !isNaN(currentVal)) {
-        const matchingShunts = shuntsData.filter(
-          (s) => parseFloat(s.range) === rangeVal && parseFloat(s.current) === currentVal
-        );
-
-        if (matchingShunts.length > 0) {
-          const freqs = new Set();
-          matchingShunts.forEach((shunt) => {
-            shunt.corrections.forEach((c) => freqs.add(Number(c.frequency)));
-          });
-
-          const sortedFreqs = Array.from(freqs).sort((a, b) => a - b);
-
-          if (sortedFreqs.length > 0) {
-            const isPointsEmpty =
-              manualForm.points.length === 0 ||
-              (manualForm.points.length === 1 &&
-                manualForm.points[0].frequency === "" &&
-                manualForm.points[0].val1 === "" &&
-                manualForm.points[0].val2 === "");
-
-            if (isPointsEmpty) {
-              const autoPopulatedPoints = sortedFreqs.map((freq) => ({
-                id: null,
-                frequency: String(freq),
-                val1: "",
-                val2: "",
-              }));
-
-              setManualForm((prev) => ({ ...prev, points: autoPopulatedPoints }));
-              notify(`Auto-populated standard frequencies for ${rangeVal}A / ${currentVal}A`, "info");
-            }
-          }
-        }
-      }
-    }
-  }, [manualForm, isManualFormOpen, manualType, isEditing, shuntsData, notify]);
-
-  const makeShuntKey = (serial, range, current, isManual) =>
-    `${serial}|${range}|${current}|${isManual ? "M" : "I"}`;
-
-  const uniqueShuntInfo = useMemo(() => {
-    const shuntMap = new Map();
-    shuntsData.forEach((shunt) => {
-      if (!shunt.serial_number) return;
-      const serial = String(shunt.serial_number);
-      const key = makeShuntKey(serial, shunt.range, shunt.current, shunt.is_manual);
-      if (!shuntMap.has(key)) {
-        shuntMap.set(key, {
-          key,
-          model_name: shunt.model_name,
-          serial_number: serial,
-          range: shunt.range,
-          current: shunt.current,
-          size: shunt.size,
-          is_manual: shunt.is_manual,
-        });
-      }
-    });
-    return Array.from(shuntMap.values()).sort((a, b) => {
-      const bySerial = a.serial_number.localeCompare(b.serial_number);
-      if (bySerial !== 0) return bySerial;
-      const byRange = (Number(a.range) || 0) - (Number(b.range) || 0);
-      if (byRange !== 0) return byRange;
-      return (b.is_manual ? 1 : 0) - (a.is_manual ? 1 : 0);
-    });
+  // ----- Derived: shunt devices -----
+  const shuntDevices = useMemo(() => {
+    return [...shuntsData]
+      .filter((s) => s.serial_number != null)
+      .map((s) => ({
+        ...s,
+        key: makeDeviceKey(String(s.serial_number), s.range, s.is_manual),
+      }))
+      .sort((a, b) => {
+        const bySerial = String(a.serial_number).localeCompare(String(b.serial_number));
+        if (bySerial !== 0) return bySerial;
+        const byRange = (Number(a.range) || 0) - (Number(b.range) || 0);
+        if (byRange !== 0) return byRange;
+        return (b.is_manual ? 1 : 0) - (a.is_manual ? 1 : 0);
+      });
   }, [shuntsData]);
-
-  const tvcOptions = useMemo(() => {
-    const tvcMap = new Map();
-    tvcsData.forEach((tvc) => {
-      if (tvc.serial_number && !tvcMap.has(String(tvc.serial_number))) {
-        tvcMap.set(String(tvc.serial_number), {
-          serial_number: String(tvc.serial_number),
-          is_manual: tvc.is_manual,
-        });
-      }
-    });
-
-    return Array.from(tvcMap.values()).sort((a, b) =>
-      a.serial_number.localeCompare(b.serial_number)
-    ).map((tvc) => ({
-      value: tvc.serial_number,
-      label: tvc.serial_number,
-    }));
-  }, [tvcsData]);
 
   const shuntOptions = useMemo(
     () =>
-      uniqueShuntInfo.map((info) => {
+      shuntDevices.map((info) => {
         const sizeLabel = info.size || (info.range != null ? `${info.range}A` : null);
-
-        // Translate the generic 'Shunt' DB default to 'A40B' for display
-        const displayModel = info.model_name === 'Shunt' || !info.model_name ? 'A40B' : info.model_name;
-
-        // Check if the model name already contains a range descriptor (e.g., "-10A" or "-100mA")
-        const hasRangeInName = displayModel.includes('-');
-
-        // Only append the trailing size label if the range isn't already in the brackets
+        const displayModel = info.model_name === "Shunt" || !info.model_name ? "A40B" : info.model_name;
+        const hasRangeInName = displayModel.includes("-");
         const base = sizeLabel && !hasRangeInName
           ? `[${displayModel}] ${info.serial_number} (${sizeLabel})`
           : `[${displayModel}] ${info.serial_number}`;
-
-        return {
-          value: info.key,
-          label: info.is_manual ? `${base} — Manual` : base,
-        };
+        return { value: info.key, label: info.is_manual ? `${base} — Manual` : base };
       }),
-    [uniqueShuntInfo]
+    [shuntDevices]
   );
 
-  const pivotedShuntData = useMemo(() => {
-    if (!selectedShuntSn) return { headers: [], rows: [] };
-
-    const filteredShunts = shuntsData.filter(
-      (shunt) =>
-        makeShuntKey(
-          String(shunt.serial_number),
-          shunt.range,
-          shunt.current,
-          shunt.is_manual
-        ) === selectedShuntSn
-    );
-
-    if (filteredShunts.length === 0) return { headers: [], rows: [] };
-
-    const frequencyHeaders = [
-      ...new Set(
-        filteredShunts.flatMap((shunt) =>
-          shunt.corrections.map((c) => Number(c.frequency))
-        )
-      ),
-    ].sort((a, b) => a - b);
-
-    const dataMap = new Map();
-    filteredShunts.forEach((shunt) => {
-      const key = `${shunt.range}-${shunt.current}`;
-      if (!dataMap.has(key)) {
-        dataMap.set(key, {
-          range: shunt.range,
-          current: shunt.current,
-          values: {},
-          is_manual: shunt.is_manual,
-        });
-      }
-      const entry = dataMap.get(key);
-      const valueKey = shuntView === "Corrections" ? "correction" : "uncertainty";
-
-      shunt.corrections.forEach((corr) => {
-        entry.values[Number(corr.frequency)] = corr[valueKey];
-      });
+  // Auto-select a sensible shunt device when the list loads / tab opens.
+  useEffect(() => {
+    if (shuntDevices.length === 0) return;
+    setSelectedShuntKey((prev) => {
+      if (prev && shuntDevices.some((d) => d.key === prev)) return prev;
+      const preferSerial = (serial) => {
+        if (!serial) return null;
+        const matches = shuntDevices.filter((d) => String(d.serial_number) === String(serial));
+        if (matches.length === 0) return null;
+        matches.sort((a, b) => (b.is_manual ? 1 : 0) - (a.is_manual ? 1 : 0));
+        return matches[0].key;
+      };
+      return preferSerial(standardInstrumentSerial) || preferSerial(testInstrumentSerial) || shuntDevices[0].key;
     });
-    return { headers: frequencyHeaders, rows: Array.from(dataMap.values()) };
-  }, [shuntsData, selectedShuntSn, shuntView]);
+  }, [shuntDevices, standardInstrumentSerial, testInstrumentSerial]);
 
-  const selectedShunt = shuntsData.find(
-    (s) =>
-      makeShuntKey(String(s.serial_number), s.range, s.current, s.is_manual) ===
-      selectedShuntSn
+  const selectedShuntDevice = useMemo(
+    () => shuntDevices.find((d) => d.key === selectedShuntKey) || null,
+    [shuntDevices, selectedShuntKey]
   );
-  const isSelectedShuntManual = selectedShunt?.is_manual;
 
-  const selectedTvc = tvcsData.find(t => String(t.serial_number) === String(auxiliaryTvcSn));
-  const isSelectedTvcManual = selectedTvc?.is_manual;
+  const shuntReports = useMemo(
+    () => sortReports(selectedShuntDevice?.reports || []),
+    [selectedShuntDevice]
+  );
 
-  const handleOpenManualForm = (type) => {
-    setManualType(type);
-    setIsEditing(false);
-    setManualForm(initialManualFormState);
-    setIsManualFormOpen(true);
+  // Keep the report selection valid; default to the active report.
+  useEffect(() => {
+    if (!selectedShuntDevice) {
+      setSelectedShuntReportId(null);
+      return;
+    }
+    setSelectedShuntReportId((prev) => {
+      if (prev && shuntReports.some((r) => r.id === prev)) return prev;
+      const active = pickActiveReport(shuntReports);
+      return active ? active.id : null;
+    });
+  }, [selectedShuntDevice, shuntReports]);
+
+  const selectedShuntReport = useMemo(
+    () => shuntReports.find((r) => r.id === selectedShuntReportId) || pickActiveReport(shuntReports),
+    [shuntReports, selectedShuntReportId]
+  );
+
+  // ----- Derived: TVC devices -----
+  const tvcOptions = useMemo(() => {
+    return [...tvcsData]
+      .filter((t) => t.serial_number != null)
+      .sort((a, b) => String(a.serial_number).localeCompare(String(b.serial_number)))
+      .map((tvc) => ({
+        value: String(tvc.serial_number),
+        label: tvc.is_manual ? `${tvc.serial_number} — Manual` : String(tvc.serial_number),
+      }));
+  }, [tvcsData]);
+
+  const selectedTvc = useMemo(
+    () => tvcsData.find((t) => String(t.serial_number) === String(auxiliaryTvcSn)) || null,
+    [tvcsData, auxiliaryTvcSn]
+  );
+
+  const tvcReports = useMemo(
+    () => sortReports(selectedTvc?.reports || []),
+    [selectedTvc]
+  );
+
+  useEffect(() => {
+    if (!selectedTvc) {
+      setSelectedTvcReportId(null);
+      return;
+    }
+    setSelectedTvcReportId((prev) => {
+      if (prev && tvcReports.some((r) => r.id === prev)) return prev;
+      const active = pickActiveReport(tvcReports);
+      return active ? active.id : null;
+    });
+  }, [selectedTvc, tvcReports]);
+
+  const selectedTvcReport = useMemo(
+    () => tvcReports.find((r) => r.id === selectedTvcReportId) || pickActiveReport(tvcReports),
+    [tvcReports, selectedTvcReportId]
+  );
+
+  // ----- Pivot a shunt report into a current × frequency table -----
+  const pivotedShuntData = useMemo(() => {
+    if (!selectedShuntDevice || !selectedShuntReport) return { headers: [], rows: [] };
+    const corrs = selectedShuntReport.corrections || [];
+    const valueKey = shuntView === "Corrections" ? "correction" : "uncertainty";
+    const headers = [...new Set(corrs.map((c) => Number(c.frequency)))].sort((a, b) => a - b);
+    const byCurrent = new Map();
+    corrs.forEach((c) => {
+      const cur = Number(c.current);
+      if (!byCurrent.has(cur)) {
+        byCurrent.set(cur, { current: cur, range: selectedShuntDevice.range, values: {} });
+      }
+      byCurrent.get(cur).values[Number(c.frequency)] = c[valueKey];
+    });
+    return {
+      headers,
+      rows: [...byCurrent.values()].sort((a, b) => a.current - b.current),
+    };
+  }, [selectedShuntDevice, selectedShuntReport, shuntView]);
+
+  // =====================================================================
+  //  Editor open helpers
+  // =====================================================================
+  const buildShuntPointsFromReport = (report) =>
+    (report?.corrections || [])
+      .slice()
+      .sort((a, b) => a.current - b.current || a.frequency - b.frequency)
+      .map((c) => ({
+        id: null, // new report → fresh points
+        current: c.current ?? "",
+        frequency: c.frequency ?? "",
+        val1: c.correction ?? "",
+        val2: c.uncertainty ?? "",
+      }));
+
+  const buildTvcPointsFromReport = (report) =>
+    (report?.corrections || [])
+      .slice()
+      .sort((a, b) => a.frequency - b.frequency)
+      .map((c) => ({
+        id: null,
+        frequency: c.frequency ?? "",
+        val1: c.ac_dc_difference ?? "",
+        val2: c.expanded_uncertainty ?? "",
+      }));
+
+  const openNewDevice = (type) => {
+    setEditorType(type);
+    setEditorMode("device-new");
+    setEditorForm({
+      ...initialEditorState,
+      is_manual: true,
+      points: type === "shunt" ? [emptyShuntPoint()] : [emptyTvcPoint()],
+    });
+    setIsEditorOpen(true);
   };
 
-  // Internal routing executor once authentication verification completes
-  const proceedWithEdit = (type, identifier) => {
-    if (type === 'shunt') {
-      const shuntToEdit = shuntsData.find(
-        (s) =>
-          makeShuntKey(String(s.serial_number), s.range, s.current, s.is_manual) ===
-          identifier
-      );
-      if (shuntToEdit) {
-        setManualType(type);
-        setIsEditing(true);
-        setManualForm({
-          id: shuntToEdit.id,
-          model_name: shuntToEdit.model_name || "",
-          serial_number: String(shuntToEdit.serial_number),
-          range: shuntToEdit.range ?? "",
-          current: shuntToEdit.current ?? "",
-          test_voltage: "",
-          remark: shuntToEdit.remark || "",
-          is_manual: shuntToEdit.is_manual,
-          points: shuntToEdit.corrections.map(c => ({
-            id: c.id || null,
-            frequency: c.frequency ?? "",
-            val1: c.correction ?? "",
-            val2: c.uncertainty ?? ""
-          }))
-        });
-        setIsManualFormOpen(true);
-      }
-    } else {
-      const tvcToEdit = tvcsData.find(t => String(t.serial_number) === String(identifier));
-      if (tvcToEdit) {
-        setManualType(type);
-        setIsEditing(true);
-        setManualForm({
-          id: tvcToEdit.id,
-          model_name: "",
-          serial_number: String(tvcToEdit.serial_number),
-          range: "",
-          current: "",
-          test_voltage: tvcToEdit.test_voltage ?? "",
-          remark: tvcToEdit.remark || "",
-          is_manual: tvcToEdit.is_manual,
-          points: tvcToEdit.corrections.map(c => ({
-            id: c.id || null,
-            frequency: c.frequency ?? "",
-            val1: c.ac_dc_difference ?? "",
-            val2: c.expanded_uncertainty ?? ""
-          }))
-        });
-        setIsManualFormOpen(true);
-      }
-    }
+  const openNewReport = (type) => {
+    const device = type === "shunt" ? selectedShuntDevice : selectedTvc;
+    if (!device) return;
+    const templateReport = type === "shunt" ? selectedShuntReport : selectedTvcReport;
+    const points =
+      type === "shunt"
+        ? (templateReport ? buildShuntPointsFromReport(templateReport) : [emptyShuntPoint()])
+        : (templateReport ? buildTvcPointsFromReport(templateReport) : [emptyTvcPoint()]);
+    setEditorType(type);
+    setEditorMode("report-new");
+    setEditorForm({
+      ...initialEditorState,
+      deviceId: device.id,
+      model_name: device.model_name || "",
+      serial_number: String(device.serial_number),
+      range: device.range ?? "",
+      test_voltage: device.test_voltage ?? "",
+      remark: device.remark || "",
+      is_manual: device.is_manual,
+      reportId: null,
+      calibration_date: "",
+      report_number: "",
+      received_date: "",
+      notes: "",
+      points: points.length ? points : (type === "shunt" ? [emptyShuntPoint()] : [emptyTvcPoint()]),
+    });
+    setIsEditorOpen(true);
   };
 
-  const handleEditManual = (type, identifier) => {
-    if (type === 'shunt') {
-      const shuntToEdit = shuntsData.find(
-        (s) =>
-          makeShuntKey(String(s.serial_number), s.range, s.current, s.is_manual) ===
-          identifier
-      );
+  const proceedEditReport = (type, device, report) => {
+    setEditorType(type);
+    setEditorMode("report-edit");
+    setEditorForm({
+      ...initialEditorState,
+      deviceId: device.id,
+      model_name: device.model_name || "",
+      serial_number: String(device.serial_number),
+      range: device.range ?? "",
+      test_voltage: device.test_voltage ?? "",
+      remark: device.remark || "",
+      is_manual: device.is_manual,
+      reportId: report.id,
+      calibration_date: report.calibration_date || "",
+      report_number: report.report_number || "",
+      received_date: report.received_date || "",
+      notes: report.notes || "",
+      points:
+        type === "shunt"
+          ? (report.corrections || []).map((c) => ({
+              id: c.id || null,
+              current: c.current ?? "",
+              frequency: c.frequency ?? "",
+              val1: c.correction ?? "",
+              val2: c.uncertainty ?? "",
+            }))
+          : (report.corrections || []).map((c) => ({
+              id: c.id || null,
+              frequency: c.frequency ?? "",
+              val1: c.ac_dc_difference ?? "",
+              val2: c.expanded_uncertainty ?? "",
+            })),
+    });
+    setIsEditorOpen(true);
+  };
 
-      // If editing a System/Imported Shunt (not manual), route it through the password gate overlay
-      if (shuntToEdit && !shuntToEdit.is_manual) {
-        setPasswordGate({ isOpen: true, type, identifier });
-        return;
-      }
+  const requestEditReport = (type) => {
+    const device = type === "shunt" ? selectedShuntDevice : selectedTvc;
+    const report = type === "shunt" ? selectedShuntReport : selectedTvcReport;
+    if (!device || !report) return;
+    // Editing imported (system) reports is gated behind the admin password.
+    if (!device.is_manual) {
+      setPasswordGate({ isOpen: true, action: () => proceedEditReport(type, device, report) });
+      return;
     }
-    proceedWithEdit(type, identifier);
+    proceedEditReport(type, device, report);
   };
 
   const handlePasswordVerify = (password) => {
-    if (password === "admin123") { // Replace with your target administrative password string
-      proceedWithEdit(passwordGate.type, passwordGate.identifier);
-      setPasswordGate({ isOpen: false, type: null, identifier: null });
+    if (password === "admin123") {
+      const action = passwordGate.action;
+      setPasswordGate({ isOpen: false, action: null });
+      if (typeof action === "function") action();
     } else {
       notify("Incorrect password. Access denied.", "error");
     }
   };
 
-  const executeDelete = async () => {
-    const { type, serialNumber } = deleteConfirm;
-    const endpoint = type === 'shunt' ? 'shunts' : 'tvcs';
-    const device = type === 'shunt'
-      ? shuntsData.find(
-        (s) =>
-          makeShuntKey(String(s.serial_number), s.range, s.current, s.is_manual) ===
-          serialNumber
-      )
-      : tvcsData.find(t => String(t.serial_number) === String(serialNumber));
+  // =====================================================================
+  //  Save / delete / pin
+  // =====================================================================
+  const handleSaveEditor = async () => {
+    const isShunt = editorType === "shunt";
 
-    if (!device) {
-      notify("Error: Device not found in database.", "error");
-      setDeleteConfirm({ isOpen: false, type: null, serialNumber: null });
-      return;
-    }
-
-    try {
-      await axios.delete(`${API_BASE_URL}/${endpoint}/${device.id}/`);
-      notify(`${type === 'shunt' ? 'AC Shunt' : 'TVC'} entry successfully deleted.`, "success");
-
-      if (type === 'shunt') setSelectedShuntSn("");
-      else setAuxiliaryTvcSn("");
-
-      fetchData();
-    } catch (err) {
-      notify(`Error deleting entry: ${err.message}`, "error");
-    } finally {
-      setDeleteConfirm({ isOpen: false, type: null, serialNumber: null });
-    }
-  };
-
-  const handlePointChange = (index, field, value) => {
-    setManualForm((prev) => {
-      const newPoints = [...prev.points];
-      newPoints[index] = { ...newPoints[index], [field]: value };
-      return { ...prev, points: newPoints };
-    });
-  };
-
-  const handleSaveManual = async () => {
-    const isShunt = manualType === "shunt";
-    const endpoint = isShunt ? "shunts" : "tvcs";
-
-    const validPoints = manualForm.points.filter(
-      p => p.frequency !== "" && p.frequency !== null
+    const validPoints = editorForm.points.filter(
+      (p) => p.frequency !== "" && p.frequency !== null && (!isShunt || (p.current !== "" && p.current !== null))
     );
-
     if (validPoints.length === 0) {
-      notify("Please add at least one valid correction point.", "error");
+      notify(`Please add at least one valid correction point${isShunt ? " (current + frequency)" : ""}.`, "error");
       return;
     }
 
-    const correctionsPayload = validPoints.map((p) => {
+    const corrections = validPoints.map((p) => {
       const base = { frequency: parseFloat(p.frequency) };
       if (p.id) base.id = p.id;
-
       if (isShunt) {
+        base.current = parseFloat(p.current);
         base.correction = parseFloat(p.val1 || 0);
         base.uncertainty = parseFloat(p.val2 || 0);
       } else {
@@ -610,68 +578,128 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       return base;
     });
 
-    const payload = isShunt
-      ? {
-        model_name: manualForm.model_name,
-        serial_number: String(manualForm.serial_number),
-        range: parseFloat(manualForm.range || 0),
-        current: parseFloat(manualForm.current || 0),
-        remark: manualForm.remark || (manualForm.is_manual ? "Manually added" : "System updated"),
-        is_manual: manualForm.is_manual,
-        corrections: correctionsPayload,
-      }
-      : {
-        serial_number: String(manualForm.serial_number),
-        test_voltage: parseFloat(manualForm.test_voltage || 0),
-        is_manual: manualForm.is_manual,
-        corrections: correctionsPayload,
-      };
+    const reportPayload = {
+      calibration_date: editorForm.calibration_date || null,
+      report_number: editorForm.report_number || "",
+      received_date: editorForm.received_date || null,
+      notes: editorForm.notes || "",
+      corrections,
+    };
 
     try {
       setIsSaving(true);
 
-      if (isEditing && manualForm.id) {
-        await axios.put(`${API_BASE_URL}/${endpoint}/${manualForm.id}/`, payload);
-      } else {
-        await axios.post(`${API_BASE_URL}/${endpoint}/`, payload);
-      }
-
-      await fetchData();
-      notify("Changes saved successfully!", "success");
-      setIsManualFormOpen(false);
-
-      const targetSn = String(manualForm.serial_number);
-      if (isShunt) {
-        const targetRange = parseFloat(manualForm.range || 0);
-        const targetCurrent = parseFloat(manualForm.current || 0);
-        const manualFlag = manualForm.is_manual ? "M" : "I";
-        setSelectedShuntSn(`${targetSn}|${targetRange}|${targetCurrent}|${manualFlag}`);
-      } else setAuxiliaryTvcSn(targetSn);
-
-      setManualForm(initialManualFormState);
-
-    } catch (err) {
-      const data = err.response?.data;
-      let errMsg = err.message;
-      if (data) {
-        if (typeof data === "string") {
-          errMsg = data;
-        } else if (data.detail) {
-          errMsg = String(data.detail);
-        } else if (typeof data === "object") {
-          const parts = Object.entries(data).map(([field, val]) => {
-            const text = Array.isArray(val) ? val.join(" ") : String(val);
-            return field === "non_field_errors" ? text : `${field}: ${text}`;
-          });
-          if (parts.length > 0) errMsg = parts.join(" — ");
+      if (editorMode === "device-new") {
+        const devicePayload = isShunt
+          ? {
+              model_name: editorForm.model_name || "A40B",
+              serial_number: String(editorForm.serial_number),
+              range: parseFloat(editorForm.range || 0),
+              remark: editorForm.remark || "Manually added",
+              is_manual: true,
+              reports: [reportPayload],
+            }
+          : {
+              serial_number: String(editorForm.serial_number),
+              test_voltage: parseFloat(editorForm.test_voltage || 0),
+              is_manual: true,
+              reports: [reportPayload],
+            };
+        const res = await axios.post(`${API_BASE_URL}/${isShunt ? "shunts" : "tvcs"}/`, devicePayload);
+        await fetchData();
+        if (isShunt) {
+          setSelectedShuntKey(makeDeviceKey(String(editorForm.serial_number), parseFloat(editorForm.range || 0), true));
+          setSelectedShuntReportId(res.data?.reports?.[0]?.id ?? null);
+        } else {
+          setAuxiliaryTvcSn(String(editorForm.serial_number));
+          setSelectedTvcReportId(res.data?.reports?.[0]?.id ?? null);
         }
+      } else if (editorMode === "report-new") {
+        const base = `${API_BASE_URL}/${isShunt ? "shunts" : "tvcs"}/${editorForm.deviceId}/reports/`;
+        const res = await axios.post(base, reportPayload);
+        await fetchData();
+        if (isShunt) setSelectedShuntReportId(res.data?.id ?? null);
+        else setSelectedTvcReportId(res.data?.id ?? null);
+      } else {
+        // report-edit
+        const base = `${API_BASE_URL}/${isShunt ? "shunts" : "tvcs"}/${editorForm.deviceId}/reports/${editorForm.reportId}/`;
+        await axios.put(base, reportPayload);
+        await fetchData();
+        if (isShunt) setSelectedShuntReportId(editorForm.reportId);
+        else setSelectedTvcReportId(editorForm.reportId);
       }
-      notify(`Error saving: ${errMsg}`, "error");
+
+      notify("Report of Calibration saved.", "success");
+      setIsEditorOpen(false);
+      setEditorForm(initialEditorState);
+    } catch (err) {
+      notify(`Error saving: ${extractError(err)}`, "error");
     } finally {
       setIsSaving(false);
     }
   };
 
+  const executeDelete = async () => {
+    const { kind, payload } = deleteConfirm;
+    try {
+      if (kind === "report") {
+        const { type, deviceId, reportId } = payload;
+        await axios.delete(`${API_BASE_URL}/${type === "shunt" ? "shunts" : "tvcs"}/${deviceId}/reports/${reportId}/`);
+        notify("Report of Calibration deleted.", "success");
+      } else if (kind === "device") {
+        const { type, deviceId } = payload;
+        await axios.delete(`${API_BASE_URL}/${type === "shunt" ? "shunts" : "tvcs"}/${deviceId}/`);
+        notify(`${type === "shunt" ? "AC Shunt" : "TVC"} entry deleted.`, "success");
+        if (type === "shunt") setSelectedShuntKey("");
+        else setAuxiliaryTvcSn("");
+      }
+      await fetchData();
+    } catch (err) {
+      notify(`Error deleting: ${extractError(err)}`, "error");
+    } finally {
+      setDeleteConfirm({ isOpen: false, kind: null, payload: null });
+    }
+  };
+
+  const handlePinReport = async (type, device, report, shouldPin) => {
+    try {
+      await axios.post(
+        `${API_BASE_URL}/${type === "shunt" ? "shunts" : "tvcs"}/${device.id}/reports/${report.id}/pin/`,
+        { pinned: shouldPin }
+      );
+      notify(shouldPin ? "Report pinned as active." : "Pin removed — latest-dated report is active.", "success");
+      await fetchData();
+    } catch (err) {
+      notify(`Error updating active report: ${extractError(err)}`, "error");
+    }
+  };
+
+  const extractError = (err) => {
+    const data = err.response?.data;
+    if (!data) return err.message;
+    if (typeof data === "string") return data;
+    if (data.detail) return String(data.detail);
+    if (typeof data === "object") {
+      const parts = Object.entries(data).map(([field, val]) => {
+        const text = Array.isArray(val) ? val.join(" ") : String(val);
+        return field === "non_field_errors" ? text : `${field}: ${text}`;
+      });
+      if (parts.length) return parts.join(" — ");
+    }
+    return err.message;
+  };
+
+  const handlePointChange = (index, field, value) => {
+    setEditorForm((prev) => {
+      const points = [...prev.points];
+      points[index] = { ...points[index], [field]: value };
+      return { ...prev, points };
+    });
+  };
+
+  // =====================================================================
+  //  Generate test points (uses the displayed report's table)
+  // =====================================================================
   const handleRowClick = (row, headers) => {
     if (isReadOnly) return;
     if (isCalibrationActive) {
@@ -682,20 +710,17 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       notify("Please select or create an active Calibration Session first.", "warning");
       return;
     }
-
-    // Cross-check the selected shunt's serial against the session's assigned standard serial
-    const isMismatch = selectedShunt && String(selectedShunt.serial_number) !== String(standardInstrumentSerial);
-
+    const isMismatch =
+      selectedShuntDevice &&
+      String(selectedShuntDevice.serial_number) !== String(standardInstrumentSerial);
     setAddPointsConfirm({ isOpen: true, row, headers, isMismatch });
   };
 
   const executeGenerateTestPoints = async () => {
     const { row, headers } = addPointsConfirm;
-    const rowFrequencies = headers.filter(freq =>
-      row.values[freq] !== undefined &&
-      row.values[freq] !== null &&
-      row.values[freq] !== "—"
-    ).map(f => parseFloat(f));
+    const rowFrequencies = headers
+      .filter((freq) => row.values[freq] !== undefined && row.values[freq] !== null && row.values[freq] !== "—")
+      .map((f) => parseFloat(f));
 
     if (rowFrequencies.length === 0) {
       notify("No valid frequencies found in this row.", "warning");
@@ -708,11 +733,11 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
     const existingFreqs = new Set(
       (uniqueTestPoints || [])
-        .filter(p => Math.abs(parseFloat(p.current) - currentVal) < 1e-6)
-        .map(p => parseInt(p.frequency, 10))
+        .filter((p) => Math.abs(parseFloat(p.current) - currentVal) < 1e-6)
+        .map((p) => parseInt(p.frequency, 10))
     );
 
-    const filteredFrequencies = rowFrequencies.filter(f => !existingFreqs.has(parseInt(f, 10)));
+    const filteredFrequencies = rowFrequencies.filter((f) => !existingFreqs.has(parseInt(f, 10)));
 
     if (filteredFrequencies.length === 0) {
       notify(`All frequencies for ${currentVal}A already exist in this session.`, "info");
@@ -726,7 +751,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     ]);
 
     let suitableAmpRange = rangeVal;
-    if (typeof AMPLIFIER_RANGES_A !== 'undefined') {
+    if (typeof AMPLIFIER_RANGES_A !== "undefined") {
       const foundRange = AMPLIFIER_RANGES_A.find((r) => currentVal <= r);
       if (foundRange !== undefined) suitableAmpRange = foundRange;
     }
@@ -735,23 +760,118 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       if (!isNaN(rangeVal)) {
         await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/configurations/`, {
           amplifier_range: suitableAmpRange,
-          ac_shunt_range: rangeVal
+          ac_shunt_range: rangeVal,
         });
       }
-
-      const response = await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/append/`, { points: newPoints });
+      const response = await axios.post(
+        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/append/`,
+        { points: newPoints }
+      );
       notify(response.data?.message || "Test points generated and Amplifier range configured!", "success");
-
       if (onUpdate) await onUpdate();
       setTimeout(() => onClose(), 300);
     } catch (error) {
-      const errorMsg = error.response?.data?.detail || "Error generating test points.";
-      notify(errorMsg, "error");
+      notify(error.response?.data?.detail || "Error generating test points.", "error");
     } finally {
       setAddPointsConfirm({ isOpen: false, row: null, headers: null });
     }
   };
 
+  // =====================================================================
+  //  Render: report timeline bar (shared)
+  // =====================================================================
+  const renderReportBar = (type, device, reports, selectedReport, onSelectReport) => {
+    if (!device) return null;
+    const hasReports = reports.length > 0;
+    return (
+      <div className="corrections-report-bar">
+        <div className="corrections-report-bar-main">
+          <span className="corrections-card-eyebrow">
+            <FaHistory aria-hidden /> Report of Calibration
+          </span>
+          {hasReports ? (
+            <div className="corrections-card-picker">
+              <select
+                className="corrections-card-select"
+                value={selectedReport?.id ?? ""}
+                onChange={(e) => onSelectReport(Number(e.target.value))}
+                aria-label="Report of Calibration date"
+              >
+                {reports.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {formatReportDate(r.calibration_date)}
+                    {r.report_number ? ` · ${r.report_number}` : ""}
+                    {r.is_active ? " — Active" : ""}
+                    {r.is_pinned ? " (pinned)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <span className="corrections-card-subtitle">No reports on file yet.</span>
+          )}
+        </div>
+
+        {!isReadOnly && (
+          <div className="corrections-card-actions">
+            <IconBtn
+              icon={<FaPlus />}
+              onClick={() => openNewReport(type)}
+              title="Add a new Report of Calibration"
+              disabled={!hasReports && !device}
+            />
+            {selectedReport && (
+              <>
+                <IconBtn
+                  icon={<FaEdit />}
+                  onClick={() => requestEditReport(type)}
+                  title={device.is_manual ? "Edit this report" : "Edit this report (admin)"}
+                />
+                <IconBtn
+                  icon={<FaThumbtack />}
+                  onClick={() => handlePinReport(type, device, selectedReport, !selectedReport.is_pinned)}
+                  title={selectedReport.is_pinned ? "Unpin (revert to latest-dated)" : "Pin as active report"}
+                  active={selectedReport.is_pinned}
+                />
+                {reports.length > 1 && (
+                  <IconBtn
+                    icon={<FaTrash />}
+                    onClick={() =>
+                      setDeleteConfirm({
+                        isOpen: true,
+                        kind: "report",
+                        payload: { type, deviceId: device.id, reportId: selectedReport.id },
+                      })
+                    }
+                    title="Delete this report"
+                    variant="danger"
+                  />
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderReportMeta = (report) => {
+    if (!report) return null;
+    return (
+      <div className="corrections-report-meta">
+        {report.is_active && <span className="corrections-active-badge">Active</span>}
+        {report.is_pinned && <span className="corrections-manual-badge">Pinned</span>}
+        {report.received_date && (
+          <span className="corrections-report-meta-item">Received {formatReportDate(report.received_date)}</span>
+        )}
+        {report.notes && <span className="corrections-report-meta-note">{report.notes}</span>}
+      </div>
+    );
+  };
+
+  // =====================================================================
+  //  Render: shunt table
+  // =====================================================================
   const renderShuntTable = () => {
     const { headers, rows } = pivotedShuntData;
 
@@ -763,8 +883,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         </div>
       );
     }
-
-    if (!selectedShuntSn) {
+    if (!selectedShuntDevice) {
       return (
         <div className="corrections-empty-state">
           <span className="corrections-empty-state-title">No shunt selected</span>
@@ -772,13 +891,22 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         </div>
       );
     }
-
+    if (!selectedShuntReport) {
+      return (
+        <div className="corrections-empty-state">
+          <span className="corrections-empty-state-title">No Report of Calibration</span>
+          <span className="corrections-empty-state-message">
+            This shunt has no reports yet. Use the <strong>+</strong> button on the report bar to add one.
+          </span>
+        </div>
+      );
+    }
     if (rows.length === 0) {
       return (
         <div className="corrections-empty-state">
           <span className="corrections-empty-state-title">No data available</span>
           <span className="corrections-empty-state-message">
-            No {shuntView === "Corrections" ? "correction" : "uncertainty"} data was found for this serial number.
+            No {shuntView === "Corrections" ? "correction" : "uncertainty"} data in this report.
           </span>
         </div>
       );
@@ -834,7 +962,6 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
             </table>
           </div>
 
-          {/* --- NEW EXCEL-STYLE TABS --- */}
           <div className="corrections-workbook-tabs" role="tablist" aria-label="Shunt data view">
             <button
               type="button"
@@ -860,36 +987,19 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     );
   };
 
-  const renderTVCTable = (serialNumber, { compact = false } = {}) => {
-    if (!serialNumber) {
-      return (
-        <div className={`corrections-empty-state${compact ? " corrections-empty-state--compact" : ""}`}>
-          <span className="corrections-empty-state-title">Not assigned</span>
-          <span className="corrections-empty-state-message">No TVC serial has been assigned for this role.</span>
-        </div>
-      );
-    }
-
-    const filteredTvc = tvcsData.find(tvc => String(tvc.serial_number) === String(serialNumber));
-
-    if (isLoading && (!filteredTvc || !filteredTvc.corrections?.length)) {
-      return (
-        <div className={`corrections-empty-state${compact ? " corrections-empty-state--compact" : ""}`}>
-          <span className="corrections-empty-state-title">Loading TVC data…</span>
-        </div>
-      );
-    }
-
-    if (!filteredTvc?.corrections?.length) {
+  // =====================================================================
+  //  Render: TVC table for a given report
+  // =====================================================================
+  const renderTvcReportTable = (report, { compact = false } = {}) => {
+    if (!report || !(report.corrections || []).length) {
       return (
         <div className={`corrections-empty-state${compact ? " corrections-empty-state--compact" : ""}`}>
           <span className="corrections-empty-state-title">No corrections on file</span>
-          <span className="corrections-empty-state-message">No correction data was found for S/N <strong>{serialNumber}</strong>.</span>
+          <span className="corrections-empty-state-message">This report has no correction data.</span>
         </div>
       );
     }
-
-    const sortedCorrections = [...filteredTvc.corrections].sort((a, b) => a.frequency - b.frequency);
+    const sorted = [...report.corrections].sort((a, b) => a.frequency - b.frequency);
     return (
       <div className="corrections-table-container">
         <table className="styled-table">
@@ -901,7 +1011,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
             </tr>
           </thead>
           <tbody>
-            {sortedCorrections.map((corr, index) => (
+            {sorted.map((corr, index) => (
               <tr key={index}>
                 <td>{corr.frequency}</td>
                 <td>{corr.ac_dc_difference}</td>
@@ -914,33 +1024,77 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     );
   };
 
-  const renderManualEntry = () => {
-    const isShunt = manualType === "shunt";
+  // Read-only session TVC panel: shows the *active* report for an assigned serial.
+  const renderSessionTvc = (rowKey, eyebrow, serial) => {
+    const record = serial ? tvcsData.find((t) => String(t.serial_number) === String(serial)) : null;
+    const activeReport = record ? pickActiveReport(record.reports || []) : null;
+    return (
+      <section className="corrections-card corrections-session-tvc-card">
+        <header className="corrections-card-header corrections-card-header--compact">
+          <div className="corrections-card-headline">
+            <span className="corrections-card-eyebrow">{eyebrow}</span>
+            <div className="corrections-card-title">
+              {serial ? (
+                <>
+                  <span className="corrections-card-identity">S/N&nbsp;{serial}</span>
+                  {record?.is_manual && <span className="corrections-manual-badge">Manual</span>}
+                  {activeReport?.calibration_date && (
+                    <span className="corrections-report-meta-item">
+                      {formatReportDate(activeReport.calibration_date)}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="corrections-card-identity corrections-card-identity--empty">Not assigned</span>
+              )}
+            </div>
+          </div>
+        </header>
+        <div className="corrections-card-body">
+          {serial ? renderTvcReportTable(activeReport, { compact: true }) : (
+            <div className="corrections-empty-state corrections-empty-state--compact">
+              <span className="corrections-empty-state-title">Not assigned</span>
+              <span className="corrections-empty-state-message">No TVC serial assigned for this role.</span>
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  };
+
+  // =====================================================================
+  //  Render: editor (add / edit report)
+  // =====================================================================
+  const renderEditor = () => {
+    const isShunt = editorType === "shunt";
     const typeLabel = isShunt ? "AC Shunt" : "TVC";
-    const actionLabel = isEditing ? "Editing" : "New";
+    const modeLabel =
+      editorMode === "device-new" ? "New device" : editorMode === "report-new" ? "New report" : "Editing report";
     const value1Label = isShunt ? "Correction (ppm)" : "AC/DC Diff (ppm)";
     const value2Label = isShunt ? "Uncertainty (ppm)" : "Expanded Unc (ppm)";
+    const identityLocked = editorMode !== "device-new";
 
     return (
       <div className="corrections-manual-form">
-        {/* --- Pinned Header --- */}
         <header className="corrections-manual-header">
           <div className="corrections-manual-toolbar-title">
-            <span className="corrections-card-eyebrow">{actionLabel} · {typeLabel}</span>
-            <h2 className="corrections-manual-identity">{manualForm.serial_number || ""}</h2>
+            <span className="corrections-card-eyebrow">{modeLabel} · {typeLabel}</span>
+            <h2 className="corrections-manual-identity">{editorForm.serial_number || "—"}</h2>
           </div>
         </header>
 
-        {/* --- Scrollable Form Body --- */}
         <div className="corrections-manual-body">
+          {/* Identity */}
           <section className="corrections-card">
             <header className="corrections-card-header corrections-card-header--compact">
               <div className="corrections-card-headline">
-                <span className="corrections-card-eyebrow">Identity</span>
+                <span className="corrections-card-eyebrow">Device identity</span>
                 <span className="corrections-card-subtitle">
-                  {isShunt
-                    ? "Identify the shunt model, serial, and operating configuration."
-                    : "Identify the TVC serial and its nominal test voltage."}
+                  {identityLocked
+                    ? "Serial and range are fixed for this device."
+                    : isShunt
+                      ? "Identify the shunt model, serial, and range."
+                      : "Identify the TVC serial and its nominal test voltage."}
                 </span>
               </div>
             </header>
@@ -952,8 +1106,8 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                       <label>Model name</label>
                       <input
                         type="text"
-                        value={manualForm.model_name ?? ""}
-                        onChange={(e) => setManualForm((prev) => ({ ...prev, model_name: e.target.value }))}
+                        value={editorForm.model_name ?? ""}
+                        onChange={(e) => setEditorForm((p) => ({ ...p, model_name: e.target.value }))}
                         placeholder="e.g. A40B"
                       />
                     </div>
@@ -961,10 +1115,10 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                       <label>Serial number</label>
                       <input
                         type="text"
-                        disabled={isEditing}
-                        value={manualForm.serial_number ?? ""}
-                        onChange={(e) => setManualForm((prev) => ({ ...prev, serial_number: e.target.value }))}
-                        placeholder="e.g. 12345"
+                        disabled={identityLocked}
+                        value={editorForm.serial_number ?? ""}
+                        onChange={(e) => setEditorForm((p) => ({ ...p, serial_number: e.target.value }))}
+                        placeholder="e.g. 450274734"
                       />
                     </div>
                     <div className="corrections-form-field">
@@ -972,19 +1126,10 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                       <input
                         type="text"
                         inputMode="decimal"
-                        value={manualForm.range ?? ""}
-                        onChange={(e) => setManualForm((prev) => ({ ...prev, range: e.target.value }))}
-                        placeholder="e.g. 5"
-                      />
-                    </div>
-                    <div className="corrections-form-field">
-                      <label>Current (A)</label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={manualForm.current ?? ""}
-                        onChange={(e) => setManualForm((prev) => ({ ...prev, current: e.target.value }))}
-                        placeholder="e.g. 5"
+                        disabled={identityLocked}
+                        value={editorForm.range ?? ""}
+                        onChange={(e) => setEditorForm((p) => ({ ...p, range: e.target.value }))}
+                        placeholder="e.g. 0.01"
                       />
                     </div>
                   </>
@@ -994,10 +1139,10 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                       <label>Serial number</label>
                       <input
                         type="text"
-                        disabled={isEditing}
-                        value={manualForm.serial_number ?? ""}
-                        onChange={(e) => setManualForm((prev) => ({ ...prev, serial_number: e.target.value }))}
-                        placeholder="e.g. 12345"
+                        disabled={identityLocked}
+                        value={editorForm.serial_number ?? ""}
+                        onChange={(e) => setEditorForm((p) => ({ ...p, serial_number: e.target.value }))}
+                        placeholder="e.g. 20877"
                       />
                     </div>
                     <div className="corrections-form-field">
@@ -1005,9 +1150,9 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                       <input
                         type="text"
                         inputMode="decimal"
-                        value={manualForm.test_voltage ?? ""}
-                        onChange={(e) => setManualForm((prev) => ({ ...prev, test_voltage: e.target.value }))}
-                        placeholder="e.g. 0.5"
+                        value={editorForm.test_voltage ?? ""}
+                        onChange={(e) => setEditorForm((p) => ({ ...p, test_voltage: e.target.value }))}
+                        placeholder="e.g. 1.0"
                       />
                     </div>
                   </>
@@ -1016,22 +1161,73 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
             </div>
           </section>
 
+          {/* Report metadata */}
+          <section className="corrections-card">
+            <header className="corrections-card-header corrections-card-header--compact">
+              <div className="corrections-card-headline">
+                <span className="corrections-card-eyebrow">Report of Calibration</span>
+                <span className="corrections-card-subtitle">
+                  Tie these values to the certificate's date so older calibrations stay on record.
+                </span>
+              </div>
+            </header>
+            <div className="corrections-card-body">
+              <div className="corrections-form-grid">
+                <div className="corrections-form-field">
+                  <label>Calibration date</label>
+                  <input
+                    type="date"
+                    value={editorForm.calibration_date ?? ""}
+                    onChange={(e) => setEditorForm((p) => ({ ...p, calibration_date: e.target.value }))}
+                  />
+                </div>
+                <div className="corrections-form-field">
+                  <label>Report number</label>
+                  <input
+                    type="text"
+                    value={editorForm.report_number ?? ""}
+                    onChange={(e) => setEditorForm((p) => ({ ...p, report_number: e.target.value }))}
+                    placeholder="e.g. RC-2024-0142"
+                  />
+                </div>
+                <div className="corrections-form-field">
+                  <label>Received date</label>
+                  <input
+                    type="date"
+                    value={editorForm.received_date ?? ""}
+                    onChange={(e) => setEditorForm((p) => ({ ...p, received_date: e.target.value }))}
+                  />
+                </div>
+                <div className="corrections-form-field corrections-form-field--wide">
+                  <label>Notes</label>
+                  <input
+                    type="text"
+                    value={editorForm.notes ?? ""}
+                    onChange={(e) => setEditorForm((p) => ({ ...p, notes: e.target.value }))}
+                    placeholder="Optional remarks for this report"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Points */}
           <section className="corrections-card">
             <header className="corrections-card-header corrections-card-header--compact">
               <div className="corrections-card-headline">
                 <span className="corrections-card-eyebrow">Correction points</span>
                 <span className="corrections-card-subtitle">
-                  {manualForm.points.length} point{manualForm.points.length === 1 ? "" : "s"} · values in ppm
+                  {editorForm.points.length} point{editorForm.points.length === 1 ? "" : "s"} · values in ppm
                 </span>
               </div>
               <div className="corrections-card-actions">
                 <IconBtn
                   icon={<FaPlus />}
                   onClick={() =>
-                    setManualForm({
-                      ...manualForm,
-                      points: [...manualForm.points, { id: null, frequency: "", val1: "", val2: "" }],
-                    })
+                    setEditorForm((p) => ({
+                      ...p,
+                      points: [...p.points, isShunt ? emptyShuntPoint() : emptyTvcPoint()],
+                    }))
                   }
                   title="Add correction point"
                 />
@@ -1039,17 +1235,28 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
             </header>
 
             <div className="corrections-card-body corrections-card-body--points">
-              {manualForm.points.length > 0 ? (
-                <div className="corrections-points-table" role="table">
+              {editorForm.points.length > 0 ? (
+                <div className={`corrections-points-table${isShunt ? " corrections-points-table--shunt" : ""}`} role="table">
                   <div className="corrections-points-thead" role="row">
+                    {isShunt && <span role="columnheader">Current (A)</span>}
                     <span role="columnheader">Frequency (Hz)</span>
                     <span role="columnheader">{value1Label}</span>
                     <span role="columnheader">{value2Label}</span>
                     <span role="columnheader" aria-hidden className="corrections-points-spacer" />
                   </div>
 
-                  {manualForm.points.map((p, i) => (
+                  {editorForm.points.map((p, i) => (
                     <div key={i} className="corrections-points-row" role="row">
+                      {isShunt && (
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="corrections-points-input"
+                          placeholder="e.g. 0.002"
+                          value={p.current ?? ""}
+                          onChange={(e) => handlePointChange(i, "current", e.target.value)}
+                        />
+                      )}
                       <input
                         type="text"
                         inputMode="decimal"
@@ -1077,10 +1284,10 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                       <IconBtn
                         icon={<FaTimes />}
                         onClick={() =>
-                          setManualForm({
-                            ...manualForm,
-                            points: manualForm.points.filter((_, idx) => idx !== i),
-                          })
+                          setEditorForm((prev) => ({
+                            ...prev,
+                            points: prev.points.filter((_, idx) => idx !== i),
+                          }))
                         }
                         title="Remove point"
                         variant="danger"
@@ -1098,74 +1305,45 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
           </section>
         </div>
 
-        {/* --- Pinned Footer Actions --- */}
         <footer className="corrections-manual-footer">
           <IconBtn
             icon={<FaArrowLeft />}
-            onClick={() => setIsManualFormOpen(false)}
+            onClick={() => setIsEditorOpen(false)}
             disabled={isSaving}
             title="Back to browser"
           />
           <IconBtn
             icon={<FaSave />}
-            onClick={handleSaveManual}
+            onClick={handleSaveEditor}
             disabled={isSaving}
-            title={isSaving ? "Saving…" : "Save entry"}
+            title={isSaving ? "Saving…" : "Save report"}
           />
         </footer>
       </div>
     );
   };
 
-  const renderSessionTvcHeader = (rowKey, eyebrow, serial) => {
-    const record = serial ? tvcsData.find((t) => String(t.serial_number) === String(serial)) : null;
-    const isManual = !!record?.is_manual;
-
-    return (
-      <header className={`corrections-card-header corrections-card-header--compact corrections-session-tvc-${rowKey}-head`}>
-        <div className="corrections-card-headline">
-          <span className="corrections-card-eyebrow">{eyebrow}</span>
-          <div className="corrections-card-title">
-            {serial ? (
-              <>
-                <span className="corrections-card-identity">S/N&nbsp;{serial}</span>
-                {isManual && <span className="corrections-manual-badge">Manual</span>}
-              </>
-            ) : (
-              <span className="corrections-card-identity corrections-card-identity--empty">Not assigned</span>
-            )}
-          </div>
-        </div>
-      </header>
-    );
-  };
-
-  const renderSessionTvcBody = (rowKey, serial) => (
-    <div className={`corrections-card-body corrections-session-tvc-${rowKey}-body`}>
-      {renderTVCTable(serial, { compact: true })}
-    </div>
-  );
-
+  // =====================================================================
+  //  Render: TVC database panels
+  // =====================================================================
   const renderTvcDatabasePanels = () => {
     return (
       <div className="corrections-tab-content">
         <div className="corrections-section">
           <div className="corrections-section-heading">
             <span className="corrections-section-eyebrow">Session TVCs</span>
-            <span className="corrections-section-subtitle">Corrections on file for the TVCs assigned to this session.</span>
+            <span className="corrections-section-subtitle">Active-report corrections for the TVCs assigned to this session.</span>
           </div>
           <div className="corrections-session-tvc-grid">
-            {renderSessionTvcHeader("std", "Standard TVC", standardTvcSn)}
-            {renderSessionTvcHeader("test", "Test TVC", testTvcSn)}
-            {renderSessionTvcBody("std", standardTvcSn)}
-            {renderSessionTvcBody("test", testTvcSn)}
+            {renderSessionTvc("std", "Standard TVC", standardTvcSn)}
+            {renderSessionTvc("test", "Test TVC", testTvcSn)}
           </div>
         </div>
 
         <div className="corrections-section">
           <div className="corrections-section-heading">
             <span className="corrections-section-eyebrow">Auxiliary lookup</span>
-            <span className="corrections-section-subtitle">Browse any TVC on file, or add and maintain manual entries.</span>
+            <span className="corrections-section-subtitle">Browse any TVC on file, review its report history, or add manual entries.</span>
           </div>
 
           <section className="corrections-card">
@@ -1187,14 +1365,40 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                       </option>
                     ))}
                   </select>
-                  {isSelectedTvcManual && <span className="corrections-manual-badge">Manual</span>}
+                  {selectedTvc?.is_manual && <span className="corrections-manual-badge">Manual</span>}
                 </div>
+              </div>
+              <div className="corrections-card-actions">
+                {!isReadOnly && (
+                  <>
+                    <IconBtn icon={<FaPlus />} onClick={() => openNewDevice("tvc")} title="Add manual TVC entry" />
+                    {selectedTvc?.is_manual && (
+                      <IconBtn
+                        icon={<FaTrash />}
+                        onClick={() =>
+                          setDeleteConfirm({
+                            isOpen: true,
+                            kind: "device",
+                            payload: { type: "tvc", deviceId: selectedTvc.id },
+                          })
+                        }
+                        title="Delete TVC entry"
+                        variant="danger"
+                      />
+                    )}
+                  </>
+                )}
               </div>
             </header>
 
+            {selectedTvc && renderReportBar("tvc", selectedTvc, tvcReports, selectedTvcReport, setSelectedTvcReportId)}
+
             <div className="corrections-card-body">
-              {auxiliaryTvcSn ? (
-                renderTVCTable(auxiliaryTvcSn)
+              {selectedTvc ? (
+                <>
+                  {renderReportMeta(selectedTvcReport)}
+                  {renderTvcReportTable(selectedTvcReport)}
+                </>
               ) : (
                 <div className="corrections-empty-state">
                   <span className="corrections-empty-state-title">Nothing selected</span>
@@ -1208,6 +1412,9 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     );
   };
 
+  // =====================================================================
+  //  Render root
+  // =====================================================================
   return (
     <>
       <PasswordModal
@@ -1215,17 +1422,21 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         title="Admin Authentication Required"
         message="You are modifying imported system parameters. Please input your authorization key:"
         onConfirm={handlePasswordVerify}
-        onCancel={() => setPasswordGate({ isOpen: false, type: null, identifier: null })}
+        onCancel={() => setPasswordGate({ isOpen: false, action: null })}
       />
 
       <ConfirmationModal
         isOpen={deleteConfirm.isOpen}
-        title="Confirm Deletion"
-        message={`Are you sure you want to permanently delete the manual entry for S/N: ${deleteConfirm.serialNumber}?`}
+        title={deleteConfirm.kind === "device" ? "Delete Device" : "Delete Report"}
+        message={
+          deleteConfirm.kind === "device"
+            ? "Permanently delete this device and ALL of its calibration history? This cannot be undone."
+            : "Permanently delete this Report of Calibration? Older reports for this device will remain. This cannot be undone."
+        }
         confirmText="Delete"
         confirmButtonClass="button-danger"
         onConfirm={executeDelete}
-        onCancel={() => setDeleteConfirm({ isOpen: false, type: null, serialNumber: null })}
+        onCancel={() => setDeleteConfirm({ isOpen: false, kind: null, payload: null })}
       />
 
       <ConfirmationModal
@@ -1233,8 +1444,8 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         title={addPointsConfirm.isMismatch ? "Serial Mismatch Warning" : "Generate Test Points?"}
         message={
           addPointsConfirm.isMismatch
-            ? `WARNING: The serial number of this AC Shunt (${selectedShunt?.serial_number}) does not match the Standard Instrument serial assigned to this session (${standardInstrumentSerial || "None"}).\n\nGenerating test points from the wrong correction table may result in incorrect applied currents. Are you sure you want to proceed and add test points for ${addPointsConfirm.row?.current}A?`
-            : `Are you sure you want to add test points for ${addPointsConfirm.row?.current}A at all available frequencies to the current calibration session?`
+            ? `WARNING: The serial number of this AC Shunt (${selectedShuntDevice?.serial_number}) does not match the Standard Instrument serial assigned to this session (${standardInstrumentSerial || "None"}).\n\nGenerating test points from the wrong correction table may result in incorrect applied currents. Proceed and add test points for ${addPointsConfirm.row?.current}A?`
+            : `Add test points for ${addPointsConfirm.row?.current}A at all available frequencies to the current calibration session?`
         }
         confirmText={addPointsConfirm.isMismatch ? "Proceed Anyway" : "Generate Points"}
         confirmButtonClass={addPointsConfirm.isMismatch ? "button-danger" : "button-primary"}
@@ -1258,7 +1469,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
             <h3 id="corrections-modal-title" className="corrections-modal-title">Corrections &amp; Uncertainties</h3>
           </div>
           <div className="corrections-modal-header-actions">
-            {!isManualFormOpen && (
+            {!isEditorOpen && (
               <div className="cal-results-tabs corrections-modal-type-toggle" role="tablist" aria-label="Correction data type">
                 <button
                   type="button"
@@ -1287,8 +1498,8 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         </header>
 
         <main className="corrections-modal-body">
-          {isManualFormOpen ? (
-            renderManualEntry()
+          {isEditorOpen ? (
+            renderEditor()
           ) : primaryTab === "AC Shunt" ? (
             <section className="corrections-card corrections-card--shunt-picker">
               <header className="corrections-card-header">
@@ -1297,8 +1508,8 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                   <div className="corrections-card-picker">
                     <select
                       className="corrections-card-select"
-                      value={selectedShuntSn || ""}
-                      onChange={(e) => setSelectedShuntSn(e.target.value)}
+                      value={selectedShuntKey || ""}
+                      onChange={(e) => setSelectedShuntKey(e.target.value)}
                       disabled={isLoading}
                       aria-label="AC Shunt serial number"
                     >
@@ -1309,38 +1520,25 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                         </option>
                       ))}
                     </select>
-                    {isSelectedShuntManual && <span className="corrections-manual-badge">Manual</span>}
+                    {selectedShuntDevice?.is_manual && <span className="corrections-manual-badge">Manual</span>}
                   </div>
                 </div>
 
                 <div className="corrections-card-actions">
                   {!isReadOnly && (
                     <>
-                      <IconBtn
-                        icon={<FaPlus />}
-                        onClick={() => handleOpenManualForm("shunt")}
-                        title="Add manual AC shunt entry"
-                      />
-
-                      {selectedShuntSn && (
-                        <IconBtn
-                          icon={<FaEdit />}
-                          onClick={() => handleEditManual("shunt", selectedShuntSn)}
-                          title="Edit entry"
-                        />
-                      )}
-
-                      {isSelectedShuntManual && (
+                      <IconBtn icon={<FaPlus />} onClick={() => openNewDevice("shunt")} title="Add manual AC shunt device" />
+                      {selectedShuntDevice?.is_manual && (
                         <IconBtn
                           icon={<FaTrash />}
                           onClick={() =>
                             setDeleteConfirm({
                               isOpen: true,
-                              type: "shunt",
-                              serialNumber: selectedShuntSn,
+                              kind: "device",
+                              payload: { type: "shunt", deviceId: selectedShuntDevice.id },
                             })
                           }
-                          title="Delete entry"
+                          title="Delete device"
                           variant="danger"
                         />
                       )}
@@ -1349,7 +1547,11 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                 </div>
               </header>
 
+              {selectedShuntDevice &&
+                renderReportBar("shunt", selectedShuntDevice, shuntReports, selectedShuntReport, setSelectedShuntReportId)}
+
               <div className="corrections-card-body">
+                {renderReportMeta(selectedShuntReport)}
                 {renderShuntTable()}
               </div>
             </section>

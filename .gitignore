@@ -27,10 +27,6 @@ Thumbs.db
 # Generated data files from the script
 correction_data.json
 uncertainty_data.json
-corrections_hash.json
-
-# The source Excel file (optional)
-corrections.xlsx
 
 # --- PyInstaller (Backend Build Artifacts) ---
 # Ignores the temporary build files and the final packaged output

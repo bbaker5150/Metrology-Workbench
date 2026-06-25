@@ -2,9 +2,9 @@
 One-shot pre-server bootstrap command.
 
 Runs every piece of startup work that ``entry_point.main`` does for the
-PyInstaller build — migrations, outbox schema, corrections sync, Local
-Workstation seed, optional mock calibration session — but packaged as a
-``manage.py`` command so it composes cleanly with ``runserver``.
+PyInstaller build — migrations, outbox schema, Local Workstation seed,
+optional mock calibration session — but packaged as a ``manage.py``
+command so it composes cleanly with ``runserver``.
 
 Chained in ``Frontend/workbench/package.json`` as::
 
@@ -42,7 +42,6 @@ class Command(BaseCommand):
 
         self._migrate_default_db()
         self._migrate_module_dbs()
-        self._sync_corrections()
         self._bootstrap_outbox()
         self._bootstrap_local_workstation()
         self._bootstrap_mock_session()
@@ -104,22 +103,6 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(
                     f"Module DB migrate for '{app_label}' skipped ({exc!r})."
                 ))
-
-    def _sync_corrections(self):
-        """Mirror entry_point.main's corrections-sync step.
-
-        Non-fatal: calibration can run from cached corrections if this
-        fails at startup.
-        """
-        try:
-            from api.manage_corrections import check_and_update_corrections
-
-            check_and_update_corrections()
-            self.stdout.write("Corrections synchronized.")
-        except Exception as exc:
-            self.stdout.write(self.style.WARNING(
-                f"Corrections sync skipped ({exc!r})."
-            ))
 
     def _bootstrap_outbox(self):
         """Delegate to entry_point so the outbox schema logic lives once.

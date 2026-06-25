@@ -1,9 +1,56 @@
 # Backend/ac_shunt/api/models.py
 from django.db import models
 from django.core.validators import MinValueValidator
+from datetime import date
 import math
 import uuid
 import numpy as np
+
+
+def resolve_active_report(reports):
+    """Pick the active Report of Calibration from an iterable of reports.
+
+    A pinned report always wins. Otherwise the report with the newest
+    ``calibration_date`` is active (undated reports sort oldest), with ties
+    broken by ``created_at`` then ``id`` so the result is deterministic.
+    Returns the chosen report, or ``None`` when ``reports`` is empty.
+    """
+    reports = list(reports)
+    if not reports:
+        return None
+
+    def sort_key(report):
+        return (
+            report.calibration_date or date.min,
+            report.created_at.timestamp() if report.created_at else 0.0,
+            report.id or 0,
+        )
+
+    pinned = [r for r in reports if r.is_pinned]
+    pool = pinned or reports
+    return max(pool, key=sort_key)
+
+
+def refresh_active_report(device):
+    """Recompute and persist which of ``device``'s reports is active.
+
+    Exactly one report ends up with ``is_active=True``. Shared by
+    :class:`Shunt` and :class:`TVC`; only the report rows whose flag
+    actually changes are written.
+    """
+    reports = list(device.reports.all())
+    if not reports:
+        return None
+    active = resolve_active_report(reports)
+    changed = []
+    for report in reports:
+        desired = report.pk == active.pk
+        if report.is_active != desired:
+            report.is_active = desired
+            changed.append(report)
+    if changed:
+        device.reports.model.objects.bulk_update(changed, ['is_active'])
+    return active
 
 def get_default_cal_session_name():
     return f"CalSession-{uuid.uuid4().hex[:8]}"
@@ -555,15 +602,22 @@ class CalibrationResults(models.Model):
                     .filter(
                         serial_number=session.standard_instrument_serial,
                         range=cal_config.ac_shunt_range,
-                        current=target_current,
                     )
                     .order_by('-is_manual')
                     .first()
                 )
                 if shunt:
-                    corr = shunt.corrections.filter(frequency=target_freq).first()
-                    if corr:
-                        self.delta_std_known = corr.correction
+                    # Corrections live under the device's active Report of
+                    # Calibration; older reports are retained for history but
+                    # never feed live math.
+                    active_report = shunt.reports.filter(is_active=True).first()
+                    if active_report:
+                        corr = active_report.corrections.filter(
+                            current=target_current,
+                            frequency=target_freq,
+                        ).first()
+                        if corr:
+                            self.delta_std_known = corr.correction
 
         # 2. TVC Interpolation Logic
         def get_tvc_corr(serial):
@@ -571,7 +625,11 @@ class CalibrationResults(models.Model):
             from .models import TVC
             try:
                 tvc = TVC.objects.get(serial_number=serial)
-                corrs = list(tvc.corrections.all().order_by('frequency'))
+                active_report = tvc.reports.filter(is_active=True).first()
+                corrs = (
+                    list(active_report.corrections.all().order_by('frequency'))
+                    if active_report else []
+                )
                 if not corrs: return None
                 
                 # Exact Match
@@ -1047,41 +1105,92 @@ class CalibrationResultsCycle(models.Model):
 
 class Shunt(models.Model):
     """
-    Represents a single AC Shunt device at a specific range and current.
+    Represents a single physical AC Shunt device (one serial / range).
+
+    A device owns one or more dated :class:`ShuntReport` rows — one per
+    Report of Calibration received over the unit's life. The per-input-
+    current, per-frequency correction values hang off each report, so the
+    same serial can keep a full calibration history without losing the old
+    numbers when a new certificate arrives.
     """
     model_name = models.CharField(max_length=100, default='Shunt')
     serial_number = models.CharField(max_length=100)
     range = models.FloatField()
-    current = models.FloatField()
     remark = models.CharField(max_length=255, blank=True, null=True)
     is_manual = models.BooleanField(default=False)
 
     class Meta:
         # is_manual is part of the key so a user-authored entry can coexist
-        # with an imported one for the same physical (serial, range, current);
+        # with an imported one for the same physical (serial, range);
         # downstream lookups prefer is_manual=True when both exist.
-        unique_together = ('serial_number', 'range', 'current', 'is_manual')
+        unique_together = ('serial_number', 'range', 'is_manual')
 
     def __str__(self):
-        return f"{self.model_name} SN: {self.serial_number} ({self.range}A / {self.current}A)"
+        return f"{self.model_name} SN: {self.serial_number} ({self.range}A)"
+
+    def refresh_active_report(self):
+        return refresh_active_report(self)
+
+
+class ShuntReport(models.Model):
+    """A dated Report of Calibration for a :class:`Shunt`.
+
+    Each report captures the corrections/uncertainties from one physical
+    calibration certificate. Adding a new report for a serial never
+    overwrites the prior ones — history is preserved. The report with the
+    newest ``calibration_date`` is active by default (feeds live math),
+    unless an operator pins an older one.
+    """
+    shunt = models.ForeignKey(Shunt, on_delete=models.CASCADE, related_name='reports')
+    calibration_date = models.DateField(
+        null=True, blank=True,
+        help_text="Date printed on the Report of Calibration. Drives which report is active.",
+    )
+    report_number = models.CharField(max_length=120, blank=True, default='')
+    received_date = models.DateField(
+        null=True, blank=True,
+        help_text="Date the certificate was received in the lab (optional, informational).",
+    )
+    notes = models.TextField(blank=True, default='')
+    is_active = models.BooleanField(
+        default=False,
+        help_text="Materialized flag: the single report whose values feed live calibration math.",
+    )
+    is_pinned = models.BooleanField(
+        default=False,
+        help_text="Operator override: force this report active even if a newer-dated one exists.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-calibration_date', '-created_at']
+
+    def __str__(self):
+        label = self.calibration_date.isoformat() if self.calibration_date else 'undated'
+        return f"RoC {label} for {self.shunt}"
 
 
 class ShuntCorrection(models.Model):
     """
-    Stores a single correction/uncertainty point for a specific Shunt.
+    Stores a single correction/uncertainty point (one input current at one
+    frequency) belonging to a specific Report of Calibration.
     """
-    shunt = models.ForeignKey(Shunt, on_delete=models.CASCADE, related_name='corrections')
+    report = models.ForeignKey(ShuntReport, on_delete=models.CASCADE, related_name='corrections')
+    current = models.FloatField()
     frequency = models.IntegerField()
     correction = models.FloatField(null=True, blank=True)
     uncertainty = models.FloatField(null=True, blank=True)
 
     class Meta:
-        unique_together = ('shunt', 'frequency')
+        unique_together = ('report', 'current', 'frequency')
 
 
 class TVC(models.Model):
     """
     Represents a single Thermal Voltage Converter device.
+
+    Like :class:`Shunt`, a TVC owns dated :class:`TVCReport` rows so each
+    serial keeps its full calibration history.
     """
     serial_number = models.IntegerField(unique=True)
     test_voltage = models.FloatField()
@@ -1089,6 +1198,40 @@ class TVC(models.Model):
 
     def __str__(self):
         return f"TVC Device SN: {self.serial_number}"
+
+    def refresh_active_report(self):
+        return refresh_active_report(self)
+
+
+class TVCReport(models.Model):
+    """A dated Report of Calibration for a :class:`TVC` (see :class:`ShuntReport`)."""
+    tvc = models.ForeignKey(TVC, on_delete=models.CASCADE, related_name='reports')
+    calibration_date = models.DateField(
+        null=True, blank=True,
+        help_text="Date printed on the Report of Calibration. Drives which report is active.",
+    )
+    report_number = models.CharField(max_length=120, blank=True, default='')
+    received_date = models.DateField(
+        null=True, blank=True,
+        help_text="Date the certificate was received in the lab (optional, informational).",
+    )
+    notes = models.TextField(blank=True, default='')
+    is_active = models.BooleanField(
+        default=False,
+        help_text="Materialized flag: the single report whose values feed live calibration math.",
+    )
+    is_pinned = models.BooleanField(
+        default=False,
+        help_text="Operator override: force this report active even if a newer-dated one exists.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-calibration_date', '-created_at']
+
+    def __str__(self):
+        label = self.calibration_date.isoformat() if self.calibration_date else 'undated'
+        return f"RoC {label} for {self.tvc}"
 
 class TVCSensitivity(models.Model):
     """
@@ -1109,15 +1252,16 @@ class TVCSensitivity(models.Model):
 
 class TVCCorrection(models.Model):
     """
-    Stores a single correction point for a specific TVC device.
+    Stores a single correction point belonging to a specific TVC Report of
+    Calibration.
     """
-    tvc = models.ForeignKey(TVC, on_delete=models.CASCADE, related_name='corrections')
+    report = models.ForeignKey(TVCReport, on_delete=models.CASCADE, related_name='corrections')
     frequency = models.IntegerField()
     ac_dc_difference = models.IntegerField()
     expanded_uncertainty = models.IntegerField()
 
     class Meta:
-        unique_together = ('tvc', 'frequency')
+        unique_together = ('report', 'frequency')
 
 class BugReport(models.Model):
     SEVERITY_CHOICES = [

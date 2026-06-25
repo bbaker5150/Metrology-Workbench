@@ -17,17 +17,18 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
 from .models import (
-    Message, CalibrationSession, TestPoint, TestPointSet, Calibration, 
-    CalibrationConfigurations, CalibrationTVCCorrections, CalibrationSettings, 
-    CalibrationReadings, CalibrationResults, Shunt, TVC, BugReport,
-    Workstation,
+    Message, CalibrationSession, TestPoint, TestPointSet, Calibration,
+    CalibrationConfigurations, CalibrationTVCCorrections, CalibrationSettings,
+    CalibrationReadings, CalibrationResults, Shunt, ShuntReport, TVC, TVCReport,
+    BugReport, Workstation,
 )
 from .serializers import (
-    MessageSerializer, CalibrationSerializer, CalibrationSessionSerializer, 
-    TestPointSerializer, TestPointSetSerializer, 
-    CalibrationTVCCorrectionsSerializer, CalibrationConfigurationsSerializer, 
-    CalibrationSettingsSerializer, CalibrationReadingsSerializer, 
-    CalibrationResultsSerializer, ShuntSerializer, TVCSerializer, BugReportSerializer,
+    MessageSerializer, CalibrationSerializer, CalibrationSessionSerializer,
+    TestPointSerializer, TestPointSetSerializer,
+    CalibrationTVCCorrectionsSerializer, CalibrationConfigurationsSerializer,
+    CalibrationSettingsSerializer, CalibrationReadingsSerializer,
+    CalibrationResultsSerializer, ShuntSerializer, ShuntReportSerializer,
+    TVCSerializer, TVCReportSerializer, BugReportSerializer,
     WorkstationSerializer,
 )
 
@@ -208,29 +209,89 @@ class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
 
 class ShuntViewSet(viewsets.ModelViewSet):
-    queryset = Shunt.objects.prefetch_related('corrections').all()
+    queryset = Shunt.objects.prefetch_related('reports__corrections').all()
     serializer_class = ShuntSerializer
 
-    def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-        # Pretty print the first item to see its structure and data types
-        if response.data:
-            import json
-            # print(json.dumps(response.data[0], indent=2))
-        return response
 
 class TVCViewSet(viewsets.ModelViewSet):
-    queryset = TVC.objects.prefetch_related('corrections').all()
+    queryset = TVC.objects.prefetch_related('reports__corrections', 'sensitivities').all()
     serializer_class = TVCSerializer
 
-    # --- ADDED: Logging for debugging ---
-    def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-        if response.data:
-            import json
-        #     print(json.dumps(response.data[0], indent=2))
-        # print("------------------------------------------------\n")
-        return response
+
+class _ReportViewSetMixin:
+    """Shared CRUD/pin behavior for the nested Shunt/TVC report endpoints.
+
+    Reports of Calibration are nested under their device
+    (``/shunts/<id>/reports/`` and ``/tvcs/<id>/reports/``). Every write
+    re-derives which report is active so the latest-dated (or pinned)
+    report always feeds live calibration math.
+    """
+
+    parent_model = None
+    parent_lookup_kwarg = None  # e.g. 'shunt_pk'
+    parent_field = None         # e.g. 'shunt'
+
+    def _parent(self):
+        return self.parent_model.objects.get(pk=self.kwargs[self.parent_lookup_kwarg])
+
+    def get_queryset(self):
+        return (
+            self.queryset.model.objects
+            .filter(**{self.parent_field: self.kwargs[self.parent_lookup_kwarg]})
+            .prefetch_related('corrections')
+        )
+
+    def perform_create(self, serializer):
+        parent = self._parent()
+        report = serializer.save(**{self.parent_field: parent})
+        parent.refresh_active_report()
+        # refresh_active_report may have flipped is_active on this row; reload
+        # so the create response reflects the post-recompute state.
+        report.refresh_from_db()
+
+    def perform_update(self, serializer):
+        report = serializer.save()
+        getattr(report, self.parent_field).refresh_active_report()
+        report.refresh_from_db()
+
+    def perform_destroy(self, instance):
+        parent = getattr(instance, self.parent_field)
+        instance.delete()
+        parent.refresh_active_report()
+
+    @action(detail=True, methods=['post'])
+    def pin(self, request, **kwargs):
+        """Pin/unpin this report as the active one.
+
+        Pinning forces this report active even if a newer-dated report
+        exists; unpinning reverts to automatic latest-date selection.
+        """
+        report = self.get_object()
+        parent = getattr(report, self.parent_field)
+        should_pin = bool(request.data.get('pinned', True))
+        # Only one pin at a time per device.
+        parent.reports.exclude(pk=report.pk).update(is_pinned=False)
+        report.is_pinned = should_pin
+        report.save(update_fields=['is_pinned'])
+        parent.refresh_active_report()
+        report.refresh_from_db()
+        return Response(self.get_serializer(report).data)
+
+
+class ShuntReportViewSet(_ReportViewSetMixin, viewsets.ModelViewSet):
+    queryset = ShuntReport.objects.all()
+    serializer_class = ShuntReportSerializer
+    parent_model = Shunt
+    parent_lookup_kwarg = 'shunt_pk'
+    parent_field = 'shunt'
+
+
+class TVCReportViewSet(_ReportViewSetMixin, viewsets.ModelViewSet):
+    queryset = TVCReport.objects.all()
+    serializer_class = TVCReportSerializer
+    parent_model = TVC
+    parent_lookup_kwarg = 'tvc_pk'
+    parent_field = 'tvc'
 
 class WorkstationViewSet(viewsets.ReadOnlyModelViewSet):
     """Read-only list/retrieve for the session-setup dropdown.

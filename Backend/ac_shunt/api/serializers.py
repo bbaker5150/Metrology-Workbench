@@ -1,8 +1,8 @@
 import re
 from rest_framework import serializers
 from .models import (
-    Message, Shunt, ShuntCorrection, TVC, TVCCorrection, TVCSensitivity,
-    CalibrationSession, TestPoint, TestPointSet, Calibration,
+    Message, Shunt, ShuntReport, ShuntCorrection, TVC, TVCReport, TVCCorrection,
+    TVCSensitivity, CalibrationSession, TestPoint, TestPointSet, Calibration,
     CalibrationTVCCorrections, CalibrationConfigurations, CalibrationSettings,
     CalibrationReadings, CalibrationResults, CalibrationResultsCycle, BugReport,
     Workstation, WorkstationClaim,
@@ -20,28 +20,82 @@ class MessageSerializer(serializers.ModelSerializer):
 # ==============================================================================
 
 class ShuntCorrectionSerializer(serializers.ModelSerializer):
-    """ Serializes a single correction point for a Shunt. """
+    """ Serializes a single correction point for a Shunt report. """
     id = serializers.IntegerField(required=False, allow_null=True) # Required to preserve IDs during PUT
-    
+
     class Meta:
         model = ShuntCorrection
-        fields = ['id', 'frequency', 'correction', 'uncertainty']
+        fields = ['id', 'current', 'frequency', 'correction', 'uncertainty']
+
+
+class ShuntReportSerializer(serializers.ModelSerializer):
+    """ Serializes a dated Report of Calibration and its nested points. """
+    id = serializers.IntegerField(required=False, allow_null=True)
+    corrections = ShuntCorrectionSerializer(many=True, required=False)
+
+    class Meta:
+        model = ShuntReport
+        fields = [
+            'id', 'calibration_date', 'report_number', 'received_date',
+            'notes', 'is_active', 'is_pinned', 'created_at', 'corrections',
+        ]
+        read_only_fields = ['is_active', 'created_at']
+
+    def create(self, validated_data):
+        corrections_data = validated_data.pop('corrections', [])
+        report = ShuntReport.objects.create(**validated_data)
+        for c in corrections_data:
+            c.pop('id', None)
+            ShuntCorrection.objects.create(report=report, **c)
+        return report
+
+    def update(self, instance, validated_data):
+        corrections_data = validated_data.pop('corrections', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if corrections_data is not None:
+            # Keep/replace points keyed by (current, frequency); drop the rest.
+            keep_keys = {
+                (c.get('current'), c.get('frequency'))
+                for c in corrections_data
+                if c.get('current') is not None and c.get('frequency') is not None
+            }
+            for existing in instance.corrections.all():
+                if (existing.current, existing.frequency) not in keep_keys:
+                    existing.delete()
+            for c in corrections_data:
+                cur, freq = c.get('current'), c.get('frequency')
+                if cur is not None and freq is not None:
+                    ShuntCorrection.objects.update_or_create(
+                        report=instance,
+                        current=cur,
+                        frequency=freq,
+                        defaults={
+                            'correction': c.get('correction'),
+                            'uncertainty': c.get('uncertainty'),
+                        },
+                    )
+        return instance
+
 
 class ShuntSerializer(serializers.ModelSerializer):
-    corrections = ShuntCorrectionSerializer(many=True, required=False)
+    """ Serializes a Shunt device and nests its dated reports. """
+    reports = ShuntReportSerializer(many=True, required=False)
     size = serializers.SerializerMethodField()
 
     class Meta:
         model = Shunt
         fields = [
             'id', 'model_name', 'serial_number', 'range',
-            'current', 'remark', 'is_manual', 'size', 'corrections'
+            'remark', 'is_manual', 'size', 'reports'
         ]
         # Suppress DRF's auto UniqueTogetherValidator so our custom validate()
         # below can return a user-facing message instead of the default
         # "must make a unique set." wording.
         validators = []
-    
+
     def get_size(self, obj):
         if obj.remark:
             match = re.search(r'-(\S+?)\s+sn', obj.remark)
@@ -50,20 +104,18 @@ class ShuntSerializer(serializers.ModelSerializer):
         return None
 
     def validate(self, attrs):
-        # The DB constraint is (serial, range, current, is_manual), so a
-        # manual entry can coexist with an imported one — but two manual rows
-        # for the same triple still collide. Catch that here so the user sees
-        # a 400 with a useful message instead of a 500 IntegrityError.
+        # The DB constraint is (serial, range, is_manual), so a manual entry
+        # can coexist with an imported one — but two manual rows for the same
+        # pair still collide. Catch that here so the user sees a 400 with a
+        # useful message instead of a 500 IntegrityError.
         if self.instance is None:  # create only
             serial = attrs.get('serial_number')
             shunt_range = attrs.get('range')
-            current = attrs.get('current')
             is_manual = attrs.get('is_manual', False)
-            if serial is not None and shunt_range is not None and current is not None:
+            if serial is not None and shunt_range is not None:
                 existing = Shunt.objects.filter(
                     serial_number=serial,
                     range=shunt_range,
-                    current=current,
                     is_manual=is_manual,
                 ).first()
                 if existing is not None:
@@ -71,60 +123,88 @@ class ShuntSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({
                         'serial_number': (
                             f"A {kind} entry for serial {serial} at "
-                            f"{shunt_range}A / {current}A already exists. "
-                            f"Edit it instead of adding a duplicate."
+                            f"{shunt_range}A already exists. "
+                            f"Edit it (or add a new Report of Calibration) "
+                            f"instead of adding a duplicate."
                         )
                     })
         return attrs
 
     def create(self, validated_data):
-        corrections_data = validated_data.pop('corrections', [])
+        reports_data = validated_data.pop('reports', [])
         shunt = Shunt.objects.create(**validated_data)
-        for correction_data in corrections_data:
-            correction_data.pop('id', None) # Remove mock ID if exists
-            ShuntCorrection.objects.create(shunt=shunt, **correction_data)
+        report_serializer = ShuntReportSerializer()
+        for report_data in reports_data:
+            report_data.pop('id', None)
+            report_data['shunt'] = shunt
+            report_serializer.create(report_data)
+        shunt.refresh_active_report()
         return shunt
 
     def update(self, instance, validated_data):
-        """ Handles updating nested correction points for a Shunt safely. """
-        corrections_data = validated_data.pop('corrections', None)
-        
-        # Update main Shunt attributes
+        """ Update device-level fields only. Reports are managed through the
+        nested /shunts/<id>/reports/ endpoints so history stays explicit. """
+        validated_data.pop('reports', None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
-
-        # Update nested corrections safely using update_or_create
-        if corrections_data is not None:
-            # 1. Identify all frequencies the user wants to keep/update
-            incoming_frequencies = [c_data['frequency'] for c_data in corrections_data if 'frequency' in c_data]
-            
-            # 2. Delete any points that exist in the DB but are missing from the incoming payload (User deleted them)
-            instance.corrections.exclude(frequency__in=incoming_frequencies).delete()
-
-            # 3. Create or Update the incoming points based on frequency
-            for c_data in corrections_data:
-                freq = c_data.get('frequency')
-                if freq is not None:
-                    ShuntCorrection.objects.update_or_create(
-                        shunt=instance,
-                        frequency=freq,
-                        defaults={
-                            'correction': c_data.get('correction'),
-                            'uncertainty': c_data.get('uncertainty')
-                        }
-                    )
-
         return instance
 
 
 class TVCCorrectionSerializer(serializers.ModelSerializer):
-    """ Serializes a single correction point for a TVC. """
+    """ Serializes a single correction point for a TVC report. """
     id = serializers.IntegerField(required=False, allow_null=True) # Required to preserve IDs during PUT
-    
+
     class Meta:
         model = TVCCorrection
         fields = ['id', 'frequency', 'ac_dc_difference', 'expanded_uncertainty']
+
+
+class TVCReportSerializer(serializers.ModelSerializer):
+    """ Serializes a dated TVC Report of Calibration and its nested points. """
+    id = serializers.IntegerField(required=False, allow_null=True)
+    corrections = TVCCorrectionSerializer(many=True, required=False)
+
+    class Meta:
+        model = TVCReport
+        fields = [
+            'id', 'calibration_date', 'report_number', 'received_date',
+            'notes', 'is_active', 'is_pinned', 'created_at', 'corrections',
+        ]
+        read_only_fields = ['is_active', 'created_at']
+
+    def create(self, validated_data):
+        corrections_data = validated_data.pop('corrections', [])
+        report = TVCReport.objects.create(**validated_data)
+        for c in corrections_data:
+            c.pop('id', None)
+            TVCCorrection.objects.create(report=report, **c)
+        return report
+
+    def update(self, instance, validated_data):
+        corrections_data = validated_data.pop('corrections', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if corrections_data is not None:
+            keep_freqs = {
+                c.get('frequency') for c in corrections_data if c.get('frequency') is not None
+            }
+            instance.corrections.exclude(frequency__in=keep_freqs).delete()
+            for c in corrections_data:
+                freq = c.get('frequency')
+                if freq is not None:
+                    TVCCorrection.objects.update_or_create(
+                        report=instance,
+                        frequency=freq,
+                        defaults={
+                            'ac_dc_difference': c.get('ac_dc_difference'),
+                            'expanded_uncertainty': c.get('expanded_uncertainty'),
+                        },
+                    )
+        return instance
+
 
 class TVCSensitivitySerializer(serializers.ModelSerializer):
     class Meta:
@@ -132,51 +212,32 @@ class TVCSensitivitySerializer(serializers.ModelSerializer):
         fields = ['id', 'current', 'frequency', 'gain_eta', 'updated_at']
 
 class TVCSerializer(serializers.ModelSerializer):
-    """ Serializes a TVC device and nests all its correction points. """
-    corrections = TVCCorrectionSerializer(many=True, required=False)
+    """ Serializes a TVC device and nests its dated reports. """
+    reports = TVCReportSerializer(many=True, required=False)
     sensitivities = TVCSensitivitySerializer(many=True, read_only=True)
 
     class Meta:
         model = TVC
-        fields = ['id', 'serial_number', 'test_voltage', 'is_manual', 'corrections', 'sensitivities']
+        fields = ['id', 'serial_number', 'test_voltage', 'is_manual', 'reports', 'sensitivities']
 
     def create(self, validated_data):
-        corrections_data = validated_data.pop('corrections', [])
+        reports_data = validated_data.pop('reports', [])
         tvc = TVC.objects.create(**validated_data)
-        for correction_data in corrections_data:
-            correction_data.pop('id', None)
-            TVCCorrection.objects.create(tvc=tvc, **correction_data)
+        report_serializer = TVCReportSerializer()
+        for report_data in reports_data:
+            report_data.pop('id', None)
+            report_data['tvc'] = tvc
+            report_serializer.create(report_data)
+        tvc.refresh_active_report()
         return tvc
-        
+
     def update(self, instance, validated_data):
-        """ Handles updating nested correction points for a TVC safely. """
-        corrections_data = validated_data.pop('corrections', None)
-        
+        """ Update device-level fields only. Reports are managed through the
+        nested /tvcs/<id>/reports/ endpoints so history stays explicit. """
+        validated_data.pop('reports', None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
-
-        # Update nested corrections safely using update_or_create
-        if corrections_data is not None:
-            # 1. Identify all frequencies the user wants to keep/update
-            incoming_frequencies = [c_data['frequency'] for c_data in corrections_data if 'frequency' in c_data]
-            
-            # 2. Delete any points that exist in the DB but are missing from the incoming payload
-            instance.corrections.exclude(frequency__in=incoming_frequencies).delete()
-
-            # 3. Create or Update the incoming points based on frequency
-            for c_data in corrections_data:
-                freq = c_data.get('frequency')
-                if freq is not None:
-                    TVCCorrection.objects.update_or_create(
-                        tvc=instance,
-                        frequency=freq,
-                        defaults={
-                            'ac_dc_difference': c_data.get('ac_dc_difference'),
-                            'expanded_uncertainty': c_data.get('expanded_uncertainty')
-                        }
-                    )
-
         return instance
 
 

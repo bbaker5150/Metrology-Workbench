@@ -176,14 +176,10 @@ def main():
         else:
             print("Applying any pending migrations...")
         call_command('migrate', interactive=False)
-            
-        # 3. RUN CORRECTIONS SYNC HERE
-        try:
-            from api.manage_corrections import check_and_update_corrections
-            check_and_update_corrections()
-            print("Startup corrections synchronization completed.")
-        except Exception as e:
-            print(f"Non-critical error during corrections sync: {e}")
+
+        # Corrections are now fully database-driven (dated Reports of
+        # Calibration managed in-app via the Corrections modal). The old
+        # Excel-parse-and-sync step has been removed.
 
     except Exception as e:
         # The default DB being down at boot is EXACTLY the scenario the outbox

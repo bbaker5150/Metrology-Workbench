@@ -5,10 +5,9 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('ac_shunt', 'ac_shunt'), 
+        ('ac_shunt', 'ac_shunt'),
         ('api', 'api'),
         ('uncertainty_data.json', '.'),
-        ('corrections.xlsx', '.'),
     ],
     hiddenimports=[
         'channels', 
