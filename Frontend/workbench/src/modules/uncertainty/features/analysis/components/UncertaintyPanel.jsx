@@ -43,6 +43,7 @@ import {
 } from "../../../utils/tmdeCompatibility";
 import { resolvePointAreaId } from "../../../utils/areaWorkspace";
 import { createInstanceFromDefinition } from "../../../utils/instrumentFactory";
+import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 
 // --- Constants ---
 const customUnitSelectStyles = {
@@ -300,6 +301,17 @@ const sameId = (a, b) => String(a) === String(b);
 const rangeStateKey = (kind, itemId, rangeId) =>
   `${kind}:${itemId || ""}:${rangeId || "default"}`;
 const itemStateKey = (kind, itemId) => `${kind}:${itemId || ""}`;
+const cleanFunctionName = (value) => String(value || "").trim();
+const functionNameMatches = (a, b) =>
+  cleanFunctionName(a).toLowerCase() === cleanFunctionName(b).toLowerCase();
+const getItemFunctionOptions = (item = {}) => {
+  const names = new Set();
+  (item.instrument?.functions || []).forEach((fn) => {
+    const name = cleanFunctionName(fn.name);
+    if (name) names.add(name);
+  });
+  return Array.from(names);
+};
 const getItemRangeTolerance = (item, rangeId) => {
   const inst = item?.instrument || {};
   const find = (ranges) => (ranges || []).find((r) => sameId(r.id, rangeId));
@@ -329,6 +341,145 @@ const findItemRange = (item, rangeId) => {
   }
   return find(inst.ranges) || find(item?.ranges) || null;
 };
+const makeSeededRange = (item, inst = {}, rangePatch = {}) => ({
+  id: uuidv4(),
+  min: "",
+  max: "",
+  unit: "",
+  resolution: "",
+  tolerances: item?.tolerance || inst.tolerance || {},
+  ...rangePatch,
+});
+
+export const applyItemRangeFunction = (item, rangeId, rawFunctionName) => {
+  const inst = item?.instrument || {};
+  const nextName = cleanFunctionName(rawFunctionName);
+  const rangeMatches = (range) =>
+    sameId(range?.id, rangeId) || sameId(range?.rangeId, rangeId);
+  const functions = Array.isArray(inst.functions) ? inst.functions : [];
+
+  if (functions.length > 0) {
+    const sourceIndex = functions.findIndex((fn) =>
+      (fn.ranges || []).some(rangeMatches),
+    );
+    const targetIndex = nextName
+      ? functions.findIndex((fn) => functionNameMatches(fn.name, nextName))
+      : -1;
+
+    if (sourceIndex >= 0) {
+      if (targetIndex >= 0 && targetIndex !== sourceIndex) {
+        const rangeToMove = (functions[sourceIndex].ranges || []).find(rangeMatches);
+        if (!rangeToMove) return item;
+        return {
+          ...item,
+          instrument: {
+            ...inst,
+            functions: functions
+              .map((fn, index) => {
+                if (index === sourceIndex) {
+                  return {
+                    ...fn,
+                    ranges: (fn.ranges || []).filter((range) => !rangeMatches(range)),
+                  };
+                }
+                if (index === targetIndex) {
+                  return {
+                    ...fn,
+                    ranges: [
+                      ...(fn.ranges || []),
+                      {
+                        ...rangeToMove,
+                        unit: rangeToMove.unit || fn.unit || functions[sourceIndex].unit || "",
+                      },
+                    ],
+                  };
+                }
+                return fn;
+              })
+              .filter((fn, index) => index !== sourceIndex || (fn.ranges || []).length > 0),
+          },
+        };
+      }
+
+      return {
+        ...item,
+        instrument: {
+          ...inst,
+          functions: functions.map((fn, index) =>
+            index === sourceIndex ? { ...fn, name: nextName } : fn,
+          ),
+        },
+      };
+    }
+
+    const seededRange = makeSeededRange(item, inst, {
+      unit: functions[targetIndex >= 0 ? targetIndex : 0]?.unit || "",
+    });
+    const appendIndex = targetIndex >= 0 ? targetIndex : 0;
+    return {
+      ...item,
+      instrument: {
+        ...inst,
+        functions: functions.map((fn, index) =>
+          index === appendIndex
+            ? {
+                ...fn,
+                name: targetIndex >= 0 ? fn.name : nextName,
+                ranges: [...(fn.ranges || []), seededRange],
+              }
+            : fn,
+        ),
+      },
+    };
+  }
+
+  if (Array.isArray(inst.ranges) && inst.ranges.length > 0) {
+    const matched = inst.ranges.find(rangeMatches) || inst.ranges[0];
+    const remaining = inst.ranges.filter((range) => range !== matched);
+    const { ranges: _legacyRanges, ...restInst } = inst;
+    return {
+      ...item,
+      instrument: {
+        ...restInst,
+        functions: [
+          {
+            id: uuidv4(),
+            name: nextName,
+            unit: matched.unit || "",
+            ranges: [matched],
+          },
+          ...(remaining.length
+            ? [
+                {
+                  id: uuidv4(),
+                  name: "",
+                  unit: remaining[0]?.unit || "",
+                  ranges: remaining,
+                },
+              ]
+            : []),
+        ],
+      },
+    };
+  }
+
+  const seededRange = makeSeededRange(item, inst);
+  return {
+    ...item,
+    instrument: {
+      ...inst,
+      functions: [
+        {
+          id: uuidv4(),
+          name: nextName,
+          unit: seededRange.unit || "",
+          ranges: [seededRange],
+        },
+      ],
+    },
+  };
+};
+
 // Merge a shallow patch into the matched range (e.g. {tolerances}, {resolution}).
 export const applyItemRangePatch = (item, rangeId, rangePatch) => {
   const inst = item?.instrument || {};
@@ -1257,6 +1408,63 @@ const InlineToleranceCell = ({
     </div>
   );
 };
+
+const FunctionNameInput = ({ value = "", options = [], onCommit }) => {
+  const [localValue, setLocalValue] = useState(value || "");
+  const listId = useMemo(() => `function-options-${uuidv4()}`, []);
+  const functionWidth = useMemo(() => {
+    const longest = Math.max(
+      "Function".length,
+      cleanFunctionName(localValue).length,
+      ...options.map((option) => cleanFunctionName(option).length),
+    );
+    return `${Math.min(Math.max(longest + 3, 11), 22)}ch`;
+  }, [localValue, options]);
+
+  useEffect(() => {
+    setLocalValue(value || "");
+  }, [value]);
+
+  const commit = (raw) => {
+    const next = cleanFunctionName(raw);
+    if (next !== cleanFunctionName(value)) onCommit?.(next);
+    setLocalValue(next);
+  };
+
+  return (
+    <span
+      className="inline-function-editor"
+      title="Instrument function"
+      style={{ "--inline-function-width": functionWidth }}
+    >
+      <input
+        type="text"
+        value={localValue}
+        list={options.length ? listId : undefined}
+        placeholder="Function"
+        aria-label="Instrument function"
+        className="inline-function-input"
+        onChange={(e) => setLocalValue(e.target.value)}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setLocalValue(value || "");
+            e.currentTarget.blur();
+          }
+        }}
+      />
+      {options.length > 0 && (
+        <datalist id={listId}>
+          {options.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
+      )}
+    </span>
+  );
+};
+
 const RangeCell = ({
   ranges = [],
   activeIndex,
@@ -1265,6 +1473,8 @@ const RangeCell = ({
   onSelect,
   onEditBound,
   onEditUnit,
+  onEditFunction,
+  functionOptions = [],
   onPatchRange,
   allowSingleToggle = false,
 }) => {
@@ -1298,6 +1508,13 @@ const RangeCell = ({
     onPatchRange?.({ isSingleValue: true, value: raw, min: raw, max: raw });
   return (
     <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
+      {onEditFunction && (
+        <FunctionNameInput
+          value={activeRange.functionName || ""}
+          options={functionOptions}
+          onCommit={onEditFunction}
+        />
+      )}
       <div className="inline-range-main">
         {onPatchRange && allowSingleToggle && (
           <button
@@ -1592,37 +1809,9 @@ const resolveUutRangeHelper = (
   uutNominal,
 ) => {
   // 1. Normalize Ranges
-  let allRanges = [];
-  if (Array.isArray(uut.ranges) && uut.ranges.length > 0) {
-    allRanges = uut.ranges.map((r) => ({
-      ...r,
-      ...(r.tolerances || r.tolerance || {}),
-    }));
-  } else if (
-    Array.isArray(uut.instrument?.functions) &&
-    uut.instrument.functions.length > 0
-  ) {
-    allRanges = uut.instrument.functions.flatMap((fn) =>
-      (fn.ranges || []).map((r) => ({
-        ...r,
-        ...(r.tolerances || {}),
-        functionName: fn.name,
-        unit: r.unit || fn.unit,
-      })),
-    );
-  } else if (
-    Array.isArray(uut.instrument?.ranges) &&
-    uut.instrument.ranges.length > 0
-  ) {
-    allRanges = uut.instrument.ranges.map((r) => ({
-      ...r,
-      ...(r.tolerances || {}),
-    }));
-  } else {
-    const baseTolerance = uut.tolerance || uut.instrument?.tolerance || {};
-    allRanges = [{ id: "default", range: "Default", ...baseTolerance }];
-  }
-  allRanges = allRanges.map((r, i) => ({ ...r, _index: i }));
+  const allRanges = getInstrumentRangeRows(uut, { flattenTolerances: true }).map(
+    (r, i) => ({ ...r, _index: r._index ?? i }),
+  );
 
   // 2. Determine Active Index in the complete range list.
   let activeIndex = -1;
@@ -3123,6 +3312,10 @@ const SummaryDashboard = ({
     const updatedItem = applyItemRangePatch(item, rangeId, { unit: value });
     persistInlineItem(kind, updatedItem);
   };
+  const setRangeFunction = (kind, item, rangeId, value) => {
+    if (!onSessionSave) return;
+    persistInlineItem(kind, applyItemRangeFunction(item, rangeId, value));
+  };
 
   // --- Inline range editing: edit bounds, add, remove ---
   const persistItem = (kind, updatedItem) => {
@@ -3561,6 +3754,8 @@ const SummaryDashboard = ({
               editable
               allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
               onSelect={(idx) => setRangeIdx((prev) => ({ ...prev, [item.id]: idx }))}
+              functionOptions={getItemFunctionOptions(item)}
+              onEditFunction={(value) => setRangeFunction(kind, item, range?.id, value)}
               onEditBound={(field, value) => handleEditRangeBound(kind, item, range?.id, field, value)}
               onEditUnit={(value) => setRangeUnit(kind, item, range?.id, value)}
               onPatchRange={(patch) => patchRange(kind, item, range?.id, patch)}
@@ -4499,6 +4694,10 @@ const SummaryDashboard = ({
                                   onSelect={(idx) =>
                                     setLocalRangeIndices((prev) => ({ ...prev, [uut.id]: idx }))
                                   }
+                                  functionOptions={getItemFunctionOptions(uut)}
+                                  onEditFunction={(value) =>
+                                    setRangeFunction("uut", uut, range?.id, value)
+                                  }
                                   onEditBound={(field, value) =>
                                     handleEditRangeBound("uut", uut, range?.id, field, value)
                                   }
@@ -4895,6 +5094,10 @@ const SummaryDashboard = ({
                                   )}
                                   onSelect={(idx) =>
                                     setTmdeRangeIndices((prev) => ({ ...prev, [tmde.id]: idx }))
+                                  }
+                                  functionOptions={getItemFunctionOptions(tmde)}
+                                  onEditFunction={(value) =>
+                                    setRangeFunction("tmde", tmde, range?.id, value)
                                   }
                                   onEditBound={(field, value) =>
                                     handleEditRangeBound("tmde", tmde, range?.id, field, value)
@@ -5907,6 +6110,8 @@ function DetailedView({
     );
   const setRangeUnitDetail = (kind, item, rangeId, value) =>
     persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, { unit: value }));
+  const setRangeFunctionDetail = (kind, item, rangeId, value) =>
+    persistInlineItemDetail(kind, applyItemRangeFunction(item, rangeId, value));
   const patchRangeDetail = (kind, item, rangeId, patch) =>
     persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, patch));
   const setRangeResolutionDetail = (kind, item, rangeId, value) =>
@@ -6163,6 +6368,10 @@ function DetailedView({
               editable
               allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
               onSelect={() => {}}
+              functionOptions={getItemFunctionOptions(item)}
+              onEditFunction={(value) =>
+                setRangeFunctionDetail(kind, item, range?.id, value)
+              }
               onEditBound={(field, value) => handleEditRangeBoundDetail(kind, item, range?.id, field, value)}
               onEditUnit={(value) => setRangeUnitDetail(kind, item, range?.id, value)}
               onPatchRange={(patch) => patchRangeDetail(kind, item, range?.id, patch)}
@@ -7931,6 +8140,10 @@ function DetailedView({
                                       isActivePointUut,
                                     )
                                   }
+                                  functionOptions={getItemFunctionOptions(uut)}
+                                  onEditFunction={(value) =>
+                                    setRangeFunctionDetail("uut", uut, range?.id, value)
+                                  }
                                   onEditBound={(field, value) =>
                                     handleEditRangeBoundDetail("uut", uut, range?.id, field, value)
                                   }
@@ -8828,6 +9041,15 @@ function DetailedView({
                                       )}
                                       onSelect={(idx) =>
                                         handleTmdeRangeChange(masterTmde, idx, ranges)
+                                      }
+                                      functionOptions={getItemFunctionOptions(masterTmde)}
+                                      onEditFunction={(value) =>
+                                        setRangeFunctionDetail(
+                                          "tmde",
+                                          masterTmde,
+                                          range?.id,
+                                          value,
+                                        )
                                       }
                                       onEditBound={(field, value) =>
                                         handleEditRangeBoundDetail(

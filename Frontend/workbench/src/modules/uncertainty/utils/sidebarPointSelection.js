@@ -1,3 +1,20 @@
+export const getSidebarRangeKey = (groupId, range = {}) => {
+  if (!range.functionId && !range.functionName && range._id !== undefined) {
+    return `${groupId}-${range._id}`;
+  }
+
+  const functionPart =
+    range.functionId ||
+    (range.functionName ? `fn:${range.functionName}` : "fn:default");
+  const rangePart =
+    range.rangeId ||
+    range.id ||
+    range._id ||
+    range._index ||
+    "range:default";
+  return `${groupId}-${functionPart}-${rangePart}`;
+};
+
 export const getVisibleSidebarPointOrder = (
   sidebarData,
   {
@@ -16,7 +33,11 @@ export const getVisibleSidebarPointOrder = (
     (area.uutGroups || []).forEach((group) => {
       if (!expandedUuts.has(group.id)) return;
 
-      (group.rangeGroups || []).forEach((range) => {
+      const rangeGroups = group.functionGroups?.length
+        ? group.functionGroups.flatMap((fn) => fn.rangeGroups || [])
+        : group.rangeGroups || [];
+
+      rangeGroups.forEach((range) => {
         if (
           range.points?.length === 0 &&
           !uutsShowingAllRanges.has(group.id)
@@ -24,7 +45,7 @@ export const getVisibleSidebarPointOrder = (
           return;
         }
 
-        const rangeKey = `${group.id}-${range._id}`;
+        const rangeKey = getSidebarRangeKey(group.id, range);
         if (!expandedRanges.has(rangeKey)) return;
 
         sortPoints(range.points || []).forEach((point) => {

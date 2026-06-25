@@ -10598,6 +10598,38 @@ input.inline-desc-subinput {
   min-width: 0;
 }
 
+.inline-function-editor {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 var(--inline-function-width, 11ch);
+  width: var(--inline-function-width, 11ch);
+  min-width: 11ch;
+  max-width: 22ch;
+}
+
+input.inline-function-input {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color);
+  font-size: 0.78rem;
+  box-sizing: border-box;
+}
+
+input.inline-function-input::placeholder {
+  color: var(--text-color-muted);
+}
+
+input.inline-function-input:hover,
+input.inline-function-input:focus {
+  border-color: var(--primary-color);
+  outline: none;
+}
+
 .inline-unit-select {
   width: var(--inline-unit-width, 64px);
   min-width: var(--inline-unit-width, 64px);
@@ -12088,6 +12120,20 @@ input.area-label-edit {
   color: var(--primary-color);
   font-weight: 800;
   border-left: 3px solid var(--primary-color);
+}
+
+.range-label-row.function-label-row {
+  cursor: default;
+  color: var(--text-color);
+  background: transparent;
+  border-color: transparent;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.range-label-row.function-label-row:hover {
+  background: transparent;
+  color: var(--text-color);
 }
 
 /* --- THEME OVERRIDES --- */

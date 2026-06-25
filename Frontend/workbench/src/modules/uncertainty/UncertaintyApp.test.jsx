@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeAll } from "vitest";
+import { describe, test, expect, vi, beforeAll, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
@@ -7,16 +7,41 @@ import { MemoryRouter } from "react-router-dom";
 // selected, which this no-backend test never reaches.)
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
-// No Django backend in unit tests: make the session store resolve into an
-// empty state instead of hitting the network.
+const apiMock = vi.hoisted(() => {
+  const state = {
+    sessions: [],
+    instruments: [],
+    equations: [],
+    bugReports: [],
+  };
+  const ok = (data) => Promise.resolve({ data });
+  return {
+    state,
+    get: vi.fn((url) => {
+      const path = String(url || "");
+      if (path.includes("/sessions/") && !path.includes("/images/")) {
+        return ok(state.sessions);
+      }
+      if (path.includes("/instruments/")) return ok(state.instruments);
+      if (path.includes("/equations/")) return ok(state.equations);
+      if (path.includes("/bug_reports/")) return ok(state.bugReports);
+      return ok([]);
+    }),
+    post: vi.fn(() => ok({})),
+    put: vi.fn(() => ok({})),
+    delete: vi.fn(() => ok({})),
+  };
+});
+
+// No Django backend in unit tests: make the session store resolve from the
+// per-test fixture instead of hitting the network.
 vi.mock("axios", () => {
-  const ok = (data) => () => Promise.resolve({ data });
   return {
     default: {
-      get: vi.fn(ok([])),
-      post: vi.fn(ok({})),
-      put: vi.fn(ok({})),
-      delete: vi.fn(ok({})),
+      get: apiMock.get,
+      post: apiMock.post,
+      put: apiMock.put,
+      delete: apiMock.delete,
     },
   };
 });
@@ -44,6 +69,17 @@ beforeAll(() => {
   }
 });
 
+beforeEach(() => {
+  apiMock.state.sessions = [];
+  apiMock.state.instruments = [];
+  apiMock.state.equations = [];
+  apiMock.state.bugReports = [];
+  apiMock.get.mockClear();
+  apiMock.post.mockClear();
+  apiMock.put.mockClear();
+  apiMock.delete.mockClear();
+});
+
 describe("UncertaintyApp", () => {
   test("mounts the ported Uncertalytics app under the workbench shell", async () => {
     render(
@@ -62,6 +98,90 @@ describe("UncertaintyApp", () => {
     ).toBeInTheDocument();
     // With no backend sessions, the empty-state placeholder is shown.
     expect(screen.getByText(/No Session Available/i)).toBeInTheDocument();
+  });
+
+  test("renders named function headers in the sidebar", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 1,
+        name: "Function Sidebar Session",
+        analyst: "",
+        organization: "NPSL",
+        document: "",
+        documentDate: "2026-06-25",
+        measurementAreas: [
+          { id: "area-1", name: "Electrical", color: "#3498db" },
+        ],
+        uuts: [
+          {
+            id: "uut-1",
+            description: "Fluke DMM",
+            measurementAreaId: "area-1",
+            instrument: {
+              id: "inst-1",
+              manufacturer: "Fluke",
+              model: "87V",
+              functions: [
+                {
+                  id: "fn-r",
+                  name: "Voltage",
+                  unit: "V",
+                  ranges: [
+                    {
+                      id: "range-r",
+                      min: "0",
+                      max: "100",
+                      tolerances: { reading: { high: "1", low: "-1", unit: "%" } },
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        tmdes: [],
+        testPoints: [
+          {
+            id: "tp-1",
+            section: "1.1",
+            measurementAreaId: "area-1",
+            associatedUutIds: ["uut-1"],
+            testPointInfo: {
+              parameter: { name: "Voltage", value: "10", unit: "V" },
+            },
+            uutTolerance: {
+              functionId: "fn-r",
+              functionName: "Voltage",
+              rangeId: "range-r",
+              min: "0",
+              max: "100",
+              unit: "V",
+            },
+            tmdeTolerances: [],
+            specifications: {},
+            components: [],
+          },
+        ],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>
+    );
+
+    const areaRow = await screen.findByText("Electrical");
+    expect(areaRow).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Expand All"));
+
+    expect(await screen.findByText("Voltage")).toBeInTheDocument();
   });
 
   test("zooms a table around the cursor without zooming the page", async () => {

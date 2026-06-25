@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { applyItemRangePatch } from "./UncertaintyPanel";
+import {
+  applyItemRangeFunction,
+  applyItemRangePatch,
+} from "./UncertaintyPanel";
 
 // A freshly added inline instrument has `functions: []`, so its row renders a
 // synthetic { id: "default" } range. Editing the unit/min/max/resolution must
@@ -49,5 +52,59 @@ describe("applyItemRangePatch on a new instrument with no ranges", () => {
     expect(patched.instrument.functions[0].ranges[0].unit).toBe("mV");
     // No extra range was created.
     expect(patched.instrument.functions[0].ranges).toHaveLength(1);
+  });
+});
+
+describe("applyItemRangeFunction", () => {
+  it("creates the first function and materializes a range for a blank instrument", () => {
+    const patched = applyItemRangeFunction(
+      {
+        id: "uut-blank",
+        instrument: { id: "inst-blank", functions: [] },
+      },
+      "default",
+      "Resistance",
+    );
+
+    expect(patched.instrument.functions).toHaveLength(1);
+    expect(patched.instrument.functions[0].name).toBe("Resistance");
+    expect(patched.instrument.functions[0].ranges).toHaveLength(1);
+  });
+
+  it("renames the function that owns the active range", () => {
+    const item = {
+      id: "uut-dmm",
+      instrument: {
+        functions: [
+          { id: "fn-v", name: "Voltage", ranges: [{ id: "r-v" }] },
+          { id: "fn-r", name: "Resistance", ranges: [{ id: "r-r" }] },
+        ],
+      },
+    };
+
+    const patched = applyItemRangeFunction(item, "r-r", "Ohms");
+
+    expect(patched.instrument.functions[1].name).toBe("Ohms");
+    expect(patched.instrument.functions[0].name).toBe("Voltage");
+  });
+
+  it("moves a range when the committed name matches another function", () => {
+    const item = {
+      id: "uut-dmm",
+      instrument: {
+        functions: [
+          { id: "fn-v", name: "Voltage", unit: "V", ranges: [{ id: "r-v" }] },
+          { id: "fn-r", name: "Resistance", unit: "ohm", ranges: [{ id: "r-r" }] },
+        ],
+      },
+    };
+
+    const patched = applyItemRangeFunction(item, "r-r", "Voltage");
+
+    expect(patched.instrument.functions).toHaveLength(1);
+    expect(patched.instrument.functions[0].ranges.map((range) => range.id)).toEqual([
+      "r-v",
+      "r-r",
+    ]);
   });
 });

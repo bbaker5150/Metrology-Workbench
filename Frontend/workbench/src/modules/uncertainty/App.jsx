@@ -54,6 +54,7 @@ import {
   faQuestionCircle,
   faLayerGroup,
   faMicroscope,
+  faCube,
   faRulerCombined,
   faEye,
   faEyeSlash,
@@ -82,7 +83,12 @@ import {
   getAbsoluteLimits,
   getTmdeAbsoluteLimits,
   getTmdeAbsoluteLimitEntries,
+  getUnitDisplayLabel,
 } from "./utils/uncertaintyMath";
+import {
+  getInstrumentRangeRows,
+  resolveInstrumentSelection,
+} from "./utils/instrumentFunctionSelection";
 import { computeRiskMetricsMap } from "./utils/riskCompute";
 import {
   associateUutWithPoint,
@@ -96,6 +102,7 @@ import {
 } from "./utils/pointClipboard";
 import {
   getSidebarPointRange,
+  getSidebarRangeKey,
   getVisibleSidebarPointOrder,
 } from "./utils/sidebarPointSelection";
 import { formatRangeLabel } from "./utils/rangeFormatting";
@@ -783,44 +790,20 @@ const SidebarPointItem = ({
 // --- HELPER: Extract All Ranges from UUT ---
 const getAllUutRanges = (uut) => {
   if (!uut) return [];
-
-  let ranges = [];
-
-  // 1. Custom defined ranges on the UUT instance
-  if (Array.isArray(uut.ranges) && uut.ranges.length > 0) {
-    ranges = uut.ranges.map((r) => ({ ...r, source: "custom" }));
-  }
-  // 2. Instrument Library: Functions (e.g. "DC Voltage", "Resistance")
-  else if (uut.instrument?.functions) {
-    ranges = uut.instrument.functions.flatMap((fn) =>
-      (fn.ranges || []).map((r) => ({
-        ...r,
-        functionName: fn.name,
-        unit: fn.unit || r.unit,
-        source: "function",
-      })),
-    );
-  }
-  // 3. Instrument Library: Flat Ranges
-  else if (uut.instrument?.ranges) {
-    ranges = uut.instrument.ranges.map((r) => ({ ...r, source: "simple" }));
-  }
-  // 4. Single Tolerance
-  else if (uut.tolerance) {
-    ranges = [{ ...uut.tolerance, source: "single", isSingle: true }];
-  }
+  const ranges = getInstrumentRangeRows(uut);
 
   // Add a display label for the sidebar using the same unit-symbol formatter as
   // the main analysis tables (degF -> °F, uV -> µV, Ohm -> Ω, etc.).
   const finalRanges = ranges.map((r, index) => {
-    let label = formatRangeLabel(r, { preferBounds: true });
+    const rangeLabel = formatRangeLabel(r, { preferBounds: true });
+    let label = rangeLabel;
 
     // Prepend Function Name if available
     if (r.functionName) {
       label = `${r.functionName}: ${label}`;
     }
 
-    return { ...r, _id: index, label };
+    return { ...r, _id: index, _index: r._index ?? index, rangeLabel, label };
   });
 
   return finalRanges;
@@ -1390,8 +1373,11 @@ function App() {
       sidebarData.forEach((area) => {
         area.uutGroups.forEach((group) => {
           allUutIds.add(group.id);
-          group.rangeGroups.forEach((range) => {
-            allRangeKeys.add(`${group.id}-${range._id}`);
+          const rangeGroups = group.functionGroups?.length
+            ? group.functionGroups.flatMap((fn) => fn.rangeGroups || [])
+            : group.rangeGroups || [];
+          rangeGroups.forEach((range) => {
+            allRangeKeys.add(getSidebarRangeKey(group.id, range));
           });
         });
       });
@@ -1600,8 +1586,11 @@ function App() {
     sidebarData.forEach((area) => {
       area.uutGroups.forEach((group) => {
         allUutIds.add(group.id);
-        group.rangeGroups.forEach((range) => {
-          const rangeKey = `${group.id}-${range._id}`;
+        const rangeGroups = group.functionGroups?.length
+          ? group.functionGroups.flatMap((fn) => fn.rangeGroups || [])
+          : group.rangeGroups || [];
+        rangeGroups.forEach((range) => {
+          const rangeKey = getSidebarRangeKey(group.id, range);
           allRangeKeys.add(rangeKey);
         });
       });
@@ -2607,23 +2596,13 @@ function App() {
         if (t.id !== savedTmde.id && t.sourceId !== savedTmde.id) return t;
         changed = true;
 
-        const newInstDef = savedTmde.instrument || savedTmde;
-        let funcName = t.functionName || "";
-        let func = null;
-        if (newInstDef.functions?.length > 0) {
-          if (funcName)
-            func = newInstDef.functions.find((f) => f.name === funcName);
-          if (!func) func = newInstDef.functions[0];
-          funcName = func ? func.name : "";
-        }
-        const newRanges = func ? func.ranges || [] : newInstDef.ranges || [];
-        const activeIndex =
-          t._index !== undefined && newRanges[t._index] ? t._index : 0;
-        const newActiveRange = newRanges[activeIndex] || {};
-        const flattenedSpecs = {
-          ...newActiveRange,
-          ...(newActiveRange.tolerances || newActiveRange.tolerance || {}),
-        };
+        const selection = resolveInstrumentSelection(savedTmde, {
+          userFunctionId: t.functionId,
+          userFunctionName: t.functionName || "",
+          userRangeId: t.rangeId,
+          userRangeIndex: t._index ?? 0,
+        });
+        const flattenedSpecs = selection.specs;
 
         /* eslint-disable no-unused-vars */
         const {
@@ -2648,8 +2627,11 @@ function App() {
           ...flattenedSpecs,
           id: t.id,
           sourceId: savedTmde.id,
-          functionName: funcName,
-          _index: activeIndex,
+          functionId: selection.functionId,
+          functionName: selection.functionName,
+          functionUnit: selection.functionUnit,
+          rangeId: selection.rangeId,
+          _index: selection.rangeIndex,
           measurementPoint: t.measurementPoint,
           variableType: t.variableType,
           quantity: t.quantity,
@@ -3384,13 +3366,37 @@ function App() {
           const hasNumericVal = !isNaN(val);
 
           const toleranceMatchesRange = (range) => {
+            const rangeIdMatch =
+              t.rangeId &&
+              range.rangeId &&
+              String(t.rangeId) === String(range.rangeId);
+            const legacyIdMatch =
+              t.id && range.id && String(t.id) === String(range.id);
+            if (rangeIdMatch || legacyIdMatch) {
+              return (
+                !t.functionId ||
+                !range.functionId ||
+                String(t.functionId) === String(range.functionId)
+              );
+            }
+
             const minMatch = t.min == range.min;
             const maxMatch = t.max == range.max;
             const unitMatch = (t.unit || "") === (range.unit || "");
-            const funcMatch = range.functionName
+            const functionIdMatch =
+              t.functionId && range.functionId
+                ? String(t.functionId) === String(range.functionId)
+                : true;
+            const functionNameMatch = range.functionName
               ? t.functionName === range.functionName
               : true;
-            return minMatch && maxMatch && unitMatch && funcMatch;
+            return (
+              minMatch &&
+              maxMatch &&
+              unitMatch &&
+              functionIdMatch &&
+              functionNameMatch
+            );
           };
 
           const rangeContainsVal = (range) => {
@@ -3450,9 +3456,27 @@ function App() {
           (tp) => !categorizedPoints.has(tp.id),
         );
 
+        const functionGroupMap = new Map();
+        rangesWithPoints.forEach((range) => {
+          const key =
+            range.functionId ||
+            (range.functionName ? `name:${range.functionName}` : "default");
+          if (!functionGroupMap.has(key)) {
+            functionGroupMap.set(key, {
+              id: key,
+              name: range.functionName || "Measurement",
+              unit: range.functionUnit || range.unit || "",
+              rangeGroups: [],
+            });
+          }
+          functionGroupMap.get(key).rangeGroups.push(range);
+        });
+        const functionGroups = Array.from(functionGroupMap.values());
+
         return {
           ...uut,
           rangeGroups: rangesWithPoints,
+          functionGroups,
           uncategorizedPoints,
         };
       });
@@ -4381,13 +4405,68 @@ function App() {
 
                                 {isUutExpanded && (
                                   <div style={{ paddingLeft: "15px" }}>
-                                    {group.rangeGroups.map((range) => {
+                                    {(group.functionGroups?.length
+                                      ? group.functionGroups
+                                      : [{ id: "default", name: "", rangeGroups: group.rangeGroups }]
+                                    ).map((functionGroup) => {
+                                      const visibleFunctionRanges = (
+                                        functionGroup.rangeGroups || []
+                                      ).filter(
+                                        (range) =>
+                                          isShowingAll ||
+                                          range.points.length > 0,
+                                      );
+                                      if (visibleFunctionRanges.length === 0) {
+                                        return null;
+                                      }
+                                      const functionName = String(
+                                        functionGroup.name || "",
+                                      ).trim();
+                                      const showFunctionHeader =
+                                        functionName &&
+                                        (functionGroup.id !== "default" ||
+                                          (group.functionGroups?.length || 0) > 1);
+                                      return (
+                                        <React.Fragment key={`fn-${group.id}-${functionGroup.id}`}>
+                                          {showFunctionHeader && (
+                                            <div
+                                              className="range-label-row function-label-row"
+                                              style={{
+                                                margin: "4px 0 6px",
+                                                opacity: 0.82,
+                                              }}
+                                            >
+                                              <FontAwesomeIcon
+                                                icon={faCube}
+                                                size="xs"
+                                                style={{ opacity: 0.7 }}
+                                              />
+                                              <span>{functionName}</span>
+                                              {functionGroup.unit && (
+                                                <span
+                                                  style={{
+                                                    marginLeft: "auto",
+                                                    opacity: 0.55,
+                                                    fontSize: "0.75em",
+                                                  }}
+                                                >
+                                                  {getUnitDisplayLabel(
+                                                    functionGroup.unit,
+                                                  )}
+                                                </span>
+                                              )}
+                                            </div>
+                                          )}
+                                          {visibleFunctionRanges.map((range) => {
                                       if (
                                         !isShowingAll &&
                                         range.points.length === 0
                                       )
                                         return null;
-                                      const rangeKey = `${group.id}-${range._id}`;
+                                      const rangeKey = getSidebarRangeKey(
+                                        group.id,
+                                        range,
+                                      );
                                       const isRangeDragOver =
                                         dragOverTargetId === rangeKey;
                                       const isRangeExpanded =
@@ -4397,14 +4476,16 @@ function App() {
                                         selectedRangeContext &&
                                         selectedRangeContext.uutId ===
                                           group.id &&
-                                        selectedRangeContext.range._id ===
-                                          range._id;
+                                        getSidebarRangeKey(
+                                          group.id,
+                                          selectedRangeContext.range,
+                                        ) === rangeKey;
                                       const sortedRangePoints =
                                         sortSidebarPoints(range.points);
 
                                       return (
                                         <div
-                                          key={`range-${range._id}`}
+                                          key={`range-${rangeKey}`}
                                           style={{ marginBottom: "8px" }}
                                         >
                                           <div
@@ -4480,7 +4561,7 @@ function App() {
                                                   : 0.5,
                                               }}
                                             />
-                                            <span>{range.label}</span>
+                                            <span>{range.rangeLabel || range.label}</span>
                                             {range.points.length > 0 && (
                                               <span
                                                 style={{
@@ -4722,6 +4803,9 @@ function App() {
                                             )
                                           )}
                                         </div>
+                                      );
+                                          })}
+                                        </React.Fragment>
                                       );
                                     })}
 

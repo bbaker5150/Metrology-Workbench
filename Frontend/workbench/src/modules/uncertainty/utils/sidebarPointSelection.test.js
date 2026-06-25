@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   findSidebarPointOccurrence,
+  getSidebarRangeKey,
   getSidebarPointRange,
   getVisibleSidebarPointOrder,
 } from "./sidebarPointSelection";
@@ -35,6 +36,20 @@ const sidebarData = [
 ];
 
 describe("getVisibleSidebarPointOrder", () => {
+  test("builds function-aware range keys without changing legacy keys", () => {
+    expect(getSidebarRangeKey("uut-1", { _id: "range-1" })).toBe(
+      "uut-1-range-1",
+    );
+    expect(
+      getSidebarRangeKey("uut-1", {
+        functionId: "fn-v",
+        functionName: "Voltage",
+        rangeId: "r-10v",
+        _id: 0,
+      }),
+    ).toBe("uut-1-fn-v-r-10v");
+  });
+
   test("matches visible expansion state and the active point sort", () => {
     const entries = getVisibleSidebarPointOrder(
       sidebarData,
@@ -70,5 +85,61 @@ describe("getVisibleSidebarPointOrder", () => {
         { pointId: "point-3", contextUutId: "uut-2" },
       ),
     ).toEqual(["point-2", "point-1", "point-other", "point-3"]);
+  });
+
+  test("walks function groups before falling back to flat range groups", () => {
+    const entries = getVisibleSidebarPointOrder(
+      [
+        {
+          id: "area-1",
+          uutGroups: [
+            {
+              id: "uut-1",
+              functionGroups: [
+                {
+                  id: "fn-voltage",
+                  rangeGroups: [
+                    {
+                      _id: 0,
+                      functionId: "fn-voltage",
+                      rangeId: "range-v",
+                      points: [{ id: "point-v" }],
+                    },
+                  ],
+                },
+                {
+                  id: "fn-resistance",
+                  rangeGroups: [
+                    {
+                      _id: 0,
+                      functionId: "fn-resistance",
+                      rangeId: "range-r",
+                      points: [{ id: "point-r" }],
+                    },
+                  ],
+                },
+              ],
+              rangeGroups: [
+                { _id: "legacy", points: [{ id: "point-legacy" }] },
+              ],
+              uncategorizedPoints: [],
+            },
+          ],
+        },
+      ],
+      {
+        expandedAreas: new Set(["area-1"]),
+        expandedUuts: new Set(["uut-1"]),
+        expandedRanges: new Set([
+          "uut-1-fn-voltage-range-v",
+          "uut-1-fn-resistance-range-r",
+        ]),
+      },
+    );
+
+    expect(entries).toEqual([
+      { pointId: "point-v", contextUutId: "uut-1" },
+      { pointId: "point-r", contextUutId: "uut-1" },
+    ]);
   });
 });
