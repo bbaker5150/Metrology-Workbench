@@ -5875,10 +5875,11 @@ body.dark-mode .corrections-session-tvc-grid > .corrections-card-body {
 
 .corrections-report-bar-main {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
   min-width: 0;
+  flex: 1 1 280px;
 }
 
 .corrections-report-bar .corrections-card-eyebrow {
@@ -5925,6 +5926,29 @@ body.dark-mode .corrections-session-tvc-grid > .corrections-card-body {
   border: 1px solid rgba(22, 163, 74, 0.3);
   border-radius: 999px;
   flex-shrink: 0;
+}
+
+/* Icon-only "active report" indicator (the green check). */
+.corrections-active-icon {
+  color: #16a34a;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+body.dark-mode .corrections-active-icon {
+  color: #4ade80;
+}
+
+/* Native date inputs render an invisible-on-dark calendar glyph; force a
+   dark color-scheme so the picker indicator stays legible. */
+body.dark-mode .corrections-form-field input[type="date"] {
+  color-scheme: dark;
+}
+
+body.dark-mode .corrections-form-field input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.7);
+  opacity: 0.85;
+  cursor: pointer;
 }
 
 .corrections-form-field--wide {

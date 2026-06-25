@@ -17,6 +17,7 @@ import {
   FaCheck,
   FaThumbtack,
   FaHistory,
+  FaCheckCircle,
 } from "react-icons/fa";
 import { AMPLIFIER_RANGES_A, API_BASE_URL } from "../../constants/constants";
 import AnimatedModalShell from "../shared/AnimatedModalShell";
@@ -841,7 +842,6 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                   <option key={r.id} value={r.id}>
                     {formatReportDate(r.calibration_date)}
                     {r.report_number ? ` · ${r.report_number}` : ""}
-                    {r.is_active ? " — Active" : ""}
                     {r.is_pinned ? " (pinned)" : ""}
                   </option>
                 ))}
@@ -899,7 +899,13 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     if (!report) return null;
     return (
       <div className="corrections-report-meta">
-        {report.is_active && <span className="corrections-active-badge">Active</span>}
+        {report.is_active && (
+          <FaCheckCircle
+            className="corrections-active-icon"
+            title="Active report"
+            aria-label="Active report"
+          />
+        )}
         {report.is_pinned && <span className="corrections-manual-badge">Pinned</span>}
         {report.received_date && (
           <span className="corrections-report-meta-item">Received {formatReportDate(report.received_date)}</span>
