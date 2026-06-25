@@ -3764,6 +3764,8 @@ input:checked+.slider:before {
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.18);
   padding: 0;
   overflow: hidden;
+  /* Containing block for the sub-prompt sheet (.corrections-subprompt-overlay). */
+  position: relative;
 }
 
 .corrections-modal-header {
@@ -3774,6 +3776,31 @@ input:checked+.slider:before {
   padding: 16px 20px 16px 24px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+  /* Keep the header (and its close button) above any open sub-prompt sheet
+     so the modal can always be dismissed, even while a password/confirm
+     prompt is up. */
+  position: relative;
+  z-index: 6;
+  background-color: var(--content-background);
+}
+
+/* Sub-prompt (password / confirmation) rendered as a sheet scoped to the
+   modal panel rather than a full-screen overlay, so it never covers the
+   modal header's close button. */
+.corrections-subprompt-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 14px;
+}
+
+body.dark-mode .corrections-subprompt-overlay {
+  background: rgba(0, 0, 0, 0.6);
 }
 
 .corrections-modal-header-text {

@@ -74,12 +74,13 @@ const ConfirmationModal = ({
   confirmText = "Confirm",
   confirmButtonClass = "",
   eyebrow,
+  overlayClassName = "modal-overlay modal-overlay--nested",
 }) => {
   if (!isOpen) return null;
   const isDanger = /danger/.test(confirmButtonClass);
   const eyebrowText = eyebrow ?? (isDanger ? "Warning" : "Confirm");
   return (
-    <div className="modal-overlay modal-overlay--nested" onClick={onCancel}>
+    <div className={overlayClassName} onClick={onCancel}>
       <div
         className="confirm-modal"
         role="dialog"
@@ -124,7 +125,14 @@ const ConfirmationModal = ({
 };
 
 // --- Electron-Friendly Password Protected Modal ---
-const PasswordModal = ({ isOpen, title, message, onConfirm, onCancel }) => {
+const PasswordModal = ({
+  isOpen,
+  title,
+  message,
+  onConfirm,
+  onCancel,
+  overlayClassName = "modal-overlay modal-overlay--nested",
+}) => {
   const [password, setPassword] = useState("");
 
   useEffect(() => {
@@ -139,7 +147,7 @@ const PasswordModal = ({ isOpen, title, message, onConfirm, onCancel }) => {
   };
 
   return (
-    <div className="modal-overlay modal-overlay--nested" onClick={onCancel}>
+    <div className={overlayClassName} onClick={onCancel}>
       <div
         className="confirm-modal"
         role="dialog"
@@ -292,6 +300,38 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
   useEffect(() => {
     setIsEditorOpen(false);
   }, [primaryTab]);
+
+  // Close the whole modal and reset any transient sub-state so a later
+  // reopen starts clean (no stale editor / password prompt left behind).
+  const handleShellClose = useCallback(() => {
+    setPasswordGate({ isOpen: false, action: null });
+    setDeleteConfirm({ isOpen: false, kind: null, payload: null });
+    setAddPointsConfirm({ isOpen: false, row: null, headers: null, isMismatch: false });
+    setIsEditorOpen(false);
+    onClose();
+  }, [onClose]);
+
+  // Escape closes the topmost open layer: an open sub-prompt first, then
+  // the editor, then the whole modal — so there is always a keyboard way out.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape") return;
+      if (passwordGate.isOpen) {
+        setPasswordGate({ isOpen: false, action: null });
+      } else if (deleteConfirm.isOpen) {
+        setDeleteConfirm({ isOpen: false, kind: null, payload: null });
+      } else if (addPointsConfirm.isOpen) {
+        setAddPointsConfirm({ isOpen: false, row: null, headers: null, isMismatch: false });
+      } else if (isEditorOpen) {
+        setIsEditorOpen(false);
+      } else {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, passwordGate.isOpen, deleteConfirm.isOpen, addPointsConfirm.isOpen, isEditorOpen, onClose]);
 
   // ----- Derived: shunt devices -----
   const shuntDevices = useMemo(() => {
@@ -1416,53 +1456,16 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
   //  Render root
   // =====================================================================
   return (
-    <>
-      <PasswordModal
-        isOpen={passwordGate.isOpen}
-        title="Admin Authentication Required"
-        message="You are modifying imported system parameters. Please input your authorization key:"
-        onConfirm={handlePasswordVerify}
-        onCancel={() => setPasswordGate({ isOpen: false, action: null })}
-      />
-
-      <ConfirmationModal
-        isOpen={deleteConfirm.isOpen}
-        title={deleteConfirm.kind === "device" ? "Delete Device" : "Delete Report"}
-        message={
-          deleteConfirm.kind === "device"
-            ? "Permanently delete this device and ALL of its calibration history? This cannot be undone."
-            : "Permanently delete this Report of Calibration? Older reports for this device will remain. This cannot be undone."
-        }
-        confirmText="Delete"
-        confirmButtonClass="button-danger"
-        onConfirm={executeDelete}
-        onCancel={() => setDeleteConfirm({ isOpen: false, kind: null, payload: null })}
-      />
-
-      <ConfirmationModal
-        isOpen={addPointsConfirm.isOpen}
-        title={addPointsConfirm.isMismatch ? "Serial Mismatch Warning" : "Generate Test Points?"}
-        message={
-          addPointsConfirm.isMismatch
-            ? `WARNING: The serial number of this AC Shunt (${selectedShuntDevice?.serial_number}) does not match the Standard Instrument serial assigned to this session (${standardInstrumentSerial || "None"}).\n\nGenerating test points from the wrong correction table may result in incorrect applied currents. Proceed and add test points for ${addPointsConfirm.row?.current}A?`
-            : `Add test points for ${addPointsConfirm.row?.current}A at all available frequencies to the current calibration session?`
-        }
-        confirmText={addPointsConfirm.isMismatch ? "Proceed Anyway" : "Generate Points"}
-        confirmButtonClass={addPointsConfirm.isMismatch ? "button-danger" : "button-primary"}
-        onConfirm={executeGenerateTestPoints}
-        onCancel={() => setAddPointsConfirm({ isOpen: false, row: null, headers: null, isMismatch: false })}
-      />
-
-      <AnimatedModalShell
-        isOpen={isOpen}
-        onClose={onClose}
-        panelClassName="corrections-modal-content"
-        panelProps={{
-          role: "dialog",
-          "aria-modal": "true",
-          "aria-labelledby": "corrections-modal-title",
-        }}
-      >
+    <AnimatedModalShell
+      isOpen={isOpen}
+      onClose={handleShellClose}
+      panelClassName="corrections-modal-content"
+      panelProps={{
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": "corrections-modal-title",
+      }}
+    >
         <header className="corrections-modal-header">
           <div className="corrections-modal-header-text">
             <span className="corrections-modal-eyebrow">Reference data{isReadOnly ? " · Read-only" : ""}</span>
@@ -1491,7 +1494,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                 </button>
               </div>
             )}
-            <button onClick={onClose} className="cal-results-excel-icon-btn" title="Close" aria-label="Close">
+            <button onClick={handleShellClose} className="cal-results-excel-icon-btn" title="Close" aria-label="Close">
               <FaTimes aria-hidden />
             </button>
           </div>
@@ -1559,8 +1562,50 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
             renderTvcDatabasePanels()
           )}
         </main>
+
+        {/* Sub-prompts render as a sheet over the modal body. They sit
+            *below* the modal header (see .corrections-subprompt-overlay /
+            .corrections-modal-header z-index in App.css) so the main close
+            (X) is never covered and always closes the whole modal. */}
+        <PasswordModal
+          isOpen={passwordGate.isOpen}
+          overlayClassName="corrections-subprompt-overlay"
+          title="Admin Authentication Required"
+          message="You are modifying imported system parameters. Please input your authorization key:"
+          onConfirm={handlePasswordVerify}
+          onCancel={() => setPasswordGate({ isOpen: false, action: null })}
+        />
+
+        <ConfirmationModal
+          isOpen={deleteConfirm.isOpen}
+          overlayClassName="corrections-subprompt-overlay"
+          title={deleteConfirm.kind === "device" ? "Delete Device" : "Delete Report"}
+          message={
+            deleteConfirm.kind === "device"
+              ? "Permanently delete this device and ALL of its calibration history? This cannot be undone."
+              : "Permanently delete this Report of Calibration? Older reports for this device will remain. This cannot be undone."
+          }
+          confirmText="Delete"
+          confirmButtonClass="button-danger"
+          onConfirm={executeDelete}
+          onCancel={() => setDeleteConfirm({ isOpen: false, kind: null, payload: null })}
+        />
+
+        <ConfirmationModal
+          isOpen={addPointsConfirm.isOpen}
+          overlayClassName="corrections-subprompt-overlay"
+          title={addPointsConfirm.isMismatch ? "Serial Mismatch Warning" : "Generate Test Points?"}
+          message={
+            addPointsConfirm.isMismatch
+              ? `WARNING: The serial number of this AC Shunt (${selectedShuntDevice?.serial_number}) does not match the Standard Instrument serial assigned to this session (${standardInstrumentSerial || "None"}).\n\nGenerating test points from the wrong correction table may result in incorrect applied currents. Proceed and add test points for ${addPointsConfirm.row?.current}A?`
+              : `Add test points for ${addPointsConfirm.row?.current}A at all available frequencies to the current calibration session?`
+          }
+          confirmText={addPointsConfirm.isMismatch ? "Proceed Anyway" : "Generate Points"}
+          confirmButtonClass={addPointsConfirm.isMismatch ? "button-danger" : "button-primary"}
+          onConfirm={executeGenerateTestPoints}
+          onCancel={() => setAddPointsConfirm({ isOpen: false, row: null, headers: null, isMismatch: false })}
+        />
       </AnimatedModalShell>
-    </>
   );
 }
 
