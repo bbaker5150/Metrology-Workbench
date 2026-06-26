@@ -976,6 +976,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     async def run_tvc_characterization(self, data):
         print(f"[TVC_CHAR] Entering run_tvc_characterization with data: {data}", flush=True)
         ac_source, dc_source, std_reader, ti_reader, amplifier, switch_driver = None, None, None, None, None, None
+        characterization_completed = False
         try:
             print("[TVC_CHAR] Fetching session details...", flush=True)
             session_details = await self.get_session_details()
@@ -1093,8 +1094,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             print("[TVC_CHAR] ===== STARTING CHARACTERIZATION LOOP =====", flush=True)
             active_source = ac_source if char_source_kind == 'AC' else dc_source
+            all_stages_completed = True
             for stage, ppm_multiplier in tvc_sequence:
-                if self.stop_event.is_set(): break
+                if self.stop_event.is_set():
+                    all_stages_completed = False
+                    break
 
                 ppm_shifted_tp = original_tp.copy()
                 ppm_shifted_tp['current'] = nominal_current * ppm_multiplier
@@ -1116,11 +1120,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 )
                 
                 if not success: 
+                    all_stages_completed = False
                     if not self.stop_event.is_set():
                         await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"Characterization aborted: Stability limit reached on {stage}."}))
                     break 
 
-            if not self.stop_event.is_set():
+            if all_stages_completed and not self.stop_event.is_set():
                 print("[TVC_CHAR] Sequence completed successfully!", flush=True)
 
                 # --- Propagate freshly-computed eta to sibling points in the session ---
@@ -1142,6 +1147,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     print(f"[TVC_CHAR] Eta propagation step failed: {prop_err}", flush=True)
 
                 await self.broadcast(text_data=json.dumps({'type': 'collection_finished', 'message': 'Sensitivity Characterization complete.'}))
+                characterization_completed = True
 
         except asyncio.CancelledError:
             print(f"[TVC_CHAR] Task cancelled.", flush=True)
@@ -1157,7 +1163,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             # AC and DC share the same physical unit, the set dedupes for us.
             for src in filter(None, {ac_source, dc_source}):
                 await sync_to_async(src.reset, thread_sensitive=True)()
-            if amplifier:
+            if amplifier and not characterization_completed:
                 await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
             for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
                 if hasattr(inst, 'close'):
