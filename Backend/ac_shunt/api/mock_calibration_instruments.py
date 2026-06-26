@@ -227,10 +227,10 @@ class Mock34420A(Instrument34420A):
 class Mock8100(Instrument8100):
     """Mock Clarke-Hess 8100 transconductance amp."""
 
-    def __init__(self, model: str = "8100", gpib: Optional[str] = None, timeout: int = 20000):
+    def __init__(self, model: str = "8100", gpib: Optional[str] = None, timeout: int = 20000, reset_on_connect: bool = True):
         _install_mock_attrs(self, model=model, gpib=gpib, timeout=timeout)
 
-    def close(self) -> None:  # type: ignore[override]
+    def close(self, reset: bool = True) -> None:  # type: ignore[override]
         return None
 
     def reset(self) -> None:  # type: ignore[override]

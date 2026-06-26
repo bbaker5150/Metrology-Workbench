@@ -14,7 +14,7 @@ class Instrument8100:
         100:   'R5',  # 100A Range
     }
 
-    def __init__(self, model: str, gpib: str, timeout: int = 20000):
+    def __init__(self, model: str, gpib: str, timeout: int = 20000, reset_on_connect: bool = True):
         """
         Initializes and connects to the instrument.
 
@@ -29,11 +29,13 @@ class Instrument8100:
         self.resource = self.rm.open_resource(gpib)
         self.resource.timeout = timeout
         self.resource.read_termination = '\n'
-        self.reset()
+        if reset_on_connect:
+            self.reset()
 
-    def close(self):
+    def close(self, reset: bool = True):
         """Closes the VISA resource connection."""
-        self.resource.write('*RST')
+        if reset:
+            self.resource.write('*RST')
         if self.resource:
             self.resource.close()
 

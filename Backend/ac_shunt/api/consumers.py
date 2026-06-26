@@ -1051,7 +1051,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await self._configure_sources(original_tp, data.get('bypass_tvc'), data.get('amplifier_range'), **configure_kwargs)
 
             if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=session_details.get('amplifier_address'))
+                amplifier = await sync_to_async(_inst, thread_sensitive=True)(
+                    Instrument8100,
+                    model='8100',
+                    gpib=session_details.get('amplifier_address'),
+                    reset_on_connect=not data.get('bypass_amplifier_confirmation')
+                )
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
 
             if warmup_time > 0:
@@ -1167,7 +1172,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
             for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
                 if hasattr(inst, 'close'):
-                    await sync_to_async(inst.close, thread_sensitive=True)()
+                    if inst is amplifier and characterization_completed:
+                        await sync_to_async(inst.close, thread_sensitive=True)(reset=False)
+                    else:
+                        await sync_to_async(inst.close, thread_sensitive=True)()
 
     def _is_low_frequency_ac(self, reading_type_base, test_point_data):
         """Helper to detect if the current stage is low-frequency AC."""
@@ -1886,7 +1894,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             )
 
             if session_details.get('amplifier_address'):
-                amplifier_instrument = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=session_details.get('amplifier_address'))
+                amplifier_instrument = await sync_to_async(_inst, thread_sensitive=True)(
+                    Instrument8100,
+                    model='8100',
+                    gpib=session_details.get('amplifier_address'),
+                    reset_on_connect=not data.get('bypass_amplifier_confirmation')
+                )
                 if not await self._handle_amplifier_confirmation(amplifier_instrument, data.get('amplifier_range'), data): return
 
             await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
@@ -1990,7 +2003,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             )
             
             if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=session_details.get('amplifier_address'))
+                amplifier = await sync_to_async(_inst, thread_sensitive=True)(
+                    Instrument8100,
+                    model='8100',
+                    gpib=session_details.get('amplifier_address'),
+                    reset_on_connect=not data.get('bypass_amplifier_confirmation')
+                )
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
             
             await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
@@ -2135,7 +2153,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             )
             
             if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=session_details.get('amplifier_address'))
+                amplifier = await sync_to_async(_inst, thread_sensitive=True)(
+                    Instrument8100,
+                    model='8100',
+                    gpib=session_details.get('amplifier_address'),
+                    reset_on_connect=not data.get('bypass_amplifier_confirmation')
+                )
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
             
             await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
@@ -2456,7 +2479,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             )
 
             if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=session_details.get('amplifier_address'))
+                amplifier = await sync_to_async(_inst, thread_sensitive=True)(
+                    Instrument8100,
+                    model='8100',
+                    gpib=session_details.get('amplifier_address'),
+                    reset_on_connect=not data.get('bypass_amplifier_confirmation')
+                )
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data):
                     return
 
@@ -2632,7 +2660,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             )
             
             if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=session_details.get('amplifier_address'))
+                amplifier = await sync_to_async(_inst, thread_sensitive=True)(
+                    Instrument8100,
+                    model='8100',
+                    gpib=session_details.get('amplifier_address'),
+                    reset_on_connect=not data.get('bypass_amplifier_confirmation')
+                )
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
             
             await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
