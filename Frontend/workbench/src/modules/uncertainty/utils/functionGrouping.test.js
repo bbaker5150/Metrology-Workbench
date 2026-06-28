@@ -7,6 +7,8 @@ import {
   instrumentHasFunction,
   rangesForFunction,
   functionsForLibrary,
+  resolveSessionFunctions,
+  colorForFunction,
 } from "./functionGrouping";
 
 const point = (name, unit) => ({
@@ -101,6 +103,43 @@ describe("instrumentHasFunction / rangesForFunction", () => {
   it("scopes ranges to one function", () => {
     expect(rangesForFunction(inst, res).map((r) => r.id)).toEqual(["b", "c"]);
     expect(rangesForFunction(inst, makeFunctionKey("Nope", "x"))).toEqual([]);
+  });
+});
+
+describe("resolveSessionFunctions", () => {
+  it("merges explicit groups, instrument functions, and point parameters", () => {
+    const session = {
+      functionGroups: [
+        { name: "DC Voltage", unit: "V", color: "#123456" },
+        { name: "Empty Fn", unit: "A" }, // user-added, no instrument/point yet
+      ],
+      uuts: [{ instrument: { functions: [{ name: "Resistance", unit: "ohm" }] } }],
+      tmdes: [],
+      testPoints: [
+        { testPointInfo: { parameter: { name: "DC Voltage", unit: "V" } } },
+        { testPointInfo: { parameter: { name: "Frequency", unit: "Hz" } } },
+      ],
+    };
+    const fns = resolveSessionFunctions(session);
+    // explicit entries keep their order first, then derived ones alphabetically
+    expect(fns.map((f) => f.name)).toEqual([
+      "DC Voltage",
+      "Empty Fn",
+      "Frequency",
+      "Resistance",
+    ]);
+    // stored color wins; others get a palette default
+    expect(fns[0].color).toBe("#123456");
+    expect(fns[1].color).toBeTruthy();
+  });
+
+  it("colorForFunction returns the stored color", () => {
+    const session = {
+      functionGroups: [{ name: "Torque", unit: "in-ozf", color: "#abcdef" }],
+    };
+    expect(
+      colorForFunction(session, makeFunctionKey("Torque", "in-ozf")),
+    ).toBe("#abcdef");
   });
 });
 

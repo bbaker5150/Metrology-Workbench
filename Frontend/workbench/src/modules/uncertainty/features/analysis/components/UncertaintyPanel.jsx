@@ -42,7 +42,12 @@ import {
   assessTmdeCompatibility,
 } from "../../../utils/tmdeCompatibility";
 import { resolvePointAreaId } from "../../../utils/areaWorkspace";
-import { functionKeyOf } from "../../../utils/functionGrouping";
+import {
+  functionKeyOf,
+  makeFunctionKey,
+  instrumentFunctions,
+  resolveSessionFunctions,
+} from "../../../utils/functionGrouping";
 import { createInstanceFromDefinition } from "../../../utils/instrumentFactory";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 
@@ -3573,6 +3578,186 @@ const SummaryDashboard = ({
       </label>
     );
   };
+
+  // ----- Function subsections (the table's grouping axis) -----
+  // A function's color/name live in session.functionGroups, the same source the
+  // sidebar reads, so a recolor/rename here is reflected in the sidebar tree.
+  const upsertFunctionGroup = (fnKey, patch) => {
+    const existing = Array.isArray(sessionData.functionGroups)
+      ? sessionData.functionGroups
+      : [];
+    let found = false;
+    const next = existing.map((fg) => {
+      if (makeFunctionKey(fg.name, fg.unit) === fnKey) {
+        found = true;
+        return { ...fg, ...patch };
+      }
+      return fg;
+    });
+    if (!found) next.push(patch);
+    return next;
+  };
+
+  const handleFunctionColorChange = (fn, color) => {
+    if (!onSessionSave) return;
+    onSessionSave({
+      ...sessionData,
+      functionGroups: upsertFunctionGroup(fn.key, {
+        name: fn.name,
+        unit: fn.unit,
+        color,
+      }),
+    });
+  };
+
+  // Rename a function across every surface: the stored function-group metadata,
+  // the function name on each instrument that declares it, and the parameter
+  // name on each test point that belongs to it. Keeps the sidebar in sync.
+  const handleFunctionRename = (fn, rawName) => {
+    if (!onSessionSave) return;
+    const name = String(rawName || "").trim();
+    if (!name || name === fn.name) return;
+
+    const renameInstruments = (list = []) =>
+      list.map((item) => {
+        const inst = item.instrument || item;
+        const fns = Array.isArray(inst.functions) ? inst.functions : null;
+        if (!fns) return item;
+        let changed = false;
+        const nextFns = fns.map((f) => {
+          if (makeFunctionKey(f.name, f.unit) === fn.key) {
+            changed = true;
+            return { ...f, name };
+          }
+          return f;
+        });
+        if (!changed) return item;
+        return item.instrument
+          ? { ...item, instrument: { ...inst, functions: nextFns } }
+          : { ...item, functions: nextFns };
+      });
+
+    const nextPoints = (sessionData.testPoints || []).map((tp) => {
+      if (functionKeyOf(tp) !== fn.key) return tp;
+      const parameter = tp.testPointInfo?.parameter || {};
+      return {
+        ...tp,
+        testPointInfo: {
+          ...(tp.testPointInfo || {}),
+          parameter: { ...parameter, name },
+        },
+      };
+    });
+
+    onSessionSave({
+      ...sessionData,
+      functionGroups: upsertFunctionGroup(fn.key, {
+        name,
+        unit: fn.unit,
+        color: fn.color,
+      }),
+      uuts: renameInstruments(sessionData.uuts),
+      tmdes: renameInstruments(sessionData.tmdes),
+      testPoints: nextPoints,
+    });
+  };
+
+  const renderFunctionColorSwatch = (fn) => {
+    const color =
+      typeof fn.color === "string" && fn.color.startsWith("#")
+        ? fn.color
+        : "#888888";
+    const dotStyle = {
+      display: "inline-block",
+      width: "12px",
+      height: "12px",
+      borderRadius: "3px",
+      marginRight: "8px",
+      verticalAlign: "middle",
+      backgroundColor: fn.color || "#888888",
+    };
+    if (!onSessionSave) return <span style={dotStyle} />;
+    return (
+      <label
+        title="Click to change function color"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          ...dotStyle,
+          position: "relative",
+          cursor: "pointer",
+          border: "1px solid rgba(127,127,127,0.5)",
+          overflow: "hidden",
+          pointerEvents: "auto",
+        }}
+      >
+        <input
+          type="color"
+          value={color}
+          onChange={(e) => handleFunctionColorChange(fn, e.target.value)}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            opacity: 0,
+            cursor: "pointer",
+            padding: 0,
+            border: "none",
+          }}
+        />
+      </label>
+    );
+  };
+
+  const renderFunctionNameEditor = (fn) => {
+    if (!onSessionSave) {
+      return <span style={{ color: fn.color }}>{fn.name}</span>;
+    }
+    return (
+      <input
+        className="inline-area-header-input"
+        defaultValue={fn.name}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            e.currentTarget.value = fn.name;
+            e.currentTarget.blur();
+          }
+        }}
+        onBlur={(e) => handleFunctionRename(fn, e.target.value)}
+        title="Edit function name"
+        aria-label="Function subsection name"
+        style={{
+          color: fn.color,
+          background: "transparent",
+          border: "1px solid transparent",
+          borderRadius: "4px",
+          font: "inherit",
+          fontWeight: 700,
+          padding: "1px 4px",
+          minWidth: "120px",
+          pointerEvents: "auto",
+        }}
+      />
+    );
+  };
+
+  const renderFunctionUnitChip = (fn) =>
+    fn.unit ? (
+      <span
+        style={{
+          marginLeft: "8px",
+          opacity: 0.6,
+          fontSize: "0.78em",
+          fontWeight: 600,
+        }}
+      >
+        {getUnitDisplayLabel(fn.unit)}
+      </span>
+    ) : null;
   // --- SELECTION STATE ---
   // Use global UUT selection for sync with sidebar Quick Add
   const selectedUutIds = currentUutSelection || [];
@@ -4176,36 +4361,45 @@ const SummaryDashboard = ({
         return [...pinnedRows, ...groupedItems];
       }
 
-      const areaOrder = new Map(
-        (sessionData.measurementAreas || []).map((area, index) => [
-          String(area.id),
-          index,
-        ]),
+      // Group by FUNCTION (the table's subsection axis). Each instrument is
+      // placed under its first declared function; the function's color/name come
+      // from resolveSessionFunctions so they match the sidebar exactly.
+      const sessionFunctions = resolveSessionFunctions(sessionData);
+      const fnByKey = new Map(sessionFunctions.map((fn) => [fn.key, fn]));
+      const fnOrder = new Map(
+        sessionFunctions.map((fn, index) => [fn.key, index]),
       );
       const groups = new Map();
 
       groupedItems.forEach((row) => {
-        const area = getInstrumentArea(row.item, source);
-        const key = area.id || area.name || "unassigned";
-        if (!groups.has(key)) {
-          groups.set(key, {
-            type: "area",
-            area,
-            order: areaOrder.has(String(area.id))
-              ? areaOrder.get(String(area.id))
+        const primary = instrumentFunctions(row.item)[0] || {
+          key: makeFunctionKey("Measurement", ""),
+          name: "Measurement",
+          unit: "",
+        };
+        const fn = fnByKey.get(primary.key) || {
+          key: primary.key,
+          name: primary.name,
+          unit: primary.unit,
+          color: null,
+        };
+        if (!groups.has(fn.key)) {
+          groups.set(fn.key, {
+            type: "function",
+            fn,
+            order: fnOrder.has(fn.key)
+              ? fnOrder.get(fn.key)
               : Number.MAX_SAFE_INTEGER,
             items: [],
           });
         }
-        groups.get(key).items.push(row);
+        groups.get(fn.key).items.push(row);
       });
 
       const groupedRows = Array.from(groups.values())
         .sort((a, b) => {
           if (a.order !== b.order) return a.order - b.order;
-          if (a.area.name === "Unassigned") return 1;
-          if (b.area.name === "Unassigned") return -1;
-          return a.area.name.localeCompare(b.area.name);
+          return a.fn.name.localeCompare(b.fn.name);
         })
         .flatMap((group) => [
           group,
@@ -4226,11 +4420,7 @@ const SummaryDashboard = ({
 
       return [...pinnedRows, ...groupedRows];
     },
-    [
-      getInstrumentArea,
-      sessionData.measurementAreas,
-      showAreaColumn,
-    ],
+    [sessionData, showAreaColumn],
   );
 
   // --- HANDLERS ---
@@ -4615,17 +4805,16 @@ const SummaryDashboard = ({
                 </tr>
               ) : (
                 getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds).map((row) => {
-                  if (row.type === "area") {
+                  if (row.type === "function") {
                     return (
                       <tr
-                        key={`uut-area-${row.area.id || row.area.name}`}
+                        key={`uut-fn-${row.fn.key}`}
                         className="instrument-area-section-row"
-                        onDragOver={allowInstrumentDrop}
-                        onDrop={handleInstrumentDropOnArea("uut", row.area.id || "")}
                       >
                         <td colSpan={5}>
-                          {renderAreaColorSwatch(row.area, row.items, "uut")}
-                          {renderAreaNameEditor(row.area, row.items, "uut")}
+                          {renderFunctionColorSwatch(row.fn)}
+                          {renderFunctionNameEditor(row.fn)}
+                          {renderFunctionUnitChip(row.fn)}
                         </td>
                       </tr>
                     );
@@ -5040,17 +5229,16 @@ const SummaryDashboard = ({
                 </tr>
               ) : (
                 getGroupedInstrumentRows(filteredTmdes, "instrument", pinnedInlineTmdeIds).map((row) => {
-                  if (row.type === "area") {
+                  if (row.type === "function") {
                     return (
                       <tr
-                        key={`tmde-area-${row.area.id || row.area.name}`}
+                        key={`tmde-fn-${row.fn.key}`}
                         className="instrument-area-section-row"
-                        onDragOver={allowInstrumentDrop}
-                        onDrop={handleInstrumentDropOnArea("tmde", row.area.id || "")}
                       >
                         <td colSpan={6}>
-                          {renderAreaColorSwatch(row.area, row.items, "tmde")}
-                          {renderAreaNameEditor(row.area, row.items, "tmde")}
+                          {renderFunctionColorSwatch(row.fn)}
+                          {renderFunctionNameEditor(row.fn)}
+                          {renderFunctionUnitChip(row.fn)}
                         </td>
                       </tr>
                     );

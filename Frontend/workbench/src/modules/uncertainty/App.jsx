@@ -104,6 +104,7 @@ import {
   functionKeyOf,
   functionLabelOf,
   instrumentFunctions,
+  resolveSessionFunctions,
 } from "./utils/functionGrouping";
 import { formatRangeLabel } from "./utils/rangeFormatting";
 import { ZOOM_TOAST_EVENT } from "../../shared/ZoomToast";
@@ -3113,6 +3114,11 @@ function App() {
     const uuts = currentSessionData.uuts || [];
     const points = currentTestPoints;
     const uutById = new Map(uuts.map((u) => [String(u.id), u]));
+    // Function colors come from the same shared source the instrument-table
+    // subsections use, so a recolor/rename in one surface shows in the other.
+    const functionColorByKey = new Map(
+      resolveSessionFunctions(currentSessionData).map((fn) => [fn.key, fn.color]),
+    );
 
     // functionKey -> { id, name, unit, uutMap: Map(uutId -> { ...uut, points }) }
     const functionMap = new Map();
@@ -3165,6 +3171,7 @@ function App() {
         id: node.id,
         name: node.name,
         unit: node.unit,
+        color: functionColorByKey.get(node.id) || null,
         uutGroups: Array.from(node.uutMap.values()),
       }));
 
@@ -4024,7 +4031,8 @@ function App() {
                           <FontAwesomeIcon
                             icon={faCube}
                             style={{
-                              color: "var(--primary-color)",
+                              color:
+                                fnGroup.color || "var(--primary-color)",
                               opacity: isFnActive ? 1 : 0.7,
                             }}
                             size="sm"

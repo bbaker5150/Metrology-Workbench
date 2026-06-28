@@ -84,6 +84,84 @@ export const rangesForFunction = (source, functionKey) => {
   return match ? match.ranges : [];
 };
 
+// Default subsection colors, mirroring the old measurement-area palette so the
+// look is familiar. A function keeps a stable color once the user picks one
+// (stored in session.functionGroups); until then it gets a palette default.
+export const FUNCTION_COLOR_PALETTE = [
+  "#3498db",
+  "#2ecc71",
+  "#e67e22",
+  "#9b59b6",
+  "#e74c3c",
+  "#1abc9c",
+  "#f1c40f",
+  "#34495e",
+];
+
+// The single source of truth for the function set shown in BOTH the sidebar and
+// the instrument tables, so a rename/recolor in one surface is reflected in the
+// other. Merges:
+//   - explicit session.functionGroups (user-added/empty functions + saved colors)
+//   - functions declared by every UUT/TMDE instrument
+//   - functions named by every test point's parameter
+// Returns ordered [{ key, name, unit, color }] (explicit entries first, then the
+// rest alphabetically), with a palette color filled in where none is stored.
+export const resolveSessionFunctions = (sessionData = {}) => {
+  const explicit = Array.isArray(sessionData.functionGroups)
+    ? sessionData.functionGroups
+    : [];
+  const uuts = sessionData.uuts || [];
+  const tmdes = sessionData.tmdes || [];
+  const points = sessionData.testPoints || [];
+
+  // key -> { key, name, unit, color, explicitOrder }
+  const map = new Map();
+  const add = (name, unit, color, explicitOrder) => {
+    const key = makeFunctionKey(name, unit);
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        name: clean(name) || DEFAULT_FUNCTION_NAME,
+        unit: clean(unit),
+        color: color || null,
+        explicitOrder,
+      });
+    } else if (color && !map.get(key).color) {
+      map.get(key).color = color;
+    }
+  };
+
+  explicit.forEach((fn, index) => add(fn.name, fn.unit, fn.color, index));
+  [...uuts, ...tmdes].forEach((inst) =>
+    instrumentFunctions(inst).forEach((fn) => add(fn.name, fn.unit)),
+  );
+  points.forEach((point) => {
+    const label = functionLabelOf(point);
+    add(label.name, label.unit);
+  });
+
+  const result = Array.from(map.values()).sort((a, b) => {
+    const ao = a.explicitOrder ?? Number.MAX_SAFE_INTEGER;
+    const bo = b.explicitOrder ?? Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return a.name.localeCompare(b.name) || a.unit.localeCompare(b.unit);
+  });
+
+  result.forEach((fn, index) => {
+    if (!fn.color) {
+      fn.color = FUNCTION_COLOR_PALETTE[index % FUNCTION_COLOR_PALETTE.length];
+    }
+    delete fn.explicitOrder;
+  });
+
+  return result;
+};
+
+// Quick lookup of a function's resolved color by key.
+export const colorForFunction = (sessionData, functionKey) =>
+  resolveSessionFunctions(sessionData).find((fn) => fn.key === functionKey)
+    ?.color || null;
+
 // Distinct functions across a set of instruments (e.g. the shared library),
 // ordered by name then unit. Feeds the "Add Function" picker.
 export const functionsForLibrary = (instruments = []) => {
