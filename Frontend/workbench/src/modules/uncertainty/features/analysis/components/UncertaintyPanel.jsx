@@ -1848,11 +1848,22 @@ const resolveUutRangeHelper = (
   activeRangeIndices,
   savedTolerance,
   uutNominal,
+  functionKey = null,
 ) => {
   // 1. Normalize Ranges
-  const allRanges = getInstrumentRangeRows(uut, { flattenTolerances: true }).map(
+  let allRanges = getInstrumentRangeRows(uut, { flattenTolerances: true }).map(
     (r, i) => ({ ...r, _index: r._index ?? i }),
   );
+
+  // Optional: scope to a single function so a multi-function instrument shown
+  // under a function subsection only exposes that function's ranges. Falls back
+  // to all ranges if the filter would empty the list (legacy/loose metadata).
+  if (functionKey) {
+    const scoped = allRanges.filter(
+      (r) => makeFunctionKey(r.functionName, r.functionUnit || r.unit) === functionKey,
+    );
+    if (scoped.length > 0) allRanges = scoped;
+  }
 
   // 2. Determine Active Index in the complete range list.
   let activeIndex = -1;
@@ -4372,28 +4383,48 @@ const SummaryDashboard = ({
       const groups = new Map();
 
       groupedItems.forEach((row) => {
-        const primary = instrumentFunctions(row.item)[0] || {
-          key: makeFunctionKey("Measurement", ""),
-          name: "Measurement",
-          unit: "",
-        };
-        const fn = fnByKey.get(primary.key) || {
-          key: primary.key,
-          name: primary.name,
-          unit: primary.unit,
-          color: null,
-        };
-        if (!groups.has(fn.key)) {
-          groups.set(fn.key, {
-            type: "function",
-            fn,
-            order: fnOrder.has(fn.key)
-              ? fnOrder.get(fn.key)
-              : Number.MAX_SAFE_INTEGER,
-            items: [],
+        // An instrument appears under EACH function it declares; a single-function
+        // instrument keeps rowKey === id so its per-row range state behaves
+        // exactly as before (no regression). Multi-function instruments get a
+        // composite rowKey so each subsection's range switcher is independent.
+        const declared = instrumentFunctions(row.item);
+        // Dedupe by function key so an instrument that lists the same function
+        // twice doesn't render duplicate rows (and duplicate React keys).
+        const seenFnKeys = new Set();
+        const fnList = (
+          declared.length
+            ? declared
+            : [{ key: makeFunctionKey("Measurement", ""), name: "Measurement", unit: "" }]
+        ).filter((fn) => {
+          if (seenFnKeys.has(fn.key)) return false;
+          seenFnKeys.add(fn.key);
+          return true;
+        });
+        const multi = fnList.length > 1;
+
+        fnList.forEach((primary) => {
+          const fn = fnByKey.get(primary.key) || {
+            key: primary.key,
+            name: primary.name,
+            unit: primary.unit,
+            color: null,
+          };
+          if (!groups.has(fn.key)) {
+            groups.set(fn.key, {
+              type: "function",
+              fn,
+              order: fnOrder.has(fn.key)
+                ? fnOrder.get(fn.key)
+                : Number.MAX_SAFE_INTEGER,
+              items: [],
+            });
+          }
+          groups.get(fn.key).items.push({
+            ...row,
+            functionKey: fn.key,
+            rowKey: multi ? `${fn.key}::${row.item.id}` : row.item.id,
           });
-        }
-        groups.get(fn.key).items.push(row);
+        });
       });
 
       const groupedRows = Array.from(groups.values())
@@ -4821,17 +4852,22 @@ const SummaryDashboard = ({
                   }
 
                   const uut = row.item;
+                  // rowKey isolates per-subsection range state for multi-function
+                  // instruments; it equals uut.id for single-function ones.
+                  const uutRowKey = row.rowKey ?? uut.id;
+                  const uutFnKey = row.functionKey ?? null;
                   let resolution = resolveUutRangeHelper(
                     uut,
-                    localRangeIndices,
+                    { [uut.id]: localRangeIndices[uutRowKey] },
                     null,
                     null,
+                    uutFnKey,
                   );
 
                   if (
                     viewMode === "range" &&
                     rangeData &&
-                    localRangeIndices[uut.id] === undefined
+                    localRangeIndices[uutRowKey] === undefined
                   ) {
                     const matchIndex = resolution.ranges.findIndex((r) => {
                       if (rangeData.rangeId && r.rangeId) {
@@ -4895,9 +4931,9 @@ const SummaryDashboard = ({
                   if (showAllRanges) {
                     const n = visibleRangeRows.length;
                     const canDelete = ranges.length > 1;
-                    const activeRangeIndex = localRangeIndices[uut.id] ?? activeIndex;
+                    const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
                     return (
-                      <React.Fragment key={uut.id}>
+                      <React.Fragment key={uutRowKey}>
                         {visibleRangeRows.map(({ range, index, key }, i) => {
                           const isActiveRange = index === activeRangeIndex;
                           return (
@@ -4906,7 +4942,7 @@ const SummaryDashboard = ({
                               className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "uut", uut, range, index, n)}
-                              onMouseDownCapture={() => activateRangeRow("uut", uut.id, index)}
+                              onMouseDownCapture={() => activateRangeRow("uut", uutRowKey, index)}
                               onClick={(e) => {
                                 if (!isInlineRowControlTarget(e.target)) {
                                   setSelectedToleranceKey(null);
@@ -4958,7 +4994,7 @@ const SummaryDashboard = ({
                   }
 
                   return (
-                    <React.Fragment key={uut.id}>
+                    <React.Fragment key={uutRowKey}>
                       <tr
                         className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleUutClick(e, uut.id)}
@@ -5021,7 +5057,7 @@ const SummaryDashboard = ({
                                     rangeStateKey("uut", uut.id, range?.id),
                                   )}
                                   onSelect={(idx) =>
-                                    setLocalRangeIndices((prev) => ({ ...prev, [uut.id]: idx }))
+                                    setLocalRangeIndices((prev) => ({ ...prev, [uutRowKey]: idx }))
                                   }
                                   functionOptions={getItemFunctionOptions(uut)}
                                   onEditFunction={(value) =>
@@ -5246,11 +5282,14 @@ const SummaryDashboard = ({
 
                   const tmde = row.item;
                   const idx = row.index;
+                  const tmdeRowKey = row.rowKey ?? tmde.id;
+                  const tmdeFnKey = row.functionKey ?? null;
                   const resolution = resolveUutRangeHelper(
                     tmde,
-                    tmdeRangeIndices,
+                    { [tmde.id]: tmdeRangeIndices[tmdeRowKey] },
                     null,
                     null,
+                    tmdeFnKey,
                   );
                   const { ranges, activeIndex, activeRange } = resolution;
                   const activeTolerance =
@@ -5281,9 +5320,9 @@ const SummaryDashboard = ({
                   if (showAllRanges) {
                     const n = visibleRangeRows.length;
                     const canDelete = ranges.length > 1;
-                    const activeRangeIndex = tmdeRangeIndices[tmde.id] ?? activeIndex;
+                    const activeRangeIndex = tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
                     return (
-                      <React.Fragment key={tmde.id || idx}>
+                      <React.Fragment key={tmdeRowKey || idx}>
                         {visibleRangeRows.map(({ range, index, key }, i) => {
                           const isActiveRange = index === activeRangeIndex;
                           return (
@@ -5292,7 +5331,7 @@ const SummaryDashboard = ({
                               className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(tmde.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "tmde", tmde, range, index, n)}
-                              onMouseDownCapture={() => activateRangeRow("tmde", tmde.id, index)}
+                              onMouseDownCapture={() => activateRangeRow("tmde", tmdeRowKey, index)}
                               onClick={(e) => {
                                 if (!isInlineRowControlTarget(e.target)) {
                                   setSelectedToleranceKey(null);
@@ -5344,7 +5383,7 @@ const SummaryDashboard = ({
                   }
 
                   return (
-                    <React.Fragment key={tmde.id || idx}>
+                    <React.Fragment key={tmdeRowKey || idx}>
                       <tr
                         className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleTmdeClick(e, tmde.id)}
@@ -5421,7 +5460,7 @@ const SummaryDashboard = ({
                                     rangeStateKey("tmde", tmde.id, range?.id),
                                   )}
                                   onSelect={(idx) =>
-                                    setTmdeRangeIndices((prev) => ({ ...prev, [tmde.id]: idx }))
+                                    setTmdeRangeIndices((prev) => ({ ...prev, [tmdeRowKey]: idx }))
                                   }
                                   functionOptions={getItemFunctionOptions(tmde)}
                                   onEditFunction={(value) =>
