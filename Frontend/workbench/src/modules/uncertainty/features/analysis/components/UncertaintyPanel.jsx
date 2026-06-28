@@ -3835,13 +3835,36 @@ const SummaryDashboard = ({
     return (
       <button
         type="button"
-        className="btn-icon-only small"
         title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         onClick={(e) => {
           e.stopPropagation();
           handleAddInstrumentToFunction(kind, fn);
         }}
-        style={{ marginLeft: "10px", pointerEvents: "auto" }}
+        style={{
+          marginLeft: "6px",
+          pointerEvents: "auto",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "18px",
+          height: "18px",
+          padding: 0,
+          borderRadius: "4px",
+          border: "1px solid var(--border-color)",
+          background: "transparent",
+          color: "var(--text-color-muted)",
+          cursor: "pointer",
+          fontSize: "0.7em",
+          lineHeight: 1,
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "var(--input-background)";
+          e.currentTarget.style.color = "var(--text-color)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+          e.currentTarget.style.color = "var(--text-color-muted)";
+        }}
       >
         <FontAwesomeIcon icon={faPlus} size="xs" />
       </button>
@@ -5096,10 +5119,18 @@ const SummaryDashboard = ({
                         className="instrument-area-section-row"
                       >
                         <td colSpan={5}>
-                          {renderFunctionColorSwatch(row.fn)}
-                          {renderFunctionNameEditor(row.fn)}
-                          {renderFunctionUnitChip(row.fn)}
-                          {renderFunctionAddButton("uut", row.fn)}
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "2px",
+                            }}
+                          >
+                            {renderFunctionColorSwatch(row.fn)}
+                            {renderFunctionNameEditor(row.fn)}
+                            {renderFunctionUnitChip(row.fn)}
+                            {renderFunctionAddButton("uut", row.fn)}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -5529,10 +5560,18 @@ const SummaryDashboard = ({
                         className="instrument-area-section-row"
                       >
                         <td colSpan={6}>
-                          {renderFunctionColorSwatch(row.fn)}
-                          {renderFunctionNameEditor(row.fn)}
-                          {renderFunctionUnitChip(row.fn)}
-                          {renderFunctionAddButton("tmde", row.fn)}
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "2px",
+                            }}
+                          >
+                            {renderFunctionColorSwatch(row.fn)}
+                            {renderFunctionNameEditor(row.fn)}
+                            {renderFunctionUnitChip(row.fn)}
+                            {renderFunctionAddButton("tmde", row.fn)}
+                          </div>
                         </td>
                       </tr>
                     );
