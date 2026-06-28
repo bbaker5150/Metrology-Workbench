@@ -1,65 +1,31 @@
-export const getSidebarRangeKey = (groupId, range = {}) => {
-  if (!range.functionId && !range.functionName && range._id !== undefined) {
-    return `${groupId}-${range._id}`;
-  }
-
-  const functionPart =
-    range.functionId ||
-    (range.functionName ? `fn:${range.functionName}` : "fn:default");
-  const rangePart =
-    range.rangeId ||
-    range.id ||
-    range._id ||
-    range._index ||
-    "range:default";
-  return `${groupId}-${functionPart}-${rangePart}`;
-};
-
+// Walk the Function -> UUT -> Point tree in visual order, emitting only the
+// points currently visible (their function and UUT nodes are expanded). The
+// Unassigned bucket is a pseudo-function whose single pseudo-UUT carries the
+// points; its points are emitted with a null context.
 export const getVisibleSidebarPointOrder = (
   sidebarData,
-  {
-    expandedAreas = new Set(),
-    expandedUuts = new Set(),
-    expandedRanges = new Set(),
-    uutsShowingAllRanges = new Set(),
-  } = {},
+  { expandedFunctions = new Set(), expandedUuts = new Set() } = {},
   sortPoints = (points) => points,
 ) => {
   const entries = [];
 
-  (sidebarData || []).forEach((area) => {
-    if (!expandedAreas.has(area.id)) return;
+  (sidebarData || []).forEach((fnGroup) => {
+    if (!expandedFunctions.has(fnGroup.id)) return;
 
-    (area.uutGroups || []).forEach((group) => {
-      if (!expandedUuts.has(group.id)) return;
+    (fnGroup.uutGroups || []).forEach((group) => {
+      const isUnassigned = fnGroup.isUnassigned || group.isUnassigned;
+      // The Unassigned bucket renders points directly under the function node,
+      // so it follows the function's expansion rather than a per-UUT key.
+      if (!isUnassigned && !expandedUuts.has(`${fnGroup.id}::${group.id}`)) {
+        return;
+      }
 
-      const rangeGroups = group.functionGroups?.length
-        ? group.functionGroups.flatMap((fn) => fn.rangeGroups || [])
-        : group.rangeGroups || [];
-
-      rangeGroups.forEach((range) => {
-        if (
-          range.points?.length === 0 &&
-          !uutsShowingAllRanges.has(group.id)
-        ) {
-          return;
-        }
-
-        const rangeKey = getSidebarRangeKey(group.id, range);
-        if (!expandedRanges.has(rangeKey)) return;
-
-        sortPoints(range.points || []).forEach((point) => {
-          entries.push({ pointId: point.id, contextUutId: group.id });
+      sortPoints(group.points || []).forEach((point) => {
+        entries.push({
+          pointId: point.id,
+          contextUutId: isUnassigned ? null : group.id,
         });
       });
-
-      (group.uncategorizedPoints || []).forEach((point) => {
-        entries.push({ pointId: point.id, contextUutId: group.id });
-      });
-    });
-
-    (area.unassignedPoints || []).forEach((point) => {
-      entries.push({ pointId: point.id, contextUutId: null });
     });
   });
 

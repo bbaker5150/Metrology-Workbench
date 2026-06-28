@@ -42,6 +42,7 @@ import {
   assessTmdeCompatibility,
 } from "../../../utils/tmdeCompatibility";
 import { resolvePointAreaId } from "../../../utils/areaWorkspace";
+import { functionKeyOf } from "../../../utils/functionGrouping";
 import { createInstanceFromDefinition } from "../../../utils/instrumentFactory";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 
@@ -2462,6 +2463,7 @@ const QuickAddRow = ({
 const SummaryDashboard = ({
   viewMode,
   contextId,
+  contextName,
   sessionData,
   onDeleteTestPoint,
   rangeData,
@@ -4016,6 +4018,20 @@ const SummaryDashboard = ({
         );
         return inferredAreaIds.size === 0 || inferredAreaIds.has(contextId);
       });
+    } else if (viewMode === "function") {
+      // contextId is a function key (see utils/functionGrouping). Scope to the
+      // points of that function and the UUTs that own at least one of them.
+      const fnPoints = points.filter((tp) => functionKeyOf(tp) === contextId);
+      const ownerIds = new Set(
+        fnPoints.flatMap((tp) => (tp.associatedUutIds || []).map(String)),
+      );
+      displayTitle =
+        fnPoints[0]?.testPointInfo?.parameter?.name ||
+        contextName ||
+        "Function";
+      displaySubtitle = "Function Summary";
+      points = fnPoints;
+      uuts = uuts.filter((u) => ownerIds.has(String(u.id)));
     } else if (viewMode === "uut") {
       const uut = uuts.find((u) => u.id === contextId);
       displayTitle = uut?.description || "UUT Detail";
@@ -4068,7 +4084,7 @@ const SummaryDashboard = ({
       subtitle: displaySubtitle,
       showAreaColumn: isSessionView,
     };
-  }, [viewMode, contextId, sessionData, rangeData, uutId]);
+  }, [viewMode, contextId, contextName, sessionData, rangeData, uutId]);
 
   const getInstrumentArea = useCallback(
     (instrument = {}, source = "session") => {
@@ -9525,6 +9541,7 @@ const UncertaintyPanel = (props) => {
       <SummaryDashboard
         viewMode={viewMode}
         contextId={testPointData.id}
+        contextName={testPointData.functionName}
         rangeData={testPointData.rangeData}
         uutId={testPointData.uutId}
         sessionData={sessionData}

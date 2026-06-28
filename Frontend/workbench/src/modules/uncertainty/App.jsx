@@ -55,9 +55,6 @@ import {
   faLayerGroup,
   faMicroscope,
   faCube,
-  faRulerCombined,
-  faEye,
-  faEyeSlash,
   faRadio,
   faHistory,
   faImages,
@@ -93,7 +90,6 @@ import { computeRiskMetricsMap } from "./utils/riskCompute";
 import {
   associateUutWithPoint,
   resolvePointAreaId,
-  resolveAreaWorkspacePoint,
 } from "./utils/areaWorkspace";
 import { UNCERTAINTY_REQUIREMENT_FIELDS } from "./constants/constants";
 import {
@@ -102,11 +98,21 @@ import {
 } from "./utils/pointClipboard";
 import {
   getSidebarPointRange,
-  getSidebarRangeKey,
   getVisibleSidebarPointOrder,
 } from "./utils/sidebarPointSelection";
+import {
+  functionKeyOf,
+  functionLabelOf,
+  instrumentFunctions,
+} from "./utils/functionGrouping";
 import { formatRangeLabel } from "./utils/rangeFormatting";
 import { ZOOM_TOAST_EVENT } from "../../shared/ZoomToast";
+
+// Synthetic ids for the top-level "Unassigned Points" bucket (points whose
+// owning UUT no longer exists), modeled as a pseudo function/UUT so every
+// consumer can treat the sidebar uniformly.
+const UNASSIGNED_FUNCTION_ID = "__unassigned_function__";
+const UNASSIGNED_UUT_ID = "__unassigned_uut__";
 
 const getSidebarGridTemplate = (visibleColumns) => {
   const parts = [];
@@ -1360,31 +1366,22 @@ function App() {
   const handleToggleExpandAll = () => {
     if (isGlobalExpanded) {
       // Collapse Logic
-      setExpandedAreas(new Set());
+      setExpandedFunctions(new Set());
       setExpandedUuts(new Set());
-      setExpandedRanges(new Set());
       setIsGlobalExpanded(false);
     } else {
       // Expand Logic
-      const allAreaIds = new Set(sidebarData.map((area) => area.id));
-      const allUutIds = new Set();
-      const allRangeKeys = new Set();
+      const allFunctionIds = new Set(sidebarData.map((fn) => fn.id));
+      const allUutKeys = new Set();
 
-      sidebarData.forEach((area) => {
-        area.uutGroups.forEach((group) => {
-          allUutIds.add(group.id);
-          const rangeGroups = group.functionGroups?.length
-            ? group.functionGroups.flatMap((fn) => fn.rangeGroups || [])
-            : group.rangeGroups || [];
-          rangeGroups.forEach((range) => {
-            allRangeKeys.add(getSidebarRangeKey(group.id, range));
-          });
+      sidebarData.forEach((fn) => {
+        fn.uutGroups.forEach((group) => {
+          allUutKeys.add(`${fn.id}::${group.id}`);
         });
       });
 
-      setExpandedAreas(allAreaIds);
-      setExpandedUuts(allUutIds);
-      setExpandedRanges(allRangeKeys);
+      setExpandedFunctions(allFunctionIds);
+      setExpandedUuts(allUutKeys);
       setIsGlobalExpanded(true);
 
       // Auto-resize sidebar to fit expanded columns if too narrow
@@ -1412,22 +1409,19 @@ function App() {
   }, []);
 
   // --- SELECTION & VIRTUAL STATE ---
-  const [selectedAreaId, setSelectedAreaId] = useState(null);
-  // Inline rename of a measurement area from the sidebar.
-  const [editingAreaId, setEditingAreaId] = useState(null);
-  const [editingAreaName, setEditingAreaName] = useState("");
+  // The sidebar tree is organized Function -> UUT -> Point. `selectedFunctionId`
+  // is a function key (see utils/functionGrouping) rather than a measurement area.
+  const [selectedFunctionId, setSelectedFunctionId] = useState(null);
   const [selectedUutId, setSelectedUutId] = useState(null);
-  const [selectedRangeContext, setSelectedRangeContext] = useState(null); // { uutId, range }
   const [virtualPoint, setVirtualPoint] = useState(null);
   const [activeRangeIndices, setActiveRangeIndices] = useState({});
 
-  // UPDATED: Tracks which UUTs are explicitly SHOWING all ranges.
-  const [uutsShowingAllRanges, setUutsShowingAllRanges] = useState(new Set());
-
   // --- SIDEBAR EXPANSION STATE (Simple accordion control) ---
-  const [expandedAreas, setExpandedAreas] = useState(new Set());
+  // expandedFunctions holds function keys; expandedUuts holds composite
+  // `${functionKey}::${uutId}` keys so the same UUT under two functions expands
+  // independently.
+  const [expandedFunctions, setExpandedFunctions] = useState(new Set());
   const [expandedUuts, setExpandedUuts] = useState(new Set());
-  const [expandedRanges, setExpandedRanges] = useState(new Set());
 
   // Tracks which UUT "folder" was clicked in the sidebar to enforce context
   const [selectedTestPointContextUutId, setSelectedTestPointContextUutId] =
@@ -1469,9 +1463,8 @@ function App() {
     setIsRequirementsOpen(preferences.isRequirementsOpen ?? true);
     setIsMeasurementPointsOpen(preferences.isMeasurementPointsOpen ?? true);
     setIsGlobalExpanded(preferences.isGlobalExpanded ?? false);
-    setExpandedAreas(new Set(preferences.expandedAreas || []));
+    setExpandedFunctions(new Set(preferences.expandedFunctions || []));
     setExpandedUuts(new Set(preferences.expandedUuts || []));
-    setExpandedRanges(new Set(preferences.expandedRanges || []));
     setActiveRangeIndices(preferences.activeRangeIndices || {});
     setAnalysisMode(preferences.analysisMode || "uncertaintyTool");
     setShowContribution(preferences.showContribution ?? false);
@@ -1495,9 +1488,8 @@ function App() {
       isRequirementsOpen,
       isMeasurementPointsOpen,
       isGlobalExpanded,
-      expandedAreas: Array.from(expandedAreas),
+      expandedFunctions: Array.from(expandedFunctions),
       expandedUuts: Array.from(expandedUuts),
-      expandedRanges: Array.from(expandedRanges),
       activeRangeIndices,
       analysisMode,
       showContribution,
@@ -1515,8 +1507,7 @@ function App() {
   }, [
     activeRangeIndices,
     analysisMode,
-    expandedAreas,
-    expandedRanges,
+    expandedFunctions,
     expandedUuts,
     isGlobalExpanded,
     isMeasurementPointsOpen,
@@ -1576,35 +1567,22 @@ function App() {
   );
 
   const handleExpandAll = () => {
-    // 1. Collect all Area IDs
-    const allAreaIds = new Set(sidebarData.map((area) => area.id));
+    const allFunctionIds = new Set(sidebarData.map((fn) => fn.id));
+    const allUutKeys = new Set();
 
-    // 2. Collect all UUT IDs and Range Keys
-    const allUutIds = new Set();
-    const allRangeKeys = new Set();
-
-    sidebarData.forEach((area) => {
-      area.uutGroups.forEach((group) => {
-        allUutIds.add(group.id);
-        const rangeGroups = group.functionGroups?.length
-          ? group.functionGroups.flatMap((fn) => fn.rangeGroups || [])
-          : group.rangeGroups || [];
-        rangeGroups.forEach((range) => {
-          const rangeKey = getSidebarRangeKey(group.id, range);
-          allRangeKeys.add(rangeKey);
-        });
+    sidebarData.forEach((fn) => {
+      fn.uutGroups.forEach((group) => {
+        allUutKeys.add(`${fn.id}::${group.id}`);
       });
     });
 
-    setExpandedAreas(allAreaIds);
-    setExpandedUuts(allUutIds);
-    setExpandedRanges(allRangeKeys);
+    setExpandedFunctions(allFunctionIds);
+    setExpandedUuts(allUutKeys);
   };
 
   const handleCollapseAll = () => {
-    setExpandedAreas(new Set());
+    setExpandedFunctions(new Set());
     setExpandedUuts(new Set());
-    setExpandedRanges(new Set());
   };
 
   // --- DELETE HELPER (Defined before useEffect so it can be used inside) ---
@@ -1898,8 +1876,7 @@ function App() {
         (e.ctrlKey || e.metaKey) &&
         key === "x" &&
         !isTextEntry &&
-        !selectedUutId &&
-        !selectedRangeContext
+        !selectedUutId
       ) {
         let points = [];
         if (selectedSidebarPointIds.length > 0) {
@@ -1922,36 +1899,18 @@ function App() {
         if (clipboardKind === "point" && clipboardPoint) {
           e.preventDefault();
           let targetUutId = null;
-          let targetAreaId = selectedAreaId;
-          let targetRange = null;
 
-          if (selectedRangeContext) {
-            targetUutId = selectedRangeContext.uutId;
-            targetRange = selectedRangeContext.range;
-          } else if (selectedUutId) {
+          if (selectedUutId) {
             targetUutId = selectedUutId;
           } else if (selectedTestPointId && selectedTestPointContextUutId) {
             targetUutId = selectedTestPointContextUutId;
           }
 
           if (targetUutId) {
-            if (!targetAreaId) {
-              const uut = currentSessionData?.uuts?.find(
-                (u) => u.id === targetUutId,
-              );
-              if (uut) targetAreaId = uut.measurementAreaId;
-            }
-            handlePastePoint(targetUutId, targetAreaId, targetRange);
+            handlePastePoint(targetUutId, null, null);
           } else {
-            showToast("Select a destination UUT or range before pasting.", "error");
+            showToast("Select a destination UUT before pasting.", "error");
           }
-        } else if (
-          clipboardKind === "uut" &&
-          clipboardUut &&
-          selectedAreaId
-        ) {
-          e.preventDefault();
-          handlePasteUut(selectedAreaId);
         }
       }
 
@@ -1986,8 +1945,6 @@ function App() {
     clipboardUut,
     currentTestPoints,
     currentSessionData,
-    selectedAreaId,
-    selectedRangeContext,
     handleCopyPoint,
     handleCopyUut,
     handleCutPoint,
@@ -2188,9 +2145,8 @@ function App() {
     setRiskResults(null);
     setSelectedSessionId(newId);
     setSelectedTestPointId(null);
-    setSelectedAreaId(null);
+    setSelectedFunctionId(null);
     setSelectedUutId(null);
-    setSelectedRangeContext(null); // Clear range
     setVirtualPoint(null);
     setSelectedTestPointContextUutId(null);
     setCurrentUutSelection([]);
@@ -2199,102 +2155,71 @@ function App() {
   };
 
   // --- TOGGLE EXPANSION HANDLERS ---
-  const toggleAreaExpand = (e, areaId) => {
+  const toggleFunctionExpand = (e, functionKey) => {
     e.stopPropagation();
-    setExpandedAreas((prev) => {
+    setExpandedFunctions((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(areaId)) newSet.delete(areaId);
-      else newSet.add(areaId);
+      if (newSet.has(functionKey)) newSet.delete(functionKey);
+      else newSet.add(functionKey);
       return newSet;
     });
   };
 
-  const toggleUutExpand = (e, uutId) => {
+  // uutKey is the composite `${functionKey}::${uutId}` so the same UUT under two
+  // function nodes expands independently.
+  const toggleUutExpand = (e, uutKey) => {
     e.stopPropagation();
     setExpandedUuts((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(uutId)) newSet.delete(uutId);
-      else newSet.add(uutId);
+      if (newSet.has(uutKey)) newSet.delete(uutKey);
+      else newSet.add(uutKey);
       return newSet;
     });
   };
 
-  const toggleRangeExpand = (e, rangeKey) => {
-    e.stopPropagation();
-    setExpandedRanges((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(rangeKey)) newSet.delete(rangeKey);
-      else newSet.add(rangeKey);
-      return newSet;
-    });
+  // Pick the point to focus when a function/UUT node is clicked: keep the current
+  // point if it still belongs to the clicked scope, otherwise fall back to the
+  // first matching point.
+  const resolveFunctionPoint = (functionKey, uutId = null) => {
+    const inScope = (point) => {
+      if (functionKeyOf(point) !== functionKey) return false;
+      if (!uutId) return true;
+      return (point.associatedUutIds || []).some(
+        (id) => String(id) === String(uutId),
+      );
+    };
+    const current = currentTestPoints.find(
+      (point) => point.id === selectedTestPointId && inScope(point),
+    );
+    return current || currentTestPoints.find(inScope) || null;
   };
 
-  const handleSelectArea = (areaId) => {
+  const handleSelectFunction = (functionKey) => {
     setRiskResults(null);
-    const pointInArea = resolveAreaWorkspacePoint(
-      currentTestPoints,
-      selectedTestPointId,
-      areaId,
-    );
+    const point = resolveFunctionPoint(functionKey);
 
-    setSelectedAreaId(areaId);
+    setSelectedFunctionId(functionKey);
     setSelectedUutId(null);
-    setSelectedRangeContext(null);
-    setSelectedTestPointId(pointInArea?.id || null);
-    setSelectedTestPointContextUutId(
-      pointInArea?.associatedUutIds?.[0] || null,
-    );
+    setSelectedTestPointId(point?.id || null);
+    setSelectedTestPointContextUutId(point?.associatedUutIds?.[0] || null);
     setCurrentUutSelection([]);
     setVirtualPoint(null);
     setSelectedTablePointIds([]);
-    setSelectedSidebarPointIds(pointInArea ? [pointInArea.id] : []);
+    setSelectedSidebarPointIds(point ? [point.id] : []);
   };
 
-  const handleSelectUut = (uutId, areaId) => {
+  const handleSelectUut = (uutId, functionKey) => {
     setRiskResults(null);
-    const pointInArea = resolveAreaWorkspacePoint(
-      currentTestPoints,
-      selectedTestPointId,
-      areaId,
-    );
+    const point = resolveFunctionPoint(functionKey, uutId);
 
     setSelectedUutId(uutId);
-    setSelectedAreaId(areaId);
-    setSelectedRangeContext(null);
-    setSelectedTestPointId(pointInArea?.id || null);
-    setSelectedTestPointContextUutId(
-      pointInArea?.associatedUutIds?.[0] || null,
-    );
+    setSelectedFunctionId(functionKey);
+    setSelectedTestPointId(point?.id || null);
+    setSelectedTestPointContextUutId(uutId);
     setCurrentUutSelection([uutId]);
     setVirtualPoint(null);
     setSelectedTablePointIds([]);
-    setSelectedSidebarPointIds(pointInArea ? [pointInArea.id] : []);
-  };
-
-  // ---  Handle Range Selection ---
-  const handleSelectRange = (uutId, range, areaId) => {
-    setRiskResults(null);
-    const pointInArea = resolveAreaWorkspacePoint(
-      currentTestPoints,
-      selectedTestPointId,
-      areaId,
-    );
-
-    setSelectedRangeContext({ uutId, range });
-    setSelectedUutId(null);
-    setSelectedTestPointId(pointInArea?.id || null);
-    setVirtualPoint(null);
-    setSelectedAreaId(areaId);
-    setSelectedTablePointIds([]);
-    setSelectedSidebarPointIds(pointInArea ? [pointInArea.id] : []);
-    setSelectedTestPointContextUutId(
-      pointInArea?.associatedUutIds?.[0] || null,
-    );
-
-    // Auto-select the UUT so the "Add Point" button knows what to link to
-    setCurrentUutSelection([uutId]);
-    // Set the active range index so the "Add Point" modal pre-selects this range
-    setActiveRangeIndices((prev) => ({ ...prev, [uutId]: range._id }));
+    setSelectedSidebarPointIds(point ? [point.id] : []);
   };
 
   const handleSelectTestPoint = (e, tpId, contextUutId = null) => {
@@ -2343,8 +2268,7 @@ function App() {
     }
 
     const selectedPoint = currentTestPoints.find((point) => point.id === tpId);
-    setSelectedRangeContext(null);
-    setSelectedAreaId(selectedPoint?.measurementAreaId || null);
+    setSelectedFunctionId(selectedPoint ? functionKeyOf(selectedPoint) : null);
     setSelectedUutId(null);
     setVirtualPoint(null);
     setSelectedTestPointContextUutId(contextUutId);
@@ -2360,37 +2284,22 @@ function App() {
     }
   };
 
-  const toggleUutEmptyRanges = (uutId) => {
-    const newSet = new Set(uutsShowingAllRanges);
-    if (newSet.has(uutId)) {
-      newSet.delete(uutId);
-    } else {
-      newSet.add(uutId);
-    }
-    setUutsShowingAllRanges(newSet);
-  };
-
   const handleAddNewTestPoint = (arg1 = null, arg2 = null, arg3 = null) => {
-    let areaId = null;
     let uutIds = [];
     let specificRange = null;
+    // The function the new point should belong to. The sidebar passes the
+    // function group ({ id, name, unit }) the Add Point button was clicked under;
+    // the Analysis dashboard passes a UUT list and we infer the function later.
+    let functionGroup = null;
 
     // Detect Source: Analysis Dashboard passes ([ids], rangeObj)
     if (Array.isArray(arg1)) {
       uutIds = arg1;
       specificRange = arg2;
-
-      // Attempt to resolve Area ID from the first UUT
-      if (uutIds.length > 0) {
-        const uut = currentSessionData?.uuts?.find((u) => u.id === uutIds[0]);
-        if (uut) areaId = uut.measurementAreaId;
-      } else {
-        areaId = selectedAreaId;
-      }
     }
-    // Detect Source: Sidebar passes (areaId, uutId, rangeObj?)
+    // Detect Source: Sidebar passes (functionGroup, uutId, rangeObj?)
     else {
-      areaId = arg1;
+      functionGroup = arg1 || null;
       const specificUutId = arg2;
       specificRange = arg3;
       if (specificUutId) uutIds = [specificUutId];
@@ -2405,11 +2314,15 @@ function App() {
       const fallbackRange =
         range ||
         (primaryUut ? getAllUutRanges(primaryUut)[activeRangeIndices[primaryUut.id] || 0] : null);
+      // A function the point was explicitly added under wins; otherwise fall back
+      // to the range's / instrument's function so the point lands sensibly.
       const functionName =
+        functionGroup?.name ||
         fallbackRange?.functionName ||
         primaryUut?.instrument?.functions?.[0]?.name ||
         "Measurement";
       const unit =
+        functionGroup?.unit ||
         fallbackRange?.unit ||
         primaryUut?.instrument?.functions?.[0]?.unit ||
         "";
@@ -2430,7 +2343,7 @@ function App() {
 
     if (uutIds.length > 0 && specificRange) {
       initialData = applyUutDefaults({
-        measurementAreaId: areaId,
+        measurementAreaId: null,
         associatedUutIds: uutIds,
         uutTolerance: specificRange,
         testPointInfo: {
@@ -2450,14 +2363,14 @@ function App() {
       }
     } else if (uutIds.length > 0) {
       initialData = applyUutDefaults({
-        measurementAreaId: areaId,
+        measurementAreaId: null,
         associatedUutIds: uutIds,
       }, uutIds, null);
       setSelectedTestPointContextUutId(uutIds[0]);
     } else if (currentUutSelection.length > 0) {
       // Fallback to global selection if no args passed (e.g. main add button)
       initialData = applyUutDefaults({
-        measurementAreaId: areaId || selectedAreaId,
+        measurementAreaId: null,
         associatedUutIds: currentUutSelection,
       }, currentUutSelection, null);
 
@@ -2477,21 +2390,17 @@ function App() {
         }
       }
     } else {
-      const contextUuts = areaId
-        ? (currentSessionData?.uuts || []).filter(
-            (u) => u.measurementAreaId === areaId,
-          )
-        : currentSessionData?.uuts || [];
+      const contextUuts = currentSessionData?.uuts || [];
       if (contextUuts.length === 1) {
         initialData = applyUutDefaults({
-          measurementAreaId: contextUuts[0].measurementAreaId || areaId,
+          measurementAreaId: null,
           associatedUutIds: [contextUuts[0].id],
         }, [contextUuts[0].id], null);
         setSelectedTestPointContextUutId(contextUuts[0].id);
       } else {
         setAppNotification({
           title: "Select a UUT",
-          message: "Choose a UUT or UUT range before adding measurement points.",
+          message: "Choose a UUT before adding measurement points.",
         });
         return;
       }
@@ -2660,7 +2569,6 @@ function App() {
         hasNamedArea
           ? data.measurementAreaId ||
             associationPoint?.measurementAreaId ||
-            selectedAreaId ||
             null
           : null;
       let updatedMeasurementAreas = [
@@ -2769,7 +2677,6 @@ function App() {
           ? existingTmde?.measurementAreaId ||
             associationPoint?.measurementAreaId ||
             contextPoint?.measurementAreaId ||
-            selectedAreaId ||
             (dataAreaExists ? data.measurementAreaId : null) ||
             null
           : null;
@@ -2854,8 +2761,7 @@ function App() {
       const associationPoint = currentTestPoints.find(
         (point) => point.id === instrumentModalConfig.associateToPointId,
       );
-      let resolvedAreaId =
-        associationPoint?.measurementAreaId || selectedAreaId;
+      let resolvedAreaId = associationPoint?.measurementAreaId || null;
       let updatedMeasurementAreas = [
         ...(currentSessionData.measurementAreas || []),
       ];
@@ -2918,7 +2824,7 @@ function App() {
     const areas = [...(currentSessionData.measurementAreas || [])];
     const ensureAreaId = (name, color) => {
       const clean = String(name || "").trim();
-      if (!clean) return selectedAreaId || null;
+      if (!clean) return null;
       let area = areas.find(
         (a) => a.name.toLowerCase() === clean.toLowerCase(),
       );
@@ -2953,7 +2859,7 @@ function App() {
           instrument,
         });
       } else {
-        const areaId = selectedAreaId || null;
+        const areaId = null;
         const areaName = areas.find((a) => a.id === areaId)?.name || "";
         tmdes.push({
           id: uuidv4(),
@@ -2992,15 +2898,13 @@ function App() {
         ...point,
         associatedUutIds: [uutId],
         measurementAreaId:
-          point.measurementAreaId || uut?.measurementAreaId || selectedAreaId,
+          point.measurementAreaId || uut?.measurementAreaId || null,
         uutTolerance: point.uutTolerance || (uut ? findMatchingRange(uut, value, unit) : null),
       };
     };
 
     const normalizePoint = (point) => {
       const finalData = { ...point };
-      if (!finalData.measurementAreaId && selectedAreaId)
-        finalData.measurementAreaId = selectedAreaId;
 
       if (
         (!finalData.associatedUutIds ||
@@ -3166,157 +3070,6 @@ function App() {
     });
   };
 
-  const handleAddArea = () => {
-    if (!currentSessionData) return;
-    setAppNotification({
-      title: "Add Measurement Area",
-      message: "Name the measurement area before adding it.",
-      confirmText: "Add Area",
-      isIconConfirm: true,
-      inputLabel: "Measurement area name",
-      inputPlaceholder: "e.g. Electrical",
-      validateInput: (rawName) => {
-        const name = (rawName || "").trim();
-        if (!name) return "Enter a measurement area name.";
-        const duplicate = (currentSessionData.measurementAreas || []).some(
-          (area) =>
-            (area.name || "").trim().toLowerCase() === name.toLowerCase(),
-        );
-        return duplicate
-          ? "A measurement area with this name already exists."
-          : "";
-      },
-      onConfirm: (name) => {
-        setAppNotification(null);
-        createMeasurementArea(name);
-      },
-    });
-  };
-
-  const createMeasurementArea = (rawName) => {
-    if (!currentSessionData) return;
-    const existing = currentSessionData.measurementAreas || [];
-    const name = (rawName || "").trim();
-    if (!name) return;
-    const palette = [
-      "#3498db", "#2ecc71", "#e67e22", "#9b59b6",
-      "#e74c3c", "#1abc9c", "#f1c40f", "#34495e",
-    ];
-    const newArea = {
-      id: uuidv4(),
-      name,
-      color: palette[existing.length % palette.length],
-    };
-    updateSession({
-      ...currentSessionData,
-      measurementAreas: [...existing, newArea],
-    });
-    setExpandedAreas((prev) => new Set(prev).add(newArea.id));
-    handleSelectArea(newArea.id);
-  };
-
-  const handleRenameArea = (areaId, rawName) => {
-    setEditingAreaId(null);
-    if (!currentSessionData) return;
-    const name = (rawName || "").trim();
-    const area = (currentSessionData.measurementAreas || []).find(
-      (a) => a.id === areaId,
-    );
-    if (!area || !name || name === area.name) return;
-    const oldName = area.name;
-    // Keep the denormalized `measurementArea` name in sync on every record that
-    // references this area (by id, or by the old name for legacy rows).
-    const areaUutIds = new Set(
-      (currentSessionData.uuts || [])
-        .filter(
-          (uut) =>
-            uut.measurementAreaId === areaId || uut.measurementArea === oldName,
-        )
-        .map((uut) => String(uut.id)),
-    );
-    const syncName = (arr) =>
-      (arr || []).map((x) => {
-        const matchesArea =
-          x.measurementAreaId === areaId ||
-          x.measurementArea === oldName ||
-          x.instrument?.measurementAreaId === areaId ||
-          x.instrument?.measurementArea === oldName;
-        if (!matchesArea) return x;
-        return {
-          ...x,
-          measurementArea: name,
-          ...(x.instrument
-            ? { instrument: { ...x.instrument, measurementArea: name } }
-            : {}),
-        };
-      });
-    const syncPointName = (point) => {
-      const matchesArea =
-        point.measurementAreaId === areaId || point.measurementArea === oldName;
-      const followsAreaUut = (point.associatedUutIds || []).some((id) =>
-        areaUutIds.has(String(id)),
-      );
-      return matchesArea || followsAreaUut
-        ? { ...point, measurementAreaId: areaId, measurementArea: name }
-        : point;
-    };
-    updateSession({
-      ...currentSessionData,
-      measurementAreas: currentSessionData.measurementAreas.map((a) =>
-        a.id === areaId ? { ...a, name } : a,
-      ),
-      uuts: syncName(currentSessionData.uuts),
-      tmdes: syncName(currentSessionData.tmdes),
-      testPoints: (currentSessionData.testPoints || []).map(syncPointName),
-    });
-  };
-
-  const handleDeleteArea = (areaId) => {
-    if (!currentSessionData) return;
-    const area = (currentSessionData.measurementAreas || []).find(
-      (a) => a.id === areaId,
-    );
-    // Guard: only allow deleting an area once it has been emptied of UUTs.
-    const hasUuts = (currentSessionData.uuts || []).some(
-      (u) =>
-        u.measurementAreaId === areaId ||
-        (area && u.measurementArea && u.measurementArea === area.name),
-    );
-    if (hasUuts) {
-      setAppNotification({
-        title: "Area Not Empty",
-        message:
-          "Remove all UUTs from this measurement area before deleting it.",
-      });
-      return;
-    }
-
-    setAppNotification({
-      title: "Delete Measurement Area",
-      message: `Delete measurement area "${area?.name || "this area"}"? Any leftover measurement points assigned to it will also be removed.`,
-      confirmText: "Delete",
-      isIconConfirm: true,
-      onConfirm: () => {
-        const updatedAreas = (currentSessionData.measurementAreas || []).filter(
-          (a) => a.id !== areaId,
-        );
-        const updatedTestPoints = (currentSessionData.testPoints || []).filter(
-          (tp) => tp.measurementAreaId !== areaId,
-        );
-        updateSession({
-          ...currentSessionData,
-          measurementAreas: updatedAreas,
-          testPoints: updatedTestPoints,
-        });
-        if (selectedAreaId === areaId) {
-          setSelectedAreaId(null);
-          handleSelectSession(currentSessionData.id);
-        }
-        setAppNotification(null);
-      },
-    });
-  };
-
   const handleSaveToFile = async () => {
     if (!currentSessionData) return;
     const sessionCache = sessionImageCache.get(currentSessionData.id);
@@ -3357,179 +3110,83 @@ function App() {
   const sidebarData = useMemo(() => {
     if (!currentSessionData) return [];
 
-    const areas = currentSessionData.measurementAreas || [];
     const uuts = currentSessionData.uuts || [];
     const points = currentTestPoints;
+    const uutById = new Map(uuts.map((u) => [String(u.id), u]));
 
-    return areas.map((area) => {
-      const areaUuts = uuts.filter(
-        (u) =>
-          u.measurementAreaId === area.id ||
-          (u.measurementArea && u.measurementArea === area.name),
-      );
-
-      const uutGroups = areaUuts.map((uut) => {
-        const associatedPoints = points.filter(
-          (tp) =>
-            tp.associatedUutIds &&
-            tp.associatedUutIds.some((id) => String(id) === String(uut.id)),
-        );
-
-        const availableRanges = getAllUutRanges(uut);
-
-        // Resolve every associated point to a single range up front so the
-        // sidebar re-homes points automatically whenever the UUT's ranges or a
-        // point's value changes — without the user having to click the point.
-        // An explicit uutTolerance only pins a point while its value still sits
-        // inside that tolerance; otherwise we fall back to value-based homing,
-        // and anything that matches no range drops into "Not Used".
-        const categorizedPoints = new Set();
-        const rangeIndexForPoint = new Map();
-
-        associatedPoints.forEach((tp) => {
-          const t = tp.uutTolerance;
-          const hasExplicit = t && Object.keys(t).length > 0;
-          const val = parseFloat(tp.testPointInfo?.parameter?.value);
-          const unit = tp.testPointInfo?.parameter?.unit;
-          const hasNumericVal = !isNaN(val);
-
-          const toleranceMatchesRange = (range) => {
-            const rangeIdMatch =
-              t.rangeId &&
-              range.rangeId &&
-              String(t.rangeId) === String(range.rangeId);
-            const legacyIdMatch =
-              t.id && range.id && String(t.id) === String(range.id);
-            if (rangeIdMatch || legacyIdMatch) {
-              return (
-                !t.functionId ||
-                !range.functionId ||
-                String(t.functionId) === String(range.functionId)
-              );
-            }
-
-            const minMatch = t.min == range.min;
-            const maxMatch = t.max == range.max;
-            const unitMatch = (t.unit || "") === (range.unit || "");
-            const functionIdMatch =
-              t.functionId && range.functionId
-                ? String(t.functionId) === String(range.functionId)
-                : true;
-            const functionNameMatch = range.functionName
-              ? t.functionName === range.functionName
-              : true;
-            return (
-              minMatch &&
-              maxMatch &&
-              unitMatch &&
-              functionIdMatch &&
-              functionNameMatch
-            );
-          };
-
-          const rangeContainsVal = (range) => {
-            if (!hasNumericVal) return false;
-            const min = parseFloat(range.min);
-            const max = parseFloat(range.max);
-            const unitMatch =
-              !unit ||
-              !range.unit ||
-              unit.toLowerCase() === range.unit.toLowerCase();
-            return (
-              !isNaN(min) &&
-              !isNaN(max) &&
-              unitMatch &&
-              val >= min &&
-              val <= max
-            );
-          };
-
-          let matchIndex = -1;
-
-          // 1. Honor an explicit/manual range pin, but only while the point's
-          //    value still falls within that tolerance. A bounded tolerance the
-          //    value has moved outside of is treated as stale.
-          if (hasExplicit) {
-            const tMin = parseFloat(t.min);
-            const tMax = parseFloat(t.max);
-            const toleranceHasBounds = !isNaN(tMin) && !isNaN(tMax);
-            const valWithinTolerance = toleranceHasBounds
-              ? hasNumericVal && val >= tMin && val <= tMax
-              : true; // unbounded spec (e.g. %-only): can't value-check, keep pin
-            if (valWithinTolerance) {
-              matchIndex = availableRanges.findIndex(toleranceMatchesRange);
-            }
-          }
-
-          // 2. Value-based homing: drop the point into whichever range now
-          //    contains its value.
-          if (matchIndex === -1) {
-            matchIndex = availableRanges.findIndex(rangeContainsVal);
-          }
-
-          if (matchIndex !== -1) {
-            rangeIndexForPoint.set(tp.id, matchIndex);
-            categorizedPoints.add(tp.id);
-          }
-        });
-
-        const rangesWithPoints = availableRanges.map((range, idx) => ({
-          ...range,
-          points: associatedPoints.filter(
-            (tp) => rangeIndexForPoint.get(tp.id) === idx,
-          ),
-        }));
-
-        const uncategorizedPoints = associatedPoints.filter(
-          (tp) => !categorizedPoints.has(tp.id),
-        );
-
-        const functionGroupMap = new Map();
-        rangesWithPoints.forEach((range) => {
-          const key =
-            range.functionId ||
-            (range.functionName ? `name:${range.functionName}` : "default");
-          if (!functionGroupMap.has(key)) {
-            functionGroupMap.set(key, {
-              id: key,
-              name: range.functionName || "Measurement",
-              unit: range.functionUnit || range.unit || "",
-              rangeGroups: [],
-            });
-          }
-          functionGroupMap.get(key).rangeGroups.push(range);
-        });
-        const functionGroups = Array.from(functionGroupMap.values());
-
-        return {
-          ...uut,
-          rangeGroups: rangesWithPoints,
-          functionGroups,
-          uncategorizedPoints,
-        };
-      });
-
-      const unassignedPoints = points.filter((tp) => {
-        if (tp.measurementAreaId !== area.id) return false;
-        const hasParent = tp.associatedUutIds && tp.associatedUutIds.length > 0;
-        const parentExistsInArea =
-          hasParent &&
-          areaUuts.some((u) =>
-            tp.associatedUutIds.some((id) => String(id) === String(u.id)),
-          );
-        return !parentExistsInArea;
-      });
-
-      if (
-        area.hiddenFromSidebar &&
-        uutGroups.length === 0 &&
-        unassignedPoints.length === 0
-      ) {
-        return null;
+    // functionKey -> { id, name, unit, uutMap: Map(uutId -> { ...uut, points }) }
+    const functionMap = new Map();
+    const ensureFunction = ({ key, name, unit }) => {
+      if (!functionMap.has(key)) {
+        functionMap.set(key, { id: key, name, unit, uutMap: new Map() });
       }
+      return functionMap.get(key);
+    };
+    const ensureUut = (fnNode, uut) => {
+      const uutId = String(uut.id);
+      if (!fnNode.uutMap.has(uutId)) {
+        fnNode.uutMap.set(uutId, { ...uut, id: uut.id, points: [] });
+      }
+      return fnNode.uutMap.get(uutId);
+    };
 
-      return { ...area, uutGroups, unassignedPoints };
-    }).filter(Boolean);
+    // 1. Seed function + UUT nodes from each UUT's declared functions so a UUT
+    //    can host the first point of a function it can measure even before any
+    //    point exists. (Empty nodes are hidden in the tree unless Expand All.)
+    uuts.forEach((uut) => {
+      instrumentFunctions(uut).forEach((fn) => {
+        ensureUut(ensureFunction(fn), uut);
+      });
+    });
+
+    // 2. Place each point under its own function -> owning UUT.
+    const unassignedPoints = [];
+    points.forEach((tp) => {
+      const ownerId = (tp.associatedUutIds || [])
+        .map((id) => String(id))
+        .find((id) => uutById.has(id));
+      if (!ownerId) {
+        unassignedPoints.push(tp);
+        return;
+      }
+      const uutNode = ensureUut(
+        ensureFunction(functionLabelOf(tp)),
+        uutById.get(ownerId),
+      );
+      uutNode.points.push(tp);
+    });
+
+    const result = Array.from(functionMap.values())
+      .sort(
+        (a, b) =>
+          a.name.localeCompare(b.name) || a.unit.localeCompare(b.unit),
+      )
+      .map((node) => ({
+        id: node.id,
+        name: node.name,
+        unit: node.unit,
+        uutGroups: Array.from(node.uutMap.values()),
+      }));
+
+    // 3. Points whose owning UUT is gone collapse into a single top-level bucket.
+    if (unassignedPoints.length > 0) {
+      result.push({
+        id: UNASSIGNED_FUNCTION_ID,
+        name: "Unassigned Points",
+        unit: "",
+        isUnassigned: true,
+        uutGroups: [
+          {
+            id: UNASSIGNED_UUT_ID,
+            description: "No UUT",
+            isUnassigned: true,
+            points: unassignedPoints,
+          },
+        ],
+      });
+    }
+
+    return result;
   }, [currentSessionData, currentTestPoints]);
 
   // Exact top-to-bottom order of the point rows currently visible in the
@@ -3538,22 +3195,10 @@ function App() {
     () =>
       getVisibleSidebarPointOrder(
         sidebarData,
-        {
-          expandedAreas,
-          expandedUuts,
-          expandedRanges,
-          uutsShowingAllRanges,
-        },
+        { expandedFunctions, expandedUuts },
         sortSidebarPoints,
       ),
-    [
-      expandedAreas,
-      expandedRanges,
-      expandedUuts,
-      sidebarData,
-      sortSidebarPoints,
-      uutsShowingAllRanges,
-    ],
+    [expandedFunctions, expandedUuts, sidebarData, sortSidebarPoints],
   );
 
   // --- LOGIC: Compute Data to Display ---
@@ -3673,8 +3318,18 @@ function App() {
       };
     }
 
-    if (selectedAreaId) {
-      return { viewMode: "area", id: selectedAreaId };
+    if (selectedUutId) {
+      return { viewMode: "uut", id: selectedUutId };
+    }
+
+    if (selectedFunctionId) {
+      const fnNode = sidebarData.find((fn) => fn.id === selectedFunctionId);
+      return {
+        viewMode: "function",
+        id: selectedFunctionId,
+        functionName: fnNode?.name || "",
+        functionUnit: fnNode?.unit || "",
+      };
     }
 
     if (selectedSessionId) {
@@ -3689,10 +3344,114 @@ function App() {
     virtualPoint,
     selectedTestPointContextUutId,
     selectedUutId,
-    selectedAreaId,
+    selectedFunctionId,
     selectedSessionId,
-    selectedRangeContext,
+    sidebarData,
   ]);
+
+  // Shared sidebar point-row markup (used under every UUT and the Unassigned
+  // bucket). Extracted so the Function -> UUT -> Point tree stays readable.
+  const renderSidebarPointRow = (tp, contextUutId) => (
+    <SidebarPointItem
+      key={tp.id}
+      point={tp}
+      visibleColumns={visibleSidebarColumns}
+      isSelected={selectedSidebarPointIds.includes(tp.id)}
+      isActivePoint={selectedTestPointId === tp.id}
+      isTableSelected={selectedTablePointIds.includes(tp.id)}
+      liveRiskMetrics={pointRiskMap[tp.id]}
+      isLiveRiskTarget={true}
+      onSelect={(e) => handleSelectTestPoint(e, tp.id, contextUutId)}
+      onShowRiskBreakdown={(key) => setPendingRiskBreakdown(key)}
+      onModalOpen={(p) => {
+        setEditingTestPoint(p);
+        setIsAddModalOpen(true);
+      }}
+      onSave={handleInlinePointUpdate}
+      onDragStart={handleDragStart}
+      onContextMenu={(e, p) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({
+          x: e.pageX,
+          y: e.pageY,
+          items: [
+            {
+              label: "Copy Point",
+              action: () => handleCopyPoint(p),
+              icon: faCopy,
+            },
+            {
+              label: "Cut Point",
+              action: () =>
+                handleCutPoint(
+                  selectedSidebarPointIds.includes(p.id)
+                    ? currentTestPoints.filter((point) =>
+                        selectedSidebarPointIds.includes(point.id),
+                      )
+                    : p,
+                ),
+              icon: faCut,
+            },
+            {
+              label: "Delete Point",
+              action: () => handleDeleteTestPoint(p.id),
+              icon: faTrashAlt,
+              className: "destructive",
+            },
+          ],
+        });
+      }}
+    />
+  );
+
+  const renderSidebarColumnHeaders = () => (
+    <div
+      className="sidebar-column-headers"
+      style={{
+        display: "grid",
+        gridTemplateColumns: getSidebarGridTemplate(visibleSidebarColumns),
+        fontSize: "0.7rem",
+        fontWeight: "bold",
+        color: "var(--text-color-muted)",
+        borderBottom: "1px solid var(--border-color)",
+        width: "100%",
+        minWidth: "min-content",
+      }}
+    >
+      {visibleSidebarColumns.section &&
+        renderSidebarSortHeader("section", "Sect.", { align: "right" })}
+      {visibleSidebarColumns.value && renderSidebarSortHeader("value", "Value")}
+      {visibleSidebarColumns.tolerance &&
+        renderSidebarSortHeader("tolerance", "Tolerance")}
+      {visibleSidebarColumns.lowLimit &&
+        renderSidebarSortHeader("lowLimit", "Low")}
+      {visibleSidebarColumns.highLimit &&
+        renderSidebarSortHeader("highLimit", "High")}
+      {visibleSidebarColumns.tmdeLow &&
+        renderSidebarSortHeader("tmdeLow", "TMDE Low")}
+      {visibleSidebarColumns.tmdeHigh &&
+        renderSidebarSortHeader("tmdeHigh", "TMDE High")}
+      {visibleSidebarColumns.pfa &&
+        renderSidebarSortHeader("pfa", "PFA", { align: "center" })}
+      {visibleSidebarColumns.pfr &&
+        renderSidebarSortHeader("pfr", "PFR", { align: "center" })}
+      {visibleSidebarColumns.tur &&
+        renderSidebarSortHeader("tur", "TUR", { align: "center" })}
+      {visibleSidebarColumns.tar &&
+        renderSidebarSortHeader("tar", "TAR", { align: "center" })}
+      {visibleSidebarColumns.gbPfa &&
+        renderSidebarSortHeader("gbPfa", "PFA GB", { align: "center" })}
+      {visibleSidebarColumns.gbPfr &&
+        renderSidebarSortHeader("gbPfr", "PFR GB", { align: "center" })}
+      {visibleSidebarColumns.gbMult &&
+        renderSidebarSortHeader("gbMult", "GBx", { align: "center" })}
+      {visibleSidebarColumns.gbLow &&
+        renderSidebarSortHeader("gbLow", "GB Low")}
+      {visibleSidebarColumns.gbHigh &&
+        renderSidebarSortHeader("gbHigh", "GB High")}
+    </div>
+  );
 
   return (
     <ThemeContext.Provider value={isDarkMode}>
@@ -3798,10 +3557,7 @@ function App() {
             setEditingTestPoint(null);
           }}
           onSave={handleSaveTestPoint}
-          initialData={
-            editingTestPoint ||
-            (selectedAreaId ? { measurementAreaId: selectedAreaId } : null)
-          }
+          initialData={editingTestPoint || null}
           hasExistingPoints={currentTestPoints.length > 0}
           sessionData={currentSessionData}
           previousTestPointData={
@@ -4055,9 +3811,9 @@ function App() {
                   onRequirementsOpenChange={setIsRequirementsOpen}
                   isActive={
                     selectedSessionId &&
-                    !selectedAreaId &&
-                    !selectedTestPointId &&
-                    !selectedRangeContext
+                    !selectedFunctionId &&
+                    !selectedUutId &&
+                    !selectedTestPointId
                   }
                   onSelect={() => handleSelectSession(selectedSessionId)}
                 />
@@ -4086,16 +3842,6 @@ function App() {
 
                   <div className="sidebar-actions-group">
                     {/* Eyeball Button Removed - Moved to HeaderToolbox */}
-
-                    {/* Add Measurement Area */}
-                    <button
-                      onClick={handleAddArea}
-                      title="Add Measurement Area"
-                      className="sidebar-action-btn-organic"
-                      disabled={!currentSessionData}
-                    >
-                      <FontAwesomeIcon icon={faLayerGroup} />
-                    </button>
 
                     {/* Expand/Collapse All */}
                     <button
@@ -4193,849 +3939,247 @@ function App() {
                   </div>
                 </div>
 
-                {isMeasurementPointsOpen && sidebarData.map((areaData) => {
-                  const isAreaActive =
-                    selectedAreaId === areaData.id &&
-                    !selectedUutId &&
-                    !selectedTestPointId &&
-                    !selectedRangeContext;
+                {isMeasurementPointsOpen &&
+                  sidebarData.map((fnGroup) => {
+                    const isFnActive =
+                      selectedFunctionId === fnGroup.id &&
+                      !selectedUutId &&
+                      !selectedTestPointId;
+                    const isFnExpanded = expandedFunctions.has(fnGroup.id);
+                    const fnHasPoints = fnGroup.uutGroups.some(
+                      (g) => g.points.length > 0,
+                    );
+                    // Hide functions with no points unless Expand All is active.
+                    if (!fnHasPoints && !isGlobalExpanded) return null;
 
-                  // Pure accordion: only expandedAreas Set determines visibility
-                  const isAreaExpanded = expandedAreas.has(areaData.id);
-
-                  return (
-                    <div
-                      key={areaData.id}
-                      className="measurement-group-container"
-                    >
-                      <div
-                        className={`area-header-sticky ${isAreaActive ? "active" : ""}`}
-                        onClick={() => handleSelectArea(areaData.id)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setContextMenu({
-                            x: e.pageX,
-                            y: e.pageY,
-                            items: [
-                              {
-                                label: "Paste UUT Here",
-                                action: () => handlePasteUut(areaData.id),
-                                icon: faPaste,
-                                className:
-                                  clipboardKind !== "uut" || !clipboardUut
-                                    ? "disabled"
-                                    : "",
-                              },
-                              {
-                                label: "Delete Measurement Area",
-                                action: () => handleDeleteArea(areaData.id),
-                                icon: faTrashAlt,
-                                className:
-                                  areaData.uutGroups.length > 0
-                                    ? "disabled"
-                                    : "destructive",
-                              },
-                            ],
-                          });
-                        }}
-                      >
-                        <FontAwesomeIcon
-                          icon={isAreaExpanded ? faChevronDown : faChevronRight}
-                          onClick={(e) => toggleAreaExpand(e, areaData.id)}
-                          style={{
-                            opacity: 0.6,
-                            marginRight: "8px",
-                            fontSize: "0.75em",
-                            width: "10px",
-                          }}
-                        />
-                        <FontAwesomeIcon
-                          icon={faLayerGroup}
-                          style={{
-                            color: isAreaActive
-                              ? "var(--primary-color)"
-                              : areaData.color || "var(--primary-color)",
-                            opacity: isAreaActive ? 1 : 0.7,
-                          }}
-                          size="sm"
-                        />
-                        {editingAreaId === areaData.id ? (
-                          <input
-                            className="area-label area-label-edit"
-                            autoFocus
-                            value={editingAreaName}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => setEditingAreaName(e.target.value)}
-                            onBlur={() =>
-                              handleRenameArea(areaData.id, editingAreaName)
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                handleRenameArea(areaData.id, editingAreaName);
-                              } else if (e.key === "Escape") {
-                                setEditingAreaId(null);
-                              }
-                            }}
-                          />
-                        ) : (
-                          <span
-                            className="area-label"
-                            title="Double-click to rename"
-                            onDoubleClick={(e) => {
-                              e.stopPropagation();
-                              setEditingAreaId(areaData.id);
-                              setEditingAreaName(areaData.name);
-                            }}
+                    // The Unassigned bucket renders its points directly under the
+                    // function header (no real UUT to nest under).
+                    if (fnGroup.isUnassigned) {
+                      const pts = sortSidebarPoints(
+                        fnGroup.uutGroups[0]?.points || [],
+                      );
+                      return (
+                        <div
+                          key={fnGroup.id}
+                          className="measurement-group-container"
+                        >
+                          <div
+                            className={`area-header-sticky ${isFnActive ? "active" : ""}`}
+                            onClick={() => handleSelectFunction(fnGroup.id)}
                           >
-                            {areaData.name}
-                          </span>
-                        )}
-                      </div>
-
-                      {isAreaExpanded && (
-                        <div className="tree-branch">
-                          {areaData.uutGroups.map((group) => {
-                            // Pure accordion: only expandedUuts Set determines visibility
-                            const isUutExpanded = expandedUuts.has(group.id);
-
-                            const isUutSelected =
-                              selectedUutId === group.id &&
-                              !selectedTestPointId &&
-                              !selectedRangeContext;
-                            const isShowingAll = uutsShowingAllRanges.has(
-                              group.id,
-                            );
-                            const isDragOver = dragOverTargetId === group.id;
-
-                            return (
-                              <div
-                                key={group.id}
-                                style={{ marginBottom: "10px" }}
-                              >
-                                <div
-                                  className={`uut-row ${isUutSelected ? "active" : ""} ${isDragOver ? "drag-over" : ""}`}
-                                  onClick={() =>
-                                    handleSelectUut(
-                                      group.id,
-                                      areaData.id,
-                                      group,
-                                    )
-                                  }
-                                  onDragOver={(e) =>
-                                    handleDragOver(e, group.id)
-                                  }
-                                  onDragLeave={handleDragLeave}
-                                  onDrop={(e) =>
-                                    handleDrop(e, group.id, areaData.id)
-                                  }
-                                  onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    setContextMenu({
-                                      x: e.pageX,
-                                      y: e.pageY,
-                                      items: [
-                                        {
-                                          label: "Paste Point Here",
-                                          action: () =>
-                                            handlePastePoint(
-                                              group.id,
-                                              areaData.id,
-                                            ),
-                                          icon: faPaste,
-                                          className:
-                                            clipboardKind !== "point" ||
-                                            !clipboardPoint
-                                              ? "disabled"
-                                              : "",
-                                        },
-                                        {
-                                          label: "Copy UUT",
-                                          action: () => handleCopyUut(group),
-                                          icon: faCopy,
-                                        },
-                                        {
-                                          label: "Edit UUT",
-                                          action: () => handleEditUut(group),
-                                          icon: faEdit,
-                                        },
-                                        {
-                                          label: "Delete UUT",
-                                          action: () =>
-                                            handleDeleteUut(group.id),
-                                          icon: faTrashAlt,
-                                          className: "destructive",
-                                        },
-                                      ],
-                                    });
-                                  }}
-                                >
-                                  <div className="uut-info">
-                                    <FontAwesomeIcon
-                                      icon={
-                                        isUutExpanded
-                                          ? faChevronDown
-                                          : faChevronRight
-                                      }
-                                      onClick={(e) =>
-                                        toggleUutExpand(e, group.id)
-                                      }
-                                      style={{
-                                        opacity: 0.6,
-                                        marginRight: "8px",
-                                        fontSize: "0.75em",
-                                        width: "10px",
-                                      }}
-                                    />
-                                    <FontAwesomeIcon
-                                      icon={faMicroscope}
-                                      style={{ opacity: 0.6 }}
-                                    />
-                                    <span title={formatInstrumentIdentity(group)}>
-                                      {formatInstrumentIdentity(group)}
-                                    </span>
-                                  </div>
-                                  <div className="uut-actions-group">
-                                    <button
-                                      className={`btn-icon-only small ${isShowingAll ? "active" : ""}`}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        toggleUutEmptyRanges(group.id);
-                                      }}
-                                      title={
-                                        isShowingAll
-                                          ? "Hide Empty Ranges"
-                                          : "Show All Ranges"
-                                      }
-                                    >
-                                      <FontAwesomeIcon
-                                        icon={isShowingAll ? faEyeSlash : faEye}
-                                        size="xs"
-                                      />
-                                    </button>
-                                    <button
-                                      className="btn-icon-only small"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleAddNewTestPoint(
-                                          areaData.id,
-                                          group.id,
-                                        );
-                                      }}
-                                      title="Add Point"
-                                    >
-                                      <FontAwesomeIcon
-                                        icon={faPlus}
-                                        size="xs"
-                                      />
-                                    </button>
-                                  </div>
-                                </div>
-
-                                {isUutExpanded && (
-                                  <div style={{ paddingLeft: "15px" }}>
-                                    {(group.functionGroups?.length
-                                      ? group.functionGroups
-                                      : [{ id: "default", name: "", rangeGroups: group.rangeGroups }]
-                                    ).map((functionGroup) => {
-                                      const visibleFunctionRanges = (
-                                        functionGroup.rangeGroups || []
-                                      ).filter(
-                                        (range) =>
-                                          isShowingAll ||
-                                          range.points.length > 0,
-                                      );
-                                      if (visibleFunctionRanges.length === 0) {
-                                        return null;
-                                      }
-                                      const functionName = String(
-                                        functionGroup.name || "",
-                                      ).trim();
-                                      const showFunctionHeader =
-                                        functionName &&
-                                        (functionGroup.id !== "default" ||
-                                          (group.functionGroups?.length || 0) > 1);
-                                      return (
-                                        <React.Fragment key={`fn-${group.id}-${functionGroup.id}`}>
-                                          {showFunctionHeader && (
-                                            <div
-                                              className="range-label-row function-label-row"
-                                              style={{
-                                                margin: "4px 0 6px",
-                                                opacity: 0.82,
-                                              }}
-                                            >
-                                              <FontAwesomeIcon
-                                                icon={faCube}
-                                                size="xs"
-                                                style={{ opacity: 0.7 }}
-                                              />
-                                              <span>{functionName}</span>
-                                              {functionGroup.unit && (
-                                                <span
-                                                  style={{
-                                                    marginLeft: "auto",
-                                                    opacity: 0.55,
-                                                    fontSize: "0.75em",
-                                                  }}
-                                                >
-                                                  {getUnitDisplayLabel(
-                                                    functionGroup.unit,
-                                                  )}
-                                                </span>
-                                              )}
-                                            </div>
-                                          )}
-                                          {visibleFunctionRanges.map((range) => {
-                                      if (
-                                        !isShowingAll &&
-                                        range.points.length === 0
-                                      )
-                                        return null;
-                                      const rangeKey = getSidebarRangeKey(
-                                        group.id,
-                                        range,
-                                      );
-                                      const isRangeDragOver =
-                                        dragOverTargetId === rangeKey;
-                                      const isRangeExpanded =
-                                        expandedRanges.has(rangeKey);
-
-                                      const isRangeSelected =
-                                        selectedRangeContext &&
-                                        selectedRangeContext.uutId ===
-                                          group.id &&
-                                        getSidebarRangeKey(
-                                          group.id,
-                                          selectedRangeContext.range,
-                                        ) === rangeKey;
-                                      const sortedRangePoints =
-                                        sortSidebarPoints(range.points);
-
-                                      return (
-                                        <div
-                                          key={`range-${rangeKey}`}
-                                          style={{ marginBottom: "8px" }}
-                                        >
-                                          <div
-                                            className={`range-label-row ${isRangeDragOver ? "drag-over" : ""} ${isRangeSelected ? "active" : ""}`}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleSelectRange(
-                                                group.id,
-                                                range,
-                                                areaData.id,
-                                              );
-                                            }}
-                                            onDragOver={(e) =>
-                                              handleDragOver(e, rangeKey)
-                                            }
-                                            onDrop={(e) =>
-                                              handleDrop(
-                                                e,
-                                                group.id,
-                                                areaData.id,
-                                                range,
-                                              )
-                                            }
-                                            onContextMenu={(e) => {
-                                              e.preventDefault();
-                                              setContextMenu({
-                                                x: e.pageX,
-                                                y: e.pageY,
-                                                items: [
-                                                  {
-                                                    label:
-                                                      "Paste Point in Range",
-                                                    action: () =>
-                                                      handlePastePoint(
-                                                        group.id,
-                                                        areaData.id,
-                                                        range,
-                                                      ),
-                                                    icon: faPaste,
-                                                    className:
-                                                      clipboardKind !==
-                                                        "point" ||
-                                                      !clipboardPoint
-                                                        ? "disabled"
-                                                        : "",
-                                                  },
-                                                ],
-                                              });
-                                            }}
-                                          >
-                                            <FontAwesomeIcon
-                                              icon={
-                                                isRangeExpanded
-                                                  ? faChevronDown
-                                                  : faChevronRight
-                                              }
-                                              onClick={(e) =>
-                                                toggleRangeExpand(e, rangeKey)
-                                              }
-                                              style={{
-                                                opacity: 0.6,
-                                                marginRight: "8px",
-                                                fontSize: "0.7em",
-                                                width: "8px",
-                                              }}
-                                            />
-                                            <FontAwesomeIcon
-                                              icon={faRulerCombined}
-                                              size="xs"
-                                              style={{
-                                                opacity: isRangeSelected
-                                                  ? 1
-                                                  : 0.5,
-                                              }}
-                                            />
-                                            <span>{range.rangeLabel || range.label}</span>
-                                            {range.points.length > 0 && (
-                                              <span
-                                                style={{
-                                                  marginLeft: "auto",
-                                                  opacity: 0.5,
-                                                  fontSize: "0.75em",
-                                                }}
-                                              >
-                                                ({range.points.length})
-                                              </span>
-                                            )}
-                                          </div>
-
-                                          {/* Points only show when range is expanded */}
-                                          {isRangeExpanded &&
-                                          range.points.length === 0 ? (
-                                            <div className="empty-branch-msg"></div>
-                                          ) : (
-                                            isRangeExpanded && (
-                                              <>
-                                                {/* Horizontal scroll wrapper for future column expansion */}
-                                                <div className="sidebar-points-scroll-wrapper">
-                                                  {/* Column Headers - Using CSS class */}
-                                                  <div
-                                                    className="sidebar-column-headers"
-                                                    style={{
-                                                      display: "grid",
-                                                      gridTemplateColumns:
-                                                        getSidebarGridTemplate(
-                                                          visibleSidebarColumns,
-                                                        ),
-                                                      fontSize: "0.7rem",
-                                                      fontWeight: "bold",
-                                                      color:
-                                                        "var(--text-color-muted)",
-                                                      borderBottom:
-                                                        "1px solid var(--border-color)",
-                                                      width: "100%",
-                                                      minWidth: "min-content",
-                                                    }}
-                                                  >
-                                                    {visibleSidebarColumns.section &&
-                                                      renderSidebarSortHeader(
-                                                        "section",
-                                                        "Sect.",
-                                                        { align: "right" },
-                                                      )}
-                                                    {visibleSidebarColumns.value &&
-                                                      renderSidebarSortHeader(
-                                                        "value",
-                                                        "Value",
-                                                      )}
-                                                    {visibleSidebarColumns.tolerance &&
-                                                      renderSidebarSortHeader(
-                                                        "tolerance",
-                                                        "Tolerance",
-                                                      )}
-                                                    {visibleSidebarColumns.lowLimit &&
-                                                      renderSidebarSortHeader(
-                                                        "lowLimit",
-                                                        "Low",
-                                                      )}
-                                                    {visibleSidebarColumns.highLimit &&
-                                                      renderSidebarSortHeader(
-                                                        "highLimit",
-                                                        "High",
-                                                      )}
-                                                    {visibleSidebarColumns.tmdeLow &&
-                                                      renderSidebarSortHeader(
-                                                        "tmdeLow",
-                                                        "TMDE Low",
-                                                      )}
-                                                    {visibleSidebarColumns.tmdeHigh &&
-                                                      renderSidebarSortHeader(
-                                                        "tmdeHigh",
-                                                        "TMDE High",
-                                                      )}
-                                                    {visibleSidebarColumns.pfa &&
-                                                      renderSidebarSortHeader(
-                                                        "pfa",
-                                                        "PFA",
-                                                        { align: "center" },
-                                                      )}
-                                                    {visibleSidebarColumns.pfr &&
-                                                      renderSidebarSortHeader(
-                                                        "pfr",
-                                                        "PFR",
-                                                        { align: "center" },
-                                                      )}
-                                                    {visibleSidebarColumns.tur &&
-                                                      renderSidebarSortHeader(
-                                                        "tur",
-                                                        "TUR",
-                                                        { align: "center" },
-                                                      )}
-                                                    {visibleSidebarColumns.tar &&
-                                                      renderSidebarSortHeader(
-                                                        "tar",
-                                                        "TAR",
-                                                        { align: "center" },
-                                                      )}
-                                                    {visibleSidebarColumns.gbPfa &&
-                                                      renderSidebarSortHeader(
-                                                        "gbPfa",
-                                                        "PFA GB",
-                                                        { align: "center" },
-                                                      )}
-                                                    {visibleSidebarColumns.gbPfr &&
-                                                      renderSidebarSortHeader(
-                                                        "gbPfr",
-                                                        "PFR GB",
-                                                        { align: "center" },
-                                                      )}
-                                                    {visibleSidebarColumns.gbMult &&
-                                                      renderSidebarSortHeader(
-                                                        "gbMult",
-                                                        "GBx",
-                                                        { align: "center" },
-                                                      )}
-                                                    {visibleSidebarColumns.gbLow &&
-                                                      renderSidebarSortHeader(
-                                                        "gbLow",
-                                                        "GB Low",
-                                                      )}
-                                                    {visibleSidebarColumns.gbHigh &&
-                                                      renderSidebarSortHeader(
-                                                        "gbHigh",
-                                                        "GB High",
-                                                      )}
-                                                  </div>
-                                                  {sortedRangePoints.map((tp) => {
-                                                    return (
-                                                      <SidebarPointItem
-                                                        key={tp.id}
-                                                        point={tp}
-                                                        isSelected={selectedSidebarPointIds.includes(
-                                                          tp.id,
-                                                        )}
-                                                        isActivePoint={
-                                                          selectedTestPointId ===
-                                                          tp.id
-                                                        }
-                                                        isTableSelected={selectedTablePointIds.includes(
-                                                          tp.id,
-                                                        )}
-                                                        liveRiskMetrics={
-                                                          pointRiskMap[tp.id]
-                                                        }
-                                                        isLiveRiskTarget={true}
-                                                        visibleColumns={
-                                                          visibleSidebarColumns
-                                                        }
-                                                        onSelect={(e) =>
-                                                          handleSelectTestPoint(
-                                                            e,
-                                                            tp.id,
-                                                            group.id,
-                                                          )
-                                                        }
-                                                        onShowRiskBreakdown={(
-                                                          key,
-                                                        ) =>
-                                                          setPendingRiskBreakdown(
-                                                            key,
-                                                          )
-                                                        }
-                                                        onModalOpen={(p) => {
-                                                          setEditingTestPoint(
-                                                            p,
-                                                          );
-                                                          setIsAddModalOpen(
-                                                            true,
-                                                          );
-                                                        }}
-                                                        onSave={
-                                                          handleInlinePointUpdate
-                                                        }
-                                                        onDragStart={
-                                                          handleDragStart
-                                                        }
-                                                        onContextMenu={(
-                                                          e,
-                                                          p,
-                                                        ) => {
-                                                          e.preventDefault();
-                                                          e.stopPropagation();
-                                                          setContextMenu({
-                                                            x: e.pageX,
-                                                            y: e.pageY,
-                                                            items: [
-                                                              {
-                                                                label:
-                                                                  "Copy Point",
-                                                                action: () =>
-                                                                  handleCopyPoint(
-                                                                    p,
-                                                                  ),
-                                                                icon: faCopy,
-                                                              },
-                                                              {
-                                                                label:
-                                                                  "Cut Point",
-                                                                action: () =>
-                                                                  handleCutPoint(
-                                                                    selectedSidebarPointIds.includes(
-                                                                      p.id,
-                                                                    )
-                                                                      ? currentTestPoints.filter(
-                                                                          (
-                                                                            point,
-                                                                          ) =>
-                                                                            selectedSidebarPointIds.includes(
-                                                                              point.id,
-                                                                            ),
-                                                                        )
-                                                                      : p,
-                                                                  ),
-                                                                icon: faCut,
-                                                              },
-                                                              {
-                                                                label:
-                                                                  "Delete Point",
-                                                                action: () =>
-                                                                  handleDeleteTestPoint(
-                                                                    p.id,
-                                                                  ),
-                                                                icon: faTrashAlt,
-                                                                className:
-                                                                  "destructive",
-                                                              },
-                                                            ],
-                                                          });
-                                                        }}
-                                                      />
-                                                    );
-                                                  })}
-                                                </div>
-                                              </>
-                                            )
-                                          )}
-                                        </div>
-                                      );
-                                          })}
-                                        </React.Fragment>
-                                      );
-                                    })}
-
-                                    {/* UNCATEGORIZED POINTS */}
-                                    {group.uncategorizedPoints &&
-                                      group.uncategorizedPoints.length > 0 && (
-                                        <div style={{ marginTop: "8px" }}>
-                                          <div
-                                            className="range-label-row"
-                                            style={{
-                                              color: "var(--status-warning)",
-                                            }}
-                                          >
-                                            <FontAwesomeIcon
-                                              icon={faLayerGroup}
-                                              size="xs"
-                                            />
-                                            <span>Other Points</span>
-                                          </div>
-                                          {group.uncategorizedPoints.map(
-                                            (tp) => (
-                                              <SidebarPointItem
-                                                key={tp.id}
-                                                point={tp}
-                                                visibleColumns={
-                                                  visibleSidebarColumns
-                                                }
-                                                isSelected={selectedSidebarPointIds.includes(
-                                                  tp.id,
-                                                )}
-                                                isActivePoint={
-                                                  selectedTestPointId === tp.id
-                                                }
-                                                isTableSelected={selectedTablePointIds.includes(
-                                                  tp.id,
-                                                )}
-                                                liveRiskMetrics={
-                                                  pointRiskMap[tp.id]
-                                                }
-                                                isLiveRiskTarget={true}
-                                                onSelect={(e) =>
-                                                  handleSelectTestPoint(
-                                                    e,
-                                                    tp.id,
-                                                    group.id,
-                                                  )
-                                                }
-                                                onShowRiskBreakdown={(key) =>
-                                                  setPendingRiskBreakdown(key)
-                                                }
-                                                onModalOpen={(p) => {
-                                                  setEditingTestPoint(p);
-                                                  setIsAddModalOpen(true);
-                                                }}
-                                                onSave={handleInlinePointUpdate}
-                                                onDragStart={handleDragStart}
-                                                onContextMenu={(e, p) => {
-                                                  e.preventDefault();
-                                                  e.stopPropagation();
-                                                  setContextMenu({
-                                                    x: e.pageX,
-                                                    y: e.pageY,
-                                                    items: [
-                                                      {
-                                                        label: "Copy Point",
-                                                        action: () =>
-                                                          handleCopyPoint(p),
-                                                        icon: faCopy,
-                                                      },
-                                                      {
-                                                        label: "Cut Point",
-                                                        action: () =>
-                                                          handleCutPoint(
-                                                            selectedSidebarPointIds.includes(
-                                                              p.id,
-                                                            )
-                                                              ? currentTestPoints.filter(
-                                                                  (point) =>
-                                                                    selectedSidebarPointIds.includes(
-                                                                      point.id,
-                                                                    ),
-                                                                )
-                                                              : p,
-                                                          ),
-                                                        icon: faCut,
-                                                      },
-                                                      {
-                                                        label: "Delete Point",
-                                                        action: () =>
-                                                          handleDeleteTestPoint(
-                                                            p.id,
-                                                          ),
-                                                        icon: faTrashAlt,
-                                                        className:
-                                                          "destructive",
-                                                      },
-                                                    ],
-                                                  });
-                                                }}
-                                              />
-                                            ),
-                                          )}
-                                        </div>
-                                      )}
-                                  </div>
+                            <FontAwesomeIcon
+                              icon={
+                                isFnExpanded ? faChevronDown : faChevronRight
+                              }
+                              onClick={(e) =>
+                                toggleFunctionExpand(e, fnGroup.id)
+                              }
+                              style={{
+                                opacity: 0.6,
+                                marginRight: "8px",
+                                fontSize: "0.75em",
+                                width: "10px",
+                              }}
+                            />
+                            <FontAwesomeIcon
+                              icon={faLayerGroup}
+                              style={{ opacity: 0.6 }}
+                              size="sm"
+                            />
+                            <span className="area-label">{fnGroup.name}</span>
+                          </div>
+                          {isFnExpanded && (
+                            <div className="tree-branch">
+                              <div className="sidebar-points-scroll-wrapper">
+                                {renderSidebarColumnHeaders()}
+                                {pts.map((tp) =>
+                                  renderSidebarPointRow(tp, null),
                                 )}
                               </div>
-                            );
-                          })}
-
-                          {/* UNASSIGNED POINTS IN AREA */}
-                          {areaData.unassignedPoints.length > 0 && (
-                            <div
-                              style={{ marginTop: "15px", paddingLeft: "10px" }}
-                            >
-                              <div
-                                className="range-label-row"
-                                style={{ color: "var(--text-color-muted)" }}
-                              >
-                                <FontAwesomeIcon
-                                  icon={faLayerGroup}
-                                  size="xs"
-                                  style={{ opacity: 0.5 }}
-                                />
-                                <span>Unassigned Points</span>
-                              </div>
-                              {areaData.unassignedPoints.map((tp) => (
-                                <SidebarPointItem
-                                  key={tp.id}
-                                  point={tp}
-                                  visibleColumns={visibleSidebarColumns}
-                                  isSelected={selectedSidebarPointIds.includes(
-                                    tp.id,
-                                  )}
-                                  isActivePoint={
-                                    selectedTestPointId === tp.id
-                                  }
-                                  isTableSelected={selectedTablePointIds.includes(
-                                    tp.id,
-                                  )}
-                                  liveRiskMetrics={pointRiskMap[tp.id]}
-                                  isLiveRiskTarget={true}
-                                  onSelect={(e) =>
-                                    handleSelectTestPoint(e, tp.id, null)
-                                  }
-                                  onShowRiskBreakdown={(key) =>
-                                    setPendingRiskBreakdown(key)
-                                  }
-                                  onModalOpen={(p) => {
-                                    setEditingTestPoint(p);
-                                    setIsAddModalOpen(true);
-                                  }}
-                                  onSave={handleInlinePointUpdate}
-                                  onDragStart={handleDragStart}
-                                  onContextMenu={(e, p) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    setContextMenu({
-                                      x: e.pageX,
-                                      y: e.pageY,
-                                      items: [
-                                        {
-                                          label: "Copy Point",
-                                          action: () => handleCopyPoint(p),
-                                          icon: faCopy,
-                                        },
-                                        {
-                                          label: "Cut Point",
-                                          action: () =>
-                                            handleCutPoint(
-                                              selectedSidebarPointIds.includes(
-                                                p.id,
-                                              )
-                                                ? currentTestPoints.filter(
-                                                    (point) =>
-                                                      selectedSidebarPointIds.includes(
-                                                        point.id,
-                                                      ),
-                                                  )
-                                                : p,
-                                            ),
-                                          icon: faCut,
-                                        },
-                                        {
-                                          label: "Delete Point",
-                                          action: () =>
-                                            handleDeleteTestPoint(p.id),
-                                          icon: faTrashAlt,
-                                          className: "destructive",
-                                        },
-                                      ],
-                                    });
-                                  }}
-                                />
-                              ))}
                             </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
+                      );
+                    }
+
+                    return (
+                      <div
+                        key={fnGroup.id}
+                        className="measurement-group-container"
+                      >
+                        <div
+                          className={`area-header-sticky ${isFnActive ? "active" : ""}`}
+                          onClick={() => handleSelectFunction(fnGroup.id)}
+                        >
+                          <FontAwesomeIcon
+                            icon={isFnExpanded ? faChevronDown : faChevronRight}
+                            onClick={(e) => toggleFunctionExpand(e, fnGroup.id)}
+                            style={{
+                              opacity: 0.6,
+                              marginRight: "8px",
+                              fontSize: "0.75em",
+                              width: "10px",
+                            }}
+                          />
+                          <FontAwesomeIcon
+                            icon={faCube}
+                            style={{
+                              color: "var(--primary-color)",
+                              opacity: isFnActive ? 1 : 0.7,
+                            }}
+                            size="sm"
+                          />
+                          <span className="area-label">{fnGroup.name}</span>
+                          {fnGroup.unit && (
+                            <span
+                              style={{
+                                marginLeft: "auto",
+                                opacity: 0.55,
+                                fontSize: "0.75em",
+                              }}
+                            >
+                              {getUnitDisplayLabel(fnGroup.unit)}
+                            </span>
+                          )}
+                        </div>
+
+                        {isFnExpanded && (
+                          <div className="tree-branch">
+                            {fnGroup.uutGroups.map((group) => {
+                              const uutKey = `${fnGroup.id}::${group.id}`;
+                              const isUutExpanded = expandedUuts.has(uutKey);
+                              const isUutSelected =
+                                selectedUutId === group.id &&
+                                selectedFunctionId === fnGroup.id &&
+                                !selectedTestPointId;
+                              const uutHasPoints = group.points.length > 0;
+                              if (!uutHasPoints && !isGlobalExpanded)
+                                return null;
+                              const isDragOver = dragOverTargetId === uutKey;
+                              const sortedPoints = sortSidebarPoints(
+                                group.points,
+                              );
+
+                              return (
+                                <div
+                                  key={group.id}
+                                  style={{ marginBottom: "10px" }}
+                                >
+                                  <div
+                                    className={`uut-row ${isUutSelected ? "active" : ""} ${isDragOver ? "drag-over" : ""}`}
+                                    onClick={() =>
+                                      handleSelectUut(group.id, fnGroup.id)
+                                    }
+                                    onDragOver={(e) => handleDragOver(e, uutKey)}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={(e) => handleDrop(e, group.id, null)}
+                                    onContextMenu={(e) => {
+                                      e.preventDefault();
+                                      setContextMenu({
+                                        x: e.pageX,
+                                        y: e.pageY,
+                                        items: [
+                                          {
+                                            label: "Paste Point Here",
+                                            action: () =>
+                                              handlePastePoint(group.id, null),
+                                            icon: faPaste,
+                                            className:
+                                              clipboardKind !== "point" ||
+                                              !clipboardPoint
+                                                ? "disabled"
+                                                : "",
+                                          },
+                                          {
+                                            label: "Copy UUT",
+                                            action: () => handleCopyUut(group),
+                                            icon: faCopy,
+                                          },
+                                          {
+                                            label: "Edit UUT",
+                                            action: () => handleEditUut(group),
+                                            icon: faEdit,
+                                          },
+                                          {
+                                            label: "Delete UUT",
+                                            action: () =>
+                                              handleDeleteUut(group.id),
+                                            icon: faTrashAlt,
+                                            className: "destructive",
+                                          },
+                                        ],
+                                      });
+                                    }}
+                                  >
+                                    <div className="uut-info">
+                                      <FontAwesomeIcon
+                                        icon={
+                                          isUutExpanded
+                                            ? faChevronDown
+                                            : faChevronRight
+                                        }
+                                        onClick={(e) =>
+                                          toggleUutExpand(e, uutKey)
+                                        }
+                                        style={{
+                                          opacity: 0.6,
+                                          marginRight: "8px",
+                                          fontSize: "0.75em",
+                                          width: "10px",
+                                        }}
+                                      />
+                                      <FontAwesomeIcon
+                                        icon={faMicroscope}
+                                        style={{ opacity: 0.6 }}
+                                      />
+                                      <span
+                                        title={formatInstrumentIdentity(group)}
+                                      >
+                                        {formatInstrumentIdentity(group)}
+                                      </span>
+                                    </div>
+                                    <div className="uut-actions-group">
+                                      <button
+                                        className="btn-icon-only small"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleAddNewTestPoint(
+                                            fnGroup,
+                                            group.id,
+                                          );
+                                        }}
+                                        title="Add Point"
+                                      >
+                                        <FontAwesomeIcon
+                                          icon={faPlus}
+                                          size="xs"
+                                        />
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {isUutExpanded && (
+                                    <div style={{ paddingLeft: "15px" }}>
+                                      <div className="sidebar-points-scroll-wrapper">
+                                        {renderSidebarColumnHeaders()}
+                                        {sortedPoints.length === 0 ? (
+                                          <div className="empty-branch-msg"></div>
+                                        ) : (
+                                          sortedPoints.map((tp) =>
+                                            renderSidebarPointRow(tp, group.id),
+                                          )
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </aside>
