@@ -47,6 +47,7 @@ import {
   makeFunctionKey,
   instrumentFunctions,
   resolveSessionFunctions,
+  functionsForLibrary,
 } from "../../../utils/functionGrouping";
 import { createInstanceFromDefinition } from "../../../utils/instrumentFactory";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
@@ -2505,6 +2506,9 @@ const SummaryDashboard = ({
   const [toleranceTypes, setToleranceTypes] = useState({});
   const [selectedToleranceKey, setSelectedToleranceKey] = useState(null);
   const [openToleranceAddMenu, setOpenToleranceAddMenu] = useState(null);
+  // Add Function picker: null | "uut" | "tmde" (which table's button opened it).
+  const [addFunctionMenu, setAddFunctionMenu] = useState(null);
+  const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
   const { syncToShared, getDiff } = useInstrumentSync();
 
   // Recolor a measurement area inline from its subsection header (replaces the
@@ -3433,6 +3437,61 @@ const SummaryDashboard = ({
     onSessionSave({ ...sessionData, tmdes: [newTmde, ...(sessionData.tmdes || [])] });
   };
 
+  // --- Add Function workflow ---
+  // Register a function as a subsection (even before any instrument uses it) by
+  // recording it in session.functionGroups. getGroupedInstrumentRows then renders
+  // an empty subsection whose (+) lets the user add an instrument for it.
+  const handleAddFunction = ({ name, unit }) => {
+    if (!onSessionSave) return;
+    const clean = String(name || "").trim();
+    if (!clean) return;
+    const key = makeFunctionKey(clean, unit);
+    const existing = Array.isArray(sessionData.functionGroups)
+      ? sessionData.functionGroups
+      : [];
+    if (existing.some((fg) => makeFunctionKey(fg.name, fg.unit) === key)) {
+      setAddFunctionMenu(null);
+      return; // already present
+    }
+    onSessionSave({
+      ...sessionData,
+      functionGroups: [...existing, { name: clean, unit: String(unit || "").trim() }],
+    });
+    setAddFunctionMenu(null);
+    setNewFunctionDraft({ name: "", unit: "" });
+  };
+
+  // Add a blank instrument already scoped to one function, so it lands in that
+  // subsection. The user fills in make/model (or picks from the library via the
+  // Description cell). A new instrument's function is the subsection's function.
+  const handleAddInstrumentToFunction = (kind, fn) => {
+    if (!onSessionSave) return;
+    const fnDef = { name: fn.name, unit: fn.unit, ranges: [] };
+    const instrument = {
+      id: uuidv4(),
+      manufacturer: "",
+      model: "",
+      description: "",
+      functions: [fnDef],
+    };
+    if (kind === "uut") {
+      const newUut = { id: uuidv4(), name: "", description: "", instrument };
+      setSelectedUutIds([newUut.id]);
+      onSessionSave({ ...sessionData, uuts: [newUut, ...(sessionData.uuts || [])] });
+    } else {
+      const newTmde = {
+        id: uuidv4(),
+        name: "",
+        quantity: 1,
+        assetId: "",
+        isInstrumentBased: false,
+        instrument,
+      };
+      setSelectedTmdeIds([newTmde.id]);
+      onSessionSave({ ...sessionData, tmdes: [newTmde, ...(sessionData.tmdes || [])] });
+    }
+  };
+
   // Inline edit of the range's measuring resolution (the Resolution column).
   const setRangeResolution = (kind, item, rangeId, value) => {
     if (!onSessionSave) return;
@@ -3769,6 +3828,176 @@ const SummaryDashboard = ({
         {getUnitDisplayLabel(fn.unit)}
       </span>
     ) : null;
+
+  // Per-subsection (+) — adds an instrument already scoped to this function.
+  const renderFunctionAddButton = (kind, fn) => {
+    if (!onSessionSave) return null;
+    return (
+      <button
+        type="button"
+        className="btn-icon-only small"
+        title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleAddInstrumentToFunction(kind, fn);
+        }}
+        style={{ marginLeft: "10px", pointerEvents: "auto" }}
+      >
+        <FontAwesomeIcon icon={faPlus} size="xs" />
+      </button>
+    );
+  };
+
+  // The "Add Function" picker opened from a table's header button: pick a
+  // function declared anywhere in the library, or define a brand-new one.
+  const renderAddFunctionMenu = (kind) => {
+    if (addFunctionMenu !== kind) return null;
+    const libraryFns = functionsForLibrary(instruments);
+    const existingKeys = new Set(
+      resolveSessionFunctions(sessionData).map((fn) => fn.key),
+    );
+    const available = libraryFns.filter((fn) => !existingKeys.has(fn.key));
+    const itemStyle = {
+      display: "block",
+      width: "100%",
+      textAlign: "left",
+      padding: "6px 10px",
+      background: "transparent",
+      border: "none",
+      color: "var(--text-color)",
+      cursor: "pointer",
+      fontSize: "0.85em",
+    };
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "absolute",
+          top: "100%",
+          right: 0,
+          marginTop: "6px",
+          minWidth: "240px",
+          maxHeight: "320px",
+          overflowY: "auto",
+          background: "var(--component-bg)",
+          border: "1px solid var(--border-color)",
+          borderRadius: "8px",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+          zIndex: 1000,
+          padding: "8px",
+        }}
+      >
+        <div
+          style={{
+            fontSize: "0.7rem",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            opacity: 0.6,
+            padding: "2px 6px 6px",
+          }}
+        >
+          Add function
+        </div>
+        {available.length > 0 ? (
+          <div>
+            {available.map((fn) => (
+              <button
+                key={fn.key}
+                type="button"
+                onClick={() => handleAddFunction(fn)}
+                style={itemStyle}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = "var(--input-background)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
+              >
+                {fn.name}
+                {fn.unit ? (
+                  <span style={{ opacity: 0.6 }}> · {getUnitDisplayLabel(fn.unit)}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div style={{ padding: "6px 10px", opacity: 0.6, fontSize: "0.8em" }}>
+            No more library functions
+          </div>
+        )}
+        <div
+          style={{
+            display: "flex",
+            gap: "6px",
+            marginTop: "8px",
+            paddingTop: "8px",
+            borderTop: "1px solid var(--border-color)",
+          }}
+        >
+          <input
+            type="text"
+            placeholder="New function"
+            value={newFunctionDraft.name}
+            onChange={(e) =>
+              setNewFunctionDraft((d) => ({ ...d, name: e.target.value }))
+            }
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAddFunction(newFunctionDraft);
+              if (e.key === "Escape") setAddFunctionMenu(null);
+            }}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: "var(--input-background)",
+              border: "1px solid var(--border-color)",
+              borderRadius: "4px",
+              color: "var(--text-color)",
+              padding: "4px 6px",
+              fontSize: "0.82em",
+            }}
+          />
+          <input
+            type="text"
+            placeholder="Unit"
+            value={newFunctionDraft.unit}
+            onChange={(e) =>
+              setNewFunctionDraft((d) => ({ ...d, unit: e.target.value }))
+            }
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAddFunction(newFunctionDraft);
+              if (e.key === "Escape") setAddFunctionMenu(null);
+            }}
+            style={{
+              width: "64px",
+              background: "var(--input-background)",
+              border: "1px solid var(--border-color)",
+              borderRadius: "4px",
+              color: "var(--text-color)",
+              padding: "4px 6px",
+              fontSize: "0.82em",
+            }}
+          />
+          <button
+            type="button"
+            disabled={!newFunctionDraft.name.trim()}
+            onClick={() => handleAddFunction(newFunctionDraft)}
+            style={{
+              background: "var(--primary-color)",
+              border: "none",
+              borderRadius: "4px",
+              color: "#fff",
+              padding: "4px 10px",
+              cursor: newFunctionDraft.name.trim() ? "pointer" : "not-allowed",
+              opacity: newFunctionDraft.name.trim() ? 1 : 0.5,
+              fontSize: "0.82em",
+            }}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    );
+  };
   // --- SELECTION STATE ---
   // Use global UUT selection for sync with sidebar Quick Add
   const selectedUutIds = currentUutSelection || [];
@@ -4427,6 +4656,27 @@ const SummaryDashboard = ({
         });
       });
 
+      // Render an empty subsection for each user-added function (in
+      // session.functionGroups) that no instrument uses yet, so its (+) can add
+      // the first instrument for that function.
+      (sessionData.functionGroups || []).forEach((fg) => {
+        const key = makeFunctionKey(fg.name, fg.unit);
+        if (!groups.has(key)) {
+          const fn = fnByKey.get(key) || {
+            key,
+            name: fg.name,
+            unit: fg.unit,
+            color: null,
+          };
+          groups.set(key, {
+            type: "function",
+            fn,
+            order: fnOrder.has(key) ? fnOrder.get(key) : Number.MAX_SAFE_INTEGER,
+            items: [],
+          });
+        }
+      });
+
       const groupedRows = Array.from(groups.values())
         .sort((a, b) => {
           if (a.order !== b.order) return a.order - b.order;
@@ -4773,7 +5023,7 @@ const SummaryDashboard = ({
             <FontAwesomeIcon icon={faMicroscope} />
             <span>Units Under Test ({filteredUuts.length})</span>
           </div>
-          <div className="panel-card-actions">
+          <div className="panel-card-actions" style={{ position: "relative" }}>
             {selectedUutIds.length > 0 && (
               <button
                 className="btn-delete-selection"
@@ -4785,11 +5035,14 @@ const SummaryDashboard = ({
             )}
             <button
               className="btn-add-item"
-              onClick={() => handleAddUutToArea({})}
-              title="Add New UUT"
+              onClick={() =>
+                setAddFunctionMenu((m) => (m === "uut" ? null : "uut"))
+              }
+              title="Add Function"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
             </button>
+            {renderAddFunctionMenu("uut")}
           </div>
         </div>
         <div className="panel-table-container">
@@ -4846,6 +5099,7 @@ const SummaryDashboard = ({
                           {renderFunctionColorSwatch(row.fn)}
                           {renderFunctionNameEditor(row.fn)}
                           {renderFunctionUnitChip(row.fn)}
+                          {renderFunctionAddButton("uut", row.fn)}
                         </td>
                       </tr>
                     );
@@ -5202,7 +5456,7 @@ const SummaryDashboard = ({
               Test Measurement Device Equipment ({filteredTmdes.length})
             </span>
           </div>
-          <div className="panel-card-actions">
+          <div className="panel-card-actions" style={{ position: "relative" }}>
             {selectedTmdeIds.length > 0 && (
               <button
                 className="btn-delete-selection"
@@ -5214,11 +5468,14 @@ const SummaryDashboard = ({
             )}
             <button
               className="btn-add-item"
-              onClick={() => handleAddTmdeToArea({})}
-              title="Add New TMDE"
+              onClick={() =>
+                setAddFunctionMenu((m) => (m === "tmde" ? null : "tmde"))
+              }
+              title="Add Function"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
             </button>
+            {renderAddFunctionMenu("tmde")}
           </div>
         </div>
         <div className="panel-table-container">
@@ -5275,6 +5532,7 @@ const SummaryDashboard = ({
                           {renderFunctionColorSwatch(row.fn)}
                           {renderFunctionNameEditor(row.fn)}
                           {renderFunctionUnitChip(row.fn)}
+                          {renderFunctionAddButton("tmde", row.fn)}
                         </td>
                       </tr>
                     );
