@@ -8310,11 +8310,26 @@ function DetailedView({
 
     if (existing) {
       const variableNominal = getNominalForVariableType(variableType);
+      const resolution = functionKey
+        ? resolveUutRangeHelper(
+            masterTmde,
+            tmdeRangeIndices,
+            existing,
+            null,
+            functionKey,
+          )
+        : null;
+      const nextRangeSpecs = resolution?.activeRange
+        ? { ...resolution.activeRange }
+        : null;
+      if (nextRangeSpecs) delete nextRangeSpecs.id;
       onUpdateTestPoint({
         tmdeTolerances: tmdeTolerancesData.map((tmde) =>
           tmde.id === existing.id
             ? {
                 ...tmde,
+                ...(nextRangeSpecs || {}),
+                ...(nextRangeSpecs ? { tolerance: nextRangeSpecs } : {}),
                 variableType,
                 measurementPoint:
                   variableNominal?.value !== "" && variableNominal?.unit
@@ -8359,6 +8374,7 @@ function DetailedView({
           ...rangeSpecs,
           id: masterTmde.id,
           sourceId: masterTmde.id,
+          tolerance: rangeSpecs,
           variableType,
           quantity: 1,
           measurementPoint:
@@ -8430,6 +8446,7 @@ function DetailedView({
           ...rangeSpecs,
           id: sourceTmde.id,
           sourceId: sourceTmde.id,
+          tolerance: rangeSpecs,
           quantity: 1,
         };
 
@@ -8471,6 +8488,7 @@ function DetailedView({
         ...activeInstance,
         ...rangeSpecs,
         id: activeInstance.id,
+        tolerance: rangeSpecs,
       };
 
       const updatedTolerances = tmdeTolerancesData.map((t) =>

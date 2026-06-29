@@ -439,7 +439,7 @@ const UncertaintyBudgetTable = ({
   };
 
   const renderActions = (component) => {
-    if (component.isCore) return null;
+    if (component.isCore && !component.sourceTmdeId) return null;
     return (
       <div className="budget-row-actions">
         <span
