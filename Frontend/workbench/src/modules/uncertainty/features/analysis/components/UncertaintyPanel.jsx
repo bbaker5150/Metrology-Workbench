@@ -218,12 +218,33 @@ const scopeLibraryInstrumentToFunction = (instrument = {}, functionKey, fallback
   const match = functions.find(
     (fn) => makeFunctionKey(fn.name, fn.unit) === functionKey,
   );
+  const fallbackName = fallbackFn.name || "";
+  const fallbackUnit = fallbackFn.unit || "";
+  const matchingRangeRows = match
+    ? []
+    : getInstrumentRangeRows(instrument).filter(
+        (range) =>
+          makeFunctionKey(
+            range.functionName || fallbackName,
+            range.functionUnit || range.unit || fallbackUnit,
+          ) === functionKey,
+      );
   const scopedFunction = match
     ? { ...match, ranges: Array.isArray(match.ranges) ? match.ranges : [] }
+    : matchingRangeRows.length > 0
+      ? {
+          id: uuidv4(),
+          name: matchingRangeRows[0].functionName || fallbackName,
+          unit:
+            matchingRangeRows[0].functionUnit ||
+            matchingRangeRows[0].unit ||
+            fallbackUnit,
+          ranges: matchingRangeRows.map(({ source, _index, ...range }) => range),
+        }
     : {
         id: uuidv4(),
-        name: fallbackFn.name || "",
-        unit: fallbackFn.unit || "",
+        name: fallbackName,
+        unit: fallbackUnit,
         ranges: [],
       };
   return {
