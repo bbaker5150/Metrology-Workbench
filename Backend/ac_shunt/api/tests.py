@@ -188,6 +188,18 @@ class PairAggregateCycleCapTests(TestCase):
         fwd_res.refresh_from_db()
         self.assertEqual(fwd_res.n_pairs_used, 15)
 
+    def test_n_cycles_is_editable_after_cycles_exist(self):
+        # n_cycles is shared-but-editable: changing it after cycles have been
+        # captured must NOT be rejected (capping keeps the math safe).
+        from api.models import CalibrationSettings
+        from api.serializers import CalibrationSettingsSerializer
+        fwd_res, _ = self._build_pair(n_cycles_setting=15, fwd_count=15, rev_count=15)
+        settings = CalibrationSettings.objects.get(test_point=fwd_res.test_point)
+        serializer = CalibrationSettingsSerializer(
+            instance=settings, data={'n_cycles': 12}, partial=True
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
 
 class OutboxEnqueueTests(TestCase):
     databases = {'default', 'outbox'}

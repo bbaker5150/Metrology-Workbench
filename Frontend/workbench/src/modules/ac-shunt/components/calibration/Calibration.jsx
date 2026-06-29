@@ -2903,12 +2903,6 @@ function Calibration({
                               <div className="form-section">
                                 <label htmlFor="n_cycles">
                                   Paired cycles (N)
-                                  {(focusedTP?.forward?.results?.cycles?.length > 0 ||
-                                    focusedTP?.reverse?.results?.cycles?.length > 0) && (
-                                      <span className="n-cycles-lock-indicator">
-                                        (locked — cycles already captured)
-                                      </span>
-                                    )}
                                 </label>
                                 <input
                                   type="number"
@@ -2924,12 +2918,8 @@ function Calibration({
                                     }))
                                   }
                                   onBlur={handleSettingBlur("n_cycles")}
-                                  disabled={
-                                    isRemoteViewer ||
-                                    focusedTP?.forward?.results?.cycles?.length > 0 ||
-                                    focusedTP?.reverse?.results?.cycles?.length > 0
-                                  }
-                                  title="One cycle = one Forward + one Reverse sequence. Backend enforces N_Fwd = N_Rev for a (current, frequency) pair and locks the value once cycles exist. Min 2; recommended ≥3."
+                                  disabled={isRemoteViewer}
+                                  title="One cycle = one Forward + one Reverse sequence. This is a single value shared across both directions; saving mirrors it to the opposite direction, and analytics use only the first N cycles even if more were collected. Min 2; recommended ≥3."
                                 />
                               </div>
                               {false && (

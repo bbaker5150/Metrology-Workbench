@@ -6,7 +6,7 @@ from .models import (
     CalibrationTVCCorrections, CalibrationConfigurations, CalibrationSettings,
     CalibrationReadings, CalibrationResults, CalibrationResultsCycle, BugReport,
     Workstation, WorkstationClaim,
-)  # noqa: F401  -- TestPoint is used in CalibrationSettingsSerializer.validate_n_cycles
+)  # noqa: F401
 from datetime import datetime
 
 
@@ -393,38 +393,14 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
         ]
 
     def validate_n_cycles(self, value):
-        """Reject n_cycles changes once cycles have already been captured
-        on either side of the (current, frequency) pair. AC-DC δ pairing
-        requires N to match between Fwd and Rev — changing it mid-run would
-        silently strand orphan cycles.
+        """n_cycles is a single source of truth shared across both directions
+        and stays editable even after cycles have been captured. The save path
+        mirrors the value onto the opposite direction so the pair stays in
+        sync, and the aggregation path caps to the configured N (using only the
+        first N cycles of each direction), so changing N never strands or
+        double-counts collected cycles. Min value is enforced by the model's
+        validator.
         """
-        if value is None:
-            return value
-        instance = self.instance
-        if instance is None or instance.test_point is None:
-            return value
-        if value == instance.n_cycles:
-            return value
-
-        tp = instance.test_point
-        # Check both sides of the (current, frequency) pair for persisted cycles.
-        for direction in ('Forward', 'Reverse'):
-            try:
-                sibling = TestPoint.objects.get(
-                    test_point_set=tp.test_point_set,
-                    current=tp.current,
-                    frequency=tp.frequency,
-                    direction=direction,
-                )
-            except TestPoint.DoesNotExist:
-                continue
-            results = getattr(sibling, 'results', None)
-            if results and results.cycles.exists():
-                raise serializers.ValidationError(
-                    "Cannot change n_cycles after measurement cycles exist on this "
-                    "pair. Clear the existing readings/results for both Forward and "
-                    "Reverse at this (current, frequency) first."
-                )
         return value
 
 class FormattedReadingsField(serializers.Field):
