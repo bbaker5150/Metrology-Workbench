@@ -25,6 +25,7 @@ import {
 } from "../../constants/constants";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import DirectionToggle from '../shared/DirectionToggle';
+import { resolveSessionNCycles } from "../../utils/resolveSessionNCycles";
 
 // Corrections live under dated Reports of Calibration; read the active
 // report (latest-dated or operator-pinned) to mirror live calibration math.
@@ -200,16 +201,22 @@ const ContextMenu = ({
   );
 };
 
-// Per-direction cycle completion state. `target` falls back to 3 (matches
-// the backend default) when settings haven't been persisted yet; treat
-// done >= target as complete so over-runs don't regress the indicator.
-const getDirectionCycleState = (directionRow) => {
+// Per-direction cycle completion state. The cycle count is a single source
+// of truth shared across both directions, so callers pass the resolved
+// session value as `targetOverride`; both directions are then judged against
+// the same target and a complete Forward point never turns yellow just
+// because the opposite direction stored a different (e.g. default) count.
+// Falls back to this row's own setting, then 3 (the backend default), when no
+// session value is established yet. Treat done >= target as complete so
+// over-runs don't regress the indicator.
+const getDirectionCycleState = (directionRow, targetOverride = null) => {
   if (!directionRow) return { state: "idle", done: 0, target: 0 };
   const done = directionRow.results?.cycles?.length ?? 0;
-  const target = Math.max(
-    1,
-    parseInt(directionRow.settings?.n_cycles, 10) || 3
-  );
+  const resolved =
+    targetOverride != null
+      ? targetOverride
+      : parseInt(directionRow.settings?.n_cycles, 10) || 3;
+  const target = Math.max(1, resolved);
   if (done <= 0) return { state: "idle", done, target };
   if (done >= target) return { state: "complete", done, target };
   return { state: "partial", done, target };
@@ -473,6 +480,11 @@ function TestPointSidebar({
     standardInstrumentSerial
   } = useInstruments();
 
+  // Single source of truth for the cycle count, shared across both
+  // directions, so completion status judges Forward and Reverse against the
+  // same target (see getDirectionCycleState).
+  const sessionNCycles = resolveSessionNCycles(orderedTestPoints, null);
+
   const [contextMenu, setContextMenu] = useState({
     isOpen: false,
     x: 0,
@@ -663,8 +675,14 @@ function TestPointSidebar({
         >
           <div className="test-point-list">
             {orderedTestPoints.map((point) => {
-              const fwdCycleState = getDirectionCycleState(point.forward);
-              const revCycleState = getDirectionCycleState(point.reverse);
+              const fwdCycleState = getDirectionCycleState(
+                point.forward,
+                sessionNCycles
+              );
+              const revCycleState = getDirectionCycleState(
+                point.reverse,
+                sessionNCycles
+              );
               const overallStatus = getOverallCycleStatus(
                 fwdCycleState,
                 revCycleState

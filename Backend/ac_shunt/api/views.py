@@ -985,12 +985,21 @@ class TestPointViewSet(viewsets.ModelViewSet):
             unique_points = test_point_set.points.values('current', 'frequency').distinct()
 
             valid_fields = [f.name for f in CalibrationSettings._meta.get_fields()]
-            
+
+            # n_cycles is a single source of truth shared across BOTH
+            # directions of a pair, so mirror just that field onto the
+            # opposite direction too. Without this, applying settings to the
+            # active direction would leave the opposite direction on its old
+            # (often default) cycle count, which makes already-complete points
+            # look like they have missing cycles.
+            opposite_direction = 'Reverse' if active_direction == 'Forward' else 'Forward'
+            shared_n_cycles = full_settings_data.get('n_cycles')
+
             with transaction.atomic():
                 for point_key in unique_points:
                     current = point_key['current']
                     frequency = point_key['frequency']
-                    
+
                     is_focused_pair = (current, frequency) == focused_key
 
                     # Select the correct payload for this point
@@ -1004,12 +1013,25 @@ class TestPointViewSet(viewsets.ModelViewSet):
                         frequency=frequency,
                         direction=active_direction
                     )
-                    
+
                     CalibrationSettings.objects.update_or_create(
                         test_point=point_obj,
                         defaults=target_settings
                     )
-            
+
+                    # Keep the opposite direction's cycle count in sync.
+                    if shared_n_cycles is not None and 'n_cycles' in valid_fields:
+                        opposite_obj, _ = TestPoint.objects.get_or_create(
+                            test_point_set=test_point_set,
+                            current=current,
+                            frequency=frequency,
+                            direction=opposite_direction
+                        )
+                        CalibrationSettings.objects.update_or_create(
+                            test_point=opposite_obj,
+                            defaults={'n_cycles': shared_n_cycles}
+                        )
+
             return Response({"message": f"Settings successfully applied to all {active_direction} test points."}, status=status.HTTP_200_OK)
 
         except TestPointSet.DoesNotExist:

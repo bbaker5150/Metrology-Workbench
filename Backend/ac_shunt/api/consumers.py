@@ -1239,6 +1239,22 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 r['cycle'] = cycle_index
         return readings
 
+    def _drop_cycle_from_readings(self, readings, cycle_index):
+        """Return a copy of ``readings`` with every entry tagged for
+        ``cycle_index`` removed. Used before re-appending a freshly-collected
+        cycle so re-running a cycle *replaces* its readings instead of
+        duplicating them (which otherwise inflates the per-cycle sample count,
+        e.g. cycle 1 showing 12 readings instead of 6). Untagged legacy
+        readings count as cycle 1, matching the chart's bucketing. When
+        ``cycle_index`` is None there is nothing to scope to, so the list is
+        returned unchanged."""
+        if cycle_index is None:
+            return list(readings or [])
+        return [
+            r for r in (readings or [])
+            if not (isinstance(r, dict) and int(r.get('cycle', 1)) == cycle_index)
+        ]
+
     @database_sync_to_async
     def _read_existing_phase_readings(self, test_point_data, reading_type_full):
         """Return the currently-persisted JSON list for a phase, or [] if
@@ -1822,7 +1838,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if cycle_index is not None:
                     self._tag_readings_with_cycle(payload, cycle_index)
                     existing = await self._read_existing_phase_readings(test_point_data, rt_full)
-                    payload = list(existing) + payload
+                    payload = self._drop_cycle_from_readings(existing, cycle_index) + payload
                 await self.save_readings_to_db(rt_full, payload, test_point_data)
             if target_tvc in ['TI', 'BOTH'] and final_ti_readings:
                 payload = final_ti_readings
@@ -1830,7 +1846,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if cycle_index is not None:
                     self._tag_readings_with_cycle(payload, cycle_index)
                     existing = await self._read_existing_phase_readings(test_point_data, rt_full)
-                    payload = list(existing) + payload
+                    payload = self._drop_cycle_from_readings(existing, cycle_index) + payload
                 await self.save_readings_to_db(rt_full, payload, test_point_data)
             
             await self.broadcast(text_data=json.dumps({
