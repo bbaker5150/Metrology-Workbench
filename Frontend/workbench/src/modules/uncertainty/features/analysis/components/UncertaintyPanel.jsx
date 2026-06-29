@@ -211,6 +211,27 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
       : src.instrument,
   };
 };
+
+const scopeLibraryInstrumentToFunction = (instrument = {}, functionKey, fallbackFn = {}) => {
+  if (!functionKey) return instrument;
+  const functions = Array.isArray(instrument.functions) ? instrument.functions : [];
+  const match = functions.find(
+    (fn) => makeFunctionKey(fn.name, fn.unit) === functionKey,
+  );
+  const scopedFunction = match
+    ? { ...match, ranges: Array.isArray(match.ranges) ? match.ranges : [] }
+    : {
+        id: uuidv4(),
+        name: fallbackFn.name || "",
+        unit: fallbackFn.unit || "",
+        ranges: [],
+      };
+  return {
+    ...instrument,
+    functions: [scopedFunction],
+  };
+};
+
 // Library-search dropdown shown under the description make/model fields.
 // Portaled to <body> with fixed positioning so the cell's overflow:hidden
 // (App.css) can't clip it. Position/top/left are set inline at render.
@@ -346,14 +367,6 @@ const referencesArea = (record = {}, area = {}, canonicalArea = null) => {
     hasId(record.instrument?.measurementAreaId) ||
     hasName(record.instrument?.measurementArea)
   );
-};
-const getItemFunctionOptions = (item = {}) => {
-  const names = new Set();
-  (item.instrument?.functions || []).forEach((fn) => {
-    const name = cleanFunctionName(fn.name);
-    if (name) names.add(name);
-  });
-  return Array.from(names);
 };
 const getItemRangeTolerance = (item, rangeId) => {
   const inst = item?.instrument || {};
@@ -1452,62 +1465,6 @@ const InlineToleranceCell = ({
   );
 };
 
-const FunctionNameInput = ({ value = "", options = [], onCommit }) => {
-  const [localValue, setLocalValue] = useState(value || "");
-  const listId = useMemo(() => `function-options-${uuidv4()}`, []);
-  const functionWidth = useMemo(() => {
-    const longest = Math.max(
-      "Function".length,
-      cleanFunctionName(localValue).length,
-      ...options.map((option) => cleanFunctionName(option).length),
-    );
-    return `${Math.min(Math.max(longest + 3, 11), 22)}ch`;
-  }, [localValue, options]);
-
-  useEffect(() => {
-    setLocalValue(value || "");
-  }, [value]);
-
-  const commit = (raw) => {
-    const next = cleanFunctionName(raw);
-    if (next !== cleanFunctionName(value)) onCommit?.(next);
-    setLocalValue(next);
-  };
-
-  return (
-    <span
-      className="inline-function-editor"
-      title="Instrument function"
-      style={{ "--inline-function-width": functionWidth }}
-    >
-      <input
-        type="text"
-        value={localValue}
-        list={options.length ? listId : undefined}
-        placeholder="Function"
-        aria-label="Instrument function"
-        className="inline-function-input"
-        onChange={(e) => setLocalValue(e.target.value)}
-        onBlur={(e) => commit(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-          if (e.key === "Escape") {
-            setLocalValue(value || "");
-            e.currentTarget.blur();
-          }
-        }}
-      />
-      {options.length > 0 && (
-        <datalist id={listId}>
-          {options.map((name) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
-      )}
-    </span>
-  );
-};
-
 const RangeCell = ({
   ranges = [],
   activeIndex,
@@ -1516,8 +1473,6 @@ const RangeCell = ({
   onSelect,
   onEditBound,
   onEditUnit,
-  onEditFunction,
-  functionOptions = [],
   onPatchRange,
   allowSingleToggle = false,
 }) => {
@@ -1551,13 +1506,6 @@ const RangeCell = ({
     onPatchRange?.({ isSingleValue: true, value: raw, min: raw, max: raw });
   return (
     <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
-      {onEditFunction && (
-        <FunctionNameInput
-          value={activeRange.functionName || ""}
-          options={functionOptions}
-          onCommit={onEditFunction}
-        />
-      )}
       <div className="inline-range-main">
         {onPatchRange && allowSingleToggle && (
           <button
@@ -1953,8 +1901,8 @@ const resolveUutRangeHelper = (
 // id for single-function instruments, `${functionKey}::${id}` for multi-function
 // ones so each subsection's range state is independent). Empty subsections are
 // emitted for user-added functions (session.functionGroups) with no instrument.
-const buildFunctionGroupedRows = (groupedItems, sessionData) => {
-  const sessionFunctions = resolveSessionFunctions(sessionData);
+const buildFunctionGroupedRows = (groupedItems, sessionData, kind = null) => {
+  const sessionFunctions = resolveSessionFunctions(sessionData, { kind });
   const fnByKey = new Map(sessionFunctions.map((fn) => [fn.key, fn]));
   const fnOrder = new Map(sessionFunctions.map((fn, index) => [fn.key, index]));
   const groups = new Map();
@@ -1980,10 +1928,11 @@ const buildFunctionGroupedRows = (groupedItems, sessionData) => {
         unit: primary.unit,
         color: null,
       };
+      const tableFn = kind ? { ...fn, kind } : fn;
       if (!groups.has(fn.key)) {
         groups.set(fn.key, {
           type: "function",
-          fn,
+          fn: tableFn,
           order: fnOrder.has(fn.key) ? fnOrder.get(fn.key) : Number.MAX_SAFE_INTEGER,
           items: [],
         });
@@ -1996,10 +1945,13 @@ const buildFunctionGroupedRows = (groupedItems, sessionData) => {
     });
   });
 
-  (sessionData.functionGroups || []).forEach((fg) => {
+  (sessionData.functionGroups || [])
+    .filter((fg) => !kind || !fg.kind || fg.kind === kind)
+    .forEach((fg) => {
     const key = makeFunctionKey(fg.name, fg.unit);
     if (!groups.has(key)) {
-      const fn = fnByKey.get(key) || { key, name: fg.name, unit: fg.unit, color: null };
+      const resolvedFn = fnByKey.get(key) || { key, name: fg.name, unit: fg.unit, color: null };
+      const fn = { ...resolvedFn, ...(fg.kind ? { kind: fg.kind } : kind ? { kind } : {}) };
       groups.set(key, {
         type: "function",
         fn,
@@ -2961,7 +2913,7 @@ const SummaryDashboard = ({
     if (updatedItem && (!options.track || options.saveLocal)) saveItemInstrumentToLocalLibrary("tmde", updatedItem);
   };
 
-  const promptLibraryPick = (kind, itemId, inst) => {
+  const promptLibraryPick = (kind, itemId, inst, functionKey = null) => {
     // Load exactly the entry the user picked — never silently substitute a
     // diverged local copy for the shared one (or vice-versa). Picking the
     // shared (validated) entry gives the in-sync version; picking a local entry
@@ -2970,8 +2922,12 @@ const SummaryDashboard = ({
     const options = isShared
       ? { track: true, localCopy: false }
       : { track: Boolean(inst.sourceId) };
-    if (kind === "uut") applyPickedLibraryUut(itemId, inst, options);
-    else applyPickedLibraryTmde(itemId, inst, options);
+    const fallbackFn = functionKey
+      ? resolveSessionFunctions(sessionData, { kind }).find((fn) => fn.key === functionKey)
+      : null;
+    const scopedInst = scopeLibraryInstrumentToFunction(inst, functionKey, fallbackFn);
+    if (kind === "uut") applyPickedLibraryUut(itemId, scopedInst, options);
+    else applyPickedLibraryTmde(itemId, scopedInst, options);
   };
 
   // --- Reassign an instrument to a different measurement area ---
@@ -3215,17 +3171,27 @@ const SummaryDashboard = ({
     if (!onSessionSave) return;
     const clean = String(name || "").trim();
     if (!clean) return;
+    const kind = addFunctionMenu?.kind || null;
     const key = makeFunctionKey(clean, unit);
     const existing = Array.isArray(sessionData.functionGroups)
       ? sessionData.functionGroups
       : [];
-    if (existing.some((fg) => makeFunctionKey(fg.name, fg.unit) === key)) {
+    if (
+      existing.some(
+        (fg) =>
+          makeFunctionKey(fg.name, fg.unit) === key &&
+          (!kind || !fg.kind || fg.kind === kind),
+      )
+    ) {
       setAddFunctionMenu(null);
       return; // already present
     }
     onSessionSave({
       ...sessionData,
-      functionGroups: [...existing, { name: clean, unit: String(unit || "").trim() }],
+      functionGroups: [
+        ...existing,
+        { name: clean, unit: String(unit || "").trim(), ...(kind ? { kind } : {}) },
+      ],
     });
     setAddFunctionMenu(null);
     setNewFunctionDraft({ name: "", unit: "" });
@@ -3268,10 +3234,15 @@ const SummaryDashboard = ({
   // instruments/points removed first (matches the old measurement-area guard).
   const handleDeleteFunction = (fn) => {
     if (!onSessionSave) return;
+    const appliesToUut = !fn.kind || fn.kind === "uut";
+    const appliesToTmde = !fn.kind || fn.kind === "tmde";
     const inUse =
-      (sessionData.uuts || []).some((u) => instrumentHasFunction(u, fn.key)) ||
-      (sessionData.tmdes || []).some((t) => instrumentHasFunction(t, fn.key)) ||
-      (sessionData.testPoints || []).some((p) => functionKeyOf(p) === fn.key);
+      (appliesToUut &&
+        (sessionData.uuts || []).some((u) => instrumentHasFunction(u, fn.key))) ||
+      (appliesToTmde &&
+        (sessionData.tmdes || []).some((t) => instrumentHasFunction(t, fn.key))) ||
+      (appliesToUut &&
+        (sessionData.testPoints || []).some((p) => functionKeyOf(p) === fn.key));
     if (inUse) {
       setNotification?.({
         title: "Function In Use",
@@ -3283,7 +3254,9 @@ const SummaryDashboard = ({
     onSessionSave({
       ...sessionData,
       functionGroups: (sessionData.functionGroups || []).filter(
-        (fg) => makeFunctionKey(fg.name, fg.unit) !== fn.key,
+        (fg) =>
+          makeFunctionKey(fg.name, fg.unit) !== fn.key ||
+          (fg.kind && fn.kind && fg.kind !== fn.kind),
       ),
     });
   };
@@ -3309,11 +3282,6 @@ const SummaryDashboard = ({
     const updatedItem = applyItemRangePatch(item, rangeId, { unit: value });
     persistInlineItem(kind, updatedItem);
   };
-  const setRangeFunction = (kind, item, rangeId, value) => {
-    if (!onSessionSave) return;
-    persistInlineItem(kind, applyItemRangeFunction(item, rangeId, value));
-  };
-
   // --- Inline range editing: edit bounds, add, remove ---
   const persistItem = (kind, updatedItem) => {
     persistInlineItem(kind, updatedItem);
@@ -3394,9 +3362,13 @@ const SummaryDashboard = ({
     const existing = Array.isArray(sessionData.functionGroups)
       ? sessionData.functionGroups
       : [];
+    const patchKind = patch.kind || null;
     let found = false;
     const next = existing.map((fg) => {
-      if (makeFunctionKey(fg.name, fg.unit) === fnKey) {
+      if (
+        makeFunctionKey(fg.name, fg.unit) === fnKey &&
+        (!patchKind || !fg.kind || fg.kind === patchKind)
+      ) {
         found = true;
         return { ...fg, ...patch };
       }
@@ -3414,6 +3386,7 @@ const SummaryDashboard = ({
         name: fn.name,
         unit: fn.unit,
         color,
+        ...(fn.kind ? { kind: fn.kind } : {}),
       }),
     });
   };
@@ -3445,17 +3418,20 @@ const SummaryDashboard = ({
           : { ...item, functions: nextFns };
       });
 
-    const nextPoints = (sessionData.testPoints || []).map((tp) => {
-      if (functionKeyOf(tp) !== fn.key) return tp;
-      const parameter = tp.testPointInfo?.parameter || {};
-      return {
-        ...tp,
-        testPointInfo: {
-          ...(tp.testPointInfo || {}),
-          parameter: { ...parameter, name },
-        },
-      };
-    });
+    const nextPoints =
+      fn.kind === "tmde"
+        ? sessionData.testPoints
+        : (sessionData.testPoints || []).map((tp) => {
+            if (functionKeyOf(tp) !== fn.key) return tp;
+            const parameter = tp.testPointInfo?.parameter || {};
+            return {
+              ...tp,
+              testPointInfo: {
+                ...(tp.testPointInfo || {}),
+                parameter: { ...parameter, name },
+              },
+            };
+          });
 
     onSessionSave({
       ...sessionData,
@@ -3463,9 +3439,10 @@ const SummaryDashboard = ({
         name,
         unit: fn.unit,
         color: fn.color,
+        ...(fn.kind ? { kind: fn.kind } : {}),
       }),
-      uuts: renameInstruments(sessionData.uuts),
-      tmdes: renameInstruments(sessionData.tmdes),
+      uuts: fn.kind === "tmde" ? sessionData.uuts : renameInstruments(sessionData.uuts),
+      tmdes: fn.kind === "uut" ? sessionData.tmdes : renameInstruments(sessionData.tmdes),
       testPoints: nextPoints,
     });
   };
@@ -3658,7 +3635,7 @@ const SummaryDashboard = ({
     const rect = addFunctionMenu.rect;
     const libraryFns = functionsForLibrary(instruments);
     const existingKeys = new Set(
-      resolveSessionFunctions(sessionData).map((fn) => fn.key),
+      resolveSessionFunctions(sessionData, { kind }).map((fn) => fn.key),
     );
     const available = libraryFns.filter((fn) => !existingKeys.has(fn.key));
     const itemStyle = {
@@ -4126,8 +4103,6 @@ const SummaryDashboard = ({
               editable
               allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
               onSelect={(idx) => setRangeIdx((prev) => ({ ...prev, [item.id]: idx }))}
-              functionOptions={getItemFunctionOptions(item)}
-              onEditFunction={(value) => setRangeFunction(kind, item, range?.id, value)}
               onEditBound={(field, value) => handleEditRangeBound(kind, item, range?.id, field, value)}
               onEditUnit={(value) => setRangeUnit(kind, item, range?.id, value)}
               onPatchRange={(patch) => patchRange(kind, item, range?.id, patch)}
@@ -4333,7 +4308,7 @@ const SummaryDashboard = ({
   }, [viewMode, contextId, contextName, sessionData, rangeData, uutId]);
 
   const getGroupedInstrumentRows = useCallback(
-    (items = [], source = "session", pinnedIds = []) => {
+    (items = [], source = "session", pinnedIds = [], kind = null) => {
       const pinnedSet = new Set(pinnedIds);
       const pinnedRows = [];
       const groupedItems = [];
@@ -4351,7 +4326,7 @@ const SummaryDashboard = ({
         return [...pinnedRows, ...groupedItems];
       }
 
-      return [...pinnedRows, ...buildFunctionGroupedRows(groupedItems, sessionData)];
+      return [...pinnedRows, ...buildFunctionGroupedRows(groupedItems, sessionData, kind)];
     },
     [sessionData, showAreaColumn],
   );
@@ -4743,7 +4718,7 @@ const SummaryDashboard = ({
                   </td>
                 </tr>
               ) : (
-                getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds).map((row) => {
+                getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds, "uut").map((row) => {
                   if (row.type === "function") {
                     return (
                       <tr
@@ -4883,7 +4858,7 @@ const SummaryDashboard = ({
                                     model={uut.instrument?.model}
                                     instruments={instruments}
                                     onPickLibrary={(inst) =>
-                                      promptLibraryPick("uut", uut.id, inst)
+                                      promptLibraryPick("uut", uut.id, inst, uutFnKey)
                                     }
                                     onCommit={(field, value) =>
                                       handleUutDescriptionEdit(uut.id, field, value)
@@ -4945,7 +4920,7 @@ const SummaryDashboard = ({
                               model={uut.instrument?.model}
                               instruments={instruments}
                               onPickLibrary={(inst) =>
-                                promptLibraryPick("uut", uut.id, inst)
+                                promptLibraryPick("uut", uut.id, inst, uutFnKey)
                               }
                               onCommit={(field, value) =>
                                 handleUutDescriptionEdit(uut.id, field, value)
@@ -4976,10 +4951,6 @@ const SummaryDashboard = ({
                                   )}
                                   onSelect={(idx) =>
                                     setLocalRangeIndices((prev) => ({ ...prev, [uutRowKey]: idx }))
-                                  }
-                                  functionOptions={getItemFunctionOptions(uut)}
-                                  onEditFunction={(value) =>
-                                    setRangeFunction("uut", uut, range?.id, value)
                                   }
                                   onEditBound={(field, value) =>
                                     handleEditRangeBound("uut", uut, range?.id, field, value)
@@ -5188,7 +5159,7 @@ const SummaryDashboard = ({
                   <td colSpan={6}>No TMDEs found in session.</td>
                 </tr>
               ) : (
-                getGroupedInstrumentRows(filteredTmdes, "instrument", pinnedInlineTmdeIds).map((row) => {
+                getGroupedInstrumentRows(filteredTmdes, "instrument", pinnedInlineTmdeIds, "tmde").map((row) => {
                   if (row.type === "function") {
                     return (
                       <tr
@@ -5288,7 +5259,7 @@ const SummaryDashboard = ({
                                     model={tmde.instrument?.model}
                                     instruments={instruments}
                                     onPickLibrary={(inst) =>
-                                      promptLibraryPick("tmde", tmde.id, inst)
+                                      promptLibraryPick("tmde", tmde.id, inst, tmdeFnKey)
                                     }
                                     onCommit={(field, value) =>
                                       handleTmdeDescriptionEdit(tmde.id, field, value)
@@ -5348,10 +5319,10 @@ const SummaryDashboard = ({
                               name={tmde.name}
                               make={tmde.instrument?.manufacturer}
                               model={tmde.instrument?.model}
-                              instruments={instruments}
-                              onPickLibrary={(inst) =>
-                                promptLibraryPick("tmde", tmde.id, inst)
-                              }
+                                instruments={instruments}
+                                onPickLibrary={(inst) =>
+                                  promptLibraryPick("tmde", tmde.id, inst, tmdeFnKey)
+                                }
                               onCommit={(field, value) =>
                                 handleTmdeDescriptionEdit(tmde.id, field, value)
                               }
@@ -5395,10 +5366,6 @@ const SummaryDashboard = ({
                                   )}
                                   onSelect={(idx) =>
                                     setTmdeRangeIndices((prev) => ({ ...prev, [tmdeRowKey]: idx }))
-                                  }
-                                  functionOptions={getItemFunctionOptions(tmde)}
-                                  onEditFunction={(value) =>
-                                    setRangeFunction("tmde", tmde, range?.id, value)
                                   }
                                   onEditBound={(field, value) =>
                                     handleEditRangeBound("tmde", tmde, range?.id, field, value)
@@ -6280,7 +6247,7 @@ function DetailedView({
     // the picked instrument lands on a range that covers this point.
     if (updatedItem) refreshPointTmdeInstance(updatedItem, { reselectRange: true });
   };
-  const promptLibraryPick = (kind, itemId, inst) => {
+  const promptLibraryPick = (kind, itemId, inst, functionKey = null) => {
     // Load exactly the entry the user picked — never silently substitute a
     // diverged local copy for the shared one (or vice-versa). Picking the
     // shared (validated) entry gives the in-sync version; picking a local entry
@@ -6289,8 +6256,12 @@ function DetailedView({
     const options = isShared
       ? { track: true, localCopy: false }
       : { track: Boolean(inst.sourceId) };
-    if (kind === "uut") applyPickedLibraryUut(itemId, inst, options);
-    else applyPickedLibraryTmde(itemId, inst, options);
+    const fallbackFn = functionKey
+      ? resolveSessionFunctions(sessionData, { kind }).find((fn) => fn.key === functionKey)
+      : null;
+    const scopedInst = scopeLibraryInstrumentToFunction(inst, functionKey, fallbackFn);
+    if (kind === "uut") applyPickedLibraryUut(itemId, scopedInst, options);
+    else applyPickedLibraryTmde(itemId, scopedInst, options);
   };
   const handleChangeUutArea = (uutId, areaId) => {
     if (!onSessionSave) return;
@@ -6411,8 +6382,6 @@ function DetailedView({
     );
   const setRangeUnitDetail = (kind, item, rangeId, value) =>
     persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, { unit: value }));
-  const setRangeFunctionDetail = (kind, item, rangeId, value) =>
-    persistInlineItemDetail(kind, applyItemRangeFunction(item, rangeId, value));
   const patchRangeDetail = (kind, item, rangeId, patch) =>
     persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, patch));
   const setRangeResolutionDetail = (kind, item, rangeId, value) =>
@@ -6669,10 +6638,6 @@ function DetailedView({
               editable
               allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
               onSelect={() => {}}
-              functionOptions={getItemFunctionOptions(item)}
-              onEditFunction={(value) =>
-                setRangeFunctionDetail(kind, item, range?.id, value)
-              }
               onEditBound={(field, value) => handleEditRangeBoundDetail(kind, item, range?.id, field, value)}
               onEditUnit={(value) => setRangeUnitDetail(kind, item, range?.id, value)}
               onPatchRange={(patch) => patchRangeDetail(kind, item, range?.id, patch)}
@@ -7035,9 +7000,13 @@ function DetailedView({
     const existing = Array.isArray(sessionData.functionGroups)
       ? sessionData.functionGroups
       : [];
+    const patchKind = patch.kind || null;
     let found = false;
     const next = existing.map((fg) => {
-      if (makeFunctionKey(fg.name, fg.unit) === fnKey) {
+      if (
+        makeFunctionKey(fg.name, fg.unit) === fnKey &&
+        (!patchKind || !fg.kind || fg.kind === patchKind)
+      ) {
         found = true;
         return { ...fg, ...patch };
       }
@@ -7055,6 +7024,7 @@ function DetailedView({
         name: fn.name,
         unit: fn.unit,
         color,
+        ...(fn.kind ? { kind: fn.kind } : {}),
       }),
     });
   };
@@ -7081,26 +7051,30 @@ function DetailedView({
           ? { ...item, instrument: { ...inst, functions: nextFns } }
           : { ...item, functions: nextFns };
       });
-    const nextPoints = (sessionData.testPoints || []).map((tp) => {
-      if (functionKeyOf(tp) !== fn.key) return tp;
-      const parameter = tp.testPointInfo?.parameter || {};
-      return {
-        ...tp,
-        testPointInfo: {
-          ...(tp.testPointInfo || {}),
-          parameter: { ...parameter, name },
-        },
-      };
-    });
+    const nextPoints =
+      fn.kind === "tmde"
+        ? sessionData.testPoints
+        : (sessionData.testPoints || []).map((tp) => {
+            if (functionKeyOf(tp) !== fn.key) return tp;
+            const parameter = tp.testPointInfo?.parameter || {};
+            return {
+              ...tp,
+              testPointInfo: {
+                ...(tp.testPointInfo || {}),
+                parameter: { ...parameter, name },
+              },
+            };
+          });
     onSessionSave({
       ...sessionData,
       functionGroups: upsertFunctionGroupDetail(fn.key, {
         name,
         unit: fn.unit,
         color: fn.color,
+        ...(fn.kind ? { kind: fn.kind } : {}),
       }),
-      uuts: renameInstruments(sessionData.uuts),
-      tmdes: renameInstruments(sessionData.tmdes),
+      uuts: fn.kind === "tmde" ? sessionData.uuts : renameInstruments(sessionData.uuts),
+      tmdes: fn.kind === "uut" ? sessionData.tmdes : renameInstruments(sessionData.tmdes),
       testPoints: nextPoints,
     });
   };
@@ -7109,17 +7083,27 @@ function DetailedView({
     if (!onSessionSave) return;
     const clean = String(name || "").trim();
     if (!clean) return;
+    const kind = addFunctionMenu?.kind || null;
     const key = makeFunctionKey(clean, unit);
     const existing = Array.isArray(sessionData.functionGroups)
       ? sessionData.functionGroups
       : [];
-    if (existing.some((fg) => makeFunctionKey(fg.name, fg.unit) === key)) {
+    if (
+      existing.some(
+        (fg) =>
+          makeFunctionKey(fg.name, fg.unit) === key &&
+          (!kind || !fg.kind || fg.kind === kind),
+      )
+    ) {
       setAddFunctionMenu(null);
       return;
     }
     onSessionSave({
       ...sessionData,
-      functionGroups: [...existing, { name: clean, unit: String(unit || "").trim() }],
+      functionGroups: [
+        ...existing,
+        { name: clean, unit: String(unit || "").trim(), ...(kind ? { kind } : {}) },
+      ],
     });
     setAddFunctionMenu(null);
     setNewFunctionDraft({ name: "", unit: "" });
@@ -7154,10 +7138,15 @@ function DetailedView({
 
   const handleDeleteFunction = (fn) => {
     if (!onSessionSave) return;
+    const appliesToUut = !fn.kind || fn.kind === "uut";
+    const appliesToTmde = !fn.kind || fn.kind === "tmde";
     const inUse =
-      (sessionData.uuts || []).some((u) => instrumentHasFunction(u, fn.key)) ||
-      (sessionData.tmdes || []).some((t) => instrumentHasFunction(t, fn.key)) ||
-      (sessionData.testPoints || []).some((p) => functionKeyOf(p) === fn.key);
+      (appliesToUut &&
+        (sessionData.uuts || []).some((u) => instrumentHasFunction(u, fn.key))) ||
+      (appliesToTmde &&
+        (sessionData.tmdes || []).some((t) => instrumentHasFunction(t, fn.key))) ||
+      (appliesToUut &&
+        (sessionData.testPoints || []).some((p) => functionKeyOf(p) === fn.key));
     if (inUse) {
       setNotification?.({
         title: "Function In Use",
@@ -7169,7 +7158,9 @@ function DetailedView({
     onSessionSave({
       ...sessionData,
       functionGroups: (sessionData.functionGroups || []).filter(
-        (fg) => makeFunctionKey(fg.name, fg.unit) !== fn.key,
+        (fg) =>
+          makeFunctionKey(fg.name, fg.unit) !== fn.key ||
+          (fg.kind && fn.kind && fg.kind !== fn.kind),
       ),
     });
   };
@@ -7325,7 +7316,7 @@ function DetailedView({
     if (!addFunctionMenu || addFunctionMenu.kind !== kind) return null;
     const rect = addFunctionMenu.rect;
     const existingKeys = new Set(
-      resolveSessionFunctions(sessionData).map((fn) => fn.key),
+      resolveSessionFunctions(sessionData, { kind }).map((fn) => fn.key),
     );
     const available = functionsForLibrary(instruments).filter(
       (fn) => !existingKeys.has(fn.key),
@@ -8682,6 +8673,7 @@ function DetailedView({
                 buildFunctionGroupedRows(
                   relevantUuts.map((item, index) => ({ type: "item", item, index })),
                   sessionData,
+                  "uut",
                 ).map((row) => {
                   if (row.type === "function") {
                     return renderFunctionHeaderRow("uut", row.fn, 5);
@@ -8755,7 +8747,7 @@ function DetailedView({
                                       model={uut.instrument?.model}
                                       instruments={instruments}
                                       onPickLibrary={(inst) =>
-                                        promptLibraryPick("uut", uut.id, inst)
+                                        promptLibraryPick("uut", uut.id, inst, uutFnKey)
                                       }
                                       onCommit={(field, value) =>
                                         handleDetailUutDescEdit(uut.id, field, value)
@@ -8822,7 +8814,7 @@ function DetailedView({
                                 model={uut.instrument?.model}
                                 instruments={instruments}
                                 onPickLibrary={(inst) =>
-                                  promptLibraryPick("uut", uut.id, inst)
+                                  promptLibraryPick("uut", uut.id, inst, uutFnKey)
                                 }
                                 onCommit={(field, value) =>
                                   handleDetailUutDescEdit(uut.id, field, value)
@@ -8865,10 +8857,6 @@ function DetailedView({
                                       ranges,
                                       isActivePointUut,
                                     )
-                                  }
-                                  functionOptions={getItemFunctionOptions(uut)}
-                                  onEditFunction={(value) =>
-                                    setRangeFunctionDetail("uut", uut, range?.id, value)
                                   }
                                   onEditBound={(field, value) =>
                                     handleEditRangeBoundDetail("uut", uut, range?.id, field, value)
@@ -9415,6 +9403,7 @@ function DetailedView({
                   buildFunctionGroupedRows(
                     relevantTmdes.map((item, index) => ({ type: "item", item, index })),
                     sessionData,
+                    "tmde",
                   ).map((row) => {
                     if (row.type === "function") {
                       return renderFunctionHeaderRow("tmde", row.fn, 8);
@@ -9585,10 +9574,10 @@ function DetailedView({
                                         name={masterTmde.name}
                                         make={masterTmde.instrument?.manufacturer}
                                         model={masterTmde.instrument?.model}
-                                        instruments={instruments}
-                                        onPickLibrary={(inst) =>
-                                          promptLibraryPick("tmde", masterTmde.id, inst)
-                                        }
+                                          instruments={instruments}
+                                          onPickLibrary={(inst) =>
+                                            promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
+                                          }
                                         onCommit={(field, value) =>
                                           handleDetailTmdeDescEdit(masterTmde.id, field, value)
                                         }
@@ -9733,10 +9722,10 @@ function DetailedView({
                                   name={masterTmde.name}
                                   make={masterTmde.instrument?.manufacturer}
                                   model={masterTmde.instrument?.model}
-                                  instruments={instruments}
-                                  onPickLibrary={(inst) =>
-                                    promptLibraryPick("tmde", masterTmde.id, inst)
-                                  }
+                                    instruments={instruments}
+                                    onPickLibrary={(inst) =>
+                                      promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
+                                    }
                                   onCommit={(field, value) =>
                                     handleDetailTmdeDescEdit(
                                       masterTmde.id,
@@ -9783,15 +9772,6 @@ function DetailedView({
                                       )}
                                       onSelect={(idx) =>
                                         handleTmdeRangeChange(masterTmde, idx, ranges)
-                                      }
-                                      functionOptions={getItemFunctionOptions(masterTmde)}
-                                      onEditFunction={(value) =>
-                                        setRangeFunctionDetail(
-                                          "tmde",
-                                          masterTmde,
-                                          range?.id,
-                                          value,
-                                        )
                                       }
                                       onEditBound={(field, value) =>
                                         handleEditRangeBoundDetail(

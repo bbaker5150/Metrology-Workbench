@@ -106,13 +106,13 @@ export const FUNCTION_COLOR_PALETTE = [
 //   - functions named by every test point's parameter
 // Returns ordered [{ key, name, unit, color }] (explicit entries first, then the
 // rest alphabetically), with a palette color filled in where none is stored.
-export const resolveSessionFunctions = (sessionData = {}) => {
+export const resolveSessionFunctions = (sessionData = {}, { kind = null } = {}) => {
   const explicit = Array.isArray(sessionData.functionGroups)
     ? sessionData.functionGroups
     : [];
-  const uuts = sessionData.uuts || [];
-  const tmdes = sessionData.tmdes || [];
-  const points = sessionData.testPoints || [];
+  const uuts = kind === "tmde" ? [] : sessionData.uuts || [];
+  const tmdes = kind === "uut" ? [] : sessionData.tmdes || [];
+  const points = kind === "tmde" ? [] : sessionData.testPoints || [];
 
   // key -> { key, name, unit, color, explicitOrder }
   const map = new Map();
@@ -131,7 +131,9 @@ export const resolveSessionFunctions = (sessionData = {}) => {
     }
   };
 
-  explicit.forEach((fn, index) => add(fn.name, fn.unit, fn.color, index));
+  explicit
+    .filter((fn) => !kind || !fn.kind || fn.kind === kind)
+    .forEach((fn, index) => add(fn.name, fn.unit, fn.color, index));
   [...uuts, ...tmdes].forEach((inst) =>
     instrumentFunctions(inst).forEach((fn) => add(fn.name, fn.unit)),
   );
