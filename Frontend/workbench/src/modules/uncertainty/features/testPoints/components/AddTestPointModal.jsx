@@ -145,14 +145,6 @@ const AddTestPointModal = ({
       .filter(Boolean);
   }, [initialData, previousTestPointData, sessionData]);
 
-  const contextArea = useMemo(() => {
-    const areaId =
-      initialData?.measurementAreaId ||
-      previousTestPointData?.measurementAreaId ||
-      contextUuts[0]?.measurementAreaId;
-    return (sessionData?.measurementAreas || []).find((a) => String(a.id) === String(areaId));
-  }, [contextUuts, initialData, previousTestPointData, sessionData]);
-
   const handleMouseDown = (e) => {
     // The f(x) / Library popovers are portaled to <body> at coordinates
     // captured when they open, so they don't track the modal as it moves.
@@ -572,10 +564,12 @@ const AddTestPointModal = ({
                     {contextUuts.length > 1 ? ` +${contextUuts.length - 1}` : ""}
                   </span>
                 </span>
-                <span className="add-point-header-chip" title="Measurement area">
-                  <FontAwesomeIcon icon={faLayerGroup} />
-                  <span>{contextArea?.name || contextUuts[0]?.measurementArea || "Unassigned"}</span>
-                </span>
+                {formData.functionName && (
+                  <span className="add-point-header-chip" title="Function">
+                    <FontAwesomeIcon icon={faLayerGroup} />
+                    <span>{formData.functionName}</span>
+                  </span>
+                )}
               </div>
             </div>
           </div>
