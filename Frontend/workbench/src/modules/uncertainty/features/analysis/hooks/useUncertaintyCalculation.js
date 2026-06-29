@@ -192,12 +192,23 @@ export const useUncertaintyCalculation = (
       const noTmdes = !tmdeTolerancesData || tmdeTolerancesData.length === 0;
 
       const noManuals = !manualComponents || manualComponents.length === 0;
+      const hasVariableNominals = Object.values(
+        testPointData.variableNominals || {}
+      ).some(
+        (nominal) =>
+          nominal &&
+          nominal.value !== "" &&
+          nominal.value !== null &&
+          nominal.value !== undefined &&
+          nominal.unit
+      );
 
       if (
         testPointData.measurementType === "derived" &&
         hasVariables &&
         noTmdes && 
-        noManuals
+        noManuals &&
+        !hasVariableNominals
       ) {
         setCalcResults(null);
         if (testPointData.is_detailed_uncertainty_calculated) {
@@ -258,7 +269,7 @@ export const useUncertaintyCalculation = (
           testPointData.equationString,
           testPointData.variableMappings,
           tmdeTolerancesData,
-          uutNominal,
+          { ...uutNominal, variableNominals: testPointData.variableNominals || {} },
           manualComponents
         );
 
@@ -754,7 +765,11 @@ export const useUncertaintyCalculation = (
       if (
         (isNaN(combinedUncertaintyPPM) &&
           isNaN(combinedUncertaintyAbsoluteBase)) ||
-        componentsForBudgetTable.length === 0
+        (componentsForBudgetTable.length === 0 &&
+          !(
+            testPointData.measurementType === "derived" &&
+            calculatedBudgetGroups.length > 0
+          ))
       ) {
         setCalcResults(null);
         if (testPointData.is_detailed_uncertainty_calculated) {
@@ -884,6 +899,7 @@ export const useUncertaintyCalculation = (
     testPointData.measurementType,
     testPointData.equationString,
     testPointData.variableMappings,
+    testPointData.variableNominals,
     testPointData.inputCorrelations,
     tmdeTolerancesData,
     uutToleranceData,

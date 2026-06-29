@@ -7859,6 +7859,17 @@ function DetailedView({
     }
 
     const patch = { variableMappings: newMappings };
+    const currentNominal = testPointData.variableNominals?.[symbol];
+    const inferredUnit = inferVariableUnit(trimmedNewName);
+    if (trimmedNewName && inferredUnit && !currentNominal?.unit) {
+      patch.variableNominals = {
+        ...(testPointData.variableNominals || {}),
+        [symbol]: {
+          value: currentNominal?.value ?? "",
+          unit: inferredUnit,
+        },
+      };
+    }
 
     // Renaming a variable should carry its TMDE assignments along. Only do so
     // when this symbol exclusively owns the old name (another symbol mapped to
@@ -8236,6 +8247,63 @@ function DetailedView({
     }
   };
 
+  const inferVariableUnit = useCallback(
+    (variableName) => {
+      const targetName = String(variableName || "").trim().toLowerCase();
+      if (!targetName) return "";
+
+      const sessionFunction = resolveSessionFunctions(sessionData, {
+        kind: "tmde",
+      }).find((fn) => String(fn.name || "").trim().toLowerCase() === targetName);
+      if (sessionFunction?.unit) return sessionFunction.unit;
+
+      for (const tmde of relevantTmdes) {
+        const match = instrumentFunctions(tmde).find(
+          (fn) => String(fn.name || "").trim().toLowerCase() === targetName,
+        );
+        if (match?.unit) return match.unit;
+      }
+      return "";
+    },
+    [relevantTmdes, sessionData],
+  );
+
+  const getVariableNominal = useCallback(
+    (symbol, variableName = "") => {
+      const saved = testPointData.variableNominals?.[symbol] || {};
+      return {
+        value: saved.value ?? "",
+        unit: saved.unit || inferVariableUnit(variableName),
+      };
+    },
+    [inferVariableUnit, testPointData.variableNominals],
+  );
+
+  const handleVariableNominalUpdate = (symbol, field, value, variableName = "") => {
+    const current = getVariableNominal(symbol, variableName);
+    onUpdateTestPoint?.({
+      variableNominals: {
+        ...(testPointData.variableNominals || {}),
+        [symbol]: {
+          ...current,
+          [field]: value,
+        },
+      },
+    });
+  };
+
+  const getNominalForVariableType = useCallback(
+    (variableType) => {
+      const mappings = testPointData.variableMappings || {};
+      const symbol = Object.entries(mappings).find(
+        ([, name]) =>
+          String(name || "").trim() === String(variableType || "").trim(),
+      )?.[0];
+      return symbol ? getVariableNominal(symbol, variableType) : null;
+    },
+    [getVariableNominal, testPointData.variableMappings],
+  );
+
   const handleAssignTmdeToInput = (masterTmde, variableType, functionKey = null) => {
     const existing = tmdeTolerancesData.find(
       (tmde) =>
@@ -8255,9 +8323,19 @@ function DetailedView({
     }
 
     if (existing) {
+      const variableNominal = getNominalForVariableType(variableType);
       onUpdateTestPoint({
         tmdeTolerances: tmdeTolerancesData.map((tmde) =>
-          tmde.id === existing.id ? { ...tmde, variableType } : tmde,
+          tmde.id === existing.id
+            ? {
+                ...tmde,
+                variableType,
+                measurementPoint:
+                  variableNominal?.value !== "" && variableNominal?.unit
+                    ? variableNominal
+                    : tmde.measurementPoint,
+              }
+            : tmde,
         ),
       });
       return;
@@ -8279,7 +8357,9 @@ function DetailedView({
     const sibling = tmdeTolerancesData.find(
       (t) => t.variableType === variableType && t.measurementPoint?.unit,
     );
+    const variableNominal = getNominalForVariableType(variableType);
     const defaultUnit =
+      variableNominal?.unit ||
       sibling?.measurementPoint?.unit ||
       activeRange.unit ||
       masterTmde.instrument?.functions?.[0]?.unit ||
@@ -8295,9 +8375,12 @@ function DetailedView({
           sourceId: masterTmde.id,
           variableType,
           quantity: 1,
-          measurementPoint: masterTmde.measurementPoint?.value
-            ? masterTmde.measurementPoint
-            : { value: "", unit: defaultUnit },
+          measurementPoint:
+            variableNominal?.value !== "" && variableNominal?.unit
+              ? variableNominal
+              : masterTmde.measurementPoint?.value
+                ? masterTmde.measurementPoint
+                : { value: "", unit: defaultUnit },
         },
       ],
     });
@@ -8426,14 +8509,15 @@ function DetailedView({
             String(t.variableType).trim() === String(name).trim(),
         );
         const assignedTmde = assignedTmdes[0];
+        const nominal = getVariableNominal(symbol, name);
 
         return {
           symbol,
           name,
           isAssigned: assignedTmdes.length > 0,
           assignedTmdes,
-          value: assignedTmde?.measurementPoint?.value,
-          unit: assignedTmde?.measurementPoint?.unit,
+          value: nominal.value,
+          unit: nominal.unit,
         };
       });
 
@@ -8441,7 +8525,7 @@ function DetailedView({
       equation: testPointData.equationString || "",
       variables: vars,
     };
-  }, [isDerived, testPointData, tmdeTolerancesData]);
+  }, [getVariableNominal, isDerived, testPointData, tmdeTolerancesData]);
 
   const getEquationTmdeLabel = (tmde) =>
     tmde?.description ||
@@ -8686,7 +8770,14 @@ function DetailedView({
       uutNominal.value !== "" &&
       uutNominal.value !== null);
   const hasUnassignedVariables =
-    isDerived && equationDisplayData?.variables.some((v) => !v.isAssigned);
+    isDerived &&
+    equationDisplayData?.variables.some((v) => {
+      if (!String(v.name || "").trim()) return true;
+      if (v.value === "" || v.value === null || v.value === undefined) {
+        return true;
+      }
+      return !v.unit;
+    });
 
   const isBackendMappingError =
     calculationError &&
@@ -9357,7 +9448,7 @@ function DetailedView({
                               aria-label={`TMDE for equation variable ${variable.symbol}`}
                             >
                               {!variable.isAssigned && (
-                                <option value="">Assign a TMDE below</option>
+                                <option value="">Add from budget table</option>
                               )}
                               {variable.assignedTmdes.map((tmde) => (
                                 <option key={tmde.id} value={tmde.id}>
@@ -9367,27 +9458,38 @@ function DetailedView({
                             </select>
                           </label>
                           <label className="measurement-equation-value-field">
-                            <span>TMDE value</span>
+                            <span>Nominal value</span>
                             <div className="var-value-display">
                               <input
                                 type="number"
                                 step="any"
                                 className="var-value-input"
-                                value={selectedTmde?.measurementPoint?.value ?? ""}
+                                value={variable.value ?? ""}
                                 placeholder="Enter value"
-                                disabled={!selectedTmde}
+                                disabled={!String(variable.name || "").trim()}
                                 onChange={(e) =>
-                                  handleSourceNominalUpdate(
-                                    selectedTmde.id,
+                                  handleVariableNominalUpdate(
+                                    variable.symbol,
                                     "value",
                                     e.target.value,
+                                    variable.name,
                                   )
                                 }
-                                aria-label={`TMDE value for equation variable ${variable.symbol}`}
+                                aria-label={`Nominal value for equation variable ${variable.symbol}`}
                               />
-                              <span className="var-unit">
-                                {selectedTmde?.measurementPoint?.unit || "—"}
-                              </span>
+                              <UnitSelect
+                                value={variable.unit || ""}
+                                onChange={(unit) =>
+                                  handleVariableNominalUpdate(
+                                    variable.symbol,
+                                    "unit",
+                                    unit,
+                                    variable.name,
+                                  )
+                                }
+                                ariaLabel={`Nominal unit for equation variable ${variable.symbol}`}
+                                width="8.5ch"
+                              />
                             </div>
                           </label>
                           <em
@@ -9397,10 +9499,10 @@ function DetailedView({
                           >
                             {variable.isAssigned
                               ? variable.assignedTmdes.length > 1
-                                ? `${variable.assignedTmdes.length} assigned; switch above to compare values`
-                                : "TMDE assigned"
+                                ? `${variable.assignedTmdes.length} budget TMDEs assigned`
+                                : "Budget TMDE assigned"
                               : String(variable.name || "").trim()
-                                ? "Assign a TMDE in the table below"
+                                ? "Add TMDEs from this input's budget table"
                                 : "Name this input before assigning a TMDE"}
                           </em>
                         </div>
@@ -10227,42 +10329,8 @@ function DetailedView({
             style={{ padding: "20px", color: "var(--text-color-muted)" }}
           >
             {hasUnassignedVariables
-              ? "Map all equation variables to a TMDE above to calculate budget."
+              ? "Name each equation variable and enter its nominal value to calculate budget."
               : "Complete the equation configuration to calculate budget."}
-            {hasUnassignedVariables && availableVariables.length > 0 && (
-              <div
-                style={{
-                  marginTop: "14px",
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: "8px",
-                  justifyContent: "center",
-                }}
-              >
-                {availableVariables.map((variableType) => (
-                  <button
-                    key={variableType}
-                    type="button"
-                    className="budget-settings-action"
-                    style={{
-                      width: "auto",
-                      display: "inline-flex",
-                      padding: "8px 12px",
-                    }}
-                    onClick={() =>
-                      openBudgetTmdePicker({
-                        variableType,
-                        label: variableType,
-                        nominalPoint: { value: "", unit: "" },
-                      })
-                    }
-                  >
-                    <FontAwesomeIcon icon={faPlus} />
-                    Add TMDE to {variableType}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         ) : calculationError ? (
           <div className="form-section-warning">
