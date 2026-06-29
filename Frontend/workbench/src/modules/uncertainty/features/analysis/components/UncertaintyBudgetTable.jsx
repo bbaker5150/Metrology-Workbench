@@ -442,13 +442,15 @@ const UncertaintyBudgetTable = ({
     if (component.isCore && !component.sourceTmdeId) return null;
     return (
       <div className="budget-row-actions">
-        <span
-          onClick={(e) => onEdit?.(e, component)}
-          className="action-icon"
-          title="Edit Component"
-        >
-          <FontAwesomeIcon icon={faPencilAlt} />
-        </span>
+        {!component.missingTolerance && (
+          <span
+            onClick={(e) => onEdit?.(e, component)}
+            className="action-icon"
+            title="Edit Component"
+          >
+            <FontAwesomeIcon icon={faPencilAlt} />
+          </span>
+        )}
         <span
           onClick={() => onRemove?.(component.id, component)}
           className="delete-action"
