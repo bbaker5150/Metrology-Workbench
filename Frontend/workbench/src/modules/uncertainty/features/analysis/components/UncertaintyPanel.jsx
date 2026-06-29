@@ -4711,7 +4711,7 @@ const SummaryDashboard = ({
               </tr>
             </thead>
             <tbody>
-              {filteredUuts.length === 0 ? (
+              {getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds, "uut").length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={5}>
                     No UUTs found in this context.
@@ -5154,7 +5154,7 @@ const SummaryDashboard = ({
               </tr>
             </thead>
             <tbody>
-              {filteredTmdes.length === 0 ? (
+              {getGroupedInstrumentRows(filteredTmdes, "instrument", pinnedInlineTmdeIds, "tmde").length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={6}>No TMDEs found in session.</td>
                 </tr>
@@ -8665,7 +8665,11 @@ function DetailedView({
               </tr>
             </thead>
             <tbody>
-              {relevantUuts.length === 0 ? (
+              {buildFunctionGroupedRows(
+                relevantUuts.map((item, index) => ({ type: "item", item, index })),
+                sessionData,
+                "uut",
+              ).length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan="5">No associated UUTs found.</td>
                 </tr>
@@ -9393,7 +9397,11 @@ function DetailedView({
                 </tr>
               </thead>
               <tbody>
-                {relevantTmdes.length === 0 ? (
+                {buildFunctionGroupedRows(
+                  relevantTmdes.map((item, index) => ({ type: "item", item, index })),
+                  sessionData,
+                  "tmde",
+                ).length === 0 ? (
                   <tr className="panel-empty-row">
                     <td colSpan="7">
                       No TMDEs defined for this measurement area.
