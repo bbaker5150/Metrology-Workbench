@@ -1946,6 +1946,84 @@ const resolveUutRangeHelper = (
   };
 };
 
+// Group instrument rows by FUNCTION subsection — shared by the Session Overview
+// and the Detailed (point) view so both tables read identically. `groupedItems`
+// are `{ type:"item", item, index }`; returns a flat list of `{type:"function"}`
+// headers interleaved with item rows carrying `functionKey` + `rowKey` (the bare
+// id for single-function instruments, `${functionKey}::${id}` for multi-function
+// ones so each subsection's range state is independent). Empty subsections are
+// emitted for user-added functions (session.functionGroups) with no instrument.
+const buildFunctionGroupedRows = (groupedItems, sessionData) => {
+  const sessionFunctions = resolveSessionFunctions(sessionData);
+  const fnByKey = new Map(sessionFunctions.map((fn) => [fn.key, fn]));
+  const fnOrder = new Map(sessionFunctions.map((fn, index) => [fn.key, index]));
+  const groups = new Map();
+
+  groupedItems.forEach((row) => {
+    const declared = instrumentFunctions(row.item);
+    const seenFnKeys = new Set();
+    const fnList = (
+      declared.length
+        ? declared
+        : [{ key: makeFunctionKey("Measurement", ""), name: "Measurement", unit: "" }]
+    ).filter((fn) => {
+      if (seenFnKeys.has(fn.key)) return false;
+      seenFnKeys.add(fn.key);
+      return true;
+    });
+    const multi = fnList.length > 1;
+
+    fnList.forEach((primary) => {
+      const fn = fnByKey.get(primary.key) || {
+        key: primary.key,
+        name: primary.name,
+        unit: primary.unit,
+        color: null,
+      };
+      if (!groups.has(fn.key)) {
+        groups.set(fn.key, {
+          type: "function",
+          fn,
+          order: fnOrder.has(fn.key) ? fnOrder.get(fn.key) : Number.MAX_SAFE_INTEGER,
+          items: [],
+        });
+      }
+      groups.get(fn.key).items.push({
+        ...row,
+        functionKey: fn.key,
+        rowKey: multi ? `${fn.key}::${row.item.id}` : row.item.id,
+      });
+    });
+  });
+
+  (sessionData.functionGroups || []).forEach((fg) => {
+    const key = makeFunctionKey(fg.name, fg.unit);
+    if (!groups.has(key)) {
+      const fn = fnByKey.get(key) || { key, name: fg.name, unit: fg.unit, color: null };
+      groups.set(key, {
+        type: "function",
+        fn,
+        order: fnOrder.has(key) ? fnOrder.get(key) : Number.MAX_SAFE_INTEGER,
+        items: [],
+      });
+    }
+  });
+
+  return Array.from(groups.values())
+    .sort((a, b) => {
+      if (a.order !== b.order) return a.order - b.order;
+      return a.fn.name.localeCompare(b.fn.name);
+    })
+    .flatMap((group) => [
+      group,
+      ...group.items.sort((a, b) => {
+        const aLabel = (a.item.description || a.item.name || "").toLowerCase();
+        const bLabel = (b.item.description || b.item.name || "").toLowerCase();
+        return aLabel.localeCompare(bLabel);
+      }),
+    ]);
+};
+
 const stableSpecString = (value) => {
   const normalize = (input) => {
     if (input === undefined) return null;
@@ -4711,105 +4789,7 @@ const SummaryDashboard = ({
         return [...pinnedRows, ...groupedItems];
       }
 
-      // Group by FUNCTION (the table's subsection axis). Each instrument is
-      // placed under its first declared function; the function's color/name come
-      // from resolveSessionFunctions so they match the sidebar exactly.
-      const sessionFunctions = resolveSessionFunctions(sessionData);
-      const fnByKey = new Map(sessionFunctions.map((fn) => [fn.key, fn]));
-      const fnOrder = new Map(
-        sessionFunctions.map((fn, index) => [fn.key, index]),
-      );
-      const groups = new Map();
-
-      groupedItems.forEach((row) => {
-        // An instrument appears under EACH function it declares; a single-function
-        // instrument keeps rowKey === id so its per-row range state behaves
-        // exactly as before (no regression). Multi-function instruments get a
-        // composite rowKey so each subsection's range switcher is independent.
-        const declared = instrumentFunctions(row.item);
-        // Dedupe by function key so an instrument that lists the same function
-        // twice doesn't render duplicate rows (and duplicate React keys).
-        const seenFnKeys = new Set();
-        const fnList = (
-          declared.length
-            ? declared
-            : [{ key: makeFunctionKey("Measurement", ""), name: "Measurement", unit: "" }]
-        ).filter((fn) => {
-          if (seenFnKeys.has(fn.key)) return false;
-          seenFnKeys.add(fn.key);
-          return true;
-        });
-        const multi = fnList.length > 1;
-
-        fnList.forEach((primary) => {
-          const fn = fnByKey.get(primary.key) || {
-            key: primary.key,
-            name: primary.name,
-            unit: primary.unit,
-            color: null,
-          };
-          if (!groups.has(fn.key)) {
-            groups.set(fn.key, {
-              type: "function",
-              fn,
-              order: fnOrder.has(fn.key)
-                ? fnOrder.get(fn.key)
-                : Number.MAX_SAFE_INTEGER,
-              items: [],
-            });
-          }
-          groups.get(fn.key).items.push({
-            ...row,
-            functionKey: fn.key,
-            rowKey: multi ? `${fn.key}::${row.item.id}` : row.item.id,
-          });
-        });
-      });
-
-      // Render an empty subsection for each user-added function (in
-      // session.functionGroups) that no instrument uses yet, so its (+) can add
-      // the first instrument for that function.
-      (sessionData.functionGroups || []).forEach((fg) => {
-        const key = makeFunctionKey(fg.name, fg.unit);
-        if (!groups.has(key)) {
-          const fn = fnByKey.get(key) || {
-            key,
-            name: fg.name,
-            unit: fg.unit,
-            color: null,
-          };
-          groups.set(key, {
-            type: "function",
-            fn,
-            order: fnOrder.has(key) ? fnOrder.get(key) : Number.MAX_SAFE_INTEGER,
-            items: [],
-          });
-        }
-      });
-
-      const groupedRows = Array.from(groups.values())
-        .sort((a, b) => {
-          if (a.order !== b.order) return a.order - b.order;
-          return a.fn.name.localeCompare(b.fn.name);
-        })
-        .flatMap((group) => [
-          group,
-          ...group.items.sort((a, b) => {
-            const aLabel = (
-              a.item.description ||
-              a.item.name ||
-              ""
-            ).toLowerCase();
-            const bLabel = (
-              b.item.description ||
-              b.item.name ||
-              ""
-            ).toLowerCase();
-            return aLabel.localeCompare(bLabel);
-          }),
-        ]);
-
-      return [...pinnedRows, ...groupedRows];
+      return [...pinnedRows, ...buildFunctionGroupedRows(groupedItems, sessionData)];
     },
     [sessionData, showAreaColumn],
   );
