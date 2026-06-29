@@ -5613,6 +5613,7 @@ function DetailedView({
   const [selectedUutIds, setSelectedUutIds] = useState([]);
   const [selectedTmdeIds, setSelectedTmdeIds] = useState([]);
   const [equationTmdeSelections, setEquationTmdeSelections] = useState({});
+  const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
 
   // --- Cut / copy / paste of instrument rows (shared module clipboard) ---
   const [rowMenu, setRowMenu] = useState(null);
@@ -8235,7 +8236,7 @@ function DetailedView({
     }
   };
 
-  const handleAssignTmdeToInput = (masterTmde, variableType) => {
+  const handleAssignTmdeToInput = (masterTmde, variableType, functionKey = null) => {
     const existing = tmdeTolerancesData.find(
       (tmde) =>
         String(tmde.id) === String(masterTmde.id) ||
@@ -8267,6 +8268,7 @@ function DetailedView({
       tmdeRangeIndices,
       null,
       null,
+      functionKey,
     );
     const activeRange = resolution.activeRange || {};
     const rangeSpecs = { ...activeRange };
@@ -8319,8 +8321,15 @@ function DetailedView({
     onUpdateTestPoint({ tmdeTolerances: nextTolerances });
   };
 
-  const handleToggleTmdeUsage = (tmdeId, isChecked) => {
+  const handleToggleTmdeUsage = (tmdeId, isChecked, functionKey = null) => {
     if (isChecked) {
+      if (
+        tmdeTolerancesData.some(
+          (t) => String(t.id) === String(tmdeId) || String(t.sourceId) === String(tmdeId),
+        )
+      ) {
+        return;
+      }
       const sourceTmde = sessionData.tmdes.find((t) => t.id === tmdeId);
       if (sourceTmde) {
         // Auto-select the range that covers this point (Priority C) rather than
@@ -8331,6 +8340,7 @@ function DetailedView({
           tmdeRangeIndices,
           null,
           isDerived ? null : uutNominal,
+          functionKey,
         );
         const activeRange = resolution.activeRange || {};
         const compatibility = assessTmdeCompatibility(
@@ -8440,6 +8450,143 @@ function DetailedView({
       ? `${tmde.instrument.manufacturer || ""} ${tmde.instrument.model || ""}`.trim()
       : "") ||
     "Unnamed TMDE";
+
+  const budgetFunctionKey = useCallback(
+    (scope = null) => {
+      if (isDerived) {
+        return makeFunctionKey(
+          scope?.variableType || scope?.label || "",
+          scope?.nominalPoint?.unit || "",
+        );
+      }
+      return functionKeyOf(testPointData);
+    },
+    [isDerived, testPointData],
+  );
+
+  const tmdeSupportsFunction = useCallback((tmde, functionKey) => {
+    if (!functionKey) return true;
+    const [functionNamePart, functionUnitPart = ""] = String(functionKey).split("|");
+    const matchesKey = (name, unit) => {
+      const candidateKey = makeFunctionKey(name, unit);
+      if (candidateKey === functionKey) return true;
+      return !functionUnitPart && candidateKey.split("|")[0] === functionNamePart;
+    };
+    if (instrumentHasFunction(tmde, functionKey)) return true;
+    if (
+      !functionUnitPart &&
+      instrumentFunctions(tmde).some((fn) => matchesKey(fn.name, fn.unit))
+    ) {
+      return true;
+    }
+    return getInstrumentRangeRows(tmde).some(
+      (range) =>
+        matchesKey(
+          range.functionName || "",
+          range.functionUnit || range.unit || "",
+        ),
+    );
+  }, []);
+
+  const openBudgetTmdePicker = useCallback(
+    (scope) => {
+      const functionKey = budgetFunctionKey(scope);
+      const options = relevantTmdes.filter((tmde) =>
+        tmdeSupportsFunction(tmde, functionKey),
+      );
+      if (options.length === 0) {
+        setNotification?.({
+          title: "No TMDEs Available",
+          message:
+            "Add a TMDE to this function first, then add it to the budget.",
+        });
+        return;
+      }
+      setBudgetTmdePicker({ scope, functionKey, options });
+    },
+    [budgetFunctionKey, relevantTmdes, setNotification, tmdeSupportsFunction],
+  );
+
+  const addBudgetTmde = (tmde) => {
+    if (!budgetTmdePicker) return;
+    if (isDerived) {
+      handleAssignTmdeToInput(
+        tmde,
+        budgetTmdePicker.scope?.variableType || budgetTmdePicker.scope?.label,
+        budgetTmdePicker.functionKey,
+      );
+    } else {
+      handleToggleTmdeUsage(tmde.id, true, budgetTmdePicker.functionKey);
+    }
+    setBudgetTmdePicker(null);
+  };
+
+  const renderBudgetTmdePicker = () => {
+    if (!budgetTmdePicker) return null;
+    const scopeLabel = budgetTmdePicker.scope?.label || "Budget";
+    return ReactDOM.createPortal(
+      <div
+        className="modal-backdrop"
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 99998,
+          background: "rgba(0, 0, 0, 0.35)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+        onMouseDown={() => setBudgetTmdePicker(null)}
+      >
+        <div
+          className="modal-content"
+          style={{
+            width: "min(460px, calc(100vw - 32px))",
+            maxHeight: "70vh",
+            overflow: "auto",
+            background: "var(--component-bg)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "8px",
+            boxShadow: "0 16px 40px rgba(0,0,0,0.35)",
+            padding: "14px",
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+            <h4 style={{ margin: 0 }}>Add TMDE to {scopeLabel}</h4>
+            <button
+              type="button"
+              className="inline-icon-btn"
+              onClick={() => setBudgetTmdePicker(null)}
+              title="Close"
+            >
+              x
+            </button>
+          </div>
+          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+            {budgetTmdePicker.options.map((tmde) => (
+              <button
+                key={tmde.id}
+                type="button"
+                className="budget-settings-action"
+                style={{
+                  justifyContent: "flex-start",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "6px",
+                  padding: "8px 10px",
+                }}
+                onClick={() => addBudgetTmde(tmde)}
+              >
+                <FontAwesomeIcon icon={faTools} />
+                <span>{getEquationTmdeLabel(tmde)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
 
   // Live validation of the equation editor's content: hard errors for
   // constructs the engines can't evaluate, warnings for shadowed mathjs
@@ -10060,6 +10207,40 @@ function DetailedView({
             {hasUnassignedVariables
               ? "Map all equation variables to a TMDE above to calculate budget."
               : "Complete the equation configuration to calculate budget."}
+            {hasUnassignedVariables && availableVariables.length > 0 && (
+              <div
+                style={{
+                  marginTop: "14px",
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "8px",
+                  justifyContent: "center",
+                }}
+              >
+                {availableVariables.map((variableType) => (
+                  <button
+                    key={variableType}
+                    type="button"
+                    className="budget-settings-action"
+                    style={{
+                      width: "auto",
+                      display: "inline-flex",
+                      padding: "8px 12px",
+                    }}
+                    onClick={() =>
+                      openBudgetTmdePicker({
+                        variableType,
+                        label: variableType,
+                        nominalPoint: { value: "", unit: "" },
+                      })
+                    }
+                  >
+                    <FontAwesomeIcon icon={faPlus} />
+                    Add TMDE to {variableType}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ) : calculationError ? (
           <div className="form-section-warning">
@@ -10086,6 +10267,7 @@ function DetailedView({
               setShowContribution={setShowContribution}
               hasTmde={tmdeTolerancesData.length > 0}
               onAddManualComponent={onAddManualComponent}
+              onAddTmdeToBudget={openBudgetTmdePicker}
               onEdit={onEditManualComponent}
               onOpenRepeatability={onOpenRepeatability}
               onOpenCorrelation={onOpenCorrelation}
@@ -10132,6 +10314,7 @@ function DetailedView({
           </p>
         </div>
       )}
+      {renderBudgetTmdePicker()}
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
     </div>
   );

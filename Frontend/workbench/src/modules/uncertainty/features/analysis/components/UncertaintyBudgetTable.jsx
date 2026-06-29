@@ -288,6 +288,7 @@ const UncertaintyBudgetTable = ({
   setShowContribution,
   hasTmde,
   onAddManualComponent,
+  onAddTmdeToBudget,
   onOpenRepeatability,
   setNotification,
   onComponentUpdate,
@@ -372,6 +373,11 @@ const UncertaintyBudgetTable = ({
   }, [calcResults, components, derivedName, derivedUnit]);
 
   if (!hasTmde) {
+    const emptyScope = {
+      label: derivedName || "Final",
+      nominalPoint: referencePoint,
+      variableType: "",
+    };
     return (
       <div
         className="placeholder-content"
@@ -382,6 +388,22 @@ const UncertaintyBudgetTable = ({
           Add a Test Measurement Device (TMDE) to begin the uncertainty budget
           calculation.
         </p>
+        {onAddTmdeToBudget && (
+          <button
+            type="button"
+            className="budget-settings-action"
+            style={{
+              marginTop: "12px",
+              display: "inline-flex",
+              width: "auto",
+              padding: "8px 12px",
+            }}
+            onClick={() => onAddTmdeToBudget(emptyScope)}
+          >
+            <FontAwesomeIcon icon={faPlus} />
+            Add TMDE
+          </button>
+        )}
       </div>
     );
   }
@@ -757,6 +779,9 @@ const UncertaintyBudgetTable = ({
       group.kind === "input" ||
       group.kind === "equation" ||
       group.kind === "final";
+    const canAddTmde =
+      (measurementType === "derived" && group.kind === "input") ||
+      (measurementType === "direct" && group.kind === "final");
     const canAddRepeatability =
       group.kind === "input" || (isDirect && group.kind === "final");
 
@@ -778,8 +803,21 @@ const UncertaintyBudgetTable = ({
         {openSectionSettings === group.id && (
           <div className="budget-settings-menu budget-section-settings-menu">
             {(canAddManual ||
+              canAddTmde ||
               canAddRepeatability ||
               group.kind === "equation") && <h5>Actions</h5>}
+            {canAddTmde && (
+              <button
+                type="button"
+                className="budget-settings-action"
+                onClick={() =>
+                  runSectionAction(() => onAddTmdeToBudget?.(getGroupScope(group)))
+                }
+              >
+                <FontAwesomeIcon icon={faPlus} />
+                Add TMDE
+              </button>
+            )}
             {canAddManual && (
               <button
                 type="button"
