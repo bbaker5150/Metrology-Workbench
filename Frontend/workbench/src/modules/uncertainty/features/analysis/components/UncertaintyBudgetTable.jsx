@@ -450,7 +450,7 @@ const UncertaintyBudgetTable = ({
           <FontAwesomeIcon icon={faPencilAlt} />
         </span>
         <span
-          onClick={() => onRemove?.(component.id)}
+          onClick={() => onRemove?.(component.id, component)}
           className="delete-action"
           title="Remove Component"
         >

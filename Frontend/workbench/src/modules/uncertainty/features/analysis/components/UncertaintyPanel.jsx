@@ -7588,20 +7588,6 @@ function DetailedView({
     activeMeasurementArea?.name,
   ]);
 
-  const availableVariables = useMemo(() => {
-    if (!isDerived) return [];
-    if (
-      testPointData.variableMappings &&
-      Object.values(testPointData.variableMappings).length > 0
-    ) {
-      const vars = Object.values(testPointData.variableMappings)
-        .map((v) => (v ? String(v).trim() : "")) // <--- FIX: Ensure it is a string first
-        .filter((v) => v !== "");
-      return [...new Set(vars)];
-    }
-    return [];
-  }, [testPointData, isDerived]);
-
   // --- HANDLERS ---
   const handleUutCheckboxChange = (uutId) => {
     onToggleUut(uutId);
@@ -9654,11 +9640,7 @@ function DetailedView({
               style={{ tableLayout: "fixed" }}
             >
               <colgroup>
-                {/* Direct points toggle usage. Derived points assign each
-                    instrument to one mapped input; several instruments may
-                    contribute to the same input budget. */}
-                <col style={{ width: isDerived ? "10%" : "5%" }} />
-                <col style={{ width: isDerived ? "20%" : "25%" }} />
+                <col style={{ width: "30%" }} />
                 <col style={{ width: "22%" }} />
                 <col style={{ width: "15%" }} />
                 <col style={{ width: "10%" }} />
@@ -9667,9 +9649,6 @@ function DetailedView({
               </colgroup>
               <thead>
                 <tr>
-                  <th style={{ textAlign: isDerived ? "left" : "center" }}>
-                    {isDerived ? "Assigned Input" : "Use"}
-                  </th>
                   <th>Description</th>
                   <th>
                     <span className="range-header-cell">
@@ -9695,7 +9674,7 @@ function DetailedView({
                   "tmde",
                 ).length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan="7">
+                    <td colSpan="6">
                       No TMDEs defined for this measurement area.
                     </td>
                   </tr>
@@ -9706,7 +9685,7 @@ function DetailedView({
                     "tmde",
                   ).map((row) => {
                     if (row.type === "function") {
-                      return renderFunctionHeaderRow("tmde", row.fn, 8);
+                      return renderFunctionHeaderRow("tmde", row.fn, 6);
                     }
                     const masterTmde = row.item;
                     const tmdeRowKey = row.rowKey ?? masterTmde.id;
@@ -9742,9 +9721,6 @@ function DetailedView({
                         tmdeFnKey,
                       );
                       const { ranges, activeIndex, activeRange } = resolution;
-                      const compatibility = isDerived
-                        ? { compatible: true, reason: "" }
-                        : assessTmdeCompatibility(activeRange, uutNominal);
 
                       const effectiveTolerance = activeRange;
                       const specRows = getSpecRows(effectiveTolerance);
@@ -9767,60 +9743,14 @@ function DetailedView({
                           ? `${masterTmde.instrument.manufacturer} ${masterTmde.instrument.model}`
                           : "Unknown TMDE");
 
-                      // Expanded "view all ranges": one real <tr> per range. The
-                      // checkbox/derived assignment (col 0) and description (col 1)
-                      // span the group via rowSpan on the first range row.
+                      // Expanded "view all ranges": one real <tr> per range.
+                      // Description and sync span the group via rowSpan on the
+                      // first range row.
                       if (showAllRanges) {
                         const n = visibleRangeRows.length;
                         const canDelete = ranges.length > 1;
                         const activeRangeIndex =
                           tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
-                        const renderUsageCell = () =>
-                          isDerived ? (
-                            <select
-                              className="tmde-input-assignment"
-                              value={isChecked ? tmdeInstance.variableType || "" : ""}
-                              onChange={(e) =>
-                                handleAssignTmdeToInput(masterTmde, e.target.value)
-                              }
-                              aria-label={`Assign ${safeDescription} to equation input`}
-                            >
-                              <option value="">Not used</option>
-                              {availableVariables.map((variableType) => (
-                                <option key={variableType} value={variableType}>
-                                  {variableType}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (!isChecked && !compatibility.compatible) {
-                                  setNotification({
-                                    title: "Can't Use This TMDE",
-                                    message: `${compatibility.reason} Adjust the TMDE's range/unit (or the measurement point) so it covers this point, then try again.`,
-                                  });
-                                  return;
-                                }
-                                handleToggleTmdeUsage(masterTmde.id, e.target.checked);
-                              }}
-                              title={
-                                compatibility.compatible
-                                  ? "Use this TMDE"
-                                  : `Can't use: ${compatibility.reason}`
-                              }
-                              style={{
-                                cursor:
-                                  !isChecked && !compatibility.compatible
-                                    ? "not-allowed"
-                                    : "pointer",
-                                opacity:
-                                  !isChecked && !compatibility.compatible ? 0.5 : 1,
-                              }}
-                            />
-                          );
                         return (
                           <React.Fragment key={`${tmdeRowKey}-${idx}`}>
                             {visibleRangeRows.map(({ range, index, key }, i) => {
@@ -9828,7 +9758,7 @@ function DetailedView({
                               return (
                                 <tr
                                   key={key}
-                                  className={`tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isChecked ? " active-point-tmde-row" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                                  className={`tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                                   onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                                   onContextMenu={(e) =>
                                     openRangeRowMenu(e, "tmde", masterTmde, range, index, n)
@@ -9842,32 +9772,16 @@ function DetailedView({
                                     }
                                   }}
                                   style={{
-                                    opacity: isChecked || isSelectedRow ? 1 : 0.7,
+                                    opacity: isSelectedRow ? 1 : 0.85,
                                     cursor: "pointer",
                                   }}
                                 >
                                   {i === 0 && (
                                     <td
                                       rowSpan={n}
-                                      style={{
-                                        textAlign: isDerived ? "left" : "center",
-                                        verticalAlign: "middle",
-                                      }}
-                                      onClick={(e) => e.stopPropagation()}
-                                      className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                      className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                       onMouseEnter={() =>
                                         setHoveredCell({ tableId: "tmde_det", colIndex: 0 })
-                                      }
-                                    >
-                                      {renderUsageCell()}
-                                    </td>
-                                  )}
-                                  {i === 0 && (
-                                    <td
-                                      rowSpan={n}
-                                      className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
-                                      onMouseEnter={() =>
-                                        setHoveredCell({ tableId: "tmde_det", colIndex: 1 })
                                       }
                                     >
                                       <EditableDescriptionCell
@@ -9887,7 +9801,7 @@ function DetailedView({
                                   {renderRangeRowCellsDetail("tmde", masterTmde, range, {
                                     includeDistribution: true,
                                     canDelete,
-                                    cols: { range: 2, tol: 3, res: 4 },
+                                    cols: { range: 1, tol: 2, res: 4 },
                                   })}
                                   {i === 0 && (
                                     <td
@@ -9911,10 +9825,10 @@ function DetailedView({
                       return (
                         <React.Fragment key={`${tmdeRowKey}-${idx}`}>
                           <tr
-                            className={`tmde-row ${isChecked ? "active-point-tmde-row" : ""} ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                            className={`tmde-row ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                             onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                             style={{
-                              opacity: isChecked ? 1 : isSelectedRow ? 1 : 0.7,
+                              opacity: isSelectedRow ? 1 : 0.85,
                               cursor: "pointer",
                             }}
                             onClick={(e) => handleTmdeClick(e, masterTmde.id)}
@@ -9925,95 +9839,11 @@ function DetailedView({
                           >
                             <td
                               rowSpan={rowSpan}
-                              style={{
-                                textAlign: isDerived ? "left" : "center",
-                                verticalAlign: "middle",
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                              className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                               onMouseEnter={() =>
                                 setHoveredCell({
                                   tableId: "tmde_det",
                                   colIndex: 0,
-                                })
-                              }
-                            >
-                              {isDerived ? (
-                                <select
-                                  className="tmde-input-assignment"
-                                  value={
-                                    isChecked
-                                      ? tmdeInstance.variableType || ""
-                                      : ""
-                                  }
-                                  onChange={(e) =>
-                                    handleAssignTmdeToInput(
-                                      masterTmde,
-                                      e.target.value,
-                                    )
-                                  }
-                                  aria-label={`Assign ${safeDescription} to equation input`}
-                                >
-                                  <option value="">Not used</option>
-                                  {availableVariables.map((variableType) => (
-                                    <option
-                                      key={variableType}
-                                      value={variableType}
-                                    >
-                                      {variableType}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  // Intentionally NOT disabled when incompatible:
-                                  // a disabled checkbox swallows the click, so the
-                                  // user gets no explanation. We keep it clickable
-                                  // and explain why on attempt (see below).
-                                  onChange={(e) => {
-                                    if (
-                                      !isChecked &&
-                                      !compatibility.compatible
-                                    ) {
-                                      setNotification({
-                                        title: "Can't Use This TMDE",
-                                        message: `${compatibility.reason} Adjust the TMDE's range/unit (or the measurement point) so it covers this point, then try again.`,
-                                      });
-                                      return;
-                                    }
-                                    handleToggleTmdeUsage(
-                                      masterTmde.id,
-                                      e.target.checked,
-                                    );
-                                  }}
-                                  title={
-                                    compatibility.compatible
-                                      ? "Use this TMDE"
-                                      : `Can't use: ${compatibility.reason}`
-                                  }
-                                  style={{
-                                    cursor:
-                                      !isChecked && !compatibility.compatible
-                                        ? "not-allowed"
-                                        : "pointer",
-                                    opacity:
-                                      !isChecked && !compatibility.compatible
-                                        ? 0.5
-                                        : 1,
-                                  }}
-                                />
-                              )}
-                            </td>
-
-                            <td
-                              rowSpan={rowSpan}
-                              className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
-                              onMouseEnter={() =>
-                                setHoveredCell({
-                                  tableId: "tmde_det",
-                                  colIndex: 1,
                                 })
                               }
                             >
@@ -10050,11 +9880,11 @@ function DetailedView({
 
                             <td
                               rowSpan={rowSpan}
-                              className={`cell-value ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
+                              className={`cell-value ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
                               onMouseEnter={() =>
                                 setHoveredCell({
                                   tableId: "tmde_det",
-                                  colIndex: 2,
+                                  colIndex: 1,
                                 })
                               }
                               style={{ verticalAlign: "middle" }}
@@ -10105,11 +9935,11 @@ function DetailedView({
                             </td>
 
                             <td
-                              className={`cell-tolerance ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
+                              className={`cell-tolerance ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
                               onMouseEnter={() =>
                                 setHoveredCell({
                                   tableId: "tmde_det",
-                                  colIndex: 3,
+                                  colIndex: 2,
                                 })
                               }
                               title={!onSessionSave ? specRows[0] : undefined}
@@ -10265,10 +10095,8 @@ function DetailedView({
                                           )
                                         }
                                       />
-                                    ) : isChecked ? (
-                                      formatResolutionLabel(range)
                                     ) : (
-                                      ""
+                                      formatResolutionLabel(range)
                                     )}
                                   </div>
                                 ))}
@@ -10286,20 +10114,17 @@ function DetailedView({
                           {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                             <tr
                               key={`${tmdeRowKey}-${idx}-spec-${sIdx}`}
-                              className={`spec-row ${isChecked ? "active-point-tmde-spec-row" : ""} ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "hovered-spec-row" : ""}`}
+                              className={`spec-row ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "hovered-spec-row" : ""}`}
                               onMouseEnter={() =>
                                 setHoveredRowId(masterTmde.id)
                               }
-                              style={{
-                                opacity: isChecked ? 1 : 0.7,
-                              }}
                             >
                               <td
-                                className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
+                                className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
                                 onMouseEnter={() =>
                                   setHoveredCell({
                                     tableId: "tmde_det",
-                                    colIndex: 3,
+                                    colIndex: 2,
                                   })
                                 }
                                 style={{

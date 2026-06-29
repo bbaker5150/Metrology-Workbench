@@ -457,7 +457,19 @@ function Analysis({
     }
   };
 
-  const handleRemoveComponent = (id) => {
+  const handleRemoveComponent = (id, component = null) => {
+    if (component?.sourceTmdeId) {
+      const sourceId = String(component.sourceTmdeId);
+      const updatedTolerances = tmdeTolerancesData.filter(
+        (tmde) =>
+          String(tmde.id) !== sourceId && String(tmde.sourceId) !== sourceId,
+      );
+      if (updatedTolerances.length < tmdeTolerancesData.length) {
+        onDataSave({ tmdeTolerances: updatedTolerances });
+        return;
+      }
+    }
+
     const updatedComponents = manualComponents.filter((c) => c.id !== id);
     if (updatedComponents.length < manualComponents.length) {
       onDataSave({ components: updatedComponents });
