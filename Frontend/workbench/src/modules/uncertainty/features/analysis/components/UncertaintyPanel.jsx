@@ -8489,7 +8489,7 @@ function DetailedView({
   }, []);
 
   const openBudgetTmdePicker = useCallback(
-    (scope) => {
+    (scope, event = null) => {
       const functionKey = budgetFunctionKey(scope);
       const options = relevantTmdes.filter((tmde) =>
         tmdeSupportsFunction(tmde, functionKey),
@@ -8502,7 +8502,8 @@ function DetailedView({
         });
         return;
       }
-      setBudgetTmdePicker({ scope, functionKey, options });
+      const rect = event?.currentTarget?.getBoundingClientRect?.() || null;
+      setBudgetTmdePicker({ scope, functionKey, options, rect });
     },
     [budgetFunctionKey, relevantTmdes, setNotification, tmdeSupportsFunction],
   );
@@ -8524,58 +8525,79 @@ function DetailedView({
   const renderBudgetTmdePicker = () => {
     if (!budgetTmdePicker) return null;
     const scopeLabel = budgetTmdePicker.scope?.label || "Budget";
+    const itemStyle = {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      width: "100%",
+      textAlign: "left",
+      padding: "7px 10px",
+      background: "transparent",
+      border: "none",
+      borderRadius: "4px",
+      color: "var(--text-color)",
+      cursor: "pointer",
+      fontSize: "0.85em",
+    };
+    const MENU_WIDTH = 280;
+    const rect = budgetTmdePicker.rect;
+    const left = rect
+      ? Math.max(
+          8,
+          Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8),
+        )
+      : 8;
+    const top = rect
+      ? Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 80))
+      : 60;
     return ReactDOM.createPortal(
-      <div
-        className="modal-backdrop"
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 99998,
-          background: "rgba(0, 0, 0, 0.35)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-        onMouseDown={() => setBudgetTmdePicker(null)}
-      >
+      <>
         <div
-          className="modal-content"
+          onClick={() => setBudgetTmdePicker(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 4000 }}
+        />
+        <div
+          className="budget-settings-menu budget-tmde-picker-menu"
           style={{
-            width: "min(460px, calc(100vw - 32px))",
-            maxHeight: "70vh",
+            position: "fixed",
+            top,
+            left,
+            width: `${MENU_WIDTH}px`,
+            maxHeight: "min(360px, 70vh)",
             overflow: "auto",
             background: "var(--component-bg)",
             border: "1px solid var(--border-color)",
             borderRadius: "8px",
-            boxShadow: "0 16px 40px rgba(0,0,0,0.35)",
-            padding: "14px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+            zIndex: 4001,
+            padding: "8px",
           }}
-          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-            <h4 style={{ margin: 0 }}>Add TMDE to {scopeLabel}</h4>
-            <button
-              type="button"
-              className="inline-icon-btn"
-              onClick={() => setBudgetTmdePicker(null)}
-              title="Close"
-            >
-              x
-            </button>
+          <div
+            style={{
+              fontSize: "0.7rem",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              opacity: 0.6,
+              padding: "2px 6px 6px",
+            }}
+          >
+            Add TMDE to {scopeLabel}
           </div>
-          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+          <div>
             {budgetTmdePicker.options.map((tmde) => (
               <button
                 key={tmde.id}
                 type="button"
-                className="budget-settings-action"
-                style={{
-                  justifyContent: "flex-start",
-                  border: "1px solid var(--border-color)",
-                  borderRadius: "6px",
-                  padding: "8px 10px",
-                }}
+                style={itemStyle}
                 onClick={() => addBudgetTmde(tmde)}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = "var(--input-background)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
               >
                 <FontAwesomeIcon icon={faTools} />
                 <span>{getEquationTmdeLabel(tmde)}</span>
@@ -8583,7 +8605,7 @@ function DetailedView({
             ))}
           </div>
         </div>
-      </div>,
+      </>,
       document.body,
     );
   };
