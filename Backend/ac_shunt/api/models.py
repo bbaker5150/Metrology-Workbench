@@ -325,6 +325,45 @@ def aggregate_cycle_deltas(cycle_deltas):
     return (mean_val, std_dev / math.sqrt(len(nums)))
 
 
+def _results_n_cycles(results):
+    """Return the configured ``n_cycles`` (the operator's source-of-truth
+    cycle count) for a CalibrationResults' test point, or None when no
+    setting is persisted. Used to cap aggregation so analytics honor the
+    chosen N even if a direction physically collected more cycles."""
+    if results is None:
+        return None
+    tp = getattr(results, 'test_point', None)
+    settings = getattr(tp, 'settings', None) if tp is not None else None
+    n = getattr(settings, 'n_cycles', None)
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 1 else None
+
+
+def resolve_pair_n_cycles(fwd_results, rev_results):
+    """Resolve the single cycle count both directions of a pair should be
+    aggregated against. Prefers an explicit ``n_cycles`` setting on either
+    side (they are kept in sync by the save path); returns None when neither
+    side has one, in which case callers fall back to using every collected
+    cycle."""
+    for res in (fwd_results, rev_results):
+        n = _results_n_cycles(res)
+        if n is not None:
+            return n
+    return None
+
+
+def _cap_cycle_pairs(pairs, n):
+    """Keep only the first ``n`` (cycle_index, delta) tuples — they arrive
+    ordered by cycle_index — so cycles beyond the configured N are ignored.
+    ``n`` of None means no cap."""
+    if n is None:
+        return pairs
+    return pairs[:n]
+
+
 def build_pair_rows(fwd_deltas, rev_deltas, use_abba=True):
     """Build the pair table that the analytics UI renders.
 
@@ -771,11 +810,16 @@ class CalibrationResults(models.Model):
         These are *per-direction* aggregates and are diagnostic-only — the
         headline AC-DC δ comes from ``recompute_pair_aggregate`` below.
         """
+        # Cap to the configured source-of-truth N so the per-direction
+        # diagnostic mean/u_A match the capped pair analytics.
+        n_cap = _results_n_cycles(self)
         cycle_deltas = list(
             self.cycles.exclude(delta_uut_ppm__isnull=True)
             .order_by('cycle_index')
             .values_list('delta_uut_ppm', flat=True)
         )
+        if n_cap is not None:
+            cycle_deltas = cycle_deltas[:n_cap]
         mean_val, type_a = aggregate_cycle_deltas(cycle_deltas)
         update_fields = []
         if mean_val is not None:
@@ -844,14 +888,18 @@ class CalibrationResults(models.Model):
         filter_mode = self.outlier_filter_mode or sibling_results.outlier_filter_mode or 'none'
         manual = set(self.manual_excluded_pairs or []) | set(sibling_results.manual_excluded_pairs or [])
 
-        fwd_pairs = list(
+        # Cap each direction to the configured source-of-truth N so analytics
+        # use only the chosen number of cycles even if a direction physically
+        # collected more (e.g. N=12 ignores a 13th–15th stray cycle).
+        n_cap = resolve_pair_n_cycles(fwd_results, rev_results)
+        fwd_pairs = _cap_cycle_pairs(list(
             fwd_results.cycles.exclude(delta_uut_ppm__isnull=True)
             .order_by('cycle_index').values_list('cycle_index', 'delta_uut_ppm')
-        )
-        rev_pairs = list(
+        ), n_cap)
+        rev_pairs = _cap_cycle_pairs(list(
             rev_results.cycles.exclude(delta_uut_ppm__isnull=True)
             .order_by('cycle_index').values_list('cycle_index', 'delta_uut_ppm')
-        )
+        ), n_cap)
 
         pair_rows = build_pair_rows(fwd_pairs, rev_pairs, use_abba=use_abba)
         auto, flagged = apply_outlier_filter(pair_rows, filter_mode)
@@ -943,14 +991,15 @@ class CalibrationResults(models.Model):
         manual_sib = set(sibling_results.manual_excluded_pairs or []) if sibling_results else set()
         manual = sorted(manual_self | manual_sib)
 
-        fwd_pairs = list(
+        n_cap = resolve_pair_n_cycles(fwd_results, rev_results)
+        fwd_pairs = _cap_cycle_pairs(list(
             fwd_results.cycles.exclude(delta_uut_ppm__isnull=True)
             .order_by('cycle_index').values_list('cycle_index', 'delta_uut_ppm')
-        ) if fwd_results else []
-        rev_pairs = list(
+        ) if fwd_results else [], n_cap)
+        rev_pairs = _cap_cycle_pairs(list(
             rev_results.cycles.exclude(delta_uut_ppm__isnull=True)
             .order_by('cycle_index').values_list('cycle_index', 'delta_uut_ppm')
-        ) if rev_results else []
+        ) if rev_results else [], n_cap)
 
         pair_rows = build_pair_rows(fwd_pairs, rev_pairs, use_abba=use_abba)
         auto, flagged = apply_outlier_filter(pair_rows, filter_mode)

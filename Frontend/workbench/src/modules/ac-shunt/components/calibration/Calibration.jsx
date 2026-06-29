@@ -28,6 +28,7 @@ import LiveStabilityTracker from "./LiveStabilityTracker";
 import CycleStatisticsTracker from "./CycleStatisticsTracker";
 import useCycleAnalytics from "../../hooks/useCycleAnalytics";
 import { listAvailableCycles, resolveEffectiveCycle } from "../../utils/resolveEffectiveCycle";
+import { resolveSessionNCycles } from "../../utils/resolveSessionNCycles";
 import CalibrationStatusBar from "./CalibrationStatusBar";
 import { downloadFullSessionExcel } from "./sessionExcelExport";
 import {
@@ -1233,7 +1234,15 @@ function Calibration({
     if (!focusedTP) return null;
     const fwdCycles = focusedTP.forward?.results?.cycles || [];
     const revCycles = focusedTP.reverse?.results?.cycles || [];
-    const n = Math.min(fwdCycles.length, revCycles.length);
+    // Cap to the source-of-truth cycle count so the average uses only the
+    // configured N cycles even if a direction physically collected more
+    // (mirrors the backend pair-analytics cap).
+    const cap = resolveSessionNCycles(orderedTestPoints, null);
+    const n = Math.min(
+      fwdCycles.length,
+      revCycles.length,
+      cap != null ? cap : Infinity
+    );
 
     if (n > 0) {
       let sum = 0;
@@ -1254,7 +1263,7 @@ function Calibration({
     const reverseResult = focusedTP.reverse?.results?.delta_uut_ppm;
     if (forwardResult == null || reverseResult == null) return null;
     return ((parseFloat(forwardResult) + parseFloat(reverseResult)) / 2).toFixed(3);
-  }, [focusedTP, useAbba]);
+  }, [focusedTP, useAbba, orderedTestPoints]);
 
   // Settings are user-editable (sliders, number inputs) so they have to
   // live in state. Use useLayoutEffect for the per-test-point reset so the
@@ -1297,10 +1306,23 @@ function Calibration({
         ? currentFocusedTP.forward
         : currentFocusedTP.reverse;
 
+    // n_cycles is a single source of truth shared across both directions.
+    // Whatever value was set first (Forward or Reverse) wins; only when no
+    // direction anywhere in the session has a value do we fall back to the
+    // default. This stops a direction that hasn't been saved yet from
+    // displaying — and later persisting — the hardcoded default, which would
+    // make already-complete points look like they have missing cycles.
+    const sessionNCycles = resolveSessionNCycles(orderedTestPoints, null);
+
     if (pointForDirection?.settings && Object.keys(pointForDirection.settings).length > 0) {
-      setCalibrationSettings({ ...defaultSettings, ...pointForDirection.settings });
+      const loaded = { ...defaultSettings, ...pointForDirection.settings };
+      if (sessionNCycles != null) loaded.n_cycles = sessionNCycles;
+      setCalibrationSettings(loaded);
     } else {
-      setCalibrationSettings(defaultSettings);
+      setCalibrationSettings({
+        ...defaultSettings,
+        n_cycles: sessionNCycles != null ? sessionNCycles : defaultSettings.n_cycles,
+      });
     }
   }, [focusedTP, activeDirection, orderedTestPoints]);
 
@@ -2304,6 +2326,31 @@ function Calibration({
         { settings: newSettings }
       );
 
+      // n_cycles is shared across both directions — mirror it onto the
+      // sibling direction (creating it if needed) so switching/running the
+      // opposite direction always uses the same cycle count. Other settings
+      // stay per-direction.
+      let sibling =
+        activeDirection === "Forward" ? focusedTP.reverse : focusedTP.forward;
+      const siblingDirection =
+        activeDirection === "Forward" ? "Reverse" : "Forward";
+      if (!sibling) {
+        sibling = (
+          await axios.post(
+            `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
+            {
+              current: focusedTP.current,
+              frequency: focusedTP.frequency,
+              direction: siblingDirection,
+            }
+          )
+        ).data;
+      }
+      await axios.patch(
+        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${sibling.id}/`,
+        { settings: { n_cycles: newSettings.n_cycles } }
+      );
+
       showNotification(
         `Settings saved for ${formatCurrent(focusedTP.current)} @ ${formatFrequency(focusedTP.frequency)} (${directionName})!`,
         "success"
@@ -2856,12 +2903,6 @@ function Calibration({
                               <div className="form-section">
                                 <label htmlFor="n_cycles">
                                   Paired cycles (N)
-                                  {(focusedTP?.forward?.results?.cycles?.length > 0 ||
-                                    focusedTP?.reverse?.results?.cycles?.length > 0) && (
-                                      <span className="n-cycles-lock-indicator">
-                                        (locked — cycles already captured)
-                                      </span>
-                                    )}
                                 </label>
                                 <input
                                   type="number"
@@ -2877,12 +2918,8 @@ function Calibration({
                                     }))
                                   }
                                   onBlur={handleSettingBlur("n_cycles")}
-                                  disabled={
-                                    isRemoteViewer ||
-                                    focusedTP?.forward?.results?.cycles?.length > 0 ||
-                                    focusedTP?.reverse?.results?.cycles?.length > 0
-                                  }
-                                  title="One cycle = one Forward + one Reverse sequence. Backend enforces N_Fwd = N_Rev for a (current, frequency) pair and locks the value once cycles exist. Min 2; recommended ≥3."
+                                  disabled={isRemoteViewer}
+                                  title="One cycle = one Forward + one Reverse sequence. This is a single value shared across both directions; saving mirrors it to the opposite direction, and analytics use only the first N cycles even if more were collected. Min 2; recommended ≥3."
                                 />
                               </div>
                               {false && (

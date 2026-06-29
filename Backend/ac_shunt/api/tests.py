@@ -102,6 +102,105 @@ class CycleAnalyticsParityTests(TestCase):
         self.assertEqual(flagged, set())
 
 
+class CycleReadingsMergeIdempotencyTests(TestCase):
+    """Re-collecting a cycle must REPLACE that cycle's readings, not append a
+    second copy. Regression for the raw chart showing 12 readings for cycle 1
+    when 6 were collected (duplicate cycle blocks, surfaced by the
+    characterize-then-rerun workflow). See
+    ``CalibrationConsumer._drop_cycle_from_readings``."""
+
+    def _consumer(self):
+        from api.consumers import CalibrationConsumer
+        # The helper does not touch instance state, so a bare instance is fine.
+        return CalibrationConsumer.__new__(CalibrationConsumer)
+
+    def test_recollecting_a_cycle_replaces_not_duplicates(self):
+        c = self._consumer()
+        existing = [
+            {'value': 1.0, 'cycle': 1}, {'value': 1.1, 'cycle': 1},
+            {'value': 2.0, 'cycle': 2}, {'value': 2.1, 'cycle': 2},
+        ]
+        fresh_cycle1 = [{'value': 9.0, 'cycle': 1}, {'value': 9.1, 'cycle': 1}]
+        merged = c._drop_cycle_from_readings(existing, 1) + fresh_cycle1
+        # Cycle 1 ends up with exactly the fresh pair (no duplication); cycle 2
+        # is untouched.
+        self.assertEqual(sum(1 for r in merged if r['cycle'] == 1), 2)
+        self.assertEqual(sum(1 for r in merged if r['cycle'] == 2), 2)
+        self.assertEqual([r['value'] for r in merged if r['cycle'] == 1], [9.0, 9.1])
+
+    def test_untagged_legacy_readings_count_as_cycle_one(self):
+        c = self._consumer()
+        existing = [{'value': 1.0}, {'value': 1.1}]  # no cycle tag -> cycle 1
+        self.assertEqual(c._drop_cycle_from_readings(existing, 1), [])
+
+    def test_none_cycle_is_passthrough(self):
+        c = self._consumer()
+        existing = [{'value': 1.0, 'cycle': 1}]
+        self.assertEqual(c._drop_cycle_from_readings(existing, None), existing)
+
+
+class PairAggregateCycleCapTests(TestCase):
+    """Analytics must honor the configured source-of-truth N cycles even when
+    a direction physically collected more. Regression for the cycle
+    source-of-truth work: set N=12 and only 12 pairs feed mean / u_A even if
+    15 cycles exist on a side."""
+
+    def _build_pair(self, n_cycles_setting, fwd_count, rev_count):
+        from api.models import (
+            CalibrationResults,
+            CalibrationResultsCycle,
+            CalibrationSettings,
+        )
+        session = CalibrationSession.objects.create(session_name="cap-test")
+        tps, _ = TestPointSet.objects.get_or_create(session=session)
+        fwd = TestPoint.objects.create(
+            test_point_set=tps, current=Decimal("1.00000"),
+            frequency=1000, direction="Forward",
+        )
+        rev = TestPoint.objects.create(
+            test_point_set=tps, current=Decimal("1.00000"),
+            frequency=1000, direction="Reverse",
+        )
+        if n_cycles_setting is not None:
+            CalibrationSettings.objects.create(test_point=fwd, n_cycles=n_cycles_setting)
+            CalibrationSettings.objects.create(test_point=rev, n_cycles=n_cycles_setting)
+        fwd_res = CalibrationResults.objects.create(test_point=fwd)
+        rev_res = CalibrationResults.objects.create(test_point=rev)
+        for i in range(fwd_count):
+            CalibrationResultsCycle.objects.create(
+                results=fwd_res, cycle_index=i + 1, delta_uut_ppm=1.0,
+            )
+        for i in range(rev_count):
+            CalibrationResultsCycle.objects.create(
+                results=rev_res, cycle_index=i + 1, delta_uut_ppm=1.0,
+            )
+        return fwd_res, rev_res
+
+    def test_caps_to_n_cycles_when_more_collected(self):
+        fwd_res, _ = self._build_pair(n_cycles_setting=12, fwd_count=15, rev_count=15)
+        fwd_res.recompute_pair_aggregate()
+        fwd_res.refresh_from_db()
+        self.assertEqual(fwd_res.n_pairs_used, 12)
+
+    def test_uses_all_cycles_when_no_setting(self):
+        fwd_res, _ = self._build_pair(n_cycles_setting=None, fwd_count=15, rev_count=15)
+        fwd_res.recompute_pair_aggregate()
+        fwd_res.refresh_from_db()
+        self.assertEqual(fwd_res.n_pairs_used, 15)
+
+    def test_n_cycles_is_editable_after_cycles_exist(self):
+        # n_cycles is shared-but-editable: changing it after cycles have been
+        # captured must NOT be rejected (capping keeps the math safe).
+        from api.models import CalibrationSettings
+        from api.serializers import CalibrationSettingsSerializer
+        fwd_res, _ = self._build_pair(n_cycles_setting=15, fwd_count=15, rev_count=15)
+        settings = CalibrationSettings.objects.get(test_point=fwd_res.test_point)
+        serializer = CalibrationSettingsSerializer(
+            instance=settings, data={'n_cycles': 12}, partial=True
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+
 class OutboxEnqueueTests(TestCase):
     databases = {'default', 'outbox'}
 
