@@ -46,6 +46,7 @@ import {
   functionKeyOf,
   makeFunctionKey,
   instrumentFunctions,
+  instrumentHasFunction,
   resolveSessionFunctions,
   functionsForLibrary,
 } from "../../../utils/functionGrouping";
@@ -3492,6 +3493,32 @@ const SummaryDashboard = ({
     }
   };
 
+  // Remove a function subsection. Only an empty function (no instrument declares
+  // it and no test point uses it) can be deleted — it's just a functionGroups
+  // metadata entry at that point. A function still in use must have its
+  // instruments/points removed first (matches the old measurement-area guard).
+  const handleDeleteFunction = (fn) => {
+    if (!onSessionSave) return;
+    const inUse =
+      (sessionData.uuts || []).some((u) => instrumentHasFunction(u, fn.key)) ||
+      (sessionData.tmdes || []).some((t) => instrumentHasFunction(t, fn.key)) ||
+      (sessionData.testPoints || []).some((p) => functionKeyOf(p) === fn.key);
+    if (inUse) {
+      setNotification?.({
+        title: "Function In Use",
+        message:
+          "Remove the instruments and measurement points using this function before deleting it.",
+      });
+      return;
+    }
+    onSessionSave({
+      ...sessionData,
+      functionGroups: (sessionData.functionGroups || []).filter(
+        (fg) => makeFunctionKey(fg.name, fg.unit) !== fn.key,
+      ),
+    });
+  };
+
   // Inline edit of the range's measuring resolution (the Resolution column).
   const setRangeResolution = (kind, item, rangeId, value) => {
     if (!onSessionSave) return;
@@ -3871,10 +3898,53 @@ const SummaryDashboard = ({
     );
   };
 
+  // Per-subsection delete (only acts on an unused function).
+  const renderFunctionDeleteButton = (fn) => {
+    if (!onSessionSave) return null;
+    return (
+      <button
+        type="button"
+        title="Delete function"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleDeleteFunction(fn);
+        }}
+        style={{
+          marginLeft: "4px",
+          pointerEvents: "auto",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "18px",
+          height: "18px",
+          padding: 0,
+          borderRadius: "4px",
+          border: "1px solid var(--border-color)",
+          background: "transparent",
+          color: "var(--text-color-muted)",
+          cursor: "pointer",
+          fontSize: "0.7em",
+          lineHeight: 1,
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "var(--status-danger, #e74c3c)";
+          e.currentTarget.style.color = "#fff";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+          e.currentTarget.style.color = "var(--text-color-muted)";
+        }}
+      >
+        <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+      </button>
+    );
+  };
+
   // The "Add Function" picker opened from a table's header button: pick a
   // function declared anywhere in the library, or define a brand-new one.
   const renderAddFunctionMenu = (kind) => {
-    if (addFunctionMenu !== kind) return null;
+    if (!addFunctionMenu || addFunctionMenu.kind !== kind) return null;
+    const rect = addFunctionMenu.rect;
     const libraryFns = functionsForLibrary(instruments);
     const existingKeys = new Set(
       resolveSessionFunctions(sessionData).map((fn) => fn.key),
@@ -3891,25 +3961,40 @@ const SummaryDashboard = ({
       cursor: "pointer",
       fontSize: "0.85em",
     };
-    return (
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          position: "absolute",
-          top: "100%",
-          right: 0,
-          marginTop: "6px",
-          minWidth: "240px",
-          maxHeight: "320px",
-          overflowY: "auto",
-          background: "var(--component-bg)",
-          border: "1px solid var(--border-color)",
-          borderRadius: "8px",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-          zIndex: 1000,
-          padding: "8px",
-        }}
-      >
+    // Portal to <body> with fixed positioning so the menu is never clipped by a
+    // short table / overflow container (lesson from the inline library dropdown).
+    const MENU_WIDTH = 250;
+    const left = rect
+      ? Math.max(8, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8))
+      : 8;
+    // Open below the button, but clamp so the menu never starts off-screen on a
+    // short viewport (it scrolls internally via maxHeight).
+    const top = rect
+      ? Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 80))
+      : 60;
+    return ReactDOM.createPortal(
+      <>
+        <div
+          onClick={() => setAddFunctionMenu(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 4000 }}
+        />
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            top,
+            left,
+            width: `${MENU_WIDTH}px`,
+            maxHeight: "min(360px, 70vh)",
+            overflowY: "auto",
+            background: "var(--component-bg)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "8px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+            zIndex: 4001,
+            padding: "8px",
+          }}
+        >
         <div
           style={{
             fontSize: "0.7rem",
@@ -4018,7 +4103,9 @@ const SummaryDashboard = ({
             Add
           </button>
         </div>
-      </div>
+        </div>
+      </>,
+      document.body,
     );
   };
   // --- SELECTION STATE ---
@@ -5058,9 +5145,12 @@ const SummaryDashboard = ({
             )}
             <button
               className="btn-add-item"
-              onClick={() =>
-                setAddFunctionMenu((m) => (m === "uut" ? null : "uut"))
-              }
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                setAddFunctionMenu((m) =>
+                  m && m.kind === "uut" ? null : { kind: "uut", rect },
+                );
+              }}
               title="Add Function"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
@@ -5130,6 +5220,7 @@ const SummaryDashboard = ({
                             {renderFunctionNameEditor(row.fn)}
                             {renderFunctionUnitChip(row.fn)}
                             {renderFunctionAddButton("uut", row.fn)}
+                            {renderFunctionDeleteButton(row.fn)}
                           </div>
                         </td>
                       </tr>
@@ -5499,9 +5590,12 @@ const SummaryDashboard = ({
             )}
             <button
               className="btn-add-item"
-              onClick={() =>
-                setAddFunctionMenu((m) => (m === "tmde" ? null : "tmde"))
-              }
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                setAddFunctionMenu((m) =>
+                  m && m.kind === "tmde" ? null : { kind: "tmde", rect },
+                );
+              }}
               title="Add Function"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
@@ -5571,6 +5665,7 @@ const SummaryDashboard = ({
                             {renderFunctionNameEditor(row.fn)}
                             {renderFunctionUnitChip(row.fn)}
                             {renderFunctionAddButton("tmde", row.fn)}
+                            {renderFunctionDeleteButton(row.fn)}
                           </div>
                         </td>
                       </tr>
