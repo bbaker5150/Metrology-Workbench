@@ -7488,7 +7488,7 @@ function DetailedView({
     testPointData.activeUutId || associatedUutIds[0] || null;
 
   const resolveUutRange = useCallback(
-    (uut) => {
+    (uut, functionKey = null, rangeIndexOverride) => {
       const isActivePointUut =
         activePointUutId !== null &&
         String(activePointUutId) === String(uut.id);
@@ -7497,14 +7497,470 @@ function DetailedView({
       // change on one point never leaks onto sibling points sharing the UUT.
       const resolution = resolveUutRangeHelper(
         uut,
-        isActivePointUut ? {} : activeRangeIndices,
+        isActivePointUut
+          ? {}
+          : rangeIndexOverride !== undefined
+            ? { [uut.id]: rangeIndexOverride }
+            : activeRangeIndices,
         isActivePointUut ? uutToleranceData : null,
         uutNominal,
+        functionKey,
       );
       return resolution;
     },
     [activePointUutId, activeRangeIndices, uutToleranceData, uutNominal],
   );
+
+  // --- Function subsections (detail view parity with the Session Overview) ---
+  const [addFunctionMenu, setAddFunctionMenu] = useState(null);
+  const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
+
+  const upsertFunctionGroupDetail = (fnKey, patch) => {
+    const existing = Array.isArray(sessionData.functionGroups)
+      ? sessionData.functionGroups
+      : [];
+    let found = false;
+    const next = existing.map((fg) => {
+      if (makeFunctionKey(fg.name, fg.unit) === fnKey) {
+        found = true;
+        return { ...fg, ...patch };
+      }
+      return fg;
+    });
+    if (!found) next.push(patch);
+    return next;
+  };
+
+  const handleFunctionColorChange = (fn, color) => {
+    if (!onSessionSave) return;
+    onSessionSave({
+      ...sessionData,
+      functionGroups: upsertFunctionGroupDetail(fn.key, {
+        name: fn.name,
+        unit: fn.unit,
+        color,
+      }),
+    });
+  };
+
+  const handleFunctionRename = (fn, rawName) => {
+    if (!onSessionSave) return;
+    const name = String(rawName || "").trim();
+    if (!name || name === fn.name) return;
+    const renameInstruments = (list = []) =>
+      list.map((item) => {
+        const inst = item.instrument || item;
+        const fns = Array.isArray(inst.functions) ? inst.functions : null;
+        if (!fns) return item;
+        let changed = false;
+        const nextFns = fns.map((f) => {
+          if (makeFunctionKey(f.name, f.unit) === fn.key) {
+            changed = true;
+            return { ...f, name };
+          }
+          return f;
+        });
+        if (!changed) return item;
+        return item.instrument
+          ? { ...item, instrument: { ...inst, functions: nextFns } }
+          : { ...item, functions: nextFns };
+      });
+    const nextPoints = (sessionData.testPoints || []).map((tp) => {
+      if (functionKeyOf(tp) !== fn.key) return tp;
+      const parameter = tp.testPointInfo?.parameter || {};
+      return {
+        ...tp,
+        testPointInfo: {
+          ...(tp.testPointInfo || {}),
+          parameter: { ...parameter, name },
+        },
+      };
+    });
+    onSessionSave({
+      ...sessionData,
+      functionGroups: upsertFunctionGroupDetail(fn.key, {
+        name,
+        unit: fn.unit,
+        color: fn.color,
+      }),
+      uuts: renameInstruments(sessionData.uuts),
+      tmdes: renameInstruments(sessionData.tmdes),
+      testPoints: nextPoints,
+    });
+  };
+
+  const handleAddFunction = ({ name, unit }) => {
+    if (!onSessionSave) return;
+    const clean = String(name || "").trim();
+    if (!clean) return;
+    const key = makeFunctionKey(clean, unit);
+    const existing = Array.isArray(sessionData.functionGroups)
+      ? sessionData.functionGroups
+      : [];
+    if (existing.some((fg) => makeFunctionKey(fg.name, fg.unit) === key)) {
+      setAddFunctionMenu(null);
+      return;
+    }
+    onSessionSave({
+      ...sessionData,
+      functionGroups: [...existing, { name: clean, unit: String(unit || "").trim() }],
+    });
+    setAddFunctionMenu(null);
+    setNewFunctionDraft({ name: "", unit: "" });
+  };
+
+  const handleAddInstrumentToFunction = (kind, fn) => {
+    if (!onSessionSave) return;
+    const instrument = {
+      id: uuidv4(),
+      manufacturer: "",
+      model: "",
+      description: "",
+      functions: [{ name: fn.name, unit: fn.unit, ranges: [] }],
+    };
+    if (kind === "uut") {
+      const newUut = { id: uuidv4(), name: "", description: "", instrument };
+      setSelectedUutIds([newUut.id]);
+      onSessionSave({ ...sessionData, uuts: [newUut, ...(sessionData.uuts || [])] });
+    } else {
+      const newTmde = {
+        id: uuidv4(),
+        name: "",
+        quantity: 1,
+        assetId: "",
+        isInstrumentBased: false,
+        instrument,
+      };
+      setSelectedTmdeIds([newTmde.id]);
+      onSessionSave({ ...sessionData, tmdes: [newTmde, ...(sessionData.tmdes || [])] });
+    }
+  };
+
+  const handleDeleteFunction = (fn) => {
+    if (!onSessionSave) return;
+    const inUse =
+      (sessionData.uuts || []).some((u) => instrumentHasFunction(u, fn.key)) ||
+      (sessionData.tmdes || []).some((t) => instrumentHasFunction(t, fn.key)) ||
+      (sessionData.testPoints || []).some((p) => functionKeyOf(p) === fn.key);
+    if (inUse) {
+      setNotification?.({
+        title: "Function In Use",
+        message:
+          "Remove the instruments and measurement points using this function before deleting it.",
+      });
+      return;
+    }
+    onSessionSave({
+      ...sessionData,
+      functionGroups: (sessionData.functionGroups || []).filter(
+        (fg) => makeFunctionKey(fg.name, fg.unit) !== fn.key,
+      ),
+    });
+  };
+
+  const renderFunctionColorSwatch = (fn) => {
+    const color =
+      typeof fn.color === "string" && fn.color.startsWith("#") ? fn.color : "#888888";
+    const dotStyle = {
+      display: "inline-block",
+      width: "12px",
+      height: "12px",
+      borderRadius: "3px",
+      marginRight: "8px",
+      verticalAlign: "middle",
+      backgroundColor: fn.color || "#888888",
+    };
+    if (!onSessionSave) return <span style={dotStyle} />;
+    return (
+      <label
+        title="Click to change function color"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          ...dotStyle,
+          position: "relative",
+          cursor: "pointer",
+          border: "1px solid rgba(127,127,127,0.5)",
+          overflow: "hidden",
+          pointerEvents: "auto",
+        }}
+      >
+        <input
+          type="color"
+          value={color}
+          onChange={(e) => handleFunctionColorChange(fn, e.target.value)}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            opacity: 0,
+            cursor: "pointer",
+            padding: 0,
+            border: "none",
+          }}
+        />
+      </label>
+    );
+  };
+
+  const renderFunctionNameEditor = (fn) => {
+    if (!onSessionSave) return <span style={{ color: fn.color }}>{fn.name}</span>;
+    return (
+      <input
+        className="inline-area-header-input"
+        defaultValue={fn.name}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            e.currentTarget.value = fn.name;
+            e.currentTarget.blur();
+          }
+        }}
+        onBlur={(e) => handleFunctionRename(fn, e.target.value)}
+        title="Edit function name"
+        aria-label="Function subsection name"
+        style={{
+          color: fn.color,
+          background: "transparent",
+          border: "1px solid transparent",
+          borderRadius: "4px",
+          font: "inherit",
+          fontWeight: 700,
+          padding: "1px 4px",
+          minWidth: "120px",
+          pointerEvents: "auto",
+        }}
+      />
+    );
+  };
+
+  const renderFunctionUnitChip = (fn) =>
+    fn.unit ? (
+      <span style={{ marginLeft: "8px", opacity: 0.6, fontSize: "0.78em", fontWeight: 600 }}>
+        {getUnitDisplayLabel(fn.unit)}
+      </span>
+    ) : null;
+
+  const fnHeaderBtnStyle = {
+    pointerEvents: "auto",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "18px",
+    height: "18px",
+    padding: 0,
+    borderRadius: "4px",
+    border: "1px solid var(--border-color)",
+    background: "transparent",
+    color: "var(--text-color-muted)",
+    cursor: "pointer",
+    fontSize: "0.7em",
+    lineHeight: 1,
+  };
+
+  const renderFunctionAddButton = (kind, fn) =>
+    onSessionSave ? (
+      <button
+        type="button"
+        title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleAddInstrumentToFunction(kind, fn);
+        }}
+        style={{ ...fnHeaderBtnStyle, marginLeft: "6px" }}
+      >
+        <FontAwesomeIcon icon={faPlus} size="xs" />
+      </button>
+    ) : null;
+
+  const renderFunctionDeleteButton = (fn) =>
+    onSessionSave ? (
+      <button
+        type="button"
+        title="Delete function"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleDeleteFunction(fn);
+        }}
+        style={{ ...fnHeaderBtnStyle, marginLeft: "4px" }}
+      >
+        <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+      </button>
+    ) : null;
+
+  const renderFunctionHeaderRow = (kind, fn, colSpan) => (
+    <tr key={`${kind}-fn-${fn.key}`} className="instrument-area-section-row">
+      <td colSpan={colSpan}>
+        <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+          {renderFunctionColorSwatch(fn)}
+          {renderFunctionNameEditor(fn)}
+          {renderFunctionUnitChip(fn)}
+          {renderFunctionAddButton(kind, fn)}
+          {renderFunctionDeleteButton(fn)}
+        </div>
+      </td>
+    </tr>
+  );
+
+  const renderAddFunctionMenu = (kind) => {
+    if (!addFunctionMenu || addFunctionMenu.kind !== kind) return null;
+    const rect = addFunctionMenu.rect;
+    const existingKeys = new Set(
+      resolveSessionFunctions(sessionData).map((fn) => fn.key),
+    );
+    const available = functionsForLibrary(instruments).filter(
+      (fn) => !existingKeys.has(fn.key),
+    );
+    const itemStyle = {
+      display: "block",
+      width: "100%",
+      textAlign: "left",
+      padding: "6px 10px",
+      background: "transparent",
+      border: "none",
+      color: "var(--text-color)",
+      cursor: "pointer",
+      fontSize: "0.85em",
+    };
+    const MENU_WIDTH = 250;
+    const left = rect
+      ? Math.max(8, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8))
+      : 8;
+    const top = rect
+      ? Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 80))
+      : 60;
+    const inputStyle = {
+      flex: 1,
+      minWidth: 0,
+      background: "var(--input-background)",
+      border: "1px solid var(--border-color)",
+      borderRadius: "4px",
+      color: "var(--text-color)",
+      padding: "4px 6px",
+      fontSize: "0.82em",
+    };
+    return ReactDOM.createPortal(
+      <>
+        <div
+          onClick={() => setAddFunctionMenu(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 4000 }}
+        />
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            top,
+            left,
+            width: `${MENU_WIDTH}px`,
+            maxHeight: "min(360px, 70vh)",
+            overflowY: "auto",
+            background: "var(--component-bg)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "8px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+            zIndex: 4001,
+            padding: "8px",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "0.7rem",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              opacity: 0.6,
+              padding: "2px 6px 6px",
+            }}
+          >
+            Add function
+          </div>
+          {available.length > 0 ? (
+            <div>
+              {available.map((fn) => (
+                <button
+                  key={fn.key}
+                  type="button"
+                  onClick={() => handleAddFunction(fn)}
+                  style={itemStyle}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = "var(--input-background)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
+                >
+                  {fn.name}
+                  {fn.unit ? (
+                    <span style={{ opacity: 0.6 }}> · {getUnitDisplayLabel(fn.unit)}</span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div style={{ padding: "6px 10px", opacity: 0.6, fontSize: "0.8em" }}>
+              No more library functions
+            </div>
+          )}
+          <div
+            style={{
+              display: "flex",
+              gap: "6px",
+              marginTop: "8px",
+              paddingTop: "8px",
+              borderTop: "1px solid var(--border-color)",
+            }}
+          >
+            <input
+              type="text"
+              placeholder="New function"
+              value={newFunctionDraft.name}
+              onChange={(e) =>
+                setNewFunctionDraft((d) => ({ ...d, name: e.target.value }))
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAddFunction(newFunctionDraft);
+                if (e.key === "Escape") setAddFunctionMenu(null);
+              }}
+              style={inputStyle}
+            />
+            <input
+              type="text"
+              placeholder="Unit"
+              value={newFunctionDraft.unit}
+              onChange={(e) =>
+                setNewFunctionDraft((d) => ({ ...d, unit: e.target.value }))
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAddFunction(newFunctionDraft);
+                if (e.key === "Escape") setAddFunctionMenu(null);
+              }}
+              style={{ ...inputStyle, flex: "none", width: "64px" }}
+            />
+            <button
+              type="button"
+              disabled={!newFunctionDraft.name.trim()}
+              onClick={() => handleAddFunction(newFunctionDraft)}
+              style={{
+                background: "var(--primary-color)",
+                border: "none",
+                borderRadius: "4px",
+                color: "#fff",
+                padding: "4px 10px",
+                cursor: newFunctionDraft.name.trim() ? "pointer" : "not-allowed",
+                opacity: newFunctionDraft.name.trim() ? 1 : 0.5,
+                fontSize: "0.82em",
+              }}
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      </>,
+      document.body,
+    );
+  };
 
   const groupedUnitOptions = useMemo(() => {
     const allSupportedUnits = Object.keys(unitSystem.units);
@@ -8641,7 +9097,7 @@ function DetailedView({
             <FontAwesomeIcon icon={faMicroscope} />
             <span>Unit Under Test</span>
           </div>
-          <div className="panel-card-actions">
+          <div className="panel-card-actions" style={{ position: "relative" }}>
             {selectedUutIds.length > 0 && (
               <button
                 className="btn-delete-selection"
@@ -8653,11 +9109,17 @@ function DetailedView({
             )}
             <button
               className="btn-add-item"
-              onClick={() => handleAddUutInlineDetail()}
-              title="Add New UUT"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                setAddFunctionMenu((m) =>
+                  m && m.kind === "uut" ? null : { kind: "uut", rect },
+                );
+              }}
+              title="Add Function"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
             </button>
+            {renderAddFunctionMenu("uut")}
           </div>
         </div>
         <div className="panel-table-container" style={{ maxHeight: "300px" }}>
@@ -8701,9 +9163,18 @@ function DetailedView({
                   <td colSpan="5">No associated UUTs found.</td>
                 </tr>
               ) : (
-                relevantUuts.map((uut) => {
+                buildFunctionGroupedRows(
+                  relevantUuts.map((item, index) => ({ type: "item", item, index })),
+                  sessionData,
+                ).map((row) => {
+                  if (row.type === "function") {
+                    return renderFunctionHeaderRow("uut", row.fn, 5);
+                  }
+                  const uut = row.item;
+                  const uutRowKey = row.rowKey ?? uut.id;
+                  const uutFnKey = row.functionKey ?? null;
                   const { ranges, activeIndex, activeRange } =
-                    resolveUutRange(uut);
+                    resolveUutRange(uut, uutFnKey);
                   const isLinked =
                     testPointData.associatedUutIds &&
                     testPointData.associatedUutIds.includes(uut.id);
@@ -8714,7 +9185,7 @@ function DetailedView({
                   const specRows = getSpecRows(activeRange);
                   const rowSpan = !onSessionSave && specRows.length > 0 ? specRows.length : 1;
                   const isSelected = selectedUutIds.includes(uut.id);
-                  const showAllRanges = isShowingAllRangesDetail("uut", uut.id);
+                  const showAllRanges = isShowingAllRangesDetail("uut", uutRowKey);
                   const visibleRangeRows = getVisibleRangeRows(
                     ranges,
                     activeIndex,
@@ -8727,9 +9198,9 @@ function DetailedView({
                   if (showAllRanges) {
                     const n = visibleRangeRows.length;
                     const canDelete = ranges.length > 1;
-                    const activeRangeIndex = localRangeIndices[uut.id] ?? activeIndex;
+                    const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
                     return (
-                      <React.Fragment key={uut.id}>
+                      <React.Fragment key={uutRowKey}>
                         {visibleRangeRows.map(({ range, index, key }, i) => {
                           const isActiveRange = index === activeRangeIndex;
                           return (
@@ -8738,7 +9209,7 @@ function DetailedView({
                               className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "uut", uut, range, index, n)}
-                              onMouseDownCapture={() => activateRangeRowDetail("uut", uut.id, index)}
+                              onMouseDownCapture={() => activateRangeRowDetail("uut", uutRowKey, index)}
                               onClick={(e) => {
                                 if (!isInlineRowControlTarget(e.target)) {
                                   setSelectedToleranceKey(null);
@@ -8802,7 +9273,7 @@ function DetailedView({
                   }
 
                   return (
-                    <React.Fragment key={uut.id}>
+                    <React.Fragment key={uutRowKey}>
                       <tr
                         className={`${isSelected ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
@@ -9001,7 +9472,7 @@ function DetailedView({
 
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                         <tr
-                          key={`${uut.id}-spec-${sIdx}`}
+                          key={`${uutRowKey}-spec-${sIdx}`}
                           className={`spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           style={{
@@ -9347,7 +9818,7 @@ function DetailedView({
               <FontAwesomeIcon icon={faTools} />
               <span>Measurement Standards (TMDE)</span>
             </div>
-            <div className="panel-card-actions">
+            <div className="panel-card-actions" style={{ position: "relative" }}>
               {selectedTmdeIds.length > 0 && (
                 <button
                   className="btn-delete-selection"
@@ -9359,11 +9830,17 @@ function DetailedView({
               )}
               <button
                 className="btn-add-item"
-                onClick={() => handleAddTmdeInlineDetail()}
-                title="Add New TMDE"
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setAddFunctionMenu((m) =>
+                    m && m.kind === "tmde" ? null : { kind: "tmde", rect },
+                  );
+                }}
+                title="Add Function"
               >
                 <FontAwesomeIcon icon={faPlus} size="xs" />
               </button>
+              {renderAddFunctionMenu("tmde")}
             </div>
           </div>
 
@@ -9419,7 +9896,16 @@ function DetailedView({
                     </td>
                   </tr>
                 ) : (
-                  relevantTmdes.map((masterTmde) => {
+                  buildFunctionGroupedRows(
+                    relevantTmdes.map((item, index) => ({ type: "item", item, index })),
+                    sessionData,
+                  ).map((row) => {
+                    if (row.type === "function") {
+                      return renderFunctionHeaderRow("tmde", row.fn, 8);
+                    }
+                    const masterTmde = row.item;
+                    const tmdeRowKey = row.rowKey ?? masterTmde.id;
+                    const tmdeFnKey = row.functionKey ?? null;
                     // Check selection state
                     const isSelectedRow = selectedTmdeIds.includes(
                       masterTmde.id,
@@ -9445,9 +9931,10 @@ function DetailedView({
                       // (resolveUutRangeHelper Priority C) instead of range 0.
                       const resolution = resolveUutRangeHelper(
                         masterTmde,
-                        tmdeRangeIndices,
+                        { [masterTmde.id]: tmdeRangeIndices[tmdeRowKey] },
                         savedTolerance,
                         isDerived ? null : uutNominal,
+                        tmdeFnKey,
                       );
                       const { ranges, activeIndex, activeRange } = resolution;
                       const compatibility = isDerived
@@ -9459,7 +9946,7 @@ function DetailedView({
                       const rowSpan = !onSessionSave && specRows.length > 0 ? specRows.length : 1;
                       const showAllRanges = isShowingAllRangesDetail(
                         "tmde",
-                        masterTmde.id,
+                        tmdeRowKey,
                       );
                       const visibleRangeRows = getVisibleRangeRows(
                         ranges,
@@ -9482,7 +9969,7 @@ function DetailedView({
                         const n = visibleRangeRows.length;
                         const canDelete = ranges.length > 1;
                         const activeRangeIndex =
-                          tmdeRangeIndices[masterTmde.id] ?? activeIndex;
+                          tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
                         const renderUsageCell = () =>
                           isDerived ? (
                             <select
@@ -9530,7 +10017,7 @@ function DetailedView({
                             />
                           );
                         return (
-                          <React.Fragment key={`${masterTmde.id}-${idx}`}>
+                          <React.Fragment key={`${tmdeRowKey}-${idx}`}>
                             {visibleRangeRows.map(({ range, index, key }, i) => {
                               const isActiveRange = index === activeRangeIndex;
                               return (
@@ -9542,7 +10029,7 @@ function DetailedView({
                                     openRangeRowMenu(e, "tmde", masterTmde, range, index, n)
                                   }
                                   onMouseDownCapture={() =>
-                                    activateRangeRowDetail("tmde", masterTmde.id, index)
+                                    activateRangeRowDetail("tmde", tmdeRowKey, index)
                                   }
                                   onClick={(e) => {
                                     if (!isInlineRowControlTarget(e.target)) {
@@ -9617,7 +10104,7 @@ function DetailedView({
                       }
 
                       return (
-                        <React.Fragment key={`${masterTmde.id}-${idx}`}>
+                        <React.Fragment key={`${tmdeRowKey}-${idx}`}>
                           <tr
                             className={`tmde-row ${isChecked ? "active-point-tmde-row" : ""} ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                             onMouseEnter={() => setHoveredRowId(masterTmde.id)}
@@ -10002,7 +10489,7 @@ function DetailedView({
 
                           {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                             <tr
-                              key={`${masterTmde.id}-${idx}-spec-${sIdx}`}
+                              key={`${tmdeRowKey}-${idx}-spec-${sIdx}`}
                               className={`spec-row ${isChecked ? "active-point-tmde-spec-row" : ""} ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "hovered-spec-row" : ""}`}
                               onMouseEnter={() =>
                                 setHoveredRowId(masterTmde.id)
