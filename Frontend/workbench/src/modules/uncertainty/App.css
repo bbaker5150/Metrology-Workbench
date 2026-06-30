@@ -11116,15 +11116,23 @@ input.inline-function-input:focus {
   line-height: 1;
 }
 
-/* Small toggle that flips a tolerance term between a single ± value and
-   separate + / − limits. Highlighted when two-sided so the mode is obvious. */
-.inline-tolerance-sided-toggle {
+/* Three-way segmented control that sets a tolerance term's shape:
+   ± (symmetric) / +0 (single-sided) / +− (asymmetric). */
+.inline-tolerance-mode {
   flex: 0 0 auto;
-  height: 22px;
-  margin-left: 2px;
-  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
   border: 1px solid var(--border-color);
   border-radius: 4px;
+  overflow: hidden;
+}
+
+.inline-tolerance-mode-btn {
+  height: 22px;
+  padding: 0 5px;
+  border: 0;
+  border-left: 1px solid var(--border-color);
   background: transparent;
   color: var(--text-color-muted);
   cursor: pointer;
@@ -11133,15 +11141,50 @@ input.inline-function-input:focus {
   line-height: 1;
 }
 
-.inline-tolerance-sided-toggle:hover {
-  color: var(--text-color);
-  border-color: var(--primary-color);
+.inline-tolerance-mode-btn:first-child {
+  border-left: 0;
 }
 
-.inline-tolerance-sided-toggle.is-asymmetric {
+.inline-tolerance-mode-btn:hover {
+  color: var(--text-color);
+  background: rgba(var(--primary-rgb), 0.06);
+}
+
+.inline-tolerance-mode-btn.is-active {
   color: var(--primary-color);
-  border-color: color-mix(in srgb, var(--primary-color) 42%, transparent);
-  background: rgba(var(--primary-rgb), 0.08);
+  background: rgba(var(--primary-rgb), 0.12);
+}
+
+/* The pinned "0" limit shown for a single-sided term. */
+.inline-tolerance-zero {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 24px;
+  color: var(--text-color-muted);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Swap-direction control for a single-sided term. */
+.inline-tolerance-dir-toggle {
+  flex: 0 0 auto;
+  height: 22px;
+  margin-left: 2px;
+  padding: 0 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.inline-tolerance-dir-toggle:hover {
+  color: var(--text-color);
+  border-color: var(--primary-color);
 }
 
 input.inline-tolerance-input {

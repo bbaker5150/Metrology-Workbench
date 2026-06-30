@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getSpecRows, componentIsAsymmetric } from "./UncertaintyPanel";
+import {
+  getSpecRows,
+  componentIsAsymmetric,
+  toleranceTermMode,
+} from "./UncertaintyPanel";
 
 // The simplified ("read") tolerance/error-limit view renders getSpecRows(...)[0].
 // It must show EVERY component the user entered, on one line, with consistent
@@ -73,5 +77,23 @@ describe("componentIsAsymmetric", () => {
   it("is symmetric when nothing is entered yet", () => {
     expect(componentIsAsymmetric({ high: "", low: "" })).toBe(false);
     expect(componentIsAsymmetric({})).toBe(false);
+  });
+});
+
+// The three-way tolerance shape control picks its layout from toleranceTermMode.
+describe("toleranceTermMode", () => {
+  it("classifies a mirrored ± value as symmetric", () => {
+    expect(toleranceTermMode({ high: "1", low: "-1" })).toBe("symmetric");
+    expect(toleranceTermMode({ high: "1", low: "" })).toBe("symmetric");
+    expect(toleranceTermMode({})).toBe("symmetric");
+  });
+
+  it("classifies a unilateral +n/-0 or +0/-n as single-sided", () => {
+    expect(toleranceTermMode({ high: "1", low: "0" })).toBe("single");
+    expect(toleranceTermMode({ high: "0", low: "-1" })).toBe("single");
+  });
+
+  it("classifies two unequal non-zero limits as asymmetric", () => {
+    expect(toleranceTermMode({ high: "1", low: "-0.5" })).toBe("asymmetric");
   });
 });
