@@ -1,0 +1,49 @@
+import { describe, expect, it } from "vitest";
+import { getSpecRows } from "./UncertaintyPanel";
+
+// The simplified ("read") tolerance/error-limit view renders getSpecRows(...)[0].
+// It must show EVERY component the user entered, on one line, with consistent
+// short labels (% IV / % FS) — regressions here dropped %FS when %IV was also
+// present, or flipped between "% IV" and "of Indicated Value".
+describe("getSpecRows compact spec line", () => {
+  it("shows a single symmetric reading term", () => {
+    const tol = { reading: { value: "2", high: "2", low: "-2", unit: "%" } };
+    expect(getSpecRows(tol)[0]).toBe("± 2% IV");
+  });
+
+  it("keeps BOTH %IV and %FS terms on one line", () => {
+    const tol = {
+      reading: { value: "2", high: "2", low: "-2", unit: "%" },
+      // %FS entered with only a high value (low blank → treated as symmetric).
+      range: { value: "10", high: "1", low: "", unit: "%" },
+    };
+    expect(getSpecRows(tol)[0]).toBe("±(2% IV + 1% FS)");
+  });
+
+  it("includes an absolute floor term alongside the percent terms", () => {
+    const tol = {
+      reading: { high: "2", low: "-2", unit: "%" },
+      range: { high: "1", low: "-1", unit: "%" },
+      floor: { high: "0.5", low: "-0.5", unit: "V" },
+    };
+    expect(getSpecRows(tol)[0]).toBe("±(2% IV + 1% FS + 0.5 V)");
+  });
+
+  it("uses consistent % IV / % FS labels even when a term is asymmetric", () => {
+    const tol = {
+      reading: { high: "2", low: "-2", unit: "%" },
+      range: { high: "1", low: "-0.5", unit: "%" },
+    };
+    const line = getSpecRows(tol)[0];
+    expect(line).toContain("% IV");
+    expect(line).toContain("% FS");
+    // No component is dropped and the old "of Indicated Value" wording is gone.
+    expect(line).not.toContain("Indicated Value");
+    expect(line).toBe("±2% IV + (+1/-0.5)% FS");
+  });
+
+  it("falls back to a placeholder when nothing is set", () => {
+    expect(getSpecRows({})[0]).toBe("Not Set");
+    expect(getSpecRows(null)[0]).toBe("-");
+  });
+});

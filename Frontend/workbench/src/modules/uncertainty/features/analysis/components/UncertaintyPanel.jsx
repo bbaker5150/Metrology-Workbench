@@ -1870,14 +1870,15 @@ const handleRowSelection = (e, id, setSelected) => {
 
 // --- HELPER: Decompose Tolerance into a compact single-line spec ---
 // A multi-component spec is ONE ± uncertainty made of several terms, so it is
-// rendered on a single line as e.g. "±(2% iv + 0.1% fs + 0.5 V)" rather than
+// rendered on a single line as e.g. "±(2% IV + 0.1% FS + 0.5 V)" rather than
 // stacked rows (which waste vertical space and imply the terms are separate or
-// apply to different ranges). "iv" = indicated value, "fs" = full scale; the
-// absolute Floor term carries just its unit. Asymmetric components can't be
-// represented by a single ± wrapper, so those fall back to explicit per-term
-// rows. Returns an array of lines (usually length 1) — the table renders the
-// first line in the spec cell and any extras as spanned rows.
-const getSpecRows = (tolerance) => {
+// apply to different ranges). "IV" = indicated value, "FS" = full scale; the
+// absolute Floor term carries just its unit. EVERY present component is always
+// shown — an asymmetric term keeps its own "+high/low" signs inline so it can
+// share the one line instead of being split off (and dropped) into extra rows.
+// Returns a single-element array of lines; callers render line [0]. (A spec that
+// stores explicit sub-tolerances still expands to one line per sub-tolerance.)
+export const getSpecRows = (tolerance) => {
   if (!tolerance) return ["-"];
 
   // Explicit sub-components (recursion): one combined line per sub-tolerance.
@@ -1887,8 +1888,8 @@ const getSpecRows = (tolerance) => {
     return rows;
   }
 
-  // Components in display order, each with its abbreviation tag. Floor and dB
-  // carry no tag (Floor is a bare absolute value; dB's unit is shown inline).
+  // Components in display order, each with its abbreviation tag. Floor carries
+  // no tag (it's a bare absolute value); dB's unit is shown inline.
   const componentConfig = [
     { key: "reading", tag: "IV" },
     { key: "range", tag: "FS" },
@@ -1922,12 +1923,27 @@ const getSpecRows = (tolerance) => {
     };
   };
 
-  const termText = (comp, tag) => {
+  // unit + tag suffix shared by every term (e.g. "% IV", " V", " dB").
+  const tagSuffix = (comp, tag) => {
     const unitLabel = getUnitDisplayLabel(comp.unit || "");
     // No space before "%"; a space before any worded/physical unit.
     const join = unitLabel === "%" || unitLabel === "" ? "" : " ";
-    const base = `${comp.mag}${join}${unitLabel}`.trim();
-    return tag ? `${base} ${tag}` : base;
+    const unitPart = `${join}${unitLabel}`;
+    return tag ? `${unitPart} ${tag}` : unitPart;
+  };
+  // A single term's body. Symmetric terms drop the sign when the whole spec is
+  // symmetric (a leading ± is added once); otherwise they show their own ±, and
+  // asymmetric terms show "+high/low".
+  const termText = (comp, tag, { withSign }) => {
+    const suffix = tagSuffix(comp, tag);
+    if (comp.symmetric) {
+      const sign = withSign ? "±" : "";
+      return `${sign}${comp.mag}${suffix}`.trim();
+    }
+    // Asymmetric term: keep both signs. Parenthesize when sharing a line with
+    // other signed terms so the "+high/low" reads cleanly (no stray "+ +").
+    const body = `+${comp.high}/${comp.low}`;
+    return `${withSign ? `(${body})` : body}${suffix}`.trim();
   };
 
   const present = [];
@@ -1941,38 +1957,23 @@ const getSpecRows = (tolerance) => {
 
   if (present.length === 0) return [getToleranceSummary(tolerance)];
 
+  // All symmetric: factor the ± out front — "± 2% IV" or "±(2% IV + 1% FS)".
   if (!anyAsymmetric) {
     if (present.length === 1) {
-      return [`± ${termText(present[0].comp, present[0].cfg.tag)}`];
+      return [`± ${termText(present[0].comp, present[0].cfg.tag, { withSign: false })}`];
     }
     const inner = present
-      .map((p) => termText(p.comp, p.cfg.tag))
+      .map((p) => termText(p.comp, p.cfg.tag, { withSign: false }))
       .join(" + ");
     return [`±(${inner})`];
   }
 
-  // Asymmetric fallback: explicit per-component rows with a descriptive suffix.
-  const suffixMap = {
-    reading: "of Indicated Value",
-    range: "of Full Scale",
-    floor: "Floor Value",
-    readings_iv: "Floor Value",
-    offset: "Offset",
-    linearity: "Linearity",
-    db: "dB",
-  };
-  const formatPart = (part, suffix = "") => {
-    if (part.high === undefined && part.value !== undefined) {
-      return `± ${part.value} ${getUnitDisplayLabel(part.unit || "")} ${suffix}`.trim();
-    }
-    const high = parseFloat(part.high || 0);
-    const low = parseFloat(part.low || -high);
-    const unit = getUnitDisplayLabel(part.unit || "");
-    const valStr =
-      Math.abs(high + low) < 1e-9 && high > 0 ? `± ${high}` : `+${high}/${low}`;
-    return `${valStr} ${unit} ${suffix}`.trim();
-  };
-  return present.map((p) => formatPart(tolerance[p.cfg.key], suffixMap[p.cfg.key]));
+  // Mixed/asymmetric: every term carries its own sign so they still share ONE
+  // line (no component is dropped). e.g. "±2% IV + +1/-0.5% FS".
+  const inner = present
+    .map((p) => termText(p.comp, p.cfg.tag, { withSign: true }))
+    .join(" + ");
+  return [inner];
 };
 
 const formatResolutionLabel = (range = {}) => {
@@ -3380,6 +3381,10 @@ const SummaryDashboard = ({
     );
   };
   const setSelectedToleranceType = (kind, item, activeRange, typeKey) => {
+    // Selection only — never write a default term here. The editor already shows
+    // every tolerance type, and writing a default on select would race with the
+    // blur-commit of the field the user just left (both replace the whole
+    // tolerance from a stale snapshot), silently dropping a component.
     const key = toleranceTypeKey(kind, item, activeRange?.id);
     setToleranceTypes((prev) => ({ ...prev, [key]: typeKey }));
     setSelectedToleranceKey(key);
@@ -3389,14 +3394,6 @@ const SummaryDashboard = ({
     } else {
       setSelectedTmdeIds([item.id]);
       setSelectedUutIds([]);
-    }
-    const cur = getItemRangeTolerance(item, activeRange?.id) || {};
-    if (!cur[typeKey]) {
-      const updatedItem = applyItemRangeTolerance(item, activeRange?.id, {
-        ...cur,
-        [typeKey]: defaultToleranceComponent(typeKey, activeRange, cur),
-      });
-      persistInlineItem(kind, updatedItem);
     }
   };
   const setRangeToleranceComponent = (kind, item, activeRange, typeKey, component) => {
@@ -6674,6 +6671,7 @@ function DetailedView({
     );
   };
   const setSelectedToleranceTypeDetail = (kind, item, activeRange, typeKey) => {
+    // Selection only — see setSelectedToleranceType for why no default is written.
     const key = toleranceTypeKey(kind, item, activeRange?.id);
     setToleranceTypes((prev) => ({ ...prev, [key]: typeKey }));
     setSelectedToleranceKey(key);
@@ -6683,16 +6681,6 @@ function DetailedView({
     } else {
       setSelectedTmdeIds([item.id]);
       setSelectedUutIds([]);
-    }
-    const cur = getItemRangeTolerance(item, activeRange?.id) || {};
-    if (!cur[typeKey]) {
-      persistInlineItemDetail(
-        kind,
-        applyItemRangeTolerance(item, activeRange?.id, {
-          ...cur,
-          [typeKey]: defaultToleranceComponent(typeKey, activeRange, cur),
-        }),
-      );
     }
   };
   const setRangeToleranceComponentDetail = (
