@@ -2691,17 +2691,18 @@ const buildFunctionGroupedRows = (
   groupedItems,
   sessionData,
   kind = null,
-  { includeEmptyGroups = true } = {},
+  { includeEmptyGroups = true, onlyFunctionKey = null, fallbackItemIds = [] } = {},
 ) => {
   const sessionFunctions = resolveSessionFunctions(sessionData, { kind });
   const fnByKey = new Map(sessionFunctions.map((fn) => [fn.key, fn]));
   const fnOrder = new Map(sessionFunctions.map((fn, index) => [fn.key, index]));
   const groups = new Map();
+  const fallbackSet = new Set((fallbackItemIds || []).map(String));
 
   groupedItems.forEach((row) => {
     const declared = instrumentFunctions(row.item);
     const seenFnKeys = new Set();
-    const fnList = (
+    let fnList = (
       declared.length
         ? declared
         : [{ key: makeFunctionKey("Measurement", ""), name: "Measurement", unit: "" }]
@@ -2710,6 +2711,22 @@ const buildFunctionGroupedRows = (
       seenFnKeys.add(fn.key);
       return true;
     });
+    if (onlyFunctionKey) {
+      const matchingKey = matchingInstrumentFunctionKey(row.item, onlyFunctionKey);
+      fnList = fnList.filter((fn) => fn.key === matchingKey || fn.key === onlyFunctionKey);
+      if (fnList.length === 0 && fallbackSet.has(String(row.item?.id))) {
+        const resolved = fnByKey.get(onlyFunctionKey);
+        fnList = [
+          resolved || {
+            key: onlyFunctionKey,
+            name: functionNamePart(onlyFunctionKey) || "Measurement",
+            unit: functionUnitPart(onlyFunctionKey),
+            ranges: [],
+          },
+        ];
+      }
+    }
+    if (fnList.length === 0) return;
     const multi = fnList.length > 1;
 
     fnList.forEach((primary) => {
@@ -7910,9 +7927,13 @@ function DetailedView({
         relevantUuts.map((item, index) => ({ type: "item", item, index })),
         sessionData,
         "uut",
-        { includeEmptyGroups: false },
+        {
+          includeEmptyGroups: false,
+          onlyFunctionKey: activePointFunctionKey,
+          fallbackItemIds: associatedUutIds,
+        },
       ),
-    [relevantUuts, sessionData],
+    [activePointFunctionKey, associatedUutIds, relevantUuts, sessionData],
   );
 
   const detailTmdeRows = useMemo(
@@ -7921,9 +7942,9 @@ function DetailedView({
         relevantTmdes.map((item, index) => ({ type: "item", item, index })),
         sessionData,
         "tmde",
-        { includeEmptyGroups: false },
+        { includeEmptyGroups: false, onlyFunctionKey: activePointFunctionKey },
       ),
-    [relevantTmdes, sessionData],
+    [activePointFunctionKey, relevantTmdes, sessionData],
   );
 
   // --- HANDLERS ---
