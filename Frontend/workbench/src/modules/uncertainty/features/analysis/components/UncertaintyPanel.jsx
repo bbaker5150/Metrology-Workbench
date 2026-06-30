@@ -4374,7 +4374,8 @@ const SummaryDashboard = ({
       });
     } else if (viewMode === "function") {
       // contextId is a function key (see utils/functionGrouping). Scope to the
-      // points of that function and the UUTs that own at least one of them.
+      // points of that function and the instruments that declare it. Keep a
+      // point-owner fallback for legacy UUTs whose function metadata is missing.
       const fnPoints = points.filter((tp) => functionKeyOf(tp) === contextId);
       const ownerIds = new Set(
         fnPoints.flatMap((tp) => (tp.associatedUutIds || []).map(String)),
@@ -4385,7 +4386,10 @@ const SummaryDashboard = ({
         "Function";
       displaySubtitle = "Function Summary";
       points = fnPoints;
-      uuts = uuts.filter((u) => ownerIds.has(String(u.id)));
+      uuts = uuts.filter(
+        (u) => instrumentHasFunction(u, contextId) || ownerIds.has(String(u.id)),
+      );
+      tmdes = tmdes.filter((tmde) => instrumentHasFunction(tmde, contextId));
     } else if (viewMode === "uut") {
       const uut = uuts.find((u) => u.id === contextId);
       displayTitle = uut?.description || "UUT Detail";
@@ -4447,7 +4451,18 @@ const SummaryDashboard = ({
       const groupedItems = [];
 
       items.forEach((item, index) => {
-        const row = { type: "item", item, index };
+        const isFunctionView = viewMode === "function" && contextId;
+        const row = {
+          type: "item",
+          item,
+          index,
+          ...(isFunctionView
+            ? {
+                functionKey: contextId,
+                rowKey: `${contextId}::${item.id}`,
+              }
+            : {}),
+        };
         if (pinnedSet.has(item.id)) {
           pinnedRows.push(row);
         } else {
@@ -4455,13 +4470,17 @@ const SummaryDashboard = ({
         }
       });
 
+      if (viewMode === "function" && contextId) {
+        return [...pinnedRows, ...groupedItems];
+      }
+
       if (!showAreaColumn) {
         return [...pinnedRows, ...groupedItems];
       }
 
       return [...pinnedRows, ...buildFunctionGroupedRows(groupedItems, sessionData, kind)];
     },
-    [sessionData, showAreaColumn],
+    [contextId, sessionData, showAreaColumn, viewMode],
   );
 
   // --- HANDLERS ---
