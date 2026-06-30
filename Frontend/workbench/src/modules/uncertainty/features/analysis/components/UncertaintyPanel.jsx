@@ -7124,12 +7124,25 @@ function DetailedView({
   const associatedUutIds = testPointData.associatedUutIds || [];
   const activePointUutId =
     testPointData.activeUutId || associatedUutIds[0] || null;
+  const activePointFunctionKey = functionKeyOf(testPointData);
+  const pointFunctionMatchesRow = useCallback(
+    (functionKey = null) =>
+      !functionKey ||
+      !activePointFunctionKey ||
+      functionKey === activePointFunctionKey,
+    [activePointFunctionKey],
+  );
+  const isActivePointUutForFunction = useCallback(
+    (uut, functionKey = null) =>
+      activePointUutId !== null &&
+      String(activePointUutId) === String(uut?.id) &&
+      pointFunctionMatchesRow(functionKey),
+    [activePointUutId, pointFunctionMatchesRow],
+  );
 
   const resolveUutRange = useCallback(
     (uut, functionKey = null, rangeIndexOverride) => {
-      const isActivePointUut =
-        activePointUutId !== null &&
-        String(activePointUutId) === String(uut.id);
+      const isActivePointUut = isActivePointUutForFunction(uut, functionKey);
       // For the active point, its own saved tolerance governs the range — the
       // UUT-keyed activeRangeIndices map is deliberately ignored so a range
       // change on one point never leaks onto sibling points sharing the UUT.
@@ -7146,7 +7159,7 @@ function DetailedView({
       );
       return resolution;
     },
-    [activePointUutId, activeRangeIndices, uutToleranceData, uutNominal],
+    [activeRangeIndices, isActivePointUutForFunction, uutToleranceData, uutNominal],
   );
 
   // --- Function subsections (detail view parity with the Session Overview) ---
@@ -9123,13 +9136,15 @@ function DetailedView({
                   const uutFnKey = row.functionKey ?? null;
                   const { ranges, activeIndex, activeRange } =
                     resolveUutRange(uut, uutFnKey);
+                  const isPointFunctionRow = pointFunctionMatchesRow(uutFnKey);
                   const isLinked =
                     testPointData.associatedUutIds &&
-                    testPointData.associatedUutIds.includes(uut.id);
-                  const isActivePointUut =
-                    testPointData.activeUutId === uut.id ||
-                    (!testPointData.activeUutId &&
-                      associatedUutIds[0] === uut.id);
+                    testPointData.associatedUutIds.includes(uut.id) &&
+                    isPointFunctionRow;
+                  const isActivePointUut = isActivePointUutForFunction(
+                    uut,
+                    uutFnKey,
+                  );
                   const specRows = getSpecRows(activeRange);
                   const rowSpan = !onSessionSave && specRows.length > 0 ? specRows.length : 1;
                   const isSelected = selectedUutIds.includes(uut.id);
