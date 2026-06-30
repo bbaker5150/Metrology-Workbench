@@ -10859,12 +10859,15 @@ input.inline-function-input:focus {
 
 /* The per-function add/delete buttons reuse the range-header button look so
    every add/delete control on the table matches. They sit a touch smaller to
-   fit snugly in the subsection header next to the function name. */
+   fit snugly in the subsection header next to the function name. The section
+   header row sets pointer-events:none, so interactive children must opt back
+   in or the buttons won't receive clicks. */
 .function-header-action-btn {
   width: 22px;
   height: 22px;
   flex: 0 0 22px;
   border-radius: 6px;
+  pointer-events: auto;
 }
 
 .function-header-action-btn:first-of-type {

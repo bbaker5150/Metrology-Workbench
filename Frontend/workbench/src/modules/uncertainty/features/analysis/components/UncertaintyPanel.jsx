@@ -1314,6 +1314,22 @@ const toleranceHasAnyValue = (tolerance = {}) =>
   TOLERANCE_TYPE_OPTIONS.some((opt) =>
     toleranceComponentHasNumericValue(opt.key, getToleranceComponent(tolerance, opt.key)),
   );
+// Drop any tolerance term that carries no numeric value, leaving non-term keys
+// (distribution, etc.) untouched. Applied on every tolerance write so a blank
+// term the user left empty (or cleared) is excluded — no separate cleanup pass,
+// which keeps a single write per edit and avoids clobbering races.
+const pruneBlankToleranceTerms = (tolerance = {}) => {
+  const next = { ...tolerance };
+  TOLERANCE_TYPE_OPTIONS.forEach(({ key }) => {
+    if (
+      Object.prototype.hasOwnProperty.call(next, key) &&
+      !toleranceComponentHasNumericValue(key, next[key])
+    ) {
+      delete next[key];
+    }
+  });
+  return next;
+};
 const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) => {
   const distribution = getBandDistDivisor(tolerance) || "1.732";
   if (typeKey === "range") {
@@ -1552,8 +1568,15 @@ const ToleranceTermEditor = ({
 //     only terms that actually carry a value are shown, so the column stays
 //     easy to scan when nobody is editing.
 //   • Edit view (on click): EVERY tolerance type is shown with blank fields. The
-//     user fills in only the terms that apply; blanks are dropped on close
-//     (onCleanupBlanks) so they're excluded from both the summary and the math.
+//     user fills in only the terms that apply; blank terms are dropped by the
+//     commit itself (see setRangeToleranceComponent) so they're excluded from
+//     both the summary and the math.
+//
+// Closing is driven by focus leaving the cell (onBlur / focusout), NOT a
+// document mousedown listener: a mousedown close would unmount the inputs
+// before their onBlur fires, silently dropping the value the user just typed.
+// With focusout the focused input commits first, then the cell closes. The
+// first field is auto-focused on open so there is always something to blur.
 const InlineToleranceCell = ({
   tolerance = {},
   activeRange = {},
@@ -1561,25 +1584,17 @@ const InlineToleranceCell = ({
   editable,
   onSelectType,
   onCommit,
-  onCleanupBlanks,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const containerRef = useRef(null);
 
-  // Close the editor (and prune blank terms) when the user clicks anywhere
-  // outside this cell. All editor controls live inside containerRef, so this is
-  // safe and avoids relatedTarget blur pitfalls.
+  // Put focus in the first field when the editor opens so a later click-away
+  // reliably produces a focusout (and commits the in-progress value).
   useEffect(() => {
-    if (!isEditing) return undefined;
-    const handleDocMouseDown = (event) => {
-      if (containerRef.current && !containerRef.current.contains(event.target)) {
-        onCleanupBlanks?.();
-        setIsEditing(false);
-      }
-    };
-    document.addEventListener("mousedown", handleDocMouseDown);
-    return () => document.removeEventListener("mousedown", handleDocMouseDown);
-  }, [isEditing, onCleanupBlanks]);
+    if (!isEditing || !containerRef.current) return;
+    const firstInput = containerRef.current.querySelector("input");
+    firstInput?.focus();
+  }, [isEditing]);
 
   const summary = getSpecRows(tolerance)[0] || "-";
 
@@ -1605,11 +1620,23 @@ const InlineToleranceCell = ({
     );
   }
 
+  // Close only when focus moves OUTSIDE the cell. The blurred input's own onBlur
+  // (commit) fires first as part of the same focus change, so the value is saved
+  // before this re-render unmounts the inputs.
+  const handleBlur = (event) => {
+    const next = event.relatedTarget;
+    if (next && containerRef.current && containerRef.current.contains(next)) {
+      return;
+    }
+    setIsEditing(false);
+  };
+
   return (
     <div
       ref={containerRef}
       className="inline-tolerance-editor inline-tolerance-editor--all"
       onMouseDown={(e) => e.stopPropagation()}
+      onBlur={handleBlur}
     >
       {TOLERANCE_TYPE_OPTIONS.map((opt, index) => (
         <span
@@ -3376,28 +3403,9 @@ const SummaryDashboard = ({
     if (!onSessionSave) return;
     setSelectedToleranceKey(toleranceTypeKey(kind, item, activeRange?.id));
     const cur = getItemRangeTolerance(item, activeRange?.id) || {};
-    const next = { ...cur, [typeKey]: component };
-    const updatedItem = applyItemRangeTolerance(item, activeRange?.id, next);
-    persistInlineItem(kind, updatedItem);
-  };
-
-  // Drop any tolerance term the user left blank when the editable cell closes,
-  // so blank terms are excluded from the budget and never clutter the summary.
-  const cleanupRangeToleranceBlanks = (kind, item, activeRange) => {
-    if (!onSessionSave) return;
-    const cur = getItemRangeTolerance(item, activeRange?.id) || {};
-    let changed = false;
-    const next = { ...cur };
-    TOLERANCE_TYPE_OPTIONS.forEach(({ key }) => {
-      if (
-        Object.prototype.hasOwnProperty.call(next, key) &&
-        !toleranceComponentHasNumericValue(key, next[key])
-      ) {
-        delete next[key];
-        changed = true;
-      }
-    });
-    if (!changed) return;
+    // Prune blank terms in the same write so an empty (or just-cleared) term is
+    // excluded without a second, racy cleanup pass.
+    const next = pruneBlankToleranceTerms({ ...cur, [typeKey]: component });
     const updatedItem = applyItemRangeTolerance(item, activeRange?.id, next);
     persistInlineItem(kind, updatedItem);
   };
@@ -4337,9 +4345,6 @@ const SummaryDashboard = ({
             onCommit={(nextTypeKey, component) =>
               setRangeToleranceComponent(kind, item, range, nextTypeKey, component)
             }
-            onCleanupBlanks={() =>
-              cleanupRangeToleranceBlanks(kind, item, range)
-            }
           />
         </td>
 
@@ -5218,9 +5223,6 @@ const SummaryDashboard = ({
                                           component,
                                         )
                                       }
-                                      onCleanupBlanks={() =>
-                                        cleanupRangeToleranceBlanks("uut", uut, range)
-                                      }
                                     />
                                   ) : (
                                     getSpecRows(tolerance)[0]
@@ -5626,9 +5628,6 @@ const SummaryDashboard = ({
                                           nextTypeKey,
                                           component,
                                         )
-                                      }
-                                      onCleanupBlanks={() =>
-                                        cleanupRangeToleranceBlanks("tmde", tmde, range)
                                       }
                                     />
                                   ) : (
@@ -6706,30 +6705,12 @@ function DetailedView({
     if (!onSessionSave) return;
     setSelectedToleranceKey(toleranceTypeKey(kind, item, activeRange?.id));
     const cur = getItemRangeTolerance(item, activeRange?.id) || {};
+    // Prune blank terms in the same write (see setRangeToleranceComponent).
+    const next = pruneBlankToleranceTerms({ ...cur, [typeKey]: component });
     persistInlineItemDetail(
       kind,
-      applyItemRangeTolerance(item, activeRange?.id, { ...cur, [typeKey]: component }),
+      applyItemRangeTolerance(item, activeRange?.id, next),
     );
-  };
-
-  // Drop any tolerance term left blank when the editable cell closes (detail
-  // view), mirroring the session-overview cleanup so blanks are never included.
-  const cleanupRangeToleranceBlanksDetail = (kind, item, activeRange) => {
-    if (!onSessionSave) return;
-    const cur = getItemRangeTolerance(item, activeRange?.id) || {};
-    let changed = false;
-    const next = { ...cur };
-    TOLERANCE_TYPE_OPTIONS.forEach(({ key }) => {
-      if (
-        Object.prototype.hasOwnProperty.call(next, key) &&
-        !toleranceComponentHasNumericValue(key, next[key])
-      ) {
-        delete next[key];
-        changed = true;
-      }
-    });
-    if (!changed) return;
-    persistInlineItemDetail(kind, applyItemRangeTolerance(item, activeRange?.id, next));
   };
 
   // --- Range & tolerance header add/delete (act on the single-selected row) ---
@@ -6901,9 +6882,6 @@ function DetailedView({
             }
             onCommit={(nextTypeKey, component) =>
               setRangeToleranceComponentDetail(kind, item, range, nextTypeKey, component)
-            }
-            onCleanupBlanks={() =>
-              cleanupRangeToleranceBlanksDetail(kind, item, range)
             }
           />
         </td>
@@ -9521,9 +9499,6 @@ function DetailedView({
                                           component,
                                         )
                                       }
-                                      onCleanupBlanks={() =>
-                                        cleanupRangeToleranceBlanksDetail("uut", uut, range)
-                                      }
                                     />
                                   ) : (
                                     getSpecRows(tolerance)[0]
@@ -10319,13 +10294,6 @@ function DetailedView({
                                               range,
                                               nextTypeKey,
                                               component,
-                                            )
-                                          }
-                                          onCleanupBlanks={() =>
-                                            cleanupRangeToleranceBlanksDetail(
-                                              "tmde",
-                                              masterTmde,
-                                              range,
                                             )
                                           }
                                         />
