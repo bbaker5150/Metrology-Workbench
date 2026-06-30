@@ -782,6 +782,72 @@ const getBandDistLabel = (tolerance = {}) => {
     `k=${divisor}`
   );
 };
+const formatInstrumentIdentity = (source = {}, fallback = "Unnamed Instrument") => {
+  const instrument = source.instrument || source || {};
+  const manufacturer = instrument.manufacturer || source.manufacturer || "";
+  const hasStructuredIdentity =
+    manufacturer || instrument.description || instrument.name || instrument.model;
+  const make =
+    instrument.description ||
+    instrument.name ||
+    source.description ||
+    (!hasStructuredIdentity ? source.name : "");
+  const model = instrument.model || source.model || "";
+  const parts = [];
+  [manufacturer, make, model].forEach((part) => {
+    const value = String(part || "").trim();
+    if (!value) return;
+    if (!parts.some((existing) => existing.toLowerCase() === value.toLowerCase())) {
+      parts.push(value);
+    }
+  });
+  return parts.join(" ") || source.description || source.name || fallback;
+};
+
+const findRangeForFunction = (source = {}, functionKey = null) => {
+  const ranges = getInstrumentRangeRows(source);
+  if (!ranges.length) return null;
+  if (!functionKey) return ranges[0];
+  const [functionNamePart, functionUnitPart = ""] = String(functionKey).split("|");
+  const exact = ranges.find(
+    (range) =>
+      makeFunctionKey(
+        range.functionName || "",
+        range.functionUnit || range.unit || "",
+      ) === functionKey,
+  );
+  if (exact) return exact;
+  if (!functionUnitPart) {
+    return (
+      ranges.find(
+        (range) =>
+          makeFunctionKey(
+            range.functionName || "",
+            range.functionUnit || range.unit || "",
+          ).split("|")[0] === functionNamePart,
+      ) || ranges[0]
+    );
+  }
+  return ranges[0];
+};
+
+const formatRangeToleranceDetail = (range = null) => {
+  if (!range) return "";
+  const rangeLabel = formatRangeLabel(range, { preferBounds: true });
+  const specLabel = (getSpecRows(range)[0] || "").trim();
+  const distributionLabel = getBandDistLabel(range);
+  const isPlaceholder = (value) => {
+    const normalized = String(value || "").trim();
+    return !normalized || normalized === "-" || normalized === "\u2014";
+  };
+  return [rangeLabel, specLabel, distributionLabel]
+    .filter((value) => !isPlaceholder(value))
+    .join(" | ");
+};
+
+const formatInstrumentRangeDetail = (source = {}, functionKey = null) =>
+  formatRangeToleranceDetail(findRangeForFunction(source, functionKey));
+
 // Write a new band divisor across all present band components of a tolerance.
 const applyBandDistribution = (tolerance = {}, value) => {
   const next = { ...tolerance };
@@ -893,6 +959,7 @@ const EditableDescriptionCell = ({
   make = "",
   model = "",
   name = "",
+  functionKey = null,
   onCommit,
   instruments = [],
   onPickLibrary,
@@ -1089,34 +1156,65 @@ const EditableDescriptionCell = ({
                 : { top: menuPos.top }),
             }}
           >
-            {results.map((inst) => (
-              <div
-                key={inst.id}
-                className="inline-desc-search-item"
-                style={descSearchItemStyle}
-                // onMouseDown (not onClick) so it fires before the input blur.
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onPickLibrary(inst);
-                  setOpen(false);
-                }}
-              >
-                <span style={{ fontWeight: 500 }}>
-                  {[inst.manufacturer, inst.model].filter(Boolean).join(" ") ||
-                    inst.description ||
-                    "Unnamed"}
-                </span>
-                <span
-                  style={{
-                    marginLeft: "auto",
-                    fontSize: "0.72rem",
-                    color: "var(--text-color-muted)",
+            {results.map((inst) => {
+              const detail = formatInstrumentRangeDetail(inst, functionKey);
+              return (
+                <div
+                  key={inst.id}
+                  className="inline-desc-search-item"
+                  style={descSearchItemStyle}
+                  // onMouseDown (not onClick) so it fires before the input blur.
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onPickLibrary(inst);
+                    setOpen(false);
                   }}
                 >
-                  {describeEntry(inst)}
-                </span>
-              </div>
-            ))}
+                  <span
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
+                      minWidth: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontWeight: 500,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {formatInstrumentIdentity(inst)}
+                    </span>
+                    {detail && (
+                      <span
+                        style={{
+                          fontSize: "0.72rem",
+                          color: "var(--text-color-muted)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {detail}
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    style={{
+                      marginLeft: "auto",
+                      flexShrink: 0,
+                      fontSize: "0.72rem",
+                      color: "var(--text-color-muted)",
+                    }}
+                  >
+                    {describeEntry(inst)}
+                  </span>
+                </div>
+              );
+            })}
           </div>,
           document.body,
         )}
@@ -4891,6 +4989,7 @@ const SummaryDashboard = ({
                                     name={uut.description}
                                     make={uut.instrument?.manufacturer}
                                     model={uut.instrument?.model}
+                                    functionKey={uutFnKey}
                                     instruments={instruments}
                                     onPickLibrary={(inst) =>
                                       promptLibraryPick("uut", uut.id, inst, uutFnKey)
@@ -4953,6 +5052,7 @@ const SummaryDashboard = ({
                               name={uut.description}
                               make={uut.instrument?.manufacturer}
                               model={uut.instrument?.model}
+                              functionKey={uutFnKey}
                               instruments={instruments}
                               onPickLibrary={(inst) =>
                                 promptLibraryPick("uut", uut.id, inst, uutFnKey)
@@ -5300,6 +5400,7 @@ const SummaryDashboard = ({
                                     name={tmde.name}
                                     make={tmde.instrument?.manufacturer}
                                     model={tmde.instrument?.model}
+                                    functionKey={tmdeFnKey}
                                     instruments={instruments}
                                     onPickLibrary={(inst) =>
                                       promptLibraryPick("tmde", tmde.id, inst, tmdeFnKey)
@@ -5362,10 +5463,11 @@ const SummaryDashboard = ({
                               name={tmde.name}
                               make={tmde.instrument?.manufacturer}
                               model={tmde.instrument?.model}
-                                instruments={instruments}
-                                onPickLibrary={(inst) =>
-                                  promptLibraryPick("tmde", tmde.id, inst, tmdeFnKey)
-                                }
+                              functionKey={tmdeFnKey}
+                              instruments={instruments}
+                              onPickLibrary={(inst) =>
+                                promptLibraryPick("tmde", tmde.id, inst, tmdeFnKey)
+                              }
                               onCommit={(field, value) =>
                                 handleTmdeDescriptionEdit(tmde.id, field, value)
                               }
@@ -8565,12 +8667,28 @@ function DetailedView({
   }, [getVariableNominal, isDerived, testPointData, tmdeTolerancesData]);
 
   const getEquationTmdeLabel = (tmde) =>
-    tmde?.description ||
-    tmde?.name ||
-    (tmde?.instrument
-      ? `${tmde.instrument.manufacturer || ""} ${tmde.instrument.model || ""}`.trim()
-      : "") ||
-    "Unnamed TMDE";
+    formatInstrumentIdentity(tmde, "Unnamed TMDE");
+
+  const getBudgetTmdeDetail = (tmde) => {
+    if (!budgetTmdePicker) return "";
+    const rowKey = `${budgetTmdePicker.functionKey || "single"}::${tmde.id}`;
+    const resolution = resolveUutRangeHelper(
+      tmde,
+      tmdeRangeIndices,
+      null,
+      null,
+      budgetTmdePicker.functionKey,
+    );
+    const activeIndex =
+      tmdeRangeIndices[rowKey] ??
+      tmdeRangeIndices[tmde.id] ??
+      resolution.activeIndex;
+    const activeRange =
+      resolution.ranges?.[activeIndex] ||
+      resolution.activeRange ||
+      findRangeForFunction(tmde, budgetTmdePicker.functionKey);
+    return formatRangeToleranceDetail(activeRange);
+  };
 
   const budgetFunctionKey = useCallback(
     (scope = null) => {
@@ -8660,7 +8778,7 @@ function DetailedView({
       cursor: "pointer",
       fontSize: "0.85em",
     };
-    const MENU_WIDTH = 280;
+    const MENU_WIDTH = 360;
     const rect = budgetTmdePicker.rect;
     const left = rect
       ? Math.max(
@@ -8707,23 +8825,56 @@ function DetailedView({
             Add TMDE to {scopeLabel}
           </div>
           <div>
-            {budgetTmdePicker.options.map((tmde) => (
-              <button
-                key={tmde.id}
-                type="button"
-                style={itemStyle}
-                onClick={() => addBudgetTmde(tmde)}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.background = "var(--input-background)")
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.background = "transparent")
-                }
-              >
-                <FontAwesomeIcon icon={faTools} />
-                <span>{getEquationTmdeLabel(tmde)}</span>
-              </button>
-            ))}
+            {budgetTmdePicker.options.map((tmde) => {
+              const detail = getBudgetTmdeDetail(tmde);
+              return (
+                <button
+                  key={tmde.id}
+                  type="button"
+                  style={itemStyle}
+                  onClick={() => addBudgetTmde(tmde)}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = "var(--input-background)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
+                >
+                  <FontAwesomeIcon icon={faTools} style={{ marginTop: "2px" }} />
+                  <span
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
+                      minWidth: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {getEquationTmdeLabel(tmde)}
+                    </span>
+                    {detail && (
+                      <span
+                        style={{
+                          fontSize: "0.72rem",
+                          color: "var(--text-color-muted)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {detail}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </>,
@@ -9067,6 +9218,7 @@ function DetailedView({
                                       name={uut.description}
                                       make={uut.instrument?.manufacturer}
                                       model={uut.instrument?.model}
+                                      functionKey={uutFnKey}
                                       instruments={instruments}
                                       onPickLibrary={(inst) =>
                                         promptLibraryPick("uut", uut.id, inst, uutFnKey)
@@ -9134,6 +9286,7 @@ function DetailedView({
                                 name={uut.description}
                                 make={uut.instrument?.manufacturer}
                                 model={uut.instrument?.model}
+                                functionKey={uutFnKey}
                                 instruments={instruments}
                                 onPickLibrary={(inst) =>
                                   promptLibraryPick("uut", uut.id, inst, uutFnKey)
@@ -9847,10 +10000,11 @@ function DetailedView({
                                         name={masterTmde.name}
                                         make={masterTmde.instrument?.manufacturer}
                                         model={masterTmde.instrument?.model}
-                                          instruments={instruments}
-                                          onPickLibrary={(inst) =>
-                                            promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
-                                          }
+                                        functionKey={tmdeFnKey}
+                                        instruments={instruments}
+                                        onPickLibrary={(inst) =>
+                                          promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
+                                        }
                                         onCommit={(field, value) =>
                                           handleDetailTmdeDescEdit(masterTmde.id, field, value)
                                         }
@@ -9911,10 +10065,11 @@ function DetailedView({
                                   name={masterTmde.name}
                                   make={masterTmde.instrument?.manufacturer}
                                   model={masterTmde.instrument?.model}
-                                    instruments={instruments}
-                                    onPickLibrary={(inst) =>
-                                      promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
-                                    }
+                                  functionKey={tmdeFnKey}
+                                  instruments={instruments}
+                                  onPickLibrary={(inst) =>
+                                    promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
+                                  }
                                   onCommit={(field, value) =>
                                     handleDetailTmdeDescEdit(
                                       masterTmde.id,
