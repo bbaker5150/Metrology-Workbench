@@ -286,8 +286,8 @@ const UncertaintyBudgetTable = ({
   onShowRiskBreakdown,
   showContribution,
   setShowContribution,
-  hasTmde,
   onAddManualComponent,
+  onAddTmdeToBudget,
   onOpenRepeatability,
   setNotification,
   onComponentUpdate,
@@ -353,14 +353,13 @@ const UncertaintyBudgetTable = ({
     if (calcResults?.calculatedBudgetGroups?.length) {
       return calcResults.calculatedBudgetGroups;
     }
-    if (!components?.length) return [];
     return [
       {
         id: "final_budget",
         kind: "final",
         label: `${derivedName || "Final"} Uncertainty Budget`,
         unit: derivedUnit,
-        components,
+        components: components || [],
         results: {
           combined: calcResults?.combined_uncertainty,
           effective_dof: calcResults?.effective_dof,
@@ -370,21 +369,6 @@ const UncertaintyBudgetTable = ({
       },
     ];
   }, [calcResults, components, derivedName, derivedUnit]);
-
-  if (!hasTmde) {
-    return (
-      <div
-        className="placeholder-content"
-        style={{ marginTop: "20px", minHeight: "150px" }}
-      >
-        <h3 style={{ marginBottom: "10px" }}>No TMDE Selected</h3>
-        <p>
-          Add a Test Measurement Device (TMDE) to begin the uncertainty budget
-          calculation.
-        </p>
-      </div>
-    );
-  }
 
   const renderDistributionCell = (component) => {
     if (component.sourceTmdeId || component.isCore || component.isResolution) {
@@ -455,18 +439,20 @@ const UncertaintyBudgetTable = ({
   };
 
   const renderActions = (component) => {
-    if (component.isCore) return null;
+    if (component.isCore && !component.sourceTmdeId) return null;
     return (
       <div className="budget-row-actions">
+        {!component.missingTolerance && (
+          <span
+            onClick={(e) => onEdit?.(e, component)}
+            className="action-icon"
+            title="Edit Component"
+          >
+            <FontAwesomeIcon icon={faPencilAlt} />
+          </span>
+        )}
         <span
-          onClick={(e) => onEdit?.(e, component)}
-          className="action-icon"
-          title="Edit Component"
-        >
-          <FontAwesomeIcon icon={faPencilAlt} />
-        </span>
-        <span
-          onClick={() => onRemove?.(component.id)}
+          onClick={() => onRemove?.(component.id, component)}
           className="delete-action"
           title="Remove Component"
         >
@@ -752,6 +738,11 @@ const UncertaintyBudgetTable = ({
     action();
   };
 
+  const canAddTmdeForGroup = (group) =>
+    Boolean(onAddTmdeToBudget) &&
+    ((measurementType === "derived" && group.kind === "input") ||
+      (measurementType === "direct" && group.kind === "final"));
+
   const renderSectionSettings = (group) => {
     const canAddManual =
       group.kind === "input" ||
@@ -910,6 +901,19 @@ const UncertaintyBudgetTable = ({
               <div className="budget-section-title-row">
                 <h4>{group.label}</h4>
                 <div className="budget-section-title-actions">
+                  {canAddTmdeForGroup(group) && (
+                    <button
+                      type="button"
+                      className="btn-add-item"
+                      title={`Add TMDE to ${group.label}`}
+                      aria-label={`Add TMDE to ${group.label}`}
+                      onClick={(event) =>
+                        onAddTmdeToBudget(getGroupScope(group), event)
+                      }
+                    >
+                      <FontAwesomeIcon icon={faPlus} size="xs" />
+                    </button>
+                  )}
                   {renderSectionSettings(group)}
                 </div>
               </div>

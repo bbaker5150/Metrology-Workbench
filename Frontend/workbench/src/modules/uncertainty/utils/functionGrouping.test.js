@@ -141,6 +141,25 @@ describe("resolveSessionFunctions", () => {
       colorForFunction(session, makeFunctionKey("Torque", "in-ozf")),
     ).toBe("#abcdef");
   });
+
+  it("can resolve table-scoped explicit functions independently", () => {
+    const session = {
+      functionGroups: [
+        { name: "Torque", unit: "in-ozf", kind: "uut" },
+        { name: "Weight", unit: "kg", kind: "tmde" },
+      ],
+      uuts: [],
+      tmdes: [],
+      testPoints: [],
+    };
+
+    expect(resolveSessionFunctions(session, { kind: "uut" }).map((f) => f.name)).toEqual([
+      "Torque",
+    ]);
+    expect(resolveSessionFunctions(session, { kind: "tmde" }).map((f) => f.name)).toEqual([
+      "Weight",
+    ]);
+  });
 });
 
 describe("functionsForLibrary", () => {

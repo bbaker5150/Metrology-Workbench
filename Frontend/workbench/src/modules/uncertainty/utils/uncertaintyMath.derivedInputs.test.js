@@ -170,6 +170,28 @@ describe("calculateDerivedUncertainty second-order Taylor data", () => {
 });
 
 describe("calculateDerivedUncertainty input contributors", () => {
+  it("uses point-level variable nominals before TMDEs are added to input budgets", () => {
+    const result = calculateDerivedUncertainty(
+      "torque = w * l",
+      { l: "Length", w: "Weight" },
+      [],
+      {
+        value: 10,
+        unit: "N-m",
+        variableNominals: {
+          w: { value: 5, unit: "N" },
+          l: { value: 2, unit: "m" },
+        },
+      },
+    );
+
+    expect(result.error).toBeNull();
+    expect(result.missingInputs).toBeUndefined();
+    expect(result.nominalResult).toBeCloseTo(10, 10);
+    expect(result.combinedUncertaintyNative).toBe(0);
+    expect(result.breakdown).toHaveLength(2);
+  });
+
   it("additively composes multiple TMDEs assigned to one derived input", () => {
     const result = calculateDerivedUncertainty(
       "y = x",

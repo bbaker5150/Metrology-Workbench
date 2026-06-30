@@ -57,6 +57,39 @@ const qualifyTmdeComponent = (component, tmde, fallbackIndex = 0) => {
   };
 };
 
+const createMissingTmdeComponent = (
+  tmde,
+  fallbackIndex = 0,
+  suffix = "budget",
+) => {
+  const identity = getTmdeIdentity(tmde, fallbackIndex);
+  const point = `${tmde?.measurementPoint?.value ?? ""} ${
+    tmde?.measurementPoint?.unit ?? ""
+  }`.trim();
+  const rangeContext = [
+    tmde?.functionName,
+    tmde?.range && typeof tmde.range !== "object" ? tmde.range : null,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  return {
+    id: `missing_tmde_${tmde?.id ?? fallbackIndex}_${suffix}`,
+    name: `${identity} - Set tolerance`,
+    type: "B",
+    value: NaN,
+    value_native: NaN,
+    unit_native: tmde?.measurementPoint?.unit || tmde?.unit || "",
+    dof: Infinity,
+    distribution: "Set tolerance...",
+    sourceTmdeId: tmde?.id,
+    tmdeIdentity: identity,
+    sourcePointLabel: [point, rangeContext].filter(Boolean).join(" - "),
+    quantity: tmde?.quantity || 1,
+    missingTolerance: true,
+  };
+};
+
 const calculateBudgetResults = (
   components,
   confidencePercent,
@@ -192,12 +225,23 @@ export const useUncertaintyCalculation = (
       const noTmdes = !tmdeTolerancesData || tmdeTolerancesData.length === 0;
 
       const noManuals = !manualComponents || manualComponents.length === 0;
+      const hasVariableNominals = Object.values(
+        testPointData.variableNominals || {}
+      ).some(
+        (nominal) =>
+          nominal &&
+          nominal.value !== "" &&
+          nominal.value !== null &&
+          nominal.value !== undefined &&
+          nominal.unit
+      );
 
       if (
         testPointData.measurementType === "derived" &&
         hasVariables &&
         noTmdes && 
-        noManuals
+        noManuals &&
+        !hasVariableNominals
       ) {
         setCalcResults(null);
         if (testPointData.is_detailed_uncertainty_calculated) {
@@ -258,7 +302,7 @@ export const useUncertaintyCalculation = (
           testPointData.equationString,
           testPointData.variableMappings,
           tmdeTolerancesData,
-          uutNominal,
+          { ...uutNominal, variableNominals: testPointData.variableNominals || {} },
           manualComponents
         );
 
@@ -359,16 +403,27 @@ export const useUncertaintyCalculation = (
                 (tmde) => tmde.variableType === item.type
             );
             const inputBudgetComponents = allContributingTmdes.flatMap(
-                (tmde, tmdeIndex) =>
-                    getBudgetComponentsFromTolerance(
+                (tmde, tmdeIndex) => {
+                    const components = getBudgetComponentsFromTolerance(
                         tmde,
                         tmde.measurementPoint
-                    ).map((component, compIndex) => ({
+                    );
+                    if (components.length === 0) {
+                        return [
+                            createMissingTmdeComponent(
+                                tmde,
+                                tmdeIndex,
+                                item.variable,
+                            ),
+                        ];
+                    }
+                    return components.map((component, compIndex) => ({
                         ...qualifyTmdeComponent(component, tmde, tmdeIndex),
                         id: `${component.id}_${item.variable}_${tmdeIndex}_${compIndex}`,
                         sourceTmdeId: tmde.id,
                         quantity: tmde.quantity || 1,
-                    }))
+                    }));
+                }
             );
             const mappedManualComponents = (manualComponents || [])
               .filter((comp) => (comp.variableType || "") === item.type)
@@ -660,26 +715,33 @@ export const useUncertaintyCalculation = (
             const components = getBudgetComponentsFromTolerance(
               toleranceSource,
               uutNominal 
-            ).map((c, compIndex) => ({
-              ...qualifyTmdeComponent(c, tmde, tmdeIndex),
-              id: `${c.id}_${tmdeIndex}_${compIndex}`,
-              // Keep a link back to the originating TMDE instance so the budget
-              // table's distribution dropdown can write the divisor back to the
-              // tolerance and trigger a recalculation (#6).
-              sourceTmdeId: tmde.id,
-              sourcePointLabel: [
-                `${uutNominal.value} ${uutNominal.unit}`,
-                tmde.functionName,
-              ]
-                .filter(Boolean)
-                .join(" - "),
-              quantity: quantity,
-            }));
+            );
+            const qualifiedComponents =
+              components.length === 0
+                ? [createMissingTmdeComponent(tmde, tmdeIndex, "direct")]
+                : components.map((c, compIndex) => ({
+                    ...qualifyTmdeComponent(c, tmde, tmdeIndex),
+                    id: `${c.id}_${tmdeIndex}_${compIndex}`,
+                    // Keep a link back to the originating TMDE instance so the budget
+                    // table's distribution dropdown can write the divisor back to the
+                    // tolerance and trigger a recalculation (#6).
+                    sourceTmdeId: tmde.id,
+                    sourcePointLabel: [
+                      `${uutNominal.value} ${uutNominal.unit}`,
+                      tmde.functionName,
+                    ]
+                      .filter(Boolean)
+                      .join(" - "),
+                    quantity: quantity,
+                  }));
 
-            componentsForBudgetTable.push(...components);
+            componentsForBudgetTable.push(...qualifiedComponents);
 
-            components.forEach((comp) => {
-              totalVariancePPM += comp.value ** 2 * quantity;
+            qualifiedComponents.forEach((comp) => {
+              const compValue = Number(comp.value);
+              if (Number.isFinite(compValue)) {
+                totalVariancePPM += compValue ** 2 * quantity;
+              }
             });
           }
         });
@@ -754,7 +816,11 @@ export const useUncertaintyCalculation = (
       if (
         (isNaN(combinedUncertaintyPPM) &&
           isNaN(combinedUncertaintyAbsoluteBase)) ||
-        componentsForBudgetTable.length === 0
+        (componentsForBudgetTable.length === 0 &&
+          !(
+            testPointData.measurementType === "derived" &&
+            calculatedBudgetGroups.length > 0
+          ))
       ) {
         setCalcResults(null);
         if (testPointData.is_detailed_uncertainty_calculated) {
@@ -884,6 +950,7 @@ export const useUncertaintyCalculation = (
     testPointData.measurementType,
     testPointData.equationString,
     testPointData.variableMappings,
+    testPointData.variableNominals,
     testPointData.inputCorrelations,
     tmdeTolerancesData,
     uutToleranceData,

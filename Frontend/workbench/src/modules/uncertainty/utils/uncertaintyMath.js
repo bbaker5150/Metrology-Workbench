@@ -1461,6 +1461,27 @@ export const calculateDerivedUncertainty = (
       });
     }
 
+    // New derived-point workflow: equation input nominals live on the test
+    // point, independent of the TMDEs the user later chooses for each input
+    // budget. These nominal-only inputs evaluate the equation and create
+    // zero-uncertainty input budgets until TMDE/manual contributors are added.
+    const variableNominals = derivedNominalPoint?.variableNominals || {};
+    Object.entries(variableMappings || {}).forEach(([symbol, type]) => {
+      const nominal = variableNominals[symbol] || variableNominals[type];
+      const value = parseFloat(nominal?.value);
+      const unit = nominal?.unit || "";
+      if (!type || !unit || isNaN(value) || uncertaintyInputs[type]) return;
+
+      const nominalInBase = unitSystem.toBaseUnit(value, unit);
+      if (isNaN(nominalInBase)) return;
+
+      uncertaintyInputs[type] = {
+        ui_squared_sum_base: 0,
+        nominalBase: nominalInBase,
+        unit,
+      };
+    });
+
     // --- 5. POPULATE NOMINAL SCOPE (Base Units) ---
     Object.keys(variableMappings).forEach((symbol) => {
       const mappedType = variableMappings[symbol];

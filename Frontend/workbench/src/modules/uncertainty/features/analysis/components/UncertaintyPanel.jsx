@@ -211,6 +211,48 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
       : src.instrument,
   };
 };
+
+const scopeLibraryInstrumentToFunction = (instrument = {}, functionKey, fallbackFn = {}) => {
+  if (!functionKey) return instrument;
+  const functions = Array.isArray(instrument.functions) ? instrument.functions : [];
+  const match = functions.find(
+    (fn) => makeFunctionKey(fn.name, fn.unit) === functionKey,
+  );
+  const fallbackName = fallbackFn.name || "";
+  const fallbackUnit = fallbackFn.unit || "";
+  const matchingRangeRows = match
+    ? []
+    : getInstrumentRangeRows(instrument).filter(
+        (range) =>
+          makeFunctionKey(
+            range.functionName || fallbackName,
+            range.functionUnit || range.unit || fallbackUnit,
+          ) === functionKey,
+      );
+  const scopedFunction = match
+    ? { ...match, ranges: Array.isArray(match.ranges) ? match.ranges : [] }
+    : matchingRangeRows.length > 0
+      ? {
+          id: uuidv4(),
+          name: matchingRangeRows[0].functionName || fallbackName,
+          unit:
+            matchingRangeRows[0].functionUnit ||
+            matchingRangeRows[0].unit ||
+            fallbackUnit,
+          ranges: matchingRangeRows.map(({ source, _index, ...range }) => range),
+        }
+    : {
+        id: uuidv4(),
+        name: fallbackName,
+        unit: fallbackUnit,
+        ranges: [],
+      };
+  return {
+    ...instrument,
+    functions: [scopedFunction],
+  };
+};
+
 // Library-search dropdown shown under the description make/model fields.
 // Portaled to <body> with fixed positioning so the cell's overflow:hidden
 // (App.css) can't clip it. Position/top/left are set inline at render.
@@ -346,14 +388,6 @@ const referencesArea = (record = {}, area = {}, canonicalArea = null) => {
     hasId(record.instrument?.measurementAreaId) ||
     hasName(record.instrument?.measurementArea)
   );
-};
-const getItemFunctionOptions = (item = {}) => {
-  const names = new Set();
-  (item.instrument?.functions || []).forEach((fn) => {
-    const name = cleanFunctionName(fn.name);
-    if (name) names.add(name);
-  });
-  return Array.from(names);
 };
 const getItemRangeTolerance = (item, rangeId) => {
   const inst = item?.instrument || {};
@@ -748,6 +782,72 @@ const getBandDistLabel = (tolerance = {}) => {
     `k=${divisor}`
   );
 };
+const formatInstrumentIdentity = (source = {}, fallback = "Unnamed Instrument") => {
+  const instrument = source.instrument || source || {};
+  const manufacturer = instrument.manufacturer || source.manufacturer || "";
+  const hasStructuredIdentity =
+    manufacturer || instrument.description || instrument.name || instrument.model;
+  const make =
+    instrument.description ||
+    instrument.name ||
+    source.description ||
+    (!hasStructuredIdentity ? source.name : "");
+  const model = instrument.model || source.model || "";
+  const parts = [];
+  [manufacturer, make, model].forEach((part) => {
+    const value = String(part || "").trim();
+    if (!value) return;
+    if (!parts.some((existing) => existing.toLowerCase() === value.toLowerCase())) {
+      parts.push(value);
+    }
+  });
+  return parts.join(" ") || source.description || source.name || fallback;
+};
+
+const findRangeForFunction = (source = {}, functionKey = null) => {
+  const ranges = getInstrumentRangeRows(source);
+  if (!ranges.length) return null;
+  if (!functionKey) return ranges[0];
+  const [functionNamePart, functionUnitPart = ""] = String(functionKey).split("|");
+  const exact = ranges.find(
+    (range) =>
+      makeFunctionKey(
+        range.functionName || "",
+        range.functionUnit || range.unit || "",
+      ) === functionKey,
+  );
+  if (exact) return exact;
+  if (!functionUnitPart) {
+    return (
+      ranges.find(
+        (range) =>
+          makeFunctionKey(
+            range.functionName || "",
+            range.functionUnit || range.unit || "",
+          ).split("|")[0] === functionNamePart,
+      ) || ranges[0]
+    );
+  }
+  return ranges[0];
+};
+
+const formatRangeToleranceDetail = (range = null) => {
+  if (!range) return "";
+  const rangeLabel = formatRangeLabel(range, { preferBounds: true });
+  const specLabel = (getSpecRows(range)[0] || "").trim();
+  const distributionLabel = getBandDistLabel(range);
+  const isPlaceholder = (value) => {
+    const normalized = String(value || "").trim();
+    return !normalized || normalized === "-" || normalized === "\u2014";
+  };
+  return [rangeLabel, specLabel, distributionLabel]
+    .filter((value) => !isPlaceholder(value))
+    .join(" | ");
+};
+
+const formatInstrumentRangeDetail = (source = {}, functionKey = null) =>
+  formatRangeToleranceDetail(findRangeForFunction(source, functionKey));
+
 // Write a new band divisor across all present band components of a tolerance.
 const applyBandDistribution = (tolerance = {}, value) => {
   const next = { ...tolerance };
@@ -859,6 +959,7 @@ const EditableDescriptionCell = ({
   make = "",
   model = "",
   name = "",
+  functionKey = null,
   onCommit,
   instruments = [],
   onPickLibrary,
@@ -1055,34 +1156,65 @@ const EditableDescriptionCell = ({
                 : { top: menuPos.top }),
             }}
           >
-            {results.map((inst) => (
-              <div
-                key={inst.id}
-                className="inline-desc-search-item"
-                style={descSearchItemStyle}
-                // onMouseDown (not onClick) so it fires before the input blur.
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onPickLibrary(inst);
-                  setOpen(false);
-                }}
-              >
-                <span style={{ fontWeight: 500 }}>
-                  {[inst.manufacturer, inst.model].filter(Boolean).join(" ") ||
-                    inst.description ||
-                    "Unnamed"}
-                </span>
-                <span
-                  style={{
-                    marginLeft: "auto",
-                    fontSize: "0.72rem",
-                    color: "var(--text-color-muted)",
+            {results.map((inst) => {
+              const detail = formatInstrumentRangeDetail(inst, functionKey);
+              return (
+                <div
+                  key={inst.id}
+                  className="inline-desc-search-item"
+                  style={descSearchItemStyle}
+                  // onMouseDown (not onClick) so it fires before the input blur.
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onPickLibrary(inst);
+                    setOpen(false);
                   }}
                 >
-                  {describeEntry(inst)}
-                </span>
-              </div>
-            ))}
+                  <span
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
+                      minWidth: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontWeight: 500,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {formatInstrumentIdentity(inst)}
+                    </span>
+                    {detail && (
+                      <span
+                        style={{
+                          fontSize: "0.72rem",
+                          color: "var(--text-color-muted)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {detail}
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    style={{
+                      marginLeft: "auto",
+                      flexShrink: 0,
+                      fontSize: "0.72rem",
+                      color: "var(--text-color-muted)",
+                    }}
+                  >
+                    {describeEntry(inst)}
+                  </span>
+                </div>
+              );
+            })}
           </div>,
           document.body,
         )}
@@ -1408,6 +1540,7 @@ const InlineToleranceCell = ({
   editable,
   onSelectType,
   onCommit,
+  onAddDefault,
 }) => {
   if (!editable) {
     return <>{getSpecRows(tolerance)[0]}</>;
@@ -1422,7 +1555,17 @@ const InlineToleranceCell = ({
         className="inline-tolerance-editor inline-tolerance-empty"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <span className="inline-tol-empty">Set tolerance…</span>
+        <button
+          type="button"
+          className="inline-tol-empty"
+          title="Add a tolerance term"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddDefault?.();
+          }}
+        >
+          Set tolerance…
+        </button>
       </div>
     );
   }
@@ -1452,62 +1595,6 @@ const InlineToleranceCell = ({
   );
 };
 
-const FunctionNameInput = ({ value = "", options = [], onCommit }) => {
-  const [localValue, setLocalValue] = useState(value || "");
-  const listId = useMemo(() => `function-options-${uuidv4()}`, []);
-  const functionWidth = useMemo(() => {
-    const longest = Math.max(
-      "Function".length,
-      cleanFunctionName(localValue).length,
-      ...options.map((option) => cleanFunctionName(option).length),
-    );
-    return `${Math.min(Math.max(longest + 3, 11), 22)}ch`;
-  }, [localValue, options]);
-
-  useEffect(() => {
-    setLocalValue(value || "");
-  }, [value]);
-
-  const commit = (raw) => {
-    const next = cleanFunctionName(raw);
-    if (next !== cleanFunctionName(value)) onCommit?.(next);
-    setLocalValue(next);
-  };
-
-  return (
-    <span
-      className="inline-function-editor"
-      title="Instrument function"
-      style={{ "--inline-function-width": functionWidth }}
-    >
-      <input
-        type="text"
-        value={localValue}
-        list={options.length ? listId : undefined}
-        placeholder="Function"
-        aria-label="Instrument function"
-        className="inline-function-input"
-        onChange={(e) => setLocalValue(e.target.value)}
-        onBlur={(e) => commit(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-          if (e.key === "Escape") {
-            setLocalValue(value || "");
-            e.currentTarget.blur();
-          }
-        }}
-      />
-      {options.length > 0 && (
-        <datalist id={listId}>
-          {options.map((name) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
-      )}
-    </span>
-  );
-};
-
 const RangeCell = ({
   ranges = [],
   activeIndex,
@@ -1516,8 +1603,6 @@ const RangeCell = ({
   onSelect,
   onEditBound,
   onEditUnit,
-  onEditFunction,
-  functionOptions = [],
   onPatchRange,
   allowSingleToggle = false,
 }) => {
@@ -1551,13 +1636,6 @@ const RangeCell = ({
     onPatchRange?.({ isSingleValue: true, value: raw, min: raw, max: raw });
   return (
     <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
-      {onEditFunction && (
-        <FunctionNameInput
-          value={activeRange.functionName || ""}
-          options={functionOptions}
-          onCommit={onEditFunction}
-        />
-      )}
       <div className="inline-range-main">
         {onPatchRange && allowSingleToggle && (
           <button
@@ -1953,8 +2031,8 @@ const resolveUutRangeHelper = (
 // id for single-function instruments, `${functionKey}::${id}` for multi-function
 // ones so each subsection's range state is independent). Empty subsections are
 // emitted for user-added functions (session.functionGroups) with no instrument.
-const buildFunctionGroupedRows = (groupedItems, sessionData) => {
-  const sessionFunctions = resolveSessionFunctions(sessionData);
+const buildFunctionGroupedRows = (groupedItems, sessionData, kind = null) => {
+  const sessionFunctions = resolveSessionFunctions(sessionData, { kind });
   const fnByKey = new Map(sessionFunctions.map((fn) => [fn.key, fn]));
   const fnOrder = new Map(sessionFunctions.map((fn, index) => [fn.key, index]));
   const groups = new Map();
@@ -1980,10 +2058,11 @@ const buildFunctionGroupedRows = (groupedItems, sessionData) => {
         unit: primary.unit,
         color: null,
       };
+      const tableFn = kind ? { ...fn, kind } : fn;
       if (!groups.has(fn.key)) {
         groups.set(fn.key, {
           type: "function",
-          fn,
+          fn: tableFn,
           order: fnOrder.has(fn.key) ? fnOrder.get(fn.key) : Number.MAX_SAFE_INTEGER,
           items: [],
         });
@@ -1996,10 +2075,13 @@ const buildFunctionGroupedRows = (groupedItems, sessionData) => {
     });
   });
 
-  (sessionData.functionGroups || []).forEach((fg) => {
+  (sessionData.functionGroups || [])
+    .filter((fg) => !kind || !fg.kind || fg.kind === kind)
+    .forEach((fg) => {
     const key = makeFunctionKey(fg.name, fg.unit);
     if (!groups.has(key)) {
-      const fn = fnByKey.get(key) || { key, name: fg.name, unit: fg.unit, color: null };
+      const resolvedFn = fnByKey.get(key) || { key, name: fg.name, unit: fg.unit, color: null };
+      const fn = { ...resolvedFn, ...(fg.kind ? { kind: fg.kind } : kind ? { kind } : {}) };
       groups.set(key, {
         type: "function",
         fn,
@@ -2022,6 +2104,29 @@ const buildFunctionGroupedRows = (groupedItems, sessionData) => {
         return aLabel.localeCompare(bLabel);
       }),
     ]);
+};
+
+const functionNamePart = (functionKey = "") =>
+  String(functionKey || "").split("|")[0] || "";
+
+const functionUnitPart = (functionKey = "") =>
+  String(functionKey || "").split("|")[1] || "";
+
+const matchingInstrumentFunctionKey = (source = {}, functionKey = null) => {
+  if (!functionKey) return null;
+  const selectedName = functionNamePart(functionKey);
+  const selectedUnit = functionUnitPart(functionKey);
+  const functions = instrumentFunctions(source);
+  const exact = functions.find((fn) => fn.key === functionKey);
+  if (exact) return exact.key;
+
+  if (!selectedName) return null;
+  const nameMatch = functions.find((fn) => {
+    const candidateName = functionNamePart(fn.key);
+    if (candidateName !== selectedName) return false;
+    return !selectedUnit || !functionUnitPart(fn.key);
+  });
+  return nameMatch?.key || null;
 };
 
 const stableSpecString = (value) => {
@@ -2961,7 +3066,7 @@ const SummaryDashboard = ({
     if (updatedItem && (!options.track || options.saveLocal)) saveItemInstrumentToLocalLibrary("tmde", updatedItem);
   };
 
-  const promptLibraryPick = (kind, itemId, inst) => {
+  const promptLibraryPick = (kind, itemId, inst, functionKey = null) => {
     // Load exactly the entry the user picked — never silently substitute a
     // diverged local copy for the shared one (or vice-versa). Picking the
     // shared (validated) entry gives the in-sync version; picking a local entry
@@ -2970,8 +3075,12 @@ const SummaryDashboard = ({
     const options = isShared
       ? { track: true, localCopy: false }
       : { track: Boolean(inst.sourceId) };
-    if (kind === "uut") applyPickedLibraryUut(itemId, inst, options);
-    else applyPickedLibraryTmde(itemId, inst, options);
+    const fallbackFn = functionKey
+      ? resolveSessionFunctions(sessionData, { kind }).find((fn) => fn.key === functionKey)
+      : null;
+    const scopedInst = scopeLibraryInstrumentToFunction(inst, functionKey, fallbackFn);
+    if (kind === "uut") applyPickedLibraryUut(itemId, scopedInst, options);
+    else applyPickedLibraryTmde(itemId, scopedInst, options);
   };
 
   // --- Reassign an instrument to a different measurement area ---
@@ -3215,17 +3324,27 @@ const SummaryDashboard = ({
     if (!onSessionSave) return;
     const clean = String(name || "").trim();
     if (!clean) return;
+    const kind = addFunctionMenu?.kind || null;
     const key = makeFunctionKey(clean, unit);
     const existing = Array.isArray(sessionData.functionGroups)
       ? sessionData.functionGroups
       : [];
-    if (existing.some((fg) => makeFunctionKey(fg.name, fg.unit) === key)) {
+    if (
+      existing.some(
+        (fg) =>
+          makeFunctionKey(fg.name, fg.unit) === key &&
+          (!kind || !fg.kind || fg.kind === kind),
+      )
+    ) {
       setAddFunctionMenu(null);
       return; // already present
     }
     onSessionSave({
       ...sessionData,
-      functionGroups: [...existing, { name: clean, unit: String(unit || "").trim() }],
+      functionGroups: [
+        ...existing,
+        { name: clean, unit: String(unit || "").trim(), ...(kind ? { kind } : {}) },
+      ],
     });
     setAddFunctionMenu(null);
     setNewFunctionDraft({ name: "", unit: "" });
@@ -3268,10 +3387,15 @@ const SummaryDashboard = ({
   // instruments/points removed first (matches the old measurement-area guard).
   const handleDeleteFunction = (fn) => {
     if (!onSessionSave) return;
+    const appliesToUut = !fn.kind || fn.kind === "uut";
+    const appliesToTmde = !fn.kind || fn.kind === "tmde";
     const inUse =
-      (sessionData.uuts || []).some((u) => instrumentHasFunction(u, fn.key)) ||
-      (sessionData.tmdes || []).some((t) => instrumentHasFunction(t, fn.key)) ||
-      (sessionData.testPoints || []).some((p) => functionKeyOf(p) === fn.key);
+      (appliesToUut &&
+        (sessionData.uuts || []).some((u) => instrumentHasFunction(u, fn.key))) ||
+      (appliesToTmde &&
+        (sessionData.tmdes || []).some((t) => instrumentHasFunction(t, fn.key))) ||
+      (appliesToUut &&
+        (sessionData.testPoints || []).some((p) => functionKeyOf(p) === fn.key));
     if (inUse) {
       setNotification?.({
         title: "Function In Use",
@@ -3283,7 +3407,9 @@ const SummaryDashboard = ({
     onSessionSave({
       ...sessionData,
       functionGroups: (sessionData.functionGroups || []).filter(
-        (fg) => makeFunctionKey(fg.name, fg.unit) !== fn.key,
+        (fg) =>
+          makeFunctionKey(fg.name, fg.unit) !== fn.key ||
+          (fg.kind && fn.kind && fg.kind !== fn.kind),
       ),
     });
   };
@@ -3309,11 +3435,6 @@ const SummaryDashboard = ({
     const updatedItem = applyItemRangePatch(item, rangeId, { unit: value });
     persistInlineItem(kind, updatedItem);
   };
-  const setRangeFunction = (kind, item, rangeId, value) => {
-    if (!onSessionSave) return;
-    persistInlineItem(kind, applyItemRangeFunction(item, rangeId, value));
-  };
-
   // --- Inline range editing: edit bounds, add, remove ---
   const persistItem = (kind, updatedItem) => {
     persistInlineItem(kind, updatedItem);
@@ -3394,9 +3515,13 @@ const SummaryDashboard = ({
     const existing = Array.isArray(sessionData.functionGroups)
       ? sessionData.functionGroups
       : [];
+    const patchKind = patch.kind || null;
     let found = false;
     const next = existing.map((fg) => {
-      if (makeFunctionKey(fg.name, fg.unit) === fnKey) {
+      if (
+        makeFunctionKey(fg.name, fg.unit) === fnKey &&
+        (!patchKind || !fg.kind || fg.kind === patchKind)
+      ) {
         found = true;
         return { ...fg, ...patch };
       }
@@ -3414,6 +3539,7 @@ const SummaryDashboard = ({
         name: fn.name,
         unit: fn.unit,
         color,
+        ...(fn.kind ? { kind: fn.kind } : {}),
       }),
     });
   };
@@ -3445,17 +3571,20 @@ const SummaryDashboard = ({
           : { ...item, functions: nextFns };
       });
 
-    const nextPoints = (sessionData.testPoints || []).map((tp) => {
-      if (functionKeyOf(tp) !== fn.key) return tp;
-      const parameter = tp.testPointInfo?.parameter || {};
-      return {
-        ...tp,
-        testPointInfo: {
-          ...(tp.testPointInfo || {}),
-          parameter: { ...parameter, name },
-        },
-      };
-    });
+    const nextPoints =
+      fn.kind === "tmde"
+        ? sessionData.testPoints
+        : (sessionData.testPoints || []).map((tp) => {
+            if (functionKeyOf(tp) !== fn.key) return tp;
+            const parameter = tp.testPointInfo?.parameter || {};
+            return {
+              ...tp,
+              testPointInfo: {
+                ...(tp.testPointInfo || {}),
+                parameter: { ...parameter, name },
+              },
+            };
+          });
 
     onSessionSave({
       ...sessionData,
@@ -3463,9 +3592,10 @@ const SummaryDashboard = ({
         name,
         unit: fn.unit,
         color: fn.color,
+        ...(fn.kind ? { kind: fn.kind } : {}),
       }),
-      uuts: renameInstruments(sessionData.uuts),
-      tmdes: renameInstruments(sessionData.tmdes),
+      uuts: fn.kind === "tmde" ? sessionData.uuts : renameInstruments(sessionData.uuts),
+      tmdes: fn.kind === "uut" ? sessionData.tmdes : renameInstruments(sessionData.tmdes),
       testPoints: nextPoints,
     });
   };
@@ -3656,11 +3786,11 @@ const SummaryDashboard = ({
   const renderAddFunctionMenu = (kind) => {
     if (!addFunctionMenu || addFunctionMenu.kind !== kind) return null;
     const rect = addFunctionMenu.rect;
-    const libraryFns = functionsForLibrary(instruments);
-    const existingKeys = new Set(
-      resolveSessionFunctions(sessionData).map((fn) => fn.key),
-    );
-    const available = libraryFns.filter((fn) => !existingKeys.has(fn.key));
+    const available = functionsForLibrary([
+      ...(instruments || []),
+      ...(sessionData.uuts || []),
+      ...(sessionData.tmdes || []),
+    ]);
     const itemStyle = {
       display: "block",
       width: "100%",
@@ -3741,7 +3871,7 @@ const SummaryDashboard = ({
           </div>
         ) : (
           <div style={{ padding: "6px 10px", opacity: 0.6, fontSize: "0.8em" }}>
-            No more library functions
+            No library or session instrument functions
           </div>
         )}
         <div
@@ -4126,8 +4256,6 @@ const SummaryDashboard = ({
               editable
               allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
               onSelect={(idx) => setRangeIdx((prev) => ({ ...prev, [item.id]: idx }))}
-              functionOptions={getItemFunctionOptions(item)}
-              onEditFunction={(value) => setRangeFunction(kind, item, range?.id, value)}
               onEditBound={(field, value) => handleEditRangeBound(kind, item, range?.id, field, value)}
               onEditUnit={(value) => setRangeUnit(kind, item, range?.id, value)}
               onPatchRange={(patch) => patchRange(kind, item, range?.id, patch)}
@@ -4168,6 +4296,9 @@ const SummaryDashboard = ({
             }
             onCommit={(nextTypeKey, component) =>
               setRangeToleranceComponent(kind, item, range, nextTypeKey, component)
+            }
+            onAddDefault={() =>
+              setSelectedToleranceType(kind, item, range, "reading")
             }
           />
         </td>
@@ -4266,7 +4397,8 @@ const SummaryDashboard = ({
       });
     } else if (viewMode === "function") {
       // contextId is a function key (see utils/functionGrouping). Scope to the
-      // points of that function and the UUTs that own at least one of them.
+      // points of that function and the instruments that declare it. Keep a
+      // point-owner fallback for legacy UUTs whose function metadata is missing.
       const fnPoints = points.filter((tp) => functionKeyOf(tp) === contextId);
       const ownerIds = new Set(
         fnPoints.flatMap((tp) => (tp.associatedUutIds || []).map(String)),
@@ -4277,7 +4409,14 @@ const SummaryDashboard = ({
         "Function";
       displaySubtitle = "Function Summary";
       points = fnPoints;
-      uuts = uuts.filter((u) => ownerIds.has(String(u.id)));
+      uuts = uuts.filter(
+        (u) =>
+          matchingInstrumentFunctionKey(u, contextId) ||
+          ownerIds.has(String(u.id)),
+      );
+      tmdes = tmdes.filter((tmde) =>
+        matchingInstrumentFunctionKey(tmde, contextId),
+      );
     } else if (viewMode === "uut") {
       const uut = uuts.find((u) => u.id === contextId);
       displayTitle = uut?.description || "UUT Detail";
@@ -4333,13 +4472,27 @@ const SummaryDashboard = ({
   }, [viewMode, contextId, contextName, sessionData, rangeData, uutId]);
 
   const getGroupedInstrumentRows = useCallback(
-    (items = [], source = "session", pinnedIds = []) => {
+    (items = [], source = "session", pinnedIds = [], kind = null) => {
       const pinnedSet = new Set(pinnedIds);
       const pinnedRows = [];
       const groupedItems = [];
 
       items.forEach((item, index) => {
-        const row = { type: "item", item, index };
+        const isFunctionView = viewMode === "function" && contextId;
+        const functionKey = isFunctionView
+          ? matchingInstrumentFunctionKey(item, contextId) || contextId
+          : null;
+        const row = {
+          type: "item",
+          item,
+          index,
+          ...(isFunctionView
+            ? {
+                functionKey,
+                rowKey: `${functionKey}::${item.id}`,
+              }
+            : {}),
+        };
         if (pinnedSet.has(item.id)) {
           pinnedRows.push(row);
         } else {
@@ -4347,13 +4500,17 @@ const SummaryDashboard = ({
         }
       });
 
+      if (viewMode === "function" && contextId) {
+        return [...pinnedRows, ...groupedItems];
+      }
+
       if (!showAreaColumn) {
         return [...pinnedRows, ...groupedItems];
       }
 
-      return [...pinnedRows, ...buildFunctionGroupedRows(groupedItems, sessionData)];
+      return [...pinnedRows, ...buildFunctionGroupedRows(groupedItems, sessionData, kind)];
     },
-    [sessionData, showAreaColumn],
+    [contextId, sessionData, showAreaColumn, viewMode],
   );
 
   // --- HANDLERS ---
@@ -4736,14 +4893,14 @@ const SummaryDashboard = ({
               </tr>
             </thead>
             <tbody>
-              {filteredUuts.length === 0 ? (
+              {getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds, "uut").length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={5}>
                     No UUTs found in this context.
                   </td>
                 </tr>
               ) : (
-                getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds).map((row) => {
+                getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds, "uut").map((row) => {
                   if (row.type === "function") {
                     return (
                       <tr
@@ -4881,9 +5038,10 @@ const SummaryDashboard = ({
                                     name={uut.description}
                                     make={uut.instrument?.manufacturer}
                                     model={uut.instrument?.model}
+                                    functionKey={uutFnKey}
                                     instruments={instruments}
                                     onPickLibrary={(inst) =>
-                                      promptLibraryPick("uut", uut.id, inst)
+                                      promptLibraryPick("uut", uut.id, inst, uutFnKey)
                                     }
                                     onCommit={(field, value) =>
                                       handleUutDescriptionEdit(uut.id, field, value)
@@ -4943,9 +5101,10 @@ const SummaryDashboard = ({
                               name={uut.description}
                               make={uut.instrument?.manufacturer}
                               model={uut.instrument?.model}
+                              functionKey={uutFnKey}
                               instruments={instruments}
                               onPickLibrary={(inst) =>
-                                promptLibraryPick("uut", uut.id, inst)
+                                promptLibraryPick("uut", uut.id, inst, uutFnKey)
                               }
                               onCommit={(field, value) =>
                                 handleUutDescriptionEdit(uut.id, field, value)
@@ -4976,10 +5135,6 @@ const SummaryDashboard = ({
                                   )}
                                   onSelect={(idx) =>
                                     setLocalRangeIndices((prev) => ({ ...prev, [uutRowKey]: idx }))
-                                  }
-                                  functionOptions={getItemFunctionOptions(uut)}
-                                  onEditFunction={(value) =>
-                                    setRangeFunction("uut", uut, range?.id, value)
                                   }
                                   onEditBound={(field, value) =>
                                     handleEditRangeBound("uut", uut, range?.id, field, value)
@@ -5030,6 +5185,14 @@ const SummaryDashboard = ({
                                           range,
                                           nextTypeKey,
                                           component,
+                                        )
+                                      }
+                                      onAddDefault={() =>
+                                        setSelectedToleranceType(
+                                          "uut",
+                                          uut,
+                                          range,
+                                          "reading",
                                         )
                                       }
                                     />
@@ -5183,12 +5346,12 @@ const SummaryDashboard = ({
               </tr>
             </thead>
             <tbody>
-              {filteredTmdes.length === 0 ? (
+              {getGroupedInstrumentRows(filteredTmdes, "instrument", pinnedInlineTmdeIds, "tmde").length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={6}>No TMDEs found in session.</td>
                 </tr>
               ) : (
-                getGroupedInstrumentRows(filteredTmdes, "instrument", pinnedInlineTmdeIds).map((row) => {
+                getGroupedInstrumentRows(filteredTmdes, "instrument", pinnedInlineTmdeIds, "tmde").map((row) => {
                   if (row.type === "function") {
                     return (
                       <tr
@@ -5286,9 +5449,10 @@ const SummaryDashboard = ({
                                     name={tmde.name}
                                     make={tmde.instrument?.manufacturer}
                                     model={tmde.instrument?.model}
+                                    functionKey={tmdeFnKey}
                                     instruments={instruments}
                                     onPickLibrary={(inst) =>
-                                      promptLibraryPick("tmde", tmde.id, inst)
+                                      promptLibraryPick("tmde", tmde.id, inst, tmdeFnKey)
                                     }
                                     onCommit={(field, value) =>
                                       handleTmdeDescriptionEdit(tmde.id, field, value)
@@ -5348,9 +5512,10 @@ const SummaryDashboard = ({
                               name={tmde.name}
                               make={tmde.instrument?.manufacturer}
                               model={tmde.instrument?.model}
+                              functionKey={tmdeFnKey}
                               instruments={instruments}
                               onPickLibrary={(inst) =>
-                                promptLibraryPick("tmde", tmde.id, inst)
+                                promptLibraryPick("tmde", tmde.id, inst, tmdeFnKey)
                               }
                               onCommit={(field, value) =>
                                 handleTmdeDescriptionEdit(tmde.id, field, value)
@@ -5395,10 +5560,6 @@ const SummaryDashboard = ({
                                   )}
                                   onSelect={(idx) =>
                                     setTmdeRangeIndices((prev) => ({ ...prev, [tmdeRowKey]: idx }))
-                                  }
-                                  functionOptions={getItemFunctionOptions(tmde)}
-                                  onEditFunction={(value) =>
-                                    setRangeFunction("tmde", tmde, range?.id, value)
                                   }
                                   onEditBound={(field, value) =>
                                     handleEditRangeBound("tmde", tmde, range?.id, field, value)
@@ -5449,6 +5610,14 @@ const SummaryDashboard = ({
                                           range,
                                           nextTypeKey,
                                           component,
+                                        )
+                                      }
+                                      onAddDefault={() =>
+                                        setSelectedToleranceType(
+                                          "tmde",
+                                          tmde,
+                                          range,
+                                          "reading",
                                         )
                                       }
                                     />
@@ -5625,6 +5794,7 @@ function DetailedView({
   const [selectedUutIds, setSelectedUutIds] = useState([]);
   const [selectedTmdeIds, setSelectedTmdeIds] = useState([]);
   const [equationTmdeSelections, setEquationTmdeSelections] = useState({});
+  const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
 
   // --- Cut / copy / paste of instrument rows (shared module clipboard) ---
   const [rowMenu, setRowMenu] = useState(null);
@@ -6280,7 +6450,7 @@ function DetailedView({
     // the picked instrument lands on a range that covers this point.
     if (updatedItem) refreshPointTmdeInstance(updatedItem, { reselectRange: true });
   };
-  const promptLibraryPick = (kind, itemId, inst) => {
+  const promptLibraryPick = (kind, itemId, inst, functionKey = null) => {
     // Load exactly the entry the user picked — never silently substitute a
     // diverged local copy for the shared one (or vice-versa). Picking the
     // shared (validated) entry gives the in-sync version; picking a local entry
@@ -6289,8 +6459,12 @@ function DetailedView({
     const options = isShared
       ? { track: true, localCopy: false }
       : { track: Boolean(inst.sourceId) };
-    if (kind === "uut") applyPickedLibraryUut(itemId, inst, options);
-    else applyPickedLibraryTmde(itemId, inst, options);
+    const fallbackFn = functionKey
+      ? resolveSessionFunctions(sessionData, { kind }).find((fn) => fn.key === functionKey)
+      : null;
+    const scopedInst = scopeLibraryInstrumentToFunction(inst, functionKey, fallbackFn);
+    if (kind === "uut") applyPickedLibraryUut(itemId, scopedInst, options);
+    else applyPickedLibraryTmde(itemId, scopedInst, options);
   };
   const handleChangeUutArea = (uutId, areaId) => {
     if (!onSessionSave) return;
@@ -6411,8 +6585,6 @@ function DetailedView({
     );
   const setRangeUnitDetail = (kind, item, rangeId, value) =>
     persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, { unit: value }));
-  const setRangeFunctionDetail = (kind, item, rangeId, value) =>
-    persistInlineItemDetail(kind, applyItemRangeFunction(item, rangeId, value));
   const patchRangeDetail = (kind, item, rangeId, patch) =>
     persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, patch));
   const setRangeResolutionDetail = (kind, item, rangeId, value) =>
@@ -6669,10 +6841,6 @@ function DetailedView({
               editable
               allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
               onSelect={() => {}}
-              functionOptions={getItemFunctionOptions(item)}
-              onEditFunction={(value) =>
-                setRangeFunctionDetail(kind, item, range?.id, value)
-              }
               onEditBound={(field, value) => handleEditRangeBoundDetail(kind, item, range?.id, field, value)}
               onEditUnit={(value) => setRangeUnitDetail(kind, item, range?.id, value)}
               onPatchRange={(patch) => patchRangeDetail(kind, item, range?.id, patch)}
@@ -6713,6 +6881,9 @@ function DetailedView({
             }
             onCommit={(nextTypeKey, component) =>
               setRangeToleranceComponentDetail(kind, item, range, nextTypeKey, component)
+            }
+            onAddDefault={() =>
+              setSelectedToleranceTypeDetail(kind, item, range, "reading")
             }
           />
         </td>
@@ -7002,12 +7173,25 @@ function DetailedView({
   const associatedUutIds = testPointData.associatedUutIds || [];
   const activePointUutId =
     testPointData.activeUutId || associatedUutIds[0] || null;
+  const activePointFunctionKey = functionKeyOf(testPointData);
+  const pointFunctionMatchesRow = useCallback(
+    (functionKey = null) =>
+      !functionKey ||
+      !activePointFunctionKey ||
+      functionKey === activePointFunctionKey,
+    [activePointFunctionKey],
+  );
+  const isActivePointUutForFunction = useCallback(
+    (uut, functionKey = null) =>
+      activePointUutId !== null &&
+      String(activePointUutId) === String(uut?.id) &&
+      pointFunctionMatchesRow(functionKey),
+    [activePointUutId, pointFunctionMatchesRow],
+  );
 
   const resolveUutRange = useCallback(
     (uut, functionKey = null, rangeIndexOverride) => {
-      const isActivePointUut =
-        activePointUutId !== null &&
-        String(activePointUutId) === String(uut.id);
+      const isActivePointUut = isActivePointUutForFunction(uut, functionKey);
       // For the active point, its own saved tolerance governs the range — the
       // UUT-keyed activeRangeIndices map is deliberately ignored so a range
       // change on one point never leaks onto sibling points sharing the UUT.
@@ -7024,7 +7208,7 @@ function DetailedView({
       );
       return resolution;
     },
-    [activePointUutId, activeRangeIndices, uutToleranceData, uutNominal],
+    [activeRangeIndices, isActivePointUutForFunction, uutToleranceData, uutNominal],
   );
 
   // --- Function subsections (detail view parity with the Session Overview) ---
@@ -7035,9 +7219,13 @@ function DetailedView({
     const existing = Array.isArray(sessionData.functionGroups)
       ? sessionData.functionGroups
       : [];
+    const patchKind = patch.kind || null;
     let found = false;
     const next = existing.map((fg) => {
-      if (makeFunctionKey(fg.name, fg.unit) === fnKey) {
+      if (
+        makeFunctionKey(fg.name, fg.unit) === fnKey &&
+        (!patchKind || !fg.kind || fg.kind === patchKind)
+      ) {
         found = true;
         return { ...fg, ...patch };
       }
@@ -7055,6 +7243,7 @@ function DetailedView({
         name: fn.name,
         unit: fn.unit,
         color,
+        ...(fn.kind ? { kind: fn.kind } : {}),
       }),
     });
   };
@@ -7081,26 +7270,30 @@ function DetailedView({
           ? { ...item, instrument: { ...inst, functions: nextFns } }
           : { ...item, functions: nextFns };
       });
-    const nextPoints = (sessionData.testPoints || []).map((tp) => {
-      if (functionKeyOf(tp) !== fn.key) return tp;
-      const parameter = tp.testPointInfo?.parameter || {};
-      return {
-        ...tp,
-        testPointInfo: {
-          ...(tp.testPointInfo || {}),
-          parameter: { ...parameter, name },
-        },
-      };
-    });
+    const nextPoints =
+      fn.kind === "tmde"
+        ? sessionData.testPoints
+        : (sessionData.testPoints || []).map((tp) => {
+            if (functionKeyOf(tp) !== fn.key) return tp;
+            const parameter = tp.testPointInfo?.parameter || {};
+            return {
+              ...tp,
+              testPointInfo: {
+                ...(tp.testPointInfo || {}),
+                parameter: { ...parameter, name },
+              },
+            };
+          });
     onSessionSave({
       ...sessionData,
       functionGroups: upsertFunctionGroupDetail(fn.key, {
         name,
         unit: fn.unit,
         color: fn.color,
+        ...(fn.kind ? { kind: fn.kind } : {}),
       }),
-      uuts: renameInstruments(sessionData.uuts),
-      tmdes: renameInstruments(sessionData.tmdes),
+      uuts: fn.kind === "tmde" ? sessionData.uuts : renameInstruments(sessionData.uuts),
+      tmdes: fn.kind === "uut" ? sessionData.tmdes : renameInstruments(sessionData.tmdes),
       testPoints: nextPoints,
     });
   };
@@ -7109,17 +7302,27 @@ function DetailedView({
     if (!onSessionSave) return;
     const clean = String(name || "").trim();
     if (!clean) return;
+    const kind = addFunctionMenu?.kind || null;
     const key = makeFunctionKey(clean, unit);
     const existing = Array.isArray(sessionData.functionGroups)
       ? sessionData.functionGroups
       : [];
-    if (existing.some((fg) => makeFunctionKey(fg.name, fg.unit) === key)) {
+    if (
+      existing.some(
+        (fg) =>
+          makeFunctionKey(fg.name, fg.unit) === key &&
+          (!kind || !fg.kind || fg.kind === kind),
+      )
+    ) {
       setAddFunctionMenu(null);
       return;
     }
     onSessionSave({
       ...sessionData,
-      functionGroups: [...existing, { name: clean, unit: String(unit || "").trim() }],
+      functionGroups: [
+        ...existing,
+        { name: clean, unit: String(unit || "").trim(), ...(kind ? { kind } : {}) },
+      ],
     });
     setAddFunctionMenu(null);
     setNewFunctionDraft({ name: "", unit: "" });
@@ -7135,7 +7338,15 @@ function DetailedView({
       functions: [{ name: fn.name, unit: fn.unit, ranges: [] }],
     };
     if (kind === "uut") {
-      const newUut = { id: uuidv4(), name: "", description: "", instrument };
+      const newUut = {
+        id: uuidv4(),
+        name: "",
+        description: "",
+        measurementAreaId: activeMeasurementAreaId || "",
+        measurementArea: activeMeasurementArea?.name || "",
+        measurementAreaColor: activeMeasurementArea?.color || "",
+        instrument,
+      };
       setSelectedUutIds([newUut.id]);
       onSessionSave({ ...sessionData, uuts: [newUut, ...(sessionData.uuts || [])] });
     } else {
@@ -7154,10 +7365,15 @@ function DetailedView({
 
   const handleDeleteFunction = (fn) => {
     if (!onSessionSave) return;
+    const appliesToUut = !fn.kind || fn.kind === "uut";
+    const appliesToTmde = !fn.kind || fn.kind === "tmde";
     const inUse =
-      (sessionData.uuts || []).some((u) => instrumentHasFunction(u, fn.key)) ||
-      (sessionData.tmdes || []).some((t) => instrumentHasFunction(t, fn.key)) ||
-      (sessionData.testPoints || []).some((p) => functionKeyOf(p) === fn.key);
+      (appliesToUut &&
+        (sessionData.uuts || []).some((u) => instrumentHasFunction(u, fn.key))) ||
+      (appliesToTmde &&
+        (sessionData.tmdes || []).some((t) => instrumentHasFunction(t, fn.key))) ||
+      (appliesToUut &&
+        (sessionData.testPoints || []).some((p) => functionKeyOf(p) === fn.key));
     if (inUse) {
       setNotification?.({
         title: "Function In Use",
@@ -7169,7 +7385,9 @@ function DetailedView({
     onSessionSave({
       ...sessionData,
       functionGroups: (sessionData.functionGroups || []).filter(
-        (fg) => makeFunctionKey(fg.name, fg.unit) !== fn.key,
+        (fg) =>
+          makeFunctionKey(fg.name, fg.unit) !== fn.key ||
+          (fg.kind && fn.kind && fg.kind !== fn.kind),
       ),
     });
   };
@@ -7324,12 +7542,11 @@ function DetailedView({
   const renderAddFunctionMenu = (kind) => {
     if (!addFunctionMenu || addFunctionMenu.kind !== kind) return null;
     const rect = addFunctionMenu.rect;
-    const existingKeys = new Set(
-      resolveSessionFunctions(sessionData).map((fn) => fn.key),
-    );
-    const available = functionsForLibrary(instruments).filter(
-      (fn) => !existingKeys.has(fn.key),
-    );
+    const available = functionsForLibrary([
+      ...(instruments || []),
+      ...(sessionData.uuts || []),
+      ...(sessionData.tmdes || []),
+    ]);
     const itemStyle = {
       display: "block",
       width: "100%",
@@ -7416,7 +7633,7 @@ function DetailedView({
             </div>
           ) : (
             <div style={{ padding: "6px 10px", opacity: 0.6, fontSize: "0.8em" }}>
-              No more library functions
+              No library or session instrument functions
             </div>
           )}
           <div
@@ -7534,60 +7751,11 @@ function DetailedView({
   }, [sessionData.uuts, activeMeasurementAreaId, activeMeasurementArea?.name]);
 
   const relevantTmdes = useMemo(() => {
-    const allTmdes = sessionData.tmdes || [];
-    if (testPointData.measurementType === "derived") return allTmdes;
-    if (!activeMeasurementAreaId) return allTmdes;
-    return allTmdes.filter((tmde) => {
-      if (tmde.measurementAreaId) {
-        return tmde.measurementAreaId === activeMeasurementAreaId;
-      }
-      if (
-        activeMeasurementArea?.name &&
-        tmde.measurementArea === activeMeasurementArea.name
-      ) {
-        return true;
-      }
-
-      // Legacy TMDEs predate explicit area ownership. Infer their scope from
-      // the points that already use them; truly unused legacy entries remain
-      // available so they can be assigned and scoped without data migration.
-      const inferredAreaIds = new Set(
-        (sessionData.testPoints || [])
-          .filter((point) =>
-            (point.tmdeTolerances || []).some(
-              (instance) =>
-                instance.id === tmde.id || instance.sourceId === tmde.id,
-            ),
-          )
-          .map((point) => point.measurementAreaId)
-          .filter(Boolean),
-      );
-      return (
-        inferredAreaIds.size === 0 ||
-        inferredAreaIds.has(activeMeasurementAreaId)
-      );
-    });
-  }, [
-    sessionData.tmdes,
-    sessionData.testPoints,
-    testPointData.measurementType,
-    activeMeasurementAreaId,
-    activeMeasurementArea?.name,
-  ]);
-
-  const availableVariables = useMemo(() => {
-    if (!isDerived) return [];
-    if (
-      testPointData.variableMappings &&
-      Object.values(testPointData.variableMappings).length > 0
-    ) {
-      const vars = Object.values(testPointData.variableMappings)
-        .map((v) => (v ? String(v).trim() : "")) // <--- FIX: Ensure it is a string first
-        .filter((v) => v !== "");
-      return [...new Set(vars)];
-    }
-    return [];
-  }, [testPointData, isDerived]);
+    // Detail view should expose the same TMDE inventory as Session Overview.
+    // The budget picker then suggests function matches first, but still allows
+    // deliberate cross-function/cross-area selections when needed.
+    return sessionData.tmdes || [];
+  }, [sessionData.tmdes]);
 
   // --- HANDLERS ---
   const handleUutCheckboxChange = (uutId) => {
@@ -7846,6 +8014,17 @@ function DetailedView({
     }
 
     const patch = { variableMappings: newMappings };
+    const currentNominal = testPointData.variableNominals?.[symbol];
+    const inferredUnit = inferVariableUnit(trimmedNewName);
+    if (trimmedNewName && inferredUnit && !currentNominal?.unit) {
+      patch.variableNominals = {
+        ...(testPointData.variableNominals || {}),
+        [symbol]: {
+          value: currentNominal?.value ?? "",
+          unit: inferredUnit,
+        },
+      };
+    }
 
     // Renaming a variable should carry its TMDE assignments along. Only do so
     // when this symbol exclusively owns the old name (another symbol mapped to
@@ -8223,7 +8402,64 @@ function DetailedView({
     }
   };
 
-  const handleAssignTmdeToInput = (masterTmde, variableType) => {
+  const inferVariableUnit = useCallback(
+    (variableName) => {
+      const targetName = String(variableName || "").trim().toLowerCase();
+      if (!targetName) return "";
+
+      const sessionFunction = resolveSessionFunctions(sessionData, {
+        kind: "tmde",
+      }).find((fn) => String(fn.name || "").trim().toLowerCase() === targetName);
+      if (sessionFunction?.unit) return sessionFunction.unit;
+
+      for (const tmde of relevantTmdes) {
+        const match = instrumentFunctions(tmde).find(
+          (fn) => String(fn.name || "").trim().toLowerCase() === targetName,
+        );
+        if (match?.unit) return match.unit;
+      }
+      return "";
+    },
+    [relevantTmdes, sessionData],
+  );
+
+  const getVariableNominal = useCallback(
+    (symbol, variableName = "") => {
+      const saved = testPointData.variableNominals?.[symbol] || {};
+      return {
+        value: saved.value ?? "",
+        unit: saved.unit || inferVariableUnit(variableName),
+      };
+    },
+    [inferVariableUnit, testPointData.variableNominals],
+  );
+
+  const handleVariableNominalUpdate = (symbol, field, value, variableName = "") => {
+    const current = getVariableNominal(symbol, variableName);
+    onUpdateTestPoint?.({
+      variableNominals: {
+        ...(testPointData.variableNominals || {}),
+        [symbol]: {
+          ...current,
+          [field]: value,
+        },
+      },
+    });
+  };
+
+  const getNominalForVariableType = useCallback(
+    (variableType) => {
+      const mappings = testPointData.variableMappings || {};
+      const symbol = Object.entries(mappings).find(
+        ([, name]) =>
+          String(name || "").trim() === String(variableType || "").trim(),
+      )?.[0];
+      return symbol ? getVariableNominal(symbol, variableType) : null;
+    },
+    [getVariableNominal, testPointData.variableMappings],
+  );
+
+  const handleAssignTmdeToInput = (masterTmde, variableType, functionKey = null) => {
     const existing = tmdeTolerancesData.find(
       (tmde) =>
         String(tmde.id) === String(masterTmde.id) ||
@@ -8242,9 +8478,34 @@ function DetailedView({
     }
 
     if (existing) {
+      const variableNominal = getNominalForVariableType(variableType);
+      const resolution = functionKey
+        ? resolveUutRangeHelper(
+            masterTmde,
+            tmdeRangeIndices,
+            existing,
+            null,
+            functionKey,
+          )
+        : null;
+      const nextRangeSpecs = resolution?.activeRange
+        ? { ...resolution.activeRange }
+        : null;
+      if (nextRangeSpecs) delete nextRangeSpecs.id;
       onUpdateTestPoint({
         tmdeTolerances: tmdeTolerancesData.map((tmde) =>
-          tmde.id === existing.id ? { ...tmde, variableType } : tmde,
+          tmde.id === existing.id
+            ? {
+                ...tmde,
+                ...(nextRangeSpecs || {}),
+                ...(nextRangeSpecs ? { tolerance: nextRangeSpecs } : {}),
+                variableType,
+                measurementPoint:
+                  variableNominal?.value !== "" && variableNominal?.unit
+                    ? variableNominal
+                    : tmde.measurementPoint,
+              }
+            : tmde,
         ),
       });
       return;
@@ -8255,6 +8516,7 @@ function DetailedView({
       tmdeRangeIndices,
       null,
       null,
+      functionKey,
     );
     const activeRange = resolution.activeRange || {};
     const rangeSpecs = { ...activeRange };
@@ -8265,7 +8527,9 @@ function DetailedView({
     const sibling = tmdeTolerancesData.find(
       (t) => t.variableType === variableType && t.measurementPoint?.unit,
     );
+    const variableNominal = getNominalForVariableType(variableType);
     const defaultUnit =
+      variableNominal?.unit ||
       sibling?.measurementPoint?.unit ||
       activeRange.unit ||
       masterTmde.instrument?.functions?.[0]?.unit ||
@@ -8279,11 +8543,15 @@ function DetailedView({
           ...rangeSpecs,
           id: masterTmde.id,
           sourceId: masterTmde.id,
+          tolerance: rangeSpecs,
           variableType,
           quantity: 1,
-          measurementPoint: masterTmde.measurementPoint?.value
-            ? masterTmde.measurementPoint
-            : { value: "", unit: defaultUnit },
+          measurementPoint:
+            variableNominal?.value !== "" && variableNominal?.unit
+              ? variableNominal
+              : masterTmde.measurementPoint?.value
+                ? masterTmde.measurementPoint
+                : { value: "", unit: defaultUnit },
         },
       ],
     });
@@ -8307,8 +8575,15 @@ function DetailedView({
     onUpdateTestPoint({ tmdeTolerances: nextTolerances });
   };
 
-  const handleToggleTmdeUsage = (tmdeId, isChecked) => {
+  const handleToggleTmdeUsage = (tmdeId, isChecked, functionKey = null) => {
     if (isChecked) {
+      if (
+        tmdeTolerancesData.some(
+          (t) => String(t.id) === String(tmdeId) || String(t.sourceId) === String(tmdeId),
+        )
+      ) {
+        return;
+      }
       const sourceTmde = sessionData.tmdes.find((t) => t.id === tmdeId);
       if (sourceTmde) {
         // Auto-select the range that covers this point (Priority C) rather than
@@ -8319,6 +8594,7 @@ function DetailedView({
           tmdeRangeIndices,
           null,
           isDerived ? null : uutNominal,
+          functionKey,
         );
         const activeRange = resolution.activeRange || {};
         const compatibility = assessTmdeCompatibility(
@@ -8339,6 +8615,7 @@ function DetailedView({
           ...rangeSpecs,
           id: sourceTmde.id,
           sourceId: sourceTmde.id,
+          tolerance: rangeSpecs,
           quantity: 1,
         };
 
@@ -8380,6 +8657,7 @@ function DetailedView({
         ...activeInstance,
         ...rangeSpecs,
         id: activeInstance.id,
+        tolerance: rangeSpecs,
       };
 
       const updatedTolerances = tmdeTolerancesData.map((t) =>
@@ -8404,14 +8682,15 @@ function DetailedView({
             String(t.variableType).trim() === String(name).trim(),
         );
         const assignedTmde = assignedTmdes[0];
+        const nominal = getVariableNominal(symbol, name);
 
         return {
           symbol,
           name,
           isAssigned: assignedTmdes.length > 0,
           assignedTmdes,
-          value: assignedTmde?.measurementPoint?.value,
-          unit: assignedTmde?.measurementPoint?.unit,
+          value: nominal.value,
+          unit: nominal.unit,
         };
       });
 
@@ -8419,15 +8698,225 @@ function DetailedView({
       equation: testPointData.equationString || "",
       variables: vars,
     };
-  }, [isDerived, testPointData, tmdeTolerancesData]);
+  }, [getVariableNominal, isDerived, testPointData, tmdeTolerancesData]);
 
   const getEquationTmdeLabel = (tmde) =>
-    tmde?.description ||
-    tmde?.name ||
-    (tmde?.instrument
-      ? `${tmde.instrument.manufacturer || ""} ${tmde.instrument.model || ""}`.trim()
-      : "") ||
-    "Unnamed TMDE";
+    formatInstrumentIdentity(tmde, "Unnamed TMDE");
+
+  const getBudgetTmdeDetail = (tmde) => {
+    if (!budgetTmdePicker) return "";
+    const rowKey = `${budgetTmdePicker.functionKey || "single"}::${tmde.id}`;
+    const resolution = resolveUutRangeHelper(
+      tmde,
+      tmdeRangeIndices,
+      null,
+      null,
+      budgetTmdePicker.functionKey,
+    );
+    const activeIndex =
+      tmdeRangeIndices[rowKey] ??
+      tmdeRangeIndices[tmde.id] ??
+      resolution.activeIndex;
+    const activeRange =
+      resolution.ranges?.[activeIndex] ||
+      resolution.activeRange ||
+      findRangeForFunction(tmde, budgetTmdePicker.functionKey);
+    return formatRangeToleranceDetail(activeRange);
+  };
+
+  const budgetFunctionKey = useCallback(
+    (scope = null) => {
+      if (isDerived) {
+        return makeFunctionKey(
+          scope?.variableType || scope?.label || "",
+          scope?.nominalPoint?.unit || "",
+        );
+      }
+      return functionKeyOf(testPointData);
+    },
+    [isDerived, testPointData],
+  );
+
+  const tmdeSupportsFunction = useCallback((tmde, functionKey) => {
+    if (!functionKey) return true;
+    const [functionNamePart, functionUnitPart = ""] = String(functionKey).split("|");
+    const matchesKey = (name, unit) => {
+      const candidateKey = makeFunctionKey(name, unit);
+      if (candidateKey === functionKey) return true;
+      return !functionUnitPart && candidateKey.split("|")[0] === functionNamePart;
+    };
+    if (instrumentHasFunction(tmde, functionKey)) return true;
+    if (
+      !functionUnitPart &&
+      instrumentFunctions(tmde).some((fn) => matchesKey(fn.name, fn.unit))
+    ) {
+      return true;
+    }
+    return getInstrumentRangeRows(tmde).some(
+      (range) =>
+        matchesKey(
+          range.functionName || "",
+          range.functionUnit || range.unit || "",
+        ),
+    );
+  }, []);
+
+  const openBudgetTmdePicker = useCallback(
+    (scope, event = null) => {
+      const functionKey = budgetFunctionKey(scope);
+      const options = [...relevantTmdes]
+        .filter((tmde) => tmdeSupportsFunction(tmde, functionKey))
+        .sort((a, b) =>
+          getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b)),
+        );
+      if (options.length === 0) {
+        setNotification?.({
+          title: "No Compatible TMDEs",
+          message:
+            "Add a TMDE with a matching function before adding it to this budget.",
+        });
+        return;
+      }
+      const rect = event?.currentTarget?.getBoundingClientRect?.() || null;
+      setBudgetTmdePicker({ scope, functionKey, options, rect });
+    },
+    [budgetFunctionKey, relevantTmdes, setNotification, tmdeSupportsFunction],
+  );
+
+  const addBudgetTmde = (tmde) => {
+    if (!budgetTmdePicker) return;
+    if (isDerived) {
+      handleAssignTmdeToInput(
+        tmde,
+        budgetTmdePicker.scope?.variableType || budgetTmdePicker.scope?.label,
+        budgetTmdePicker.functionKey,
+      );
+    } else {
+      handleToggleTmdeUsage(tmde.id, true, budgetTmdePicker.functionKey);
+    }
+    setBudgetTmdePicker(null);
+  };
+
+  const renderBudgetTmdePicker = () => {
+    if (!budgetTmdePicker) return null;
+    const scopeLabel = budgetTmdePicker.scope?.label || "Budget";
+    const itemStyle = {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      width: "100%",
+      textAlign: "left",
+      padding: "7px 10px",
+      background: "transparent",
+      border: "none",
+      borderRadius: "4px",
+      color: "var(--text-color)",
+      cursor: "pointer",
+      fontSize: "0.85em",
+    };
+    const MENU_WIDTH = 360;
+    const rect = budgetTmdePicker.rect;
+    const left = rect
+      ? Math.max(
+          8,
+          Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8),
+        )
+      : 8;
+    const top = rect
+      ? Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 80))
+      : 60;
+    return ReactDOM.createPortal(
+      <>
+        <div
+          onClick={() => setBudgetTmdePicker(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 4000 }}
+        />
+        <div
+          className="budget-settings-menu budget-tmde-picker-menu"
+          style={{
+            position: "fixed",
+            top,
+            left,
+            width: `${MENU_WIDTH}px`,
+            maxHeight: "min(360px, 70vh)",
+            overflow: "auto",
+            background: "var(--component-bg)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "8px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+            zIndex: 4001,
+            padding: "8px",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            style={{
+              fontSize: "0.7rem",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              opacity: 0.6,
+              padding: "2px 6px 6px",
+            }}
+          >
+            Add TMDE to {scopeLabel}
+          </div>
+          <div>
+            {budgetTmdePicker.options.map((tmde) => {
+              const detail = getBudgetTmdeDetail(tmde);
+              return (
+                <button
+                  key={tmde.id}
+                  type="button"
+                  style={itemStyle}
+                  onClick={() => addBudgetTmde(tmde)}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = "var(--input-background)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
+                >
+                  <FontAwesomeIcon icon={faTools} style={{ marginTop: "2px" }} />
+                  <span
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
+                      minWidth: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {getEquationTmdeLabel(tmde)}
+                    </span>
+                    {detail && (
+                      <span
+                        style={{
+                          fontSize: "0.72rem",
+                          color: "var(--text-color-muted)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {detail}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </>,
+      document.body,
+    );
+  };
 
   // Live validation of the equation editor's content: hard errors for
   // constructs the engines can't evaluate, warnings for shadowed mathjs
@@ -8505,7 +8994,14 @@ function DetailedView({
       uutNominal.value !== "" &&
       uutNominal.value !== null);
   const hasUnassignedVariables =
-    isDerived && equationDisplayData?.variables.some((v) => !v.isAssigned);
+    isDerived &&
+    equationDisplayData?.variables.some((v) => {
+      if (!String(v.name || "").trim()) return true;
+      if (v.value === "" || v.value === null || v.value === undefined) {
+        return true;
+      }
+      return !v.unit;
+    });
 
   const isBackendMappingError =
     calculationError &&
@@ -8674,7 +9170,11 @@ function DetailedView({
               </tr>
             </thead>
             <tbody>
-              {relevantUuts.length === 0 ? (
+              {buildFunctionGroupedRows(
+                relevantUuts.map((item, index) => ({ type: "item", item, index })),
+                sessionData,
+                "uut",
+              ).length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan="5">No associated UUTs found.</td>
                 </tr>
@@ -8682,6 +9182,7 @@ function DetailedView({
                 buildFunctionGroupedRows(
                   relevantUuts.map((item, index) => ({ type: "item", item, index })),
                   sessionData,
+                  "uut",
                 ).map((row) => {
                   if (row.type === "function") {
                     return renderFunctionHeaderRow("uut", row.fn, 5);
@@ -8691,13 +9192,15 @@ function DetailedView({
                   const uutFnKey = row.functionKey ?? null;
                   const { ranges, activeIndex, activeRange } =
                     resolveUutRange(uut, uutFnKey);
+                  const isPointFunctionRow = pointFunctionMatchesRow(uutFnKey);
                   const isLinked =
                     testPointData.associatedUutIds &&
-                    testPointData.associatedUutIds.includes(uut.id);
-                  const isActivePointUut =
-                    testPointData.activeUutId === uut.id ||
-                    (!testPointData.activeUutId &&
-                      associatedUutIds[0] === uut.id);
+                    testPointData.associatedUutIds.includes(uut.id) &&
+                    isPointFunctionRow;
+                  const isActivePointUut = isActivePointUutForFunction(
+                    uut,
+                    uutFnKey,
+                  );
                   const specRows = getSpecRows(activeRange);
                   const rowSpan = !onSessionSave && specRows.length > 0 ? specRows.length : 1;
                   const isSelected = selectedUutIds.includes(uut.id);
@@ -8753,9 +9256,10 @@ function DetailedView({
                                       name={uut.description}
                                       make={uut.instrument?.manufacturer}
                                       model={uut.instrument?.model}
+                                      functionKey={uutFnKey}
                                       instruments={instruments}
                                       onPickLibrary={(inst) =>
-                                        promptLibraryPick("uut", uut.id, inst)
+                                        promptLibraryPick("uut", uut.id, inst, uutFnKey)
                                       }
                                       onCommit={(field, value) =>
                                         handleDetailUutDescEdit(uut.id, field, value)
@@ -8820,9 +9324,10 @@ function DetailedView({
                                 name={uut.description}
                                 make={uut.instrument?.manufacturer}
                                 model={uut.instrument?.model}
+                                functionKey={uutFnKey}
                                 instruments={instruments}
                                 onPickLibrary={(inst) =>
-                                  promptLibraryPick("uut", uut.id, inst)
+                                  promptLibraryPick("uut", uut.id, inst, uutFnKey)
                                 }
                                 onCommit={(field, value) =>
                                   handleDetailUutDescEdit(uut.id, field, value)
@@ -8865,10 +9370,6 @@ function DetailedView({
                                       ranges,
                                       isActivePointUut,
                                     )
-                                  }
-                                  functionOptions={getItemFunctionOptions(uut)}
-                                  onEditFunction={(value) =>
-                                    setRangeFunctionDetail("uut", uut, range?.id, value)
                                   }
                                   onEditBound={(field, value) =>
                                     handleEditRangeBoundDetail("uut", uut, range?.id, field, value)
@@ -8932,6 +9433,14 @@ function DetailedView({
                                           range,
                                           nextTypeKey,
                                           component,
+                                        )
+                                      }
+                                      onAddDefault={() =>
+                                        setSelectedToleranceTypeDetail(
+                                          "uut",
+                                          uut,
+                                          range,
+                                          "reading",
                                         )
                                       }
                                     />
@@ -9175,7 +9684,7 @@ function DetailedView({
                               aria-label={`TMDE for equation variable ${variable.symbol}`}
                             >
                               {!variable.isAssigned && (
-                                <option value="">Assign a TMDE below</option>
+                                <option value="">Add from budget table</option>
                               )}
                               {variable.assignedTmdes.map((tmde) => (
                                 <option key={tmde.id} value={tmde.id}>
@@ -9185,27 +9694,38 @@ function DetailedView({
                             </select>
                           </label>
                           <label className="measurement-equation-value-field">
-                            <span>TMDE value</span>
+                            <span>Nominal value</span>
                             <div className="var-value-display">
                               <input
                                 type="number"
                                 step="any"
                                 className="var-value-input"
-                                value={selectedTmde?.measurementPoint?.value ?? ""}
+                                value={variable.value ?? ""}
                                 placeholder="Enter value"
-                                disabled={!selectedTmde}
+                                disabled={!String(variable.name || "").trim()}
                                 onChange={(e) =>
-                                  handleSourceNominalUpdate(
-                                    selectedTmde.id,
+                                  handleVariableNominalUpdate(
+                                    variable.symbol,
                                     "value",
                                     e.target.value,
+                                    variable.name,
                                   )
                                 }
-                                aria-label={`TMDE value for equation variable ${variable.symbol}`}
+                                aria-label={`Nominal value for equation variable ${variable.symbol}`}
                               />
-                              <span className="var-unit">
-                                {selectedTmde?.measurementPoint?.unit || "—"}
-                              </span>
+                              <UnitSelect
+                                value={variable.unit || ""}
+                                onChange={(unit) =>
+                                  handleVariableNominalUpdate(
+                                    variable.symbol,
+                                    "unit",
+                                    unit,
+                                    variable.name,
+                                  )
+                                }
+                                ariaLabel={`Nominal unit for equation variable ${variable.symbol}`}
+                                width="8.5ch"
+                              />
                             </div>
                           </label>
                           <em
@@ -9215,10 +9735,10 @@ function DetailedView({
                           >
                             {variable.isAssigned
                               ? variable.assignedTmdes.length > 1
-                                ? `${variable.assignedTmdes.length} assigned; switch above to compare values`
-                                : "TMDE assigned"
+                                ? `${variable.assignedTmdes.length} budget TMDEs assigned`
+                                : "Budget TMDE assigned"
                               : String(variable.name || "").trim()
-                                ? "Assign a TMDE in the table below"
+                                ? "Add TMDEs from this input's budget table"
                                 : "Name this input before assigning a TMDE"}
                           </em>
                         </div>
@@ -9370,11 +9890,7 @@ function DetailedView({
               style={{ tableLayout: "fixed" }}
             >
               <colgroup>
-                {/* Direct points toggle usage. Derived points assign each
-                    instrument to one mapped input; several instruments may
-                    contribute to the same input budget. */}
-                <col style={{ width: isDerived ? "10%" : "5%" }} />
-                <col style={{ width: isDerived ? "20%" : "25%" }} />
+                <col style={{ width: "30%" }} />
                 <col style={{ width: "22%" }} />
                 <col style={{ width: "15%" }} />
                 <col style={{ width: "10%" }} />
@@ -9383,9 +9899,6 @@ function DetailedView({
               </colgroup>
               <thead>
                 <tr>
-                  <th style={{ textAlign: isDerived ? "left" : "center" }}>
-                    {isDerived ? "Assigned Input" : "Use"}
-                  </th>
                   <th>Description</th>
                   <th>
                     <span className="range-header-cell">
@@ -9405,19 +9918,24 @@ function DetailedView({
                 </tr>
               </thead>
               <tbody>
-                {relevantTmdes.length === 0 ? (
+                {buildFunctionGroupedRows(
+                  relevantTmdes.map((item, index) => ({ type: "item", item, index })),
+                  sessionData,
+                  "tmde",
+                ).length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan="7">
-                      No TMDEs defined for this measurement area.
+                    <td colSpan="6">
+                      No TMDEs defined for this session.
                     </td>
                   </tr>
                 ) : (
                   buildFunctionGroupedRows(
                     relevantTmdes.map((item, index) => ({ type: "item", item, index })),
                     sessionData,
+                    "tmde",
                   ).map((row) => {
                     if (row.type === "function") {
-                      return renderFunctionHeaderRow("tmde", row.fn, 8);
+                      return renderFunctionHeaderRow("tmde", row.fn, 6);
                     }
                     const masterTmde = row.item;
                     const tmdeRowKey = row.rowKey ?? masterTmde.id;
@@ -9453,9 +9971,6 @@ function DetailedView({
                         tmdeFnKey,
                       );
                       const { ranges, activeIndex, activeRange } = resolution;
-                      const compatibility = isDerived
-                        ? { compatible: true, reason: "" }
-                        : assessTmdeCompatibility(activeRange, uutNominal);
 
                       const effectiveTolerance = activeRange;
                       const specRows = getSpecRows(effectiveTolerance);
@@ -9478,60 +9993,14 @@ function DetailedView({
                           ? `${masterTmde.instrument.manufacturer} ${masterTmde.instrument.model}`
                           : "Unknown TMDE");
 
-                      // Expanded "view all ranges": one real <tr> per range. The
-                      // checkbox/derived assignment (col 0) and description (col 1)
-                      // span the group via rowSpan on the first range row.
+                      // Expanded "view all ranges": one real <tr> per range.
+                      // Description and sync span the group via rowSpan on the
+                      // first range row.
                       if (showAllRanges) {
                         const n = visibleRangeRows.length;
                         const canDelete = ranges.length > 1;
                         const activeRangeIndex =
                           tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
-                        const renderUsageCell = () =>
-                          isDerived ? (
-                            <select
-                              className="tmde-input-assignment"
-                              value={isChecked ? tmdeInstance.variableType || "" : ""}
-                              onChange={(e) =>
-                                handleAssignTmdeToInput(masterTmde, e.target.value)
-                              }
-                              aria-label={`Assign ${safeDescription} to equation input`}
-                            >
-                              <option value="">Not used</option>
-                              {availableVariables.map((variableType) => (
-                                <option key={variableType} value={variableType}>
-                                  {variableType}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (!isChecked && !compatibility.compatible) {
-                                  setNotification({
-                                    title: "Can't Use This TMDE",
-                                    message: `${compatibility.reason} Adjust the TMDE's range/unit (or the measurement point) so it covers this point, then try again.`,
-                                  });
-                                  return;
-                                }
-                                handleToggleTmdeUsage(masterTmde.id, e.target.checked);
-                              }}
-                              title={
-                                compatibility.compatible
-                                  ? "Use this TMDE"
-                                  : `Can't use: ${compatibility.reason}`
-                              }
-                              style={{
-                                cursor:
-                                  !isChecked && !compatibility.compatible
-                                    ? "not-allowed"
-                                    : "pointer",
-                                opacity:
-                                  !isChecked && !compatibility.compatible ? 0.5 : 1,
-                              }}
-                            />
-                          );
                         return (
                           <React.Fragment key={`${tmdeRowKey}-${idx}`}>
                             {visibleRangeRows.map(({ range, index, key }, i) => {
@@ -9539,7 +10008,7 @@ function DetailedView({
                               return (
                                 <tr
                                   key={key}
-                                  className={`tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isChecked ? " active-point-tmde-row" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                                  className={`tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                                   onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                                   onContextMenu={(e) =>
                                     openRangeRowMenu(e, "tmde", masterTmde, range, index, n)
@@ -9553,41 +10022,26 @@ function DetailedView({
                                     }
                                   }}
                                   style={{
-                                    opacity: isChecked || isSelectedRow ? 1 : 0.7,
+                                    opacity: isSelectedRow ? 1 : 0.85,
                                     cursor: "pointer",
                                   }}
                                 >
                                   {i === 0 && (
                                     <td
                                       rowSpan={n}
-                                      style={{
-                                        textAlign: isDerived ? "left" : "center",
-                                        verticalAlign: "middle",
-                                      }}
-                                      onClick={(e) => e.stopPropagation()}
-                                      className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                      className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                       onMouseEnter={() =>
                                         setHoveredCell({ tableId: "tmde_det", colIndex: 0 })
-                                      }
-                                    >
-                                      {renderUsageCell()}
-                                    </td>
-                                  )}
-                                  {i === 0 && (
-                                    <td
-                                      rowSpan={n}
-                                      className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
-                                      onMouseEnter={() =>
-                                        setHoveredCell({ tableId: "tmde_det", colIndex: 1 })
                                       }
                                     >
                                       <EditableDescriptionCell
                                         name={masterTmde.name}
                                         make={masterTmde.instrument?.manufacturer}
                                         model={masterTmde.instrument?.model}
+                                        functionKey={tmdeFnKey}
                                         instruments={instruments}
                                         onPickLibrary={(inst) =>
-                                          promptLibraryPick("tmde", masterTmde.id, inst)
+                                          promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
                                         }
                                         onCommit={(field, value) =>
                                           handleDetailTmdeDescEdit(masterTmde.id, field, value)
@@ -9598,7 +10052,7 @@ function DetailedView({
                                   {renderRangeRowCellsDetail("tmde", masterTmde, range, {
                                     includeDistribution: true,
                                     canDelete,
-                                    cols: { range: 2, tol: 3, res: 4 },
+                                    cols: { range: 1, tol: 2, res: 4 },
                                   })}
                                   {i === 0 && (
                                     <td
@@ -9622,10 +10076,10 @@ function DetailedView({
                       return (
                         <React.Fragment key={`${tmdeRowKey}-${idx}`}>
                           <tr
-                            className={`tmde-row ${isChecked ? "active-point-tmde-row" : ""} ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                            className={`tmde-row ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                             onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                             style={{
-                              opacity: isChecked ? 1 : isSelectedRow ? 1 : 0.7,
+                              opacity: isSelectedRow ? 1 : 0.85,
                               cursor: "pointer",
                             }}
                             onClick={(e) => handleTmdeClick(e, masterTmde.id)}
@@ -9636,95 +10090,11 @@ function DetailedView({
                           >
                             <td
                               rowSpan={rowSpan}
-                              style={{
-                                textAlign: isDerived ? "left" : "center",
-                                verticalAlign: "middle",
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                              className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                               onMouseEnter={() =>
                                 setHoveredCell({
                                   tableId: "tmde_det",
                                   colIndex: 0,
-                                })
-                              }
-                            >
-                              {isDerived ? (
-                                <select
-                                  className="tmde-input-assignment"
-                                  value={
-                                    isChecked
-                                      ? tmdeInstance.variableType || ""
-                                      : ""
-                                  }
-                                  onChange={(e) =>
-                                    handleAssignTmdeToInput(
-                                      masterTmde,
-                                      e.target.value,
-                                    )
-                                  }
-                                  aria-label={`Assign ${safeDescription} to equation input`}
-                                >
-                                  <option value="">Not used</option>
-                                  {availableVariables.map((variableType) => (
-                                    <option
-                                      key={variableType}
-                                      value={variableType}
-                                    >
-                                      {variableType}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  // Intentionally NOT disabled when incompatible:
-                                  // a disabled checkbox swallows the click, so the
-                                  // user gets no explanation. We keep it clickable
-                                  // and explain why on attempt (see below).
-                                  onChange={(e) => {
-                                    if (
-                                      !isChecked &&
-                                      !compatibility.compatible
-                                    ) {
-                                      setNotification({
-                                        title: "Can't Use This TMDE",
-                                        message: `${compatibility.reason} Adjust the TMDE's range/unit (or the measurement point) so it covers this point, then try again.`,
-                                      });
-                                      return;
-                                    }
-                                    handleToggleTmdeUsage(
-                                      masterTmde.id,
-                                      e.target.checked,
-                                    );
-                                  }}
-                                  title={
-                                    compatibility.compatible
-                                      ? "Use this TMDE"
-                                      : `Can't use: ${compatibility.reason}`
-                                  }
-                                  style={{
-                                    cursor:
-                                      !isChecked && !compatibility.compatible
-                                        ? "not-allowed"
-                                        : "pointer",
-                                    opacity:
-                                      !isChecked && !compatibility.compatible
-                                        ? 0.5
-                                        : 1,
-                                  }}
-                                />
-                              )}
-                            </td>
-
-                            <td
-                              rowSpan={rowSpan}
-                              className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
-                              onMouseEnter={() =>
-                                setHoveredCell({
-                                  tableId: "tmde_det",
-                                  colIndex: 1,
                                 })
                               }
                             >
@@ -9733,9 +10103,10 @@ function DetailedView({
                                   name={masterTmde.name}
                                   make={masterTmde.instrument?.manufacturer}
                                   model={masterTmde.instrument?.model}
+                                  functionKey={tmdeFnKey}
                                   instruments={instruments}
                                   onPickLibrary={(inst) =>
-                                    promptLibraryPick("tmde", masterTmde.id, inst)
+                                    promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
                                   }
                                   onCommit={(field, value) =>
                                     handleDetailTmdeDescEdit(
@@ -9761,11 +10132,11 @@ function DetailedView({
 
                             <td
                               rowSpan={rowSpan}
-                              className={`cell-value ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
+                              className={`cell-value ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
                               onMouseEnter={() =>
                                 setHoveredCell({
                                   tableId: "tmde_det",
-                                  colIndex: 2,
+                                  colIndex: 1,
                                 })
                               }
                               style={{ verticalAlign: "middle" }}
@@ -9783,15 +10154,6 @@ function DetailedView({
                                       )}
                                       onSelect={(idx) =>
                                         handleTmdeRangeChange(masterTmde, idx, ranges)
-                                      }
-                                      functionOptions={getItemFunctionOptions(masterTmde)}
-                                      onEditFunction={(value) =>
-                                        setRangeFunctionDetail(
-                                          "tmde",
-                                          masterTmde,
-                                          range?.id,
-                                          value,
-                                        )
                                       }
                                       onEditBound={(field, value) =>
                                         handleEditRangeBoundDetail(
@@ -9825,11 +10187,11 @@ function DetailedView({
                             </td>
 
                             <td
-                              className={`cell-tolerance ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
+                              className={`cell-tolerance ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
                               onMouseEnter={() =>
                                 setHoveredCell({
                                   tableId: "tmde_det",
-                                  colIndex: 3,
+                                  colIndex: 2,
                                 })
                               }
                               title={!onSessionSave ? specRows[0] : undefined}
@@ -9881,6 +10243,14 @@ function DetailedView({
                                               range,
                                               nextTypeKey,
                                               component,
+                                            )
+                                          }
+                                          onAddDefault={() =>
+                                            setSelectedToleranceTypeDetail(
+                                              "tmde",
+                                              masterTmde,
+                                              range,
+                                              "reading",
                                             )
                                           }
                                         />
@@ -9985,10 +10355,8 @@ function DetailedView({
                                           )
                                         }
                                       />
-                                    ) : isChecked ? (
-                                      formatResolutionLabel(range)
                                     ) : (
-                                      ""
+                                      formatResolutionLabel(range)
                                     )}
                                   </div>
                                 ))}
@@ -10006,20 +10374,17 @@ function DetailedView({
                           {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                             <tr
                               key={`${tmdeRowKey}-${idx}-spec-${sIdx}`}
-                              className={`spec-row ${isChecked ? "active-point-tmde-spec-row" : ""} ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "hovered-spec-row" : ""}`}
+                              className={`spec-row ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "hovered-spec-row" : ""}`}
                               onMouseEnter={() =>
                                 setHoveredRowId(masterTmde.id)
                               }
-                              style={{
-                                opacity: isChecked ? 1 : 0.7,
-                              }}
                             >
                               <td
-                                className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
+                                className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
                                 onMouseEnter={() =>
                                   setHoveredCell({
                                     tableId: "tmde_det",
-                                    colIndex: 3,
+                                    colIndex: 2,
                                   })
                                 }
                                 style={{
@@ -10049,7 +10414,7 @@ function DetailedView({
             style={{ padding: "20px", color: "var(--text-color-muted)" }}
           >
             {hasUnassignedVariables
-              ? "Map all equation variables to a TMDE above to calculate budget."
+              ? "Name each equation variable and enter its nominal value to calculate budget."
               : "Complete the equation configuration to calculate budget."}
           </div>
         ) : calculationError ? (
@@ -10077,6 +10442,7 @@ function DetailedView({
               setShowContribution={setShowContribution}
               hasTmde={tmdeTolerancesData.length > 0}
               onAddManualComponent={onAddManualComponent}
+              onAddTmdeToBudget={openBudgetTmdePicker}
               onEdit={onEditManualComponent}
               onOpenRepeatability={onOpenRepeatability}
               onOpenCorrelation={onOpenCorrelation}
@@ -10123,6 +10489,7 @@ function DetailedView({
           </p>
         </div>
       )}
+      {renderBudgetTmdePicker()}
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
     </div>
   );
