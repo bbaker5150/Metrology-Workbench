@@ -7338,7 +7338,15 @@ function DetailedView({
       functions: [{ name: fn.name, unit: fn.unit, ranges: [] }],
     };
     if (kind === "uut") {
-      const newUut = { id: uuidv4(), name: "", description: "", instrument };
+      const newUut = {
+        id: uuidv4(),
+        name: "",
+        description: "",
+        measurementAreaId: activeMeasurementAreaId || "",
+        measurementArea: activeMeasurementArea?.name || "",
+        measurementAreaColor: activeMeasurementArea?.color || "",
+        instrument,
+      };
       setSelectedUutIds([newUut.id]);
       onSessionSave({ ...sessionData, uuts: [newUut, ...(sessionData.uuts || [])] });
     } else {
