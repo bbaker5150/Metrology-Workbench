@@ -10660,6 +10660,8 @@ input.inline-function-input:focus {
 }
 
 .inline-unit-react-select .react-select__control {
+  display: flex !important;
+  align-items: center !important;
   min-height: 24px !important;
   height: 24px !important;
   border-radius: 4px !important;
@@ -10669,13 +10671,31 @@ input.inline-function-input:focus {
 }
 
 .inline-unit-react-select .react-select__value-container {
+  display: flex !important;
+  align-items: center !important;
   height: 24px !important;
   padding: 0 4px !important;
+  overflow: hidden !important;
 }
 
 .inline-unit-react-select .react-select__single-value,
 .inline-unit-react-select .react-select__input-container {
   font-size: 0.78rem !important;
+  line-height: 1 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.inline-unit-react-select .react-select__single-value {
+  position: static !important;
+  transform: none !important;
+  max-width: 100% !important;
+}
+
+.inline-unit-react-select .react-select__input {
+  line-height: 1 !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 .inline-unit-react-select .react-select__indicators {

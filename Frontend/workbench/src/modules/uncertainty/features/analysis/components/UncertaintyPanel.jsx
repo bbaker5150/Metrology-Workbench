@@ -323,14 +323,40 @@ const buildGroupedUnitOptions = () => {
   return options;
 };
 
+const normalizeUnitToken = (unit) =>
+  String(unit || "")
+    .trim()
+    .replace(/[µμ]/g, "u")
+    .replace(/Ω/g, "Ohm")
+    .replace(/Ω/g, "Ohm")
+    .replace(/°/g, "deg")
+    .replace(/[·⋅]/g, "-")
+    .replace(/\s+/g, "")
+    .replace(/\.$/, "")
+    .toLowerCase();
+
+const resolveUnitOption = (flatUnitOptions, value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const normalized = normalizeUnitToken(raw);
+  return (
+    flatUnitOptions.find((option) => option.value === raw) ||
+    flatUnitOptions.find(
+      (option) =>
+        normalizeUnitToken(option.value) === normalized ||
+        normalizeUnitToken(option.label) === normalized,
+    ) ||
+    null
+  );
+};
+
 const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) => {
   const groupedUnitOptions = useMemo(() => buildGroupedUnitOptions(), []);
   const flatUnitOptions = useMemo(
     () => groupedUnitOptions.flatMap((group) => group.options || []),
     [groupedUnitOptions],
   );
-  const selectedOption =
-    flatUnitOptions.find((option) => option.value === value) || null;
+  const selectedOption = resolveUnitOption(flatUnitOptions, value);
   const unitWidth = useMemo(() => {
     const longestLabelLength = Math.max(
       4,
