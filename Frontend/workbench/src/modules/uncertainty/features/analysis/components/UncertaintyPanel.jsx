@@ -257,6 +257,116 @@ const buildGroupedUnitOptions = () => {
   return options;
 };
 
+const SI_PREFIX_OPTIONS = [
+  { key: "", label: "Base", shortLabel: "Base" },
+  { key: "p", label: "Pico", shortLabel: "p" },
+  { key: "n", label: "Nano", shortLabel: "n" },
+  { key: "u", label: "Micro", shortLabel: "u" },
+  { key: "m", label: "Milli", shortLabel: "m" },
+  { key: "c", label: "Centi", shortLabel: "c" },
+  { key: "h", label: "Hecto", shortLabel: "h" },
+  { key: "k", label: "Kilo", shortLabel: "k" },
+  { key: "M", label: "Mega", shortLabel: "M" },
+  { key: "G", label: "Giga", shortLabel: "G" },
+  { key: "T", label: "Tera", shortLabel: "T" },
+];
+
+const SCALABLE_UNIT_FAMILIES = [
+  { base: "V", prefixes: ["n", "u", "m", "", "k"] },
+  { base: "A", prefixes: ["p", "n", "u", "m", "", "k"] },
+  { base: "Ohm", prefixes: ["m", "", "k", "M", "G", "T"] },
+  { base: "F", prefixes: ["p", "n", "u", "m", ""] },
+  { base: "H", prefixes: ["u", "m", ""] },
+  { base: "W", prefixes: ["m", "", "k", "M"] },
+  { base: "Hz", prefixes: ["", "k", "M", "G", "T"] },
+  { base: "s", prefixes: ["p", "n", "u", "m", ""] },
+  { base: "m", prefixes: ["n", "u", "m", "c", "", "k"] },
+  { base: "g", prefixes: ["u", "m", "", "k"] },
+  { base: "rad", prefixes: ["m", ""] },
+  { base: "L", prefixes: ["m", ""] },
+  { base: "Pa", prefixes: ["", "h", "k", "M"] },
+  { base: "N", prefixes: ["", "k"] },
+  { base: "J", prefixes: ["", "k"] },
+  { base: "Wh", prefixes: ["", "k"] },
+  { base: "T", prefixes: ["u", "m", ""] },
+];
+
+const unitKeyFromParts = (base, prefix = "") => {
+  if (!base) return "";
+  if (base === "Ohm") return prefix ? `${prefix}Ohm` : "Ohm";
+  if (base === "g" && prefix === "k") return "kg";
+  return `${prefix}${base}`;
+};
+
+const buildUnitPartModel = () => {
+  const allSupportedUnits = Object.keys(unitSystem.units);
+  const supportedUnitSet = new Set(allSupportedUnits);
+  const scalableByUnit = new Map();
+  const baseOptionsByCategory = [];
+  const usedBaseUnits = new Set();
+  const usedScalableUnits = new Set();
+
+  SCALABLE_UNIT_FAMILIES.forEach((family) => {
+    const supportedPrefixes = family.prefixes.filter((prefix) =>
+      supportedUnitSet.has(unitKeyFromParts(family.base, prefix)),
+    );
+    if (supportedPrefixes.length === 0) return;
+    const defaultPrefix = supportedPrefixes.includes("") ? "" : supportedPrefixes[0];
+    supportedPrefixes.forEach((prefix) => {
+      const unit = unitKeyFromParts(family.base, prefix);
+      scalableByUnit.set(unit, {
+        base: family.base,
+        prefix,
+        defaultPrefix,
+        prefixes: supportedPrefixes,
+      });
+      usedScalableUnits.add(unit);
+    });
+  });
+
+  Object.entries(unitCategories).forEach(([category, units]) => {
+    const categoryOptions = [];
+    units.forEach((unit) => {
+      if (!supportedUnitSet.has(unit)) return;
+      const scalable = scalableByUnit.get(unit);
+      const base = scalable?.base || unit;
+      const key = `${category}:${base}`;
+      if (usedBaseUnits.has(key)) return;
+      usedBaseUnits.add(key);
+      categoryOptions.push({
+        value: base,
+        label: getUnitDisplayLabel(base),
+        category,
+        scalable: Boolean(scalable),
+        unit,
+      });
+    });
+    if (categoryOptions.length > 0) {
+      baseOptionsByCategory.push({ label: category, options: categoryOptions });
+    }
+  });
+
+  const knownBaseValues = new Set(
+    baseOptionsByCategory.flatMap((group) => group.options.map((option) => option.value)),
+  );
+  const leftovers = allSupportedUnits
+    .filter((unit) => !usedScalableUnits.has(unit) && !knownBaseValues.has(unit))
+    .sort()
+    .map((unit) => ({
+      value: unit,
+      label: getUnitDisplayLabel(unit),
+      category: "Other",
+      scalable: false,
+      unit,
+    }));
+
+  if (leftovers.length > 0) {
+    baseOptionsByCategory.push({ label: "Other", options: leftovers });
+  }
+
+  return { baseOptionsByCategory, scalableByUnit };
+};
+
 const normalizeUnitToken = (unit) =>
   String(unit || "")
     .trim()
@@ -293,7 +403,7 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [menuRect, setMenuRect] = useState(null);
-  const [activeValue, setActiveValue] = useState("");
+  const [activeBase, setActiveBase] = useState("");
   const rootRef = useRef(null);
   const searchRef = useRef(null);
   const selectedRef = useRef(null);
@@ -304,11 +414,30 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
     [groupedUnitOptions],
   );
   const selectedOption = resolveUnitOption(flatUnitOptions, value);
-  const selectedValue = selectedOption?.value || "";
+  const selectedUnit = selectedOption?.value || "";
+  const { baseOptionsByCategory, scalableByUnit } = useMemo(() => buildUnitPartModel(), []);
+  const scalableByBase = useMemo(() => {
+    const byBase = new Map();
+    scalableByUnit.forEach((model) => {
+      if (!byBase.has(model.base)) byBase.set(model.base, model);
+    });
+    return byBase;
+  }, [scalableByUnit]);
+  const selectedModel = scalableByUnit.get(selectedUnit);
+  const selectedBase = selectedModel?.base || selectedUnit;
+  const selectedPrefix = selectedModel?.prefix || "";
+  const flatBaseOptions = useMemo(
+    () => baseOptionsByCategory.flatMap((group) => group.options || []),
+    [baseOptionsByCategory],
+  );
+  const selectedBaseOption =
+    flatBaseOptions.find((option) => option.value === selectedBase) ||
+    flatBaseOptions.find((option) => option.unit === selectedUnit) ||
+    null;
   const normalizedQuery = normalizeUnitToken(query);
   const visibleGroups = useMemo(() => {
-    if (!normalizedQuery) return groupedUnitOptions;
-    return groupedUnitOptions
+    if (!normalizedQuery) return baseOptionsByCategory;
+    return baseOptionsByCategory
       .map((group) => ({
         ...group,
         options: (group.options || []).filter((option) => {
@@ -316,12 +445,13 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
           return (
             normalizeUnitToken(option.value).includes(normalizedQuery) ||
             normalizeUnitToken(option.label).includes(normalizedQuery) ||
+            normalizeUnitToken(option.unit).includes(normalizedQuery) ||
             category.includes(normalizedQuery)
           );
         }),
       }))
       .filter((group) => group.options.length > 0);
-  }, [groupedUnitOptions, normalizedQuery]);
+  }, [baseOptionsByCategory, normalizedQuery]);
   const visibleOptions = useMemo(
     () => visibleGroups.flatMap((group) => group.options || []),
     [visibleGroups],
@@ -329,27 +459,42 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
   const unitWidth = useMemo(() => {
     const longestLabelLength = Math.max(
       4,
-      ...flatUnitOptions.map((option) => String(option.label || option.value || "").length),
+      ...flatBaseOptions.map((option) => String(option.label || option.value || "").length),
     );
-    return `${Math.min(longestLabelLength + 5, 14)}ch`;
-  }, [flatUnitOptions]);
+    return `${Math.min(longestLabelLength + 10, 18)}ch`;
+  }, [flatBaseOptions]);
+  const prefixOptions = selectedModel
+    ? selectedModel.prefixes
+        .map((prefix) => SI_PREFIX_OPTIONS.find((option) => option.key === prefix))
+        .filter(Boolean)
+    : [];
+  const prefixSelectWidth = selectedModel ? "74px" : "58px";
   const openMenu = () => {
     const rect = rootRef.current?.getBoundingClientRect();
     if (rect) {
       setMenuRect({
         top: rect.bottom + 4,
         left: rect.left,
-        width: Math.max(rect.width, 220),
+        width: Math.max(rect.width, 240),
       });
     }
     setQuery("");
-    setActiveValue(selectedValue);
+    setActiveBase(selectedBase);
     setIsOpen(true);
   };
   const closeMenu = () => setIsOpen(false);
-  const chooseUnit = (option) => {
-    onChange(option.value);
+  const chooseBaseUnit = (option) => {
+    if (option.scalable) {
+      const model = scalableByBase.get(option.value);
+      onChange(unitKeyFromParts(option.value, model?.defaultPrefix || ""));
+    } else {
+      onChange(option.unit || option.value);
+    }
     closeMenu();
+  };
+  const choosePrefix = (prefix) => {
+    if (!selectedModel) return;
+    onChange(unitKeyFromParts(selectedModel.base, prefix));
   };
 
   useEffect(() => {
@@ -372,11 +517,11 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
     if (!isOpen) return;
     if (
       visibleOptions.length > 0 &&
-      !visibleOptions.some((option) => option.value === activeValue)
+      !visibleOptions.some((option) => option.value === activeBase)
     ) {
-      setActiveValue(visibleOptions[0].value);
+      setActiveBase(visibleOptions[0].value);
     }
-  }, [activeValue, isOpen, visibleOptions]);
+  }, [activeBase, isOpen, visibleOptions]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -384,32 +529,55 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
       searchRef.current?.focus();
       (activeRef.current || selectedRef.current)?.scrollIntoView({ block: "nearest" });
     });
-  }, [activeValue, isOpen, normalizedQuery]);
+  }, [activeBase, isOpen, normalizedQuery]);
 
   return (
     <div
       ref={rootRef}
-      className="inline-unit-select"
+      className="inline-unit-select inline-unit-split-select"
       onMouseDown={(e) => e.stopPropagation()}
       aria-label={ariaLabel}
-      style={{ "--inline-unit-width": width || unitWidth }}
+      style={{
+        "--inline-unit-width": width || unitWidth,
+        "--inline-prefix-width": prefixSelectWidth,
+      }}
     >
       <button
         type="button"
-        className={`inline-unit-combobox${isOpen ? " is-open" : ""}`}
-        aria-label={ariaLabel}
+        className={`inline-unit-combobox inline-unit-base-button${isOpen ? " is-open" : ""}`}
+        aria-label={`${ariaLabel} base unit`}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
-        title={selectedOption?.label || value || "Unit"}
+        title={selectedBaseOption?.label || selectedOption?.label || value || "Unit"}
         onClick={(e) => {
           e.stopPropagation();
           if (isOpen) closeMenu();
           else openMenu();
         }}
       >
-        <span>{selectedOption?.label || value || "Unit"}</span>
+        <span>{selectedBaseOption?.label || selectedOption?.label || value || "Unit"}</span>
         <FontAwesomeIcon icon={faChevronDown} size="xs" />
       </button>
+      <select
+        className="inline-unit-prefix-select"
+        value={selectedPrefix}
+        aria-label={`${ariaLabel} prefix`}
+        title={selectedModel ? "Unit prefix" : "No prefix available"}
+        disabled={!selectedModel}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => choosePrefix(e.target.value)}
+      >
+        {selectedModel ? (
+          prefixOptions.map((prefix) => (
+            <option key={prefix.key || "base"} value={prefix.key}>
+              {prefix.shortLabel}
+            </option>
+          ))
+        ) : (
+          <option value="">Base</option>
+        )}
+      </select>
       {isOpen &&
         menuRect &&
         ReactDOM.createPortal(
@@ -438,19 +606,19 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
                   if (visibleOptions.length === 0) return;
                   const currentIndex = Math.max(
                     0,
-                    visibleOptions.findIndex((option) => option.value === activeValue),
+                    visibleOptions.findIndex((option) => option.value === activeBase),
                   );
                   const offset = e.key === "ArrowDown" ? 1 : -1;
                   const nextIndex =
                     (currentIndex + offset + visibleOptions.length) % visibleOptions.length;
-                  setActiveValue(visibleOptions[nextIndex].value);
+                  setActiveBase(visibleOptions[nextIndex].value);
                   return;
                 }
                 if (e.key === "Enter") {
                   const activeOption =
-                    visibleOptions.find((option) => option.value === activeValue) ||
+                    visibleOptions.find((option) => option.value === activeBase) ||
                     visibleOptions[0];
-                  if (activeOption) chooseUnit(activeOption);
+                  if (activeOption) chooseBaseUnit(activeOption);
                 }
               }}
             />
@@ -462,8 +630,8 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
                   <div className="inline-unit-group" key={group.label}>
                     <div className="inline-unit-group-label">{group.label}</div>
                     {(group.options || []).map((option) => {
-                      const isSelected = option.value === selectedValue;
-                      const isActive = option.value === activeValue;
+                      const isSelected = option.value === selectedBase;
+                      const isActive = option.value === activeBase;
                       return (
                         <button
                           key={option.value}
@@ -474,11 +642,11 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
                           className={`inline-unit-option${isSelected ? " is-selected" : ""}${
                             isActive ? " is-active" : ""
                           }`}
-                          onMouseEnter={() => setActiveValue(option.value)}
-                          onClick={() => chooseUnit(option)}
+                          onMouseEnter={() => setActiveBase(option.value)}
+                          onClick={() => chooseBaseUnit(option)}
                         >
                           <span>{option.label}</span>
-                          <small>{option.value}</small>
+                          <small>{option.scalable ? "Scaled" : option.unit || option.value}</small>
                         </button>
                       );
                     })}
