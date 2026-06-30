@@ -6,7 +6,8 @@
 import { 
   unitSystem, 
   convertToPPM, 
-  errorDistributions 
+  errorDistributions,
+  DISTRIBUTION_NOT_SET,
 } from "../../../utils/uncertaintyMath";
 
 export const oldErrorDistributions = [
@@ -90,16 +91,25 @@ export const getBudgetComponentsFromTolerance = (
     // to a canonical errorDistributions entry so the divisor, label, and the
     // round-trip string the dropdown uses all agree.
     if (!hasAccuracyComponents) {
+        const rawDistribution =
+          tolComp.distribution != null
+            ? String(tolComp.distribution)
+            : DISTRIBUTION_NOT_SET;
         const distEntry = errorDistributions.find(
-          (d) => parseFloat(d.value) === parseFloat(tolComp.distribution)
+          (d) =>
+            d.value === rawDistribution ||
+            parseFloat(d.value) === parseFloat(rawDistribution)
         );
         activeDistributionRaw = distEntry
           ? distEntry.value
-          : tolComp.distribution != null
-          ? String(tolComp.distribution)
-          : "1.732";
-        activeDistributionDivisor = parseFloat(activeDistributionRaw) || 1.732;
-        activeDistributionLabel = distEntry?.label || "Rectangular";
+          : rawDistribution;
+        activeDistributionDivisor =
+          activeDistributionRaw === DISTRIBUTION_NOT_SET
+            ? NaN
+            : parseFloat(activeDistributionRaw);
+        activeDistributionLabel =
+          distEntry?.label ||
+          (activeDistributionRaw === DISTRIBUTION_NOT_SET ? "Not Set" : "Rectangular");
         activeSpecDistributionRaw =
           tolComp.specDistribution != null
             ? String(tolComp.specDistribution)
@@ -241,12 +251,21 @@ export const getBudgetComponentsFromTolerance = (
         // Use the dB component's own distribution (falling back to the
         // accumulated accuracy distribution). The prior code referenced
         // undefined `distributionDivisor`/`distributionLabel` and threw.
-        const dbDistEntry = errorDistributions.find(
-          (d) => parseFloat(d.value) === parseFloat(toleranceObject.db.distribution)
-        );
-        const dbDistRaw = dbDistEntry ? dbDistEntry.value : activeDistributionRaw;
-        const dbDivisor = parseFloat(dbDistRaw) || activeDistributionDivisor;
-        const dbLabel = dbDistEntry?.label || activeDistributionLabel;
+      const rawDbDistribution =
+        toleranceObject.db.distribution != null
+          ? String(toleranceObject.db.distribution)
+          : activeDistributionRaw;
+      const dbDistEntry = errorDistributions.find(
+        (d) =>
+          d.value === rawDbDistribution ||
+          parseFloat(d.value) === parseFloat(rawDbDistribution)
+      );
+      const dbDistRaw = dbDistEntry ? dbDistEntry.value : activeDistributionRaw;
+      const dbDivisor =
+        dbDistRaw === DISTRIBUTION_NOT_SET
+          ? NaN
+          : parseFloat(dbDistRaw) || activeDistributionDivisor;
+      const dbLabel = dbDistEntry?.label || activeDistributionLabel;
 
         if (!isNaN(ppm)) {
           const u_i = Math.abs(ppm / dbDivisor);
@@ -361,16 +380,20 @@ export const getBudgetComponentsFromTolerance = (
     let distLabel = "Standard Uncertainty (Input is uᵢ)";
     let divisor = 1;
     if (!isStandard) {
+      const rawManualDistribution =
+        mc.distribution != null ? String(mc.distribution) : DISTRIBUTION_NOT_SET;
       const distEntry = errorDistributions.find(
-        (d) => parseFloat(d.value) === parseFloat(mc.distribution),
+        (d) =>
+          d.value === rawManualDistribution ||
+          parseFloat(d.value) === parseFloat(rawManualDistribution),
       );
       distRaw = distEntry
         ? distEntry.value
-        : mc.distribution != null
-          ? String(mc.distribution)
-          : "1.732";
-      divisor = parseFloat(distRaw) || 1.732;
-      distLabel = distEntry?.label || "Rectangular";
+        : rawManualDistribution;
+      divisor = distRaw === DISTRIBUTION_NOT_SET ? NaN : parseFloat(distRaw);
+      distLabel =
+        distEntry?.label ||
+        (distRaw === DISTRIBUTION_NOT_SET ? "Not Set" : "Rectangular");
     }
 
     // Convert the raw magnitude into SI base units. Relative units (%/ppm/ppb)

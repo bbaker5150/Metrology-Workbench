@@ -450,7 +450,10 @@ export const convertToPPM = (
 // 2. Statistics & Distributions
 // ==========================================
 
+export const DISTRIBUTION_NOT_SET = "not_set";
+
 export const errorDistributions = [
+  { value: DISTRIBUTION_NOT_SET, label: "Not Set" },
   { value: "1.732", label: "Rectangular" },
   { value: "2.449", label: "Triangular" },
   { value: "1.414", label: "U-Shaped" },
@@ -843,10 +846,13 @@ export const calculateUncertaintyFromToleranceObject = (
     const unit = tolComp.unit;
     const unitLabel = getUnitDisplayLabel(unit || "");
     const nominalUnitLabel = getUnitDisplayLabel(nominalUnit || "");
-    const divisor = parseFloat(tolComp.distribution) || 1.732;
+    const divisor =
+      tolComp.distribution === DISTRIBUTION_NOT_SET
+        ? NaN
+        : parseFloat(tolComp.distribution);
     const distributionLabel =
       errorDistributions.find((d) => d.value === String(tolComp.distribution))
-        ?.label || "Rectangular";
+        ?.label || (tolComp.distribution === DISTRIBUTION_NOT_SET ? "Not Set" : "Rectangular");
 
     let specString =
       Math.abs(high + low) < 1e-9
@@ -936,11 +942,15 @@ export const calculateUncertaintyFromToleranceObject = (
     if (dbTol > 0 && nominalValue > 0) {
       const dbMult = parseFloat(dbTolComp.multiplier) || 20;
       const dbRef = parseFloat(dbTolComp.ref) || 1;
-      const divisor = parseFloat(dbTolComp.distribution) || 1.732;
+      const divisor =
+        dbTolComp.distribution === DISTRIBUTION_NOT_SET
+          ? NaN
+          : parseFloat(dbTolComp.distribution);
       const distributionLabel =
         errorDistributions.find(
           (d) => d.value === String(dbTolComp.distribution)
-        )?.label || "Rectangular";
+        )?.label ||
+        (dbTolComp.distribution === DISTRIBUTION_NOT_SET ? "Not Set" : "Rectangular");
 
       const dbNominal = dbMult * Math.log10(nominalValue / dbRef);
       const absoluteHigh = dbRef * Math.pow(10, (dbNominal + highDb) / dbMult);

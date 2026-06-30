@@ -142,6 +142,7 @@ import {
   unitCategories,
   unitFilterOption,
   errorDistributions,
+  DISTRIBUTION_NOT_SET,
 } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 import {
@@ -1338,7 +1339,7 @@ const pruneBlankToleranceTerms = (tolerance = {}) => {
   return next;
 };
 const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) => {
-  const distribution = getBandDistDivisor(tolerance) || "1.732";
+  const distribution = getBandDistDivisor(tolerance) || DISTRIBUTION_NOT_SET;
   if (typeKey === "range") {
     return {
       value: activeRange?.max ?? "",
