@@ -458,6 +458,15 @@ function Analysis({
   };
 
   const handleRemoveComponent = (id, component = null) => {
+    // The UUT resolution is opted into the budget from the add menu, so removing
+    // it here simply opts it back out on the point's tolerance.
+    if (component?.isResolution || id === "uut_resolution") {
+      onDataSave({
+        uutTolerance: { ...uutToleranceData, includeResolutionInBudget: false },
+      });
+      return;
+    }
+
     if (component?.sourceTmdeId) {
       const sourceId = String(component.sourceTmdeId);
       const updatedTolerances = tmdeTolerancesData.filter(

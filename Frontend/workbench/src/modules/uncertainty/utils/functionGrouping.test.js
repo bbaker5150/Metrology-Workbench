@@ -160,6 +160,43 @@ describe("resolveSessionFunctions", () => {
       "Weight",
     ]);
   });
+
+  it("syncs a shared function's color across the UUT and TMDE views", () => {
+    // A UUT and a TMDE both declare "DC Voltage" (V). Neither has a stored
+    // color, so each view must fall back to the SAME palette default.
+    const session = {
+      functionGroups: [],
+      uuts: [{ id: "u1", functions: [{ name: "DC Voltage", unit: "V", ranges: [] }] }],
+      tmdes: [{ id: "t1", functions: [{ name: "DC Voltage", unit: "V", ranges: [] }] }],
+      testPoints: [],
+    };
+    const key = makeFunctionKey("DC Voltage", "V");
+    const uutColor = resolveSessionFunctions(session, { kind: "uut" }).find(
+      (f) => f.key === key,
+    )?.color;
+    const tmdeColor = resolveSessionFunctions(session, { kind: "tmde" }).find(
+      (f) => f.key === key,
+    )?.color;
+    expect(uutColor).toBeTruthy();
+    expect(tmdeColor).toBe(uutColor);
+  });
+
+  it("propagates a stored color for a shared function to both views", () => {
+    // Only the UUT side has a saved color; the TMDE view must read the same one.
+    const session = {
+      functionGroups: [
+        { name: "DC Voltage", unit: "V", color: "#ff0000", kind: "uut" },
+      ],
+      uuts: [{ id: "u1", functions: [{ name: "DC Voltage", unit: "V", ranges: [] }] }],
+      tmdes: [{ id: "t1", functions: [{ name: "DC Voltage", unit: "V", ranges: [] }] }],
+      testPoints: [],
+    };
+    const key = makeFunctionKey("DC Voltage", "V");
+    expect(
+      resolveSessionFunctions(session, { kind: "tmde" }).find((f) => f.key === key)
+        ?.color,
+    ).toBe("#ff0000");
+  });
 });
 
 describe("functionsForLibrary", () => {
