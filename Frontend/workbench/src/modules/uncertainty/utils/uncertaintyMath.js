@@ -1,5 +1,29 @@
 import * as math from "mathjs";
 
+const METRIC_PREFIX_FACTORS = {
+  p: 1e-12,
+  n: 1e-9,
+  u: 1e-6,
+  m: 1e-3,
+  c: 1e-2,
+  k: 1e3,
+  M: 1e6,
+};
+
+const GPM_METRIC_PREFIXES = ["p", "n", "u", "m", "c", "k", "M"];
+
+const buildPrefixedUnits = (baseUnit, baseToSi, quantity, prefixes = GPM_METRIC_PREFIXES) =>
+  prefixes.reduce((acc, prefix) => {
+    acc[`${prefix}${baseUnit}`] = {
+      to_si: baseToSi * METRIC_PREFIX_FACTORS[prefix],
+      quantity,
+    };
+    return acc;
+  }, {});
+
+const buildPrefixedUnitKeys = (baseUnit, prefixes = GPM_METRIC_PREFIXES) =>
+  prefixes.map((prefix) => `${prefix}${baseUnit}`);
+
 // ==========================================
 // 1. Unit Systems & Conversions
 // ==========================================
@@ -162,6 +186,7 @@ export const unitSystem = {
     "L/min": { to_si: 1.66667e-5, quantity: "Flow" },
     cfm: { to_si: 0.000471947, quantity: "Flow" },
     gpm: { to_si: 6.30902e-5, quantity: "Flow" },
+    ...buildPrefixedUnits("gpm", 6.30902e-5, "Flow"),
     // Standard volumetric flow units (treated volumetrically at standard
     // conditions). sccm = 1 cm^3/min, slpm = 1 L/min, scfh = 1 ft^3/hr,
     // scfm = 1 ft^3/min.
@@ -307,7 +332,17 @@ export const unitCategories = {
   Velocity: ["m/s", "km/h", "mph", "ft/s", "kn"],
   Force: ["N", "kN", "lbf", "ozf", "kgf"],
   Torque: ["N-m", "N-cm", "lb-in", "lb-ft", "ozf-in", "in-oz", "in-ozf", "kgf-m", "kgf-cm"],
-  Flow: ["m^3/s", "L/min", "cfm", "gpm", "sccm", "slpm", "scfh", "scfm"],
+  Flow: [
+    "m^3/s",
+    "L/min",
+    "cfm",
+    "gpm",
+    ...buildPrefixedUnitKeys("gpm"),
+    "sccm",
+    "slpm",
+    "scfh",
+    "scfm",
+  ],
   Energy: ["J", "kJ", "Wh", "kWh", "BTU", "cal"],
   Illuminance: ["lx", "fc"],
   "Magnetic Field": ["T", "mT", "uT", "G"]
