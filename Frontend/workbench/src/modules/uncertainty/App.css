@@ -2348,6 +2348,8 @@ body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
   letter-spacing: 0;
   border-top: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
+  overflow: visible;
+  white-space: normal;
 }
 
 .instrument-area-section-count {

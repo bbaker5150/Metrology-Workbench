@@ -7482,6 +7482,9 @@ function DetailedView({
           padding: "1px 4px",
           // Size to the name so the unit sits right next to it (no dead gap).
           width: functionNameInputWidth(fn.name),
+          minWidth: 0,
+          maxWidth: "none",
+          flex: "0 0 auto",
           fieldSizing: "content",
           pointerEvents: "auto",
         }}
