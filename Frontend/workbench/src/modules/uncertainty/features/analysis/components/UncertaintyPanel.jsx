@@ -985,13 +985,15 @@ const EditableDescriptionCell = ({
     .toLowerCase();
   const tokens = query.split(/\s+/).filter(Boolean);
   const results = useMemo(() => {
-    if (!onPickLibrary || !tokens.length) return [];
-    const matches = (instruments || []).filter((inst) => {
-      const hay = `${inst.manufacturer || ""} ${inst.model || ""} ${
-        inst.description || ""
-      }`.toLowerCase();
-      return tokens.every((t) => hay.includes(t));
-    });
+    if (!onPickLibrary) return [];
+    const matches = tokens.length
+      ? (instruments || []).filter((inst) => {
+          const hay = `${inst.manufacturer || ""} ${inst.model || ""} ${
+            inst.description || ""
+          }`.toLowerCase();
+          return tokens.every((t) => hay.includes(t));
+        })
+      : instruments || [];
     // Collapse each shared instrument and its linked local copies into one
     // "family": always surface the shared (in-sync) version, and only also list
     // a local when it actually diverges from shared (the changed version). This
@@ -1017,7 +1019,7 @@ const EditableDescriptionCell = ({
         if (!grp.shared || diffFromSnapshot(loc).length > 0) ordered.push(loc);
       });
     });
-    return [...ordered, ...standalone].slice(0, 8);
+    return [...ordered, ...standalone];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instruments, query, onPickLibrary]);
 
