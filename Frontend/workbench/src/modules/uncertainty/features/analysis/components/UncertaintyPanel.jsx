@@ -1474,9 +1474,7 @@ const ToleranceTermEditor = ({
   tolerance = {},
   activeRange = {},
   typeKey,
-  selectedType,
   showHighSign = true,
-  onSelectType,
   onCommit,
 }) => {
   const component =
@@ -1808,14 +1806,12 @@ const ToleranceTermEditor = ({
         )}
       </span>
       {typeLabel && (
-        <button
-          type="button"
-          className={`inline-tolerance-chip inline-tolerance-chip--in-cell${typeKey === selectedType ? " is-active" : ""}`}
-          title={`Select ${typeOption?.label || typeLabel} tolerance term`}
-          onClick={() => onSelectType?.(typeKey)}
+        <span
+          className="inline-tolerance-chip inline-tolerance-chip--in-cell"
+          title={typeOption?.label || typeLabel}
         >
           {typeLabel}
-        </button>
+        </span>
       )}
       {typeKey === "range" && (
         <span className="inline-tolerance-fs">
@@ -1856,9 +1852,7 @@ const ToleranceTermEditor = ({
 const InlineToleranceCell = ({
   tolerance = {},
   activeRange = {},
-  selectedType,
   editable,
-  onSelectType,
   onCommit,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -1917,16 +1911,13 @@ const InlineToleranceCell = ({
       {TOLERANCE_TYPE_OPTIONS.map((opt) => (
         <span
           key={opt.key}
-          className={`inline-tolerance-term-group${opt.key === selectedType ? " is-active" : ""}`}
-          onMouseDown={() => onSelectType?.(opt.key)}
+          className="inline-tolerance-term-group"
         >
           <ToleranceTermEditor
             tolerance={tolerance}
             activeRange={activeRange}
             typeKey={opt.key}
-            selectedType={selectedType}
             showHighSign
-            onSelectType={onSelectType}
             onCommit={onCommit}
           />
         </span>
@@ -3073,8 +3064,6 @@ const SummaryDashboard = ({
   setNotification,
 }) => {
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
-  const [toleranceTypes, setToleranceTypes] = useState({});
-  const [selectedToleranceKey, setSelectedToleranceKey] = useState(null);
   // Add Function picker: null | "uut" | "tmde" (which table's button opened it).
   const [addFunctionMenu, setAddFunctionMenu] = useState(null);
   const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
@@ -3663,34 +3652,8 @@ const SummaryDashboard = ({
     else handleCreateTmdeArea(tmdeId, trimmed);
   };
 
-  const toleranceTypeKey = (kind, item, rangeId) =>
-    `${kind}:${item?.id || ""}:${rangeId || "default"}`;
-  const getSelectedToleranceType = (kind, item, activeRange) => {
-    const key = toleranceTypeKey(kind, item, activeRange?.id);
-    return (
-      toleranceTypes[key] ||
-      firstToleranceType(getItemRangeTolerance(item, activeRange?.id) || activeRange || {})
-    );
-  };
-  const setSelectedToleranceType = (kind, item, activeRange, typeKey) => {
-    // Selection only — never write a default term here. The editor already shows
-    // every tolerance type, and writing a default on select would race with the
-    // blur-commit of the field the user just left (both replace the whole
-    // tolerance from a stale snapshot), silently dropping a component.
-    const key = toleranceTypeKey(kind, item, activeRange?.id);
-    setToleranceTypes((prev) => ({ ...prev, [key]: typeKey }));
-    setSelectedToleranceKey(key);
-    if (kind === "uut") {
-      setSelectedUutIds([item.id]);
-      setSelectedTmdeIds([]);
-    } else {
-      setSelectedTmdeIds([item.id]);
-      setSelectedUutIds([]);
-    }
-  };
   const setRangeToleranceComponent = (kind, item, activeRange, typeKey, component) => {
     if (!onSessionSave) return;
-    setSelectedToleranceKey(toleranceTypeKey(kind, item, activeRange?.id));
     const cur = getItemRangeTolerance(item, activeRange?.id) || {};
     // Prune blank terms in the same write so an empty (or just-cleared) term is
     // excluded without a second, racy cleanup pass.
@@ -4423,7 +4386,6 @@ const SummaryDashboard = ({
     const setRangeIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const tableId = kind;
     const tolerance = getItemRangeTolerance(item, range?.id) || range;
-    const typeKey = getSelectedToleranceType(kind, item, range);
     const label = kind === "uut" ? "UUT" : "TMDE";
     const deleteRange = () => {
       if (!canDelete) return;
@@ -4477,15 +4439,7 @@ const SummaryDashboard = ({
           <InlineToleranceCell
             tolerance={tolerance}
             activeRange={range}
-            selectedType={
-              selectedToleranceKey === toleranceTypeKey(kind, item, range?.id)
-                ? typeKey
-                : null
-            }
             editable
-            onSelectType={(nextTypeKey) =>
-              setSelectedToleranceType(kind, item, range, nextTypeKey)
-            }
             onCommit={(nextTypeKey, component) =>
               setRangeToleranceComponent(kind, item, range, nextTypeKey, component)
             }
@@ -4705,15 +4659,9 @@ const SummaryDashboard = ({
   // Selection Handlers (Wrapped)
   // Selection Handlers (Wrapped)
   const handleUutClick = (e, id) => {
-    if (!isInlineRowControlTarget(e.target)) {
-      setSelectedToleranceKey(null);
-    }
     handleRowSelection(e, id, setSelectedUutIds);
   };
   const handleTmdeClick = (e, id) => {
-    if (!isInlineRowControlTarget(e.target)) {
-      setSelectedToleranceKey(null);
-    }
     handleRowSelection(e, id, setSelectedTmdeIds);
   };
 
@@ -5155,11 +5103,6 @@ const SummaryDashboard = ({
                   const { ranges, activeIndex, activeRange } = resolution;
                   const activeTolerance =
                     getItemRangeTolerance(uut, activeRange?.id) || activeRange;
-                  const selectedToleranceType = getSelectedToleranceType(
-                    "uut",
-                    uut,
-                    activeRange,
-                  );
                   const specRows = getSpecRows(activeTolerance);
                   const rowSpan = onSessionSave
                     ? 1
@@ -5194,11 +5137,6 @@ const SummaryDashboard = ({
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "uut", uut, range, index, n)}
                               onMouseDownCapture={() => activateRangeRow("uut", uutRowKey, index)}
-                              onClick={(e) => {
-                                if (!isInlineRowControlTarget(e.target)) {
-                                  setSelectedToleranceKey(null);
-                                }
-                              }}
                               style={{ cursor: "pointer" }}
                             >
                               {i === 0 && (
@@ -5336,23 +5274,13 @@ const SummaryDashboard = ({
                           <div className={showAllRanges ? "range-stack" : undefined}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const tolerance = getItemRangeTolerance(uut, range?.id) || range;
-                              const typeKey = getSelectedToleranceType("uut", uut, range);
                               return (
                                 <div className="range-stack-row" key={key}>
                                   {onSessionSave ? (
                                     <InlineToleranceCell
                                       tolerance={tolerance}
                                       activeRange={range}
-                                      selectedType={
-                                        selectedToleranceKey ===
-                                        toleranceTypeKey("uut", uut, range?.id)
-                                          ? typeKey
-                                          : null
-                                      }
                                       editable={!!onSessionSave}
-                                      onSelectType={(nextTypeKey) =>
-                                        setSelectedToleranceType("uut", uut, range, nextTypeKey)
-                                      }
                                       onCommit={(nextTypeKey, component) =>
                                         setRangeToleranceComponent(
                                           "uut",
@@ -5543,11 +5471,6 @@ const SummaryDashboard = ({
                   const { ranges, activeIndex, activeRange } = resolution;
                   const activeTolerance =
                     getItemRangeTolerance(tmde, activeRange?.id) || activeRange;
-                  const selectedToleranceType = getSelectedToleranceType(
-                    "tmde",
-                    tmde,
-                    activeRange,
-                  );
                   const specRows = getSpecRows(activeTolerance);
                   const rowSpan = onSessionSave
                     ? 1
@@ -5581,11 +5504,6 @@ const SummaryDashboard = ({
                               onMouseEnter={() => setHoveredRowId(tmde.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "tmde", tmde, range, index, n)}
                               onMouseDownCapture={() => activateRangeRow("tmde", tmdeRowKey, index)}
-                              onClick={(e) => {
-                                if (!isInlineRowControlTarget(e.target)) {
-                                  setSelectedToleranceKey(null);
-                                }
-                              }}
                               style={{ cursor: "pointer" }}
                             >
                               {i === 0 && (
@@ -5737,23 +5655,13 @@ const SummaryDashboard = ({
                           <div className={showAllRanges ? "range-stack" : undefined}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const tolerance = getItemRangeTolerance(tmde, range?.id) || range;
-                              const typeKey = getSelectedToleranceType("tmde", tmde, range);
                               return (
                                 <div className="range-stack-row" key={key}>
                                   {onSessionSave ? (
                                     <InlineToleranceCell
                                       tolerance={tolerance}
                                       activeRange={range}
-                                      selectedType={
-                                        selectedToleranceKey ===
-                                        toleranceTypeKey("tmde", tmde, range?.id)
-                                          ? typeKey
-                                          : null
-                                      }
                                       editable={!!onSessionSave}
-                                      onSelectType={(nextTypeKey) =>
-                                        setSelectedToleranceType("tmde", tmde, range, nextTypeKey)
-                                      }
                                       onCommit={(nextTypeKey, component) =>
                                         setRangeToleranceComponent(
                                           "tmde",
@@ -6170,8 +6078,6 @@ function DetailedView({
   // add / remove, tolerance term edit / add / delete, resolution, area reassign.
   // ===========================================================================
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
-  const [toleranceTypes, setToleranceTypes] = useState({});
-  const [selectedToleranceKey, setSelectedToleranceKey] = useState(null);
   const { syncToShared, getDiff } = useInstrumentSync();
 
   const rowLabel = (kind, item) =>
@@ -6794,31 +6700,6 @@ function DetailedView({
   const isShowingAllRangesDetail = (kind, itemId) =>
     expandedRangeKeys.has(itemStateKey(kind, itemId));
 
-  // --- Tolerance term machine (matches SummaryDashboard) ---
-  const toleranceTypeKey = (kind, item, rangeId) =>
-    `${kind}:${item?.id || ""}:${rangeId || "default"}`;
-  const getSelectedToleranceTypeDetail = (kind, item, activeRange) => {
-    const key = toleranceTypeKey(kind, item, activeRange?.id);
-    return (
-      toleranceTypes[key] ||
-      firstToleranceType(
-        getItemRangeTolerance(item, activeRange?.id) || activeRange || {},
-      )
-    );
-  };
-  const setSelectedToleranceTypeDetail = (kind, item, activeRange, typeKey) => {
-    // Selection only — see setSelectedToleranceType for why no default is written.
-    const key = toleranceTypeKey(kind, item, activeRange?.id);
-    setToleranceTypes((prev) => ({ ...prev, [key]: typeKey }));
-    setSelectedToleranceKey(key);
-    if (kind === "uut") {
-      setSelectedUutIds([item.id]);
-      setSelectedTmdeIds([]);
-    } else {
-      setSelectedTmdeIds([item.id]);
-      setSelectedUutIds([]);
-    }
-  };
   const setRangeToleranceComponentDetail = (
     kind,
     item,
@@ -6827,7 +6708,6 @@ function DetailedView({
     component,
   ) => {
     if (!onSessionSave) return;
-    setSelectedToleranceKey(toleranceTypeKey(kind, item, activeRange?.id));
     const cur = getItemRangeTolerance(item, activeRange?.id) || {};
     // Prune blank terms in the same write (see setRangeToleranceComponent).
     const next = pruneBlankToleranceTerms({ ...cur, [typeKey]: component });
@@ -6941,7 +6821,6 @@ function DetailedView({
   ) => {
     const tableId = kind === "uut" ? "uut_det" : "tmde_det";
     const tolerance = getItemRangeTolerance(item, range?.id) || range || {};
-    const typeKey = getSelectedToleranceTypeDetail(kind, item, range);
     const label = kind === "uut" ? "UUT" : "TMDE";
     const deleteRange = () => {
       if (!canDelete) return;
@@ -6995,15 +6874,7 @@ function DetailedView({
           <InlineToleranceCell
             tolerance={tolerance}
             activeRange={range}
-            selectedType={
-              selectedToleranceKey === toleranceTypeKey(kind, item, range?.id)
-                ? typeKey
-                : null
-            }
             editable
-            onSelectType={(nextTypeKey) =>
-              setSelectedToleranceTypeDetail(kind, item, range, nextTypeKey)
-            }
             onCommit={(nextTypeKey, component) =>
               setRangeToleranceComponentDetail(kind, item, range, nextTypeKey, component)
             }
@@ -9292,11 +9163,6 @@ function DetailedView({
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "uut", uut, range, index, n)}
                               onMouseDownCapture={() => activateRangeRowDetail("uut", uutRowKey, index)}
-                              onClick={(e) => {
-                                if (!isInlineRowControlTarget(e.target)) {
-                                  setSelectedToleranceKey(null);
-                                }
-                              }}
                               style={{ cursor: "pointer" }}
                             >
                               {i === 0 && (
@@ -9462,32 +9328,13 @@ function DetailedView({
                                 getItemRangeTolerance(uut, range?.id) ||
                                 range ||
                                 {};
-                              const typeKey = getSelectedToleranceTypeDetail(
-                                "uut",
-                                uut,
-                                range,
-                              );
                               return (
                                 <div className="range-stack-row" key={key}>
                                   {onSessionSave ? (
                                     <InlineToleranceCell
                                       tolerance={tolerance}
                                       activeRange={range}
-                                      selectedType={
-                                        selectedToleranceKey ===
-                                        toleranceTypeKey("uut", uut, range?.id)
-                                          ? typeKey
-                                          : null
-                                      }
                                       editable={!!onSessionSave}
-                                      onSelectType={(nextTypeKey) =>
-                                        setSelectedToleranceTypeDetail(
-                                          "uut",
-                                          uut,
-                                          range,
-                                          nextTypeKey,
-                                        )
-                                      }
                                       onCommit={(nextTypeKey, component) =>
                                         setRangeToleranceComponentDetail(
                                           "uut",
@@ -10053,11 +9900,6 @@ function DetailedView({
                                   onMouseDownCapture={() =>
                                     activateRangeRowDetail("tmde", tmdeRowKey, index)
                                   }
-                                  onClick={(e) => {
-                                    if (!isInlineRowControlTarget(e.target)) {
-                                      setSelectedToleranceKey(null);
-                                    }
-                                  }}
                                   style={{
                                     opacity: isSelectedRow ? 1 : 0.85,
                                     cursor: "pointer",
@@ -10242,36 +10084,13 @@ function DetailedView({
                                     ) ||
                                     range ||
                                     {};
-                                  const typeKey = getSelectedToleranceTypeDetail(
-                                    "tmde",
-                                    masterTmde,
-                                    range,
-                                  );
                                   return (
                                     <div className="range-stack-row" key={key}>
                                       {onSessionSave ? (
                                         <InlineToleranceCell
                                           tolerance={tolerance}
                                           activeRange={range}
-                                          selectedType={
-                                            selectedToleranceKey ===
-                                            toleranceTypeKey(
-                                              "tmde",
-                                              masterTmde,
-                                              range?.id,
-                                            )
-                                              ? typeKey
-                                              : null
-                                          }
                                           editable={!!onSessionSave}
-                                          onSelectType={(nextTypeKey) =>
-                                            setSelectedToleranceTypeDetail(
-                                              "tmde",
-                                              masterTmde,
-                                              range,
-                                              nextTypeKey,
-                                            )
-                                          }
                                           onCommit={(nextTypeKey, component) =>
                                             setRangeToleranceComponentDetail(
                                               "tmde",

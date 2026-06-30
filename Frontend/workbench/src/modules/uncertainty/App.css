@@ -11124,8 +11124,7 @@ input.inline-function-input:focus {
     background-color 0.15s ease;
 }
 
-.inline-tolerance-term-group:hover,
-.inline-tolerance-term-group.is-active {
+.inline-tolerance-term-group:hover {
   border-color: var(--primary-color);
   background: rgba(var(--primary-rgb), 0.06);
 }
@@ -11367,7 +11366,7 @@ input.inline-resolution-input {
   border-radius: 4px;
   background: transparent;
   color: var(--text-color-muted);
-  cursor: pointer;
+  cursor: default;
   font-size: 0.68rem;
   line-height: 1;
 }
@@ -11376,17 +11375,6 @@ input.inline-resolution-input {
   flex: 0 0 auto;
   height: 22px;
   font-size: 0.7rem;
-}
-
-.inline-tolerance-chip.is-active {
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-  background: transparent;
-}
-
-.inline-tolerance-chip:hover,
-.inline-tolerance-term-group.is-active .inline-tolerance-chip.is-active {
-  border-color: transparent;
 }
 
 .inline-tolerance-term-group:hover .inline-tolerance-chip {
