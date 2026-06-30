@@ -8695,24 +8695,21 @@ function DetailedView({
   const openBudgetTmdePicker = useCallback(
     (scope, event = null) => {
       const functionKey = budgetFunctionKey(scope);
-      const options = [...relevantTmdes].sort((a, b) => {
-        const aSuggested = tmdeSupportsFunction(a, functionKey);
-        const bSuggested = tmdeSupportsFunction(b, functionKey);
-        if (aSuggested !== bSuggested) return aSuggested ? -1 : 1;
-        return getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b));
-      });
-      const suggestedIds = options
+      const options = [...relevantTmdes]
         .filter((tmde) => tmdeSupportsFunction(tmde, functionKey))
-        .map((tmde) => tmde.id);
+        .sort((a, b) =>
+          getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b)),
+        );
       if (options.length === 0) {
         setNotification?.({
-          title: "No TMDEs Available",
-          message: "Add a TMDE first, then add it to the budget.",
+          title: "No Compatible TMDEs",
+          message:
+            "Add a TMDE with a matching function before adding it to this budget.",
         });
         return;
       }
       const rect = event?.currentTarget?.getBoundingClientRect?.() || null;
-      setBudgetTmdePicker({ scope, functionKey, options, suggestedIds, rect });
+      setBudgetTmdePicker({ scope, functionKey, options, rect });
     },
     [budgetFunctionKey, relevantTmdes, setNotification, tmdeSupportsFunction],
   );
@@ -8734,7 +8731,6 @@ function DetailedView({
   const renderBudgetTmdePicker = () => {
     if (!budgetTmdePicker) return null;
     const scopeLabel = budgetTmdePicker.scope?.label || "Budget";
-    const suggestedIds = new Set(budgetTmdePicker.suggestedIds || []);
     const itemStyle = {
       display: "flex",
       alignItems: "center",
@@ -8796,73 +8792,54 @@ function DetailedView({
             Add TMDE to {scopeLabel}
           </div>
           <div>
-            {budgetTmdePicker.options.map((tmde, index) => {
+            {budgetTmdePicker.options.map((tmde) => {
               const detail = getBudgetTmdeDetail(tmde);
-              const isSuggested = suggestedIds.has(tmde.id);
-              const previous = budgetTmdePicker.options[index - 1];
-              const startsSuggestedGroup = index === 0 && isSuggested;
-              const startsOtherGroup =
-                !isSuggested && (!previous || suggestedIds.has(previous.id));
               return (
-                <React.Fragment key={tmde.id}>
-                  {(startsSuggestedGroup || startsOtherGroup) && (
-                    <div
-                      style={{
-                        fontSize: "0.66rem",
-                        fontWeight: 700,
-                        textTransform: "uppercase",
-                        color: "var(--text-color-muted)",
-                        padding: index === 0 ? "4px 6px" : "10px 6px 4px",
-                      }}
-                    >
-                      {startsSuggestedGroup ? "Suggested" : "Other TMDEs"}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    style={itemStyle}
-                    onClick={() => addBudgetTmde(tmde)}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = "var(--input-background)")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = "transparent")
-                    }
+                <button
+                  key={tmde.id}
+                  type="button"
+                  style={itemStyle}
+                  onClick={() => addBudgetTmde(tmde)}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = "var(--input-background)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
+                >
+                  <FontAwesomeIcon icon={faTools} style={{ marginTop: "2px" }} />
+                  <span
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
+                      minWidth: 0,
+                    }}
                   >
-                    <FontAwesomeIcon icon={faTools} style={{ marginTop: "2px" }} />
                     <span
                       style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "2px",
-                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
                       }}
                     >
+                      {getEquationTmdeLabel(tmde)}
+                    </span>
+                    {detail && (
                       <span
                         style={{
+                          fontSize: "0.72rem",
+                          color: "var(--text-color-muted)",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {getEquationTmdeLabel(tmde)}
+                        {detail}
                       </span>
-                      {detail && (
-                        <span
-                          style={{
-                            fontSize: "0.72rem",
-                            color: "var(--text-color-muted)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {detail}
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                </React.Fragment>
+                    )}
+                  </span>
+                </button>
               );
             })}
           </div>
