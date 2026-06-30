@@ -35,19 +35,6 @@ describe("standard flow units", () => {
     );
   });
 
-  it("supports metric-scaled GPM units", () => {
-    expect(unitSystem.getQuantity("mgpm")).toBe("Flow");
-    expect(unitCategories.Flow).toContain("mgpm");
-    expect(unitSystem.toBaseUnit(1, "mgpm")).toBeCloseTo(
-      unitSystem.toBaseUnit(0.001, "gpm"),
-      14
-    );
-    expect(unitSystem.toBaseUnit(1, "kgpm")).toBeCloseTo(
-      unitSystem.toBaseUnit(1000, "gpm"),
-      10
-    );
-  });
-
   it("shows SCCM-family units uppercase", () => {
     expect(getUnitDisplayLabel("sccm")).toBe("SCCM");
     expect(getUnitDisplayLabel("scfm")).toBe("SCFM");

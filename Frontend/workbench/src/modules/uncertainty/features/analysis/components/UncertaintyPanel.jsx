@@ -289,7 +289,6 @@ const SCALABLE_UNIT_FAMILIES = [
   { base: "J", prefixes: ["", "k"] },
   { base: "Wh", prefixes: ["", "k"] },
   { base: "T", prefixes: ["u", "m", ""] },
-  { base: "gpm", prefixes: ["p", "n", "u", "m", "c", "", "k", "M"] },
 ];
 
 const unitKeyFromParts = (base, prefix = "") => {
