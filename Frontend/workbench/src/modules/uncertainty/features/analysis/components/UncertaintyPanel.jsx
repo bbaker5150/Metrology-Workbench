@@ -290,6 +290,14 @@ const resolveUnitOption = (flatUnitOptions, value) => {
 };
 
 const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [menuRect, setMenuRect] = useState(null);
+  const [activeValue, setActiveValue] = useState("");
+  const rootRef = useRef(null);
+  const searchRef = useRef(null);
+  const selectedRef = useRef(null);
+  const activeRef = useRef(null);
   const groupedUnitOptions = useMemo(() => buildGroupedUnitOptions(), []);
   const flatUnitOptions = useMemo(
     () => groupedUnitOptions.flatMap((group) => group.options || []),
@@ -297,6 +305,27 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
   );
   const selectedOption = resolveUnitOption(flatUnitOptions, value);
   const selectedValue = selectedOption?.value || "";
+  const normalizedQuery = normalizeUnitToken(query);
+  const visibleGroups = useMemo(() => {
+    if (!normalizedQuery) return groupedUnitOptions;
+    return groupedUnitOptions
+      .map((group) => ({
+        ...group,
+        options: (group.options || []).filter((option) => {
+          const category = normalizeUnitToken(group.label);
+          return (
+            normalizeUnitToken(option.value).includes(normalizedQuery) ||
+            normalizeUnitToken(option.label).includes(normalizedQuery) ||
+            category.includes(normalizedQuery)
+          );
+        }),
+      }))
+      .filter((group) => group.options.length > 0);
+  }, [groupedUnitOptions, normalizedQuery]);
+  const visibleOptions = useMemo(
+    () => visibleGroups.flatMap((group) => group.options || []),
+    [visibleGroups],
+  );
   const unitWidth = useMemo(() => {
     const longestLabelLength = Math.max(
       4,
@@ -304,32 +333,162 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
     );
     return `${Math.min(longestLabelLength + 5, 14)}ch`;
   }, [flatUnitOptions]);
+  const openMenu = () => {
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (rect) {
+      setMenuRect({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: Math.max(rect.width, 220),
+      });
+    }
+    setQuery("");
+    setActiveValue(selectedValue);
+    setIsOpen(true);
+  };
+  const closeMenu = () => setIsOpen(false);
+  const chooseUnit = (option) => {
+    onChange(option.value);
+    closeMenu();
+  };
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onPointerDown = (event) => {
+      const target = event.target;
+      if (
+        rootRef.current?.contains(target) ||
+        target?.closest?.(".inline-unit-menu")
+      ) {
+        return;
+      }
+      closeMenu();
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (
+      visibleOptions.length > 0 &&
+      !visibleOptions.some((option) => option.value === activeValue)
+    ) {
+      setActiveValue(visibleOptions[0].value);
+    }
+  }, [activeValue, isOpen, visibleOptions]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    requestAnimationFrame(() => {
+      searchRef.current?.focus();
+      (activeRef.current || selectedRef.current)?.scrollIntoView({ block: "nearest" });
+    });
+  }, [activeValue, isOpen, normalizedQuery]);
 
   return (
     <div
+      ref={rootRef}
       className="inline-unit-select"
       onMouseDown={(e) => e.stopPropagation()}
       aria-label={ariaLabel}
       style={{ "--inline-unit-width": width || unitWidth }}
     >
-      <select
-        className="inline-unit-native-select"
-        value={selectedValue}
+      <button
+        type="button"
+        className={`inline-unit-combobox${isOpen ? " is-open" : ""}`}
         aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
         title={selectedOption?.label || value || "Unit"}
-        onChange={(e) => onChange(e.target.value)}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isOpen) closeMenu();
+          else openMenu();
+        }}
       >
-        {!selectedValue && <option value="">Unit</option>}
-        {groupedUnitOptions.map((group) => (
-          <optgroup key={group.label} label={group.label}>
-            {(group.options || []).map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
+        <span>{selectedOption?.label || value || "Unit"}</span>
+        <FontAwesomeIcon icon={faChevronDown} size="xs" />
+      </button>
+      {isOpen &&
+        menuRect &&
+        ReactDOM.createPortal(
+          <div
+            className="inline-unit-menu"
+            style={{
+              top: menuRect.top,
+              left: menuRect.left,
+              width: menuRect.width,
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <input
+              ref={searchRef}
+              className="inline-unit-search"
+              value={query}
+              placeholder="Search units..."
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  closeMenu();
+                  return;
+                }
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  if (visibleOptions.length === 0) return;
+                  const currentIndex = Math.max(
+                    0,
+                    visibleOptions.findIndex((option) => option.value === activeValue),
+                  );
+                  const offset = e.key === "ArrowDown" ? 1 : -1;
+                  const nextIndex =
+                    (currentIndex + offset + visibleOptions.length) % visibleOptions.length;
+                  setActiveValue(visibleOptions[nextIndex].value);
+                  return;
+                }
+                if (e.key === "Enter") {
+                  const activeOption =
+                    visibleOptions.find((option) => option.value === activeValue) ||
+                    visibleOptions[0];
+                  if (activeOption) chooseUnit(activeOption);
+                }
+              }}
+            />
+            <div className="inline-unit-options" role="listbox" aria-label={ariaLabel}>
+              {visibleGroups.length === 0 ? (
+                <div className="inline-unit-empty">No matching units</div>
+              ) : (
+                visibleGroups.map((group) => (
+                  <div className="inline-unit-group" key={group.label}>
+                    <div className="inline-unit-group-label">{group.label}</div>
+                    {(group.options || []).map((option) => {
+                      const isSelected = option.value === selectedValue;
+                      const isActive = option.value === activeValue;
+                      return (
+                        <button
+                          key={option.value}
+                          ref={isActive ? activeRef : isSelected ? selectedRef : null}
+                          type="button"
+                          role="option"
+                          aria-selected={isSelected}
+                          className={`inline-unit-option${isSelected ? " is-selected" : ""}${
+                            isActive ? " is-active" : ""
+                          }`}
+                          onMouseEnter={() => setActiveValue(option.value)}
+                          onClick={() => chooseUnit(option)}
+                        >
+                          <span>{option.label}</span>
+                          <small>{option.value}</small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 };
