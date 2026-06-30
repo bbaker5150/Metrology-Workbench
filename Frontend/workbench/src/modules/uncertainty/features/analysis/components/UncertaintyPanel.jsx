@@ -2782,7 +2782,6 @@ const SummaryDashboard = ({
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
   const [toleranceTypes, setToleranceTypes] = useState({});
   const [selectedToleranceKey, setSelectedToleranceKey] = useState(null);
-  const [openToleranceAddMenu, setOpenToleranceAddMenu] = useState(null);
   // Add Function picker: null | "uut" | "tmde" (which table's button opened it).
   const [addFunctionMenu, setAddFunctionMenu] = useState(null);
   const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
@@ -4111,140 +4110,6 @@ const SummaryDashboard = ({
     );
   };
 
-  const getSelectedToleranceTarget = (kind) => {
-    const target = getSelectedRangeTarget(kind);
-    if (!target) return null;
-    const tolerance =
-      getItemRangeTolerance(target.item, target.activeRange?.id) ||
-      target.activeRange ||
-      {};
-    const key = toleranceTypeKey(kind, target.item, target.activeRange?.id);
-    const selectedType = getSelectedToleranceType(kind, target.item, target.activeRange);
-    const configuredTypes = activeToleranceTypeKeys(tolerance);
-    const missingTypes = TOLERANCE_TYPE_OPTIONS.filter(
-      (opt) => !configuredTypes.includes(opt.key),
-    );
-    return {
-      ...target,
-      key,
-      tolerance,
-      selectedType,
-      configuredTypes,
-      missingTypes,
-      hasSelectedTolerance: selectedToleranceKey === key,
-    };
-  };
-
-  const handleAddSelectedToleranceType = (kind, typeKey) => {
-    const target = getSelectedToleranceTarget(kind);
-    if (!target || !typeKey) return;
-    const next = {
-      ...target.tolerance,
-      [typeKey]:
-        target.tolerance[typeKey] ||
-        defaultToleranceComponent(typeKey, target.activeRange, target.tolerance),
-    };
-    const updatedItem = applyItemRangeTolerance(
-      target.item,
-      target.activeRange?.id,
-      next,
-    );
-    persistInlineItem(kind, updatedItem);
-    setToleranceTypes((prev) => ({
-      ...prev,
-      [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: typeKey,
-    }));
-    setSelectedToleranceKey(target.key);
-    setOpenToleranceAddMenu(null);
-  };
-
-  const handleRemoveSelectedToleranceType = (kind) => {
-    const target = getSelectedToleranceTarget(kind);
-    if (!target || !target.hasSelectedTolerance || !target.tolerance[target.selectedType]) {
-      return;
-    }
-    const termLabel =
-      TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === target.selectedType)?.label ||
-      "tolerance";
-    confirmViaNotification(setNotification, {
-      title: "Delete Tolerance Term",
-      message: `Delete the ${termLabel} tolerance term? This can't be undone.`,
-      confirmText: "Delete",
-      onConfirm: () => {
-        const next = { ...target.tolerance };
-        delete next[target.selectedType];
-        const remaining = activeToleranceTypeKeys(next);
-        const nextSelected = remaining[0] || "reading";
-        const updatedItem = applyItemRangeTolerance(
-          target.item,
-          target.activeRange?.id,
-          next,
-        );
-        persistInlineItem(kind, updatedItem);
-        setToleranceTypes((prev) => ({
-          ...prev,
-          [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: nextSelected,
-        }));
-        setSelectedToleranceKey(null);
-      },
-    });
-  };
-
-  const renderToleranceHeaderActions = (kind) => {
-    if (!onSessionSave) return null;
-
-    const target = getSelectedToleranceTarget(kind);
-    const label = kind === "uut" ? "UUT" : "TMDE";
-    const canAdd = Boolean(target && target.missingTypes.length > 0);
-    const canRemove = Boolean(
-      target && target.hasSelectedTolerance && target.tolerance[target.selectedType],
-    );
-    const menuOpen = openToleranceAddMenu === kind;
-
-    return (
-      <span className="range-header-actions tolerance-header-actions" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          className="range-header-action-btn range-header-action-btn--add"
-          title={canAdd ? `Add tolerance term to selected ${label}` : `Select one ${label} with an available tolerance type`}
-          aria-label={`Add tolerance term to selected ${label}`}
-          disabled={!canAdd}
-          onClick={() => setOpenToleranceAddMenu((prev) => (prev === kind ? null : kind))}
-        >
-          <FontAwesomeIcon icon={faPlus} size="xs" />
-        </button>
-        <button
-          type="button"
-          className="range-header-action-btn range-header-action-btn--delete"
-          title={
-            canRemove
-              ? `Remove selected ${TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === target.selectedType)?.label || "tolerance"} term`
-              : `Select a configured tolerance term to remove`
-          }
-          aria-label={`Remove selected tolerance term from selected ${label}`}
-          disabled={!canRemove}
-          onClick={() => handleRemoveSelectedToleranceType(kind)}
-        >
-          <FontAwesomeIcon icon={faTrashAlt} size="xs" />
-        </button>
-        {menuOpen && target && (
-          <div className="tolerance-add-menu">
-            {target.missingTypes.map((opt) => (
-              <button
-                key={opt.key}
-                type="button"
-                className="tolerance-add-menu-item"
-                onClick={() => handleAddSelectedToleranceType(kind, opt.key)}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </span>
-    );
-  };
-
   // Industry Grade Highlighting State
   const [hoveredCell, setHoveredCell] = useState({
     tableId: null,
@@ -4922,12 +4787,7 @@ const SummaryDashboard = ({
                     {renderRangeHeaderActions("uut")}
                   </span>
                 </th>
-                <th>
-                  <span className="range-header-cell">
-                    <span>Tolerance</span>
-                    {renderToleranceHeaderActions("uut")}
-                  </span>
-                </th>
+                <th>Tolerance</th>
                 <th>Resolution</th>
                 <th className="cell-sync">Sync</th>
               </tr>
@@ -5355,12 +5215,7 @@ const SummaryDashboard = ({
                     {renderRangeHeaderActions("tmde")}
                   </span>
                 </th>
-                <th>
-                  <span className="range-header-cell">
-                    <span>Error Limit</span>
-                    {renderToleranceHeaderActions("tmde")}
-                  </span>
-                </th>
+                <th>Error Limit</th>
                 <th className="cell-distribution">Distribution</th>
                 <th>Resolution</th>
                 <th className="cell-sync">Sync</th>
@@ -6035,7 +5890,6 @@ function DetailedView({
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
   const [toleranceTypes, setToleranceTypes] = useState({});
   const [selectedToleranceKey, setSelectedToleranceKey] = useState(null);
-  const [openToleranceAddMenu, setOpenToleranceAddMenu] = useState(null);
   const { syncToShared, getDiff } = useInstrumentSync();
 
   const rowLabel = (kind, item) =>
@@ -6912,140 +6766,6 @@ function DetailedView({
       </>
     );
   };
-
-  const getSelectedToleranceTargetDetail = (kind) => {
-    const target = getSelectedRangeTargetDetail(kind);
-    if (!target) return null;
-    const tolerance =
-      getItemRangeTolerance(target.item, target.activeRange?.id) ||
-      target.activeRange ||
-      {};
-    const key = toleranceTypeKey(kind, target.item, target.activeRange?.id);
-    const selectedType = getSelectedToleranceTypeDetail(
-      kind,
-      target.item,
-      target.activeRange,
-    );
-    const configuredTypes = activeToleranceTypeKeys(tolerance);
-    const missingTypes = TOLERANCE_TYPE_OPTIONS.filter(
-      (opt) => !configuredTypes.includes(opt.key),
-    );
-    return {
-      ...target,
-      key,
-      tolerance,
-      selectedType,
-      configuredTypes,
-      missingTypes,
-      hasSelectedTolerance: selectedToleranceKey === key,
-    };
-  };
-  const handleAddSelectedToleranceTypeDetail = (kind, typeKey) => {
-    const target = getSelectedToleranceTargetDetail(kind);
-    if (!target || !typeKey) return;
-    const next = {
-      ...target.tolerance,
-      [typeKey]:
-        target.tolerance[typeKey] ||
-        defaultToleranceComponent(typeKey, target.activeRange, target.tolerance),
-    };
-    persistInlineItemDetail(
-      kind,
-      applyItemRangeTolerance(target.item, target.activeRange?.id, next),
-    );
-    setToleranceTypes((prev) => ({
-      ...prev,
-      [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: typeKey,
-    }));
-    setSelectedToleranceKey(target.key);
-    setOpenToleranceAddMenu(null);
-  };
-  const handleRemoveSelectedToleranceTypeDetail = (kind) => {
-    const target = getSelectedToleranceTargetDetail(kind);
-    if (
-      !target ||
-      !target.hasSelectedTolerance ||
-      !target.tolerance[target.selectedType]
-    )
-      return;
-    const termLabel =
-      TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === target.selectedType)?.label ||
-      "tolerance";
-    confirmViaNotification(setNotification, {
-      title: "Delete Tolerance Term",
-      message: `Delete the ${termLabel} tolerance term? This can't be undone.`,
-      confirmText: "Delete",
-      onConfirm: () => {
-        const next = { ...target.tolerance };
-        delete next[target.selectedType];
-        const remaining = activeToleranceTypeKeys(next);
-        const nextSelected = remaining[0] || "reading";
-        persistInlineItemDetail(
-          kind,
-          applyItemRangeTolerance(target.item, target.activeRange?.id, next),
-        );
-        setToleranceTypes((prev) => ({
-          ...prev,
-          [toleranceTypeKey(kind, target.item, target.activeRange?.id)]: nextSelected,
-        }));
-        setSelectedToleranceKey(null);
-      },
-    });
-  };
-  const renderToleranceHeaderActionsDetail = (kind) => {
-    if (!onSessionSave) return null;
-    const target = getSelectedToleranceTargetDetail(kind);
-    const label = kind === "uut" ? "UUT" : "TMDE";
-    const canAdd = Boolean(target && target.missingTypes.length > 0);
-    const canRemove = Boolean(
-      target && target.hasSelectedTolerance && target.tolerance[target.selectedType],
-    );
-    const menuOpen = openToleranceAddMenu === kind;
-    return (
-      <span
-        className="range-header-actions tolerance-header-actions"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          className="range-header-action-btn range-header-action-btn--add"
-          title={canAdd ? `Add tolerance term to selected ${label}` : `Select one ${label} with an available tolerance type`}
-          aria-label={`Add tolerance term to selected ${label}`}
-          disabled={!canAdd}
-          onClick={() =>
-            setOpenToleranceAddMenu((prev) => (prev === kind ? null : kind))
-          }
-        >
-          <FontAwesomeIcon icon={faPlus} size="xs" />
-        </button>
-        <button
-          type="button"
-          className="range-header-action-btn range-header-action-btn--delete"
-          title={canRemove ? `Remove selected ${TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === target.selectedType)?.label || "tolerance"} term` : `Select a configured tolerance term to remove`}
-          aria-label={`Remove selected tolerance term from selected ${label}`}
-          disabled={!canRemove}
-          onClick={() => handleRemoveSelectedToleranceTypeDetail(kind)}
-        >
-          <FontAwesomeIcon icon={faTrashAlt} size="xs" />
-        </button>
-        {menuOpen && target && (
-          <div className="tolerance-add-menu">
-            {target.missingTypes.map((opt) => (
-              <button
-                key={opt.key}
-                type="button"
-                className="tolerance-add-menu-item"
-                onClick={() => handleAddSelectedToleranceTypeDetail(kind, opt.key)}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </span>
-    );
-  };
-
 
   const equationInputRef = useRef(null);
   const symbolMenuRef = useRef(null);
@@ -9138,9 +8858,20 @@ function DetailedView({
   const activeResolvedTolerance = useMemo(() => {
     if (!primaryUut) return uutToleranceData;
     const { activeRange } = resolveUutRange(primaryUut);
-    return activeRange && Object.keys(activeRange).length > 0
-      ? activeRange
-      : uutToleranceData;
+    if (!(activeRange && Object.keys(activeRange).length > 0)) {
+      return uutToleranceData;
+    }
+    // Whether the UUT resolution is in the budget is a PER-POINT choice (set from
+    // the budget add menu), not a property of the shared range spec. So when the
+    // point tolerance is re-derived from the range, keep the point's own flag —
+    // otherwise a legacy range-level includeResolutionInBudget (from the old
+    // "use resolution" checkbox) would keep re-adding it and removal wouldn't
+    // stick.
+    return {
+      ...activeRange,
+      includeResolutionInBudget:
+        uutToleranceData?.includeResolutionInBudget ?? false,
+    };
   }, [primaryUut, resolveUutRange, uutToleranceData]);
 
   // Auto-Save Effect
@@ -9212,12 +8943,7 @@ function DetailedView({
                     {renderRangeHeaderActionsDetail("uut")}
                   </span>
                 </th>
-                <th>
-                  <span className="range-header-cell">
-                    <span>Tolerance</span>
-                    {renderToleranceHeaderActionsDetail("uut")}
-                  </span>
-                </th>
+                <th>Tolerance</th>
                 <th>Resolution</th>
                 <th className="cell-sync">Sync</th>
               </tr>
@@ -9946,12 +9672,7 @@ function DetailedView({
                       {renderRangeHeaderActionsDetail("tmde")}
                     </span>
                   </th>
-                  <th>
-                    <span className="range-header-cell">
-                      <span>Error Limit</span>
-                      {renderToleranceHeaderActionsDetail("tmde")}
-                    </span>
-                  </th>
+                  <th>Error Limit</th>
                   <th className="cell-distribution">Distribution</th>
                   <th>Resolution</th>
                   <th className="cell-sync">Sync</th>

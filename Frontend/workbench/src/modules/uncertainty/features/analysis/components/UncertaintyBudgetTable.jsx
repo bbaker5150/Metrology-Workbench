@@ -455,9 +455,12 @@ const UncertaintyBudgetTable = ({
       );
     }
     if (component.isCore && !component.sourceTmdeId) return null;
+    // A TMDE-sourced row's tolerance is edited directly on the instrument tables
+    // now, so it only gets a remove control here — no edit pencil.
+    const showEdit = !component.missingTolerance && !component.sourceTmdeId;
     return (
       <div className="budget-row-actions">
-        {!component.missingTolerance && (
+        {showEdit && (
           <span
             onClick={(e) => onEdit?.(e, component)}
             className="action-icon"

@@ -10412,8 +10412,11 @@ body.theme-cyberpunk .notification-window .window-header {
 
 /* In the inline-editable tables, center the range / tolerance / resolution
    inputs so they line up with the description and sync icon (read-only
-   multi-spec rows above keep their top alignment). */
+   multi-spec rows above keep their top alignment). The tolerance/error-limit
+   read view (.inline-tolerance-summary) centers too so it lines up with the
+   adjacent distribution dropdown. */
 .instrument-summary-table td.cell-tolerance:has(.inline-tolerance-editor),
+.instrument-summary-table td.cell-tolerance:has(.inline-tolerance-summary),
 .instrument-summary-table td.cell-value:has(.inline-range-editor),
 .instrument-summary-table td.cell-value:has(.inline-resolution-editor),
 .instrument-summary-table td.cell-distribution:has(.session-selector) {
@@ -10989,40 +10992,6 @@ input.inline-function-input:focus {
   opacity: 0;
 }
 
-.tolerance-add-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 20;
-  min-width: 88px;
-  padding: 4px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--component-bg);
-  box-shadow: var(--box-shadow-glow);
-}
-
-.tolerance-add-menu-item {
-  width: 100%;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-color);
-  cursor: pointer;
-  font-size: 0.78rem;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.tolerance-add-menu-item:hover {
-  background: rgba(var(--primary-rgb), 0.08);
-  color: var(--primary-color);
-}
-
 .inline-tolerance-editor {
   justify-content: flex-start;
   align-items: center;
@@ -11051,14 +11020,19 @@ input.inline-function-input:focus {
    snaps to the editable term view on click. Reads like plain text but offers a
    subtle hover cue so it's clearly editable. */
 .inline-tolerance-summary {
+  display: inline-flex;
+  align-items: center;
   border: 1px solid transparent;
   background: transparent;
   color: inherit;
   cursor: pointer;
   font: inherit;
   text-align: left;
+  /* Horizontal negative margin keeps the hover background flush with the cell
+     without shifting the text; vertical margin stays 0 so the summary lines up
+     with the adjacent distribution dropdown (cell is vertical-align:middle). */
   padding: 2px 6px;
-  margin: -2px -6px;
+  margin: 0 -6px;
   border-radius: 5px;
   white-space: nowrap;
   transition:
