@@ -1414,6 +1414,32 @@ export const toleranceTermMode = (component = {}) => {
 // asymmetric). Kept for callers/tests that just need the yes/no.
 export const componentIsAsymmetric = (component = {}) =>
   toleranceTermMode(component) !== "symmetric";
+
+const TOLERANCE_SHAPE_OPTIONS = [
+  {
+    key: "symmetric",
+    symbol: "±",
+    label: "Symmetric",
+    detail: "Equal plus and minus limits",
+  },
+  {
+    key: "single",
+    symbol: "+0",
+    label: "Single-sided",
+    detail: "One limit is zero",
+  },
+  {
+    key: "asymmetric",
+    symbol: "+−",
+    label: "Asymmetric",
+    detail: "Independent plus and minus limits",
+  },
+];
+
+const toleranceShapeOption = (mode) =>
+  TOLERANCE_SHAPE_OPTIONS.find((option) => option.key === mode) ||
+  TOLERANCE_SHAPE_OPTIONS[0];
+
 const componentUnitLabel = (typeKey, component = {}, activeRange = {}) => {
   if (typeKey === "reading") return "% IV";
   if (typeKey === "range") return "% FS";
@@ -1466,6 +1492,8 @@ const ToleranceTermEditor = ({
   const [mode, setMode] = useState(() =>
     typeKey === "reading" ? "symmetric" : toleranceTermMode(component),
   );
+  const [shapeMenuRect, setShapeMenuRect] = useState(null);
+  const shapeButtonRef = useRef(null);
   // For single-sided: true when the magnitude is on the − side (high pinned 0).
   const [singleNeg, setSingleNeg] = useState(
     () =>
@@ -1489,6 +1517,7 @@ const ToleranceTermEditor = ({
   }, [typeKey, component.high, component.low, component.value, activeRange?.max]);
 
   const termMode = typeKey === "reading" ? "symmetric" : mode;
+  const currentShape = toleranceShapeOption(termMode);
   // The single-sided magnitude input binds to whichever side is non-zero.
   const singleValue = singleNeg ? lowValue : highValue;
   const setSingleValue = singleNeg ? setLowValue : setHighValue;
@@ -1564,6 +1593,7 @@ const ToleranceTermEditor = ({
   // Switch a term's shape (symmetric / single-sided / asymmetric), carrying the
   // current magnitude across so the value isn't lost, and re-shaping the limits.
   const changeMode = (nextMode) => {
+    setShapeMenuRect(null);
     if (nextMode === termMode) return;
     const curMag = termMode === "single" ? singleValue : highValue;
     const parsed = parseFloat(curMag);
@@ -1584,6 +1614,14 @@ const ToleranceTermEditor = ({
       if (lowValue === "" || lowValue === "0") setLowValue(mag);
     }
   };
+  const toggleShapeMenu = () => {
+    if (shapeMenuRect) {
+      setShapeMenuRect(null);
+      return;
+    }
+    const rect = shapeButtonRef.current?.getBoundingClientRect();
+    if (rect) setShapeMenuRect(rect);
+  };
   // Flip a single-sided term between + (high) and − (low) direction, keeping the
   // magnitude and pinning the other limit to 0.
   const toggleSingleDir = () => {
@@ -1601,6 +1639,51 @@ const ToleranceTermEditor = ({
   };
   const typeLabel = componentUnitLabel(typeKey, component, activeRange);
   const typeOption = TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === typeKey);
+  const shapeMenu =
+    typeKey !== "reading" && shapeMenuRect
+      ? ReactDOM.createPortal(
+          <>
+            <div
+              className="inline-tolerance-shape-backdrop"
+              onMouseDown={() => setShapeMenuRect(null)}
+            />
+            <div
+              className="inline-tolerance-shape-menu"
+              style={{
+                top: `${Math.min(shapeMenuRect.bottom + 6, window.innerHeight - 132)}px`,
+                left: `${Math.max(
+                  8,
+                  Math.min(shapeMenuRect.right - 188, window.innerWidth - 196),
+                )}px`,
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              role="menu"
+            >
+              {TOLERANCE_SHAPE_OPTIONS.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={`inline-tolerance-shape-option${
+                    option.key === termMode ? " is-active" : ""
+                  }`}
+                  onClick={() => changeMode(option.key)}
+                  role="menuitemradio"
+                  aria-checked={option.key === termMode}
+                >
+                  <span className="inline-tolerance-shape-option-symbol">
+                    {option.symbol}
+                  </span>
+                  <span className="inline-tolerance-shape-option-copy">
+                    <span>{option.label}</span>
+                    <small>{option.detail}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>,
+          document.body,
+        )
+      : null;
 
   return (
     <span className="inline-tolerance-term">
@@ -1700,40 +1783,24 @@ const ToleranceTermEditor = ({
           </>
         )}
         {typeKey !== "reading" && (
-          <span
-            className="inline-tolerance-mode"
-            role="group"
-            aria-label="Tolerance shape"
-            onMouseDown={(e) => e.preventDefault()}
-          >
+          <>
             <button
+              ref={shapeButtonRef}
               type="button"
-              className={`inline-tolerance-mode-btn${termMode === "symmetric" ? " is-active" : ""}`}
-              title="Symmetric ± tolerance"
-              aria-pressed={termMode === "symmetric"}
-              onClick={() => changeMode("symmetric")}
+              className={`inline-tolerance-shape-button${
+                shapeMenuRect ? " is-open" : ""
+              }`}
+              title={`Tolerance shape: ${currentShape.label}`}
+              aria-haspopup="menu"
+              aria-expanded={Boolean(shapeMenuRect)}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={toggleShapeMenu}
             >
-              ±
+              <span>{currentShape.symbol}</span>
+              <FontAwesomeIcon icon={faChevronDown} size="xs" />
             </button>
-            <button
-              type="button"
-              className={`inline-tolerance-mode-btn${termMode === "single" ? " is-active" : ""}`}
-              title="Single-sided (unilateral) tolerance — one limit is 0"
-              aria-pressed={termMode === "single"}
-              onClick={() => changeMode("single")}
-            >
-              +0
-            </button>
-            <button
-              type="button"
-              className={`inline-tolerance-mode-btn${termMode === "asymmetric" ? " is-active" : ""}`}
-              title="Asymmetric tolerance — independent + and − limits"
-              aria-pressed={termMode === "asymmetric"}
-              onClick={() => changeMode("asymmetric")}
-            >
-              +−
-            </button>
-          </span>
+            {shapeMenu}
+          </>
         )}
       </span>
       {typeLabel && (
