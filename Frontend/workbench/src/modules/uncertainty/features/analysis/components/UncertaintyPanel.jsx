@@ -1653,7 +1653,7 @@ const ToleranceTermEditor = ({
                 top: `${Math.min(shapeMenuRect.bottom + 6, window.innerHeight - 132)}px`,
                 left: `${Math.max(
                   8,
-                  Math.min(shapeMenuRect.right - 188, window.innerWidth - 196),
+                  Math.min(shapeMenuRect.right - 172, window.innerWidth - 180),
                 )}px`,
               }}
               onMouseDown={(e) => e.preventDefault()}
@@ -1670,9 +1670,6 @@ const ToleranceTermEditor = ({
                   role="menuitemradio"
                   aria-checked={option.key === termMode}
                 >
-                  <span className="inline-tolerance-shape-option-symbol">
-                    {option.symbol}
-                  </span>
                   <span className="inline-tolerance-shape-option-copy">
                     <span>{option.label}</span>
                     <small>{option.detail}</small>
@@ -1910,19 +1907,18 @@ const InlineToleranceCell = ({
       onMouseDown={(e) => e.stopPropagation()}
       onBlur={handleBlur}
     >
-      {TOLERANCE_TYPE_OPTIONS.map((opt, index) => (
+      {TOLERANCE_TYPE_OPTIONS.map((opt) => (
         <span
           key={opt.key}
           className={`inline-tolerance-term-group${opt.key === selectedType ? " is-active" : ""}`}
           onMouseDown={() => onSelectType?.(opt.key)}
         >
-          {index > 0 && <span className="inline-tolerance-plus">+</span>}
           <ToleranceTermEditor
             tolerance={tolerance}
             activeRange={activeRange}
             typeKey={opt.key}
             selectedType={selectedType}
-            showHighSign={index === 0}
+            showHighSign
             onSelectType={onSelectType}
             onCommit={onCommit}
           />

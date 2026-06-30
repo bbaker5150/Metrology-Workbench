@@ -10689,7 +10689,7 @@ input.inline-function-input:focus {
   align-items: center;
   flex-wrap: nowrap;
   gap: 4px;
-  width: 100%;
+  width: auto;
   min-width: 0;
   max-width: 100%;
 }
@@ -10994,9 +10994,10 @@ input.inline-function-input:focus {
 
 .inline-tolerance-editor {
   justify-content: flex-start;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 5px;
+  align-items: stretch;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px;
   white-space: normal;
 }
 
@@ -11070,12 +11071,14 @@ input.inline-function-input:focus {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  width: 100%;
   min-height: 24px;
-  padding: 2px 4px;
-  margin: -2px -4px;
+  padding: 3px 5px;
+  margin: 0;
   border: 1px solid transparent;
   border-radius: 5px;
   white-space: nowrap;
+  box-sizing: border-box;
   transition:
     border-color 0.15s ease,
     background-color 0.15s ease;
@@ -11196,7 +11199,7 @@ input.inline-function-input:focus {
 .inline-tolerance-shape-menu {
   position: fixed;
   z-index: 5001;
-  width: 188px;
+  width: 172px;
   padding: 5px;
   border: 1px solid var(--border-color);
   border-radius: 6px;
@@ -11207,9 +11210,8 @@ input.inline-function-input:focus {
 .inline-tolerance-shape-option {
   display: flex;
   align-items: center;
-  gap: 8px;
   width: 100%;
-  padding: 7px 8px;
+  padding: 7px 9px;
   border: 0;
   border-radius: 4px;
   background: transparent;
@@ -11225,19 +11227,6 @@ input.inline-function-input:focus {
 .inline-tolerance-shape-option.is-active {
   background: rgba(var(--primary-rgb), 0.13);
   color: var(--primary-color);
-}
-
-.inline-tolerance-shape-option-symbol {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 30px;
-  height: 24px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  font-size: 0.78rem;
-  font-weight: 800;
-  line-height: 1;
 }
 
 .inline-tolerance-shape-option-copy {
@@ -11316,9 +11305,9 @@ input.inline-range-bound-input {
 }
 
 input.inline-resolution-input {
-  width: 92px;
-  flex: 1 1 92px;
-  min-width: 82px;
+  width: 58px;
+  flex: 0 0 58px;
+  min-width: 52px;
 }
 
 .inline-tolerance-unit,
