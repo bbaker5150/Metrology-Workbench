@@ -534,7 +534,7 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
   return (
     <div
       ref={rootRef}
-      className="inline-unit-select inline-unit-split-select"
+      className={`inline-unit-select${selectedModel ? " inline-unit-split-select" : ""}`}
       onMouseDown={(e) => e.stopPropagation()}
       aria-label={ariaLabel}
       style={{
@@ -558,26 +558,23 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
         <span>{selectedBaseOption?.label || selectedOption?.label || value || "Unit"}</span>
         <FontAwesomeIcon icon={faChevronDown} size="xs" />
       </button>
-      <select
-        className="inline-unit-prefix-select"
-        value={selectedPrefix}
-        aria-label={`${ariaLabel} prefix`}
-        title={selectedModel ? "Unit prefix" : "No prefix available"}
-        disabled={!selectedModel}
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
-        onChange={(e) => choosePrefix(e.target.value)}
-      >
-        {selectedModel ? (
-          prefixOptions.map((prefix) => (
+      {selectedModel && (
+        <select
+          className="inline-unit-prefix-select"
+          value={selectedPrefix}
+          aria-label={`${ariaLabel} prefix`}
+          title="Unit prefix"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => choosePrefix(e.target.value)}
+        >
+          {prefixOptions.map((prefix) => (
             <option key={prefix.key || "base"} value={prefix.key}>
               {prefix.shortLabel}
             </option>
-          ))
-        ) : (
-          <option value="">Base</option>
-        )}
-      </select>
+          ))}
+        </select>
+      )}
       {isOpen &&
         menuRect &&
         ReactDOM.createPortal(
