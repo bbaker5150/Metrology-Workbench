@@ -10860,16 +10860,35 @@ input.inline-function-input:focus {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  width: max-content;
-  max-width: none;
+  max-width: 100%;
   min-width: 0;
-  white-space: nowrap;
+  white-space: normal;
+  flex-wrap: wrap;
 }
 
-.function-header-row .inline-area-header-input {
-  min-width: max-content;
+.function-header-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   overflow: visible;
   text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-transform: none;
+  letter-spacing: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font: inherit;
+  font-weight: 700;
+  pointer-events: auto;
+  cursor: text;
+}
+
+.function-header-name:focus {
+  background: var(--input-background);
+  border-color: var(--border-color);
+  outline: none;
 }
 
 .function-header-unit-chip {

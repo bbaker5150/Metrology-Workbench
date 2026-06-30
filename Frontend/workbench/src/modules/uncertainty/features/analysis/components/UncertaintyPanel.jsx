@@ -373,12 +373,6 @@ const itemStateKey = (kind, itemId) => `${kind}:${itemId || ""}`;
 const cleanFunctionName = (value) => String(value || "").trim();
 const functionNameMatches = (a, b) =>
   cleanFunctionName(a).toLowerCase() === cleanFunctionName(b).toLowerCase();
-// Width for the inline function-name editor: sized to the name so the unit chip
-// and add/delete controls hug it instead of floating off to the right. Browsers
-// that support `field-sizing: content` grow it live as the user types; this is
-// the static fallback width (and the initial size).
-const functionNameInputWidth = (name) =>
-  `${Math.max((String(name || "").length || 4) + 1, 5)}ch`;
 const cleanAreaName = (value) => String(value || "").trim();
 const areaNameKey = (value) => cleanAreaName(value).toLowerCase();
 
@@ -4054,38 +4048,31 @@ const SummaryDashboard = ({
       return <span style={{ color: fn.color }}>{fn.name}</span>;
     }
     return (
-      <input
-        className="inline-area-header-input"
-        defaultValue={fn.name}
+      <span
+        className="inline-area-header-input function-header-name"
+        contentEditable
+        suppressContentEditableWarning
+        tabIndex={0}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
           if (e.key === "Escape") {
-            e.currentTarget.value = fn.name;
+            e.currentTarget.textContent = fn.name;
             e.currentTarget.blur();
           }
         }}
-        onBlur={(e) => handleFunctionRename(fn, e.target.value)}
+        onBlur={(e) => handleFunctionRename(fn, e.currentTarget.textContent)}
         title="Edit function name"
         aria-label="Function subsection name"
-        style={{
-          color: fn.color,
-          background: "transparent",
-          border: "1px solid transparent",
-          borderRadius: "4px",
-          font: "inherit",
-          fontWeight: 700,
-          padding: "1px 4px",
-          // Size to the name so the unit sits right next to it (no dead gap).
-          width: functionNameInputWidth(fn.name),
-          minWidth: 0,
-          maxWidth: "none",
-          flex: "0 0 auto",
-          fieldSizing: "content",
-          pointerEvents: "auto",
-        }}
-      />
+        role="textbox"
+        style={{ color: fn.color }}
+      >
+        {fn.name}
+      </span>
     );
   };
 
@@ -7457,38 +7444,31 @@ function DetailedView({
   const renderFunctionNameEditor = (fn) => {
     if (!onSessionSave) return <span style={{ color: fn.color }}>{fn.name}</span>;
     return (
-      <input
-        className="inline-area-header-input"
-        defaultValue={fn.name}
+      <span
+        className="inline-area-header-input function-header-name"
+        contentEditable
+        suppressContentEditableWarning
+        tabIndex={0}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
           if (e.key === "Escape") {
-            e.currentTarget.value = fn.name;
+            e.currentTarget.textContent = fn.name;
             e.currentTarget.blur();
           }
         }}
-        onBlur={(e) => handleFunctionRename(fn, e.target.value)}
+        onBlur={(e) => handleFunctionRename(fn, e.currentTarget.textContent)}
         title="Edit function name"
         aria-label="Function subsection name"
-        style={{
-          color: fn.color,
-          background: "transparent",
-          border: "1px solid transparent",
-          borderRadius: "4px",
-          font: "inherit",
-          fontWeight: 700,
-          padding: "1px 4px",
-          // Size to the name so the unit sits right next to it (no dead gap).
-          width: functionNameInputWidth(fn.name),
-          minWidth: 0,
-          maxWidth: "none",
-          flex: "0 0 auto",
-          fieldSizing: "content",
-          pointerEvents: "auto",
-        }}
-      />
+        role="textbox"
+        style={{ color: fn.color }}
+      >
+        {fn.name}
+      </span>
     );
   };
 
