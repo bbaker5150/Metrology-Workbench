@@ -93,7 +93,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(props.onOpenRepeatability).toHaveBeenCalledOnce();
   });
 
-  it("changes uncertainty precision without changing nominal table data", () => {
+  it("changes uncertainty precision without showing nominal table data", () => {
     renderDirectBudget({
       components: [
         {
@@ -111,7 +111,13 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     });
 
     expect(screen.getByText("1.235 V")).toBeInTheDocument();
-    expect(screen.getByText("Nominal 12.34567")).toBeInTheDocument();
+    expect(screen.queryByText("Nominal 12.34567")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("columnheader", { name: "Source / Nominal" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("columnheader", { name: "DOF" }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(
       screen.getByTitle("Settings for Voltage Uncertainty Budget"),
@@ -121,7 +127,44 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     });
 
     expect(screen.getByText("1.2 V")).toBeInTheDocument();
-    expect(screen.getByText("Nominal 12.34567")).toBeInTheDocument();
+    expect(screen.queryByText("Nominal 12.34567")).not.toBeInTheDocument();
+  });
+
+  it("shows clean instrument descriptions and DOF only for Type A rows", () => {
+    renderDirectBudget({
+      components: [
+        {
+          id: "tmde-accuracy",
+          name: "Mock DMM - Accuracy",
+          sourceDisplayName: "Cox Flowmeter CPT-84-AN-C-C02",
+          sourcePointLabel: "10 V",
+          type: "B",
+          value: 1,
+          unit: "V",
+          distribution: "Normal",
+          distributionDivisor: "2",
+          sourceTmdeId: "tmde-1",
+        },
+        {
+          id: "repeatability",
+          name: "Repeatability",
+          sourcePointLabel: "N=10",
+          type: "A",
+          value: 0.2,
+          unit: "V",
+          value_native: 0.2,
+          unit_native: "V",
+          distribution: "Normal",
+          dof: 9,
+        },
+      ],
+    });
+
+    expect(screen.getByText("Cox Flowmeter CPT-84-AN-C-C02")).toBeInTheDocument();
+    expect(screen.queryByText("Mock DMM - Accuracy")).not.toBeInTheDocument();
+    expect(screen.queryByText("10 V")).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "DOF" })).toBeInTheDocument();
+    expect(screen.getByText("9.000")).toBeInTheDocument();
   });
 
   it("keeps uncertainty precision independent for each budget table", () => {
