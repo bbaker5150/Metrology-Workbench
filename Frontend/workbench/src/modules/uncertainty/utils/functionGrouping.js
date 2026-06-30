@@ -110,49 +110,68 @@ export const resolveSessionFunctions = (sessionData = {}, { kind = null } = {}) 
   const explicit = Array.isArray(sessionData.functionGroups)
     ? sessionData.functionGroups
     : [];
-  const uuts = kind === "tmde" ? [] : sessionData.uuts || [];
-  const tmdes = kind === "uut" ? [] : sessionData.tmdes || [];
-  const points = kind === "tmde" ? [] : sessionData.testPoints || [];
 
-  // key -> { key, name, unit, color, explicitOrder }
-  const map = new Map();
-  const add = (name, unit, color, explicitOrder) => {
-    const key = makeFunctionKey(name, unit);
-    if (!map.has(key)) {
-      map.set(key, {
-        key,
-        name: clean(name) || DEFAULT_FUNCTION_NAME,
-        unit: clean(unit),
-        color: color || null,
-        explicitOrder,
-      });
-    } else if (color && !map.get(key).color) {
-      map.get(key).color = color;
-    }
+  // Build the ordered function list for a given kind filter (null = every kind).
+  // Color resolution is handled separately (below) so it can be made consistent
+  // across the per-kind UUT and TMDE views.
+  const buildFunctions = (kindFilter) => {
+    const uuts = kindFilter === "tmde" ? [] : sessionData.uuts || [];
+    const tmdes = kindFilter === "uut" ? [] : sessionData.tmdes || [];
+    const points = kindFilter === "tmde" ? [] : sessionData.testPoints || [];
+
+    // key -> { key, name, unit, color, explicitOrder }
+    const map = new Map();
+    const add = (name, unit, color, explicitOrder) => {
+      const key = makeFunctionKey(name, unit);
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          name: clean(name) || DEFAULT_FUNCTION_NAME,
+          unit: clean(unit),
+          color: color || null,
+          explicitOrder,
+        });
+      } else if (color && !map.get(key).color) {
+        map.get(key).color = color;
+      }
+    };
+
+    explicit
+      .filter((fn) => !kindFilter || !fn.kind || fn.kind === kindFilter)
+      .forEach((fn, index) => add(fn.name, fn.unit, fn.color, index));
+    [...uuts, ...tmdes].forEach((inst) =>
+      instrumentFunctions(inst).forEach((fn) => add(fn.name, fn.unit)),
+    );
+    points.forEach((point) => {
+      const label = functionLabelOf(point);
+      add(label.name, label.unit);
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const ao = a.explicitOrder ?? Number.MAX_SAFE_INTEGER;
+      const bo = b.explicitOrder ?? Number.MAX_SAFE_INTEGER;
+      if (ao !== bo) return ao - bo;
+      return a.name.localeCompare(b.name) || a.unit.localeCompare(b.unit);
+    });
   };
 
-  explicit
-    .filter((fn) => !kind || !fn.kind || fn.kind === kind)
-    .forEach((fn, index) => add(fn.name, fn.unit, fn.color, index));
-  [...uuts, ...tmdes].forEach((inst) =>
-    instrumentFunctions(inst).forEach((fn) => add(fn.name, fn.unit)),
-  );
-  points.forEach((point) => {
-    const label = functionLabelOf(point);
-    add(label.name, label.unit);
+  // Resolve colors from the GLOBAL (kind-agnostic) function set so a function
+  // shared by a TMDE and a UUT renders in the SAME color on both surfaces. A
+  // stored color (functionGroups) wins; otherwise a palette default is assigned
+  // by the function's position in the global ordering, which stays stable
+  // across the per-kind views (so the color never forks between UUT and TMDE).
+  const globalColorByKey = new Map();
+  buildFunctions(null).forEach((fn, index) => {
+    globalColorByKey.set(
+      fn.key,
+      fn.color || FUNCTION_COLOR_PALETTE[index % FUNCTION_COLOR_PALETTE.length],
+    );
   });
 
-  const result = Array.from(map.values()).sort((a, b) => {
-    const ao = a.explicitOrder ?? Number.MAX_SAFE_INTEGER;
-    const bo = b.explicitOrder ?? Number.MAX_SAFE_INTEGER;
-    if (ao !== bo) return ao - bo;
-    return a.name.localeCompare(b.name) || a.unit.localeCompare(b.unit);
-  });
-
-  result.forEach((fn, index) => {
-    if (!fn.color) {
-      fn.color = FUNCTION_COLOR_PALETTE[index % FUNCTION_COLOR_PALETTE.length];
-    }
+  const result = buildFunctions(kind);
+  result.forEach((fn) => {
+    fn.color =
+      globalColorByKey.get(fn.key) || fn.color || FUNCTION_COLOR_PALETTE[0];
     delete fn.explicitOrder;
   });
 

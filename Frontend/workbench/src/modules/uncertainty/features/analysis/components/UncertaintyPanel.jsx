@@ -354,6 +354,12 @@ const itemStateKey = (kind, itemId) => `${kind}:${itemId || ""}`;
 const cleanFunctionName = (value) => String(value || "").trim();
 const functionNameMatches = (a, b) =>
   cleanFunctionName(a).toLowerCase() === cleanFunctionName(b).toLowerCase();
+// Width for the inline function-name editor: sized to the name so the unit chip
+// and add/delete controls hug it instead of floating off to the right. Browsers
+// that support `field-sizing: content` grow it live as the user types; this is
+// the static fallback width (and the initial size).
+const functionNameInputWidth = (name) =>
+  `${Math.min(Math.max((String(name || "").length || 4) + 1, 5), 32)}ch`;
 const cleanAreaName = (value) => String(value || "").trim();
 const areaNameKey = (value) => cleanAreaName(value).toLowerCase();
 
@@ -1231,14 +1237,15 @@ const ResolutionCellInput = ({
   fallbackUnit = "",
   onCommit,
   onCommitUnit,
-  useResolution = false,
-  onToggleUse,
 }) => {
   const [v, setV] = useState(() => toPlainNumber(value));
   useEffect(() => {
     setV(toPlainNumber(value));
   }, [value]);
   return (
+    // Resolution is no longer opted-in via a checkbox here; it's added to a
+    // point's budget from the budget section's add menu (alongside TMDEs), so
+    // this cell only edits the resolution magnitude + unit.
     <span className="inline-resolution-editor">
       <input
         type="text"
@@ -1261,17 +1268,6 @@ const ResolutionCellInput = ({
         onChange={onCommitUnit}
         width="58px"
       />
-      {onToggleUse && (
-        <input
-          type="checkbox"
-          className="inline-resolution-use"
-          title="Include this resolution in the uncertainty budget"
-          checked={!!useResolution}
-          onChange={(e) => onToggleUse(e.target.checked)}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        />
-      )}
     </span>
   );
 };
@@ -1299,6 +1295,25 @@ const firstToleranceType = (tolerance = {}) =>
   TOLERANCE_TYPE_OPTIONS.find((opt) =>
     hasToleranceComponentValue(getToleranceComponent(tolerance, opt.key)),
   )?.key || "reading";
+// True when a tolerance term carries an actual numeric magnitude (not just an
+// empty shell). Used to decide which terms to keep vs. drop when the editable
+// tolerance cell closes — blank terms are excluded so the clean summary stays
+// tidy. For %FS the magnitude is the high/low percent, NOT the FS reference
+// value, so a range term with only an FS value still counts as blank.
+const toleranceComponentHasNumericValue = (typeKey, component) => {
+  if (!component) return false;
+  const finite = (x) => Number.isFinite(parseFloat(x));
+  if (typeKey === "reading") {
+    return finite(component.value) || finite(component.high) || finite(component.low);
+  }
+  return finite(component.high) || finite(component.low);
+};
+// Does this tolerance have at least one term with a real value? Drives the
+// "Set tolerance…" placeholder vs. the compact summary in the read view.
+const toleranceHasAnyValue = (tolerance = {}) =>
+  TOLERANCE_TYPE_OPTIONS.some((opt) =>
+    toleranceComponentHasNumericValue(opt.key, getToleranceComponent(tolerance, opt.key)),
+  );
 const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) => {
   const distribution = getBandDistDivisor(tolerance) || "1.732";
   if (typeKey === "range") {
@@ -1532,58 +1547,81 @@ const ToleranceTermEditor = ({
   );
 };
 
+// Two-view tolerance / error-limit cell.
+//   • Read view (default): a compact, clean "±(n %IV + n %FS + n lb)" summary —
+//     only terms that actually carry a value are shown, so the column stays
+//     easy to scan when nobody is editing.
+//   • Edit view (on click): EVERY tolerance type is shown with blank fields. The
+//     user fills in only the terms that apply; blanks are dropped on close
+//     (onCleanupBlanks) so they're excluded from both the summary and the math.
 const InlineToleranceCell = ({
   tolerance = {},
   activeRange = {},
-  typeKey,
   selectedType,
   editable,
   onSelectType,
   onCommit,
-  onAddDefault,
+  onCleanupBlanks,
 }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const containerRef = useRef(null);
+
+  // Close the editor (and prune blank terms) when the user clicks anywhere
+  // outside this cell. All editor controls live inside containerRef, so this is
+  // safe and avoids relatedTarget blur pitfalls.
+  useEffect(() => {
+    if (!isEditing) return undefined;
+    const handleDocMouseDown = (event) => {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        onCleanupBlanks?.();
+        setIsEditing(false);
+      }
+    };
+    document.addEventListener("mousedown", handleDocMouseDown);
+    return () => document.removeEventListener("mousedown", handleDocMouseDown);
+  }, [isEditing, onCleanupBlanks]);
+
+  const summary = getSpecRows(tolerance)[0] || "-";
+
+  // Read-only surfaces (no save handler) just render the clean summary.
   if (!editable) {
-    return <>{getSpecRows(tolerance)[0]}</>;
+    return <>{summary}</>;
   }
 
-  const activeKeys = activeToleranceTypeKeys(tolerance);
-  // No tolerance configured yet — don't auto-show a %IV term. Prompt the user to
-  // add one via the column header (+); a new instrument starts with no tolerance.
-  if (activeKeys.length === 0) {
+  if (!isEditing) {
+    const hasValue = toleranceHasAnyValue(tolerance);
     return (
-      <div
-        className="inline-tolerance-editor inline-tolerance-empty"
-        onMouseDown={(e) => e.stopPropagation()}
+      <button
+        type="button"
+        className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}`}
+        title={hasValue ? "Click to edit tolerance" : "Click to set a tolerance"}
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsEditing(true);
+        }}
       >
-        <button
-          type="button"
-          className="inline-tol-empty"
-          title="Add a tolerance term"
-          onClick={(e) => {
-            e.stopPropagation();
-            onAddDefault?.();
-          }}
-        >
-          Set tolerance…
-        </button>
-      </div>
+        {hasValue ? summary : "Set tolerance…"}
+      </button>
     );
   }
-  const visibleKeys = activeKeys;
 
   return (
-    <div className="inline-tolerance-editor" onMouseDown={(e) => e.stopPropagation()}>
-      {visibleKeys.map((key, index) => (
+    <div
+      ref={containerRef}
+      className="inline-tolerance-editor inline-tolerance-editor--all"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {TOLERANCE_TYPE_OPTIONS.map((opt, index) => (
         <span
-          key={key}
-          className={`inline-tolerance-term-group${key === selectedType ? " is-active" : ""}`}
-          onMouseDown={() => onSelectType?.(key)}
+          key={opt.key}
+          className={`inline-tolerance-term-group${opt.key === selectedType ? " is-active" : ""}`}
+          onMouseDown={() => onSelectType?.(opt.key)}
         >
           {index > 0 && <span className="inline-tolerance-plus">+</span>}
           <ToleranceTermEditor
             tolerance={tolerance}
             activeRange={activeRange}
-            typeKey={key}
+            typeKey={opt.key}
             selectedType={selectedType}
             showHighSign={index === 0}
             onSelectType={onSelectType}
@@ -1825,8 +1863,8 @@ const getSpecRows = (tolerance) => {
   // Components in display order, each with its abbreviation tag. Floor and dB
   // carry no tag (Floor is a bare absolute value; dB's unit is shown inline).
   const componentConfig = [
-    { key: "reading", tag: "iv" },
-    { key: "range", tag: "fs" },
+    { key: "reading", tag: "IV" },
+    { key: "range", tag: "FS" },
     { key: "floor", tag: "" },
     { key: "readings_iv", tag: "" }, // legacy raw indicated value == a Floor
     { key: "offset", tag: "offset" },
@@ -1920,6 +1958,33 @@ const formatResolutionLabel = (range = {}) => {
     range?.resolutionUnit || range?.measuringResolutionUnit || range?.unit || "";
   const unitLabel = getUnitDisplayLabel(unit);
   return `${resolution}${unitLabel ? ` ${unitLabel}` : ""}`;
+};
+
+// The measuring-resolution detail for a point's UUT tolerance, used to offer
+// "UUT Resolution" in the budget add menu (the resolution is included in the
+// budget by adding it there, not via a per-spec checkbox). Mirrors how
+// getUutResolutionComponent reads the resolution value/unit. Returns null when
+// the UUT has no usable resolution.
+const getPointResolutionDetail = (uutTolerance = {}) => {
+  let tol = uutTolerance;
+  if (Array.isArray(tol)) tol = tol[0];
+  if (!tol || typeof tol !== "object") return null;
+  const nested =
+    tol.tolerances && typeof tol.tolerances === "object" ? tol.tolerances : {};
+  const resVal = parseFloat(
+    tol.measuringResolution ?? tol.resolution ?? nested.measuringResolution,
+  );
+  if (!Number.isFinite(resVal) || resVal <= 0) return null;
+  const unit =
+    tol.measuringResolutionUnit ||
+    tol.resolutionUnit ||
+    nested.measuringResolutionUnit ||
+    tol.unit ||
+    "";
+  const included = !!(
+    tol.includeResolutionInBudget ?? nested.includeResolutionInBudget
+  );
+  return { value: resVal, unit, included };
 };
 
 // --- SHARED HELPER: Resolve UUT Range ---
@@ -3316,6 +3381,27 @@ const SummaryDashboard = ({
     persistInlineItem(kind, updatedItem);
   };
 
+  // Drop any tolerance term the user left blank when the editable cell closes,
+  // so blank terms are excluded from the budget and never clutter the summary.
+  const cleanupRangeToleranceBlanks = (kind, item, activeRange) => {
+    if (!onSessionSave) return;
+    const cur = getItemRangeTolerance(item, activeRange?.id) || {};
+    let changed = false;
+    const next = { ...cur };
+    TOLERANCE_TYPE_OPTIONS.forEach(({ key }) => {
+      if (
+        Object.prototype.hasOwnProperty.call(next, key) &&
+        !toleranceComponentHasNumericValue(key, next[key])
+      ) {
+        delete next[key];
+        changed = true;
+      }
+    });
+    if (!changed) return;
+    const updatedItem = applyItemRangeTolerance(item, activeRange?.id, next);
+    persistInlineItem(kind, updatedItem);
+  };
+
   // --- Add Function workflow ---
   // Register a function as a subsection (even before any instrument uses it) by
   // recording it in session.functionGroups. getGroupedInstrumentRows then renders
@@ -3425,11 +3511,6 @@ const SummaryDashboard = ({
     const updatedItem = applyItemRangePatch(item, rangeId, { resolutionUnit: value });
     persistInlineItem(kind, updatedItem);
   };
-  const setRangeUseResolution = (kind, item, rangeId, checked) => {
-    if (!onSessionSave) return;
-    const updatedItem = applyItemRangePatch(item, rangeId, { includeResolutionInBudget: checked });
-    persistInlineItem(kind, updatedItem);
-  };
   const setRangeUnit = (kind, item, rangeId, value) => {
     if (!onSessionSave) return;
     const updatedItem = applyItemRangePatch(item, rangeId, { unit: value });
@@ -3533,15 +3614,32 @@ const SummaryDashboard = ({
 
   const handleFunctionColorChange = (fn, color) => {
     if (!onSessionSave) return;
-    onSessionSave({
-      ...sessionData,
-      functionGroups: upsertFunctionGroup(fn.key, {
-        name: fn.name,
-        unit: fn.unit,
-        color,
-        ...(fn.kind ? { kind: fn.kind } : {}),
-      }),
+    // Sync color across BOTH kinds: a function shared by a TMDE and a UUT keeps a
+    // single color so the two surfaces read as one organized group. Update every
+    // stored entry matching this function key regardless of kind.
+    const existing = Array.isArray(sessionData.functionGroups)
+      ? sessionData.functionGroups
+      : [];
+    let found = false;
+    let next = existing.map((fg) => {
+      if (makeFunctionKey(fg.name, fg.unit) === fn.key) {
+        found = true;
+        return { ...fg, color };
+      }
+      return fg;
     });
+    if (!found) {
+      next = [
+        ...next,
+        {
+          name: fn.name,
+          unit: fn.unit,
+          color,
+          ...(fn.kind ? { kind: fn.kind } : {}),
+        },
+      ];
+    }
+    onSessionSave({ ...sessionData, functionGroups: next });
   };
 
   // Rename a function across every surface: the stored function-group metadata,
@@ -3676,7 +3774,9 @@ const SummaryDashboard = ({
           font: "inherit",
           fontWeight: 700,
           padding: "1px 4px",
-          minWidth: "120px",
+          // Size to the name so the unit sits right next to it (no dead gap).
+          width: functionNameInputWidth(fn.name),
+          fieldSizing: "content",
           pointerEvents: "auto",
         }}
       />
@@ -3687,7 +3787,7 @@ const SummaryDashboard = ({
     fn.unit ? (
       <span
         style={{
-          marginLeft: "8px",
+          marginLeft: "4px",
           opacity: 0.6,
           fontSize: "0.78em",
           fontWeight: 600,
@@ -3698,40 +3798,19 @@ const SummaryDashboard = ({
     ) : null;
 
   // Per-subsection (+) — adds an instrument already scoped to this function.
+  // Styled to match the column-header range add/delete controls for a cohesive,
+  // tidy look across every table.
   const renderFunctionAddButton = (kind, fn) => {
     if (!onSessionSave) return null;
     return (
       <button
         type="button"
+        className="range-header-action-btn range-header-action-btn--add function-header-action-btn"
         title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
+        aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         onClick={(e) => {
           e.stopPropagation();
           handleAddInstrumentToFunction(kind, fn);
-        }}
-        style={{
-          marginLeft: "6px",
-          pointerEvents: "auto",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: "18px",
-          height: "18px",
-          padding: 0,
-          borderRadius: "4px",
-          border: "1px solid var(--border-color)",
-          background: "transparent",
-          color: "var(--text-color-muted)",
-          cursor: "pointer",
-          fontSize: "0.7em",
-          lineHeight: 1,
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = "var(--input-background)";
-          e.currentTarget.style.color = "var(--text-color)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = "transparent";
-          e.currentTarget.style.color = "var(--text-color-muted)";
         }}
       >
         <FontAwesomeIcon icon={faPlus} size="xs" />
@@ -3745,35 +3824,12 @@ const SummaryDashboard = ({
     return (
       <button
         type="button"
+        className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
         title="Delete function"
+        aria-label="Delete function"
         onClick={(e) => {
           e.stopPropagation();
           handleDeleteFunction(fn);
-        }}
-        style={{
-          marginLeft: "4px",
-          pointerEvents: "auto",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: "18px",
-          height: "18px",
-          padding: 0,
-          borderRadius: "4px",
-          border: "1px solid var(--border-color)",
-          background: "transparent",
-          color: "var(--text-color-muted)",
-          cursor: "pointer",
-          fontSize: "0.7em",
-          lineHeight: 1,
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = "var(--status-danger, #e74c3c)";
-          e.currentTarget.style.color = "#fff";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = "transparent";
-          e.currentTarget.style.color = "var(--text-color-muted)";
         }}
       >
         <FontAwesomeIcon icon={faTrashAlt} size="xs" />
@@ -3905,26 +3961,11 @@ const SummaryDashboard = ({
               fontSize: "0.82em",
             }}
           />
-          <input
-            type="text"
-            placeholder="Unit"
+          <UnitSelect
             value={newFunctionDraft.unit}
-            onChange={(e) =>
-              setNewFunctionDraft((d) => ({ ...d, unit: e.target.value }))
-            }
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleAddFunction(newFunctionDraft);
-              if (e.key === "Escape") setAddFunctionMenu(null);
-            }}
-            style={{
-              width: "64px",
-              background: "var(--input-background)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "4px",
-              color: "var(--text-color)",
-              padding: "4px 6px",
-              fontSize: "0.82em",
-            }}
+            ariaLabel="New function unit"
+            onChange={(unit) => setNewFunctionDraft((d) => ({ ...d, unit }))}
+            width="9ch"
           />
           <button
             type="button"
@@ -4284,7 +4325,6 @@ const SummaryDashboard = ({
           <InlineToleranceCell
             tolerance={tolerance}
             activeRange={range}
-            typeKey={typeKey}
             selectedType={
               selectedToleranceKey === toleranceTypeKey(kind, item, range?.id)
                 ? typeKey
@@ -4297,8 +4337,8 @@ const SummaryDashboard = ({
             onCommit={(nextTypeKey, component) =>
               setRangeToleranceComponent(kind, item, range, nextTypeKey, component)
             }
-            onAddDefault={() =>
-              setSelectedToleranceType(kind, item, range, "reading")
+            onCleanupBlanks={() =>
+              cleanupRangeToleranceBlanks(kind, item, range)
             }
           />
         </td>
@@ -4336,8 +4376,6 @@ const SummaryDashboard = ({
             fallbackUnit={range?.unit}
             onCommit={(v) => setRangeResolution(kind, item, range?.id, v)}
             onCommitUnit={(value) => setRangeResolutionUnit(kind, item, range?.id, value)}
-            useResolution={range?.includeResolutionInBudget}
-            onToggleUse={(checked) => setRangeUseResolution(kind, item, range?.id, checked)}
           />
         </td>
       </>
@@ -4908,13 +4946,7 @@ const SummaryDashboard = ({
                         className="instrument-area-section-row"
                       >
                         <td colSpan={5}>
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "2px",
-                            }}
-                          >
+                          <div className="function-header-row">
                             {renderFunctionColorSwatch(row.fn)}
                             {renderFunctionNameEditor(row.fn)}
                             {renderFunctionUnitChip(row.fn)}
@@ -5167,7 +5199,6 @@ const SummaryDashboard = ({
                                     <InlineToleranceCell
                                       tolerance={tolerance}
                                       activeRange={range}
-                                      typeKey={typeKey}
                                       selectedType={
                                         selectedToleranceKey ===
                                         toleranceTypeKey("uut", uut, range?.id)
@@ -5187,13 +5218,8 @@ const SummaryDashboard = ({
                                           component,
                                         )
                                       }
-                                      onAddDefault={() =>
-                                        setSelectedToleranceType(
-                                          "uut",
-                                          uut,
-                                          range,
-                                          "reading",
-                                        )
+                                      onCleanupBlanks={() =>
+                                        cleanupRangeToleranceBlanks("uut", uut, range)
                                       }
                                     />
                                   ) : (
@@ -5225,10 +5251,6 @@ const SummaryDashboard = ({
                                     }
                                     onCommitUnit={(value) =>
                                       setRangeResolutionUnit("uut", uut, range?.id, value)
-                                    }
-                                    useResolution={range?.includeResolutionInBudget}
-                                    onToggleUse={(checked) =>
-                                      setRangeUseResolution("uut", uut, range?.id, checked)
                                     }
                                   />
                                 ) : (
@@ -5359,13 +5381,7 @@ const SummaryDashboard = ({
                         className="instrument-area-section-row"
                       >
                         <td colSpan={6}>
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "2px",
-                            }}
-                          >
+                          <div className="function-header-row">
                             {renderFunctionColorSwatch(row.fn)}
                             {renderFunctionNameEditor(row.fn)}
                             {renderFunctionUnitChip(row.fn)}
@@ -5592,7 +5608,6 @@ const SummaryDashboard = ({
                                     <InlineToleranceCell
                                       tolerance={tolerance}
                                       activeRange={range}
-                                      typeKey={typeKey}
                                       selectedType={
                                         selectedToleranceKey ===
                                         toleranceTypeKey("tmde", tmde, range?.id)
@@ -5612,13 +5627,8 @@ const SummaryDashboard = ({
                                           component,
                                         )
                                       }
-                                      onAddDefault={() =>
-                                        setSelectedToleranceType(
-                                          "tmde",
-                                          tmde,
-                                          range,
-                                          "reading",
-                                        )
+                                      onCleanupBlanks={() =>
+                                        cleanupRangeToleranceBlanks("tmde", tmde, range)
                                       }
                                     />
                                   ) : (
@@ -5683,10 +5693,6 @@ const SummaryDashboard = ({
                                     }
                                     onCommitUnit={(value) =>
                                       setRangeResolutionUnit("tmde", tmde, range?.id, value)
-                                    }
-                                    useResolution={range?.includeResolutionInBudget}
-                                    onToggleUse={(checked) =>
-                                      setRangeUseResolution("tmde", tmde, range?.id, checked)
                                     }
                                   />
                                 ) : (
@@ -6597,11 +6603,6 @@ function DetailedView({
       kind,
       applyItemRangePatch(item, rangeId, { resolutionUnit: value }),
     );
-  const setRangeUseResolutionDetail = (kind, item, rangeId, checked) =>
-    persistInlineItemDetail(
-      kind,
-      applyItemRangePatch(item, rangeId, { includeResolutionInBudget: checked }),
-    );
   // Spec-band distribution (the Distribution column) — writes the divisor back to
   // the same range tolerance the tolerance editor owns.
   const setRangeBandDistributionDetail = (kind, item, rangeId, value) => {
@@ -6709,6 +6710,26 @@ function DetailedView({
       kind,
       applyItemRangeTolerance(item, activeRange?.id, { ...cur, [typeKey]: component }),
     );
+  };
+
+  // Drop any tolerance term left blank when the editable cell closes (detail
+  // view), mirroring the session-overview cleanup so blanks are never included.
+  const cleanupRangeToleranceBlanksDetail = (kind, item, activeRange) => {
+    if (!onSessionSave) return;
+    const cur = getItemRangeTolerance(item, activeRange?.id) || {};
+    let changed = false;
+    const next = { ...cur };
+    TOLERANCE_TYPE_OPTIONS.forEach(({ key }) => {
+      if (
+        Object.prototype.hasOwnProperty.call(next, key) &&
+        !toleranceComponentHasNumericValue(key, next[key])
+      ) {
+        delete next[key];
+        changed = true;
+      }
+    });
+    if (!changed) return;
+    persistInlineItemDetail(kind, applyItemRangeTolerance(item, activeRange?.id, next));
   };
 
   // --- Range & tolerance header add/delete (act on the single-selected row) ---
@@ -6869,7 +6890,6 @@ function DetailedView({
           <InlineToleranceCell
             tolerance={tolerance}
             activeRange={range}
-            typeKey={typeKey}
             selectedType={
               selectedToleranceKey === toleranceTypeKey(kind, item, range?.id)
                 ? typeKey
@@ -6882,8 +6902,8 @@ function DetailedView({
             onCommit={(nextTypeKey, component) =>
               setRangeToleranceComponentDetail(kind, item, range, nextTypeKey, component)
             }
-            onAddDefault={() =>
-              setSelectedToleranceTypeDetail(kind, item, range, "reading")
+            onCleanupBlanks={() =>
+              cleanupRangeToleranceBlanksDetail(kind, item, range)
             }
           />
         </td>
@@ -6921,8 +6941,6 @@ function DetailedView({
             fallbackUnit={range?.unit}
             onCommit={(v) => setRangeResolutionDetail(kind, item, range?.id, v)}
             onCommitUnit={(value) => setRangeResolutionUnitDetail(kind, item, range?.id, value)}
-            useResolution={range?.includeResolutionInBudget}
-            onToggleUse={(checked) => setRangeUseResolutionDetail(kind, item, range?.id, checked)}
           />
         </td>
       </>
@@ -7237,15 +7255,32 @@ function DetailedView({
 
   const handleFunctionColorChange = (fn, color) => {
     if (!onSessionSave) return;
-    onSessionSave({
-      ...sessionData,
-      functionGroups: upsertFunctionGroupDetail(fn.key, {
-        name: fn.name,
-        unit: fn.unit,
-        color,
-        ...(fn.kind ? { kind: fn.kind } : {}),
-      }),
+    // Sync color across BOTH kinds: a function shared by a TMDE and a UUT keeps a
+    // single color so the two surfaces read as one organized group. Update every
+    // stored entry matching this function key regardless of kind.
+    const existing = Array.isArray(sessionData.functionGroups)
+      ? sessionData.functionGroups
+      : [];
+    let found = false;
+    let next = existing.map((fg) => {
+      if (makeFunctionKey(fg.name, fg.unit) === fn.key) {
+        found = true;
+        return { ...fg, color };
+      }
+      return fg;
     });
+    if (!found) {
+      next = [
+        ...next,
+        {
+          name: fn.name,
+          unit: fn.unit,
+          color,
+          ...(fn.kind ? { kind: fn.kind } : {}),
+        },
+      ];
+    }
+    onSessionSave({ ...sessionData, functionGroups: next });
   };
 
   const handleFunctionRename = (fn, rawName) => {
@@ -7464,7 +7499,9 @@ function DetailedView({
           font: "inherit",
           fontWeight: 700,
           padding: "1px 4px",
-          minWidth: "120px",
+          // Size to the name so the unit sits right next to it (no dead gap).
+          width: functionNameInputWidth(fn.name),
+          fieldSizing: "content",
           pointerEvents: "auto",
         }}
       />
@@ -7473,38 +7510,22 @@ function DetailedView({
 
   const renderFunctionUnitChip = (fn) =>
     fn.unit ? (
-      <span style={{ marginLeft: "8px", opacity: 0.6, fontSize: "0.78em", fontWeight: 600 }}>
+      <span style={{ marginLeft: "4px", opacity: 0.6, fontSize: "0.78em", fontWeight: 600 }}>
         {getUnitDisplayLabel(fn.unit)}
       </span>
     ) : null;
-
-  const fnHeaderBtnStyle = {
-    pointerEvents: "auto",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "18px",
-    height: "18px",
-    padding: 0,
-    borderRadius: "4px",
-    border: "1px solid var(--border-color)",
-    background: "transparent",
-    color: "var(--text-color-muted)",
-    cursor: "pointer",
-    fontSize: "0.7em",
-    lineHeight: 1,
-  };
 
   const renderFunctionAddButton = (kind, fn) =>
     onSessionSave ? (
       <button
         type="button"
+        className="range-header-action-btn range-header-action-btn--add function-header-action-btn"
         title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
+        aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         onClick={(e) => {
           e.stopPropagation();
           handleAddInstrumentToFunction(kind, fn);
         }}
-        style={{ ...fnHeaderBtnStyle, marginLeft: "6px" }}
       >
         <FontAwesomeIcon icon={faPlus} size="xs" />
       </button>
@@ -7514,12 +7535,13 @@ function DetailedView({
     onSessionSave ? (
       <button
         type="button"
+        className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
         title="Delete function"
+        aria-label="Delete function"
         onClick={(e) => {
           e.stopPropagation();
           handleDeleteFunction(fn);
         }}
-        style={{ ...fnHeaderBtnStyle, marginLeft: "4px" }}
       >
         <FontAwesomeIcon icon={faTrashAlt} size="xs" />
       </button>
@@ -7528,7 +7550,7 @@ function DetailedView({
   const renderFunctionHeaderRow = (kind, fn, colSpan) => (
     <tr key={`${kind}-fn-${fn.key}`} className="instrument-area-section-row">
       <td colSpan={colSpan}>
-        <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+        <div className="function-header-row">
           {renderFunctionColorSwatch(fn)}
           {renderFunctionNameEditor(fn)}
           {renderFunctionUnitChip(fn)}
@@ -7658,18 +7680,11 @@ function DetailedView({
               }}
               style={inputStyle}
             />
-            <input
-              type="text"
-              placeholder="Unit"
+            <UnitSelect
               value={newFunctionDraft.unit}
-              onChange={(e) =>
-                setNewFunctionDraft((d) => ({ ...d, unit: e.target.value }))
-              }
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleAddFunction(newFunctionDraft);
-                if (e.key === "Escape") setAddFunctionMenu(null);
-              }}
-              style={{ ...inputStyle, flex: "none", width: "64px" }}
+              ariaLabel="New function unit"
+              onChange={(unit) => setNewFunctionDraft((d) => ({ ...d, unit }))}
+              width="9ch"
             />
             <button
               type="button"
@@ -8769,18 +8784,33 @@ function DetailedView({
         .sort((a, b) =>
           getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b)),
         );
-      if (options.length === 0) {
+      // The UUT's measuring resolution is offered here too (direct points only),
+      // so the user adds every kind of uncertainty source from one organized
+      // menu instead of a separate per-spec checkbox.
+      const resolutionDetail = isDerived ? null : getPointResolutionDetail(uutToleranceData);
+      const resolutionOption =
+        resolutionDetail && !resolutionDetail.included ? resolutionDetail : null;
+
+      if (options.length === 0 && !resolutionOption) {
         setNotification?.({
-          title: "No Compatible TMDEs",
-          message:
-            "Add a TMDE with a matching function before adding it to this budget.",
+          title: "Nothing to Add",
+          message: resolutionDetail
+            ? "The UUT resolution is already in this budget. Add a TMDE with a matching function to add more sources."
+            : "Add a TMDE with a matching function (or enter a UUT resolution) before adding to this budget.",
         });
         return;
       }
       const rect = event?.currentTarget?.getBoundingClientRect?.() || null;
-      setBudgetTmdePicker({ scope, functionKey, options, rect });
+      setBudgetTmdePicker({ scope, functionKey, options, resolutionOption, rect });
     },
-    [budgetFunctionKey, relevantTmdes, setNotification, tmdeSupportsFunction],
+    [
+      budgetFunctionKey,
+      relevantTmdes,
+      setNotification,
+      tmdeSupportsFunction,
+      isDerived,
+      uutToleranceData,
+    ],
   );
 
   const addBudgetTmde = (tmde) => {
@@ -8794,6 +8824,16 @@ function DetailedView({
     } else {
       handleToggleTmdeUsage(tmde.id, true, budgetTmdePicker.functionKey);
     }
+    setBudgetTmdePicker(null);
+  };
+
+  // Add the UUT's measuring resolution to this point's budget by opting it in on
+  // the point's tolerance — getUutResolutionComponent then folds it into the math.
+  const addBudgetResolution = () => {
+    if (!budgetTmdePicker) return;
+    onUpdateTestPoint?.({
+      uutTolerance: { ...uutToleranceData, includeResolutionInBudget: true },
+    });
     setBudgetTmdePicker(null);
   };
 
@@ -8858,60 +8898,107 @@ function DetailedView({
               padding: "2px 6px 6px",
             }}
           >
-            Add TMDE to {scopeLabel}
+            Add to {scopeLabel}
           </div>
-          <div>
-            {budgetTmdePicker.options.map((tmde) => {
-              const detail = getBudgetTmdeDetail(tmde);
-              return (
-                <button
-                  key={tmde.id}
-                  type="button"
-                  style={itemStyle}
-                  onClick={() => addBudgetTmde(tmde)}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = "var(--input-background)")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "transparent")
-                  }
-                >
-                  <FontAwesomeIcon icon={faTools} style={{ marginTop: "2px" }} />
-                  <span
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "2px",
-                      minWidth: 0,
-                    }}
+          {/* Grouped by the TYPE of uncertainty source so the user knows exactly
+              what they're adding to the budget. */}
+          {budgetTmdePicker.options.length > 0 && (
+            <div>
+              <div className="budget-tmde-picker-category">
+                Measurement standards
+              </div>
+              {budgetTmdePicker.options.map((tmde) => {
+                const detail = getBudgetTmdeDetail(tmde);
+                return (
+                  <button
+                    key={tmde.id}
+                    type="button"
+                    style={itemStyle}
+                    onClick={() => addBudgetTmde(tmde)}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.background = "var(--input-background)")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.background = "transparent")
+                    }
                   >
+                    <FontAwesomeIcon icon={faTools} style={{ marginTop: "2px" }} />
                     <span
                       style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2px",
+                        minWidth: 0,
                       }}
                     >
-                      {getEquationTmdeLabel(tmde)}
-                    </span>
-                    {detail && (
                       <span
                         style={{
-                          fontSize: "0.72rem",
-                          color: "var(--text-color-muted)",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {detail}
+                        {getEquationTmdeLabel(tmde)}
                       </span>
-                    )}
+                      {detail && (
+                        <span
+                          style={{
+                            fontSize: "0.72rem",
+                            color: "var(--text-color-muted)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {detail}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {budgetTmdePicker.resolutionOption && (
+            <div>
+              <div className="budget-tmde-picker-category">UUT resolution</div>
+              <button
+                type="button"
+                style={itemStyle}
+                onClick={addBudgetResolution}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = "var(--input-background)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
+              >
+                <FontAwesomeIcon icon={faRulerCombined} style={{ marginTop: "2px" }} />
+                <span
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2px",
+                    minWidth: 0,
+                  }}
+                >
+                  <span>Measuring resolution</span>
+                  <span
+                    style={{
+                      fontSize: "0.72rem",
+                      color: "var(--text-color-muted)",
+                    }}
+                  >
+                    {`${budgetTmdePicker.resolutionOption.value}${
+                      getUnitDisplayLabel(budgetTmdePicker.resolutionOption.unit)
+                        ? ` ${getUnitDisplayLabel(budgetTmdePicker.resolutionOption.unit)}`
+                        : ""
+                    } · rounding contribution`}
                   </span>
-                </button>
-              );
-            })}
-          </div>
+                </span>
+              </button>
+            </div>
+          )}
         </div>
       </>,
       document.body,
@@ -9410,7 +9497,6 @@ function DetailedView({
                                     <InlineToleranceCell
                                       tolerance={tolerance}
                                       activeRange={range}
-                                      typeKey={typeKey}
                                       selectedType={
                                         selectedToleranceKey ===
                                         toleranceTypeKey("uut", uut, range?.id)
@@ -9435,13 +9521,8 @@ function DetailedView({
                                           component,
                                         )
                                       }
-                                      onAddDefault={() =>
-                                        setSelectedToleranceTypeDetail(
-                                          "uut",
-                                          uut,
-                                          range,
-                                          "reading",
-                                        )
+                                      onCleanupBlanks={() =>
+                                        cleanupRangeToleranceBlanksDetail("uut", uut, range)
                                       }
                                     />
                                   ) : (
@@ -9473,10 +9554,6 @@ function DetailedView({
                                     }
                                     onCommitUnit={(value) =>
                                       setRangeResolutionUnitDetail("uut", uut, range?.id, value)
-                                    }
-                                    useResolution={range?.includeResolutionInBudget}
-                                    onToggleUse={(checked) =>
-                                      setRangeUseResolutionDetail("uut", uut, range?.id, checked)
                                     }
                                   />
                                 ) : (
@@ -10216,7 +10293,6 @@ function DetailedView({
                                         <InlineToleranceCell
                                           tolerance={tolerance}
                                           activeRange={range}
-                                          typeKey={typeKey}
                                           selectedType={
                                             selectedToleranceKey ===
                                             toleranceTypeKey(
@@ -10245,12 +10321,11 @@ function DetailedView({
                                               component,
                                             )
                                           }
-                                          onAddDefault={() =>
-                                            setSelectedToleranceTypeDetail(
+                                          onCleanupBlanks={() =>
+                                            cleanupRangeToleranceBlanksDetail(
                                               "tmde",
                                               masterTmde,
                                               range,
-                                              "reading",
                                             )
                                           }
                                         />
@@ -10343,15 +10418,6 @@ function DetailedView({
                                             masterTmde,
                                             range?.id,
                                             value,
-                                          )
-                                        }
-                                        useResolution={range?.includeResolutionInBudget}
-                                        onToggleUse={(checked) =>
-                                          setRangeUseResolutionDetail(
-                                            "tmde",
-                                            masterTmde,
-                                            range?.id,
-                                            checked,
                                           )
                                         }
                                       />

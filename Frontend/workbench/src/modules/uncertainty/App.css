@@ -4191,6 +4191,22 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   -webkit-backdrop-filter: blur(16px);
 }
 
+/* Category header inside the budget add menu, so the user can tell at a glance
+   what TYPE of uncertainty source each group of options is. */
+.budget-tmde-picker-category {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-color-muted);
+  padding: 8px 6px 4px;
+}
+
+.budget-tmde-picker-menu > div + div .budget-tmde-picker-category {
+  border-top: 1px solid var(--border-color);
+  margin-top: 4px;
+}
+
 .budget-settings-menu h5 {
   margin: 0 0 10px;
   padding-bottom: 8px;
@@ -10833,6 +10849,28 @@ input.inline-function-input:focus {
   opacity: 0.4;
 }
 
+/* Function subsection header: color swatch, editable name, unit, and the
+   add/delete controls — kept on one tidy baseline-aligned row. */
+.function-header-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* The per-function add/delete buttons reuse the range-header button look so
+   every add/delete control on the table matches. They sit a touch smaller to
+   fit snugly in the subsection header next to the function name. */
+.function-header-action-btn {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border-radius: 6px;
+}
+
+.function-header-action-btn:first-of-type {
+  margin-left: 4px;
+}
+
 .range-stack {
   display: grid;
   gap: 7px;
@@ -11004,6 +11042,42 @@ input.inline-function-input:focus {
 .inline-tol-empty:focus-visible {
   color: var(--primary-color);
   text-decoration: underline;
+}
+
+/* Read view of the tolerance / error-limit cell: a clean compact summary that
+   snaps to the editable term view on click. Reads like plain text but offers a
+   subtle hover cue so it's clearly editable. */
+.inline-tolerance-summary {
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border-radius: 5px;
+  white-space: nowrap;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.inline-tolerance-summary:hover,
+.inline-tolerance-summary:focus-visible {
+  border-color: var(--border-color);
+  background: var(--input-background);
+  outline: none;
+}
+
+.inline-tolerance-summary.is-empty {
+  color: var(--text-color-muted);
+  font-style: italic;
+}
+
+.inline-tolerance-summary.is-empty:hover,
+.inline-tolerance-summary.is-empty:focus-visible {
+  color: var(--primary-color);
 }
 
 .inline-tolerance-term {

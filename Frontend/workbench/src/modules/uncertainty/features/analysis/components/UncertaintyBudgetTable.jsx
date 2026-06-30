@@ -439,6 +439,21 @@ const UncertaintyBudgetTable = ({
   };
 
   const renderActions = (component) => {
+    // The UUT resolution is opted into the budget from the add menu, so it gets a
+    // remove control here (but not the manual-component edit pencil).
+    if (component.isResolution) {
+      return (
+        <div className="budget-row-actions">
+          <span
+            onClick={() => onRemove?.(component.id, component)}
+            className="delete-action"
+            title="Remove from budget"
+          >
+            x
+          </span>
+        </div>
+      );
+    }
     if (component.isCore && !component.sourceTmdeId) return null;
     return (
       <div className="budget-row-actions">
