@@ -7682,46 +7682,11 @@ function DetailedView({
   }, [sessionData.uuts, activeMeasurementAreaId, activeMeasurementArea?.name]);
 
   const relevantTmdes = useMemo(() => {
-    const allTmdes = sessionData.tmdes || [];
-    if (testPointData.measurementType === "derived") return allTmdes;
-    if (!activeMeasurementAreaId) return allTmdes;
-    return allTmdes.filter((tmde) => {
-      if (tmde.measurementAreaId) {
-        return tmde.measurementAreaId === activeMeasurementAreaId;
-      }
-      if (
-        activeMeasurementArea?.name &&
-        tmde.measurementArea === activeMeasurementArea.name
-      ) {
-        return true;
-      }
-
-      // Legacy TMDEs predate explicit area ownership. Infer their scope from
-      // the points that already use them; truly unused legacy entries remain
-      // available so they can be assigned and scoped without data migration.
-      const inferredAreaIds = new Set(
-        (sessionData.testPoints || [])
-          .filter((point) =>
-            (point.tmdeTolerances || []).some(
-              (instance) =>
-                instance.id === tmde.id || instance.sourceId === tmde.id,
-            ),
-          )
-          .map((point) => point.measurementAreaId)
-          .filter(Boolean),
-      );
-      return (
-        inferredAreaIds.size === 0 ||
-        inferredAreaIds.has(activeMeasurementAreaId)
-      );
-    });
-  }, [
-    sessionData.tmdes,
-    sessionData.testPoints,
-    testPointData.measurementType,
-    activeMeasurementAreaId,
-    activeMeasurementArea?.name,
-  ]);
+    // Detail view should expose the same TMDE inventory as Session Overview.
+    // The budget picker then suggests function matches first, but still allows
+    // deliberate cross-function/cross-area selections when needed.
+    return sessionData.tmdes || [];
+  }, [sessionData.tmdes]);
 
   // --- HANDLERS ---
   const handleUutCheckboxChange = (uutId) => {
@@ -9912,7 +9877,7 @@ function DetailedView({
                 ).length === 0 ? (
                   <tr className="panel-empty-row">
                     <td colSpan="6">
-                      No TMDEs defined for this measurement area.
+                      No TMDEs defined for this session.
                     </td>
                   </tr>
                 ) : (
