@@ -2106,6 +2106,29 @@ const buildFunctionGroupedRows = (groupedItems, sessionData, kind = null) => {
     ]);
 };
 
+const functionNamePart = (functionKey = "") =>
+  String(functionKey || "").split("|")[0] || "";
+
+const functionUnitPart = (functionKey = "") =>
+  String(functionKey || "").split("|")[1] || "";
+
+const matchingInstrumentFunctionKey = (source = {}, functionKey = null) => {
+  if (!functionKey) return null;
+  const selectedName = functionNamePart(functionKey);
+  const selectedUnit = functionUnitPart(functionKey);
+  const functions = instrumentFunctions(source);
+  const exact = functions.find((fn) => fn.key === functionKey);
+  if (exact) return exact.key;
+
+  if (!selectedName) return null;
+  const nameMatch = functions.find((fn) => {
+    const candidateName = functionNamePart(fn.key);
+    if (candidateName !== selectedName) return false;
+    return !selectedUnit || !functionUnitPart(fn.key);
+  });
+  return nameMatch?.key || null;
+};
+
 const stableSpecString = (value) => {
   const normalize = (input) => {
     if (input === undefined) return null;
@@ -4387,9 +4410,13 @@ const SummaryDashboard = ({
       displaySubtitle = "Function Summary";
       points = fnPoints;
       uuts = uuts.filter(
-        (u) => instrumentHasFunction(u, contextId) || ownerIds.has(String(u.id)),
+        (u) =>
+          matchingInstrumentFunctionKey(u, contextId) ||
+          ownerIds.has(String(u.id)),
       );
-      tmdes = tmdes.filter((tmde) => instrumentHasFunction(tmde, contextId));
+      tmdes = tmdes.filter((tmde) =>
+        matchingInstrumentFunctionKey(tmde, contextId),
+      );
     } else if (viewMode === "uut") {
       const uut = uuts.find((u) => u.id === contextId);
       displayTitle = uut?.description || "UUT Detail";
@@ -4452,14 +4479,17 @@ const SummaryDashboard = ({
 
       items.forEach((item, index) => {
         const isFunctionView = viewMode === "function" && contextId;
+        const functionKey = isFunctionView
+          ? matchingInstrumentFunctionKey(item, contextId) || contextId
+          : null;
         const row = {
           type: "item",
           item,
           index,
           ...(isFunctionView
             ? {
-                functionKey: contextId,
-                rowKey: `${contextId}::${item.id}`,
+                functionKey,
+                rowKey: `${functionKey}::${item.id}`,
               }
             : {}),
         };
