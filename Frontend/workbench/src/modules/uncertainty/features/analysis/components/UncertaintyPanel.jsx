@@ -833,7 +833,6 @@ const findRangeForFunction = (source = {}, functionKey = null) => {
   const ranges = getInstrumentRangeRows(source);
   if (!ranges.length) return null;
   if (!functionKey) return ranges[0];
-  const [functionNamePart, functionUnitPart = ""] = String(functionKey).split("|");
   const exact = ranges.find(
     (range) =>
       makeFunctionKey(
@@ -842,17 +841,10 @@ const findRangeForFunction = (source = {}, functionKey = null) => {
       ) === functionKey,
   );
   if (exact) return exact;
-  if (!functionUnitPart) {
-    return (
-      ranges.find(
-        (range) =>
-          makeFunctionKey(
-            range.functionName || "",
-            range.functionUnit || range.unit || "",
-          ).split("|")[0] === functionNamePart,
-      ) || ranges[0]
-    );
-  }
+  const loose = ranges.find((range) =>
+    functionPartsMatch(range.functionName || "", range.functionUnit || range.unit || "", functionKey),
+  );
+  if (loose) return loose;
   return ranges[0];
 };
 
@@ -2305,7 +2297,7 @@ const getPointResolutionDetail = (uutTolerance = {}) => {
 };
 
 // --- SHARED HELPER: Resolve UUT Range ---
-const resolveUutRangeHelper = (
+export const resolveUutRangeHelper = (
   uut,
   activeRangeIndices,
   savedTolerance,
@@ -2322,7 +2314,7 @@ const resolveUutRangeHelper = (
   // to all ranges if the filter would empty the list (legacy/loose metadata).
   if (functionKey) {
     const scoped = allRanges.filter(
-      (r) => makeFunctionKey(r.functionName, r.functionUnit || r.unit) === functionKey,
+      (r) => functionPartsMatch(r.functionName, r.functionUnit || r.unit, functionKey),
     );
     if (scoped.length > 0) allRanges = scoped;
   }
@@ -2493,6 +2485,17 @@ const functionNamePart = (functionKey = "") =>
 
 const functionUnitPart = (functionKey = "") =>
   String(functionKey || "").split("|")[1] || "";
+
+const functionPartsMatch = (candidateName, candidateUnit, functionKey = null) => {
+  if (!functionKey) return true;
+  const selectedName = functionNamePart(functionKey);
+  const selectedUnit = functionUnitPart(functionKey);
+  const candidateKey = makeFunctionKey(candidateName, candidateUnit);
+  if (candidateKey === functionKey) return true;
+  if (!selectedName || functionNamePart(candidateKey) !== selectedName) return false;
+  const normalizedCandidateUnit = functionUnitPart(candidateKey);
+  return !selectedUnit || !normalizedCandidateUnit;
+};
 
 const matchingInstrumentFunctionKey = (source = {}, functionKey = null) => {
   if (!functionKey) return null;
@@ -8729,24 +8732,16 @@ function DetailedView({
 
   const tmdeSupportsFunction = useCallback((tmde, functionKey) => {
     if (!functionKey) return true;
-    const [functionNamePart, functionUnitPart = ""] = String(functionKey).split("|");
-    const matchesKey = (name, unit) => {
-      const candidateKey = makeFunctionKey(name, unit);
-      if (candidateKey === functionKey) return true;
-      return !functionUnitPart && candidateKey.split("|")[0] === functionNamePart;
-    };
     if (instrumentHasFunction(tmde, functionKey)) return true;
-    if (
-      !functionUnitPart &&
-      instrumentFunctions(tmde).some((fn) => matchesKey(fn.name, fn.unit))
-    ) {
+    if (instrumentFunctions(tmde).some((fn) => functionPartsMatch(fn.name, fn.unit, functionKey))) {
       return true;
     }
     return getInstrumentRangeRows(tmde).some(
       (range) =>
-        matchesKey(
+        functionPartsMatch(
           range.functionName || "",
           range.functionUnit || range.unit || "",
+          functionKey,
         ),
     );
   }, []);
