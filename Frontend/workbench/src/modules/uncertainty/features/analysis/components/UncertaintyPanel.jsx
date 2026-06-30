@@ -212,33 +212,52 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
   };
 };
 
-const scopeLibraryInstrumentToFunction = (instrument = {}, functionKey, fallbackFn = {}) => {
+export const scopeLibraryInstrumentToFunction = (
+  instrument = {},
+  functionKey,
+  fallbackFn = {},
+) => {
   if (!functionKey) return instrument;
   const functions = Array.isArray(instrument.functions) ? instrument.functions : [];
-  const match = functions.find(
-    (fn) => makeFunctionKey(fn.name, fn.unit) === functionKey,
-  );
+  const selectedName = functionNamePart(functionKey);
+  const selectedUnit = functionUnitPart(functionKey);
+  const functionMatches = (name, unit) => {
+    const candidateKey = makeFunctionKey(name, unit);
+    if (candidateKey === functionKey) return true;
+    if (!selectedName || functionNamePart(candidateKey) !== selectedName) return false;
+    const candidateUnit = functionUnitPart(candidateKey);
+    return !selectedUnit || !candidateUnit;
+  };
+  const match = functions.find((fn) => functionMatches(fn.name, fn.unit));
   const fallbackName = fallbackFn.name || "";
-  const fallbackUnit = fallbackFn.unit || "";
+  const fallbackUnit =
+    fallbackFn.unit !== undefined && fallbackFn.unit !== null
+      ? String(fallbackFn.unit)
+      : "";
   const matchingRangeRows = match
     ? []
     : getInstrumentRangeRows(instrument).filter(
-        (range) =>
-          makeFunctionKey(
-            range.functionName || fallbackName,
-            range.functionUnit || range.unit || fallbackUnit,
-          ) === functionKey,
+        (range) => {
+          const name = range.functionName || fallbackName;
+          const unit = range.functionUnit || range.unit || fallbackUnit;
+          return functionMatches(name, unit);
+        },
       );
   const scopedFunction = match
-    ? { ...match, ranges: Array.isArray(match.ranges) ? match.ranges : [] }
+    ? {
+        ...match,
+        name: fallbackName || match.name,
+        unit: fallbackFn.unit !== undefined && fallbackFn.unit !== null ? fallbackUnit : match.unit,
+        ranges: Array.isArray(match.ranges) ? match.ranges : [],
+      }
     : matchingRangeRows.length > 0
       ? {
           id: uuidv4(),
           name: matchingRangeRows[0].functionName || fallbackName,
           unit:
-            matchingRangeRows[0].functionUnit ||
-            matchingRangeRows[0].unit ||
-            fallbackUnit,
+            fallbackFn.unit !== undefined && fallbackFn.unit !== null
+              ? fallbackUnit
+              : matchingRangeRows[0].functionUnit || matchingRangeRows[0].unit,
           ranges: matchingRangeRows.map(({ source, _index, ...range }) => range),
         }
     : {
