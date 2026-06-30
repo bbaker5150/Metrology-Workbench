@@ -10858,15 +10858,16 @@ input.inline-function-input:focus {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  max-width: 100%;
+  width: max-content;
+  max-width: none;
   min-width: 0;
   white-space: nowrap;
 }
 
 .function-header-row .inline-area-header-input {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: max-content;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .function-header-unit-chip {

@@ -378,7 +378,7 @@ const functionNameMatches = (a, b) =>
 // that support `field-sizing: content` grow it live as the user types; this is
 // the static fallback width (and the initial size).
 const functionNameInputWidth = (name) =>
-  `${Math.min(Math.max((String(name || "").length || 4) + 1, 5), 32)}ch`;
+  `${Math.max((String(name || "").length || 4) + 1, 5)}ch`;
 const cleanAreaName = (value) => String(value || "").trim();
 const areaNameKey = (value) => cleanAreaName(value).toLowerCase();
 
@@ -4080,8 +4080,8 @@ const SummaryDashboard = ({
           // Size to the name so the unit sits right next to it (no dead gap).
           width: functionNameInputWidth(fn.name),
           minWidth: 0,
-          maxWidth: "100%",
-          flex: "0 1 auto",
+          maxWidth: "none",
+          flex: "0 0 auto",
           fieldSizing: "content",
           pointerEvents: "auto",
         }}
