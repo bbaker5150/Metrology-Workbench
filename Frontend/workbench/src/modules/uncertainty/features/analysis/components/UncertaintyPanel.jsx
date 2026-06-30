@@ -326,6 +326,10 @@ const buildGroupedUnitOptions = () => {
 const normalizeUnitToken = (unit) =>
   String(unit || "")
     .trim()
+    .replace(/[₀０]/g, "0")
+    .replace(/[₁１]/g, "1")
+    .replace(/[₂２]/g, "2")
+    .replace(/[³₃３]/g, "3")
     .replace(/[µμ]/g, "u")
     .replace(/Ω/g, "Ohm")
     .replace(/Ω/g, "Ohm")
@@ -333,6 +337,7 @@ const normalizeUnitToken = (unit) =>
     .replace(/[·⋅]/g, "-")
     .replace(/\s+/g, "")
     .replace(/\.$/, "")
+    .replace(/h20/gi, "h2o")
     .toLowerCase();
 
 const resolveUnitOption = (flatUnitOptions, value) => {
@@ -1300,7 +1305,7 @@ const ResolutionCellInput = ({
         value={unit || fallbackUnit || ""}
         ariaLabel="Resolution unit"
         onChange={onCommitUnit}
-        width="58px"
+        width="72px"
       />
     </span>
   );
@@ -2046,7 +2051,7 @@ const RangeCell = ({
           value={unit}
           ariaLabel="Range unit"
           onChange={(value) => onEditUnit(value)}
-          width="58px"
+          width="72px"
         />
         {ranges.length > 1 && (
           <span className="inline-range-select-shell" title="Switch range">
