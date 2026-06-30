@@ -10990,6 +10990,22 @@ input.inline-function-input:focus {
   white-space: normal;
 }
 
+.inline-tol-empty {
+  border: 0;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font: inherit;
+  font-style: italic;
+  padding: 0;
+}
+
+.inline-tol-empty:hover,
+.inline-tol-empty:focus-visible {
+  color: var(--primary-color);
+  text-decoration: underline;
+}
+
 .inline-tolerance-term {
   display: inline-flex;
   align-items: center;

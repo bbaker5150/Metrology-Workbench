@@ -1442,6 +1442,7 @@ const InlineToleranceCell = ({
   editable,
   onSelectType,
   onCommit,
+  onAddDefault,
 }) => {
   if (!editable) {
     return <>{getSpecRows(tolerance)[0]}</>;
@@ -1456,7 +1457,17 @@ const InlineToleranceCell = ({
         className="inline-tolerance-editor inline-tolerance-empty"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <span className="inline-tol-empty">Set tolerance…</span>
+        <button
+          type="button"
+          className="inline-tol-empty"
+          title="Add a tolerance term"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddDefault?.();
+          }}
+        >
+          Set tolerance…
+        </button>
       </div>
     );
   }
@@ -4165,6 +4176,9 @@ const SummaryDashboard = ({
             onCommit={(nextTypeKey, component) =>
               setRangeToleranceComponent(kind, item, range, nextTypeKey, component)
             }
+            onAddDefault={() =>
+              setSelectedToleranceType(kind, item, range, "reading")
+            }
           />
         </td>
 
@@ -5024,6 +5038,14 @@ const SummaryDashboard = ({
                                           component,
                                         )
                                       }
+                                      onAddDefault={() =>
+                                        setSelectedToleranceType(
+                                          "uut",
+                                          uut,
+                                          range,
+                                          "reading",
+                                        )
+                                      }
                                     />
                                   ) : (
                                     getSpecRows(tolerance)[0]
@@ -5437,6 +5459,14 @@ const SummaryDashboard = ({
                                           range,
                                           nextTypeKey,
                                           component,
+                                        )
+                                      }
+                                      onAddDefault={() =>
+                                        setSelectedToleranceType(
+                                          "tmde",
+                                          tmde,
+                                          range,
+                                          "reading",
                                         )
                                       }
                                     />
@@ -6700,6 +6730,9 @@ function DetailedView({
             }
             onCommit={(nextTypeKey, component) =>
               setRangeToleranceComponentDetail(kind, item, range, nextTypeKey, component)
+            }
+            onAddDefault={() =>
+              setSelectedToleranceTypeDetail(kind, item, range, "reading")
             }
           />
         </td>
@@ -9211,6 +9244,14 @@ function DetailedView({
                                           component,
                                         )
                                       }
+                                      onAddDefault={() =>
+                                        setSelectedToleranceTypeDetail(
+                                          "uut",
+                                          uut,
+                                          range,
+                                          "reading",
+                                        )
+                                      }
                                     />
                                   ) : (
                                     getSpecRows(tolerance)[0]
@@ -10009,6 +10050,14 @@ function DetailedView({
                                               range,
                                               nextTypeKey,
                                               component,
+                                            )
+                                          }
+                                          onAddDefault={() =>
+                                            setSelectedToleranceTypeDetail(
+                                              "tmde",
+                                              masterTmde,
+                                              range,
+                                              "reading",
                                             )
                                           }
                                         />
