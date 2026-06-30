@@ -3786,11 +3786,11 @@ const SummaryDashboard = ({
   const renderAddFunctionMenu = (kind) => {
     if (!addFunctionMenu || addFunctionMenu.kind !== kind) return null;
     const rect = addFunctionMenu.rect;
-    const libraryFns = functionsForLibrary(instruments);
-    const existingKeys = new Set(
-      resolveSessionFunctions(sessionData, { kind }).map((fn) => fn.key),
-    );
-    const available = libraryFns.filter((fn) => !existingKeys.has(fn.key));
+    const available = functionsForLibrary([
+      ...(instruments || []),
+      ...(sessionData.uuts || []),
+      ...(sessionData.tmdes || []),
+    ]);
     const itemStyle = {
       display: "block",
       width: "100%",
@@ -3871,7 +3871,7 @@ const SummaryDashboard = ({
           </div>
         ) : (
           <div style={{ padding: "6px 10px", opacity: 0.6, fontSize: "0.8em" }}>
-            No more library functions
+            No library or session instrument functions
           </div>
         )}
         <div
@@ -7542,12 +7542,11 @@ function DetailedView({
   const renderAddFunctionMenu = (kind) => {
     if (!addFunctionMenu || addFunctionMenu.kind !== kind) return null;
     const rect = addFunctionMenu.rect;
-    const existingKeys = new Set(
-      resolveSessionFunctions(sessionData, { kind }).map((fn) => fn.key),
-    );
-    const available = functionsForLibrary(instruments).filter(
-      (fn) => !existingKeys.has(fn.key),
-    );
+    const available = functionsForLibrary([
+      ...(instruments || []),
+      ...(sessionData.uuts || []),
+      ...(sessionData.tmdes || []),
+    ]);
     const itemStyle = {
       display: "block",
       width: "100%",
@@ -7634,7 +7633,7 @@ function DetailedView({
             </div>
           ) : (
             <div style={{ padding: "6px 10px", opacity: 0.6, fontSize: "0.8em" }}>
-              No more library functions
+              No library or session instrument functions
             </div>
           )}
           <div
