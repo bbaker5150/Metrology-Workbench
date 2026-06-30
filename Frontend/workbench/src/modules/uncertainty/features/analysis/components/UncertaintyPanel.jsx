@@ -10,7 +10,6 @@ import React, {
   useCallback,
 } from "react";
 import ReactDOM from "react-dom";
-import Select from "react-select";
 import * as math from "mathjs";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -53,70 +52,6 @@ import {
 import { createInstanceFromDefinition } from "../../../utils/instrumentFactory";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 
-// --- Constants ---
-const customUnitSelectStyles = {
-  menuPortal: (base) => ({ ...base, zIndex: 99999 }),
-  menu: (base) => ({
-    ...base,
-    zIndex: 99999,
-    width: "max-content",
-    minWidth: "100%",
-  }),
-  menuList: (base) => ({
-    ...base,
-    overflowX: "hidden",
-  }),
-  control: (base) => ({
-    ...base,
-    minHeight: "24px",
-    height: "24px",
-    fontSize: "0.85rem",
-    backgroundColor: "transparent",
-    borderColor: "var(--border-color)",
-    color: "var(--text-color)",
-    boxShadow: "none",
-    "&:hover": {
-      borderColor: "var(--primary-color)",
-    },
-  }),
-  valueContainer: (base) => ({
-    ...base,
-    height: "24px",
-    padding: "0 4px",
-    display: "flex",
-    alignItems: "center",
-  }),
-  singleValue: (base) => ({
-    ...base,
-    color: "var(--text-color)",
-    margin: 0,
-  }),
-  input: (base) => ({
-    ...base,
-    color: "var(--text-color)",
-    margin: 0,
-    padding: 0,
-  }),
-  indicatorsContainer: (base) => ({
-    ...base,
-    height: "24px",
-  }),
-  dropdownIndicator: (base) => ({
-    ...base,
-    padding: "0 4px",
-    color: "var(--text-color-muted)",
-  }),
-  clearIndicator: (base) => ({
-    ...base,
-    padding: "0 2px",
-  }),
-  indicatorSeparator: () => ({ display: "none" }),
-  option: (base) => ({
-    ...base,
-    whiteSpace: "nowrap",
-  }),
-};
-
 // Shared, engine-verified f(x) symbol catalog (see utils/equationSymbols.js).
 import { symbolCategories } from "../../../utils/equationSymbols";
 
@@ -140,7 +75,6 @@ import {
   getUnitDisplayLabel,
   unitSystem,
   unitCategories,
-  unitFilterOption,
   errorDistributions,
   DISTRIBUTION_NOT_SET,
 } from "../../../utils/uncertaintyMath";
@@ -362,6 +296,7 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
     [groupedUnitOptions],
   );
   const selectedOption = resolveUnitOption(flatUnitOptions, value);
+  const selectedValue = selectedOption?.value || "";
   const unitWidth = useMemo(() => {
     const longestLabelLength = Math.max(
       4,
@@ -377,18 +312,24 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
       aria-label={ariaLabel}
       style={{ "--inline-unit-width": width || unitWidth }}
     >
-      <Select
-        value={selectedOption}
-        onChange={(option) => onChange(option ? option.value : "")}
-        options={groupedUnitOptions}
-        filterOption={unitFilterOption}
-        placeholder="Unit"
-        className="react-select-container inline-unit-react-select"
-        classNamePrefix="react-select"
-        menuPortalTarget={document.body}
-        menuPosition="fixed"
-        styles={customUnitSelectStyles}
-      />
+      <select
+        className="inline-unit-native-select"
+        value={selectedValue}
+        aria-label={ariaLabel}
+        title={selectedOption?.label || value || "Unit"}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {!selectedValue && <option value="">Unit</option>}
+        {groupedUnitOptions.map((group) => (
+          <optgroup key={group.label} label={group.label}>
+            {(group.options || []).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
     </div>
   );
 };
