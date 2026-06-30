@@ -10858,6 +10858,24 @@ input.inline-function-input:focus {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.function-header-row .inline-area-header-input {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.function-header-unit-chip {
+  flex: 0 0 auto;
+  min-width: max-content;
+  margin-left: 2px;
+  opacity: 0.6;
+  font-size: 0.78em;
+  font-weight: 600;
 }
 
 /* The per-function add/delete buttons reuse the range-header button look so

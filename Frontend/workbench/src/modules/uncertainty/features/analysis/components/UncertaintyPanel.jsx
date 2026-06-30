@@ -2405,7 +2405,12 @@ export const resolveUutRangeHelper = (
 // id for single-function instruments, `${functionKey}::${id}` for multi-function
 // ones so each subsection's range state is independent). Empty subsections are
 // emitted for user-added functions (session.functionGroups) with no instrument.
-const buildFunctionGroupedRows = (groupedItems, sessionData, kind = null) => {
+const buildFunctionGroupedRows = (
+  groupedItems,
+  sessionData,
+  kind = null,
+  { includeEmptyGroups = true } = {},
+) => {
   const sessionFunctions = resolveSessionFunctions(sessionData, { kind });
   const fnByKey = new Map(sessionFunctions.map((fn) => [fn.key, fn]));
   const fnOrder = new Map(sessionFunctions.map((fn, index) => [fn.key, index]));
@@ -2449,21 +2454,23 @@ const buildFunctionGroupedRows = (groupedItems, sessionData, kind = null) => {
     });
   });
 
-  (sessionData.functionGroups || [])
-    .filter((fg) => !kind || !fg.kind || fg.kind === kind)
-    .forEach((fg) => {
-    const key = makeFunctionKey(fg.name, fg.unit);
-    if (!groups.has(key)) {
-      const resolvedFn = fnByKey.get(key) || { key, name: fg.name, unit: fg.unit, color: null };
-      const fn = { ...resolvedFn, ...(fg.kind ? { kind: fg.kind } : kind ? { kind } : {}) };
-      groups.set(key, {
-        type: "function",
-        fn,
-        order: fnOrder.has(key) ? fnOrder.get(key) : Number.MAX_SAFE_INTEGER,
-        items: [],
+  if (includeEmptyGroups) {
+    (sessionData.functionGroups || [])
+      .filter((fg) => !kind || !fg.kind || fg.kind === kind)
+      .forEach((fg) => {
+        const key = makeFunctionKey(fg.name, fg.unit);
+        if (!groups.has(key)) {
+          const resolvedFn = fnByKey.get(key) || { key, name: fg.name, unit: fg.unit, color: null };
+          const fn = { ...resolvedFn, ...(fg.kind ? { kind: fg.kind } : kind ? { kind } : {}) };
+          groups.set(key, {
+            type: "function",
+            fn,
+            order: fnOrder.has(key) ? fnOrder.get(key) : Number.MAX_SAFE_INTEGER,
+            items: [],
+          });
+        }
       });
-    }
-  });
+  }
 
   return Array.from(groups.values())
     .sort((a, b) => {
@@ -4072,6 +4079,9 @@ const SummaryDashboard = ({
           padding: "1px 4px",
           // Size to the name so the unit sits right next to it (no dead gap).
           width: functionNameInputWidth(fn.name),
+          minWidth: 0,
+          maxWidth: "100%",
+          flex: "0 1 auto",
           fieldSizing: "content",
           pointerEvents: "auto",
         }}
@@ -4081,14 +4091,7 @@ const SummaryDashboard = ({
 
   const renderFunctionUnitChip = (fn) =>
     fn.unit ? (
-      <span
-        style={{
-          marginLeft: "4px",
-          opacity: 0.6,
-          fontSize: "0.78em",
-          fontWeight: 600,
-        }}
-      >
+      <span className="function-header-unit-chip">
         {getUnitDisplayLabel(fn.unit)}
       </span>
     ) : null;
@@ -7488,7 +7491,7 @@ function DetailedView({
 
   const renderFunctionUnitChip = (fn) =>
     fn.unit ? (
-      <span style={{ marginLeft: "4px", opacity: 0.6, fontSize: "0.78em", fontWeight: 600 }}>
+      <span className="function-header-unit-chip">
         {getUnitDisplayLabel(fn.unit)}
       </span>
     ) : null;
@@ -7749,6 +7752,28 @@ function DetailedView({
     // deliberate cross-function/cross-area selections when needed.
     return sessionData.tmdes || [];
   }, [sessionData.tmdes]);
+
+  const detailUutRows = useMemo(
+    () =>
+      buildFunctionGroupedRows(
+        relevantUuts.map((item, index) => ({ type: "item", item, index })),
+        sessionData,
+        "uut",
+        { includeEmptyGroups: false },
+      ),
+    [relevantUuts, sessionData],
+  );
+
+  const detailTmdeRows = useMemo(
+    () =>
+      buildFunctionGroupedRows(
+        relevantTmdes.map((item, index) => ({ type: "item", item, index })),
+        sessionData,
+        "tmde",
+        { includeEmptyGroups: false },
+      ),
+    [relevantTmdes, sessionData],
+  );
 
   // --- HANDLERS ---
   const handleUutCheckboxChange = (uutId) => {
@@ -9233,20 +9258,12 @@ function DetailedView({
               </tr>
             </thead>
             <tbody>
-              {buildFunctionGroupedRows(
-                relevantUuts.map((item, index) => ({ type: "item", item, index })),
-                sessionData,
-                "uut",
-              ).length === 0 ? (
+              {detailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan="5">No associated UUTs found.</td>
                 </tr>
               ) : (
-                buildFunctionGroupedRows(
-                  relevantUuts.map((item, index) => ({ type: "item", item, index })),
-                  sessionData,
-                  "uut",
-                ).map((row) => {
+                detailUutRows.map((row) => {
                   if (row.type === "function") {
                     return renderFunctionHeaderRow("uut", row.fn, 5);
                   }
@@ -9963,22 +9980,14 @@ function DetailedView({
                 </tr>
               </thead>
               <tbody>
-                {buildFunctionGroupedRows(
-                  relevantTmdes.map((item, index) => ({ type: "item", item, index })),
-                  sessionData,
-                  "tmde",
-                ).length === 0 ? (
+                {detailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
                     <td colSpan="6">
                       No TMDEs defined for this session.
                     </td>
                   </tr>
                 ) : (
-                  buildFunctionGroupedRows(
-                    relevantTmdes.map((item, index) => ({ type: "item", item, index })),
-                    sessionData,
-                    "tmde",
-                  ).map((row) => {
+                  detailTmdeRows.map((row) => {
                     if (row.type === "function") {
                       return renderFunctionHeaderRow("tmde", row.fn, 6);
                     }
