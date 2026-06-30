@@ -1396,6 +1396,15 @@ const componentLimitMagnitude = (component = {}, side = "high", typeKey = "") =>
   }
   return "";
 };
+// A term is "two-sided" (asymmetric) only when both limits are present AND their
+// magnitudes differ — that's when the editor needs separate + / − inputs. A
+// blank, single, or mirrored (±) limit is single-sided and uses one input.
+export const componentIsAsymmetric = (component = {}) => {
+  const high = parseFloat(component?.high);
+  const low = parseFloat(component?.low);
+  if (!Number.isFinite(high) || !Number.isFinite(low)) return false;
+  return Math.abs(Math.abs(high) - Math.abs(low)) > 1e-9;
+};
 const componentUnitLabel = (typeKey, component = {}, activeRange = {}) => {
   if (typeKey === "reading") return "% IV";
   if (typeKey === "range") return "% FS";
@@ -1440,12 +1449,26 @@ const ToleranceTermEditor = ({
   const [fullScale, setFullScale] = useState(() =>
     toPlainNumber(component.value ?? activeRange?.max ?? ""),
   );
+  // Single-sided (±, one input) vs two-sided (+ / −, two inputs). reading is
+  // always single. Other terms default to single and expand only when the data
+  // is genuinely asymmetric or the user toggles. Resyncs on a term/range switch
+  // (not on every keystroke) so the toggle stays sticky while editing.
+  const [asymmetric, setAsymmetric] = useState(
+    () => typeKey !== "reading" && componentIsAsymmetric(component),
+  );
+  useEffect(() => {
+    setAsymmetric(typeKey !== "reading" && componentIsAsymmetric(component));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeKey, activeRange?.id]);
 
   useEffect(() => {
     setHighValue(componentLimitMagnitude(component, "high", typeKey));
     setLowValue(componentLimitMagnitude(component, "low", typeKey));
     setFullScale(toPlainNumber(component.value ?? activeRange?.max ?? ""));
   }, [typeKey, component.high, component.low, component.value, activeRange?.max]);
+
+  // One input shown when reading or in single-sided mode.
+  const singleSided = typeKey === "reading" || !asymmetric;
 
   const commit = (patch = {}) => {
     const next = {
@@ -1458,14 +1481,17 @@ const ToleranceTermEditor = ({
   const commitLimit = (side, raw) => {
     const trimmed = String(raw ?? "").trim();
     const parsed = parseFloat(trimmed);
-    if (typeKey === "reading") {
+    // Single-sided (reading, or any term in ± mode): one magnitude mirrored to
+    // both limits. reading also mirrors into `value`; %FS keeps its FS reference.
+    if (singleSided) {
       const magnitude = trimmed === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
-      commit({
-        value: magnitude,
+      const patch = {
         high: magnitude,
         low: magnitude === "" ? "" : String(-Math.abs(parsed)),
         symmetric: true,
-      });
+      };
+      if (typeKey === "reading") patch.value = magnitude;
+      commit(patch);
       return;
     }
     const next = {
@@ -1496,13 +1522,35 @@ const ToleranceTermEditor = ({
     if (trimmed === String(component.value ?? activeRange?.max ?? "")) return;
     commit({ value: trimmed });
   };
+  // Flip between single-sided (±) and two-sided (+ / −). Collapsing mirrors the
+  // current high magnitude to both limits and persists the symmetric value;
+  // expanding just reveals the second input (seeded from the current magnitude).
+  const toggleSymmetry = () => {
+    if (asymmetric) {
+      setAsymmetric(false);
+      const parsed = parseFloat(highValue);
+      const mag =
+        highValue === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
+      setLowValue(mag);
+      commit({
+        high: mag,
+        low: mag === "" ? "" : String(-Math.abs(parsed)),
+        symmetric: true,
+      });
+    } else {
+      setAsymmetric(true);
+      if (lowValue === "") setLowValue(highValue);
+    }
+  };
   const typeLabel = componentUnitLabel(typeKey, component, activeRange);
   const typeOption = TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === typeKey);
 
   return (
     <span className="inline-tolerance-term">
       <span className="inline-tolerance-limits">
-        {showHighSign && <span className="inline-tolerance-symbol">+</span>}
+        {showHighSign && (
+          <span className="inline-tolerance-symbol">{singleSided ? "±" : "+"}</span>
+        )}
         <input
           type="text"
           inputMode="decimal"
@@ -1514,7 +1562,7 @@ const ToleranceTermEditor = ({
           className="inline-tolerance-input"
           style={toleranceInputStyleFor(highValue)}
         />
-        {typeKey !== "reading" && (
+        {!singleSided && (
           <>
             <span className="inline-tolerance-symbol">-</span>
             <input
@@ -1529,6 +1577,26 @@ const ToleranceTermEditor = ({
               style={toleranceInputStyleFor(lowValue)}
             />
           </>
+        )}
+        {typeKey !== "reading" && (
+          <button
+            type="button"
+            className={`inline-tolerance-sided-toggle${asymmetric ? " is-asymmetric" : ""}`}
+            title={
+              asymmetric
+                ? "Two-sided tolerance — click to use a single ± value"
+                : "Single-sided (±) tolerance — click to enter separate + / − limits"
+            }
+            aria-label={
+              asymmetric
+                ? "Switch to a single ± tolerance value"
+                : "Switch to separate + / − tolerance limits"
+            }
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={toggleSymmetry}
+          >
+            {asymmetric ? "±" : "+/−"}
+          </button>
         )}
       </span>
       {typeLabel && (

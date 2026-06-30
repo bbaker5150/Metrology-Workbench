@@ -11116,6 +11116,34 @@ input.inline-function-input:focus {
   line-height: 1;
 }
 
+/* Small toggle that flips a tolerance term between a single ± value and
+   separate + / − limits. Highlighted when two-sided so the mode is obvious. */
+.inline-tolerance-sided-toggle {
+  flex: 0 0 auto;
+  height: 22px;
+  margin-left: 2px;
+  padding: 0 5px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.inline-tolerance-sided-toggle:hover {
+  color: var(--text-color);
+  border-color: var(--primary-color);
+}
+
+.inline-tolerance-sided-toggle.is-asymmetric {
+  color: var(--primary-color);
+  border-color: color-mix(in srgb, var(--primary-color) 42%, transparent);
+  background: rgba(var(--primary-rgb), 0.08);
+}
+
 input.inline-tolerance-input {
   width: 38px;
   min-width: 38px;

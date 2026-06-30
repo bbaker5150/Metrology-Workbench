@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSpecRows } from "./UncertaintyPanel";
+import { getSpecRows, componentIsAsymmetric } from "./UncertaintyPanel";
 
 // The simplified ("read") tolerance/error-limit view renders getSpecRows(...)[0].
 // It must show EVERY component the user entered, on one line, with consistent
@@ -45,5 +45,27 @@ describe("getSpecRows compact spec line", () => {
   it("falls back to a placeholder when nothing is set", () => {
     expect(getSpecRows({})[0]).toBe("Not Set");
     expect(getSpecRows(null)[0]).toBe("-");
+  });
+});
+
+// The tolerance editor shows ONE ± input when single-sided and two (+ / −) only
+// when the limits genuinely differ. componentIsAsymmetric drives that choice.
+describe("componentIsAsymmetric", () => {
+  it("treats mirrored ± limits as single-sided", () => {
+    expect(componentIsAsymmetric({ high: "1", low: "-1" })).toBe(false);
+  });
+
+  it("treats a blank/missing low limit as single-sided", () => {
+    expect(componentIsAsymmetric({ high: "1", low: "" })).toBe(false);
+    expect(componentIsAsymmetric({ high: "1" })).toBe(false);
+  });
+
+  it("flags genuinely different magnitudes as two-sided", () => {
+    expect(componentIsAsymmetric({ high: "1", low: "-0.5" })).toBe(true);
+  });
+
+  it("is single-sided when nothing is entered yet", () => {
+    expect(componentIsAsymmetric({ high: "", low: "" })).toBe(false);
+    expect(componentIsAsymmetric({})).toBe(false);
   });
 });
