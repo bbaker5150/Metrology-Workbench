@@ -48,23 +48,29 @@ describe("getSpecRows compact spec line", () => {
   });
 });
 
-// The tolerance editor shows ONE ± input when single-sided and two (+ / −) only
-// when the limits genuinely differ. componentIsAsymmetric drives that choice.
+// The tolerance editor shows ONE ± input for a symmetric tolerance and two
+// (+ / −) inputs when the limits genuinely differ — including a true single-
+// sided (unilateral) tolerance like +1/-0. componentIsAsymmetric drives that.
 describe("componentIsAsymmetric", () => {
-  it("treats mirrored ± limits as single-sided", () => {
+  it("treats mirrored ± limits as symmetric (one input)", () => {
     expect(componentIsAsymmetric({ high: "1", low: "-1" })).toBe(false);
   });
 
-  it("treats a blank/missing low limit as single-sided", () => {
+  it("treats a blank/missing low limit as symmetric (mirrors to ±)", () => {
     expect(componentIsAsymmetric({ high: "1", low: "" })).toBe(false);
     expect(componentIsAsymmetric({ high: "1" })).toBe(false);
   });
 
-  it("flags genuinely different magnitudes as two-sided", () => {
+  it("flags asymmetric bilateral limits as two-sided", () => {
     expect(componentIsAsymmetric({ high: "1", low: "-0.5" })).toBe(true);
   });
 
-  it("is single-sided when nothing is entered yet", () => {
+  it("flags a true single-sided (unilateral) +n/-0 tolerance as two-sided", () => {
+    expect(componentIsAsymmetric({ high: "1", low: "0" })).toBe(true);
+    expect(componentIsAsymmetric({ high: "0", low: "-1" })).toBe(true);
+  });
+
+  it("is symmetric when nothing is entered yet", () => {
     expect(componentIsAsymmetric({ high: "", low: "" })).toBe(false);
     expect(componentIsAsymmetric({})).toBe(false);
   });

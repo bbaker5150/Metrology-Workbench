@@ -1449,10 +1449,13 @@ const ToleranceTermEditor = ({
   const [fullScale, setFullScale] = useState(() =>
     toPlainNumber(component.value ?? activeRange?.max ?? ""),
   );
-  // Single-sided (±, one input) vs two-sided (+ / −, two inputs). reading is
-  // always single. Other terms default to single and expand only when the data
-  // is genuinely asymmetric or the user toggles. Resyncs on a term/range switch
-  // (not on every keystroke) so the toggle stays sticky while editing.
+  // Symmetric ± (one input) vs independent + / − limits (two inputs). NOTE: a
+  // ± value is NOT a single-sided tolerance — a true single-sided (unilateral)
+  // tolerance is the two-input form with one limit set to 0 (e.g. +1 / -0).
+  // reading is always ±. Other terms default to ± and expand to two inputs only
+  // when the data is genuinely asymmetric (incl. unilateral) or the user
+  // toggles. Resyncs on a term/range switch (not on every keystroke) so the
+  // toggle stays sticky while editing.
   const [asymmetric, setAsymmetric] = useState(
     () => typeKey !== "reading" && componentIsAsymmetric(component),
   );
@@ -1467,8 +1470,8 @@ const ToleranceTermEditor = ({
     setFullScale(toPlainNumber(component.value ?? activeRange?.max ?? ""));
   }, [typeKey, component.high, component.low, component.value, activeRange?.max]);
 
-  // One input shown when reading or in single-sided mode.
-  const singleSided = typeKey === "reading" || !asymmetric;
+  // One input shown for reading or in symmetric (±) mode.
+  const symmetricMode = typeKey === "reading" || !asymmetric;
 
   const commit = (patch = {}) => {
     const next = {
@@ -1481,9 +1484,9 @@ const ToleranceTermEditor = ({
   const commitLimit = (side, raw) => {
     const trimmed = String(raw ?? "").trim();
     const parsed = parseFloat(trimmed);
-    // Single-sided (reading, or any term in ± mode): one magnitude mirrored to
+    // Symmetric (reading, or any term in ± mode): one magnitude mirrored to
     // both limits. reading also mirrors into `value`; %FS keeps its FS reference.
-    if (singleSided) {
+    if (symmetricMode) {
       const magnitude = trimmed === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
       const patch = {
         high: magnitude,
@@ -1522,9 +1525,11 @@ const ToleranceTermEditor = ({
     if (trimmed === String(component.value ?? activeRange?.max ?? "")) return;
     commit({ value: trimmed });
   };
-  // Flip between single-sided (±) and two-sided (+ / −). Collapsing mirrors the
-  // current high magnitude to both limits and persists the symmetric value;
-  // expanding just reveals the second input (seeded from the current magnitude).
+  // Flip between symmetric ± (one input) and independent + / − limits (two
+  // inputs). Collapsing mirrors the current high magnitude to both limits and
+  // persists the symmetric value; expanding reveals the second input (seeded
+  // from the current magnitude) so the user can enter an asymmetric or a true
+  // single-sided (+n / -0) tolerance.
   const toggleSymmetry = () => {
     if (asymmetric) {
       setAsymmetric(false);
@@ -1549,7 +1554,7 @@ const ToleranceTermEditor = ({
     <span className="inline-tolerance-term">
       <span className="inline-tolerance-limits">
         {showHighSign && (
-          <span className="inline-tolerance-symbol">{singleSided ? "±" : "+"}</span>
+          <span className="inline-tolerance-symbol">{symmetricMode ? "±" : "+"}</span>
         )}
         <input
           type="text"
@@ -1562,7 +1567,7 @@ const ToleranceTermEditor = ({
           className="inline-tolerance-input"
           style={toleranceInputStyleFor(highValue)}
         />
-        {!singleSided && (
+        {!symmetricMode && (
           <>
             <span className="inline-tolerance-symbol">-</span>
             <input
@@ -1584,13 +1589,13 @@ const ToleranceTermEditor = ({
             className={`inline-tolerance-sided-toggle${asymmetric ? " is-asymmetric" : ""}`}
             title={
               asymmetric
-                ? "Two-sided tolerance — click to use a single ± value"
-                : "Single-sided (±) tolerance — click to enter separate + / − limits"
+                ? "Independent + / − limits — click to use a single ± value. For a one-sided (unilateral) tolerance, set the unused limit to 0."
+                : "Symmetric (±) tolerance — click to enter independent + / − limits (set one to 0 for a one-sided tolerance)"
             }
             aria-label={
               asymmetric
                 ? "Switch to a single ± tolerance value"
-                : "Switch to separate + / − tolerance limits"
+                : "Switch to independent + / − tolerance limits"
             }
             onMouseDown={(e) => e.preventDefault()}
             onClick={toggleSymmetry}
