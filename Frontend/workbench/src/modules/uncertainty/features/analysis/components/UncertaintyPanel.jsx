@@ -2364,6 +2364,101 @@ const RangeCell = ({
   );
 };
 
+// The perpetual blank "add" row at the bottom of an expanded range list.
+//
+// It BUFFERS min/max/unit in local state (controlled inputs) and only creates a
+// real range once — when focus leaves the row (blur to outside) or Enter is
+// pressed. This is deliberate: an earlier version materialized on the first
+// bound, which split the row you were typing in from the new (floated) range,
+// duplicated the value, and broke Tab. Buffering keeps Tab flowing min→max in
+// one stable row, creates exactly one range, and leaves the inputs clean for the
+// next add. `onMaterialize({ min, max, unit })` does the actual insert.
+export const GhostRangeRow = ({
+  unit = "",
+  includeDistribution = false,
+  dataGroup,
+  onMaterialize,
+}) => {
+  const [min, setMin] = useState("");
+  const [max, setMax] = useState("");
+  const [u, setU] = useState(unit);
+  const rowRef = useRef(null);
+
+  // Keep the seeded unit fresh until the user overrides it (their edit sticks
+  // because setU only runs here when they haven't typed a bound yet).
+  useEffect(() => {
+    if (min === "" && max === "") setU(unit);
+  }, [unit, min, max]);
+
+  const commit = () => {
+    if (min === "" && max === "") return; // nothing entered → stay a ghost
+    onMaterialize({ min, max, unit: u });
+    setMin("");
+    setMax("");
+  };
+  const handleBlur = (event) => {
+    // Only materialize when focus truly leaves the row (not on min→max tab).
+    if (rowRef.current && rowRef.current.contains(event.relatedTarget)) return;
+    commit();
+  };
+
+  return (
+    <tr
+      ref={rowRef}
+      className="inline-range-row inline-range-row--ghost inline-range-row--last"
+      data-range-group={dataGroup}
+      onBlur={handleBlur}
+    >
+      <td className="cell-value">
+        <div className="range-row-cell range-row-cell--ghost">
+          <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="inline-range-main">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={min}
+                placeholder="+ min"
+                aria-label="New range minimum"
+                onChange={(e) => setMin(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                className="inline-tolerance-input inline-range-bound-input"
+              />
+              <span style={{ color: "var(--text-color-muted)" }}>–</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={max}
+                placeholder="max"
+                aria-label="New range maximum"
+                onChange={(e) => setMax(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                className="inline-tolerance-input inline-range-bound-input"
+              />
+              <UnitSelect
+                value={u}
+                ariaLabel="New range unit"
+                onChange={(value) => setU(value)}
+                width="72px"
+              />
+            </div>
+          </div>
+        </div>
+      </td>
+      <td className="cell-tolerance">
+        <span className="range-ghost-hint">—</span>
+      </td>
+      {includeDistribution && (
+        <td className="cell-distribution">
+          <span className="range-ghost-hint">—</span>
+        </td>
+      )}
+      <td className="cell-value">
+        <span className="range-ghost-hint">—</span>
+      </td>
+    </tr>
+  );
+};
+
 // Lightweight "Range removed — Undo" toast. Mirrors the tolerance workflow's
 // confirm-AFTER philosophy: deletion is instant (no modal), with a brief window
 // to take it back. Auto-dismiss is driven by the owner via the `undo` prop being
@@ -4185,9 +4280,11 @@ const SummaryDashboard = ({
   const handleEditRangeBound = (kind, item, rangeId, field, value) => {
     if (!onSessionSave) return;
     const patched = applyItemRangePatch(item, rangeId, { [field]: value });
-    const isNew = newRangeKeys.has(rangeStateKey(kind, item.id, rangeId));
     const patchedRange = findItemRange(patched, rangeId);
-    if (!isNew && patchedRange && rangeIsBlank(patchedRange)) {
+    // Clearing a range's last bound removes it (with Undo). The ghost row now
+    // buffers new ranges until they carry a value, so a real range is never
+    // blank at creation — no "freshly added" exemption is needed here.
+    if (patchedRange && rangeIsBlank(patchedRange)) {
       const pruned = removeRangeFromItem(patched, rangeId);
       if (pruned !== patched) {
         // The range as it stood just before this final clearing edit — carries
@@ -4219,14 +4316,16 @@ const SummaryDashboard = ({
     if (!onSessionSave) return;
     persistItem(kind, applyItemRangePatch(item, rangeId, patch));
   };
-  // Materialize a new range from the ghost add-row: create it seeded from the
-  // active range and write the typed bound in one transform, then make it active
-  // and tag it as new so it isn't immediately auto-pruned as "blank".
-  const handleMaterializeGhostRange = (kind, item, activeRangeId, field, value) => {
+  // Create a range from the ghost add-row once the user has entered bounds and
+  // left the row (the ghost buffers until then — see GhostRangeRow). Seeds the
+  // tolerance structure from the active range, writes the entered bounds/unit in
+  // one transform, makes it active, and tags it "new" so the single-value mode
+  // toggle is offered on the fresh row.
+  const materializeGhostRange = (kind, item, activeRangeId, { min, max, unit }) => {
     if (!onSessionSave) return;
-    const raw = String(value ?? "").trim();
-    if (!raw) return; // clicking through the empty ghost shouldn't add a range
-    const { item: updated, newRangeId } = addRangeWithBound(item, activeRangeId, field, value);
+    if (min === "" && max === "") return;
+    const { item: withRange, newRangeId } = addRangeToItem(item, activeRangeId);
+    const updated = applyItemRangePatch(withRange, newRangeId, { min, max, unit });
     persistItem(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
@@ -4755,17 +4854,8 @@ const SummaryDashboard = ({
   // the old per-cell `.range-stack` columns did. Only ever used in onSessionSave
   // mode. Deletion is confirm-free now: clearing a range's bounds prunes it (see
   // handleEditRangeBound) with an Undo toast — no per-row trash button.
-  //
-  // isGhost renders the perpetual blank "add" row at the bottom of the list:
-  // typing a bound materializes a new range (handleMaterializeGhostRange) seeded
-  // from the active range; its Tolerance/Resolution cells are placeholders until
-  // the range exists. `kind` is "uut" | "tmde".
-  const renderRangeRowCells = (
-    kind,
-    item,
-    range,
-    { includeDistribution, isGhost = false, activeRangeId = null } = {},
-  ) => {
+  // `kind` is "uut" | "tmde".
+  const renderRangeRowCells = (kind, item, range, { includeDistribution } = {}) => {
     const setRangeIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const tableId = kind;
     const tolerance = getItemRangeTolerance(item, range?.id) || range;
@@ -4776,29 +4866,19 @@ const SummaryDashboard = ({
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: 1 })}
         >
-          <div className={`range-row-cell${isGhost ? " range-row-cell--ghost" : ""}`}>
+          <div className="range-row-cell">
             <RangeCell
               ranges={[range]}
               activeIndex={0}
               activeRange={range}
               editable
-              allowSingleToggle={
-                !isGhost && newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))
-              }
-              onSelect={(idx) =>
-                !isGhost && setRangeIdx((prev) => ({ ...prev, [item.id]: idx }))
-              }
+              allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
+              onSelect={(idx) => setRangeIdx((prev) => ({ ...prev, [item.id]: idx }))}
               onEditBound={(field, value) =>
-                isGhost
-                  ? handleMaterializeGhostRange(kind, item, activeRangeId, field, value)
-                  : handleEditRangeBound(kind, item, range?.id, field, value)
+                handleEditRangeBound(kind, item, range?.id, field, value)
               }
-              onEditUnit={(value) =>
-                isGhost ? undefined : setRangeUnit(kind, item, range?.id, value)
-              }
-              onPatchRange={(patch) =>
-                isGhost ? undefined : patchRange(kind, item, range?.id, patch)
-              }
+              onEditUnit={(value) => setRangeUnit(kind, item, range?.id, value)}
+              onPatchRange={(patch) => patchRange(kind, item, range?.id, patch)}
             />
           </div>
         </td>
@@ -4806,27 +4886,21 @@ const SummaryDashboard = ({
         <td
           className={`cell-tolerance ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: 2 })}
-          title={isGhost ? undefined : getSpecRows(tolerance)[0]}
+          title={getSpecRows(tolerance)[0]}
         >
-          {isGhost ? (
-            <span className="range-ghost-hint">—</span>
-          ) : (
-            <InlineToleranceCell
-              tolerance={tolerance}
-              activeRange={range}
-              editable
-              onCommit={(nextTypeKey, component) =>
-                setRangeToleranceComponent(kind, item, range, nextTypeKey, component)
-              }
-            />
-          )}
+          <InlineToleranceCell
+            tolerance={tolerance}
+            activeRange={range}
+            editable
+            onCommit={(nextTypeKey, component) =>
+              setRangeToleranceComponent(kind, item, range, nextTypeKey, component)
+            }
+          />
         </td>
 
         {includeDistribution && (
           <td className="cell-distribution" title="Spec band distribution">
-            {isGhost ? (
-              <span className="range-ghost-hint">—</span>
-            ) : getBandDistDivisor(tolerance) ? (
+            {getBandDistDivisor(tolerance) ? (
               <select
                 className="session-selector"
                 value={getBandDistDivisor(tolerance)}
@@ -4849,45 +4923,32 @@ const SummaryDashboard = ({
         <td
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: 3 })}
-          title={isGhost ? undefined : formatResolutionLabel(range)}
+          title={formatResolutionLabel(range)}
         >
-          {isGhost ? (
-            <span className="range-ghost-hint">—</span>
-          ) : (
-            <ResolutionCellInput
-              value={range?.resolution ?? range?.measuringResolution}
-              unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
-              fallbackUnit={range?.unit}
-              onCommit={(v) => setRangeResolution(kind, item, range?.id, v)}
-              onCommitUnit={(value) => setRangeResolutionUnit(kind, item, range?.id, value)}
-            />
-          )}
+          <ResolutionCellInput
+            value={range?.resolution ?? range?.measuringResolution}
+            unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
+            fallbackUnit={range?.unit}
+            onCommit={(v) => setRangeResolution(kind, item, range?.id, v)}
+            onCommitUnit={(value) => setRangeResolutionUnit(kind, item, range?.id, value)}
+          />
         </td>
       </>
     );
   };
 
-  // The permanent blank "add" row rendered at the bottom of an expanded range
-  // list. A stable synthetic id keeps React from remounting its inputs on every
-  // keystroke; typing a bound materializes a real range (see renderRangeRowCells
-  // isGhost path). Returns the middle <td>s only — description/sync are spanned
-  // by the first real row's rowSpan.
-  const renderGhostRangeRow = (kind, item, activeRange, { includeDistribution }) => {
-    const ghostRange = { id: `ghost-${kind}-${item.id}`, min: "", max: "", unit: activeRange?.unit || "" };
-    return (
-      <tr
-        key={`ghost-${kind}-${item.id}`}
-        className="inline-range-row inline-range-row--ghost inline-range-row--last"
-        data-range-group={itemStateKey(kind, item.id)}
-      >
-        {renderRangeRowCells(kind, item, ghostRange, {
-          includeDistribution,
-          isGhost: true,
-          activeRangeId: activeRange?.id ?? null,
-        })}
-      </tr>
-    );
-  };
+  // The buffered "add" row at the bottom of an expanded range list.
+  const renderGhostRangeRow = (kind, item, activeRange, { includeDistribution }) => (
+    <GhostRangeRow
+      key={`ghost-${kind}-${item.id}`}
+      unit={activeRange?.unit || ""}
+      includeDistribution={includeDistribution}
+      dataGroup={itemStateKey(kind, item.id)}
+      onMaterialize={(bounds) =>
+        materializeGhostRange(kind, item, activeRange?.id ?? null, bounds)
+      }
+    />
+  );
 
   // The single control that replaces the old +/trash/eye header trio: expands the
   // instrument's range list inline (where ranges are edited, added via the ghost
@@ -7095,9 +7156,8 @@ function DetailedView({
   const handleEditRangeBoundDetail = (kind, item, rangeId, field, value) => {
     if (!onSessionSave) return;
     const patched = applyItemRangePatch(item, rangeId, { [field]: value });
-    const isNew = newRangeKeys.has(rangeStateKey(kind, item.id, rangeId));
     const patchedRange = findItemRange(patched, rangeId);
-    if (!isNew && patchedRange && rangeIsBlank(patchedRange)) {
+    if (patchedRange && rangeIsBlank(patchedRange)) {
       const pruned = removeRangeFromItem(patched, rangeId);
       if (pruned !== patched) {
         const original = findItemRange(item, rangeId) || patchedRange;
@@ -7162,12 +7222,12 @@ function DetailedView({
       return next;
     });
   };
-  // Materialize a new range from the ghost add-row (see SummaryDashboard twin).
-  const handleMaterializeGhostRangeDetail = (kind, item, activeRangeId, field, value) => {
+  // Create a range from the buffered ghost add-row (see SummaryDashboard twin).
+  const materializeGhostRangeDetail = (kind, item, activeRangeId, { min, max, unit }) => {
     if (!onSessionSave) return;
-    const raw = String(value ?? "").trim();
-    if (!raw) return;
-    const { item: updated, newRangeId } = addRangeWithBound(item, activeRangeId, field, value);
+    if (min === "" && max === "") return;
+    const { item: withRange, newRangeId } = addRangeToItem(item, activeRangeId);
+    const updated = applyItemRangePatch(withRange, newRangeId, { min, max, unit });
     persistInlineItemDetail(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
@@ -7270,12 +7330,7 @@ function DetailedView({
     setIdx((prev) => ({ ...prev, [itemId]: index }));
   };
 
-  const renderRangeRowCellsDetail = (
-    kind,
-    item,
-    range,
-    { includeDistribution, cols, isGhost = false, activeRangeId = null },
-  ) => {
+  const renderRangeRowCellsDetail = (kind, item, range, { includeDistribution, cols }) => {
     const tableId = kind === "uut" ? "uut_det" : "tmde_det";
     const tolerance = getItemRangeTolerance(item, range?.id) || range || {};
 
@@ -7285,27 +7340,19 @@ function DetailedView({
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.range ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.range })}
         >
-          <div className={`range-row-cell${isGhost ? " range-row-cell--ghost" : ""}`}>
+          <div className="range-row-cell">
             <RangeCell
               ranges={[range]}
               activeIndex={0}
               activeRange={range}
               editable
-              allowSingleToggle={
-                !isGhost && newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))
-              }
+              allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
               onSelect={() => {}}
               onEditBound={(field, value) =>
-                isGhost
-                  ? handleMaterializeGhostRangeDetail(kind, item, activeRangeId, field, value)
-                  : handleEditRangeBoundDetail(kind, item, range?.id, field, value)
+                handleEditRangeBoundDetail(kind, item, range?.id, field, value)
               }
-              onEditUnit={(value) =>
-                isGhost ? undefined : setRangeUnitDetail(kind, item, range?.id, value)
-              }
-              onPatchRange={(patch) =>
-                isGhost ? undefined : patchRangeDetail(kind, item, range?.id, patch)
-              }
+              onEditUnit={(value) => setRangeUnitDetail(kind, item, range?.id, value)}
+              onPatchRange={(patch) => patchRangeDetail(kind, item, range?.id, patch)}
             />
           </div>
         </td>
@@ -7313,27 +7360,21 @@ function DetailedView({
         <td
           className={`cell-tolerance ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.tol ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.tol })}
-          title={isGhost ? undefined : getSpecRows(tolerance)[0]}
+          title={getSpecRows(tolerance)[0]}
         >
-          {isGhost ? (
-            <span className="range-ghost-hint">—</span>
-          ) : (
-            <InlineToleranceCell
-              tolerance={tolerance}
-              activeRange={range}
-              editable
-              onCommit={(nextTypeKey, component) =>
-                setRangeToleranceComponentDetail(kind, item, range, nextTypeKey, component)
-              }
-            />
-          )}
+          <InlineToleranceCell
+            tolerance={tolerance}
+            activeRange={range}
+            editable
+            onCommit={(nextTypeKey, component) =>
+              setRangeToleranceComponentDetail(kind, item, range, nextTypeKey, component)
+            }
+          />
         </td>
 
         {includeDistribution && (
           <td className="cell-distribution" title="Spec band distribution">
-            {isGhost ? (
-              <span className="range-ghost-hint">—</span>
-            ) : getBandDistDivisor(tolerance) ? (
+            {getBandDistDivisor(tolerance) ? (
               <select
                 className="session-selector"
                 value={getBandDistDivisor(tolerance)}
@@ -7356,43 +7397,33 @@ function DetailedView({
         <td
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.res ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.res })}
-          title={isGhost ? undefined : formatResolutionLabel(range)}
+          title={formatResolutionLabel(range)}
         >
-          {isGhost ? (
-            <span className="range-ghost-hint">—</span>
-          ) : (
-            <ResolutionCellInput
-              value={range?.resolution ?? range?.measuringResolution}
-              unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
-              fallbackUnit={range?.unit}
-              onCommit={(v) => setRangeResolutionDetail(kind, item, range?.id, v)}
-              onCommitUnit={(value) => setRangeResolutionUnitDetail(kind, item, range?.id, value)}
-            />
-          )}
+          <ResolutionCellInput
+            value={range?.resolution ?? range?.measuringResolution}
+            unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
+            fallbackUnit={range?.unit}
+            onCommit={(v) => setRangeResolutionDetail(kind, item, range?.id, v)}
+            onCommitUnit={(value) => setRangeResolutionUnitDetail(kind, item, range?.id, value)}
+          />
         </td>
       </>
     );
   };
 
-  // Ghost add-row + expand button for the Detailed View (see SummaryDashboard
-  // twins). The ghost passes the view's per-column `cols` map through.
-  const renderGhostRangeRowDetail = (kind, item, activeRange, { includeDistribution, cols }) => {
-    const ghostRange = { id: `ghost-${kind}-${item.id}`, min: "", max: "", unit: activeRange?.unit || "" };
-    return (
-      <tr
-        key={`ghost-${kind}-${item.id}`}
-        className="inline-range-row inline-range-row--ghost inline-range-row--last"
-        data-range-group={itemStateKey(kind, item.id)}
-      >
-        {renderRangeRowCellsDetail(kind, item, ghostRange, {
-          includeDistribution,
-          cols,
-          isGhost: true,
-          activeRangeId: activeRange?.id ?? null,
-        })}
-      </tr>
-    );
-  };
+  // Buffered "add" row for the Detailed View (see SummaryDashboard twin). The
+  // extra Distribution column means the ghost mirrors includeDistribution.
+  const renderGhostRangeRowDetail = (kind, item, activeRange, { includeDistribution }) => (
+    <GhostRangeRow
+      key={`ghost-${kind}-${item.id}`}
+      unit={activeRange?.unit || ""}
+      includeDistribution={includeDistribution}
+      dataGroup={itemStateKey(kind, item.id)}
+      onMaterialize={(bounds) =>
+        materializeGhostRangeDetail(kind, item, activeRange?.id ?? null, bounds)
+      }
+    />
+  );
   const renderRangeExpandButtonDetail = (kind, item, rangeCount) => {
     if (!onSessionSave) return null;
     return (
