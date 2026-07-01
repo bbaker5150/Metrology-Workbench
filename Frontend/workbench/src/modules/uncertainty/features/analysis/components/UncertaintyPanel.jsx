@@ -30,8 +30,6 @@ import {
   faCopy,
   faPaste,
   faScissors,
-  faEye,
-  faEyeSlash,
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
@@ -1017,9 +1015,13 @@ const cloneRangeForPaste = (range = {}) => {
 
 // Append a pasted (cloned) range next to the active range, mirroring
 // addRangeToItem's function/array placement. Returns { item, newRangeId }.
-const pasteRangeIntoItem = (item, activeRangeId, clipRange) => {
+// preserveId keeps the incoming range's id/data verbatim (used by the
+// clear-to-delete Undo restore, which re-inserts the exact range removed).
+const pasteRangeIntoItem = (item, activeRangeId, clipRange, { preserveId = false } = {}) => {
   const inst = item?.instrument || {};
-  const newRange = cloneRangeForPaste(clipRange);
+  const newRange = preserveId
+    ? JSON.parse(JSON.stringify(clipRange || {}))
+    : cloneRangeForPaste(clipRange);
   if (Array.isArray(inst.functions) && inst.functions.length) {
     let fnIdx = inst.functions.findIndex((fn) =>
       (fn.ranges || []).some((r) => sameId(r.id, activeRangeId)),
@@ -1064,6 +1066,29 @@ const removeRangeFromItem = (item, rangeId) => {
   }
   return item;
 };
+
+// Materialize a new range FROM the ghost add-row: add a blank range (seeded from
+// the active range's tolerance structure) and immediately write the typed bound
+// into it, as ONE synchronous transform so the value isn't lost to a separate
+// async edit. Returns { item, newRangeId }.
+export const addRangeWithBound = (item, activeRangeId, field, value) => {
+  const { item: withRange, newRangeId } = addRangeToItem(item, activeRangeId);
+  return { item: applyItemRangePatch(withRange, newRangeId, { [field]: value }), newRangeId };
+};
+
+// A range with no committed numeric bounds at all. Stricter than
+// rangeIsIncomplete (which is also true for a half-filled range): used to detect
+// "the user cleared this range" so we can prune it on blur.
+export const rangeIsBlank = (range = {}) => {
+  const empty = (v) => v === "" || v === null || v === undefined;
+  if (range?.isSingleValue) return empty(range.value) && empty(range.min);
+  return empty(range.min) && empty(range.max);
+};
+
+// Re-insert a previously-removed range object, preserving its id and data. Backs
+// the "Range removed — Undo" toast.
+export const restoreRangeToItem = (item, activeRangeId, rangeObj) =>
+  pasteRangeIntoItem(item, activeRangeId, rangeObj, { preserveId: true }).item;
 
 // Render a number without scientific notation (e.g. "1e-7" -> "0.0000001") for
 // display in editable cells. Non-numeric values pass through unchanged.
@@ -2336,6 +2361,31 @@ const RangeCell = ({
         )}
       </div>
     </div>
+  );
+};
+
+// Lightweight "Range removed — Undo" toast. Mirrors the tolerance workflow's
+// confirm-AFTER philosophy: deletion is instant (no modal), with a brief window
+// to take it back. Auto-dismiss is driven by the owner via the `undo` prop being
+// cleared; this component only renders + wires the two actions.
+const RangeUndoToast = ({ undo, onUndo, onDismiss }) => {
+  if (!undo) return null;
+  return ReactDOM.createPortal(
+    <div className="range-undo-toast" role="status" aria-live="polite">
+      <span className="range-undo-toast-label">Range removed</span>
+      <button type="button" className="range-undo-toast-btn" onClick={onUndo}>
+        Undo
+      </button>
+      <button
+        type="button"
+        className="range-undo-toast-close"
+        aria-label="Dismiss"
+        onClick={onDismiss}
+      >
+        <FontAwesomeIcon icon={faTimesCircle} />
+      </button>
+    </div>,
+    document.body,
   );
 };
 
@@ -4098,28 +4148,90 @@ const SummaryDashboard = ({
   const persistItem = (kind, updatedItem) => {
     persistInlineItem(kind, updatedItem);
   };
+  // Stash a just-pruned range so the Undo toast can put it back. Resets any
+  // pending timer and starts a fresh ~5s auto-dismiss.
+  const clearRangeUndo = () => {
+    if (rangeUndoTimer.current) {
+      clearTimeout(rangeUndoTimer.current);
+      rangeUndoTimer.current = null;
+    }
+    setRangeUndo(null);
+  };
+  const stashRangeUndo = (kind, itemId, range, activeRangeId) => {
+    if (rangeUndoTimer.current) clearTimeout(rangeUndoTimer.current);
+    setRangeUndo({ kind, itemId, range, activeRangeId });
+    rangeUndoTimer.current = setTimeout(() => {
+      rangeUndoTimer.current = null;
+      setRangeUndo(null);
+    }, 5000);
+  };
+  const restoreStashedRange = () => {
+    if (!rangeUndo || !onSessionSave) return clearRangeUndo();
+    const listKey = rangeUndo.kind === "uut" ? "uuts" : "tmdes";
+    const current = (sessionData[listKey] || []).find((it) => it.id === rangeUndo.itemId);
+    if (current) {
+      persistInlineItem(
+        rangeUndo.kind,
+        restoreRangeToItem(current, rangeUndo.activeRangeId, rangeUndo.range),
+      );
+    }
+    clearRangeUndo();
+  };
+
+  // Editing a range bound. Mirrors the tolerance cell's confirm-free model: if
+  // clearing a bound leaves the range fully blank (and it isn't a freshly-added
+  // row still being filled, nor the last range), prune it and offer an Undo
+  // toast instead of persisting an empty range.
   const handleEditRangeBound = (kind, item, rangeId, field, value) => {
     if (!onSessionSave) return;
-    persistItem(kind, applyItemRangePatch(item, rangeId, { [field]: value }));
+    const patched = applyItemRangePatch(item, rangeId, { [field]: value });
+    const isNew = newRangeKeys.has(rangeStateKey(kind, item.id, rangeId));
+    const patchedRange = findItemRange(patched, rangeId);
+    if (!isNew && patchedRange && rangeIsBlank(patchedRange)) {
+      const pruned = removeRangeFromItem(patched, rangeId);
+      if (pruned !== patched) {
+        // The range as it stood just before this final clearing edit — carries
+        // its tolerances/resolution so Undo restores the useful config.
+        const original = findItemRange(item, rangeId) || patchedRange;
+        persistItem(kind, pruned);
+        setNewRangeKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(rangeStateKey(kind, item.id, rangeId));
+          return next;
+        });
+        setLocalRangeIndices((prev) => {
+          const next = { ...prev };
+          delete next[item.id];
+          return next;
+        });
+        setTmdeRangeIndices((prev) => {
+          const next = { ...prev };
+          delete next[item.id];
+          return next;
+        });
+        stashRangeUndo(kind, item.id, original, rangeId);
+        return;
+      }
+    }
+    persistItem(kind, patched);
   };
   const patchRange = (kind, item, rangeId, patch) => {
     if (!onSessionSave) return;
     persistItem(kind, applyItemRangePatch(item, rangeId, patch));
   };
-  const handleAddRange = (kind, item, activeRangeId, currentCount) => {
+  // Materialize a new range from the ghost add-row: create it seeded from the
+  // active range and write the typed bound in one transform, then make it active
+  // and tag it as new so it isn't immediately auto-pruned as "blank".
+  const handleMaterializeGhostRange = (kind, item, activeRangeId, field, value) => {
     if (!onSessionSave) return;
-    const { item: updated, newRangeId } = addRangeToItem(item, activeRangeId);
+    const raw = String(value ?? "").trim();
+    if (!raw) return; // clicking through the empty ghost shouldn't add a range
+    const { item: updated, newRangeId } = addRangeWithBound(item, activeRangeId, field, value);
     persistItem(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
-    // The new range is appended within ONE function, so its flattened index
-    // isn't necessarily the last slot (a multi-function instrument keeps later
-    // functions' ranges after it). Resolve its real index by id so it becomes
-    // the active range; fall back to the appended-last assumption.
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
-    const newIdx = newRangeId
-      ? resolved.findIndex((r) => sameId(r.id, newRangeId))
-      : -1;
-    setIdx((prev) => ({ ...prev, [item.id]: newIdx >= 0 ? newIdx : currentCount }));
+    const newIdx = newRangeId ? resolved.findIndex((r) => sameId(r.id, newRangeId)) : -1;
+    setIdx((prev) => ({ ...prev, [item.id]: newIdx >= 0 ? newIdx : 0 }));
     if (newRangeId) {
       setNewRangeKeys((prev) => {
         const next = new Set(prev);
@@ -4567,6 +4679,33 @@ const SummaryDashboard = ({
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
   const [newRangeKeys, setNewRangeKeys] = useState(() => new Set());
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
+  // Clear-to-delete Undo: the last range pruned by blanking its bounds, kept
+  // briefly so the toast can restore it. Timer ref drives auto-dismiss.
+  const [rangeUndo, setRangeUndo] = useState(null);
+  const rangeUndoTimer = useRef(null);
+  // Click-away collapse: while any range list is expanded, a mousedown that
+  // lands outside that instrument's row group (tagged data-range-group) snaps it
+  // shut — mirroring the tolerance cell's focus-out close across the multi-<tr>
+  // expanded group (which has no single wrapper element to hang an onBlur on).
+  useEffect(() => {
+    if (expandedRangeKeys.size === 0) return undefined;
+    const onDown = (e) => {
+      setExpandedRangeKeys((prev) => {
+        if (prev.size === 0) return prev;
+        let next = null;
+        prev.forEach((key) => {
+          const inside = e.target?.closest?.(`[data-range-group="${key}"]`);
+          if (!inside) {
+            if (!next) next = new Set(prev);
+            next.delete(key);
+          }
+        });
+        return next || prev;
+      });
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [expandedRangeKeys]);
   const [pinnedInlineUutIds, setPinnedInlineUutIds] = useState([]);
   const [pinnedInlineTmdeIds, setPinnedInlineTmdeIds] = useState([]);
 
@@ -4588,90 +4727,6 @@ const SummaryDashboard = ({
     return { item, ranges, activeRange };
   };
 
-  const handleAddSelectedRange = (kind) => {
-    const target = getSelectedRangeTarget(kind);
-    if (!target) return;
-    const label = kind === "uut" ? "UUT" : "TMDE";
-    confirmViaNotification(setNotification, {
-      title: "Add Range",
-      message: `Add a new range to this ${label}?`,
-      confirmText: "Add Range",
-      onConfirm: () =>
-        handleAddRange(kind, target.item, target.activeRange?.id, target.ranges.length),
-    });
-  };
-
-  const handleRemoveSelectedRange = (kind) => {
-    const target = getSelectedRangeTarget(kind);
-    if (!target || target.ranges.length <= 1) return;
-    const label = kind === "uut" ? "UUT" : "TMDE";
-    confirmViaNotification(setNotification, {
-      title: "Delete Range",
-      message: `Delete the active range from this ${label}? This can't be undone.`,
-      confirmText: "Delete",
-      onConfirm: () => handleRemoveRange(kind, target.item, target.activeRange?.id),
-    });
-  };
-
-  const renderRangeHeaderActions = (kind) => {
-    if (!onSessionSave) return null;
-
-    const target = getSelectedRangeTarget(kind);
-    const label = kind === "uut" ? "UUT" : "TMDE";
-    const canAdd = Boolean(target);
-    const canRemove = Boolean(target && target.ranges.length > 1);
-    const canToggleAll = canRemove;
-    const showingAll = Boolean(target && isShowingAllRanges(kind, target.item.id));
-
-    return (
-      <span className="range-header-actions" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          className="range-header-action-btn range-header-action-btn--add"
-          title={canAdd ? `Add range to selected ${label}` : `Select one ${label} to add a range`}
-          aria-label={`Add range to selected ${label}`}
-          disabled={!canAdd}
-          onClick={() => handleAddSelectedRange(kind)}
-        >
-          <FontAwesomeIcon icon={faPlus} size="xs" />
-        </button>
-        <button
-          type="button"
-          className="range-header-action-btn range-header-action-btn--delete"
-          title={
-            canRemove
-              ? `Remove active range from selected ${label}`
-              : `Select one ${label} with multiple ranges to remove a range`
-          }
-          aria-label={`Remove active range from selected ${label}`}
-          disabled={!canRemove}
-          onClick={() => handleRemoveSelectedRange(kind)}
-        >
-          <FontAwesomeIcon icon={faTrashAlt} size="xs" />
-        </button>
-        <button
-          type="button"
-          className={`range-header-action-btn range-header-action-btn--view${showingAll ? " is-active" : ""}`}
-          title={
-            canToggleAll
-              ? showingAll
-                ? `Show active range only for selected ${label}`
-                : `Show all ranges for selected ${label}`
-              : `Select one ${label} with multiple ranges to view all ranges`
-          }
-          aria-label={
-            showingAll
-              ? `Show active range only for selected ${label}`
-              : `Show all ranges for selected ${label}`
-          }
-          disabled={!canToggleAll}
-          onClick={() => toggleShowAllRanges(kind, target.item.id)}
-        >
-          <FontAwesomeIcon icon={showingAll ? faEyeSlash : faEye} size="xs" />
-        </button>
-      </span>
-    );
-  };
 
   // Industry Grade Highlighting State
   const [hoveredCell, setHoveredCell] = useState({
@@ -4698,22 +4753,22 @@ const SummaryDashboard = ({
   // mode each range is its OWN real table row (see the showAllRanges branches
   // below), so these cells line up column-for-column instead of drifting like
   // the old per-cell `.range-stack` columns did. Only ever used in onSessionSave
-  // mode (the eye toggle is hidden otherwise), so we render the editable path
-  // directly. `kind` is "uut" | "tmde".
-  const renderRangeRowCells = (kind, item, range, { includeDistribution, canDelete }) => {
+  // mode. Deletion is confirm-free now: clearing a range's bounds prunes it (see
+  // handleEditRangeBound) with an Undo toast — no per-row trash button.
+  //
+  // isGhost renders the perpetual blank "add" row at the bottom of the list:
+  // typing a bound materializes a new range (handleMaterializeGhostRange) seeded
+  // from the active range; its Tolerance/Resolution cells are placeholders until
+  // the range exists. `kind` is "uut" | "tmde".
+  const renderRangeRowCells = (
+    kind,
+    item,
+    range,
+    { includeDistribution, isGhost = false, activeRangeId = null } = {},
+  ) => {
     const setRangeIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const tableId = kind;
     const tolerance = getItemRangeTolerance(item, range?.id) || range;
-    const label = kind === "uut" ? "UUT" : "TMDE";
-    const deleteRange = () => {
-      if (!canDelete) return;
-      confirmViaNotification(setNotification, {
-        title: "Delete Range",
-        message: `Delete this range from this ${label}? This can't be undone.`,
-        confirmText: "Delete",
-        onConfirm: () => handleRemoveRange(kind, item, range?.id),
-      });
-    };
 
     return (
       <>
@@ -4721,52 +4776,57 @@ const SummaryDashboard = ({
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: 1 })}
         >
-          <div className="range-row-cell">
+          <div className={`range-row-cell${isGhost ? " range-row-cell--ghost" : ""}`}>
             <RangeCell
               ranges={[range]}
               activeIndex={0}
               activeRange={range}
               editable
-              allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
-              onSelect={(idx) => setRangeIdx((prev) => ({ ...prev, [item.id]: idx }))}
-              onEditBound={(field, value) => handleEditRangeBound(kind, item, range?.id, field, value)}
-              onEditUnit={(value) => setRangeUnit(kind, item, range?.id, value)}
-              onPatchRange={(patch) => patchRange(kind, item, range?.id, patch)}
+              allowSingleToggle={
+                !isGhost && newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))
+              }
+              onSelect={(idx) =>
+                !isGhost && setRangeIdx((prev) => ({ ...prev, [item.id]: idx }))
+              }
+              onEditBound={(field, value) =>
+                isGhost
+                  ? handleMaterializeGhostRange(kind, item, activeRangeId, field, value)
+                  : handleEditRangeBound(kind, item, range?.id, field, value)
+              }
+              onEditUnit={(value) =>
+                isGhost ? undefined : setRangeUnit(kind, item, range?.id, value)
+              }
+              onPatchRange={(patch) =>
+                isGhost ? undefined : patchRange(kind, item, range?.id, patch)
+              }
             />
-            <button
-              type="button"
-              className="range-row-delete"
-              title={canDelete ? "Delete this range" : "An instrument must keep at least one range"}
-              aria-label="Delete this range"
-              disabled={!canDelete}
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteRange();
-              }}
-            >
-              <FontAwesomeIcon icon={faTrashAlt} size="xs" />
-            </button>
           </div>
         </td>
 
         <td
           className={`cell-tolerance ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: 2 })}
-          title={getSpecRows(tolerance)[0]}
+          title={isGhost ? undefined : getSpecRows(tolerance)[0]}
         >
-          <InlineToleranceCell
-            tolerance={tolerance}
-            activeRange={range}
-            editable
-            onCommit={(nextTypeKey, component) =>
-              setRangeToleranceComponent(kind, item, range, nextTypeKey, component)
-            }
-          />
+          {isGhost ? (
+            <span className="range-ghost-hint">—</span>
+          ) : (
+            <InlineToleranceCell
+              tolerance={tolerance}
+              activeRange={range}
+              editable
+              onCommit={(nextTypeKey, component) =>
+                setRangeToleranceComponent(kind, item, range, nextTypeKey, component)
+              }
+            />
+          )}
         </td>
 
         {includeDistribution && (
           <td className="cell-distribution" title="Spec band distribution">
-            {getBandDistDivisor(tolerance) ? (
+            {isGhost ? (
+              <span className="range-ghost-hint">—</span>
+            ) : getBandDistDivisor(tolerance) ? (
               <select
                 className="session-selector"
                 value={getBandDistDivisor(tolerance)}
@@ -4789,17 +4849,68 @@ const SummaryDashboard = ({
         <td
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: 3 })}
-          title={formatResolutionLabel(range)}
+          title={isGhost ? undefined : formatResolutionLabel(range)}
         >
-          <ResolutionCellInput
-            value={range?.resolution ?? range?.measuringResolution}
-            unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
-            fallbackUnit={range?.unit}
-            onCommit={(v) => setRangeResolution(kind, item, range?.id, v)}
-            onCommitUnit={(value) => setRangeResolutionUnit(kind, item, range?.id, value)}
-          />
+          {isGhost ? (
+            <span className="range-ghost-hint">—</span>
+          ) : (
+            <ResolutionCellInput
+              value={range?.resolution ?? range?.measuringResolution}
+              unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
+              fallbackUnit={range?.unit}
+              onCommit={(v) => setRangeResolution(kind, item, range?.id, v)}
+              onCommitUnit={(value) => setRangeResolutionUnit(kind, item, range?.id, value)}
+            />
+          )}
         </td>
       </>
+    );
+  };
+
+  // The permanent blank "add" row rendered at the bottom of an expanded range
+  // list. A stable synthetic id keeps React from remounting its inputs on every
+  // keystroke; typing a bound materializes a real range (see renderRangeRowCells
+  // isGhost path). Returns the middle <td>s only — description/sync are spanned
+  // by the first real row's rowSpan.
+  const renderGhostRangeRow = (kind, item, activeRange, { includeDistribution }) => {
+    const ghostRange = { id: `ghost-${kind}-${item.id}`, min: "", max: "", unit: activeRange?.unit || "" };
+    return (
+      <tr
+        key={`ghost-${kind}-${item.id}`}
+        className="inline-range-row inline-range-row--ghost inline-range-row--last"
+        data-range-group={itemStateKey(kind, item.id)}
+      >
+        {renderRangeRowCells(kind, item, ghostRange, {
+          includeDistribution,
+          isGhost: true,
+          activeRangeId: activeRange?.id ?? null,
+        })}
+      </tr>
+    );
+  };
+
+  // The single control that replaces the old +/trash/eye header trio: expands the
+  // instrument's range list inline (where ranges are edited, added via the ghost
+  // row, and removed by clearing bounds). Click-away collapses it (see the
+  // expandedRangeKeys mousedown effect).
+  const renderRangeExpandButton = (kind, item, rangeCount) => {
+    if (!onSessionSave) return null;
+    return (
+      <button
+        type="button"
+        className="range-expand-btn"
+        title="Show all ranges — edit, add, or remove"
+        aria-label="Show all ranges"
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleShowAllRanges(kind, item.id);
+        }}
+      >
+        <FontAwesomeIcon icon={faChevronDown} size="xs" />
+        <span className="range-expand-btn-label">
+          {rangeCount > 1 ? `${rangeCount} ranges` : "edit / add"}
+        </span>
+      </button>
     );
   };
 
@@ -5128,6 +5239,16 @@ const SummaryDashboard = ({
     const newIdx = resolved.findIndex((r) => sameId(r.id, newRangeId));
     if (newIdx >= 0) setIdx((prev) => ({ ...prev, [item.id]: newIdx }));
   };
+  // Instant, confirm-free range deletion with an Undo toast — the discoverable
+  // counterpart to clear-to-delete, used by the context menu.
+  const deleteRangeWithUndo = (kind, item, rangeId) => {
+    if (!onSessionSave) return;
+    const original = findItemRange(item, rangeId);
+    const pruned = removeRangeFromItem(item, rangeId);
+    if (pruned === item) return; // last-range guard: nothing removed
+    handleRemoveRange(kind, item, rangeId);
+    if (original) stashRangeUndo(kind, item.id, original, rangeId);
+  };
   const openRangeRowMenu = (e, kind, item, range, index, totalRanges) => {
     if (!onSessionSave) return;
     e.preventDefault();
@@ -5135,7 +5256,6 @@ const SummaryDashboard = ({
     activateRangeRow(kind, item.id, index);
     const canPaste = !!rangeClipboard && rangeClipboard.kind === kind;
     const canDelete = totalRanges > 1;
-    const label = kind === "uut" ? "UUT" : "TMDE";
     const items = [
       { label: "Copy Range", icon: faCopy, action: () => copyRange(kind, item, range?.id) },
     ];
@@ -5159,13 +5279,7 @@ const SummaryDashboard = ({
         label: "Delete Range",
         icon: faTrashAlt,
         className: "destructive",
-        action: () =>
-          confirmViaNotification(setNotification, {
-            title: "Delete Range",
-            message: `Delete this range from this ${label}? This can't be undone.`,
-            confirmText: "Delete",
-            onConfirm: () => handleRemoveRange(kind, item, range?.id),
-          }),
+        action: () => deleteRangeWithUndo(kind, item, range?.id),
       });
     }
     setRowMenu({ x: e.clientX, y: e.clientY, items });
@@ -5332,7 +5446,6 @@ const SummaryDashboard = ({
                 <th>
                   <span className="range-header-cell">
                     <span>Range(s)</span>
-                    {renderRangeHeaderActions("uut")}
                   </span>
                 </th>
                 <th>Tolerance</th>
@@ -5442,7 +5555,7 @@ const SummaryDashboard = ({
                   // selects that range so the header +/-/tolerance buttons act on it.
                   if (showAllRanges) {
                     const n = visibleRangeRows.length;
-                    const canDelete = ranges.length > 1;
+                    const spanRows = n + 1; // +1 for the trailing ghost add-row
                     const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={uutRowKey}>
@@ -5451,7 +5564,8 @@ const SummaryDashboard = ({
                           return (
                             <tr
                               key={key}
-                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                              data-range-group={itemStateKey("uut", uut.id)}
+                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "uut", uut, range, index, n)}
                               onMouseDownCapture={() => activateRangeRow("uut", uutRowKey, index)}
@@ -5459,7 +5573,7 @@ const SummaryDashboard = ({
                             >
                               {i === 0 && (
                                 <td
-                                  rowSpan={n}
+                                  rowSpan={spanRows}
                                   className={`cell-description ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                   onMouseEnter={() =>
                                     setHoveredCell({ tableId: "uut", colIndex: 0 })
@@ -5483,11 +5597,10 @@ const SummaryDashboard = ({
                               )}
                               {renderRangeRowCells("uut", uut, range, {
                                 includeDistribution: false,
-                                canDelete,
                               })}
                               {i === 0 && (
                                 <td
-                                  rowSpan={n}
+                                  rowSpan={spanRows}
                                   className="cell-sync"
                                   style={{ textAlign: "center" }}
                                 >
@@ -5496,6 +5609,9 @@ const SummaryDashboard = ({
                               )}
                             </tr>
                           );
+                        })}
+                        {renderGhostRangeRow("uut", uut, activeRange, {
+                          includeDistribution: false,
                         })}
                       </React.Fragment>
                     );
@@ -5554,7 +5670,7 @@ const SummaryDashboard = ({
                           }
                           style={{ verticalAlign: "middle" }}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className="range-collapsed-cell">
                             {visibleRangeRows.map(({ range, index, key }) => (
                               <div className="range-stack-row" key={key}>
                                 <RangeCell
@@ -5580,6 +5696,7 @@ const SummaryDashboard = ({
                                 />
                               </div>
                             ))}
+                            {renderRangeExpandButton("uut", uut, ranges.length)}
                           </div>
                         </td>
                         <td
@@ -5740,7 +5857,6 @@ const SummaryDashboard = ({
                 <th>
                   <span className="range-header-cell">
                     <span>Range</span>
-                    {renderRangeHeaderActions("tmde")}
                   </span>
                 </th>
                 <th>Error Limit</th>
@@ -5809,7 +5925,7 @@ const SummaryDashboard = ({
                   // per-range cell.
                   if (showAllRanges) {
                     const n = visibleRangeRows.length;
-                    const canDelete = ranges.length > 1;
+                    const spanRows = n + 1; // +1 for the trailing ghost add-row
                     const activeRangeIndex = tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={tmdeRowKey || idx}>
@@ -5818,7 +5934,8 @@ const SummaryDashboard = ({
                           return (
                             <tr
                               key={key}
-                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
+                              data-range-group={itemStateKey("tmde", tmde.id)}
+                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(tmde.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "tmde", tmde, range, index, n)}
                               onMouseDownCapture={() => activateRangeRow("tmde", tmdeRowKey, index)}
@@ -5826,7 +5943,7 @@ const SummaryDashboard = ({
                             >
                               {i === 0 && (
                                 <td
-                                  rowSpan={n}
+                                  rowSpan={spanRows}
                                   className={`cell-description ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                   onMouseEnter={() =>
                                     setHoveredCell({ tableId: "tmde", colIndex: 0 })
@@ -5850,11 +5967,10 @@ const SummaryDashboard = ({
                               )}
                               {renderRangeRowCells("tmde", tmde, range, {
                                 includeDistribution: true,
-                                canDelete,
                               })}
                               {i === 0 && (
                                 <td
-                                  rowSpan={n}
+                                  rowSpan={spanRows}
                                   className="cell-sync"
                                   style={{ textAlign: "center" }}
                                 >
@@ -5863,6 +5979,9 @@ const SummaryDashboard = ({
                               )}
                             </tr>
                           );
+                        })}
+                        {renderGhostRangeRow("tmde", tmde, activeRange, {
+                          includeDistribution: true,
                         })}
                       </React.Fragment>
                     );
@@ -5935,7 +6054,7 @@ const SummaryDashboard = ({
                           }
                           style={{ verticalAlign: "middle" }}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className="range-collapsed-cell">
                             {visibleRangeRows.map(({ range, key }) => (
                               <div className="range-stack-row" key={key}>
                                 <RangeCell
@@ -5961,6 +6080,7 @@ const SummaryDashboard = ({
                                 />
                               </div>
                             ))}
+                            {renderRangeExpandButton("tmde", tmde, ranges.length)}
                           </div>
                         </td>
                         <td
@@ -6098,6 +6218,11 @@ const SummaryDashboard = ({
       </div>
 
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
+      <RangeUndoToast
+        undo={rangeUndo}
+        onUndo={restoreStashedRange}
+        onDismiss={clearRangeUndo}
+      />
     </div>
   );
 };
@@ -6154,6 +6279,9 @@ function DetailedView({
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [newRangeKeys, setNewRangeKeys] = useState(() => new Set());
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
+  // Clear-to-delete Undo (see the SummaryDashboard twin for rationale).
+  const [rangeUndo, setRangeUndo] = useState(null);
+  const rangeUndoTimer = useRef(null);
 
   // --- NEW: Local Selection State ---
   const [selectedUutIds, setSelectedUutIds] = useState([]);
@@ -6274,7 +6402,6 @@ function DetailedView({
     activateRangeRowDetail(kind, item.id, index);
     const canPaste = !!rangeClipboard && rangeClipboard.kind === kind;
     const canDelete = totalRanges > 1;
-    const label = kind === "uut" ? "UUT" : "TMDE";
     const items = [
       { label: "Copy Range", icon: faCopy, action: () => copyRange(kind, item, range?.id) },
     ];
@@ -6298,13 +6425,7 @@ function DetailedView({
         label: "Delete Range",
         icon: faTrashAlt,
         className: "destructive",
-        action: () =>
-          confirmViaNotification(setNotification, {
-            title: "Delete Range",
-            message: `Delete this range from this ${label}? This can't be undone.`,
-            confirmText: "Delete",
-            onConfirm: () => handleRemoveRangeDetail(kind, item, range?.id),
-          }),
+        action: () => deleteRangeWithUndoDetail(kind, item, range?.id),
       });
     }
     setRowMenu({ x: e.clientX, y: e.clientY, items });
@@ -6940,11 +7061,68 @@ function DetailedView({
   };
 
   // --- Range bounds / unit / resolution / add / remove ---
-  const handleEditRangeBoundDetail = (kind, item, rangeId, field, value) =>
-    persistInlineItemDetail(
-      kind,
-      applyItemRangePatch(item, rangeId, { [field]: value }),
-    );
+  // Clear-to-delete Undo plumbing (mirrors the SummaryDashboard twin).
+  const clearRangeUndo = () => {
+    if (rangeUndoTimer.current) {
+      clearTimeout(rangeUndoTimer.current);
+      rangeUndoTimer.current = null;
+    }
+    setRangeUndo(null);
+  };
+  const stashRangeUndo = (kind, itemId, range, activeRangeId) => {
+    if (rangeUndoTimer.current) clearTimeout(rangeUndoTimer.current);
+    setRangeUndo({ kind, itemId, range, activeRangeId });
+    rangeUndoTimer.current = setTimeout(() => {
+      rangeUndoTimer.current = null;
+      setRangeUndo(null);
+    }, 5000);
+  };
+  const restoreStashedRange = () => {
+    if (!rangeUndo || !onSessionSave) return clearRangeUndo();
+    const listKey = rangeUndo.kind === "uut" ? "uuts" : "tmdes";
+    const current = (sessionData[listKey] || []).find((it) => it.id === rangeUndo.itemId);
+    if (current) {
+      persistInlineItemDetail(
+        rangeUndo.kind,
+        restoreRangeToItem(current, rangeUndo.activeRangeId, rangeUndo.range),
+      );
+    }
+    clearRangeUndo();
+  };
+
+  // Editing a bound: clearing a range's last bound prunes it (with an Undo toast)
+  // rather than persisting an empty range — see the SummaryDashboard twin.
+  const handleEditRangeBoundDetail = (kind, item, rangeId, field, value) => {
+    if (!onSessionSave) return;
+    const patched = applyItemRangePatch(item, rangeId, { [field]: value });
+    const isNew = newRangeKeys.has(rangeStateKey(kind, item.id, rangeId));
+    const patchedRange = findItemRange(patched, rangeId);
+    if (!isNew && patchedRange && rangeIsBlank(patchedRange)) {
+      const pruned = removeRangeFromItem(patched, rangeId);
+      if (pruned !== patched) {
+        const original = findItemRange(item, rangeId) || patchedRange;
+        persistInlineItemDetail(kind, pruned);
+        setNewRangeKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(rangeStateKey(kind, item.id, rangeId));
+          return next;
+        });
+        setLocalRangeIndices((prev) => {
+          const next = { ...prev };
+          delete next[item.id];
+          return next;
+        });
+        setTmdeRangeIndices((prev) => {
+          const next = { ...prev };
+          delete next[item.id];
+          return next;
+        });
+        stashRangeUndo(kind, item.id, original, rangeId);
+        return;
+      }
+    }
+    persistInlineItemDetail(kind, patched);
+  };
   const setRangeUnitDetail = (kind, item, rangeId, value) =>
     persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, { unit: value }));
   const patchRangeDetail = (kind, item, rangeId, patch) =>
@@ -6969,26 +7147,6 @@ function DetailedView({
       applyItemRangeTolerance(item, rangeId, applyBandDistribution(cur, value)),
     );
   };
-  const handleAddRangeDetail = (kind, item, activeRangeId, currentCount) => {
-    if (!onSessionSave) return;
-    const { item: updated, newRangeId } = addRangeToItem(item, activeRangeId);
-    persistInlineItemDetail(kind, updated);
-    const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
-    // Resolve the new range's real flattened index by id (it's appended within
-    // one function, not necessarily the last slot — see handleAddRange).
-    const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
-    const newIdx = newRangeId
-      ? resolved.findIndex((r) => sameId(r.id, newRangeId))
-      : -1;
-    setIdx((prev) => ({ ...prev, [item.id]: newIdx >= 0 ? newIdx : currentCount }));
-    if (newRangeId) {
-      setNewRangeKeys((prev) => {
-        const next = new Set(prev);
-        next.add(rangeStateKey(kind, item.id, newRangeId));
-        return next;
-      });
-    }
-  };
   const handleRemoveRangeDetail = (kind, item, rangeId) => {
     if (!onSessionSave) return;
     persistInlineItemDetail(kind, removeRangeFromItem(item, rangeId));
@@ -7004,6 +7162,34 @@ function DetailedView({
       return next;
     });
   };
+  // Materialize a new range from the ghost add-row (see SummaryDashboard twin).
+  const handleMaterializeGhostRangeDetail = (kind, item, activeRangeId, field, value) => {
+    if (!onSessionSave) return;
+    const raw = String(value ?? "").trim();
+    if (!raw) return;
+    const { item: updated, newRangeId } = addRangeWithBound(item, activeRangeId, field, value);
+    persistInlineItemDetail(kind, updated);
+    const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
+    const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
+    const newIdx = newRangeId ? resolved.findIndex((r) => sameId(r.id, newRangeId)) : -1;
+    setIdx((prev) => ({ ...prev, [item.id]: newIdx >= 0 ? newIdx : 0 }));
+    if (newRangeId) {
+      setNewRangeKeys((prev) => {
+        const next = new Set(prev);
+        next.add(rangeStateKey(kind, item.id, newRangeId));
+        return next;
+      });
+    }
+  };
+  // Instant, confirm-free deletion with Undo toast (context-menu delete path).
+  const deleteRangeWithUndoDetail = (kind, item, rangeId) => {
+    if (!onSessionSave) return;
+    const original = findItemRange(item, rangeId);
+    const pruned = removeRangeFromItem(item, rangeId);
+    if (pruned === item) return;
+    handleRemoveRangeDetail(kind, item, rangeId);
+    if (original) stashRangeUndo(kind, item.id, original, rangeId);
+  };
 
   const toggleShowAllRangesDetail = (kind, itemId) => {
     setExpandedRangeKeys((prev) => {
@@ -7017,6 +7203,27 @@ function DetailedView({
 
   const isShowingAllRangesDetail = (kind, itemId) =>
     expandedRangeKeys.has(itemStateKey(kind, itemId));
+
+  // Click-away collapse for the expanded range list (see SummaryDashboard twin).
+  useEffect(() => {
+    if (expandedRangeKeys.size === 0) return undefined;
+    const onDown = (e) => {
+      setExpandedRangeKeys((prev) => {
+        if (prev.size === 0) return prev;
+        let next = null;
+        prev.forEach((key) => {
+          const inside = e.target?.closest?.(`[data-range-group="${key}"]`);
+          if (!inside) {
+            if (!next) next = new Set(prev);
+            next.delete(key);
+          }
+        });
+        return next || prev;
+      });
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [expandedRangeKeys]);
 
   const setRangeToleranceComponentDetail = (
     kind,
@@ -7051,74 +7258,6 @@ function DetailedView({
     );
     return { item, ranges, activeRange };
   };
-  const handleAddSelectedRangeDetail = (kind) => {
-    const target = getSelectedRangeTargetDetail(kind);
-    if (!target) return;
-    const label = kind === "uut" ? "UUT" : "TMDE";
-    confirmViaNotification(setNotification, {
-      title: "Add Range",
-      message: `Add a new range to this ${label}?`,
-      confirmText: "Add Range",
-      onConfirm: () =>
-        handleAddRangeDetail(kind, target.item, target.activeRange?.id, target.ranges.length),
-    });
-  };
-  const handleRemoveSelectedRangeDetail = (kind) => {
-    const target = getSelectedRangeTargetDetail(kind);
-    if (!target || target.ranges.length <= 1) return;
-    const label = kind === "uut" ? "UUT" : "TMDE";
-    confirmViaNotification(setNotification, {
-      title: "Delete Range",
-      message: `Delete the active range from this ${label}? This can't be undone.`,
-      confirmText: "Delete",
-      onConfirm: () => handleRemoveRangeDetail(kind, target.item, target.activeRange?.id),
-    });
-  };
-  const renderRangeHeaderActionsDetail = (kind) => {
-    if (!onSessionSave) return null;
-    const target = getSelectedRangeTargetDetail(kind);
-    const label = kind === "uut" ? "UUT" : "TMDE";
-    const canAdd = Boolean(target);
-    const canRemove = Boolean(target && target.ranges.length > 1);
-    const canToggleAll = canRemove;
-    const showingAll = Boolean(
-      target && isShowingAllRangesDetail(kind, target.item.id),
-    );
-    return (
-      <span className="range-header-actions" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          className="range-header-action-btn range-header-action-btn--add"
-          title={canAdd ? `Add range to selected ${label}` : `Select one ${label} to add a range`}
-          aria-label={`Add range to selected ${label}`}
-          disabled={!canAdd}
-          onClick={() => handleAddSelectedRangeDetail(kind)}
-        >
-          <FontAwesomeIcon icon={faPlus} size="xs" />
-        </button>
-        <button
-          type="button"
-          className="range-header-action-btn range-header-action-btn--delete"
-          title={canRemove ? `Remove active range from selected ${label}` : `Select one ${label} with multiple ranges to remove a range`}
-          aria-label={`Remove active range from selected ${label}`}
-          disabled={!canRemove}
-          onClick={() => handleRemoveSelectedRangeDetail(kind)}
-        >
-          <FontAwesomeIcon icon={faTrashAlt} size="xs" />
-        </button>
-        <button
-          type="button"
-          className={`range-header-action-btn range-header-action-btn--view${showingAll ? " is-active" : ""}`}
-          title={canToggleAll ? (showingAll ? `Show active range only for selected ${label}` : `Show all ranges for selected ${label}`) : `Select one ${label} with multiple ranges to view all ranges`}
-          aria-label={showingAll ? `Show active range only for selected ${label}` : `Show all ranges for selected ${label}`}
-          disabled={!canToggleAll}
-          onClick={() => toggleShowAllRangesDetail(kind, target.item.id)}
-        >
-          <FontAwesomeIcon icon={showingAll ? faEyeSlash : faEye} size="xs" />
-        </button>
-      </span>
-    );
-  };
 
   // Detailed-View counterparts of activateRangeRow / renderRangeRowCells (see
   // the Session-Overview panel). Same behaviour, wired to the *Detail handlers
@@ -7135,20 +7274,10 @@ function DetailedView({
     kind,
     item,
     range,
-    { includeDistribution, canDelete, cols },
+    { includeDistribution, cols, isGhost = false, activeRangeId = null },
   ) => {
     const tableId = kind === "uut" ? "uut_det" : "tmde_det";
     const tolerance = getItemRangeTolerance(item, range?.id) || range || {};
-    const label = kind === "uut" ? "UUT" : "TMDE";
-    const deleteRange = () => {
-      if (!canDelete) return;
-      confirmViaNotification(setNotification, {
-        title: "Delete Range",
-        message: `Delete this range from this ${label}? This can't be undone.`,
-        confirmText: "Delete",
-        onConfirm: () => handleRemoveRangeDetail(kind, item, range?.id),
-      });
-    };
 
     return (
       <>
@@ -7156,52 +7285,55 @@ function DetailedView({
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.range ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.range })}
         >
-          <div className="range-row-cell">
+          <div className={`range-row-cell${isGhost ? " range-row-cell--ghost" : ""}`}>
             <RangeCell
               ranges={[range]}
               activeIndex={0}
               activeRange={range}
               editable
-              allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
+              allowSingleToggle={
+                !isGhost && newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))
+              }
               onSelect={() => {}}
-              onEditBound={(field, value) => handleEditRangeBoundDetail(kind, item, range?.id, field, value)}
-              onEditUnit={(value) => setRangeUnitDetail(kind, item, range?.id, value)}
-              onPatchRange={(patch) => patchRangeDetail(kind, item, range?.id, patch)}
+              onEditBound={(field, value) =>
+                isGhost
+                  ? handleMaterializeGhostRangeDetail(kind, item, activeRangeId, field, value)
+                  : handleEditRangeBoundDetail(kind, item, range?.id, field, value)
+              }
+              onEditUnit={(value) =>
+                isGhost ? undefined : setRangeUnitDetail(kind, item, range?.id, value)
+              }
+              onPatchRange={(patch) =>
+                isGhost ? undefined : patchRangeDetail(kind, item, range?.id, patch)
+              }
             />
-            <button
-              type="button"
-              className="range-row-delete"
-              title={canDelete ? "Delete this range" : "An instrument must keep at least one range"}
-              aria-label="Delete this range"
-              disabled={!canDelete}
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteRange();
-              }}
-            >
-              <FontAwesomeIcon icon={faTrashAlt} size="xs" />
-            </button>
           </div>
         </td>
 
         <td
           className={`cell-tolerance ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.tol ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.tol })}
-          title={getSpecRows(tolerance)[0]}
+          title={isGhost ? undefined : getSpecRows(tolerance)[0]}
         >
-          <InlineToleranceCell
-            tolerance={tolerance}
-            activeRange={range}
-            editable
-            onCommit={(nextTypeKey, component) =>
-              setRangeToleranceComponentDetail(kind, item, range, nextTypeKey, component)
-            }
-          />
+          {isGhost ? (
+            <span className="range-ghost-hint">—</span>
+          ) : (
+            <InlineToleranceCell
+              tolerance={tolerance}
+              activeRange={range}
+              editable
+              onCommit={(nextTypeKey, component) =>
+                setRangeToleranceComponentDetail(kind, item, range, nextTypeKey, component)
+              }
+            />
+          )}
         </td>
 
         {includeDistribution && (
           <td className="cell-distribution" title="Spec band distribution">
-            {getBandDistDivisor(tolerance) ? (
+            {isGhost ? (
+              <span className="range-ghost-hint">—</span>
+            ) : getBandDistDivisor(tolerance) ? (
               <select
                 className="session-selector"
                 value={getBandDistDivisor(tolerance)}
@@ -7224,17 +7356,61 @@ function DetailedView({
         <td
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.res ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.res })}
-          title={formatResolutionLabel(range)}
+          title={isGhost ? undefined : formatResolutionLabel(range)}
         >
-          <ResolutionCellInput
-            value={range?.resolution ?? range?.measuringResolution}
-            unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
-            fallbackUnit={range?.unit}
-            onCommit={(v) => setRangeResolutionDetail(kind, item, range?.id, v)}
-            onCommitUnit={(value) => setRangeResolutionUnitDetail(kind, item, range?.id, value)}
-          />
+          {isGhost ? (
+            <span className="range-ghost-hint">—</span>
+          ) : (
+            <ResolutionCellInput
+              value={range?.resolution ?? range?.measuringResolution}
+              unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
+              fallbackUnit={range?.unit}
+              onCommit={(v) => setRangeResolutionDetail(kind, item, range?.id, v)}
+              onCommitUnit={(value) => setRangeResolutionUnitDetail(kind, item, range?.id, value)}
+            />
+          )}
         </td>
       </>
+    );
+  };
+
+  // Ghost add-row + expand button for the Detailed View (see SummaryDashboard
+  // twins). The ghost passes the view's per-column `cols` map through.
+  const renderGhostRangeRowDetail = (kind, item, activeRange, { includeDistribution, cols }) => {
+    const ghostRange = { id: `ghost-${kind}-${item.id}`, min: "", max: "", unit: activeRange?.unit || "" };
+    return (
+      <tr
+        key={`ghost-${kind}-${item.id}`}
+        className="inline-range-row inline-range-row--ghost inline-range-row--last"
+        data-range-group={itemStateKey(kind, item.id)}
+      >
+        {renderRangeRowCellsDetail(kind, item, ghostRange, {
+          includeDistribution,
+          cols,
+          isGhost: true,
+          activeRangeId: activeRange?.id ?? null,
+        })}
+      </tr>
+    );
+  };
+  const renderRangeExpandButtonDetail = (kind, item, rangeCount) => {
+    if (!onSessionSave) return null;
+    return (
+      <button
+        type="button"
+        className="range-expand-btn"
+        title="Show all ranges — edit, add, or remove"
+        aria-label="Show all ranges"
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleShowAllRangesDetail(kind, item.id);
+        }}
+      >
+        <FontAwesomeIcon icon={faChevronDown} size="xs" />
+        <span className="range-expand-btn-label">
+          {rangeCount > 1 ? `${rangeCount} ranges` : "edit / add"}
+        </span>
+      </button>
     );
   };
 
@@ -9425,7 +9601,6 @@ function DetailedView({
                 <th>
                   <span className="range-header-cell">
                     <span>Range(s)</span>
-                    {renderRangeHeaderActionsDetail("uut")}
                   </span>
                 </th>
                 <th>Tolerance</th>
@@ -9472,7 +9647,7 @@ function DetailedView({
                   // columns line up (see the Session-Overview panel for rationale).
                   if (showAllRanges) {
                     const n = visibleRangeRows.length;
-                    const canDelete = ranges.length > 1;
+                    const spanRows = n + 1; // +1 for the trailing ghost add-row
                     const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={uutRowKey}>
@@ -9481,7 +9656,8 @@ function DetailedView({
                           return (
                             <tr
                               key={key}
-                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                              data-range-group={itemStateKey("uut", uut.id)}
+                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "uut", uut, range, index, n)}
                               onMouseDownCapture={() => activateRangeRowDetail("uut", uutRowKey, index)}
@@ -9489,7 +9665,7 @@ function DetailedView({
                             >
                               {i === 0 && (
                                 <td
-                                  rowSpan={n}
+                                  rowSpan={spanRows}
                                   className={`cell-description ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                   onMouseEnter={() =>
                                     setHoveredCell({ tableId: "uut_det", colIndex: 0 })
@@ -9524,12 +9700,11 @@ function DetailedView({
                               )}
                               {renderRangeRowCellsDetail("uut", uut, range, {
                                 includeDistribution: false,
-                                canDelete,
                                 cols: { range: 1, tol: 2, res: 3 },
                               })}
                               {i === 0 && (
                                 <td
-                                  rowSpan={n}
+                                  rowSpan={spanRows}
                                   className="cell-sync"
                                   style={{ textAlign: "center" }}
                                 >
@@ -9538,6 +9713,10 @@ function DetailedView({
                               )}
                             </tr>
                           );
+                        })}
+                        {renderGhostRangeRowDetail("uut", uut, activeRange, {
+                          includeDistribution: false,
+                          cols: { range: 1, tol: 2, res: 3 },
                         })}
                       </React.Fragment>
                     );
@@ -9603,7 +9782,7 @@ function DetailedView({
                           }
                           style={{ verticalAlign: "middle" }}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className="range-collapsed-cell">
                             {visibleRangeRows.map(({ range, key }) => (
                               <div className="range-stack-row" key={key}>
                                 <RangeCell
@@ -9634,6 +9813,7 @@ function DetailedView({
                                 />
                               </div>
                             ))}
+                            {renderRangeExpandButtonDetail("uut", uut, ranges.length)}
                           </div>
                         </td>
 
@@ -10122,7 +10302,6 @@ function DetailedView({
                   <th>
                     <span className="range-header-cell">
                       <span>Range</span>
-                      {renderRangeHeaderActionsDetail("tmde")}
                     </span>
                   </th>
                   <th>Error Limit</th>
@@ -10204,7 +10383,7 @@ function DetailedView({
                       // first range row.
                       if (showAllRanges) {
                         const n = visibleRangeRows.length;
-                        const canDelete = ranges.length > 1;
+                        const spanRows = n + 1; // +1 for the trailing ghost add-row
                         const activeRangeIndex =
                           tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
                         return (
@@ -10214,7 +10393,8 @@ function DetailedView({
                               return (
                                 <tr
                                   key={key}
-                                  className={`tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${i === n - 1 ? " inline-range-row--last" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                                  data-range-group={itemStateKey("tmde", masterTmde.id)}
+                                  className={`tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                                   onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                                   onContextMenu={(e) =>
                                     openRangeRowMenu(e, "tmde", masterTmde, range, index, n)
@@ -10229,7 +10409,7 @@ function DetailedView({
                                 >
                                   {i === 0 && (
                                     <td
-                                      rowSpan={n}
+                                      rowSpan={spanRows}
                                       className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                       onMouseEnter={() =>
                                         setHoveredCell({ tableId: "tmde_det", colIndex: 0 })
@@ -10252,12 +10432,11 @@ function DetailedView({
                                   )}
                                   {renderRangeRowCellsDetail("tmde", masterTmde, range, {
                                     includeDistribution: true,
-                                    canDelete,
                                     cols: { range: 1, tol: 2, res: 4 },
                                   })}
                                   {i === 0 && (
                                     <td
-                                      rowSpan={n}
+                                      rowSpan={spanRows}
                                       className="cell-sync"
                                       style={{ textAlign: "center" }}
                                     >
@@ -10269,6 +10448,10 @@ function DetailedView({
                                   )}
                                 </tr>
                               );
+                            })}
+                            {renderGhostRangeRowDetail("tmde", masterTmde, activeRange, {
+                              includeDistribution: true,
+                              cols: { range: 1, tol: 2, res: 4 },
                             })}
                           </React.Fragment>
                         );
@@ -10342,7 +10525,7 @@ function DetailedView({
                               }
                               style={{ verticalAlign: "middle" }}
                             >
-                              <div className={showAllRanges ? "range-stack" : undefined}>
+                              <div className="range-collapsed-cell">
                                 {visibleRangeRows.map(({ range, key }) => (
                                   <div className="range-stack-row" key={key}>
                                     <RangeCell
@@ -10384,6 +10567,7 @@ function DetailedView({
                                     />
                                   </div>
                                 ))}
+                                {renderRangeExpandButtonDetail("tmde", masterTmde, ranges.length)}
                               </div>
                             </td>
 
@@ -10651,6 +10835,11 @@ function DetailedView({
       )}
       {renderBudgetTmdePicker()}
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
+      <RangeUndoToast
+        undo={rangeUndo}
+        onUndo={restoreStashedRange}
+        onDismiss={clearRangeUndo}
+      />
     </div>
   );
 }

@@ -11178,6 +11178,139 @@ input.inline-function-input:focus {
   opacity: 0;
 }
 
+/* --- Collapsed range cell: active range inline + the expand affordance that
+   opens the full editable list (add via ghost row, remove by clearing). --- */
+.range-collapsed-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.range-expand-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: transparent;
+  color: var(--text-color-muted);
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+/* Reveal the expander on row hover so the collapsed cell stays clean at rest,
+   matching the tolerance cell's "click to reveal" restraint. */
+.industry-table tbody tr:hover .range-expand-btn,
+.industry-table tbody tr.selected-row .range-expand-btn,
+.industry-table tbody tr.instrument-selected .range-expand-btn {
+  opacity: 1;
+}
+
+.range-expand-btn:hover {
+  background: var(--hover-bg, rgba(127, 127, 127, 0.12));
+  color: var(--text-color);
+  border-color: var(--primary-color);
+}
+
+.range-expand-btn-label {
+  white-space: nowrap;
+}
+
+/* --- Ghost add-row: the perpetual blank row at the bottom of an expanded list.
+   Muted until the user types a bound, at which point it materializes. --- */
+.industry-table tbody tr.inline-range-row--ghost > td {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 6px,
+    rgba(127, 127, 127, 0.04) 6px,
+    rgba(127, 127, 127, 0.04) 12px
+  );
+}
+
+.range-row-cell--ghost .inline-range-editor {
+  opacity: 0.75;
+}
+
+.range-row-cell--ghost .inline-tolerance-input::placeholder {
+  font-style: italic;
+}
+
+.range-ghost-hint {
+  color: var(--text-color-muted);
+  opacity: 0.5;
+  font-size: 0.85em;
+}
+
+/* --- Clear-to-delete Undo toast (confirm-after, replaces the delete modal). --- */
+.range-undo-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 3200;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--border-radius);
+  background: var(--card-bg, #2b2b2b);
+  color: var(--text-color, #fff);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  font-size: 0.85rem;
+  animation: range-undo-toast-in 0.16s ease-out;
+}
+
+@keyframes range-undo-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.range-undo-toast-label {
+  font-weight: 500;
+}
+
+.range-undo-toast-btn {
+  border: none;
+  background: transparent;
+  color: var(--primary-color);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--border-radius);
+}
+
+.range-undo-toast-btn:hover {
+  background: rgba(127, 127, 127, 0.16);
+}
+
+.range-undo-toast-close {
+  border: none;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.range-undo-toast-close:hover {
+  color: var(--text-color);
+}
+
 .inline-tolerance-editor {
   justify-content: flex-start;
   align-items: stretch;
