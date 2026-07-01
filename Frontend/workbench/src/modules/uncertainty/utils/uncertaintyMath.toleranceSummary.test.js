@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DISTRIBUTION_NOT_SET,
   errorDistributions,
   getAbsoluteLimits,
   getToleranceErrorSummary,
@@ -64,6 +65,13 @@ describe("getToleranceErrorSummary", () => {
 });
 
 describe("errorDistributions", () => {
+  it("offers an explicit not-set option for unvalidated instrument specs", () => {
+    expect(errorDistributions[0]).toEqual({
+      value: DISTRIBUTION_NOT_SET,
+      label: "Not Set",
+    });
+  });
+
   it("offers a normal distribution with k=1", () => {
     expect(errorDistributions).toContainEqual({
       value: "1.000",

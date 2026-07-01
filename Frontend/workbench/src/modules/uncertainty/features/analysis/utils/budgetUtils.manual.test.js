@@ -1,5 +1,6 @@
 import { describe, test, expect } from "vitest";
 import { getBudgetComponentsFromTolerance } from "./budgetUtils";
+import { DISTRIBUTION_NOT_SET } from "../../../utils/uncertaintyMath";
 
 // Manual Type B components authored in the instrument builder are stored on
 // tolerance.manualComponents and resolved into the budget against the point's
@@ -74,6 +75,55 @@ describe("getBudgetComponentsFromTolerance - manual Type B components", () => {
       ref,
     );
     expect(comps.filter((c) => c.isManual)).toHaveLength(0);
+  });
+
+  test("not-set manual distribution is preserved as unresolved", () => {
+    const comps = getBudgetComponentsFromTolerance(
+      {
+        name: "UUT",
+        manualComponents: [
+          {
+            id: "m3",
+            name: "Unvalidated",
+            unit: "psig",
+            inputMode: "tolerance",
+            toleranceLimit: "0.001",
+            distribution: DISTRIBUTION_NOT_SET,
+          },
+        ],
+      },
+      ref,
+    );
+    const mc = comps.find((c) => c.isManual);
+    expect(mc.distribution).toBe("Not Set");
+    expect(mc.distributionDivisor).toBe(DISTRIBUTION_NOT_SET);
+    expect(Number.isNaN(mc.value)).toBe(true);
+    expect(Number.isNaN(mc.value_native)).toBe(true);
+  });
+});
+
+describe("getBudgetComponentsFromTolerance - unvalidated distribution", () => {
+  const ref = { value: "10", unit: "V" };
+
+  test("not-set accuracy distribution does not calculate as rectangular", () => {
+    const comps = getBudgetComponentsFromTolerance(
+      {
+        name: "DMM",
+        reading: {
+          high: "0.1",
+          low: "-0.1",
+          unit: "%",
+          distribution: DISTRIBUTION_NOT_SET,
+          symmetric: true,
+        },
+      },
+      ref,
+    );
+    const accuracy = comps.find((c) => c.name === "DMM - Accuracy");
+    expect(accuracy.distribution).toBe("Not Set");
+    expect(accuracy.distributionDivisor).toBe(DISTRIBUTION_NOT_SET);
+    expect(Number.isNaN(accuracy.value)).toBe(true);
+    expect(Number.isNaN(accuracy.value_native)).toBe(true);
   });
 });
 

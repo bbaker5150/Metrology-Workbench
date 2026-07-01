@@ -5,6 +5,7 @@ import {
   unitSystem,
   unitCategories,
   errorDistributions,
+  DISTRIBUTION_NOT_SET,
   getUnitDisplayLabel,
   unitFilterOption,
 } from "../../utils/uncertaintyMath";
@@ -84,7 +85,7 @@ const componentDefinitions = {
       high: "",
       low: "",
       unit: "%",
-      distribution: "1.732",
+      distribution: DISTRIBUTION_NOT_SET,
       symmetric: true,
     },
   },
@@ -95,7 +96,7 @@ const componentDefinitions = {
       high: "",
       low: "",
       unit: "%",
-      distribution: "1.732",
+      distribution: DISTRIBUTION_NOT_SET,
       symmetric: true,
     },
   },
@@ -105,7 +106,7 @@ const componentDefinitions = {
       high: "",
       low: "",
       unit: "",
-      distribution: "1.732",
+      distribution: DISTRIBUTION_NOT_SET,
       symmetric: true,
     },
   },
@@ -116,7 +117,7 @@ const componentDefinitions = {
       low: "",
       multiplier: 20,
       ref: 1,
-      distribution: "1.732",
+      distribution: DISTRIBUTION_NOT_SET,
       symmetric: true,
     },
   },
@@ -188,7 +189,7 @@ const ToleranceForm = ({
           inputMode: "tolerance",
           toleranceLimit: "",
           standardUncertainty: "",
-          distribution: "1.732",
+          distribution: DISTRIBUTION_NOT_SET,
         },
       ],
     }));
@@ -482,13 +483,15 @@ const ToleranceForm = ({
           <select
             data-component-key={key}
             data-field="distribution"
-            value={componentData.distribution || "1.732"}
+            value={componentData.distribution || DISTRIBUTION_NOT_SET}
             onChange={handleChange}
             style={{width: '100%'}}
           >
             {distributionOptions.map((dist) => (
               <option key={dist.value} value={dist.value}>
-                {dist.label} (k={dist.value})
+                {dist.value === DISTRIBUTION_NOT_SET
+                  ? dist.label
+                  : `${dist.label} (k=${dist.value})`}
               </option>
             ))}
           </select>
@@ -845,7 +848,7 @@ const ToleranceForm = ({
                           <div>
                             <label>Distribution</label>
                             <select
-                              value={mc.distribution || "1.732"}
+                              value={mc.distribution || DISTRIBUTION_NOT_SET}
                               onChange={(e) =>
                                 handleManualComponentChange(
                                   mc.id,
@@ -857,7 +860,9 @@ const ToleranceForm = ({
                             >
                               {bandDistributionOptions.map((dist) => (
                                 <option key={dist.value} value={dist.value}>
-                                  {dist.label} (k={dist.value})
+                                  {dist.value === DISTRIBUTION_NOT_SET
+                                    ? dist.label
+                                    : `${dist.label} (k=${dist.value})`}
                                 </option>
                               ))}
                             </select>

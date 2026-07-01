@@ -58,6 +58,24 @@ const isStandardUncertaintyEntry = (component) => {
   return /std\.?\s*unc/i.test(dist) || dist === "Other (Std. Unc.)";
 };
 
+const hasFiniteDof = (dof) => {
+  const n = Number(dof);
+  return Number.isFinite(n) && n > 0;
+};
+
+const shouldShowDofColumn = (items = []) =>
+  items.some((item) => item?.type === "A" || hasFiniteDof(item?.dof));
+
+const getComponentDisplayName = (component) => {
+  const quantity = component.quantity || 1;
+  const name =
+    component.sourceDisplayName ||
+    component.tmdeIdentity ||
+    component.name ||
+    "Uncertainty component";
+  return quantity > 1 ? `${name} (Qty: ${quantity})` : name;
+};
+
 // The tolerance (error) limit is the half-span the spec was entered as, i.e.
 // the standard uncertainty multiplied back up by its distribution divisor:
 //   limit = uᵢ × divisor.
@@ -480,27 +498,26 @@ const UncertaintyBudgetTable = ({
     );
   };
 
-  const renderComponentTable = (group) => (
+  const renderComponentTable = (group) => {
+    const showDof = shouldShowDofColumn(group.components || []);
+    return (
     <table className="uncertainty-budget-table">
       <thead>
-        <tr>
-          <th>Error Source Name</th>
-          <th>Source / Nominal</th>
-          <th>Tolerance Limit</th>
-          <th>Error Limit Distribution</th>
-          <th>Type (A/B)</th>
-          <th>DOF</th>
-          <th>Standard Uncertainty</th>
-          <th></th>
+          <tr>
+            <th>Error Source Name</th>
+            <th>Tolerance Limit</th>
+            <th>Error Limit Distribution</th>
+            <th>Type (A/B)</th>
+          {showDof && <th>DOF</th>}
+            <th>Standard Uncertainty</th>
+            <th></th>
         </tr>
       </thead>
       <tbody className="component-group-tbody">
         {(group.components || []).map((component) => {
           const std = getComponentStdUncertainty(component, group.unit);
           const tolLimit = getComponentToleranceLimit(component, std);
-          const quantity = component.quantity || 1;
-          const displayName =
-            quantity > 1 ? `${component.name} (Qty: ${quantity})` : component.name;
+          const displayName = getComponentDisplayName(component);
           const isStdEntry = isStandardUncertaintyEntry(component);
           // The entered magnitude of a manual Type-B is editable inline. A
           // tolerance-mode entry edits the Tolerance Limit cell; a directly-
@@ -518,7 +535,6 @@ const UncertaintyBudgetTable = ({
                 {displayName}
                 <DeviationFlag component={component} />
               </td>
-              <td>{component.sourcePointLabel || "N/A"}</td>
               <td>
                 {editableTolerance ? (
                   <ManualValueCell
@@ -534,7 +550,7 @@ const UncertaintyBudgetTable = ({
               </td>
               <td>{renderDistributionCell(component)}</td>
               <td>{component.type || "B"}</td>
-              <td>{formatDof(component.dof)}</td>
+              {showDof && <td>{formatDof(component.dof)}</td>}
               <td>
                 {editableStd ? (
                   <ManualValueCell
@@ -552,16 +568,18 @@ const UncertaintyBudgetTable = ({
         })}
       </tbody>
     </table>
-  );
+    );
+  };
 
-  const renderEquationTable = (group) => (
+  const renderEquationTable = (group) => {
+    const showDof = shouldShowDofColumn(group.rows || []);
+    return (
     <>
     <table className="uncertainty-budget-table">
       <thead>
         <tr>
           <th>Input Variable</th>
-          <th>Nominal Value</th>
-          <th>DOF</th>
+          {showDof && <th>DOF</th>}
           <th>Standard Uncertainty</th>
           <th>Sensitivity Coefficient</th>
           <th>Contribution</th>
@@ -571,8 +589,7 @@ const UncertaintyBudgetTable = ({
         {(group.rows || []).map((row) => (
           <tr key={row.id}>
             <td>{row.name}</td>
-            <td>{row.nominalValue || "N/A"}</td>
-            <td>{formatDof(row.dof)}</td>
+            {showDof && <td>{formatDof(row.dof)}</td>}
             <td>
               {formatNumber(row.standardUncertainty, getGroupSigFigs(group))}{" "}
               {row.unit}
@@ -595,7 +612,8 @@ const UncertaintyBudgetTable = ({
       </p>
     )}
     </>
-  );
+    );
+  };
 
   const getPfaClass = (pfa) => {
     if (pfa > 5) return "status-bad";

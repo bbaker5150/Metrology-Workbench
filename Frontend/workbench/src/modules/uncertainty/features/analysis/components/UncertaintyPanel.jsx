@@ -10,7 +10,6 @@ import React, {
   useCallback,
 } from "react";
 import ReactDOM from "react-dom";
-import Select from "react-select";
 import * as math from "mathjs";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -53,70 +52,6 @@ import {
 import { createInstanceFromDefinition } from "../../../utils/instrumentFactory";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 
-// --- Constants ---
-const customUnitSelectStyles = {
-  menuPortal: (base) => ({ ...base, zIndex: 99999 }),
-  menu: (base) => ({
-    ...base,
-    zIndex: 99999,
-    width: "max-content",
-    minWidth: "100%",
-  }),
-  menuList: (base) => ({
-    ...base,
-    overflowX: "hidden",
-  }),
-  control: (base) => ({
-    ...base,
-    minHeight: "24px",
-    height: "24px",
-    fontSize: "0.85rem",
-    backgroundColor: "transparent",
-    borderColor: "var(--border-color)",
-    color: "var(--text-color)",
-    boxShadow: "none",
-    "&:hover": {
-      borderColor: "var(--primary-color)",
-    },
-  }),
-  valueContainer: (base) => ({
-    ...base,
-    height: "24px",
-    padding: "0 4px",
-    display: "flex",
-    alignItems: "center",
-  }),
-  singleValue: (base) => ({
-    ...base,
-    color: "var(--text-color)",
-    margin: 0,
-  }),
-  input: (base) => ({
-    ...base,
-    color: "var(--text-color)",
-    margin: 0,
-    padding: 0,
-  }),
-  indicatorsContainer: (base) => ({
-    ...base,
-    height: "24px",
-  }),
-  dropdownIndicator: (base) => ({
-    ...base,
-    padding: "0 4px",
-    color: "var(--text-color-muted)",
-  }),
-  clearIndicator: (base) => ({
-    ...base,
-    padding: "0 2px",
-  }),
-  indicatorSeparator: () => ({ display: "none" }),
-  option: (base) => ({
-    ...base,
-    whiteSpace: "nowrap",
-  }),
-};
-
 // Shared, engine-verified f(x) symbol catalog (see utils/equationSymbols.js).
 import { symbolCategories } from "../../../utils/equationSymbols";
 
@@ -140,8 +75,8 @@ import {
   getUnitDisplayLabel,
   unitSystem,
   unitCategories,
-  unitFilterOption,
   errorDistributions,
+  DISTRIBUTION_NOT_SET,
 } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 import {
@@ -212,33 +147,51 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
   };
 };
 
-const scopeLibraryInstrumentToFunction = (instrument = {}, functionKey, fallbackFn = {}) => {
+export const scopeLibraryInstrumentToFunction = (
+  instrument = {},
+  functionKey,
+  fallbackFn = {},
+) => {
   if (!functionKey) return instrument;
   const functions = Array.isArray(instrument.functions) ? instrument.functions : [];
-  const match = functions.find(
-    (fn) => makeFunctionKey(fn.name, fn.unit) === functionKey,
-  );
+  const selectedName = functionNamePart(functionKey);
+  const selectedUnit = functionUnitPart(functionKey);
+  const functionMatches = (name, unit) => {
+    const candidateKey = makeFunctionKey(name, unit);
+    if (candidateKey === functionKey) return true;
+    if (!selectedName || functionNamePart(candidateKey) !== selectedName) return false;
+    return functionUnitsMatch(selectedUnit, functionUnitPart(candidateKey));
+  };
+  const match = functions.find((fn) => functionMatches(fn.name, fn.unit));
   const fallbackName = fallbackFn.name || "";
-  const fallbackUnit = fallbackFn.unit || "";
+  const fallbackUnit =
+    fallbackFn.unit !== undefined && fallbackFn.unit !== null
+      ? String(fallbackFn.unit)
+      : "";
   const matchingRangeRows = match
     ? []
     : getInstrumentRangeRows(instrument).filter(
-        (range) =>
-          makeFunctionKey(
-            range.functionName || fallbackName,
-            range.functionUnit || range.unit || fallbackUnit,
-          ) === functionKey,
+        (range) => {
+          const name = range.functionName || fallbackName;
+          const unit = range.functionUnit || range.unit || fallbackUnit;
+          return functionMatches(name, unit);
+        },
       );
   const scopedFunction = match
-    ? { ...match, ranges: Array.isArray(match.ranges) ? match.ranges : [] }
+    ? {
+        ...match,
+        name: fallbackName || match.name,
+        unit: fallbackFn.unit !== undefined && fallbackFn.unit !== null ? fallbackUnit : match.unit,
+        ranges: Array.isArray(match.ranges) ? match.ranges : [],
+      }
     : matchingRangeRows.length > 0
       ? {
           id: uuidv4(),
           name: matchingRangeRows[0].functionName || fallbackName,
           unit:
-            matchingRangeRows[0].functionUnit ||
-            matchingRangeRows[0].unit ||
-            fallbackUnit,
+            fallbackFn.unit !== undefined && fallbackFn.unit !== null
+              ? fallbackUnit
+              : matchingRangeRows[0].functionUnit || matchingRangeRows[0].unit,
           ranges: matchingRangeRows.map(({ source, _index, ...range }) => range),
         }
     : {
@@ -303,41 +256,403 @@ const buildGroupedUnitOptions = () => {
   return options;
 };
 
+const SI_PREFIX_OPTIONS = [
+  { key: "", label: "Base", shortLabel: "Base" },
+  { key: "p", label: "Pico", shortLabel: "p" },
+  { key: "n", label: "Nano", shortLabel: "n" },
+  { key: "u", label: "Micro", shortLabel: "u" },
+  { key: "m", label: "Milli", shortLabel: "m" },
+  { key: "c", label: "Centi", shortLabel: "c" },
+  { key: "h", label: "Hecto", shortLabel: "h" },
+  { key: "k", label: "Kilo", shortLabel: "k" },
+  { key: "M", label: "Mega", shortLabel: "M" },
+  { key: "G", label: "Giga", shortLabel: "G" },
+  { key: "T", label: "Tera", shortLabel: "T" },
+];
+
+const SCALABLE_UNIT_FAMILIES = [
+  { base: "V", prefixes: ["n", "u", "m", "", "k"] },
+  { base: "A", prefixes: ["p", "n", "u", "m", "", "k"] },
+  { base: "Ohm", prefixes: ["m", "", "k", "M", "G", "T"] },
+  { base: "F", prefixes: ["p", "n", "u", "m", ""] },
+  { base: "H", prefixes: ["u", "m", ""] },
+  { base: "W", prefixes: ["m", "", "k", "M"] },
+  { base: "Hz", prefixes: ["", "k", "M", "G", "T"] },
+  { base: "s", prefixes: ["p", "n", "u", "m", ""] },
+  { base: "m", prefixes: ["n", "u", "m", "c", "", "k"] },
+  { base: "g", prefixes: ["u", "m", "", "k"] },
+  { base: "rad", prefixes: ["m", ""] },
+  { base: "L", prefixes: ["m", ""] },
+  { base: "Pa", prefixes: ["", "h", "k", "M"] },
+  { base: "N", prefixes: ["", "k"] },
+  { base: "J", prefixes: ["", "k"] },
+  { base: "Wh", prefixes: ["", "k"] },
+  { base: "T", prefixes: ["u", "m", ""] },
+];
+
+const unitKeyFromParts = (base, prefix = "") => {
+  if (!base) return "";
+  if (base === "Ohm") return prefix ? `${prefix}Ohm` : "Ohm";
+  if (base === "g" && prefix === "k") return "kg";
+  return `${prefix}${base}`;
+};
+
+const buildUnitPartModel = () => {
+  const allSupportedUnits = Object.keys(unitSystem.units);
+  const supportedUnitSet = new Set(allSupportedUnits);
+  const scalableByUnit = new Map();
+  const baseOptionsByCategory = [];
+  const usedBaseUnits = new Set();
+  const usedScalableUnits = new Set();
+
+  SCALABLE_UNIT_FAMILIES.forEach((family) => {
+    const supportedPrefixes = family.prefixes.filter((prefix) =>
+      supportedUnitSet.has(unitKeyFromParts(family.base, prefix)),
+    );
+    if (supportedPrefixes.length === 0) return;
+    const defaultPrefix = supportedPrefixes.includes("") ? "" : supportedPrefixes[0];
+    supportedPrefixes.forEach((prefix) => {
+      const unit = unitKeyFromParts(family.base, prefix);
+      scalableByUnit.set(unit, {
+        base: family.base,
+        prefix,
+        defaultPrefix,
+        prefixes: supportedPrefixes,
+      });
+      usedScalableUnits.add(unit);
+    });
+  });
+
+  Object.entries(unitCategories).forEach(([category, units]) => {
+    const categoryOptions = [];
+    units.forEach((unit) => {
+      if (!supportedUnitSet.has(unit)) return;
+      const scalable = scalableByUnit.get(unit);
+      const base = scalable?.base || unit;
+      const key = `${category}:${base}`;
+      if (usedBaseUnits.has(key)) return;
+      usedBaseUnits.add(key);
+      categoryOptions.push({
+        value: base,
+        label: getUnitDisplayLabel(base),
+        category,
+        scalable: Boolean(scalable),
+        unit,
+      });
+    });
+    if (categoryOptions.length > 0) {
+      baseOptionsByCategory.push({ label: category, options: categoryOptions });
+    }
+  });
+
+  const knownBaseValues = new Set(
+    baseOptionsByCategory.flatMap((group) => group.options.map((option) => option.value)),
+  );
+  const leftovers = allSupportedUnits
+    .filter((unit) => !usedScalableUnits.has(unit) && !knownBaseValues.has(unit))
+    .sort()
+    .map((unit) => ({
+      value: unit,
+      label: getUnitDisplayLabel(unit),
+      category: "Other",
+      scalable: false,
+      unit,
+    }));
+
+  if (leftovers.length > 0) {
+    baseOptionsByCategory.push({ label: "Other", options: leftovers });
+  }
+
+  return { baseOptionsByCategory, scalableByUnit };
+};
+
+const normalizeUnitToken = (unit) =>
+  String(unit || "")
+    .trim()
+    .replace(/[₀０]/g, "0")
+    .replace(/[₁１]/g, "1")
+    .replace(/[₂２]/g, "2")
+    .replace(/[³₃３]/g, "3")
+    .replace(/[µμ]/g, "u")
+    .replace(/Ω/g, "Ohm")
+    .replace(/Ω/g, "Ohm")
+    .replace(/°/g, "deg")
+    .replace(/[·⋅]/g, "-")
+    .replace(/\s+/g, "")
+    .replace(/\.$/, "")
+    .replace(/h20/gi, "h2o")
+    .toLowerCase();
+
+const resolveUnitOption = (flatUnitOptions, value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const normalized = normalizeUnitToken(raw);
+  return (
+    flatUnitOptions.find((option) => option.value === raw) ||
+    flatUnitOptions.find(
+      (option) =>
+        normalizeUnitToken(option.value) === normalized ||
+        normalizeUnitToken(option.label) === normalized,
+    ) ||
+    null
+  );
+};
+
 const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [menuRect, setMenuRect] = useState(null);
+  const [activeBase, setActiveBase] = useState("");
+  const rootRef = useRef(null);
+  const searchRef = useRef(null);
+  const selectedRef = useRef(null);
+  const activeRef = useRef(null);
   const groupedUnitOptions = useMemo(() => buildGroupedUnitOptions(), []);
   const flatUnitOptions = useMemo(
     () => groupedUnitOptions.flatMap((group) => group.options || []),
     [groupedUnitOptions],
   );
-  const selectedOption =
-    flatUnitOptions.find((option) => option.value === value) || null;
+  const selectedOption = resolveUnitOption(flatUnitOptions, value);
+  const selectedUnit = selectedOption?.value || "";
+  const { baseOptionsByCategory, scalableByUnit } = useMemo(() => buildUnitPartModel(), []);
+  const scalableByBase = useMemo(() => {
+    const byBase = new Map();
+    scalableByUnit.forEach((model) => {
+      if (!byBase.has(model.base)) byBase.set(model.base, model);
+    });
+    return byBase;
+  }, [scalableByUnit]);
+  const selectedModel = scalableByUnit.get(selectedUnit);
+  const selectedBase = selectedModel?.base || selectedUnit;
+  const selectedPrefix = selectedModel?.prefix || "";
+  const flatBaseOptions = useMemo(
+    () => baseOptionsByCategory.flatMap((group) => group.options || []),
+    [baseOptionsByCategory],
+  );
+  const selectedBaseOption =
+    flatBaseOptions.find((option) => option.value === selectedBase) ||
+    flatBaseOptions.find((option) => option.unit === selectedUnit) ||
+    null;
+  const normalizedQuery = normalizeUnitToken(query);
+  const visibleGroups = useMemo(() => {
+    if (!normalizedQuery) return baseOptionsByCategory;
+    return baseOptionsByCategory
+      .map((group) => ({
+        ...group,
+        options: (group.options || []).filter((option) => {
+          const category = normalizeUnitToken(group.label);
+          return (
+            normalizeUnitToken(option.value).includes(normalizedQuery) ||
+            normalizeUnitToken(option.label).includes(normalizedQuery) ||
+            normalizeUnitToken(option.unit).includes(normalizedQuery) ||
+            category.includes(normalizedQuery)
+          );
+        }),
+      }))
+      .filter((group) => group.options.length > 0);
+  }, [baseOptionsByCategory, normalizedQuery]);
+  const visibleOptions = useMemo(
+    () => visibleGroups.flatMap((group) => group.options || []),
+    [visibleGroups],
+  );
   const unitWidth = useMemo(() => {
     const longestLabelLength = Math.max(
       4,
-      ...flatUnitOptions.map((option) => String(option.label || option.value || "").length),
+      ...flatBaseOptions.map((option) => String(option.label || option.value || "").length),
     );
-    return `${Math.min(longestLabelLength + 5, 14)}ch`;
-  }, [flatUnitOptions]);
+    return `${Math.min(longestLabelLength + 10, 18)}ch`;
+  }, [flatBaseOptions]);
+  const prefixOptions = selectedModel
+    ? selectedModel.prefixes
+        .map((prefix) => SI_PREFIX_OPTIONS.find((option) => option.key === prefix))
+        .filter(Boolean)
+    : [];
+  const prefixSelectWidth = selectedModel ? "74px" : "58px";
+  const openMenu = () => {
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (rect) {
+      setMenuRect({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: Math.max(rect.width, 240),
+      });
+    }
+    setQuery("");
+    setActiveBase(selectedBase);
+    setIsOpen(true);
+  };
+  const closeMenu = () => setIsOpen(false);
+  const chooseBaseUnit = (option) => {
+    if (option.scalable) {
+      const model = scalableByBase.get(option.value);
+      onChange(unitKeyFromParts(option.value, model?.defaultPrefix || ""));
+    } else {
+      onChange(option.unit || option.value);
+    }
+    closeMenu();
+  };
+  const choosePrefix = (prefix) => {
+    if (!selectedModel) return;
+    onChange(unitKeyFromParts(selectedModel.base, prefix));
+  };
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onPointerDown = (event) => {
+      const target = event.target;
+      if (
+        rootRef.current?.contains(target) ||
+        target?.closest?.(".inline-unit-menu")
+      ) {
+        return;
+      }
+      closeMenu();
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (
+      visibleOptions.length > 0 &&
+      !visibleOptions.some((option) => option.value === activeBase)
+    ) {
+      setActiveBase(visibleOptions[0].value);
+    }
+  }, [activeBase, isOpen, visibleOptions]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    requestAnimationFrame(() => {
+      searchRef.current?.focus();
+      (activeRef.current || selectedRef.current)?.scrollIntoView({ block: "nearest" });
+    });
+  }, [activeBase, isOpen, normalizedQuery]);
 
   return (
     <div
-      className="inline-unit-select"
+      ref={rootRef}
+      className={`inline-unit-select${selectedModel ? " inline-unit-split-select" : ""}`}
       onMouseDown={(e) => e.stopPropagation()}
       aria-label={ariaLabel}
-      style={{ "--inline-unit-width": width || unitWidth }}
+      style={{
+        "--inline-unit-width": width || unitWidth,
+        "--inline-prefix-width": prefixSelectWidth,
+      }}
     >
-      <Select
-        value={selectedOption}
-        onChange={(option) => onChange(option ? option.value : "")}
-        options={groupedUnitOptions}
-        filterOption={unitFilterOption}
-        placeholder="Unit"
-        className="react-select-container inline-unit-react-select"
-        classNamePrefix="react-select"
-        menuPortalTarget={document.body}
-        menuPosition="fixed"
-        styles={customUnitSelectStyles}
-      />
+      <button
+        type="button"
+        className={`inline-unit-combobox inline-unit-base-button${isOpen ? " is-open" : ""}`}
+        aria-label={`${ariaLabel} base unit`}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        title={selectedBaseOption?.label || selectedOption?.label || value || "Unit"}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isOpen) closeMenu();
+          else openMenu();
+        }}
+      >
+        <span>{selectedBaseOption?.label || selectedOption?.label || value || "Unit"}</span>
+        <FontAwesomeIcon icon={faChevronDown} size="xs" />
+      </button>
+      {selectedModel && (
+        <select
+          className="inline-unit-prefix-select"
+          value={selectedPrefix}
+          aria-label={`${ariaLabel} prefix`}
+          title="Unit prefix"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => choosePrefix(e.target.value)}
+        >
+          {prefixOptions.map((prefix) => (
+            <option key={prefix.key || "base"} value={prefix.key}>
+              {prefix.shortLabel}
+            </option>
+          ))}
+        </select>
+      )}
+      {isOpen &&
+        menuRect &&
+        ReactDOM.createPortal(
+          <div
+            className="inline-unit-menu"
+            style={{
+              top: menuRect.top,
+              left: menuRect.left,
+              width: menuRect.width,
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <input
+              ref={searchRef}
+              className="inline-unit-search"
+              value={query}
+              placeholder="Search units..."
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  closeMenu();
+                  return;
+                }
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  if (visibleOptions.length === 0) return;
+                  const currentIndex = Math.max(
+                    0,
+                    visibleOptions.findIndex((option) => option.value === activeBase),
+                  );
+                  const offset = e.key === "ArrowDown" ? 1 : -1;
+                  const nextIndex =
+                    (currentIndex + offset + visibleOptions.length) % visibleOptions.length;
+                  setActiveBase(visibleOptions[nextIndex].value);
+                  return;
+                }
+                if (e.key === "Enter") {
+                  const activeOption =
+                    visibleOptions.find((option) => option.value === activeBase) ||
+                    visibleOptions[0];
+                  if (activeOption) chooseBaseUnit(activeOption);
+                }
+              }}
+            />
+            <div className="inline-unit-options" role="listbox" aria-label={ariaLabel}>
+              {visibleGroups.length === 0 ? (
+                <div className="inline-unit-empty">No matching units</div>
+              ) : (
+                visibleGroups.map((group) => (
+                  <div className="inline-unit-group" key={group.label}>
+                    <div className="inline-unit-group-label">{group.label}</div>
+                    {(group.options || []).map((option) => {
+                      const isSelected = option.value === selectedBase;
+                      const isActive = option.value === activeBase;
+                      return (
+                        <button
+                          key={option.value}
+                          ref={isActive ? activeRef : isSelected ? selectedRef : null}
+                          type="button"
+                          role="option"
+                          aria-selected={isSelected}
+                          className={`inline-unit-option${isSelected ? " is-selected" : ""}${
+                            isActive ? " is-active" : ""
+                          }`}
+                          onMouseEnter={() => setActiveBase(option.value)}
+                          onClick={() => chooseBaseUnit(option)}
+                        >
+                          <span>{option.label}</span>
+                          <small>{option.scalable ? "Scaled" : option.unit || option.value}</small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 };
@@ -354,12 +669,6 @@ const itemStateKey = (kind, itemId) => `${kind}:${itemId || ""}`;
 const cleanFunctionName = (value) => String(value || "").trim();
 const functionNameMatches = (a, b) =>
   cleanFunctionName(a).toLowerCase() === cleanFunctionName(b).toLowerCase();
-// Width for the inline function-name editor: sized to the name so the unit chip
-// and add/delete controls hug it instead of floating off to the right. Browsers
-// that support `field-sizing: content` grow it live as the user types; this is
-// the static fallback width (and the initial size).
-const functionNameInputWidth = (name) =>
-  `${Math.min(Math.max((String(name || "").length || 4) + 1, 5), 32)}ch`;
 const cleanAreaName = (value) => String(value || "").trim();
 const areaNameKey = (value) => cleanAreaName(value).toLowerCase();
 
@@ -814,7 +1123,6 @@ const findRangeForFunction = (source = {}, functionKey = null) => {
   const ranges = getInstrumentRangeRows(source);
   if (!ranges.length) return null;
   if (!functionKey) return ranges[0];
-  const [functionNamePart, functionUnitPart = ""] = String(functionKey).split("|");
   const exact = ranges.find(
     (range) =>
       makeFunctionKey(
@@ -823,17 +1131,10 @@ const findRangeForFunction = (source = {}, functionKey = null) => {
       ) === functionKey,
   );
   if (exact) return exact;
-  if (!functionUnitPart) {
-    return (
-      ranges.find(
-        (range) =>
-          makeFunctionKey(
-            range.functionName || "",
-            range.functionUnit || range.unit || "",
-          ).split("|")[0] === functionNamePart,
-      ) || ranges[0]
-    );
-  }
+  const loose = ranges.find((range) =>
+    functionPartsMatch(range.functionName || "", range.functionUnit || range.unit || "", functionKey),
+  );
+  if (loose) return loose;
   return ranges[0];
 };
 
@@ -985,13 +1286,15 @@ const EditableDescriptionCell = ({
     .toLowerCase();
   const tokens = query.split(/\s+/).filter(Boolean);
   const results = useMemo(() => {
-    if (!onPickLibrary || !tokens.length) return [];
-    const matches = (instruments || []).filter((inst) => {
-      const hay = `${inst.manufacturer || ""} ${inst.model || ""} ${
-        inst.description || ""
-      }`.toLowerCase();
-      return tokens.every((t) => hay.includes(t));
-    });
+    if (!onPickLibrary) return [];
+    const matches = tokens.length
+      ? (instruments || []).filter((inst) => {
+          const hay = `${inst.manufacturer || ""} ${inst.model || ""} ${
+            inst.description || ""
+          }`.toLowerCase();
+          return tokens.every((t) => hay.includes(t));
+        })
+      : instruments || [];
     // Collapse each shared instrument and its linked local copies into one
     // "family": always surface the shared (in-sync) version, and only also list
     // a local when it actually diverges from shared (the changed version). This
@@ -1017,7 +1320,7 @@ const EditableDescriptionCell = ({
         if (!grp.shared || diffFromSnapshot(loc).length > 0) ordered.push(loc);
       });
     });
-    return [...ordered, ...standalone].slice(0, 8);
+    return [...ordered, ...standalone];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instruments, query, onPickLibrary]);
 
@@ -1266,7 +1569,7 @@ const ResolutionCellInput = ({
         value={unit || fallbackUnit || ""}
         ariaLabel="Resolution unit"
         onChange={onCommitUnit}
-        width="58px"
+        width="72px"
       />
     </span>
   );
@@ -1331,7 +1634,7 @@ const pruneBlankToleranceTerms = (tolerance = {}) => {
   return next;
 };
 const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) => {
-  const distribution = getBandDistDivisor(tolerance) || "1.732";
+  const distribution = getBandDistDivisor(tolerance) || DISTRIBUTION_NOT_SET;
   if (typeKey === "range") {
     return {
       value: activeRange?.max ?? "",
@@ -1414,6 +1717,32 @@ export const toleranceTermMode = (component = {}) => {
 // asymmetric). Kept for callers/tests that just need the yes/no.
 export const componentIsAsymmetric = (component = {}) =>
   toleranceTermMode(component) !== "symmetric";
+
+const TOLERANCE_SHAPE_OPTIONS = [
+  {
+    key: "symmetric",
+    symbol: "±",
+    label: "Symmetric",
+    detail: "Equal plus and minus limits",
+  },
+  {
+    key: "single",
+    symbol: "+0",
+    label: "Single-sided",
+    detail: "One limit is zero",
+  },
+  {
+    key: "asymmetric",
+    symbol: "+−",
+    label: "Asymmetric",
+    detail: "Independent plus and minus limits",
+  },
+];
+
+const toleranceShapeOption = (mode) =>
+  TOLERANCE_SHAPE_OPTIONS.find((option) => option.key === mode) ||
+  TOLERANCE_SHAPE_OPTIONS[0];
+
 const componentUnitLabel = (typeKey, component = {}, activeRange = {}) => {
   if (typeKey === "reading") return "% IV";
   if (typeKey === "range") return "% FS";
@@ -1441,9 +1770,7 @@ const ToleranceTermEditor = ({
   tolerance = {},
   activeRange = {},
   typeKey,
-  selectedType,
   showHighSign = true,
-  onSelectType,
   onCommit,
 }) => {
   const component =
@@ -1466,6 +1793,8 @@ const ToleranceTermEditor = ({
   const [mode, setMode] = useState(() =>
     typeKey === "reading" ? "symmetric" : toleranceTermMode(component),
   );
+  const [shapeMenuRect, setShapeMenuRect] = useState(null);
+  const shapeButtonRef = useRef(null);
   // For single-sided: true when the magnitude is on the − side (high pinned 0).
   const [singleNeg, setSingleNeg] = useState(
     () =>
@@ -1489,6 +1818,7 @@ const ToleranceTermEditor = ({
   }, [typeKey, component.high, component.low, component.value, activeRange?.max]);
 
   const termMode = typeKey === "reading" ? "symmetric" : mode;
+  const currentShape = toleranceShapeOption(termMode);
   // The single-sided magnitude input binds to whichever side is non-zero.
   const singleValue = singleNeg ? lowValue : highValue;
   const setSingleValue = singleNeg ? setLowValue : setHighValue;
@@ -1564,6 +1894,7 @@ const ToleranceTermEditor = ({
   // Switch a term's shape (symmetric / single-sided / asymmetric), carrying the
   // current magnitude across so the value isn't lost, and re-shaping the limits.
   const changeMode = (nextMode) => {
+    setShapeMenuRect(null);
     if (nextMode === termMode) return;
     const curMag = termMode === "single" ? singleValue : highValue;
     const parsed = parseFloat(curMag);
@@ -1584,6 +1915,14 @@ const ToleranceTermEditor = ({
       if (lowValue === "" || lowValue === "0") setLowValue(mag);
     }
   };
+  const toggleShapeMenu = () => {
+    if (shapeMenuRect) {
+      setShapeMenuRect(null);
+      return;
+    }
+    const rect = shapeButtonRef.current?.getBoundingClientRect();
+    if (rect) setShapeMenuRect(rect);
+  };
   // Flip a single-sided term between + (high) and − (low) direction, keeping the
   // magnitude and pinning the other limit to 0.
   const toggleSingleDir = () => {
@@ -1601,6 +1940,48 @@ const ToleranceTermEditor = ({
   };
   const typeLabel = componentUnitLabel(typeKey, component, activeRange);
   const typeOption = TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === typeKey);
+  const shapeMenu =
+    typeKey !== "reading" && shapeMenuRect
+      ? ReactDOM.createPortal(
+          <>
+            <div
+              className="inline-tolerance-shape-backdrop"
+              onMouseDown={() => setShapeMenuRect(null)}
+            />
+            <div
+              className="inline-tolerance-shape-menu"
+              style={{
+                top: `${Math.min(shapeMenuRect.bottom + 6, window.innerHeight - 132)}px`,
+                left: `${Math.max(
+                  8,
+                  Math.min(shapeMenuRect.right - 172, window.innerWidth - 180),
+                )}px`,
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              role="menu"
+            >
+              {TOLERANCE_SHAPE_OPTIONS.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={`inline-tolerance-shape-option${
+                    option.key === termMode ? " is-active" : ""
+                  }`}
+                  onClick={() => changeMode(option.key)}
+                  role="menuitemradio"
+                  aria-checked={option.key === termMode}
+                >
+                  <span className="inline-tolerance-shape-option-copy">
+                    <span>{option.label}</span>
+                    <small>{option.detail}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>,
+          document.body,
+        )
+      : null;
 
   return (
     <span className="inline-tolerance-term">
@@ -1700,51 +2081,33 @@ const ToleranceTermEditor = ({
           </>
         )}
         {typeKey !== "reading" && (
-          <span
-            className="inline-tolerance-mode"
-            role="group"
-            aria-label="Tolerance shape"
-            onMouseDown={(e) => e.preventDefault()}
-          >
+          <>
             <button
+              ref={shapeButtonRef}
               type="button"
-              className={`inline-tolerance-mode-btn${termMode === "symmetric" ? " is-active" : ""}`}
-              title="Symmetric ± tolerance"
-              aria-pressed={termMode === "symmetric"}
-              onClick={() => changeMode("symmetric")}
+              className={`inline-tolerance-shape-button${
+                shapeMenuRect ? " is-open" : ""
+              }`}
+              title={`Tolerance shape: ${currentShape.label}`}
+              aria-haspopup="menu"
+              aria-expanded={Boolean(shapeMenuRect)}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={toggleShapeMenu}
             >
-              ±
+              <span>{currentShape.symbol}</span>
+              <FontAwesomeIcon icon={faChevronDown} size="xs" />
             </button>
-            <button
-              type="button"
-              className={`inline-tolerance-mode-btn${termMode === "single" ? " is-active" : ""}`}
-              title="Single-sided (unilateral) tolerance — one limit is 0"
-              aria-pressed={termMode === "single"}
-              onClick={() => changeMode("single")}
-            >
-              +0
-            </button>
-            <button
-              type="button"
-              className={`inline-tolerance-mode-btn${termMode === "asymmetric" ? " is-active" : ""}`}
-              title="Asymmetric tolerance — independent + and − limits"
-              aria-pressed={termMode === "asymmetric"}
-              onClick={() => changeMode("asymmetric")}
-            >
-              +−
-            </button>
-          </span>
+            {shapeMenu}
+          </>
         )}
       </span>
       {typeLabel && (
-        <button
-          type="button"
-          className={`inline-tolerance-chip inline-tolerance-chip--in-cell${typeKey === selectedType ? " is-active" : ""}`}
-          title={`Select ${typeOption?.label || typeLabel} tolerance term`}
-          onClick={() => onSelectType?.(typeKey)}
+        <span
+          className="inline-tolerance-chip inline-tolerance-chip--in-cell"
+          title={typeOption?.label || typeLabel}
         >
           {typeLabel}
-        </button>
+        </span>
       )}
       {typeKey === "range" && (
         <span className="inline-tolerance-fs">
@@ -1785,9 +2148,7 @@ const ToleranceTermEditor = ({
 const InlineToleranceCell = ({
   tolerance = {},
   activeRange = {},
-  selectedType,
   editable,
-  onSelectType,
   onCommit,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -1843,20 +2204,16 @@ const InlineToleranceCell = ({
       onMouseDown={(e) => e.stopPropagation()}
       onBlur={handleBlur}
     >
-      {TOLERANCE_TYPE_OPTIONS.map((opt, index) => (
+      {TOLERANCE_TYPE_OPTIONS.map((opt) => (
         <span
           key={opt.key}
-          className={`inline-tolerance-term-group${opt.key === selectedType ? " is-active" : ""}`}
-          onMouseDown={() => onSelectType?.(opt.key)}
+          className="inline-tolerance-term-group"
         >
-          {index > 0 && <span className="inline-tolerance-plus">+</span>}
           <ToleranceTermEditor
             tolerance={tolerance}
             activeRange={activeRange}
             typeKey={opt.key}
-            selectedType={selectedType}
-            showHighSign={index === 0}
-            onSelectType={onSelectType}
+            showHighSign
             onCommit={onCommit}
           />
         </span>
@@ -1958,7 +2315,7 @@ const RangeCell = ({
           value={unit}
           ariaLabel="Range unit"
           onChange={(value) => onEditUnit(value)}
-          width="58px"
+          width="72px"
         />
         {ranges.length > 1 && (
           <span className="inline-range-select-shell" title="Switch range">
@@ -2221,7 +2578,7 @@ const getPointResolutionDetail = (uutTolerance = {}) => {
 };
 
 // --- SHARED HELPER: Resolve UUT Range ---
-const resolveUutRangeHelper = (
+export const resolveUutRangeHelper = (
   uut,
   activeRangeIndices,
   savedTolerance,
@@ -2238,7 +2595,7 @@ const resolveUutRangeHelper = (
   // to all ranges if the filter would empty the list (legacy/loose metadata).
   if (functionKey) {
     const scoped = allRanges.filter(
-      (r) => makeFunctionKey(r.functionName, r.functionUnit || r.unit) === functionKey,
+      (r) => functionPartsMatch(r.functionName, r.functionUnit || r.unit, functionKey),
     );
     if (scoped.length > 0) allRanges = scoped;
   }
@@ -2329,16 +2686,22 @@ const resolveUutRangeHelper = (
 // id for single-function instruments, `${functionKey}::${id}` for multi-function
 // ones so each subsection's range state is independent). Empty subsections are
 // emitted for user-added functions (session.functionGroups) with no instrument.
-const buildFunctionGroupedRows = (groupedItems, sessionData, kind = null) => {
+const buildFunctionGroupedRows = (
+  groupedItems,
+  sessionData,
+  kind = null,
+  { includeEmptyGroups = true, onlyFunctionKey = null, fallbackItemIds = [] } = {},
+) => {
   const sessionFunctions = resolveSessionFunctions(sessionData, { kind });
   const fnByKey = new Map(sessionFunctions.map((fn) => [fn.key, fn]));
   const fnOrder = new Map(sessionFunctions.map((fn, index) => [fn.key, index]));
   const groups = new Map();
+  const fallbackSet = new Set((fallbackItemIds || []).map(String));
 
   groupedItems.forEach((row) => {
     const declared = instrumentFunctions(row.item);
     const seenFnKeys = new Set();
-    const fnList = (
+    let fnList = (
       declared.length
         ? declared
         : [{ key: makeFunctionKey("Measurement", ""), name: "Measurement", unit: "" }]
@@ -2347,6 +2710,22 @@ const buildFunctionGroupedRows = (groupedItems, sessionData, kind = null) => {
       seenFnKeys.add(fn.key);
       return true;
     });
+    if (onlyFunctionKey) {
+      const matchingKey = matchingInstrumentFunctionKey(row.item, onlyFunctionKey);
+      fnList = fnList.filter((fn) => fn.key === matchingKey || fn.key === onlyFunctionKey);
+      if (fnList.length === 0 && fallbackSet.has(String(row.item?.id))) {
+        const resolved = fnByKey.get(onlyFunctionKey);
+        fnList = [
+          resolved || {
+            key: onlyFunctionKey,
+            name: functionNamePart(onlyFunctionKey) || "Measurement",
+            unit: functionUnitPart(onlyFunctionKey),
+            ranges: [],
+          },
+        ];
+      }
+    }
+    if (fnList.length === 0) return;
     const multi = fnList.length > 1;
 
     fnList.forEach((primary) => {
@@ -2373,21 +2752,23 @@ const buildFunctionGroupedRows = (groupedItems, sessionData, kind = null) => {
     });
   });
 
-  (sessionData.functionGroups || [])
-    .filter((fg) => !kind || !fg.kind || fg.kind === kind)
-    .forEach((fg) => {
-    const key = makeFunctionKey(fg.name, fg.unit);
-    if (!groups.has(key)) {
-      const resolvedFn = fnByKey.get(key) || { key, name: fg.name, unit: fg.unit, color: null };
-      const fn = { ...resolvedFn, ...(fg.kind ? { kind: fg.kind } : kind ? { kind } : {}) };
-      groups.set(key, {
-        type: "function",
-        fn,
-        order: fnOrder.has(key) ? fnOrder.get(key) : Number.MAX_SAFE_INTEGER,
-        items: [],
+  if (includeEmptyGroups) {
+    (sessionData.functionGroups || [])
+      .filter((fg) => !kind || !fg.kind || fg.kind === kind)
+      .forEach((fg) => {
+        const key = makeFunctionKey(fg.name, fg.unit);
+        if (!groups.has(key)) {
+          const resolvedFn = fnByKey.get(key) || { key, name: fg.name, unit: fg.unit, color: null };
+          const fn = { ...resolvedFn, ...(fg.kind ? { kind: fg.kind } : kind ? { kind } : {}) };
+          groups.set(key, {
+            type: "function",
+            fn,
+            order: fnOrder.has(key) ? fnOrder.get(key) : Number.MAX_SAFE_INTEGER,
+            items: [],
+          });
+        }
       });
-    }
-  });
+  }
 
   return Array.from(groups.values())
     .sort((a, b) => {
@@ -2410,6 +2791,22 @@ const functionNamePart = (functionKey = "") =>
 const functionUnitPart = (functionKey = "") =>
   String(functionKey || "").split("|")[1] || "";
 
+const functionUnitsMatch = (selectedUnit, candidateUnit) => {
+  if (!selectedUnit) return true;
+  if (!candidateUnit) return true;
+  return normalizeUnitToken(selectedUnit) === normalizeUnitToken(candidateUnit);
+};
+
+const functionPartsMatch = (candidateName, candidateUnit, functionKey = null) => {
+  if (!functionKey) return true;
+  const selectedName = functionNamePart(functionKey);
+  const selectedUnit = functionUnitPart(functionKey);
+  const candidateKey = makeFunctionKey(candidateName, candidateUnit);
+  if (candidateKey === functionKey) return true;
+  if (!selectedName || functionNamePart(candidateKey) !== selectedName) return false;
+  return functionUnitsMatch(selectedUnit, functionUnitPart(candidateKey));
+};
+
 const matchingInstrumentFunctionKey = (source = {}, functionKey = null) => {
   if (!functionKey) return null;
   const selectedName = functionNamePart(functionKey);
@@ -2422,7 +2819,7 @@ const matchingInstrumentFunctionKey = (source = {}, functionKey = null) => {
   const nameMatch = functions.find((fn) => {
     const candidateName = functionNamePart(fn.key);
     if (candidateName !== selectedName) return false;
-    return !selectedUnit || !functionUnitPart(fn.key);
+    return functionUnitsMatch(selectedUnit, functionUnitPart(fn.key));
   });
   return nameMatch?.key || null;
 };
@@ -2985,8 +3382,6 @@ const SummaryDashboard = ({
   setNotification,
 }) => {
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
-  const [toleranceTypes, setToleranceTypes] = useState({});
-  const [selectedToleranceKey, setSelectedToleranceKey] = useState(null);
   // Add Function picker: null | "uut" | "tmde" (which table's button opened it).
   const [addFunctionMenu, setAddFunctionMenu] = useState(null);
   const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
@@ -3575,34 +3970,8 @@ const SummaryDashboard = ({
     else handleCreateTmdeArea(tmdeId, trimmed);
   };
 
-  const toleranceTypeKey = (kind, item, rangeId) =>
-    `${kind}:${item?.id || ""}:${rangeId || "default"}`;
-  const getSelectedToleranceType = (kind, item, activeRange) => {
-    const key = toleranceTypeKey(kind, item, activeRange?.id);
-    return (
-      toleranceTypes[key] ||
-      firstToleranceType(getItemRangeTolerance(item, activeRange?.id) || activeRange || {})
-    );
-  };
-  const setSelectedToleranceType = (kind, item, activeRange, typeKey) => {
-    // Selection only — never write a default term here. The editor already shows
-    // every tolerance type, and writing a default on select would race with the
-    // blur-commit of the field the user just left (both replace the whole
-    // tolerance from a stale snapshot), silently dropping a component.
-    const key = toleranceTypeKey(kind, item, activeRange?.id);
-    setToleranceTypes((prev) => ({ ...prev, [key]: typeKey }));
-    setSelectedToleranceKey(key);
-    if (kind === "uut") {
-      setSelectedUutIds([item.id]);
-      setSelectedTmdeIds([]);
-    } else {
-      setSelectedTmdeIds([item.id]);
-      setSelectedUutIds([]);
-    }
-  };
   const setRangeToleranceComponent = (kind, item, activeRange, typeKey, component) => {
     if (!onSessionSave) return;
-    setSelectedToleranceKey(toleranceTypeKey(kind, item, activeRange?.id));
     const cur = getItemRangeTolerance(item, activeRange?.id) || {};
     // Prune blank terms in the same write so an empty (or just-cleared) term is
     // excluded without a second, racy cleanup pass.
@@ -3960,48 +4329,37 @@ const SummaryDashboard = ({
       return <span style={{ color: fn.color }}>{fn.name}</span>;
     }
     return (
-      <input
-        className="inline-area-header-input"
-        defaultValue={fn.name}
+      <span
+        className="inline-area-header-input function-header-name"
+        contentEditable
+        suppressContentEditableWarning
+        tabIndex={0}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
           if (e.key === "Escape") {
-            e.currentTarget.value = fn.name;
+            e.currentTarget.textContent = fn.name;
             e.currentTarget.blur();
           }
         }}
-        onBlur={(e) => handleFunctionRename(fn, e.target.value)}
+        onBlur={(e) => handleFunctionRename(fn, e.currentTarget.textContent)}
         title="Edit function name"
         aria-label="Function subsection name"
-        style={{
-          color: fn.color,
-          background: "transparent",
-          border: "1px solid transparent",
-          borderRadius: "4px",
-          font: "inherit",
-          fontWeight: 700,
-          padding: "1px 4px",
-          // Size to the name so the unit sits right next to it (no dead gap).
-          width: functionNameInputWidth(fn.name),
-          fieldSizing: "content",
-          pointerEvents: "auto",
-        }}
-      />
+        role="textbox"
+        style={{ color: fn.color }}
+      >
+        {fn.name}
+      </span>
     );
   };
 
   const renderFunctionUnitChip = (fn) =>
     fn.unit ? (
-      <span
-        style={{
-          marginLeft: "4px",
-          opacity: 0.6,
-          fontSize: "0.78em",
-          fontWeight: 600,
-        }}
-      >
+      <span className="function-header-unit-chip">
         {getUnitDisplayLabel(fn.unit)}
       </span>
     ) : null;
@@ -4346,7 +4704,6 @@ const SummaryDashboard = ({
     const setRangeIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const tableId = kind;
     const tolerance = getItemRangeTolerance(item, range?.id) || range;
-    const typeKey = getSelectedToleranceType(kind, item, range);
     const label = kind === "uut" ? "UUT" : "TMDE";
     const deleteRange = () => {
       if (!canDelete) return;
@@ -4400,15 +4757,7 @@ const SummaryDashboard = ({
           <InlineToleranceCell
             tolerance={tolerance}
             activeRange={range}
-            selectedType={
-              selectedToleranceKey === toleranceTypeKey(kind, item, range?.id)
-                ? typeKey
-                : null
-            }
             editable
-            onSelectType={(nextTypeKey) =>
-              setSelectedToleranceType(kind, item, range, nextTypeKey)
-            }
             onCommit={(nextTypeKey, component) =>
               setRangeToleranceComponent(kind, item, range, nextTypeKey, component)
             }
@@ -4628,15 +4977,9 @@ const SummaryDashboard = ({
   // Selection Handlers (Wrapped)
   // Selection Handlers (Wrapped)
   const handleUutClick = (e, id) => {
-    if (!isInlineRowControlTarget(e.target)) {
-      setSelectedToleranceKey(null);
-    }
     handleRowSelection(e, id, setSelectedUutIds);
   };
   const handleTmdeClick = (e, id) => {
-    if (!isInlineRowControlTarget(e.target)) {
-      setSelectedToleranceKey(null);
-    }
     handleRowSelection(e, id, setSelectedTmdeIds);
   };
 
@@ -5078,11 +5421,6 @@ const SummaryDashboard = ({
                   const { ranges, activeIndex, activeRange } = resolution;
                   const activeTolerance =
                     getItemRangeTolerance(uut, activeRange?.id) || activeRange;
-                  const selectedToleranceType = getSelectedToleranceType(
-                    "uut",
-                    uut,
-                    activeRange,
-                  );
                   const specRows = getSpecRows(activeTolerance);
                   const rowSpan = onSessionSave
                     ? 1
@@ -5117,11 +5455,6 @@ const SummaryDashboard = ({
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "uut", uut, range, index, n)}
                               onMouseDownCapture={() => activateRangeRow("uut", uutRowKey, index)}
-                              onClick={(e) => {
-                                if (!isInlineRowControlTarget(e.target)) {
-                                  setSelectedToleranceKey(null);
-                                }
-                              }}
                               style={{ cursor: "pointer" }}
                             >
                               {i === 0 && (
@@ -5259,23 +5592,13 @@ const SummaryDashboard = ({
                           <div className={showAllRanges ? "range-stack" : undefined}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const tolerance = getItemRangeTolerance(uut, range?.id) || range;
-                              const typeKey = getSelectedToleranceType("uut", uut, range);
                               return (
                                 <div className="range-stack-row" key={key}>
                                   {onSessionSave ? (
                                     <InlineToleranceCell
                                       tolerance={tolerance}
                                       activeRange={range}
-                                      selectedType={
-                                        selectedToleranceKey ===
-                                        toleranceTypeKey("uut", uut, range?.id)
-                                          ? typeKey
-                                          : null
-                                      }
                                       editable={!!onSessionSave}
-                                      onSelectType={(nextTypeKey) =>
-                                        setSelectedToleranceType("uut", uut, range, nextTypeKey)
-                                      }
                                       onCommit={(nextTypeKey, component) =>
                                         setRangeToleranceComponent(
                                           "uut",
@@ -5466,11 +5789,6 @@ const SummaryDashboard = ({
                   const { ranges, activeIndex, activeRange } = resolution;
                   const activeTolerance =
                     getItemRangeTolerance(tmde, activeRange?.id) || activeRange;
-                  const selectedToleranceType = getSelectedToleranceType(
-                    "tmde",
-                    tmde,
-                    activeRange,
-                  );
                   const specRows = getSpecRows(activeTolerance);
                   const rowSpan = onSessionSave
                     ? 1
@@ -5504,11 +5822,6 @@ const SummaryDashboard = ({
                               onMouseEnter={() => setHoveredRowId(tmde.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "tmde", tmde, range, index, n)}
                               onMouseDownCapture={() => activateRangeRow("tmde", tmdeRowKey, index)}
-                              onClick={(e) => {
-                                if (!isInlineRowControlTarget(e.target)) {
-                                  setSelectedToleranceKey(null);
-                                }
-                              }}
                               style={{ cursor: "pointer" }}
                             >
                               {i === 0 && (
@@ -5660,23 +5973,13 @@ const SummaryDashboard = ({
                           <div className={showAllRanges ? "range-stack" : undefined}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const tolerance = getItemRangeTolerance(tmde, range?.id) || range;
-                              const typeKey = getSelectedToleranceType("tmde", tmde, range);
                               return (
                                 <div className="range-stack-row" key={key}>
                                   {onSessionSave ? (
                                     <InlineToleranceCell
                                       tolerance={tolerance}
                                       activeRange={range}
-                                      selectedType={
-                                        selectedToleranceKey ===
-                                        toleranceTypeKey("tmde", tmde, range?.id)
-                                          ? typeKey
-                                          : null
-                                      }
                                       editable={!!onSessionSave}
-                                      onSelectType={(nextTypeKey) =>
-                                        setSelectedToleranceType("tmde", tmde, range, nextTypeKey)
-                                      }
                                       onCommit={(nextTypeKey, component) =>
                                         setRangeToleranceComponent(
                                           "tmde",
@@ -6093,8 +6396,6 @@ function DetailedView({
   // add / remove, tolerance term edit / add / delete, resolution, area reassign.
   // ===========================================================================
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
-  const [toleranceTypes, setToleranceTypes] = useState({});
-  const [selectedToleranceKey, setSelectedToleranceKey] = useState(null);
   const { syncToShared, getDiff } = useInstrumentSync();
 
   const rowLabel = (kind, item) =>
@@ -6717,31 +7018,6 @@ function DetailedView({
   const isShowingAllRangesDetail = (kind, itemId) =>
     expandedRangeKeys.has(itemStateKey(kind, itemId));
 
-  // --- Tolerance term machine (matches SummaryDashboard) ---
-  const toleranceTypeKey = (kind, item, rangeId) =>
-    `${kind}:${item?.id || ""}:${rangeId || "default"}`;
-  const getSelectedToleranceTypeDetail = (kind, item, activeRange) => {
-    const key = toleranceTypeKey(kind, item, activeRange?.id);
-    return (
-      toleranceTypes[key] ||
-      firstToleranceType(
-        getItemRangeTolerance(item, activeRange?.id) || activeRange || {},
-      )
-    );
-  };
-  const setSelectedToleranceTypeDetail = (kind, item, activeRange, typeKey) => {
-    // Selection only — see setSelectedToleranceType for why no default is written.
-    const key = toleranceTypeKey(kind, item, activeRange?.id);
-    setToleranceTypes((prev) => ({ ...prev, [key]: typeKey }));
-    setSelectedToleranceKey(key);
-    if (kind === "uut") {
-      setSelectedUutIds([item.id]);
-      setSelectedTmdeIds([]);
-    } else {
-      setSelectedTmdeIds([item.id]);
-      setSelectedUutIds([]);
-    }
-  };
   const setRangeToleranceComponentDetail = (
     kind,
     item,
@@ -6750,7 +7026,6 @@ function DetailedView({
     component,
   ) => {
     if (!onSessionSave) return;
-    setSelectedToleranceKey(toleranceTypeKey(kind, item, activeRange?.id));
     const cur = getItemRangeTolerance(item, activeRange?.id) || {};
     // Prune blank terms in the same write (see setRangeToleranceComponent).
     const next = pruneBlankToleranceTerms({ ...cur, [typeKey]: component });
@@ -6864,7 +7139,6 @@ function DetailedView({
   ) => {
     const tableId = kind === "uut" ? "uut_det" : "tmde_det";
     const tolerance = getItemRangeTolerance(item, range?.id) || range || {};
-    const typeKey = getSelectedToleranceTypeDetail(kind, item, range);
     const label = kind === "uut" ? "UUT" : "TMDE";
     const deleteRange = () => {
       if (!canDelete) return;
@@ -6918,15 +7192,7 @@ function DetailedView({
           <InlineToleranceCell
             tolerance={tolerance}
             activeRange={range}
-            selectedType={
-              selectedToleranceKey === toleranceTypeKey(kind, item, range?.id)
-                ? typeKey
-                : null
-            }
             editable
-            onSelectType={(nextTypeKey) =>
-              setSelectedToleranceTypeDetail(kind, item, range, nextTypeKey)
-            }
             onCommit={(nextTypeKey, component) =>
               setRangeToleranceComponentDetail(kind, item, range, nextTypeKey, component)
             }
@@ -7367,41 +7633,37 @@ function DetailedView({
   const renderFunctionNameEditor = (fn) => {
     if (!onSessionSave) return <span style={{ color: fn.color }}>{fn.name}</span>;
     return (
-      <input
-        className="inline-area-header-input"
-        defaultValue={fn.name}
+      <span
+        className="inline-area-header-input function-header-name"
+        contentEditable
+        suppressContentEditableWarning
+        tabIndex={0}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
           if (e.key === "Escape") {
-            e.currentTarget.value = fn.name;
+            e.currentTarget.textContent = fn.name;
             e.currentTarget.blur();
           }
         }}
-        onBlur={(e) => handleFunctionRename(fn, e.target.value)}
+        onBlur={(e) => handleFunctionRename(fn, e.currentTarget.textContent)}
         title="Edit function name"
         aria-label="Function subsection name"
-        style={{
-          color: fn.color,
-          background: "transparent",
-          border: "1px solid transparent",
-          borderRadius: "4px",
-          font: "inherit",
-          fontWeight: 700,
-          padding: "1px 4px",
-          // Size to the name so the unit sits right next to it (no dead gap).
-          width: functionNameInputWidth(fn.name),
-          fieldSizing: "content",
-          pointerEvents: "auto",
-        }}
-      />
+        role="textbox"
+        style={{ color: fn.color }}
+      >
+        {fn.name}
+      </span>
     );
   };
 
   const renderFunctionUnitChip = (fn) =>
     fn.unit ? (
-      <span style={{ marginLeft: "4px", opacity: 0.6, fontSize: "0.78em", fontWeight: 600 }}>
+      <span className="function-header-unit-chip">
         {getUnitDisplayLabel(fn.unit)}
       </span>
     ) : null;
@@ -7662,6 +7924,32 @@ function DetailedView({
     // deliberate cross-function/cross-area selections when needed.
     return sessionData.tmdes || [];
   }, [sessionData.tmdes]);
+
+  const detailUutRows = useMemo(
+    () =>
+      buildFunctionGroupedRows(
+        relevantUuts.map((item, index) => ({ type: "item", item, index })),
+        sessionData,
+        "uut",
+        {
+          includeEmptyGroups: false,
+          onlyFunctionKey: activePointFunctionKey,
+          fallbackItemIds: [activePointUutId, ...associatedUutIds].filter(Boolean),
+        },
+      ),
+    [activePointFunctionKey, activePointUutId, associatedUutIds, relevantUuts, sessionData],
+  );
+
+  const detailTmdeRows = useMemo(
+    () =>
+      buildFunctionGroupedRows(
+        relevantTmdes.map((item, index) => ({ type: "item", item, index })),
+        sessionData,
+        "tmde",
+        { includeEmptyGroups: false, onlyFunctionKey: activePointFunctionKey },
+      ),
+    [activePointFunctionKey, relevantTmdes, sessionData],
+  );
 
   // --- HANDLERS ---
   const handleUutCheckboxChange = (uutId) => {
@@ -8645,24 +8933,16 @@ function DetailedView({
 
   const tmdeSupportsFunction = useCallback((tmde, functionKey) => {
     if (!functionKey) return true;
-    const [functionNamePart, functionUnitPart = ""] = String(functionKey).split("|");
-    const matchesKey = (name, unit) => {
-      const candidateKey = makeFunctionKey(name, unit);
-      if (candidateKey === functionKey) return true;
-      return !functionUnitPart && candidateKey.split("|")[0] === functionNamePart;
-    };
     if (instrumentHasFunction(tmde, functionKey)) return true;
-    if (
-      !functionUnitPart &&
-      instrumentFunctions(tmde).some((fn) => matchesKey(fn.name, fn.unit))
-    ) {
+    if (instrumentFunctions(tmde).some((fn) => functionPartsMatch(fn.name, fn.unit, functionKey))) {
       return true;
     }
     return getInstrumentRangeRows(tmde).some(
       (range) =>
-        matchesKey(
+        functionPartsMatch(
           range.functionName || "",
           range.functionUnit || range.unit || "",
+          functionKey,
         ),
     );
   }, []);
@@ -9154,20 +9434,12 @@ function DetailedView({
               </tr>
             </thead>
             <tbody>
-              {buildFunctionGroupedRows(
-                relevantUuts.map((item, index) => ({ type: "item", item, index })),
-                sessionData,
-                "uut",
-              ).length === 0 ? (
+              {detailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan="5">No associated UUTs found.</td>
                 </tr>
               ) : (
-                buildFunctionGroupedRows(
-                  relevantUuts.map((item, index) => ({ type: "item", item, index })),
-                  sessionData,
-                  "uut",
-                ).map((row) => {
+                detailUutRows.map((row) => {
                   if (row.type === "function") {
                     return renderFunctionHeaderRow("uut", row.fn, 5);
                   }
@@ -9213,11 +9485,6 @@ function DetailedView({
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "uut", uut, range, index, n)}
                               onMouseDownCapture={() => activateRangeRowDetail("uut", uutRowKey, index)}
-                              onClick={(e) => {
-                                if (!isInlineRowControlTarget(e.target)) {
-                                  setSelectedToleranceKey(null);
-                                }
-                              }}
                               style={{ cursor: "pointer" }}
                             >
                               {i === 0 && (
@@ -9383,32 +9650,13 @@ function DetailedView({
                                 getItemRangeTolerance(uut, range?.id) ||
                                 range ||
                                 {};
-                              const typeKey = getSelectedToleranceTypeDetail(
-                                "uut",
-                                uut,
-                                range,
-                              );
                               return (
                                 <div className="range-stack-row" key={key}>
                                   {onSessionSave ? (
                                     <InlineToleranceCell
                                       tolerance={tolerance}
                                       activeRange={range}
-                                      selectedType={
-                                        selectedToleranceKey ===
-                                        toleranceTypeKey("uut", uut, range?.id)
-                                          ? typeKey
-                                          : null
-                                      }
                                       editable={!!onSessionSave}
-                                      onSelectType={(nextTypeKey) =>
-                                        setSelectedToleranceTypeDetail(
-                                          "uut",
-                                          uut,
-                                          range,
-                                          nextTypeKey,
-                                        )
-                                      }
                                       onCommit={(nextTypeKey, component) =>
                                         setRangeToleranceComponentDetail(
                                           "uut",
@@ -9884,22 +10132,14 @@ function DetailedView({
                 </tr>
               </thead>
               <tbody>
-                {buildFunctionGroupedRows(
-                  relevantTmdes.map((item, index) => ({ type: "item", item, index })),
-                  sessionData,
-                  "tmde",
-                ).length === 0 ? (
+                {detailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
                     <td colSpan="6">
                       No TMDEs defined for this session.
                     </td>
                   </tr>
                 ) : (
-                  buildFunctionGroupedRows(
-                    relevantTmdes.map((item, index) => ({ type: "item", item, index })),
-                    sessionData,
-                    "tmde",
-                  ).map((row) => {
+                  detailTmdeRows.map((row) => {
                     if (row.type === "function") {
                       return renderFunctionHeaderRow("tmde", row.fn, 6);
                     }
@@ -9982,11 +10222,6 @@ function DetailedView({
                                   onMouseDownCapture={() =>
                                     activateRangeRowDetail("tmde", tmdeRowKey, index)
                                   }
-                                  onClick={(e) => {
-                                    if (!isInlineRowControlTarget(e.target)) {
-                                      setSelectedToleranceKey(null);
-                                    }
-                                  }}
                                   style={{
                                     opacity: isSelectedRow ? 1 : 0.85,
                                     cursor: "pointer",
@@ -10171,36 +10406,13 @@ function DetailedView({
                                     ) ||
                                     range ||
                                     {};
-                                  const typeKey = getSelectedToleranceTypeDetail(
-                                    "tmde",
-                                    masterTmde,
-                                    range,
-                                  );
                                   return (
                                     <div className="range-stack-row" key={key}>
                                       {onSessionSave ? (
                                         <InlineToleranceCell
                                           tolerance={tolerance}
                                           activeRange={range}
-                                          selectedType={
-                                            selectedToleranceKey ===
-                                            toleranceTypeKey(
-                                              "tmde",
-                                              masterTmde,
-                                              range?.id,
-                                            )
-                                              ? typeKey
-                                              : null
-                                          }
                                           editable={!!onSessionSave}
-                                          onSelectType={(nextTypeKey) =>
-                                            setSelectedToleranceTypeDetail(
-                                              "tmde",
-                                              masterTmde,
-                                              range,
-                                              nextTypeKey,
-                                            )
-                                          }
                                           onCommit={(nextTypeKey, component) =>
                                             setRangeToleranceComponentDetail(
                                               "tmde",

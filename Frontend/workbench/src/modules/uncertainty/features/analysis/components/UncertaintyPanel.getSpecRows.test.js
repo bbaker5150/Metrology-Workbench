@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   getSpecRows,
   componentIsAsymmetric,
+  resolveUutRangeHelper,
+  scopeLibraryInstrumentToFunction,
   toleranceTermMode,
 } from "./UncertaintyPanel";
 
@@ -95,5 +97,84 @@ describe("toleranceTermMode", () => {
 
   it("classifies two unequal non-zero limits as asymmetric", () => {
     expect(toleranceTermMode({ high: "1", low: "-0.5" })).toBe("asymmetric");
+  });
+});
+
+describe("scopeLibraryInstrumentToFunction", () => {
+  it("keeps shared ranges when the table function has no unit", () => {
+    const scoped = scopeLibraryInstrumentToFunction(
+      {
+        manufacturer: "Mock",
+        model: "DMM",
+        functions: [
+          {
+            id: "fn-v",
+            name: "Voltage",
+            unit: "V",
+            ranges: [
+              {
+                id: "range-v",
+                min: "0",
+                max: "10",
+                unit: "V",
+                tolerances: {
+                  reading: { high: "1", low: "-1", unit: "%" },
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "voltage|",
+      { name: "Voltage", unit: "" },
+    );
+
+    expect(scoped.functions).toHaveLength(1);
+    expect(scoped.functions[0].name).toBe("Voltage");
+    expect(scoped.functions[0].unit).toBe("");
+    expect(scoped.functions[0].ranges).toHaveLength(1);
+    expect(scoped.functions[0].ranges[0].tolerances.reading.high).toBe("1");
+  });
+
+  it("resolves copied shared specs under the unitless table function", () => {
+    const scopedInstrument = scopeLibraryInstrumentToFunction(
+      {
+        manufacturer: "Mock",
+        model: "DMM",
+        functions: [
+          {
+            id: "fn-v",
+            name: "Voltage",
+            unit: "V",
+            ranges: [
+              {
+                id: "range-v",
+                min: "0",
+                max: "10",
+                unit: "V",
+                resolution: "0.001",
+                resolutionUnit: "V",
+                tolerances: {
+                  reading: { high: "1", low: "-1", unit: "%" },
+                  floor: { high: "0.002", low: "-0.002", unit: "V" },
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "voltage|",
+      { name: "Voltage", unit: "" },
+    );
+
+    const rowItem = { id: "uut-1", instrument: scopedInstrument };
+    const resolved = resolveUutRangeHelper(rowItem, {}, null, null, "voltage|");
+
+    expect(resolved.ranges).toHaveLength(1);
+    expect(resolved.activeRange.id).toBe("range-v");
+    expect(resolved.activeRange.resolution).toBe("0.001");
+    expect(resolved.activeRange.resolutionUnit).toBe("V");
+    expect(resolved.activeRange.reading.high).toBe("1");
+    expect(resolved.activeRange.floor.high).toBe("0.002");
   });
 });
