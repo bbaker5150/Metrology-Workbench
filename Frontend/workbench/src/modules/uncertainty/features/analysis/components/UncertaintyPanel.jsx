@@ -7946,27 +7946,11 @@ function DetailedView({
   );
   const isDerived = testPointData.measurementType === "derived";
 
-  // Scope the detail-view UUT inventory to the point's FUNCTION, not a stale
-  // measurement area. A point's functional identity comes from its parameter
-  // (activePointFunctionKey); the UUTs relevant to it are those that declare
-  // that function, plus the point's own associated/active UUT as a fallback for
-  // legacy instruments whose function metadata is missing. Deriving from the
-  // function key (rather than resolvePointAreaId/measurementAreaId) keeps the
-  // sidebar and detail view in sync: selecting an Angular Speed point can never
-  // surface Flow UUTs — or hide the Angular Speed UUT — just because an old
-  // measurementAreaId disagrees with the function.
   const relevantUuts = useMemo(() => {
-    const allUuts = sessionData.uuts || [];
-    if (!activePointFunctionKey) return allUuts;
-    const associatedSet = new Set(
-      [activePointUutId, ...associatedUutIds].filter(Boolean).map(String),
-    );
-    return allUuts.filter(
-      (uut) =>
-        matchingInstrumentFunctionKey(uut, activePointFunctionKey) ||
-        associatedSet.has(String(uut.id)),
-    );
-  }, [sessionData.uuts, activePointFunctionKey, activePointUutId, associatedUutIds]);
+    // Detailed View should show the same UUT inventory as Session Overview.
+    // The selected point only determines which UUT/range is highlighted.
+    return sessionData.uuts || [];
+  }, [sessionData.uuts]);
 
   const relevantTmdes = useMemo(() => {
     // Detail view should expose the same TMDE inventory as Session Overview.
@@ -7981,27 +7965,9 @@ function DetailedView({
         relevantUuts.map((item, index) => ({ type: "item", item, index })),
         sessionData,
         "uut",
-        {
-          includeEmptyGroups: true,
-          onlyFunctionKey: activePointFunctionKey,
-          includeExplicitFunctionGroups: true,
-          fallbackItemIds: [activePointUutId, ...associatedUutIds].filter(Boolean),
-          emptyFunctionFallback: {
-            key: activePointFunctionKey,
-            name: testPointData.testPointInfo?.parameter?.name || "Measurement",
-            unit: testPointData.testPointInfo?.parameter?.unit || "",
-            color: null,
-          },
-        },
+        { includeEmptyGroups: true },
       ),
-    [
-      activePointFunctionKey,
-      activePointUutId,
-      associatedUutIds,
-      relevantUuts,
-      sessionData,
-      testPointData,
-    ],
+    [relevantUuts, sessionData],
   );
 
   const detailTmdeRows = useMemo(

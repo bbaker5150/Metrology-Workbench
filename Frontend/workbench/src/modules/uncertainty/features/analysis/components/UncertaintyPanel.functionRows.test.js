@@ -3,6 +3,48 @@ import { buildFunctionGroupedRows } from "./UncertaintyPanel";
 import { makeFunctionKey } from "../../../utils/functionGrouping";
 
 describe("buildFunctionGroupedRows", () => {
+  it("shows every UUT function group when detail UUT rows are unscoped", () => {
+    const pressureKey = makeFunctionKey("Pressure", "psig");
+    const resistanceKey = makeFunctionKey("Resistance", "Ohm");
+    const pressureUut = {
+      id: "uut-pressure",
+      description: "Pressure UUT",
+      instrument: {
+        functions: [{ name: "Pressure", unit: "psig", ranges: [] }],
+      },
+    };
+    const resistanceUut = {
+      id: "uut-resistance",
+      description: "Resistance UUT",
+      instrument: {
+        functions: [{ name: "Resistance", unit: "Ohm", ranges: [] }],
+      },
+    };
+
+    const rows = buildFunctionGroupedRows(
+      [
+        { type: "item", item: pressureUut, index: 0 },
+        { type: "item", item: resistanceUut, index: 1 },
+      ],
+      {
+        uuts: [pressureUut, resistanceUut],
+        functionGroups: [
+          { name: "Pressure", unit: "psig", kind: "uut" },
+          { name: "Resistance", unit: "Ohm", kind: "uut" },
+        ],
+      },
+      "uut",
+      { includeEmptyGroups: true },
+    );
+
+    expect(rows.map((row) => row.fn?.key || row.functionKey)).toEqual([
+      pressureKey,
+      pressureKey,
+      resistanceKey,
+      resistanceKey,
+    ]);
+  });
+
   it("keeps the active empty function visible in detailed view scope", () => {
     const resistanceKey = makeFunctionKey("Resistance", "Ohm");
     const rows = buildFunctionGroupedRows([], {

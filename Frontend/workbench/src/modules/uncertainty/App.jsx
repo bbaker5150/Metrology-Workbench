@@ -2233,20 +2233,6 @@ function App() {
     return current || currentTestPoints.find(inScope) || null;
   };
 
-  const handleSelectFunction = (functionKey) => {
-    setRiskResults(null);
-    const point = resolveFunctionPoint(functionKey);
-
-    setSelectedFunctionId(functionKey);
-    setSelectedUutId(null);
-    setSelectedTestPointId(point?.id || null);
-    setSelectedTestPointContextUutId(point?.associatedUutIds?.[0] || null);
-    setCurrentUutSelection([]);
-    setVirtualPoint(null);
-    setSelectedTablePointIds([]);
-    setSelectedSidebarPointIds(point ? [point.id] : []);
-  };
-
   const handleSelectUut = (uutId, functionKey) => {
     setRiskResults(null);
     const point = resolveFunctionPoint(functionKey, uutId);
@@ -3372,16 +3358,6 @@ function App() {
       return { viewMode: "uut", id: selectedUutId };
     }
 
-    if (selectedFunctionId) {
-      const fnNode = sidebarData.find((fn) => fn.id === selectedFunctionId);
-      return {
-        viewMode: "function",
-        id: selectedFunctionId,
-        functionName: fnNode?.name || "",
-        functionUnit: fnNode?.unit || "",
-      };
-    }
-
     if (selectedSessionId) {
       return { viewMode: "session", id: selectedSessionId };
     }
@@ -4015,7 +3991,7 @@ function App() {
                         >
                           <div
                             className={`area-header-sticky ${isFnActive ? "active" : ""}`}
-                            onClick={() => handleSelectFunction(fnGroup.id)}
+                            onClick={(e) => toggleFunctionExpand(e, fnGroup.id)}
                           >
                             <FontAwesomeIcon
                               icon={
@@ -4059,7 +4035,7 @@ function App() {
                       >
                         <div
                           className={`area-header-sticky ${isFnActive ? "active" : ""}`}
-                          onClick={() => handleSelectFunction(fnGroup.id)}
+                          onClick={(e) => toggleFunctionExpand(e, fnGroup.id)}
                         >
                           <FontAwesomeIcon
                             icon={isFnExpanded ? faChevronDown : faChevronRight}
