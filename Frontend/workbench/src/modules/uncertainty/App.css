@@ -11249,6 +11249,14 @@ input.inline-function-input:focus {
   font-size: 0.85em;
 }
 
+/* The inherited-unit label shown (non-editable) in the ghost add-row. */
+.inline-range-ghost-unit {
+  color: var(--text-color-muted);
+  font-size: 0.8em;
+  padding-left: 2px;
+  white-space: nowrap;
+}
+
 /* --- Clear-to-delete Undo toast (confirm-after, replaces the delete modal). --- */
 .range-undo-toast {
   position: fixed;

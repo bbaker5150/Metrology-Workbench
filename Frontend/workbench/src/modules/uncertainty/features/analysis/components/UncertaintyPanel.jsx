@@ -1076,9 +1076,9 @@ export const addRangeWithBound = (item, activeRangeId, field, value) => {
   return { item: applyItemRangePatch(withRange, newRangeId, { [field]: value }), newRangeId };
 };
 
-// A range with no committed numeric bounds at all. Stricter than
-// rangeIsIncomplete (which is also true for a half-filled range): used to detect
-// "the user cleared this range" so we can prune it on blur.
+// A range with no committed numeric bounds at all — used to detect "the user
+// cleared this range" so we can prune it on blur. Note this is stricter than a
+// half-filled range (min OR max missing), which stays put.
 export const rangeIsBlank = (range = {}) => {
   const empty = (v) => v === "" || v === null || v === undefined;
   if (range?.isSingleValue) return empty(range.value) && empty(range.min);
@@ -2381,18 +2381,14 @@ export const GhostRangeRow = ({
 }) => {
   const [min, setMin] = useState("");
   const [max, setMax] = useState("");
-  const [u, setU] = useState(unit);
   const rowRef = useRef(null);
-
-  // Keep the seeded unit fresh until the user overrides it (their edit sticks
-  // because setU only runs here when they haven't typed a bound yet).
-  useEffect(() => {
-    if (min === "" && max === "") setU(unit);
-  }, [unit, min, max]);
 
   const commit = () => {
     if (min === "" && max === "") return; // nothing entered → stay a ghost
-    onMaterialize({ min, max, unit: u });
+    // New ranges inherit the active range's unit (shown as the static label
+    // below); it can be changed on the created row if needed. Keeping the unit
+    // out of the ghost's tab order means Tab flows min → max → commit.
+    onMaterialize({ min, max, unit });
     setMin("");
     setMax("");
   };
@@ -2434,12 +2430,11 @@ export const GhostRangeRow = ({
                 onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
                 className="inline-tolerance-input inline-range-bound-input"
               />
-              <UnitSelect
-                value={u}
-                ariaLabel="New range unit"
-                onChange={(value) => setU(value)}
-                width="72px"
-              />
+              {unit ? (
+                <span className="inline-range-ghost-unit" title="New range unit (inherited)">
+                  {getUnitDisplayLabel(unit)}
+                </span>
+              ) : null}
             </div>
           </div>
         </div>
@@ -2484,60 +2479,18 @@ const RangeUndoToast = ({ undo, onUndo, onDismiss }) => {
   );
 };
 
-// A range that isn't fully entered yet — a freshly-added one with a blank
-// bound. These float to the TOP of the expanded list so the new row sits right
-// under the header controls while the user fills it in.
-const rangeIsIncomplete = (range = {}) => {
-  if (range?.isSingleValue) {
-    return !Number.isFinite(parseFloat(range.value ?? range.min));
-  }
-  return (
-    !Number.isFinite(parseFloat(range?.min)) ||
-    !Number.isFinite(parseFloat(range?.max))
-  );
-};
-
-const rangeLowerBound = (range = {}) => {
-  const raw = range?.isSingleValue ? (range.value ?? range.min) : range?.min;
-  const n = parseFloat(raw);
-  return Number.isFinite(n) ? n : 0;
-};
-
 const getVisibleRangeRows = (ranges = [], activeIndex = 0, activeRange = {}, showAll = false) => {
   if (showAll && ranges.length > 0) {
-    // Order for the expanded "view all ranges" list:
-    //   1. Incomplete (newly-added) ranges first, so the empty row the user is
-    //      filling in sits at the top under the header controls.
-    //   2. Then existing ranges, grouped by unit in first-seen order (so V and Ω
-    //      ranges don't interleave) and sorted lowest-to-highest within a unit.
-    // Once a new range's bounds are committed it stops being "incomplete" and
-    // sorts into its proper ascending slot within its unit group.
-    // Each row keeps its ORIGINAL array index — activation / active-range
-    // tracking is index-based; only the display order changes.
-    const unitOrder = new Map();
-    ranges.forEach((r) => {
-      const u = r?.unit || "";
-      if (!unitOrder.has(u)) unitOrder.set(u, unitOrder.size);
-    });
-    return ranges
-      .map((range, index) => ({
-        range,
-        index,
-        key: range?.id || `${index}`,
-      }))
-      .sort((a, b) => {
-        const ai = rangeIsIncomplete(a.range);
-        const bi = rangeIsIncomplete(b.range);
-        if (ai !== bi) return ai ? -1 : 1;
-        if (ai && bi) return a.index - b.index;
-        const ua = unitOrder.get(a.range?.unit || "") ?? 0;
-        const ub = unitOrder.get(b.range?.unit || "") ?? 0;
-        if (ua !== ub) return ua - ub;
-        const la = rangeLowerBound(a.range);
-        const lb = rangeLowerBound(b.range);
-        if (la !== lb) return la - lb;
-        return a.index - b.index;
-      });
+    // Expanded "view all ranges" is an editing surface, so rows stay in STABLE
+    // stored order — no sorting or floating. Reordering while the user edits (an
+    // earlier version floated "incomplete" rows to the top) yanks the row out
+    // from under them and remounts its uncontrolled inputs mid-edit. New ranges
+    // are appended, so they naturally appear at the bottom next to the ghost row.
+    return ranges.map((range, index) => ({
+      range,
+      index,
+      key: range?.id || `${index}`,
+    }));
   }
   return [
     {
@@ -4802,8 +4755,12 @@ const SummaryDashboard = ({
         return next || prev;
       });
     };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    // Listen on "click" (fires after mousedown -> blur -> mouseup) so any
+    // in-progress editor commits its onBlur BEFORE the list collapses and
+    // unmounts it. A mousedown listener would collapse first and swallow the
+    // pending commit (lost new range / tolerance / clear-to-delete).
+    document.addEventListener("click", onDown);
+    return () => document.removeEventListener("click", onDown);
   }, [expandedRangeKeys]);
   const [pinnedInlineUutIds, setPinnedInlineUutIds] = useState([]);
   const [pinnedInlineTmdeIds, setPinnedInlineTmdeIds] = useState([]);
@@ -7281,8 +7238,12 @@ function DetailedView({
         return next || prev;
       });
     };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    // Listen on "click" (fires after mousedown -> blur -> mouseup) so any
+    // in-progress editor commits its onBlur BEFORE the list collapses and
+    // unmounts it. A mousedown listener would collapse first and swallow the
+    // pending commit (lost new range / tolerance / clear-to-delete).
+    document.addEventListener("click", onDown);
+    return () => document.removeEventListener("click", onDown);
   }, [expandedRangeKeys]);
 
   const setRangeToleranceComponentDetail = (
