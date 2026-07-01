@@ -160,8 +160,7 @@ export const scopeLibraryInstrumentToFunction = (
     const candidateKey = makeFunctionKey(name, unit);
     if (candidateKey === functionKey) return true;
     if (!selectedName || functionNamePart(candidateKey) !== selectedName) return false;
-    const candidateUnit = functionUnitPart(candidateKey);
-    return !selectedUnit || !candidateUnit;
+    return functionUnitsMatch(selectedUnit, functionUnitPart(candidateKey));
   };
   const match = functions.find((fn) => functionMatches(fn.name, fn.unit));
   const fallbackName = fallbackFn.name || "";
@@ -2792,6 +2791,12 @@ const functionNamePart = (functionKey = "") =>
 const functionUnitPart = (functionKey = "") =>
   String(functionKey || "").split("|")[1] || "";
 
+const functionUnitsMatch = (selectedUnit, candidateUnit) => {
+  if (!selectedUnit) return true;
+  if (!candidateUnit) return true;
+  return normalizeUnitToken(selectedUnit) === normalizeUnitToken(candidateUnit);
+};
+
 const functionPartsMatch = (candidateName, candidateUnit, functionKey = null) => {
   if (!functionKey) return true;
   const selectedName = functionNamePart(functionKey);
@@ -2799,8 +2804,7 @@ const functionPartsMatch = (candidateName, candidateUnit, functionKey = null) =>
   const candidateKey = makeFunctionKey(candidateName, candidateUnit);
   if (candidateKey === functionKey) return true;
   if (!selectedName || functionNamePart(candidateKey) !== selectedName) return false;
-  const normalizedCandidateUnit = functionUnitPart(candidateKey);
-  return !selectedUnit || !normalizedCandidateUnit;
+  return functionUnitsMatch(selectedUnit, functionUnitPart(candidateKey));
 };
 
 const matchingInstrumentFunctionKey = (source = {}, functionKey = null) => {
@@ -2815,7 +2819,7 @@ const matchingInstrumentFunctionKey = (source = {}, functionKey = null) => {
   const nameMatch = functions.find((fn) => {
     const candidateName = functionNamePart(fn.key);
     if (candidateName !== selectedName) return false;
-    return !selectedUnit || !functionUnitPart(fn.key);
+    return functionUnitsMatch(selectedUnit, functionUnitPart(fn.key));
   });
   return nameMatch?.key || null;
 };
@@ -7930,10 +7934,10 @@ function DetailedView({
         {
           includeEmptyGroups: false,
           onlyFunctionKey: activePointFunctionKey,
-          fallbackItemIds: associatedUutIds,
+          fallbackItemIds: [activePointUutId, ...associatedUutIds].filter(Boolean),
         },
       ),
-    [activePointFunctionKey, associatedUutIds, relevantUuts, sessionData],
+    [activePointFunctionKey, activePointUutId, associatedUutIds, relevantUuts, sessionData],
   );
 
   const detailTmdeRows = useMemo(
