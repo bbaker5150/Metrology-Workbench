@@ -661,8 +661,6 @@ const UnitSelect = ({ value = "", onChange, ariaLabel = "Unit", width = null }) 
 // concern). Handles the common instrument.functions[].ranges[] shape plus the
 // instrument.ranges / item.ranges / single-default fallbacks.
 const sameId = (a, b) => String(a) === String(b);
-const rangeStateKey = (kind, itemId, rangeId) =>
-  `${kind}:${itemId || ""}:${rangeId || "default"}`;
 const itemStateKey = (kind, itemId) => `${kind}:${itemId || ""}`;
 const cleanFunctionName = (value) => String(value || "").trim();
 const functionNameMatches = (a, b) =>
@@ -1015,13 +1013,9 @@ const cloneRangeForPaste = (range = {}) => {
 
 // Append a pasted (cloned) range next to the active range, mirroring
 // addRangeToItem's function/array placement. Returns { item, newRangeId }.
-// preserveId keeps the incoming range's id/data verbatim (used by the
-// clear-to-delete Undo restore, which re-inserts the exact range removed).
-const pasteRangeIntoItem = (item, activeRangeId, clipRange, { preserveId = false } = {}) => {
+const pasteRangeIntoItem = (item, activeRangeId, clipRange) => {
   const inst = item?.instrument || {};
-  const newRange = preserveId
-    ? JSON.parse(JSON.stringify(clipRange || {}))
-    : cloneRangeForPaste(clipRange);
+  const newRange = cloneRangeForPaste(clipRange);
   if (Array.isArray(inst.functions) && inst.functions.length) {
     let fnIdx = inst.functions.findIndex((fn) =>
       (fn.ranges || []).some((r) => sameId(r.id, activeRangeId)),
@@ -1067,15 +1061,6 @@ const removeRangeFromItem = (item, rangeId) => {
   return item;
 };
 
-// Materialize a new range FROM the ghost add-row: add a blank range (seeded from
-// the active range's tolerance structure) and immediately write the typed bound
-// into it, as ONE synchronous transform so the value isn't lost to a separate
-// async edit. Returns { item, newRangeId }.
-export const addRangeWithBound = (item, activeRangeId, field, value) => {
-  const { item: withRange, newRangeId } = addRangeToItem(item, activeRangeId);
-  return { item: applyItemRangePatch(withRange, newRangeId, { [field]: value }), newRangeId };
-};
-
 // A range with no committed numeric bounds at all — used to detect "the user
 // cleared this range" so we can prune it on blur. Note this is stricter than a
 // half-filled range (min OR max missing), which stays put.
@@ -1084,11 +1069,6 @@ export const rangeIsBlank = (range = {}) => {
   if (range?.isSingleValue) return empty(range.value) && empty(range.min);
   return empty(range.min) && empty(range.max);
 };
-
-// Re-insert a previously-removed range object, preserving its id and data. Backs
-// the "Range removed — Undo" toast.
-export const restoreRangeToItem = (item, activeRangeId, rangeObj) =>
-  pasteRangeIntoItem(item, activeRangeId, rangeObj, { preserveId: true }).item;
 
 // Render a number without scientific notation (e.g. "1e-7" -> "0.0000001") for
 // display in editable cells. Non-numeric values pass through unchanged.
@@ -2451,31 +2431,6 @@ export const GhostRangeRow = ({
         <span className="range-ghost-hint">—</span>
       </td>
     </tr>
-  );
-};
-
-// Lightweight "Range removed — Undo" toast. Mirrors the tolerance workflow's
-// confirm-AFTER philosophy: deletion is instant (no modal), with a brief window
-// to take it back. Auto-dismiss is driven by the owner via the `undo` prop being
-// cleared; this component only renders + wires the two actions.
-const RangeUndoToast = ({ undo, onUndo, onDismiss }) => {
-  if (!undo) return null;
-  return ReactDOM.createPortal(
-    <div className="range-undo-toast" role="status" aria-live="polite">
-      <span className="range-undo-toast-label">Range removed</span>
-      <button type="button" className="range-undo-toast-btn" onClick={onUndo}>
-        Undo
-      </button>
-      <button
-        type="button"
-        className="range-undo-toast-close"
-        aria-label="Dismiss"
-        onClick={onDismiss}
-      >
-        <FontAwesomeIcon icon={faTimesCircle} />
-      </button>
-    </div>,
-    document.body,
   );
 };
 
@@ -4196,59 +4151,18 @@ const SummaryDashboard = ({
   const persistItem = (kind, updatedItem) => {
     persistInlineItem(kind, updatedItem);
   };
-  // Stash a just-pruned range so the Undo toast can put it back. Resets any
-  // pending timer and starts a fresh ~5s auto-dismiss.
-  const clearRangeUndo = () => {
-    if (rangeUndoTimer.current) {
-      clearTimeout(rangeUndoTimer.current);
-      rangeUndoTimer.current = null;
-    }
-    setRangeUndo(null);
-  };
-  const stashRangeUndo = (kind, itemId, range, activeRangeId) => {
-    if (rangeUndoTimer.current) clearTimeout(rangeUndoTimer.current);
-    setRangeUndo({ kind, itemId, range, activeRangeId });
-    rangeUndoTimer.current = setTimeout(() => {
-      rangeUndoTimer.current = null;
-      setRangeUndo(null);
-    }, 5000);
-  };
-  const restoreStashedRange = () => {
-    if (!rangeUndo || !onSessionSave) return clearRangeUndo();
-    const listKey = rangeUndo.kind === "uut" ? "uuts" : "tmdes";
-    const current = (sessionData[listKey] || []).find((it) => it.id === rangeUndo.itemId);
-    if (current) {
-      persistInlineItem(
-        rangeUndo.kind,
-        restoreRangeToItem(current, rangeUndo.activeRangeId, rangeUndo.range),
-      );
-    }
-    clearRangeUndo();
-  };
-
-  // Editing a range bound. Mirrors the tolerance cell's confirm-free model: if
-  // clearing a bound leaves the range fully blank (and it isn't a freshly-added
-  // row still being filled, nor the last range), prune it and offer an Undo
-  // toast instead of persisting an empty range.
+  // Editing a range bound. Mirrors the tolerance cell's confirm-free model:
+  // clearing a range's last numeric bound removes it outright (never the last
+  // range). New ranges are created with a value, so they're never blank at
+  // creation and won't be pruned mid-entry.
   const handleEditRangeBound = (kind, item, rangeId, field, value) => {
     if (!onSessionSave) return;
     const patched = applyItemRangePatch(item, rangeId, { [field]: value });
     const patchedRange = findItemRange(patched, rangeId);
-    // Clearing a range's last bound removes it (with Undo). The ghost row now
-    // buffers new ranges until they carry a value, so a real range is never
-    // blank at creation — no "freshly added" exemption is needed here.
     if (patchedRange && rangeIsBlank(patchedRange)) {
       const pruned = removeRangeFromItem(patched, rangeId);
       if (pruned !== patched) {
-        // The range as it stood just before this final clearing edit — carries
-        // its tolerances/resolution so Undo restores the useful config.
-        const original = findItemRange(item, rangeId) || patchedRange;
         persistItem(kind, pruned);
-        setNewRangeKeys((prev) => {
-          const next = new Set(prev);
-          next.delete(rangeStateKey(kind, item.id, rangeId));
-          return next;
-        });
         setLocalRangeIndices((prev) => {
           const next = { ...prev };
           delete next[item.id];
@@ -4259,7 +4173,6 @@ const SummaryDashboard = ({
           delete next[item.id];
           return next;
         });
-        stashRangeUndo(kind, item.id, original, rangeId);
         return;
       }
     }
@@ -4272,8 +4185,7 @@ const SummaryDashboard = ({
   // Create a range from the ghost add-row once the user has entered bounds and
   // left the row (the ghost buffers until then — see GhostRangeRow). Seeds the
   // tolerance structure from the active range, writes the entered bounds/unit in
-  // one transform, makes it active, and tags it "new" so the single-value mode
-  // toggle is offered on the fresh row.
+  // one transform, and makes it the active range.
   const materializeGhostRange = (kind, item, activeRangeId, { min, max, unit }) => {
     if (!onSessionSave) return;
     if (min === "" && max === "") return;
@@ -4284,22 +4196,10 @@ const SummaryDashboard = ({
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
     const newIdx = newRangeId ? resolved.findIndex((r) => sameId(r.id, newRangeId)) : -1;
     setIdx((prev) => ({ ...prev, [item.id]: newIdx >= 0 ? newIdx : 0 }));
-    if (newRangeId) {
-      setNewRangeKeys((prev) => {
-        const next = new Set(prev);
-        next.add(rangeStateKey(kind, item.id, newRangeId));
-        return next;
-      });
-    }
   };
   const handleRemoveRange = (kind, item, rangeId) => {
     if (!onSessionSave) return;
     persistItem(kind, removeRangeFromItem(item, rangeId));
-    setNewRangeKeys((prev) => {
-      const next = new Set(prev);
-      next.delete(rangeStateKey(kind, item.id, rangeId));
-      return next;
-    });
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     setIdx((prev) => {
       const next = { ...prev };
@@ -4729,19 +4629,25 @@ const SummaryDashboard = ({
 
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
-  const [newRangeKeys, setNewRangeKeys] = useState(() => new Set());
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
-  // Clear-to-delete Undo: the last range pruned by blanking its bounds, kept
-  // briefly so the toast can restore it. Timer ref drives auto-dismiss.
-  const [rangeUndo, setRangeUndo] = useState(null);
-  const rangeUndoTimer = useRef(null);
-  // Click-away collapse: while any range list is expanded, a mousedown that
+  // Click-away collapse: while any range list is expanded, a click that
   // lands outside that instrument's row group (tagged data-range-group) snaps it
   // shut — mirroring the tolerance cell's focus-out close across the multi-<tr>
   // expanded group (which has no single wrapper element to hang an onBlur on).
   useEffect(() => {
     if (expandedRangeKeys.size === 0) return undefined;
     const onDown = (e) => {
+      // Clicking a non-focusable area (a plain cell/background) does NOT blur a
+      // focused inline editor, so its onBlur commit — new range, tolerance edit,
+      // clear-to-delete — would never run before the list collapses. Force the
+      // focused editor to blur first so its commit lands.
+      const clickedInsideGroup = e.target?.closest?.("[data-range-group]");
+      if (!clickedInsideGroup) {
+        const ae = document.activeElement;
+        if (ae && typeof ae.blur === "function" && ae.closest?.("[data-range-group]")) {
+          ae.blur();
+        }
+      }
       setExpandedRangeKeys((prev) => {
         if (prev.size === 0) return prev;
         let next = null;
@@ -4829,7 +4735,7 @@ const SummaryDashboard = ({
               activeIndex={0}
               activeRange={range}
               editable
-              allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
+              allowSingleToggle
               onSelect={(idx) => setRangeIdx((prev) => ({ ...prev, [item.id]: idx }))}
               onEditBound={(field, value) =>
                 handleEditRangeBound(kind, item, range?.id, field, value)
@@ -5257,15 +5163,13 @@ const SummaryDashboard = ({
     const newIdx = resolved.findIndex((r) => sameId(r.id, newRangeId));
     if (newIdx >= 0) setIdx((prev) => ({ ...prev, [item.id]: newIdx }));
   };
-  // Instant, confirm-free range deletion with an Undo toast — the discoverable
-  // counterpart to clear-to-delete, used by the context menu.
-  const deleteRangeWithUndo = (kind, item, rangeId) => {
+  // Instant, confirm-free range deletion — the discoverable counterpart to
+  // clear-to-delete, used by the context menu.
+  const deleteRange = (kind, item, rangeId) => {
     if (!onSessionSave) return;
-    const original = findItemRange(item, rangeId);
     const pruned = removeRangeFromItem(item, rangeId);
     if (pruned === item) return; // last-range guard: nothing removed
     handleRemoveRange(kind, item, rangeId);
-    if (original) stashRangeUndo(kind, item.id, original, rangeId);
   };
   const openRangeRowMenu = (e, kind, item, range, index, totalRanges) => {
     if (!onSessionSave) return;
@@ -5297,7 +5201,7 @@ const SummaryDashboard = ({
         label: "Delete Range",
         icon: faTrashAlt,
         className: "destructive",
-        action: () => deleteRangeWithUndo(kind, item, range?.id),
+        action: () => deleteRange(kind, item, range?.id),
       });
     }
     setRowMenu({ x: e.clientX, y: e.clientY, items });
@@ -5696,9 +5600,7 @@ const SummaryDashboard = ({
                                   activeIndex={showAllRanges ? 0 : activeIndex}
                                   activeRange={range}
                                   editable={!!onSessionSave}
-                                  allowSingleToggle={newRangeKeys.has(
-                                    rangeStateKey("uut", uut.id, range?.id),
-                                  )}
+                                  allowSingleToggle
                                   onSelect={(idx) =>
                                     setLocalRangeIndices((prev) => ({ ...prev, [uutRowKey]: idx }))
                                   }
@@ -6080,9 +5982,7 @@ const SummaryDashboard = ({
                                   activeIndex={showAllRanges ? 0 : activeIndex}
                                   activeRange={range}
                                   editable={!!onSessionSave}
-                                  allowSingleToggle={newRangeKeys.has(
-                                    rangeStateKey("tmde", tmde.id, range?.id),
-                                  )}
+                                  allowSingleToggle
                                   onSelect={(idx) =>
                                     setTmdeRangeIndices((prev) => ({ ...prev, [tmdeRowKey]: idx }))
                                   }
@@ -6236,11 +6136,6 @@ const SummaryDashboard = ({
       </div>
 
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
-      <RangeUndoToast
-        undo={rangeUndo}
-        onUndo={restoreStashedRange}
-        onDismiss={clearRangeUndo}
-      />
     </div>
   );
 };
@@ -6295,11 +6190,7 @@ function DetailedView({
   // keydown effect that lists it as a dependency — otherwise referencing it in
   // the deps array hits a temporal dead zone during render.
   const [localRangeIndices, setLocalRangeIndices] = useState({});
-  const [newRangeKeys, setNewRangeKeys] = useState(() => new Set());
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
-  // Clear-to-delete Undo (see the SummaryDashboard twin for rationale).
-  const [rangeUndo, setRangeUndo] = useState(null);
-  const rangeUndoTimer = useRef(null);
 
   // --- NEW: Local Selection State ---
   const [selectedUutIds, setSelectedUutIds] = useState([]);
@@ -6443,7 +6334,7 @@ function DetailedView({
         label: "Delete Range",
         icon: faTrashAlt,
         className: "destructive",
-        action: () => deleteRangeWithUndoDetail(kind, item, range?.id),
+        action: () => deleteRangeDetail(kind, item, range?.id),
       });
     }
     setRowMenu({ x: e.clientX, y: e.clientY, items });
@@ -7079,37 +6970,8 @@ function DetailedView({
   };
 
   // --- Range bounds / unit / resolution / add / remove ---
-  // Clear-to-delete Undo plumbing (mirrors the SummaryDashboard twin).
-  const clearRangeUndo = () => {
-    if (rangeUndoTimer.current) {
-      clearTimeout(rangeUndoTimer.current);
-      rangeUndoTimer.current = null;
-    }
-    setRangeUndo(null);
-  };
-  const stashRangeUndo = (kind, itemId, range, activeRangeId) => {
-    if (rangeUndoTimer.current) clearTimeout(rangeUndoTimer.current);
-    setRangeUndo({ kind, itemId, range, activeRangeId });
-    rangeUndoTimer.current = setTimeout(() => {
-      rangeUndoTimer.current = null;
-      setRangeUndo(null);
-    }, 5000);
-  };
-  const restoreStashedRange = () => {
-    if (!rangeUndo || !onSessionSave) return clearRangeUndo();
-    const listKey = rangeUndo.kind === "uut" ? "uuts" : "tmdes";
-    const current = (sessionData[listKey] || []).find((it) => it.id === rangeUndo.itemId);
-    if (current) {
-      persistInlineItemDetail(
-        rangeUndo.kind,
-        restoreRangeToItem(current, rangeUndo.activeRangeId, rangeUndo.range),
-      );
-    }
-    clearRangeUndo();
-  };
-
-  // Editing a bound: clearing a range's last bound prunes it (with an Undo toast)
-  // rather than persisting an empty range — see the SummaryDashboard twin.
+  // Editing a bound: clearing a range's last numeric bound prunes it (never the
+  // last range) — see the SummaryDashboard twin.
   const handleEditRangeBoundDetail = (kind, item, rangeId, field, value) => {
     if (!onSessionSave) return;
     const patched = applyItemRangePatch(item, rangeId, { [field]: value });
@@ -7117,13 +6979,7 @@ function DetailedView({
     if (patchedRange && rangeIsBlank(patchedRange)) {
       const pruned = removeRangeFromItem(patched, rangeId);
       if (pruned !== patched) {
-        const original = findItemRange(item, rangeId) || patchedRange;
         persistInlineItemDetail(kind, pruned);
-        setNewRangeKeys((prev) => {
-          const next = new Set(prev);
-          next.delete(rangeStateKey(kind, item.id, rangeId));
-          return next;
-        });
         setLocalRangeIndices((prev) => {
           const next = { ...prev };
           delete next[item.id];
@@ -7134,7 +6990,6 @@ function DetailedView({
           delete next[item.id];
           return next;
         });
-        stashRangeUndo(kind, item.id, original, rangeId);
         return;
       }
     }
@@ -7167,11 +7022,6 @@ function DetailedView({
   const handleRemoveRangeDetail = (kind, item, rangeId) => {
     if (!onSessionSave) return;
     persistInlineItemDetail(kind, removeRangeFromItem(item, rangeId));
-    setNewRangeKeys((prev) => {
-      const next = new Set(prev);
-      next.delete(rangeStateKey(kind, item.id, rangeId));
-      return next;
-    });
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     setIdx((prev) => {
       const next = { ...prev };
@@ -7190,22 +7040,13 @@ function DetailedView({
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
     const newIdx = newRangeId ? resolved.findIndex((r) => sameId(r.id, newRangeId)) : -1;
     setIdx((prev) => ({ ...prev, [item.id]: newIdx >= 0 ? newIdx : 0 }));
-    if (newRangeId) {
-      setNewRangeKeys((prev) => {
-        const next = new Set(prev);
-        next.add(rangeStateKey(kind, item.id, newRangeId));
-        return next;
-      });
-    }
   };
-  // Instant, confirm-free deletion with Undo toast (context-menu delete path).
-  const deleteRangeWithUndoDetail = (kind, item, rangeId) => {
+  // Instant, confirm-free deletion (context-menu delete path).
+  const deleteRangeDetail = (kind, item, rangeId) => {
     if (!onSessionSave) return;
-    const original = findItemRange(item, rangeId);
     const pruned = removeRangeFromItem(item, rangeId);
     if (pruned === item) return;
     handleRemoveRangeDetail(kind, item, rangeId);
-    if (original) stashRangeUndo(kind, item.id, original, rangeId);
   };
 
   const toggleShowAllRangesDetail = (kind, itemId) => {
@@ -7225,6 +7066,17 @@ function DetailedView({
   useEffect(() => {
     if (expandedRangeKeys.size === 0) return undefined;
     const onDown = (e) => {
+      // Clicking a non-focusable area (a plain cell/background) does NOT blur a
+      // focused inline editor, so its onBlur commit — new range, tolerance edit,
+      // clear-to-delete — would never run before the list collapses. Force the
+      // focused editor to blur first so its commit lands.
+      const clickedInsideGroup = e.target?.closest?.("[data-range-group]");
+      if (!clickedInsideGroup) {
+        const ae = document.activeElement;
+        if (ae && typeof ae.blur === "function" && ae.closest?.("[data-range-group]")) {
+          ae.blur();
+        }
+      }
       setExpandedRangeKeys((prev) => {
         if (prev.size === 0) return prev;
         let next = null;
@@ -7307,7 +7159,7 @@ function DetailedView({
               activeIndex={0}
               activeRange={range}
               editable
-              allowSingleToggle={newRangeKeys.has(rangeStateKey(kind, item.id, range?.id))}
+              allowSingleToggle
               onSelect={() => {}}
               onEditBound={(field, value) =>
                 handleEditRangeBoundDetail(kind, item, range?.id, field, value)
@@ -9782,9 +9634,7 @@ function DetailedView({
                                   activeIndex={showAllRanges ? 0 : activeIndex}
                                   activeRange={range}
                                   editable={!!onSessionSave}
-                                  allowSingleToggle={newRangeKeys.has(
-                                    rangeStateKey("uut", uut.id, range?.id),
-                                  )}
+                                  allowSingleToggle
                                   onSelect={(idx) =>
                                     handleRangeChange(
                                       uut.id,
@@ -10525,9 +10375,7 @@ function DetailedView({
                                       activeIndex={showAllRanges ? 0 : activeIndex}
                                       activeRange={range}
                                       editable={!!onSessionSave}
-                                      allowSingleToggle={newRangeKeys.has(
-                                        rangeStateKey("tmde", masterTmde.id, range?.id),
-                                      )}
+                                      allowSingleToggle
                                       onSelect={(idx) =>
                                         handleTmdeRangeChange(masterTmde, idx, ranges)
                                       }
@@ -10827,11 +10675,6 @@ function DetailedView({
       )}
       {renderBudgetTmdePicker()}
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
-      <RangeUndoToast
-        undo={rangeUndo}
-        onUndo={restoreStashedRange}
-        onDismiss={clearRangeUndo}
-      />
     </div>
   );
 }
