@@ -840,7 +840,7 @@ const findMatchingRange = (uut, value, unit) => {
   return match || allRanges[0] || null;
 };
 
-const pointToleranceMatchesFunction = (point, tolerance) => {
+export const pointToleranceMatchesFunction = (point, tolerance) => {
   if (!point || !tolerance || Object.keys(tolerance || {}).length === 0) {
     return false;
   }
@@ -857,6 +857,24 @@ const pointToleranceMatchesFunction = (point, tolerance) => {
     String(pointUnit).trim().toLowerCase() ===
       String(toleranceUnit).trim().toLowerCase()
   );
+};
+
+export const resolvePointForUutContext = (point, uut) => {
+  const value = point.testPointInfo?.parameter?.value;
+  const unit = point.testPointInfo?.parameter?.unit;
+  const carriedTolerance =
+    point.uutTolerance && pointToleranceMatchesFunction(point, point.uutTolerance)
+      ? point.uutTolerance
+      : null;
+
+  return {
+    ...point,
+    associatedUutIds: uut?.id ? [uut.id] : point.associatedUutIds || [],
+    measurementAreaId: uut?.measurementAreaId || point.measurementAreaId || null,
+    uutTolerance:
+      carriedTolerance ||
+      (uut ? findMatchingRange(uut, value, unit) : point.uutTolerance || null),
+  };
 };
 
 // --- HELPER COMPONENT: Sidebar Session Header (Inline Editing) ---
@@ -2913,15 +2931,7 @@ function App() {
   const handleSaveTestPoint = (formData) => {
     const resolvePointForUut = (point, uutId) => {
       const uut = currentSessionData?.uuts?.find((u) => u.id === uutId);
-      const value = point.testPointInfo?.parameter?.value;
-      const unit = point.testPointInfo?.parameter?.unit;
-      return {
-        ...point,
-        associatedUutIds: [uutId],
-        measurementAreaId:
-          point.measurementAreaId || uut?.measurementAreaId || null,
-        uutTolerance: point.uutTolerance || (uut ? findMatchingRange(uut, value, unit) : null),
-      };
+      return resolvePointForUutContext(point, uut || { id: uutId });
     };
 
     const normalizePoint = (point) => {

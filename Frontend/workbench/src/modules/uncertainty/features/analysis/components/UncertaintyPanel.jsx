@@ -2686,11 +2686,16 @@ export const resolveUutRangeHelper = (
 // id for single-function instruments, `${functionKey}::${id}` for multi-function
 // ones so each subsection's range state is independent). Empty subsections are
 // emitted for user-added functions (session.functionGroups) with no instrument.
-const buildFunctionGroupedRows = (
+export const buildFunctionGroupedRows = (
   groupedItems,
   sessionData,
   kind = null,
-  { includeEmptyGroups = true, onlyFunctionKey = null, fallbackItemIds = [] } = {},
+  {
+    includeEmptyGroups = true,
+    onlyFunctionKey = null,
+    fallbackItemIds = [],
+    emptyFunctionFallback = null,
+  } = {},
 ) => {
   const sessionFunctions = resolveSessionFunctions(sessionData, { kind });
   const fnByKey = new Map(sessionFunctions.map((fn) => [fn.key, fn]));
@@ -2755,6 +2760,10 @@ const buildFunctionGroupedRows = (
   if (includeEmptyGroups) {
     (sessionData.functionGroups || [])
       .filter((fg) => !kind || !fg.kind || fg.kind === kind)
+      .filter(
+        (fg) =>
+          !onlyFunctionKey || makeFunctionKey(fg.name, fg.unit) === onlyFunctionKey,
+      )
       .forEach((fg) => {
         const key = makeFunctionKey(fg.name, fg.unit);
         if (!groups.has(key)) {
@@ -2768,6 +2777,23 @@ const buildFunctionGroupedRows = (
           });
         }
       });
+  }
+
+  if (includeEmptyGroups && onlyFunctionKey && !groups.has(onlyFunctionKey)) {
+    const resolvedFn = fnByKey.get(onlyFunctionKey) || emptyFunctionFallback || {
+      key: onlyFunctionKey,
+      name: functionNamePart(onlyFunctionKey) || "Measurement",
+      unit: functionUnitPart(onlyFunctionKey),
+      color: null,
+    };
+    groups.set(onlyFunctionKey, {
+      type: "function",
+      fn: kind ? { ...resolvedFn, kind } : resolvedFn,
+      order: fnOrder.has(onlyFunctionKey)
+        ? fnOrder.get(onlyFunctionKey)
+        : Number.MAX_SAFE_INTEGER,
+      items: [],
+    });
   }
 
   return Array.from(groups.values())
@@ -6720,11 +6746,11 @@ function DetailedView({
     "Instrument";
   const applyPickedLibraryUut = (uutId, inst, options = {}) => {
     if (!onSessionSave) return;
-    // In the per-point detail view the row is shown in the context of the active
-    // measurement area (relevantUuts filters by it). Keep the UUT in its current
-    // area instead of relocating it to the library instrument's stored area —
-    // otherwise the row drops out of this view and only reappears in the
-    // area-grouped Session Overview. Adopt the library area only if unassigned.
+    // The per-point detail view scopes rows by the point's function, not by area,
+    // so a UUT's measurementArea is only secondary metadata now. Keep the UUT in
+    // its current area instead of relocating it to the library instrument's
+    // stored area (which could reshuffle the area-grouped Session Overview);
+    // adopt the library area only if the UUT is currently unassigned.
     const currentUut = (sessionData.uuts || []).find((u) => u.id === uutId);
     const hasExistingArea = !!(
       currentUut?.measurementAreaId || currentUut?.measurementArea
@@ -6757,9 +6783,10 @@ function DetailedView({
   const applyPickedLibraryTmde = (tmdeId, inst, options = {}) => {
     if (!onSessionSave) return;
     // Keep the TMDE in its current measurement area (see applyPickedLibraryUut):
-    // the detail table renders relevantTmdes filtered by the active area, so
-    // relocating it to the library instrument's area would hide the row here and
-    // only show it in the Session Overview. Adopt the library area if unassigned.
+    // the detail table scopes rows by function, and area is only secondary
+    // metadata, so relocating it to the library instrument's area would only
+    // reshuffle the area-grouped Session Overview. Adopt the library area if
+    // unassigned.
     const currentTmde = (sessionData.tmdes || []).find((t) => t.id === tmdeId);
     const hasExistingArea = !!(currentTmde?.measurementAreaId || currentTmde?.measurementArea);
     const hasCategory = !!currentTmde?.instrument?.measurementArea;
@@ -7904,19 +7931,27 @@ function DetailedView({
   );
   const isDerived = testPointData.measurementType === "derived";
 
-  // Keep the instrument inventory stable while moving between points. A point
-  // only highlights its linked UUT; it does not hide the area's other choices.
+  // Scope the detail-view UUT inventory to the point's FUNCTION, not a stale
+  // measurement area. A point's functional identity comes from its parameter
+  // (activePointFunctionKey); the UUTs relevant to it are those that declare
+  // that function, plus the point's own associated/active UUT as a fallback for
+  // legacy instruments whose function metadata is missing. Deriving from the
+  // function key (rather than resolvePointAreaId/measurementAreaId) keeps the
+  // sidebar and detail view in sync: selecting an Angular Speed point can never
+  // surface Flow UUTs — or hide the Angular Speed UUT — just because an old
+  // measurementAreaId disagrees with the function.
   const relevantUuts = useMemo(() => {
     const allUuts = sessionData.uuts || [];
-    if (!activeMeasurementAreaId) return allUuts;
+    if (!activePointFunctionKey) return allUuts;
+    const associatedSet = new Set(
+      [activePointUutId, ...associatedUutIds].filter(Boolean).map(String),
+    );
     return allUuts.filter(
       (uut) =>
-        String(uut.measurementAreaId) === String(activeMeasurementAreaId) ||
-        (!uut.measurementAreaId &&
-          activeMeasurementArea?.name &&
-          uut.measurementArea === activeMeasurementArea.name),
+        matchingInstrumentFunctionKey(uut, activePointFunctionKey) ||
+        associatedSet.has(String(uut.id)),
     );
-  }, [sessionData.uuts, activeMeasurementAreaId, activeMeasurementArea?.name]);
+  }, [sessionData.uuts, activePointFunctionKey, activePointUutId, associatedUutIds]);
 
   const relevantTmdes = useMemo(() => {
     // Detail view should expose the same TMDE inventory as Session Overview.
@@ -7932,12 +7967,25 @@ function DetailedView({
         sessionData,
         "uut",
         {
-          includeEmptyGroups: false,
+          includeEmptyGroups: true,
           onlyFunctionKey: activePointFunctionKey,
           fallbackItemIds: [activePointUutId, ...associatedUutIds].filter(Boolean),
+          emptyFunctionFallback: {
+            key: activePointFunctionKey,
+            name: testPointData.testPointInfo?.parameter?.name || "Measurement",
+            unit: testPointData.testPointInfo?.parameter?.unit || "",
+            color: null,
+          },
         },
       ),
-    [activePointFunctionKey, activePointUutId, associatedUutIds, relevantUuts, sessionData],
+    [
+      activePointFunctionKey,
+      activePointUutId,
+      associatedUutIds,
+      relevantUuts,
+      sessionData,
+      testPointData,
+    ],
   );
 
   const detailTmdeRows = useMemo(
@@ -7946,9 +7994,18 @@ function DetailedView({
         relevantTmdes.map((item, index) => ({ type: "item", item, index })),
         sessionData,
         "tmde",
-        { includeEmptyGroups: false, onlyFunctionKey: activePointFunctionKey },
+        {
+          includeEmptyGroups: true,
+          onlyFunctionKey: activePointFunctionKey,
+          emptyFunctionFallback: {
+            key: activePointFunctionKey,
+            name: testPointData.testPointInfo?.parameter?.name || "Measurement",
+            unit: testPointData.testPointInfo?.parameter?.unit || "",
+            color: null,
+          },
+        },
       ),
-    [activePointFunctionKey, relevantTmdes, sessionData],
+    [activePointFunctionKey, relevantTmdes, sessionData, testPointData],
   );
 
   // --- HANDLERS ---
