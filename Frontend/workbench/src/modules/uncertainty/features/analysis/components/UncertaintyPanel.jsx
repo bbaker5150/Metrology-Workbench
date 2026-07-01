@@ -2695,6 +2695,7 @@ export const buildFunctionGroupedRows = (
     onlyFunctionKey = null,
     fallbackItemIds = [],
     emptyFunctionFallback = null,
+    includeExplicitFunctionGroups = false,
   } = {},
 ) => {
   const sessionFunctions = resolveSessionFunctions(sessionData, { kind });
@@ -2702,6 +2703,11 @@ export const buildFunctionGroupedRows = (
   const fnOrder = new Map(sessionFunctions.map((fn, index) => [fn.key, index]));
   const groups = new Map();
   const fallbackSet = new Set((fallbackItemIds || []).map(String));
+  const explicitGroupKeys = new Set(
+    (sessionData.functionGroups || [])
+      .filter((fg) => !kind || !fg.kind || fg.kind === kind)
+      .map((fg) => makeFunctionKey(fg.name, fg.unit)),
+  );
 
   groupedItems.forEach((row) => {
     const declared = instrumentFunctions(row.item);
@@ -2717,7 +2723,12 @@ export const buildFunctionGroupedRows = (
     });
     if (onlyFunctionKey) {
       const matchingKey = matchingInstrumentFunctionKey(row.item, onlyFunctionKey);
-      fnList = fnList.filter((fn) => fn.key === matchingKey || fn.key === onlyFunctionKey);
+      fnList = fnList.filter(
+        (fn) =>
+          fn.key === matchingKey ||
+          fn.key === onlyFunctionKey ||
+          (includeExplicitFunctionGroups && explicitGroupKeys.has(fn.key)),
+      );
       if (fnList.length === 0 && fallbackSet.has(String(row.item?.id))) {
         const resolved = fnByKey.get(onlyFunctionKey);
         fnList = [
@@ -2762,7 +2773,9 @@ export const buildFunctionGroupedRows = (
       .filter((fg) => !kind || !fg.kind || fg.kind === kind)
       .filter(
         (fg) =>
-          !onlyFunctionKey || makeFunctionKey(fg.name, fg.unit) === onlyFunctionKey,
+          !onlyFunctionKey ||
+          includeExplicitFunctionGroups ||
+          makeFunctionKey(fg.name, fg.unit) === onlyFunctionKey,
       )
       .forEach((fg) => {
         const key = makeFunctionKey(fg.name, fg.unit);
@@ -2788,7 +2801,9 @@ export const buildFunctionGroupedRows = (
     };
     groups.set(onlyFunctionKey, {
       type: "function",
-      fn: kind ? { ...resolvedFn, kind } : resolvedFn,
+      fn: kind
+        ? { ...resolvedFn, kind, isSyntheticFallback: true }
+        : { ...resolvedFn, isSyntheticFallback: true },
       order: fnOrder.has(onlyFunctionKey)
         ? fnOrder.get(onlyFunctionKey)
         : Number.MAX_SAFE_INTEGER,
@@ -7712,7 +7727,7 @@ function DetailedView({
     ) : null;
 
   const renderFunctionDeleteButton = (fn) =>
-    onSessionSave ? (
+    onSessionSave && !fn.isSyntheticFallback ? (
       <button
         type="button"
         className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
@@ -7969,6 +7984,7 @@ function DetailedView({
         {
           includeEmptyGroups: true,
           onlyFunctionKey: activePointFunctionKey,
+          includeExplicitFunctionGroups: true,
           fallbackItemIds: [activePointUutId, ...associatedUutIds].filter(Boolean),
           emptyFunctionFallback: {
             key: activePointFunctionKey,
@@ -7997,6 +8013,7 @@ function DetailedView({
         {
           includeEmptyGroups: true,
           onlyFunctionKey: activePointFunctionKey,
+          includeExplicitFunctionGroups: true,
           emptyFunctionFallback: {
             key: activePointFunctionKey,
             name: testPointData.testPointInfo?.parameter?.name || "Measurement",
