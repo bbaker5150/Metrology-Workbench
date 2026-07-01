@@ -104,6 +104,7 @@ import {
   functionKeyOf,
   functionLabelOf,
   instrumentFunctions,
+  makeFunctionKey,
   resolveSessionFunctions,
 } from "./utils/functionGrouping";
 import { formatRangeLabel } from "./utils/rangeFormatting";
@@ -837,6 +838,25 @@ const findMatchingRange = (uut, value, unit) => {
   });
 
   return match || allRanges[0] || null;
+};
+
+const pointToleranceMatchesFunction = (point, tolerance) => {
+  if (!point || !tolerance || Object.keys(tolerance || {}).length === 0) {
+    return false;
+  }
+  const pointKey = functionKeyOf(point);
+  const toleranceName = tolerance.functionName || tolerance.name || "";
+  const toleranceUnit = tolerance.functionUnit || tolerance.unit || "";
+  if (toleranceName) {
+    return makeFunctionKey(toleranceName, toleranceUnit) === pointKey;
+  }
+  const pointUnit = point.testPointInfo?.parameter?.unit || "";
+  return (
+    !pointUnit ||
+    !toleranceUnit ||
+    String(pointUnit).trim().toLowerCase() ===
+      String(toleranceUnit).trim().toLowerCase()
+  );
 };
 
 // --- HELPER COMPONENT: Sidebar Session Header (Inline Editing) ---
@@ -3234,12 +3254,14 @@ function App() {
           : currentSessionData.uutDescription);
 
       let activeUutId = null;
+      let activeUut = null;
 
       if (selectedTestPointContextUutId) {
         const contextUut = currentSessionData.uuts?.find(
           (u) => u.id === selectedTestPointContextUutId,
         );
         if (contextUut) {
+          activeUut = contextUut;
           effectiveUutDescription = contextUut.description;
           activeUutId = contextUut.id;
 
@@ -3269,19 +3291,18 @@ function App() {
         pointData.associatedUutIds.length > 0
       ) {
         activeUutId = pointData.associatedUutIds[0];
+        activeUut =
+          currentSessionData.uuts?.find((u) => u.id === activeUutId) || null;
         if (
           !pointData.uutTolerance ||
           Object.keys(pointData.uutTolerance).length === 0
         ) {
-          const fallbackUut = currentSessionData.uuts?.find(
-            (u) => u.id === activeUutId,
-          );
-          if (fallbackUut) {
+          if (activeUut) {
             const pointValue = pointData.testPointInfo?.parameter?.value;
             const pointUnit = pointData.testPointInfo?.parameter?.unit;
             if (pointValue !== undefined && pointValue !== "") {
               const matchedRange = findMatchingRange(
-                fallbackUut,
+                activeUut,
                 pointValue,
                 pointUnit,
               );
@@ -3290,6 +3311,18 @@ function App() {
               }
             }
           }
+        }
+      }
+
+      if (
+        activeUut &&
+        !pointToleranceMatchesFunction(pointData, effectiveUutTolerance)
+      ) {
+        const pointValue = pointData.testPointInfo?.parameter?.value;
+        const pointUnit = pointData.testPointInfo?.parameter?.unit;
+        const matchedRange = findMatchingRange(activeUut, pointValue, pointUnit);
+        if (matchedRange) {
+          effectiveUutTolerance = matchedRange;
         }
       }
 

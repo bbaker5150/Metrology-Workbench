@@ -31,19 +31,18 @@ export const resolvePointAreaId = (
   measurementAreas,
   activeUutId,
 ) => {
-  if (point?.measurementAreaId) return point.measurementAreaId;
-
   const resolvedUutId =
     activeUutId || point?.activeUutId || point?.associatedUutIds?.[0];
   const activeUut = (uuts || []).find(
     (uut) => String(uut.id) === String(resolvedUutId),
   );
 
-  return (
+  const uutAreaId =
     activeUut?.measurementAreaId ||
     (measurementAreas || []).find(
       (area) => area.name === activeUut?.measurementArea,
     )?.id ||
-    null
-  );
+    null;
+
+  return uutAreaId || point?.measurementAreaId || null;
 };

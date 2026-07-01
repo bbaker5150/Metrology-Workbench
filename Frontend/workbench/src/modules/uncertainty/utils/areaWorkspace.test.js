@@ -42,6 +42,25 @@ describe("resolvePointAreaId", () => {
       ),
     ).toBe("electrical");
   });
+
+  it("prefers the linked UUT area over a stale point area", () => {
+    expect(
+      resolvePointAreaId(
+        { measurementAreaId: "flow", associatedUutIds: ["encoder"] },
+        [
+          {
+            id: "encoder",
+            measurementAreaId: "angular",
+            measurementArea: "Angular Speed",
+          },
+        ],
+        [
+          { id: "flow", name: "Flow" },
+          { id: "angular", name: "Angular Speed" },
+        ],
+      ),
+    ).toBe("angular");
+  });
 });
 
 describe("associateUutWithPoint", () => {
