@@ -2176,18 +2176,33 @@ const InlineToleranceCell = ({
 
   if (!isEditing) {
     const hasValue = toleranceHasAnyValue(tolerance);
+    const openEditor = (e) => {
+      e.stopPropagation();
+      setIsEditing(true);
+    };
     return (
-      <button
-        type="button"
-        className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}`}
-        title={hasValue ? "Click to edit tolerance" : "Click to set a tolerance"}
-        onClick={(e) => {
-          e.stopPropagation();
-          setIsEditing(true);
-        }}
-      >
-        {hasValue ? summary : "Set tolerance…"}
-      </button>
+      <span className="inline-tolerance-readview">
+        <button
+          type="button"
+          className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}`}
+          title={hasValue ? "Click to edit tolerance" : "Click to set a tolerance"}
+          onClick={openEditor}
+        >
+          {hasValue ? summary : "Set tolerance…"}
+        </button>
+        {/* Same hover-revealed affordance as the range column's expander, so
+            the two columns advertise their editability the same way. */}
+        <button
+          type="button"
+          className="range-expand-btn"
+          title="Edit or add tolerance terms"
+          aria-label="Edit or add tolerance terms"
+          onClick={openEditor}
+        >
+          <FontAwesomeIcon icon={faChevronDown} size="xs" />
+          <span className="range-expand-btn-label">edit / add</span>
+        </button>
+      </span>
     );
   }
 
@@ -2227,6 +2242,39 @@ const InlineToleranceCell = ({
   );
 };
 
+// Clean read-view label for a range: "−100 to 100 V", "30 kg" (single value),
+// or a "Set range…" affordance when the range has no bounds yet.
+const formatRangeSummary = (range = {}) => {
+  if (range.isSingleValue) {
+    const v = range.value ?? range.max ?? range.min ?? "";
+    if (v === "") return "";
+    const unitLabel = getUnitDisplayLabel(range.unit || "");
+    return unitLabel ? `${v} ${unitLabel}` : String(v);
+  }
+  const hasBounds =
+    range.min !== undefined &&
+    range.min !== null &&
+    range.min !== "" &&
+    range.max !== undefined &&
+    range.max !== null &&
+    range.max !== "";
+  if (!hasBounds && !(typeof range.range === "string" && range.range.trim())) {
+    return "";
+  }
+  return formatRangeLabel(range, { preferBounds: true });
+};
+
+// Two-view range cell, mirroring InlineToleranceCell:
+//   • Read view (default): the clean formatted range string (plus the range
+//     switcher when the instrument has several ranges) — no input boxes.
+//   • Edit view (on click): the min/max/unit editor.
+// Closing is focus-driven (focusout), with one extra wrinkle: UnitSelect's
+// dropdown is PORTALED to document.body, so focus moving into it looks like
+// focus leaving the cell. Both the focusout handler and a document-click
+// fallback therefore treat .inline-unit-menu as "still inside the editor".
+// The click fallback also covers the portal case where focus never returns to
+// the cell (picking a unit unmounts the focused search box), which would
+// otherwise leave the editor open with no focusout to close it.
 const RangeCell = ({
   ranges = [],
   activeIndex,
@@ -2238,6 +2286,52 @@ const RangeCell = ({
   onPatchRange,
   allowSingleToggle = false,
 }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const containerRef = useRef(null);
+
+  // Focus the first field on open so a click-away always produces a focusout
+  // (which commits the in-progress value before the editor closes).
+  useEffect(() => {
+    if (!isEditing || !containerRef.current) return;
+    const firstInput = containerRef.current.querySelector("input");
+    firstInput?.focus();
+  }, [isEditing]);
+
+  // Document-click fallback close (see component comment). Registered only
+  // while editing; `click` (not mousedown) so the blurred input's commit runs
+  // first as part of the same interaction.
+  useEffect(() => {
+    if (!isEditing) return undefined;
+    const onDocClick = (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (containerRef.current?.contains(target)) return;
+      if (target.closest(".inline-unit-menu")) return;
+      setIsEditing(false);
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [isEditing]);
+
+  const rangeSwitcher =
+    ranges.length > 1 ? (
+      <span className="inline-range-select-shell" title="Switch range">
+        <select
+          value={activeIndex}
+          aria-label="Switch range"
+          onChange={(e) => onSelect(parseInt(e.target.value, 10))}
+          className="inline-range-chevron-select"
+        >
+          {ranges.map((range, idx) => (
+            <option key={idx} value={idx}>
+              {formatRangeLabel(range, { preferBounds: true })}
+            </option>
+          ))}
+        </select>
+        <FontAwesomeIcon icon={faChevronDown} />
+      </span>
+    ) : null;
+
   if (!editable) {
     return (
       <select
@@ -2253,6 +2347,41 @@ const RangeCell = ({
       </select>
     );
   }
+
+  if (!isEditing) {
+    const summary = formatRangeSummary(activeRange);
+    return (
+      <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="inline-range-main">
+          <button
+            type="button"
+            className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
+            title={summary ? "Click to edit range" : "Click to set a range"}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsEditing(true);
+            }}
+          >
+            {summary || "Set range…"}
+          </button>
+          {rangeSwitcher}
+        </div>
+      </div>
+    );
+  }
+
+  // Close only when focus moves OUTSIDE the cell (and outside the portaled
+  // unit menu). The blurred input's own onBlur commit fires first as part of
+  // the same focus change, so the value is saved before the inputs unmount.
+  const handleBlur = (event) => {
+    const next = event.relatedTarget;
+    if (next instanceof Element) {
+      if (containerRef.current?.contains(next)) return;
+      if (next.closest(".inline-unit-menu")) return;
+    }
+    setIsEditing(false);
+  };
+
   const unit = activeRange.unit || "";
   // A range can be a single value (e.g. a 30 kg weight) instead of a min–max
   // span. We mirror the value into min and max so all downstream math (%FS,
@@ -2267,7 +2396,12 @@ const RangeCell = ({
   const commitSingle = (raw) =>
     onPatchRange?.({ isSingleValue: true, value: raw, min: raw, max: raw });
   return (
-    <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      ref={containerRef}
+      className="inline-range-editor"
+      onMouseDown={(e) => e.stopPropagation()}
+      onBlur={handleBlur}
+    >
       <div className="inline-range-main">
         {onPatchRange && allowSingleToggle && (
           <button
@@ -2322,23 +2456,7 @@ const RangeCell = ({
           onChange={(value) => onEditUnit(value)}
           width="72px"
         />
-        {ranges.length > 1 && (
-          <span className="inline-range-select-shell" title="Switch range">
-            <select
-              value={activeIndex}
-              aria-label="Switch range"
-              onChange={(e) => onSelect(parseInt(e.target.value, 10))}
-              className="inline-range-chevron-select"
-            >
-              {ranges.map((range, idx) => (
-                <option key={idx} value={idx}>
-                  {formatRangeLabel(range, { preferBounds: true })}
-                </option>
-              ))}
-            </select>
-            <FontAwesomeIcon icon={faChevronDown} />
-          </span>
-        )}
+        {rangeSwitcher}
       </div>
     </div>
   );
@@ -5319,7 +5437,7 @@ const SummaryDashboard = ({
         <div className="panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faMicroscope} />
-            <span>Units Under Test ({filteredUuts.length})</span>
+            <span>Units Under Test</span>
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
             {selectedUutIds.length > 0 && (
@@ -5725,9 +5843,7 @@ const SummaryDashboard = ({
         <div className="panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faTools} />
-            <span>
-              Test Measurement Device Equipment ({filteredTmdes.length})
-            </span>
+            <span>Test Measurement Device Equipment</span>
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
             {selectedTmdeIds.length > 0 && (
@@ -7926,17 +8042,34 @@ function DetailedView({
 
   // Keep the instrument inventory stable while moving between points. A point
   // only highlights its linked UUT; it does not hide the area's other choices.
+  // The point's own associated UUTs are ALWAYS kept: a stale/foreign area stamp
+  // on the point (or an area-less UUT) must never hide the very UUT the point
+  // is linked to.
   const relevantUuts = useMemo(() => {
     const allUuts = sessionData.uuts || [];
     if (!activeMeasurementAreaId) return allUuts;
+    const linkedIds = new Set(
+      [activePointUutId, ...associatedUutIds].filter(Boolean).map(String),
+    );
+    // An unassigned point's area stamp is untrustworthy (it may be inherited
+    // from whatever point was selected when it was created) — show the whole
+    // inventory so the user can pick a UUT at all.
+    if (linkedIds.size === 0) return allUuts;
     return allUuts.filter(
       (uut) =>
+        linkedIds.has(String(uut.id)) ||
         String(uut.measurementAreaId) === String(activeMeasurementAreaId) ||
         (!uut.measurementAreaId &&
           activeMeasurementArea?.name &&
           uut.measurementArea === activeMeasurementArea.name),
     );
-  }, [sessionData.uuts, activeMeasurementAreaId, activeMeasurementArea?.name]);
+  }, [
+    sessionData.uuts,
+    activeMeasurementAreaId,
+    activeMeasurementArea?.name,
+    activePointUutId,
+    associatedUutIds,
+  ]);
 
   const relevantTmdes = useMemo(() => {
     // Detail view should expose the same TMDE inventory as Session Overview.
@@ -7945,30 +8078,70 @@ function DetailedView({
     return sessionData.tmdes || [];
   }, [sessionData.tmdes]);
 
+  // Function-scoped rows for the detail tables, with a dead-end guard: if the
+  // scoping leaves NOTHING to show (e.g. the point's function matches no
+  // instrument — common right after a new function/instrument/point trio is
+  // created), fall back to the full Session-Overview-style inventory so the
+  // user can still see and wire up their instruments. Empty user-added
+  // function groups are included (like the Session Overview) so a function
+  // added from THIS view is immediately visible with its add-instrument row.
+  const buildScopedDetailRows = useCallback(
+    (items, kind, scopedOptions) => {
+      const mapped = items.map((item, index) => ({ type: "item", item, index }));
+      const scoped = buildFunctionGroupedRows(mapped, sessionData, kind, {
+        ...scopedOptions,
+        includeEmptyGroups: true,
+      });
+      if (scoped.some((row) => row.type === "item")) return scoped;
+      return buildFunctionGroupedRows(mapped, sessionData, kind, {
+        includeEmptyGroups: true,
+      });
+    },
+    [sessionData],
+  );
+
   const detailUutRows = useMemo(
     () =>
-      buildFunctionGroupedRows(
-        relevantUuts.map((item, index) => ({ type: "item", item, index })),
-        sessionData,
-        "uut",
-        {
-          includeEmptyGroups: false,
-          onlyFunctionKey: activePointFunctionKey,
-          fallbackItemIds: [activePointUutId, ...associatedUutIds].filter(Boolean),
-        },
-      ),
-    [activePointFunctionKey, activePointUutId, associatedUutIds, relevantUuts, sessionData],
+      buildScopedDetailRows(relevantUuts, "uut", {
+        onlyFunctionKey: activePointFunctionKey,
+        fallbackItemIds: [activePointUutId, ...associatedUutIds].filter(Boolean),
+      }),
+    [
+      activePointFunctionKey,
+      activePointUutId,
+      associatedUutIds,
+      buildScopedDetailRows,
+      relevantUuts,
+    ],
+  );
+
+  // TMDEs already assigned to this point must stay visible even when their
+  // declared functions don't match the point's function (deliberate
+  // cross-function selections).
+  const assignedTmdeIds = useMemo(
+    () =>
+      (tmdeTolerancesData || [])
+        .flatMap((t) => [t.id, t.sourceId])
+        .filter((id) => id !== undefined && id !== null),
+    [tmdeTolerancesData],
   );
 
   const detailTmdeRows = useMemo(
     () =>
-      buildFunctionGroupedRows(
-        relevantTmdes.map((item, index) => ({ type: "item", item, index })),
-        sessionData,
-        "tmde",
-        { includeEmptyGroups: false, onlyFunctionKey: activePointFunctionKey },
-      ),
-    [activePointFunctionKey, relevantTmdes, sessionData],
+      buildScopedDetailRows(relevantTmdes, "tmde", {
+        // A derived point's TMDEs measure the equation's INPUT quantities
+        // (e.g. voltage and current for a power point), not the point's own
+        // output function — scoping to the output key would hide all of them.
+        onlyFunctionKey: isDerived ? null : activePointFunctionKey,
+        fallbackItemIds: assignedTmdeIds,
+      }),
+    [
+      activePointFunctionKey,
+      assignedTmdeIds,
+      buildScopedDetailRows,
+      isDerived,
+      relevantTmdes,
+    ],
   );
 
   // --- HANDLERS ---
@@ -8967,14 +9140,42 @@ function DetailedView({
     );
   }, []);
 
+  // Derived-variable relevance: an equation variable is identified by its
+  // user-chosen NAME (e.g. "V_in"), which almost never equals a TMDE's
+  // function name ("DC Voltage") — so name-keyed function matching can't work
+  // here. What actually links them is the physical quantity: a TMDE is a
+  // sensible suggestion when any of its functions/ranges measures in a unit
+  // of the same dimension as the variable's nominal unit.
+  const tmdeMatchesUnit = useCallback((tmde, unit) => {
+    if (!unit) return true;
+    const targetQuantity = unitSystem.getQuantity?.(unit) || null;
+    const unitMatches = (candidate) => {
+      if (!candidate) return false;
+      if (normalizeUnitToken(candidate) === normalizeUnitToken(unit)) return true;
+      if (!targetQuantity) return false;
+      return unitSystem.getQuantity?.(candidate) === targetQuantity;
+    };
+    if (instrumentFunctions(tmde).some((fn) => unitMatches(fn.unit))) return true;
+    return getInstrumentRangeRows(tmde).some((range) =>
+      unitMatches(range.functionUnit || range.unit),
+    );
+  }, []);
+
   const openBudgetTmdePicker = useCallback(
     (scope, event = null) => {
       const functionKey = budgetFunctionKey(scope);
-      const options = [...relevantTmdes]
-        .filter((tmde) => tmdeSupportsFunction(tmde, functionKey))
-        .sort((a, b) =>
-          getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b)),
-        );
+      const byLabel = (a, b) =>
+        getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b));
+      const isMatch = isDerived
+        ? (tmde) => tmdeMatchesUnit(tmde, scope?.nominalPoint?.unit || "")
+        : (tmde) => tmdeSupportsFunction(tmde, functionKey);
+      const options = relevantTmdes.filter(isMatch).sort(byLabel);
+      // Non-matching TMDEs stay reachable in a secondary section — the picker
+      // suggests, it doesn't censor (deliberate cross-function/cross-unit
+      // assignments are legitimate).
+      const otherOptions = relevantTmdes
+        .filter((tmde) => !isMatch(tmde))
+        .sort(byLabel);
       // The UUT's measuring resolution is offered here too (direct points only),
       // so the user adds every kind of uncertainty source from one organized
       // menu instead of a separate per-spec checkbox.
@@ -8982,22 +9183,30 @@ function DetailedView({
       const resolutionOption =
         resolutionDetail && !resolutionDetail.included ? resolutionDetail : null;
 
-      if (options.length === 0 && !resolutionOption) {
+      if (options.length === 0 && otherOptions.length === 0 && !resolutionOption) {
         setNotification?.({
           title: "Nothing to Add",
           message: resolutionDetail
-            ? "The UUT resolution is already in this budget. Add a TMDE with a matching function to add more sources."
-            : "Add a TMDE with a matching function (or enter a UUT resolution) before adding to this budget.",
+            ? "The UUT resolution is already in this budget. Add a TMDE in Session Overview to add more sources."
+            : "Add a TMDE in Session Overview (or enter a UUT resolution) before adding to this budget.",
         });
         return;
       }
       const rect = event?.currentTarget?.getBoundingClientRect?.() || null;
-      setBudgetTmdePicker({ scope, functionKey, options, resolutionOption, rect });
+      setBudgetTmdePicker({
+        scope,
+        functionKey,
+        options,
+        otherOptions,
+        resolutionOption,
+        rect,
+      });
     },
     [
       budgetFunctionKey,
       relevantTmdes,
       setNotification,
+      tmdeMatchesUnit,
       tmdeSupportsFunction,
       isDerived,
       uutToleranceData,
@@ -9093,63 +9302,84 @@ function DetailedView({
           </div>
           {/* Grouped by the TYPE of uncertainty source so the user knows exactly
               what they're adding to the budget. */}
-          {budgetTmdePicker.options.length > 0 && (
-            <div>
-              <div className="budget-tmde-picker-category">
-                Measurement standards
-              </div>
-              {budgetTmdePicker.options.map((tmde) => {
-                const detail = getBudgetTmdeDetail(tmde);
-                return (
-                  <button
-                    key={tmde.id}
-                    type="button"
-                    style={itemStyle}
-                    onClick={() => addBudgetTmde(tmde)}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = "var(--input-background)")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = "transparent")
-                    }
+          {(() => {
+            const renderTmdeOption = (tmde) => {
+              const detail = getBudgetTmdeDetail(tmde);
+              return (
+                <button
+                  key={tmde.id}
+                  type="button"
+                  style={itemStyle}
+                  onClick={() => addBudgetTmde(tmde)}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = "var(--input-background)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
+                >
+                  <FontAwesomeIcon icon={faTools} style={{ marginTop: "2px" }} />
+                  <span
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
+                      minWidth: 0,
+                    }}
                   >
-                    <FontAwesomeIcon icon={faTools} style={{ marginTop: "2px" }} />
                     <span
                       style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "2px",
-                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
                       }}
                     >
+                      {getEquationTmdeLabel(tmde)}
+                    </span>
+                    {detail && (
                       <span
                         style={{
+                          fontSize: "0.72rem",
+                          color: "var(--text-color-muted)",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {getEquationTmdeLabel(tmde)}
+                        {detail}
                       </span>
-                      {detail && (
-                        <span
-                          style={{
-                            fontSize: "0.72rem",
-                            color: "var(--text-color-muted)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {detail}
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                    )}
+                  </span>
+                </button>
+              );
+            };
+            const others = budgetTmdePicker.otherOptions || [];
+            return (
+              <>
+                {budgetTmdePicker.options.length > 0 && (
+                  <div>
+                    <div className="budget-tmde-picker-category">
+                      Measurement standards
+                    </div>
+                    {budgetTmdePicker.options.map(renderTmdeOption)}
+                  </div>
+                )}
+                {/* TMDEs that don't match this variable's unit / point's
+                    function — still selectable, just de-emphasized, so the
+                    picker never hides part of the session inventory. */}
+                {others.length > 0 && (
+                  <div>
+                    <div className="budget-tmde-picker-category">
+                      {budgetTmdePicker.options.length > 0
+                        ? "Other TMDEs (different unit)"
+                        : "All TMDEs"}
+                    </div>
+                    {others.map(renderTmdeOption)}
+                  </div>
+                )}
+              </>
+            );
+          })()}
           {budgetTmdePicker.resolutionOption && (
             <div>
               <div className="budget-tmde-picker-category">UUT resolution</div>
@@ -9396,7 +9626,7 @@ function DetailedView({
         <div className="panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faMicroscope} />
-            <span>Unit Under Test</span>
+            <span>Units Under Test</span>
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
             {selectedUutIds.length > 0 && (
@@ -9912,27 +10142,58 @@ function DetailedView({
                         <div className="var-card-body">
                           <label className="measurement-equation-source-field">
                             <span>Measurement standard</span>
-                            <select
-                              className="var-source-select"
-                              value={selectedTmde?.id || ""}
-                              onChange={(e) =>
-                                setEquationTmdeSelections((prev) => ({
-                                  ...prev,
-                                  [variable.symbol]: e.target.value,
-                                }))
-                              }
-                              disabled={!variable.isAssigned}
-                              aria-label={`TMDE for equation variable ${variable.symbol}`}
-                            >
-                              {!variable.isAssigned && (
-                                <option value="">Add from budget table</option>
-                              )}
-                              {variable.assignedTmdes.map((tmde) => (
-                                <option key={tmde.id} value={tmde.id}>
-                                  {getEquationTmdeLabel(tmde)}
-                                </option>
-                              ))}
-                            </select>
+                            {variable.isAssigned ? (
+                              <select
+                                className="var-source-select"
+                                value={selectedTmde?.id || ""}
+                                onChange={(e) =>
+                                  setEquationTmdeSelections((prev) => ({
+                                    ...prev,
+                                    [variable.symbol]: e.target.value,
+                                  }))
+                                }
+                                aria-label={`TMDE for equation variable ${variable.symbol}`}
+                              >
+                                {variable.assignedTmdes.map((tmde) => (
+                                  <option key={tmde.id} value={tmde.id}>
+                                    {getEquationTmdeLabel(tmde)}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              // Direct assignment entry point. The per-input
+                              // budget tables (the other assignment surface)
+                              // only render once EVERY variable has a name,
+                              // value, and unit — without this button a fresh
+                              // derived point has no way to assign its first
+                              // TMDE.
+                              <button
+                                type="button"
+                                className="var-source-select var-source-assign-btn"
+                                disabled={!String(variable.name || "").trim()}
+                                title={
+                                  String(variable.name || "").trim()
+                                    ? "Choose a measurement standard for this input"
+                                    : "Name this input first"
+                                }
+                                onClick={(event) =>
+                                  openBudgetTmdePicker(
+                                    {
+                                      variableType: variable.name,
+                                      label: variable.name || variable.symbol,
+                                      nominalPoint: {
+                                        value: variable.value,
+                                        unit: variable.unit,
+                                      },
+                                    },
+                                    event,
+                                  )
+                                }
+                                aria-label={`Assign a TMDE to equation variable ${variable.symbol}`}
+                              >
+                                Assign TMDE…
+                              </button>
+                            )}
                           </label>
                           <label className="measurement-equation-value-field">
                             <span>Nominal value</span>
@@ -9979,7 +10240,7 @@ function DetailedView({
                                 ? `${variable.assignedTmdes.length} budget TMDEs assigned`
                                 : "Budget TMDE assigned"
                               : String(variable.name || "").trim()
-                                ? "Add TMDEs from this input's budget table"
+                                ? "Assign a measurement standard to build this input's budget"
                                 : "Name this input before assigning a TMDE"}
                           </em>
                         </div>
@@ -10093,7 +10354,7 @@ function DetailedView({
           <div className="panel-card-header">
             <div className="panel-card-title">
               <FontAwesomeIcon icon={faTools} />
-              <span>Measurement Standards (TMDE)</span>
+              <span>Test Measurement Device Equipment</span>
             </div>
             <div className="panel-card-actions" style={{ position: "relative" }}>
               {selectedTmdeIds.length > 0 && (

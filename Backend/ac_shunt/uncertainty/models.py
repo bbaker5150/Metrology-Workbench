@@ -43,6 +43,11 @@ class Session(models.Model):
     uut_description = models.CharField(max_length=255, blank=True, default="")
     uut_tolerance = models.JSONField(default=dict, blank=True)
 
+    # Function subsections the user added explicitly (name/unit/kind/color).
+    # Instrument- and point-derived functions are recomputed client-side; this
+    # only holds the empty scaffolding + saved colors, so a JSON blob suffices.
+    function_groups = models.JSONField(default=list, blank=True)
+
     # uncReq — risk/uncertainty requirements (small fixed shape -> columns).
     uncertainty_confidence = models.FloatField(default=95)
     reliability = models.FloatField(default=85)

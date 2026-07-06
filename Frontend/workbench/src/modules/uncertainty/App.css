@@ -11323,6 +11323,15 @@ input.inline-function-input:focus {
   color: var(--primary-color);
 }
 
+/* Read view of the tolerance cell: summary text + the hover-revealed
+   "edit / add" expander button (shared .range-expand-btn styling). */
+.inline-tolerance-readview {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .inline-tolerance-term {
   display: inline-flex;
   align-items: center;
@@ -12176,6 +12185,21 @@ body.theme-orbital.dark-mode .instrument-summary-table thead th {
 
 .var-source-select:hover {
   border-color: var(--text-color-muted);
+}
+
+/* "Assign TMDE…" button shown in place of the select while the variable has
+   no measurement standard yet — same footprint as the select, but visibly an
+   action (primary-tinted text) rather than an empty disabled dropdown. */
+.var-source-assign-btn {
+  text-align: left;
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+.var-source-assign-btn:disabled {
+  color: var(--text-color-muted);
+  font-weight: 400;
+  cursor: not-allowed;
 }
 
 /* Value Display Area */

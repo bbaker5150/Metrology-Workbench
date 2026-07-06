@@ -449,6 +449,17 @@ const AddTestPointModal = ({
 
     const associatedUutIds =
       initialData?.associatedUutIds ?? previousTestPointData?.associatedUutIds ?? [];
+    // The area must come from the SAME source as the UUT association. When the
+    // caller provided its own UUT list (e.g. sidebar "Add Point" under a UUT),
+    // inheriting the previously selected point's area would strand the new
+    // point in a foreign measurement area — the detail view then scopes its
+    // instrument tables to that area and the associated UUT vanishes.
+    const measurementAreaId =
+      initialData?.associatedUutIds !== undefined
+        ? initialData?.measurementAreaId ?? null
+        : initialData?.measurementAreaId ??
+          previousTestPointData?.measurementAreaId ??
+          null;
     const qualifierBase = hasQualifier
       ? { name: formData.qualName || "Qualifier", unit: formData.qualUnit || "" }
       : null;
@@ -468,7 +479,7 @@ const AddTestPointModal = ({
       measurementType: formData.measurementType,
       equationString: formData.equationString,
       variableMappings: formData.variableMappings,
-      measurementAreaId: initialData?.measurementAreaId || previousTestPointData?.measurementAreaId || null,
+      measurementAreaId,
       associatedUutIds,
       uutTolerance: initialData?.uutTolerance || previousTestPointData?.uutTolerance || null,
     });
