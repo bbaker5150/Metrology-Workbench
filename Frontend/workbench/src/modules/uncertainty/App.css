@@ -10835,7 +10835,9 @@ input.inline-function-input:focus {
 .inline-resolution-editor {
   display: inline-flex;
   align-items: center;
-  flex-wrap: nowrap;
+  /* Edit view now carries magnitude + unit + distribution; allow it to wrap so
+     the distribution picker never gets clipped in a narrow Resolution column. */
+  flex-wrap: wrap;
   gap: 4px;
   width: auto;
   min-width: 0;
@@ -11581,6 +11583,16 @@ input.inline-resolution-input {
   width: 58px;
   flex: 0 0 58px;
   min-width: 52px;
+}
+
+/* Resolution-cell distribution picker (its rounding distribution for the
+   budget). Compact so the value + unit + distribution fit one editing row. */
+select.inline-resolution-dist {
+  flex: 0 1 auto;
+  max-width: 130px;
+  min-width: 72px;
+  height: 24px;
+  font-size: 0.78rem;
 }
 
 .inline-tolerance-unit,

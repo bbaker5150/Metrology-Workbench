@@ -1536,25 +1536,120 @@ const EditableDescriptionCell = ({
   );
 };
 
-// Inline-editable Resolution cell: numeric resolution plus an optional
-// resolution unit. If no specific resolution unit is stored, it falls back to
-// the active range unit.
+// Default divisor for a resolution's rounding distribution — rectangular, the
+// standard assumption for a least-significant-digit / quantization error.
+const RESOLUTION_DIST_DEFAULT = "1.732";
+
+// Clean read-view label for a resolution: "0.01 V" (with its distribution as a
+// tooltip), or an empty string when no resolution has been entered yet.
+const formatResolutionSummaryText = (value, unit, fallbackUnit) => {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return "";
+  }
+  const unitLabel = getUnitDisplayLabel(unit || fallbackUnit || "");
+  return unitLabel ? `${value} ${unitLabel}` : String(value);
+};
+
+// Inline-editable Resolution cell, mirroring the Range / Tolerance columns:
+//   • Read view (default): the clean formatted resolution string (plus an
+//     "edit / add" affordance), so the table snaps to a simple view at rest.
+//   • Edit view (on click): the resolution magnitude, its unit, and the
+//     distribution used when it enters the uncertainty budget.
+// Closing is focus-driven (focusout), with the same portaled-unit-menu wrinkle
+// the RangeCell handles (UnitSelect's menu lives on document.body).
 const ResolutionCellInput = ({
   value = "",
   unit = "",
   fallbackUnit = "",
+  distribution = "",
+  editable = true,
   onCommit,
   onCommitUnit,
+  onCommitDistribution,
 }) => {
+  const [isEditing, setIsEditing] = useState(false);
   const [v, setV] = useState(() => toPlainNumber(value));
+  const containerRef = useRef(null);
   useEffect(() => {
     setV(toPlainNumber(value));
   }, [value]);
+
+  // Focus the magnitude field on open so a click-away always produces a
+  // focusout (committing the in-progress value before the editor closes).
+  useEffect(() => {
+    if (!isEditing || !containerRef.current) return;
+    const firstInput = containerRef.current.querySelector("input");
+    firstInput?.focus();
+  }, [isEditing]);
+
+  // Document-click fallback close (portaled UnitSelect menu case, see RangeCell).
+  useEffect(() => {
+    if (!isEditing) return undefined;
+    const onDocClick = (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (containerRef.current?.contains(target)) return;
+      if (target.closest(".inline-unit-menu")) return;
+      setIsEditing(false);
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [isEditing]);
+
+  const summary = formatResolutionSummaryText(value, unit, fallbackUnit);
+
+  if (!editable) {
+    return <>{summary || "-"}</>;
+  }
+
+  if (!isEditing) {
+    const openEditor = (e) => {
+      e.stopPropagation();
+      setIsEditing(true);
+    };
+    return (
+      <span className="inline-tolerance-readview">
+        <button
+          type="button"
+          className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
+          title={summary ? "Click to edit resolution" : "Click to set a resolution"}
+          onClick={openEditor}
+        >
+          {summary || "Set resolution…"}
+        </button>
+        {/* Same hover-revealed affordance as the range / tolerance columns. */}
+        <button
+          type="button"
+          className="range-expand-btn"
+          title="Edit resolution, unit, and distribution"
+          aria-label="Edit resolution, unit, and distribution"
+          onClick={openEditor}
+        >
+          <FontAwesomeIcon icon={faChevronDown} size="xs" />
+          <span className="range-expand-btn-label">edit / add</span>
+        </button>
+      </span>
+    );
+  }
+
+  const handleBlur = (event) => {
+    const next = event.relatedTarget;
+    if (next instanceof Element) {
+      if (containerRef.current?.contains(next)) return;
+      if (next.closest(".inline-unit-menu")) return;
+    }
+    setIsEditing(false);
+  };
+
+  const distValue = String(distribution || RESOLUTION_DIST_DEFAULT);
+
   return (
-    // Resolution is no longer opted-in via a checkbox here; it's added to a
-    // point's budget from the budget section's add menu (alongside TMDEs), so
-    // this cell only edits the resolution magnitude + unit.
-    <span className="inline-resolution-editor">
+    <span
+      ref={containerRef}
+      className="inline-resolution-editor"
+      onMouseDown={(e) => e.stopPropagation()}
+      onBlur={handleBlur}
+    >
       <input
         type="text"
         inputMode="decimal"
@@ -1567,7 +1662,6 @@ const ResolutionCellInput = ({
         onKeyDown={(e) => {
           if (e.key === "Enter") e.currentTarget.blur();
         }}
-        onMouseDown={(e) => e.stopPropagation()}
         className="inline-tolerance-input inline-resolution-input"
       />
       <UnitSelect
@@ -1576,6 +1670,21 @@ const ResolutionCellInput = ({
         onChange={onCommitUnit}
         width="72px"
       />
+      {onCommitDistribution && (
+        <select
+          className="session-selector inline-resolution-dist"
+          value={distValue}
+          aria-label="Resolution distribution"
+          title="Distribution used when this resolution enters the budget"
+          onChange={(e) => onCommitDistribution(e.target.value)}
+        >
+          {errorDistributions.map((d) => (
+            <option key={d.value} value={d.value}>
+              {d.label}
+            </option>
+          ))}
+        </select>
+      )}
     </span>
   );
 };
@@ -2313,25 +2422,10 @@ const RangeCell = ({
     return () => document.removeEventListener("click", onDocClick);
   }, [isEditing]);
 
-  const rangeSwitcher =
-    ranges.length > 1 ? (
-      <span className="inline-range-select-shell" title="Switch range">
-        <select
-          value={activeIndex}
-          aria-label="Switch range"
-          onChange={(e) => onSelect(parseInt(e.target.value, 10))}
-          className="inline-range-chevron-select"
-        >
-          {ranges.map((range, idx) => (
-            <option key={idx} value={idx}>
-              {formatRangeLabel(range, { preferBounds: true })}
-            </option>
-          ))}
-        </select>
-        <FontAwesomeIcon icon={faChevronDown} />
-      </span>
-    ) : null;
-
+  // The in-cell range-selector dropdown was removed: when an instrument has
+  // several ranges the "edit / add" expander already lists them all (and lets
+  // the user pick the active one), so a second switcher here was redundant. The
+  // editable read/edit views now snap to the clean active-range string only.
   if (!editable) {
     return (
       <select
@@ -2364,7 +2458,6 @@ const RangeCell = ({
           >
             {summary || "Set range…"}
           </button>
-          {rangeSwitcher}
         </div>
       </div>
     );
@@ -2456,7 +2549,6 @@ const RangeCell = ({
           onChange={(value) => onEditUnit(value)}
           width="72px"
         />
-        {rangeSwitcher}
       </div>
     </div>
   );
@@ -2479,9 +2571,20 @@ export const GhostRangeRow = ({
 }) => {
   const [min, setMin] = useState("");
   const [max, setMax] = useState("");
+  // A brand-new range can be created directly as a single value (e.g. a 30 kg
+  // mass) instead of a min–max span — the same "•"/"↔" toggle the real range
+  // rows carry, so the very first range added has the affordance too.
+  const [isSingle, setIsSingle] = useState(false);
+  const [value, setValue] = useState("");
   const rowRef = useRef(null);
 
   const commit = () => {
+    if (isSingle) {
+      if (value === "") return; // nothing entered → stay a ghost
+      onMaterialize({ isSingleValue: true, value, unit });
+      setValue("");
+      return;
+    }
     if (min === "" && max === "") return; // nothing entered → stay a ghost
     // New ranges inherit the active range's unit (shown as the static label
     // below); it can be changed on the created row if needed. Keeping the unit
@@ -2491,7 +2594,8 @@ export const GhostRangeRow = ({
     setMax("");
   };
   const handleBlur = (event) => {
-    // Only materialize when focus truly leaves the row (not on min→max tab).
+    // Only materialize when focus truly leaves the row (not on min→max tab, and
+    // not when clicking the mode toggle inside the same row).
     if (rowRef.current && rowRef.current.contains(event.relatedTarget)) return;
     commit();
   };
@@ -2507,27 +2611,51 @@ export const GhostRangeRow = ({
         <div className="range-row-cell range-row-cell--ghost">
           <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
             <div className="inline-range-main">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={min}
-                placeholder="+ min"
-                aria-label="New range minimum"
-                onChange={(e) => setMin(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                className="inline-tolerance-input inline-range-bound-input"
-              />
-              <span style={{ color: "var(--text-color-muted)" }}>–</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={max}
-                placeholder="max"
-                aria-label="New range maximum"
-                onChange={(e) => setMax(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                className="inline-tolerance-input inline-range-bound-input"
-              />
+              <button
+                type="button"
+                className="inline-range-mode-toggle"
+                title={isSingle ? "Switch to a min–max range" : "Switch to a single value"}
+                aria-label={isSingle ? "Switch to a min–max range" : "Switch to a single value"}
+                onClick={() => setIsSingle((s) => !s)}
+              >
+                {isSingle ? "↔" : "•"}
+              </button>
+              {isSingle ? (
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={value}
+                  placeholder="+ value"
+                  aria-label="New single value"
+                  onChange={(e) => setValue(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                  className="inline-tolerance-input inline-range-bound-input"
+                />
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={min}
+                    placeholder="+ min"
+                    aria-label="New range minimum"
+                    onChange={(e) => setMin(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                    className="inline-tolerance-input inline-range-bound-input"
+                  />
+                  <span style={{ color: "var(--text-color-muted)" }}>–</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={max}
+                    placeholder="max"
+                    aria-label="New range maximum"
+                    onChange={(e) => setMax(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                    className="inline-tolerance-input inline-range-bound-input"
+                  />
+                </>
+              )}
               {unit ? (
                 <span className="inline-range-ghost-unit" title="New range unit (inherited)">
                   {getUnitDisplayLabel(unit)}
@@ -2744,6 +2872,37 @@ const getPointResolutionDetail = (uutTolerance = {}) => {
     "";
   const included = !!(
     tol.includeResolutionInBudget ?? nested.includeResolutionInBudget
+  );
+  return { value: resVal, unit, included };
+};
+
+// The measuring-resolution detail for a TMDE INSTANCE on a point, so its
+// resolution can be offered in the budget add menu the same way the UUT's is.
+// A TMDE instance carries its range specs at the top level plus a `.tolerance`
+// snapshot (see handleAssignTmdeToInput), so read both. Returns null when the
+// TMDE has no usable resolution. `included` reflects whether it has already been
+// opted into this point's budget.
+const getTmdeResolutionDetail = (tmde = {}) => {
+  if (!tmde || typeof tmde !== "object") return null;
+  const nested =
+    tmde.tolerance && typeof tmde.tolerance === "object" ? tmde.tolerance : {};
+  const resVal = parseFloat(
+    tmde.measuringResolution ??
+      tmde.resolution ??
+      nested.measuringResolution ??
+      nested.resolution,
+  );
+  if (!Number.isFinite(resVal) || resVal <= 0) return null;
+  const unit =
+    tmde.measuringResolutionUnit ||
+    tmde.resolutionUnit ||
+    nested.measuringResolutionUnit ||
+    nested.resolutionUnit ||
+    tmde.unit ||
+    nested.unit ||
+    "";
+  const included = !!(
+    tmde.includeResolutionInBudget ?? nested.includeResolutionInBudget
   );
   return { value: resVal, unit, included };
 };
@@ -4260,6 +4419,17 @@ const SummaryDashboard = ({
     const updatedItem = applyItemRangePatch(item, rangeId, { resolutionUnit: value });
     persistInlineItem(kind, updatedItem);
   };
+  // The distribution used when this resolution enters the uncertainty budget.
+  // Stored on the range as resolutionDistribution and mirrored to
+  // measuringResolutionDistribution so the budget component picks it up.
+  const setRangeResolutionDistribution = (kind, item, rangeId, value) => {
+    if (!onSessionSave) return;
+    const updatedItem = applyItemRangePatch(item, rangeId, {
+      resolutionDistribution: value,
+      measuringResolutionDistribution: value,
+    });
+    persistInlineItem(kind, updatedItem);
+  };
   const setRangeUnit = (kind, item, rangeId, value) => {
     if (!onSessionSave) return;
     const updatedItem = applyItemRangePatch(item, rangeId, { unit: value });
@@ -4304,11 +4474,19 @@ const SummaryDashboard = ({
   // left the row (the ghost buffers until then — see GhostRangeRow). Seeds the
   // tolerance structure from the active range, writes the entered bounds/unit in
   // one transform, and makes it the active range.
-  const materializeGhostRange = (kind, item, activeRangeId, { min, max, unit }) => {
+  const materializeGhostRange = (
+    kind,
+    item,
+    activeRangeId,
+    { min, max, unit, isSingleValue, value },
+  ) => {
     if (!onSessionSave) return;
-    if (min === "" && max === "") return;
+    if (isSingleValue ? value === "" : min === "" && max === "") return;
     const { item: withRange, newRangeId } = addRangeToItem(item, activeRangeId);
-    const updated = applyItemRangePatch(withRange, newRangeId, { min, max, unit });
+    const patch = isSingleValue
+      ? { isSingleValue: true, value, min: value, max: value, unit }
+      : { min, max, unit };
+    const updated = applyItemRangePatch(withRange, newRangeId, patch);
     persistItem(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
@@ -4910,8 +5088,12 @@ const SummaryDashboard = ({
             value={range?.resolution ?? range?.measuringResolution}
             unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
             fallbackUnit={range?.unit}
+            distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
             onCommit={(v) => setRangeResolution(kind, item, range?.id, v)}
             onCommitUnit={(value) => setRangeResolutionUnit(kind, item, range?.id, value)}
+            onCommitDistribution={(value) =>
+              setRangeResolutionDistribution(kind, item, range?.id, value)
+            }
           />
         </td>
       </>
@@ -5788,11 +5970,15 @@ const SummaryDashboard = ({
                                     value={range?.resolution ?? range?.measuringResolution}
                                     unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
                                     fallbackUnit={range?.unit}
+                                    distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
                                     onCommit={(v) =>
                                       setRangeResolution("uut", uut, range?.id, v)
                                     }
                                     onCommitUnit={(value) =>
                                       setRangeResolutionUnit("uut", uut, range?.id, value)
+                                    }
+                                    onCommitDistribution={(value) =>
+                                      setRangeResolutionDistribution("uut", uut, range?.id, value)
                                     }
                                   />
                                 ) : (
@@ -6201,11 +6387,15 @@ const SummaryDashboard = ({
                                     value={range?.resolution ?? range?.measuringResolution}
                                     unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
                                     fallbackUnit={range?.unit}
+                                    distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
                                     onCommit={(v) =>
                                       setRangeResolution("tmde", tmde, range?.id, v)
                                     }
                                     onCommitUnit={(value) =>
                                       setRangeResolutionUnit("tmde", tmde, range?.id, value)
+                                    }
+                                    onCommitDistribution={(value) =>
+                                      setRangeResolutionDistribution("tmde", tmde, range?.id, value)
                                     }
                                   />
                                 ) : (
@@ -7125,6 +7315,14 @@ function DetailedView({
       kind,
       applyItemRangePatch(item, rangeId, { resolutionUnit: value }),
     );
+  const setRangeResolutionDistributionDetail = (kind, item, rangeId, value) =>
+    persistInlineItemDetail(
+      kind,
+      applyItemRangePatch(item, rangeId, {
+        resolutionDistribution: value,
+        measuringResolutionDistribution: value,
+      }),
+    );
   // Spec-band distribution (the Distribution column) — writes the divisor back to
   // the same range tolerance the tolerance editor owns.
   const setRangeBandDistributionDetail = (kind, item, rangeId, value) => {
@@ -7146,11 +7344,19 @@ function DetailedView({
     });
   };
   // Create a range from the buffered ghost add-row (see SummaryDashboard twin).
-  const materializeGhostRangeDetail = (kind, item, activeRangeId, { min, max, unit }) => {
+  const materializeGhostRangeDetail = (
+    kind,
+    item,
+    activeRangeId,
+    { min, max, unit, isSingleValue, value },
+  ) => {
     if (!onSessionSave) return;
-    if (min === "" && max === "") return;
+    if (isSingleValue ? value === "" : min === "" && max === "") return;
     const { item: withRange, newRangeId } = addRangeToItem(item, activeRangeId);
-    const updated = applyItemRangePatch(withRange, newRangeId, { min, max, unit });
+    const patch = isSingleValue
+      ? { isSingleValue: true, value, min: value, max: value, unit }
+      : { min, max, unit };
+    const updated = applyItemRangePatch(withRange, newRangeId, patch);
     persistInlineItemDetail(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
@@ -7332,8 +7538,12 @@ function DetailedView({
             value={range?.resolution ?? range?.measuringResolution}
             unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
             fallbackUnit={range?.unit}
+            distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
             onCommit={(v) => setRangeResolutionDetail(kind, item, range?.id, v)}
             onCommitUnit={(value) => setRangeResolutionUnitDetail(kind, item, range?.id, value)}
+            onCommitDistribution={(value) =>
+              setRangeResolutionDistributionDetail(kind, item, range?.id, value)
+            }
           />
         </td>
       </>
@@ -9183,7 +9393,32 @@ function DetailedView({
       const resolutionOption =
         resolutionDetail && !resolutionDetail.included ? resolutionDetail : null;
 
-      if (options.length === 0 && otherOptions.length === 0 && !resolutionOption) {
+      // A TMDE's own measuring resolution can also feed the budget. Offer it for
+      // each TMDE already contributing to THIS scope (the whole point for a
+      // direct measurement; just this variable for a derived one, so a TMDE's
+      // resolution lands in that variable's own budget table — e.g. L's). Only
+      // TMDEs with a usable resolution that isn't already opted in are listed.
+      const scopeVariableType =
+        scope?.variableType || scope?.label || null;
+      const contributingTmdeInstances = isDerived
+        ? tmdeTolerancesData.filter(
+            (t) => t.variableType === scopeVariableType,
+          )
+        : tmdeTolerancesData;
+      const tmdeResolutionOptions = contributingTmdeInstances
+        .map((tmde) => {
+          const detail = getTmdeResolutionDetail(tmde);
+          if (!detail || detail.included) return null;
+          return { tmde, ...detail };
+        })
+        .filter(Boolean);
+
+      if (
+        options.length === 0 &&
+        otherOptions.length === 0 &&
+        !resolutionOption &&
+        tmdeResolutionOptions.length === 0
+      ) {
         setNotification?.({
           title: "Nothing to Add",
           message: resolutionDetail
@@ -9199,6 +9434,7 @@ function DetailedView({
         options,
         otherOptions,
         resolutionOption,
+        tmdeResolutionOptions,
         rect,
       });
     },
@@ -9210,6 +9446,7 @@ function DetailedView({
       tmdeSupportsFunction,
       isDerived,
       uutToleranceData,
+      tmdeTolerancesData,
     ],
   );
 
@@ -9234,6 +9471,30 @@ function DetailedView({
     onUpdateTestPoint?.({
       uutTolerance: { ...uutToleranceData, includeResolutionInBudget: true },
     });
+    setBudgetTmdePicker(null);
+  };
+
+  // Add a TMDE's measuring resolution to this budget by opting it in on that
+  // TMDE instance — getBudgetComponentsFromTolerance then emits a "<TMDE> -
+  // Resolution" component into the same budget table the TMDE's accuracy feeds
+  // (the point's budget for a direct measurement; the variable's budget for a
+  // derived one, since the instance is scoped to that variable).
+  const addBudgetTmdeResolution = (tmde) => {
+    if (!budgetTmdePicker || !tmde) return;
+    applyTmdeInstanceChange(
+      tmde.id ?? tmde.sourceId,
+      (t) => ({
+        ...t,
+        // Set the flag on both the instance and its `.tolerance` snapshot: the
+        // direct-measurement path reads `tmde.tolerance || tmde`, the derived
+        // path reads the instance directly, so cover both.
+        includeResolutionInBudget: true,
+        ...(t.tolerance && typeof t.tolerance === "object"
+          ? { tolerance: { ...t.tolerance, includeResolutionInBudget: true } }
+          : {}),
+      }),
+      "point",
+    );
     setBudgetTmdePicker(null);
   };
 
@@ -9418,6 +9679,56 @@ function DetailedView({
                   </span>
                 </span>
               </button>
+            </div>
+          )}
+          {(budgetTmdePicker.tmdeResolutionOptions || []).length > 0 && (
+            <div>
+              <div className="budget-tmde-picker-category">TMDE resolution</div>
+              {budgetTmdePicker.tmdeResolutionOptions.map((option) => {
+                const resUnitLabel = getUnitDisplayLabel(option.unit);
+                return (
+                  <button
+                    key={`tmde-res-${option.tmde.id ?? option.tmde.sourceId}`}
+                    type="button"
+                    style={itemStyle}
+                    onClick={() => addBudgetTmdeResolution(option.tmde)}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.background = "var(--input-background)")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.background = "transparent")
+                    }
+                  >
+                    <FontAwesomeIcon icon={faRulerCombined} style={{ marginTop: "2px" }} />
+                    <span
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2px",
+                        minWidth: 0,
+                      }}
+                    >
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {getEquationTmdeLabel(option.tmde)} resolution
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "0.72rem",
+                          color: "var(--text-color-muted)",
+                        }}
+                      >
+                        {`${option.value}${resUnitLabel ? ` ${resUnitLabel}` : ""} · rounding contribution`}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -9734,7 +10045,15 @@ function DetailedView({
                               className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onContextMenu={(e) => openRangeRowMenu(e, "uut", uut, range, index, n)}
-                              onMouseDownCapture={() => activateRangeRowDetail("uut", uutRowKey, index)}
+                              onMouseDownCapture={() => {
+                                activateRangeRowDetail("uut", uutRowKey, index);
+                                // With the in-cell range switcher removed, clicking a
+                                // range row is how the active point picks which range
+                                // applies to it (mirrors the old switcher's onSelect).
+                                if (index !== activeRangeIndex) {
+                                  handleRangeChange(uut.id, index, ranges, isActivePointUut);
+                                }
+                              }}
                               style={{ cursor: "pointer" }}
                             >
                               {i === 0 && (
@@ -9943,11 +10262,15 @@ function DetailedView({
                                     value={range?.resolution ?? range?.measuringResolution}
                                     unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
                                     fallbackUnit={range?.unit}
+                                    distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
                                     onCommit={(v) =>
                                       setRangeResolutionDetail("uut", uut, range?.id, v)
                                     }
                                     onCommitUnit={(value) =>
                                       setRangeResolutionUnitDetail("uut", uut, range?.id, value)
+                                    }
+                                    onCommitDistribution={(value) =>
+                                      setRangeResolutionDistributionDetail("uut", uut, range?.id, value)
                                     }
                                   />
                                 ) : (
@@ -10502,9 +10825,15 @@ function DetailedView({
                                   onContextMenu={(e) =>
                                     openRangeRowMenu(e, "tmde", masterTmde, range, index, n)
                                   }
-                                  onMouseDownCapture={() =>
-                                    activateRangeRowDetail("tmde", tmdeRowKey, index)
-                                  }
+                                  onMouseDownCapture={() => {
+                                    activateRangeRowDetail("tmde", tmdeRowKey, index);
+                                    // Range switcher removed: activating a range row
+                                    // is now how a TMDE's applied range is chosen for
+                                    // this point (mirrors the old switcher's onSelect).
+                                    if (index !== activeRangeIndex) {
+                                      handleTmdeRangeChange(masterTmde, index, ranges);
+                                    }
+                                  }}
                                   style={{
                                     opacity: isSelectedRow ? 1 : 0.85,
                                     cursor: "pointer",
@@ -10783,6 +11112,10 @@ function DetailedView({
                                           range?.measuringResolutionUnit
                                         }
                                         fallbackUnit={range?.unit}
+                                        distribution={
+                                          range?.resolutionDistribution ??
+                                          range?.measuringResolutionDistribution
+                                        }
                                         onCommit={(v) =>
                                           setRangeResolutionDetail(
                                             "tmde",
@@ -10793,6 +11126,14 @@ function DetailedView({
                                         }
                                         onCommitUnit={(value) =>
                                           setRangeResolutionUnitDetail(
+                                            "tmde",
+                                            masterTmde,
+                                            range?.id,
+                                            value,
+                                          )
+                                        }
+                                        onCommitDistribution={(value) =>
+                                          setRangeResolutionDistributionDetail(
                                             "tmde",
                                             masterTmde,
                                             range?.id,
