@@ -7120,11 +7120,10 @@ function DetailedView({
     "Instrument";
   const applyPickedLibraryUut = (uutId, inst, options = {}) => {
     if (!onSessionSave) return;
-    // In the per-point detail view the row is shown in the context of the active
-    // measurement area (relevantUuts filters by it). Keep the UUT in its current
-    // area instead of relocating it to the library instrument's stored area —
-    // otherwise the row drops out of this view and only reappears in the
-    // area-grouped Session Overview. Adopt the library area only if unassigned.
+    // Keep the UUT in its current measurement area instead of relocating it to
+    // the library instrument's stored area — a picked library instrument should
+    // not silently move the UUT to a different area group. Adopt the library
+    // area only if the UUT is currently unassigned.
     const currentUut = (sessionData.uuts || []).find((u) => u.id === uutId);
     const hasExistingArea = !!(
       currentUut?.measurementAreaId || currentUut?.measurementArea
@@ -8303,73 +8302,26 @@ function DetailedView({
   );
   const isDerived = testPointData.measurementType === "derived";
 
-  // Keep the instrument inventory stable while moving between points. A point
-  // only highlights its linked UUT; it does not hide the area's other choices.
-  // The point's own associated UUTs are ALWAYS kept: a stale/foreign area stamp
-  // on the point (or an area-less UUT) must never hide the very UUT the point
-  // is linked to.
-  const relevantUuts = useMemo(() => {
-    const allUuts = sessionData.uuts || [];
-    if (!activeMeasurementAreaId) return allUuts;
-    const linkedIds = new Set(
-      [activePointUutId, ...associatedUutIds].filter(Boolean).map(String),
-    );
-    // An unassigned point's area stamp is untrustworthy (it may be inherited
-    // from whatever point was selected when it was created) — show the whole
-    // inventory so the user can pick a UUT at all.
-    if (linkedIds.size === 0) return allUuts;
-    // If NONE of the point's linked UUTs can measure its function, the
-    // association is stale — typically inherited from a different-function point
-    // (e.g. a Resistance point that carried over a Pressure UUT + its area). In
-    // that case also surface any UUT that actually measures this function, even
-    // from another area, so the UUT the user added for this point isn't hidden
-    // behind the foreign one. Well-configured points are unaffected.
-    const linkedCoversFunction = allUuts.some(
-      (uut) =>
-        linkedIds.has(String(uut.id)) &&
-        !!matchingInstrumentFunctionKey(uut, activePointFunctionKey),
-    );
-    return allUuts.filter(
-      (uut) =>
-        linkedIds.has(String(uut.id)) ||
-        String(uut.measurementAreaId) === String(activeMeasurementAreaId) ||
-        (!uut.measurementAreaId &&
-          activeMeasurementArea?.name &&
-          uut.measurementArea === activeMeasurementArea.name) ||
-        (!linkedCoversFunction &&
-          !!matchingInstrumentFunctionKey(uut, activePointFunctionKey)),
-    );
-  }, [
-    sessionData.uuts,
-    activeMeasurementAreaId,
-    activeMeasurementArea?.name,
-    activePointUutId,
-    associatedUutIds,
-    activePointFunctionKey,
-  ]);
 
   const relevantTmdes = useMemo(() => {
-    // Detail view should expose the same TMDE inventory as Session Overview.
-    // The budget picker then suggests function matches first, but still allows
-    // deliberate cross-function/cross-area selections when needed.
+    // Detail view exposes the same TMDE inventory as Session Overview.
     return sessionData.tmdes || [];
   }, [sessionData.tmdes]);
 
-  // Function-scoped rows for the detail tables, with a dead-end guard: if the
-  // scoping leaves NOTHING to show (e.g. the point's function matches no
-  // instrument — common right after a new function/instrument/point trio is
-  // created), fall back to the full Session-Overview-style inventory so the
-  // user can still see and wire up their instruments. Empty user-added
-  // function groups are included (like the Session Overview) so a function
-  // added from THIS view is immediately visible with its add-instrument row.
-  const buildScopedDetailRows = useCallback(
-    (items, kind, scopedOptions) => {
-      const mapped = items.map((item, index) => ({ type: "item", item, index }));
-      const scoped = buildFunctionGroupedRows(mapped, sessionData, kind, {
-        ...scopedOptions,
-        includeEmptyGroups: true,
-      });
-      if (scoped.some((row) => row.type === "item")) return scoped;
+  // The Detailed View lists the SAME instruments as the Session Overview —
+  // the full session inventory grouped by function — and simply flags the
+  // point's active UUT. It is deliberately NOT scoped to the point's
+  // function/area: that scoping was the source of the two views disagreeing
+  // (e.g. a point hiding a UUT that a stale association had stranded in another
+  // area). Empty user-added function groups are included so a function added
+  // from this view is immediately visible with its add-instrument row.
+  const buildFullDetailRows = useCallback(
+    (items, kind) => {
+      const mapped = (items || []).map((item, index) => ({
+        type: "item",
+        item,
+        index,
+      }));
       return buildFunctionGroupedRows(mapped, sessionData, kind, {
         includeEmptyGroups: true,
       });
@@ -8378,47 +8330,13 @@ function DetailedView({
   );
 
   const detailUutRows = useMemo(
-    () =>
-      buildScopedDetailRows(relevantUuts, "uut", {
-        onlyFunctionKey: activePointFunctionKey,
-        fallbackItemIds: [activePointUutId, ...associatedUutIds].filter(Boolean),
-      }),
-    [
-      activePointFunctionKey,
-      activePointUutId,
-      associatedUutIds,
-      buildScopedDetailRows,
-      relevantUuts,
-    ],
-  );
-
-  // TMDEs already assigned to this point must stay visible even when their
-  // declared functions don't match the point's function (deliberate
-  // cross-function selections).
-  const assignedTmdeIds = useMemo(
-    () =>
-      (tmdeTolerancesData || [])
-        .flatMap((t) => [t.id, t.sourceId])
-        .filter((id) => id !== undefined && id !== null),
-    [tmdeTolerancesData],
+    () => buildFullDetailRows(sessionData.uuts || [], "uut"),
+    [buildFullDetailRows, sessionData.uuts],
   );
 
   const detailTmdeRows = useMemo(
-    () =>
-      buildScopedDetailRows(relevantTmdes, "tmde", {
-        // A derived point's TMDEs measure the equation's INPUT quantities
-        // (e.g. voltage and current for a power point), not the point's own
-        // output function — scoping to the output key would hide all of them.
-        onlyFunctionKey: isDerived ? null : activePointFunctionKey,
-        fallbackItemIds: assignedTmdeIds,
-      }),
-    [
-      activePointFunctionKey,
-      assignedTmdeIds,
-      buildScopedDetailRows,
-      isDerived,
-      relevantTmdes,
-    ],
+    () => buildFullDetailRows(relevantTmdes, "tmde"),
+    [buildFullDetailRows, relevantTmdes],
   );
 
   // --- HANDLERS ---
@@ -9966,7 +9884,7 @@ function DetailedView({
   }[calcStatus];
 
   const primaryUutId = activePointUutId;
-  const primaryUut = relevantUuts.find((u) => u.id === primaryUutId);
+  const primaryUut = (sessionData.uuts || []).find((u) => u.id === primaryUutId);
 
   const activeResolvedTolerance = useMemo(() => {
     if (!primaryUut) return uutToleranceData;
@@ -10041,11 +9959,11 @@ function DetailedView({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "28%" }} />
               <col style={{ width: "24%" }} />
               <col style={{ width: "22%" }} />
-              <col style={{ width: "18%" }} />
-              <col style={{ width: "8%" }} />
+              <col style={{ width: "32%" }} />
+              <col style={{ width: "16%" }} />
+              <col style={{ width: "6%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -10063,7 +9981,7 @@ function DetailedView({
             <tbody>
               {detailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan="5">No associated UUTs found.</td>
+                  <td colSpan="5">No UUTs found in this context.</td>
                 </tr>
               ) : (
                 detailUutRows.map((row) => {
@@ -10782,10 +10700,10 @@ function DetailedView({
               style={{ tableLayout: "fixed" }}
             >
               <colgroup>
-                <col style={{ width: "30%" }} />
-                <col style={{ width: "22%" }} />
-                <col style={{ width: "15%" }} />
-                <col style={{ width: "10%" }} />
+                <col style={{ width: "21%" }} />
+                <col style={{ width: "24%" }} />
+                <col style={{ width: "20%" }} />
+                <col style={{ width: "12%" }} />
                 <col style={{ width: "18%" }} />
                 <col style={{ width: "5%" }} />
               </colgroup>
@@ -10806,9 +10724,7 @@ function DetailedView({
               <tbody>
                 {detailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan="6">
-                      No TMDEs defined for this session.
-                    </td>
+                    <td colSpan="6">No TMDEs found in session.</td>
                   </tr>
                 ) : (
                   detailTmdeRows.map((row) => {
