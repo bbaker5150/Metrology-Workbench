@@ -8318,13 +8318,26 @@ function DetailedView({
     // from whatever point was selected when it was created) — show the whole
     // inventory so the user can pick a UUT at all.
     if (linkedIds.size === 0) return allUuts;
+    // If NONE of the point's linked UUTs can measure its function, the
+    // association is stale — typically inherited from a different-function point
+    // (e.g. a Resistance point that carried over a Pressure UUT + its area). In
+    // that case also surface any UUT that actually measures this function, even
+    // from another area, so the UUT the user added for this point isn't hidden
+    // behind the foreign one. Well-configured points are unaffected.
+    const linkedCoversFunction = allUuts.some(
+      (uut) =>
+        linkedIds.has(String(uut.id)) &&
+        !!matchingInstrumentFunctionKey(uut, activePointFunctionKey),
+    );
     return allUuts.filter(
       (uut) =>
         linkedIds.has(String(uut.id)) ||
         String(uut.measurementAreaId) === String(activeMeasurementAreaId) ||
         (!uut.measurementAreaId &&
           activeMeasurementArea?.name &&
-          uut.measurementArea === activeMeasurementArea.name),
+          uut.measurementArea === activeMeasurementArea.name) ||
+        (!linkedCoversFunction &&
+          !!matchingInstrumentFunctionKey(uut, activePointFunctionKey)),
     );
   }, [
     sessionData.uuts,
@@ -8332,6 +8345,7 @@ function DetailedView({
     activeMeasurementArea?.name,
     activePointUutId,
     associatedUutIds,
+    activePointFunctionKey,
   ]);
 
   const relevantTmdes = useMemo(() => {

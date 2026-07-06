@@ -21,6 +21,7 @@ import {
 } from "../../../utils/uncertaintyMath";
 // Shared, engine-verified f(x) symbol catalog.
 import { symbolCategories } from "../../../utils/equationSymbols";
+import { instrumentFunctions } from "../../../utils/functionGrouping";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import EquationLibraryMenu from "../../analysis/components/EquationLibraryMenu";
 import "./AddTestPointModal.css";
@@ -447,19 +448,46 @@ const AddTestPointModal = ({
       return;
     }
 
+    // Keep an inherited UUT only if it can actually MEASURE this point's
+    // function. A new direct point defaults its UUT list from the previously
+    // selected point; without this guard a Resistance point created right after
+    // a Pressure point silently carries over the Pressure UUT (and its area),
+    // so the detail view shows that foreign UUT instead of a resistance-capable
+    // one. An explicit caller-provided list (initialData) is always respected.
+    const pointFunctionName = formData.functionName || "Measurement";
+    const uutMeasuresFunction = (uutId) => {
+      const uut = (sessionData?.uuts || []).find(
+        (u) => String(u.id) === String(uutId),
+      );
+      if (!uut) return true; // can't verify a missing UUT — don't drop it
+      const target = String(pointFunctionName).trim().toLowerCase();
+      if (!target) return true;
+      return instrumentFunctions(uut).some(
+        (fn) => String(fn.name || "").trim().toLowerCase() === target,
+      );
+    };
+    const explicitUutIds = initialData?.associatedUutIds;
     const associatedUutIds =
-      initialData?.associatedUutIds ?? previousTestPointData?.associatedUutIds ?? [];
+      explicitUutIds !== undefined
+        ? explicitUutIds
+        : formData.measurementType === "direct"
+          ? (previousTestPointData?.associatedUutIds ?? []).filter(
+              uutMeasuresFunction,
+            )
+          : previousTestPointData?.associatedUutIds ?? [];
     // The area must come from the SAME source as the UUT association. When the
     // caller provided its own UUT list (e.g. sidebar "Add Point" under a UUT),
     // inheriting the previously selected point's area would strand the new
     // point in a foreign measurement area — the detail view then scopes its
-    // instrument tables to that area and the associated UUT vanishes.
+    // instrument tables to that area and the associated UUT vanishes. Likewise,
+    // once the inherited UUT is dropped (function mismatch) the inherited area
+    // is meaningless, so leave the point unassigned rather than stranding it.
     const measurementAreaId =
-      initialData?.associatedUutIds !== undefined
+      explicitUutIds !== undefined
         ? initialData?.measurementAreaId ?? null
-        : initialData?.measurementAreaId ??
-          previousTestPointData?.measurementAreaId ??
-          null;
+        : associatedUutIds.length > 0
+          ? previousTestPointData?.measurementAreaId ?? null
+          : null;
     const qualifierBase = hasQualifier
       ? { name: formData.qualName || "Qualifier", unit: formData.qualUnit || "" }
       : null;
