@@ -1689,6 +1689,91 @@ const ResolutionCellInput = ({
   );
 };
 
+// Two-view spec-band Distribution cell (TMDE tables): a clean label at rest, a
+// distribution dropdown on click, snapping back on click-out — mirroring the
+// Range / Tolerance / Resolution columns. Only interactive when the tolerance
+// actually carries a spec band (a divisor); otherwise it renders a static "—".
+const InlineDistributionCell = ({ divisor, editable = true, onChange }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!isEditing || !containerRef.current) return;
+    containerRef.current.querySelector("select")?.focus();
+  }, [isEditing]);
+
+  const label = divisor
+    ? errorDistributions.find((e) => e.value === String(divisor))?.label ||
+      `k=${divisor}`
+    : "—";
+
+  // Read-only surfaces, or a tolerance with no spec band → just the clean label.
+  if (!editable || !divisor) {
+    return <>{label}</>;
+  }
+
+  if (!isEditing) {
+    const open = (e) => {
+      e.stopPropagation();
+      setIsEditing(true);
+    };
+    return (
+      <span className="inline-tolerance-readview">
+        <button
+          type="button"
+          className="inline-tolerance-summary"
+          title="Click to edit distribution"
+          onClick={open}
+        >
+          {label}
+        </button>
+        {/* Same hover-revealed affordance as the other columns' editors. */}
+        <button
+          type="button"
+          className="range-expand-btn"
+          title="Edit distribution"
+          aria-label="Edit distribution"
+          onClick={open}
+        >
+          <FontAwesomeIcon icon={faChevronDown} size="xs" />
+          <span className="range-expand-btn-label">edit / add</span>
+        </button>
+      </span>
+    );
+  }
+
+  const handleBlur = (event) => {
+    const next = event.relatedTarget;
+    if (next && containerRef.current && containerRef.current.contains(next)) return;
+    setIsEditing(false);
+  };
+
+  return (
+    <span
+      ref={containerRef}
+      className="inline-distribution-editor"
+      onMouseDown={(e) => e.stopPropagation()}
+      onBlur={handleBlur}
+    >
+      <select
+        className="session-selector"
+        value={divisor}
+        aria-label="Spec band distribution"
+        onChange={(e) => {
+          onChange(e.target.value);
+          setIsEditing(false);
+        }}
+      >
+        {errorDistributions.map((d) => (
+          <option key={d.value} value={d.value}>
+            {d.label}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+};
+
 // Inline range editor: editable min/max for the active range, with a compact
 // switcher when an instrument has more than one range.
 const TOLERANCE_TYPE_OPTIONS = [
@@ -5059,23 +5144,12 @@ const SummaryDashboard = ({
 
         {includeDistribution && (
           <td className="cell-distribution" title="Spec band distribution">
-            {getBandDistDivisor(tolerance) ? (
-              <select
-                className="session-selector"
-                value={getBandDistDivisor(tolerance)}
-                onChange={(e) =>
-                  setRangeBandDistribution(kind, item, range?.id, e.target.value)
-                }
-              >
-                {errorDistributions.map((d) => (
-                  <option key={d.value} value={d.value}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              getBandDistLabel(tolerance)
-            )}
+            <InlineDistributionCell
+              divisor={getBandDistDivisor(tolerance)}
+              onChange={(value) =>
+                setRangeBandDistribution(kind, item, range?.id, value)
+              }
+            />
           </td>
         )}
 
@@ -6349,23 +6423,13 @@ const SummaryDashboard = ({
                               const tolerance = getItemRangeTolerance(tmde, range?.id) || range;
                               return (
                                 <div className="range-stack-row" key={key}>
-                                  {onSessionSave && getBandDistDivisor(tolerance) ? (
-                                    <select
-                                      className="session-selector"
-                                      value={getBandDistDivisor(tolerance)}
-                                      onChange={(e) =>
-                                        setRangeBandDistribution("tmde", tmde, range?.id, e.target.value)
-                                      }
-                                    >
-                                      {errorDistributions.map((d) => (
-                                        <option key={d.value} value={d.value}>
-                                          {d.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  ) : (
-                                    getBandDistLabel(tolerance)
-                                  )}
+                                  <InlineDistributionCell
+                                    divisor={getBandDistDivisor(tolerance)}
+                                    editable={!!onSessionSave}
+                                    onChange={(value) =>
+                                      setRangeBandDistribution("tmde", tmde, range?.id, value)
+                                    }
+                                  />
                                 </div>
                               );
                             })}
@@ -7509,23 +7573,12 @@ function DetailedView({
 
         {includeDistribution && (
           <td className="cell-distribution" title="Spec band distribution">
-            {getBandDistDivisor(tolerance) ? (
-              <select
-                className="session-selector"
-                value={getBandDistDivisor(tolerance)}
-                onChange={(e) =>
-                  setRangeBandDistributionDetail(kind, item, range?.id, e.target.value)
-                }
-              >
-                {errorDistributions.map((d) => (
-                  <option key={d.value} value={d.value}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              getBandDistLabel(tolerance)
-            )}
+            <InlineDistributionCell
+              divisor={getBandDistDivisor(tolerance)}
+              onChange={(value) =>
+                setRangeBandDistributionDetail(kind, item, range?.id, value)
+              }
+            />
           </td>
         )}
 
@@ -11058,29 +11111,18 @@ function DetailedView({
                                     getItemRangeTolerance(masterTmde, range?.id) || range;
                                   return (
                                     <div className="range-stack-row" key={key}>
-                                      {onSessionSave &&
-                                      getBandDistDivisor(tolerance) ? (
-                                        <select
-                                          className="session-selector"
-                                          value={getBandDistDivisor(tolerance)}
-                                          onChange={(e) =>
-                                            setRangeBandDistributionDetail(
-                                              "tmde",
-                                              masterTmde,
-                                              range?.id,
-                                              e.target.value,
-                                            )
-                                          }
-                                        >
-                                          {errorDistributions.map((d) => (
-                                            <option key={d.value} value={d.value}>
-                                              {d.label}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      ) : (
-                                        getBandDistLabel(tolerance)
-                                      )}
+                                      <InlineDistributionCell
+                                        divisor={getBandDistDivisor(tolerance)}
+                                        editable={!!onSessionSave}
+                                        onChange={(value) =>
+                                          setRangeBandDistributionDetail(
+                                            "tmde",
+                                            masterTmde,
+                                            range?.id,
+                                            value,
+                                          )
+                                        }
+                                      />
                                     </div>
                                   );
                                 })}

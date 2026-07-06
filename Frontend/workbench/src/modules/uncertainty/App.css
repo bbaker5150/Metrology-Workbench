@@ -10422,7 +10422,8 @@ body.theme-cyberpunk .notification-window .window-header {
 .instrument-summary-table td.cell-value:has(.inline-range-editor),
 .instrument-summary-table td.cell-value:has(.inline-resolution-editor),
 .instrument-summary-table td.cell-value:has(.inline-tolerance-readview),
-.instrument-summary-table td.cell-distribution:has(.session-selector) {
+.instrument-summary-table td.cell-distribution:has(.session-selector),
+.instrument-summary-table td.cell-distribution:has(.inline-tolerance-readview) {
   vertical-align: middle;
 }
 
@@ -11208,11 +11209,10 @@ input.inline-function-input:focus {
     border-color 0.12s ease;
 }
 
-/* Reveal the expander on row hover so the collapsed cell stays clean at rest,
-   matching the tolerance cell's "click to reveal" restraint. */
-.industry-table tbody tr:hover .range-expand-btn,
-.industry-table tbody tr.selected-row .range-expand-btn,
-.industry-table tbody tr.instrument-selected .range-expand-btn {
+/* Reveal the "edit / add" expander only when its OWN column (the hovered cell)
+   is pointed at, so the Range / Tolerance / Resolution columns each stay clean
+   at rest and advertise editability the same, restrained way. */
+.industry-table tbody td:hover .range-expand-btn {
   opacity: 1;
 }
 
@@ -11220,18 +11220,6 @@ input.inline-function-input:focus {
   background: var(--hover-bg, rgba(127, 127, 127, 0.12));
   color: var(--text-color);
   border-color: var(--primary-color);
-}
-
-/* Resolution column's "edit / add": keep it quiet on plain row hover and reveal
-   it only when the Resolution column itself is hovered (its cell / read view),
-   so the column stays clean until the user actually points at it. Higher
-   specificity than the row-hover reveal above, so it wins in both directions. */
-.instrument-summary-table td.cell-value .inline-tolerance-readview .range-expand-btn {
-  opacity: 0;
-}
-.instrument-summary-table td.cell-value:hover .inline-tolerance-readview .range-expand-btn,
-.instrument-summary-table td.cell-value .inline-tolerance-readview:hover .range-expand-btn {
-  opacity: 1;
 }
 
 .range-expand-btn-label {
@@ -11596,6 +11584,19 @@ input.inline-resolution-input {
   width: 58px;
   flex: 0 0 58px;
   min-width: 52px;
+}
+
+/* Two-view Distribution cell (TMDE tables): edit view wraps the dropdown so it
+   fills the column the same way the other inline editors do. */
+.inline-distribution-editor {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+.inline-distribution-editor > .session-selector {
+  width: 100%;
+  min-width: 0;
 }
 
 /* Resolution-cell distribution picker (its rounding distribution for the
