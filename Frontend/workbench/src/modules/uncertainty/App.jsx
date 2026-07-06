@@ -840,7 +840,7 @@ const findMatchingRange = (uut, value, unit) => {
   return match || allRanges[0] || null;
 };
 
-export const pointToleranceMatchesFunction = (point, tolerance) => {
+const pointToleranceMatchesFunction = (point, tolerance) => {
   if (!point || !tolerance || Object.keys(tolerance || {}).length === 0) {
     return false;
   }
@@ -857,24 +857,6 @@ export const pointToleranceMatchesFunction = (point, tolerance) => {
     String(pointUnit).trim().toLowerCase() ===
       String(toleranceUnit).trim().toLowerCase()
   );
-};
-
-export const resolvePointForUutContext = (point, uut) => {
-  const value = point.testPointInfo?.parameter?.value;
-  const unit = point.testPointInfo?.parameter?.unit;
-  const carriedTolerance =
-    point.uutTolerance && pointToleranceMatchesFunction(point, point.uutTolerance)
-      ? point.uutTolerance
-      : null;
-
-  return {
-    ...point,
-    associatedUutIds: uut?.id ? [uut.id] : point.associatedUutIds || [],
-    measurementAreaId: uut?.measurementAreaId || point.measurementAreaId || null,
-    uutTolerance:
-      carriedTolerance ||
-      (uut ? findMatchingRange(uut, value, unit) : point.uutTolerance || null),
-  };
 };
 
 // --- HELPER COMPONENT: Sidebar Session Header (Inline Editing) ---
@@ -2233,6 +2215,20 @@ function App() {
     return current || currentTestPoints.find(inScope) || null;
   };
 
+  const handleSelectFunction = (functionKey) => {
+    setRiskResults(null);
+    const point = resolveFunctionPoint(functionKey);
+
+    setSelectedFunctionId(functionKey);
+    setSelectedUutId(null);
+    setSelectedTestPointId(point?.id || null);
+    setSelectedTestPointContextUutId(point?.associatedUutIds?.[0] || null);
+    setCurrentUutSelection([]);
+    setVirtualPoint(null);
+    setSelectedTablePointIds([]);
+    setSelectedSidebarPointIds(point ? [point.id] : []);
+  };
+
   const handleSelectUut = (uutId, functionKey) => {
     setRiskResults(null);
     const point = resolveFunctionPoint(functionKey, uutId);
@@ -2917,7 +2913,15 @@ function App() {
   const handleSaveTestPoint = (formData) => {
     const resolvePointForUut = (point, uutId) => {
       const uut = currentSessionData?.uuts?.find((u) => u.id === uutId);
-      return resolvePointForUutContext(point, uut || { id: uutId });
+      const value = point.testPointInfo?.parameter?.value;
+      const unit = point.testPointInfo?.parameter?.unit;
+      return {
+        ...point,
+        associatedUutIds: [uutId],
+        measurementAreaId:
+          point.measurementAreaId || uut?.measurementAreaId || null,
+        uutTolerance: point.uutTolerance || (uut ? findMatchingRange(uut, value, unit) : null),
+      };
     };
 
     const normalizePoint = (point) => {
@@ -3356,6 +3360,16 @@ function App() {
 
     if (selectedUutId) {
       return { viewMode: "uut", id: selectedUutId };
+    }
+
+    if (selectedFunctionId) {
+      const fnNode = sidebarData.find((fn) => fn.id === selectedFunctionId);
+      return {
+        viewMode: "function",
+        id: selectedFunctionId,
+        functionName: fnNode?.name || "",
+        functionUnit: fnNode?.unit || "",
+      };
     }
 
     if (selectedSessionId) {
@@ -3991,7 +4005,7 @@ function App() {
                         >
                           <div
                             className={`area-header-sticky ${isFnActive ? "active" : ""}`}
-                            onClick={(e) => toggleFunctionExpand(e, fnGroup.id)}
+                            onClick={() => handleSelectFunction(fnGroup.id)}
                           >
                             <FontAwesomeIcon
                               icon={
@@ -4035,7 +4049,7 @@ function App() {
                       >
                         <div
                           className={`area-header-sticky ${isFnActive ? "active" : ""}`}
-                          onClick={(e) => toggleFunctionExpand(e, fnGroup.id)}
+                          onClick={() => handleSelectFunction(fnGroup.id)}
                         >
                           <FontAwesomeIcon
                             icon={isFnExpanded ? faChevronDown : faChevronRight}

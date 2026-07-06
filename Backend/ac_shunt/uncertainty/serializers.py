@@ -142,6 +142,7 @@ def session_to_dict(s):
         "notes": s.notes,
         "uutDescription": s.uut_description,
         "uutTolerance": s.uut_tolerance or {},
+        "functionGroups": s.function_groups or [],
         "uncReq": {
             "uncertaintyConfidence": s.uncertainty_confidence,
             "reliability": s.reliability,
@@ -238,6 +239,7 @@ def save_session(data):
         "notes": data.get("notes", "") or "",
         "uut_description": data.get("uutDescription", "") or "",
         "uut_tolerance": data.get("uutTolerance") or {},
+        "function_groups": data.get("functionGroups") or [],
         "uncertainty_confidence": _num(unc.get("uncertaintyConfidence"), 95),
         "reliability": _num(unc.get("reliability"), 85),
         "cal_int": _num(unc.get("calInt"), 12),
