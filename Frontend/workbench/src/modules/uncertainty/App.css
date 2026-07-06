@@ -10421,6 +10421,7 @@ body.theme-cyberpunk .notification-window .window-header {
 .instrument-summary-table td.cell-tolerance:has(.inline-tolerance-summary),
 .instrument-summary-table td.cell-value:has(.inline-range-editor),
 .instrument-summary-table td.cell-value:has(.inline-resolution-editor),
+.instrument-summary-table td.cell-value:has(.inline-tolerance-readview),
 .instrument-summary-table td.cell-distribution:has(.session-selector) {
   vertical-align: middle;
 }
@@ -11219,6 +11220,18 @@ input.inline-function-input:focus {
   background: var(--hover-bg, rgba(127, 127, 127, 0.12));
   color: var(--text-color);
   border-color: var(--primary-color);
+}
+
+/* Resolution column's "edit / add": keep it quiet on plain row hover and reveal
+   it only when the Resolution column itself is hovered (its cell / read view),
+   so the column stays clean until the user actually points at it. Higher
+   specificity than the row-hover reveal above, so it wins in both directions. */
+.instrument-summary-table td.cell-value .inline-tolerance-readview .range-expand-btn {
+  opacity: 0;
+}
+.instrument-summary-table td.cell-value:hover .inline-tolerance-readview .range-expand-btn,
+.instrument-summary-table td.cell-value .inline-tolerance-readview:hover .range-expand-btn {
+  opacity: 1;
 }
 
 .range-expand-btn-label {
