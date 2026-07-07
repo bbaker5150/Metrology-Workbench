@@ -4025,7 +4025,15 @@ const SummaryDashboard = ({
       if (u.id !== uutId) return u;
       updatedItem =
         field === "name"
-          ? { ...u, description: value }
+          ? {
+              ...u,
+              description: value,
+              // Mirror the name onto the instrument's description so it's part of
+              // the SHARED spec: renaming now diverges from the validated library
+              // (sync badge goes red), and once synced the new name re-imports
+              // when the instrument is added again — instead of the old name.
+              instrument: { ...(u.instrument || {}), description: value },
+            }
           : { ...u, instrument: applyDescriptionPatch(u, field, value) };
       return updatedItem;
     });
@@ -4051,7 +4059,13 @@ const SummaryDashboard = ({
       if (t.id !== tmdeId) return t;
       updatedItem =
         field === "name"
-          ? { ...t, name: value }
+          ? {
+              ...t,
+              name: value,
+              // Mirror onto the instrument's description so the name is part of
+              // the SHARED spec (sync diverges, re-import uses the new name).
+              instrument: { ...(t.instrument || {}), description: value },
+            }
           : { ...t, instrument: applyDescriptionPatch(t, field, value) };
       return updatedItem;
     });
@@ -7027,7 +7041,13 @@ function DetailedView({
       if (u.id !== uutId) return u;
       updatedItem =
         field === "name"
-          ? { ...u, description: value }
+          ? {
+              ...u,
+              description: value,
+              // Mirror onto the instrument's description so the name is part of
+              // the SHARED spec (sync diverges, re-import uses the new name).
+              instrument: { ...(u.instrument || {}), description: value },
+            }
           : {
               ...u,
               instrument: {
@@ -7058,7 +7078,13 @@ function DetailedView({
       if (t.id !== tmdeId) return t;
       updatedItem =
         field === "name"
-          ? { ...t, name: value }
+          ? {
+              ...t,
+              name: value,
+              // Mirror onto the instrument's description so the name is part of
+              // the SHARED spec (sync diverges, re-import uses the new name).
+              instrument: { ...(t.instrument || {}), description: value },
+            }
           : {
               ...t,
               instrument: {

@@ -2806,7 +2806,11 @@ function App() {
         const instrumentSnapshot = getTmdeInstrumentSnapshot(data);
         newTmde = {
           id: uuidv4(),
-          name: `${data.manufacturer} ${data.model}`,
+          // Prefer the instrument description (its current name) so a renamed
+          // library instrument re-imports with the new name, not make/model.
+          name:
+            data.description ||
+            `${data.manufacturer || ""} ${data.model || ""}`.trim(),
           quantity: 1,
           assetId: "",
           instrument: instrumentSnapshot,
@@ -2876,7 +2880,11 @@ function App() {
 
       const newUut = {
         id: uuidv4(),
-        description: `${data.manufacturer} ${data.model}`,
+        // Prefer the instrument description (its current name) so a renamed
+        // library instrument re-imports with the new name, not make/model.
+        description:
+          data.description ||
+          `${data.manufacturer || ""} ${data.model || ""}`.trim(),
         measurementArea:
           updatedMeasurementAreas.find((a) => a.id === resolvedAreaId)?.name ||
           "General",
@@ -2934,9 +2942,12 @@ function App() {
     const uuts = [...(currentSessionData.uuts || [])];
 
     instrumentList.forEach((inst) => {
+      // Prefer the instrument's description as the row name (matching the inline
+      // library-pick's libraryLabel), so a renamed instrument re-imports with its
+      // current name instead of falling back to manufacturer/model.
       const label =
-        `${inst.manufacturer || ""} ${inst.model || ""}`.trim() ||
         inst.description ||
+        `${inst.manufacturer || ""} ${inst.model || ""}`.trim() ||
         "Instrument";
       const instrument = { ...inst };
       delete instrument.useAs;
