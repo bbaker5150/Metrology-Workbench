@@ -763,14 +763,16 @@ export const getToleranceSummary = (toleranceData) => {
 
   const parts = [];
   if (toleranceData.reading) parts.push(formatPart(toleranceData.reading));
-  if (toleranceData.readings_iv) parts.push(formatPart(toleranceData.readings_iv));
   if (toleranceData.range) {
     // Only append " of FS" when the range actually has a value — otherwise
     // formatPart returns null and we'd produce a misleading "null of FS".
     const rangePart = formatPart(toleranceData.range);
     if (rangePart) parts.push(`${rangePart} of FS`);
   }
-  if (toleranceData.floor) parts.push(formatPart(toleranceData.floor));
+  // `readings_iv` is a legacy alias of `floor`; show one term (floor wins) so a
+  // spec carrying both isn't displayed — or summed — as two floor values.
+  const floorPart = toleranceData.floor || toleranceData.readings_iv;
+  if (floorPart) parts.push(formatPart(floorPart));
   if (toleranceData.db) parts.push(formatPart(toleranceData.db));
 
   return parts.filter((p) => p).join(" + ") || "Not Set";
@@ -931,16 +933,21 @@ export const calculateUncertaintyFromToleranceObject = (
   };
 
   addComponent(toleranceObject.reading, "% of Indicated Value", nominalValue);
-  // Legacy "Readings (IV)" held a raw indicated-value error == a Floor Value;
-  // still summed for backward compatibility and labeled accordingly.
-  addComponent(toleranceObject.readings_iv, "Floor Value", nominalValue);
 
   addComponent(
     toleranceObject.range,
     "% Full Scale",
     parseFloat(toleranceObject.range?.value) || parseFloat(toleranceObject.max)
   );
-  addComponent(toleranceObject.floor, "Floor Value", nominalValue);
+  // `readings_iv` is a legacy alias of `floor` (the same absolute "Floor Value"),
+  // never authored separately by the UI. Treat them as ONE term — using
+  // `readings_iv` only as a fallback when no `floor` is present — so a spec that
+  // carries a legacy readings_iv AND a user-entered floor isn't double-counted.
+  addComponent(
+    toleranceObject.floor || toleranceObject.readings_iv,
+    "Floor Value",
+    nominalValue
+  );
 
   const dbTolComp = toleranceObject.db;
   if (dbTolComp && !isNaN(parseFloat(dbTolComp.high))) {

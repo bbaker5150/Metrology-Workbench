@@ -163,14 +163,12 @@ export const getBudgetComponentsFromTolerance = (
     toleranceObject.range, "% Full Scale", rangeFS
   );
 
-  // Floor Value
+  // Floor Value. `readings_iv` is a legacy alias of `floor` (the same absolute
+  // Floor Value), never authored separately by the UI — treat them as ONE term
+  // (floor wins, readings_iv is only a fallback) so a spec carrying both isn't
+  // double-counted into the budget.
   totalAccuracyHalfSpan_Base += calculateComponentSpan(
-      toleranceObject.floor, "Floor Value", nominalValue
-  );
-
-  // Legacy "Readings (IV)" == a raw Floor Value
-  totalAccuracyHalfSpan_Base += calculateComponentSpan(
-      toleranceObject.readings_iv, "Floor Value", nominalValue
+      toleranceObject.floor || toleranceObject.readings_iv, "Floor Value", nominalValue
   );
 
   // --- 2. CREATE THE UNIFIED ACCURACY COMPONENT ---

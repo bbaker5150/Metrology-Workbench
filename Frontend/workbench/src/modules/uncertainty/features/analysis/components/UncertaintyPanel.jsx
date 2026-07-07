@@ -1830,6 +1830,13 @@ const pruneBlankToleranceTerms = (tolerance = {}) => {
       delete next[key];
     }
   });
+  // Fold the legacy `readings_iv` alias into `floor` so a spec never carries two
+  // separate "Floor Value" terms (which downstream would double-count): promote
+  // it when there's no floor yet, otherwise drop the stale duplicate.
+  if (next.readings_iv) {
+    if (!next.floor) next.floor = next.readings_iv;
+    delete next.readings_iv;
+  }
   return next;
 };
 const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) => {
@@ -2836,11 +2843,14 @@ export const getSpecRows = (tolerance) => {
 
   // Components in display order, each with its abbreviation tag. Floor carries
   // no tag (it's a bare absolute value); dB's unit is shown inline.
+  // `readings_iv` is a legacy alias of `floor` (the same absolute Floor Value),
+  // never authored separately by the UI. It's read as a fallback for `floor`
+  // below — NOT listed as its own term — so a spec carrying both isn't shown (or
+  // summed) as two floor values.
   const componentConfig = [
     { key: "reading", tag: "IV" },
     { key: "range", tag: "FS" },
     { key: "floor", tag: "" },
-    { key: "readings_iv", tag: "" }, // legacy raw indicated value == a Floor
     { key: "offset", tag: "offset" },
     { key: "linearity", tag: "lin" },
     { key: "db", tag: "", unit: "dB" },
@@ -2895,7 +2905,10 @@ export const getSpecRows = (tolerance) => {
   const present = [];
   let anyAsymmetric = false;
   for (const cfg of componentConfig) {
-    const comp = parseComp(tolerance[cfg.key], cfg.unit);
+    // Floor reads readings_iv as a fallback so a legacy alias still renders.
+    const source =
+      cfg.key === "floor" ? tolerance.floor || tolerance.readings_iv : tolerance[cfg.key];
+    const comp = parseComp(source, cfg.unit);
     if (!comp) continue;
     present.push({ comp, cfg });
     if (!comp.symmetric) anyAsymmetric = true;
