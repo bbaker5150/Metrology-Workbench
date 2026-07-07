@@ -153,3 +153,58 @@ describe("saveTestPoint derived equation state", () => {
     });
   });
 });
+
+describe("instrument sync reconciliation", () => {
+  it("replaces a linked local instrument with the synced shared instrument", async () => {
+    const shared = {
+      id: "shared-1",
+      manufacturer: "Acme",
+      model: "DMM",
+      description: "Shared DMM",
+      scope: "validated",
+      functions: [],
+    };
+    const local = {
+      ...shared,
+      id: "local-1",
+      description: "Local edited DMM",
+      scope: "local",
+      owner: "bench-1",
+      sourceId: shared.id,
+      validatedSnapshot: {
+        manufacturer: "Acme",
+        model: "DMM",
+        description: "Shared DMM",
+        functions: [],
+      },
+    };
+    const synced = {
+      ...local,
+      id: shared.id,
+      scope: "validated",
+      sourceId: shared.id,
+    };
+
+    axios.get.mockImplementation((url) =>
+      Promise.resolve({
+        data: url.includes("/instruments/")
+          ? [shared, local]
+          : url.endsWith("/sessions/")
+            ? [{ id: 1, name: "Original", testPoints: [] }]
+            : [],
+      }),
+    );
+
+    const { result } = renderHook(() => useSessionManager());
+
+    await waitFor(() => {
+      expect(result.current.instruments).toHaveLength(2);
+    });
+
+    act(() => {
+      result.current.reconcileSyncedInstrument(synced);
+    });
+
+    expect(result.current.instruments).toEqual([synced]);
+  });
+});

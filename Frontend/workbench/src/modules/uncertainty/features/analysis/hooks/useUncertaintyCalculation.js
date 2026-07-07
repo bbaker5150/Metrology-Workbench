@@ -13,6 +13,18 @@ const normalizeDof = (dof) => {
   return dof === Infinity || dof == null || isNaN(parsed) ? Infinity : parsed;
 };
 
+const finiteNumberOrNull = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const numericResultChanged = (previous, next, tolerance = 1e-9) => {
+  const prevValue = finiteNumberOrNull(previous);
+  const nextValue = finiteNumberOrNull(next);
+  if (prevValue === null || nextValue === null) return prevValue !== nextValue;
+  return Math.abs(prevValue - nextValue) > tolerance;
+};
+
 const getTmdeIdentity = (tmde, fallbackIndex = 0) => {
   const instanceName = String(tmde?.name || "").trim();
   const instrumentName = [
@@ -859,6 +871,7 @@ export const useUncertaintyCalculation = (
             is_detailed_uncertainty_calculated: false,
             calculatedBudgetComponents: [],
             calculatedBudgetGroups: [],
+            calculatedNominalValue: null,
           });
         }
         return;
@@ -913,7 +926,7 @@ export const useUncertaintyCalculation = (
               }
             : group
         ),
-        calculatedNominalValue: calculatedNominalResult,
+        calculatedNominalValue: finiteNumberOrNull(calculatedNominalResult),
         secondOrder: derivedSecondOrder,
       };
 
@@ -932,7 +945,11 @@ export const useUncertaintyCalculation = (
         JSON.stringify(testPointData.calculatedBudgetComponents) !==
           JSON.stringify(newResults.calculatedBudgetComponents) ||
         JSON.stringify(testPointData.calculatedBudgetGroups) !==
-          JSON.stringify(newResults.calculatedBudgetGroups);
+          JSON.stringify(newResults.calculatedBudgetGroups) ||
+        numericResultChanged(
+          testPointData.calculatedNominalValue,
+          newResults.calculatedNominalValue
+        );
 
       if (resultsHaveChanged) {
         onDataSave({

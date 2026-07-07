@@ -12249,7 +12249,7 @@ body.theme-orbital.dark-mode .instrument-summary-table thead th {
 }
 
 /* "Assign TMDE…" button shown in place of the select while the variable has
-   no measurement standard yet — same footprint as the select, but visibly an
+   no TMDE yet — same footprint as the select, but visibly an
    action (primary-tinted text) rather than an empty disabled dropdown. */
 .var-source-assign-btn {
   text-align: left;

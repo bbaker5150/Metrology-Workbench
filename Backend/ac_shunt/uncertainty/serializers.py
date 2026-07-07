@@ -411,6 +411,14 @@ def save_instrument(data):
         defaults["validated_snapshot"] = data.get("validatedSnapshot")
 
     obj, _ = models.Instrument.objects.update_or_create(id=pk, defaults=defaults)
+    if scope == models.Instrument.SCOPE_VALIDATED:
+        linked_source_id = source_id_in or pk
+        if owner and linked_source_id:
+            models.Instrument.objects.filter(
+                scope=models.Instrument.SCOPE_LOCAL,
+                owner=owner,
+                source_id=linked_source_id,
+            ).exclude(id=obj.id).delete()
     return obj
 
 

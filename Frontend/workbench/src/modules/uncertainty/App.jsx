@@ -1133,6 +1133,7 @@ function App() {
     deleteCustomEquation,
     bugReports,
     saveInstrument,
+    reconcileSyncedInstrument,
     saveBugReport,
     deleteBugReport,
     deleteInstrument,
@@ -3690,6 +3691,7 @@ function App() {
           onClose={() => setIsInstrumentBuilderOpen(false)}
           onSave={handleUniversalModalSave}
           onSaveToLibrary={saveInstrument}
+          onInstrumentSynced={reconcileSyncedInstrument}
           onDelete={deleteInstrument}
           onBatchAdd={handleBatchAddInstruments}
           instruments={instruments}
@@ -4407,6 +4409,7 @@ function App() {
                     onDeleteUut={handleDeleteUut}
                     instruments={instruments}
                     onSaveInstrument={saveInstrument}
+                    onInstrumentSynced={reconcileSyncedInstrument}
                     customEquations={customEquations}
                     onSaveCustomEquation={saveCustomEquation}
                     onDeleteCustomEquation={deleteCustomEquation}

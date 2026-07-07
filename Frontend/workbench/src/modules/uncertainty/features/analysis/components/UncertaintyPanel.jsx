@@ -3794,13 +3794,14 @@ const SummaryDashboard = ({
   setCurrentUutSelection,
   instruments = [],
   onSaveInstrument,
+  onInstrumentSynced,
   setNotification,
 }) => {
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
   // Add Function picker: null | "uut" | "tmde" (which table's button opened it).
   const [addFunctionMenu, setAddFunctionMenu] = useState(null);
   const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
-  const { syncToShared, getDiff } = useInstrumentSync();
+  const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
 
   // Inline make/model/name edits from the Description cell. `name` is the
   // session label (uut.description / tmde.name); make+model live on the nested
@@ -6520,6 +6521,7 @@ function DetailedView({
   sessionData,
   onSessionSave,
   onSaveInstrument,
+  onInstrumentSynced,
   instruments = [],
   calcResults,
   calculationError,
@@ -6801,7 +6803,7 @@ function DetailedView({
   // add / remove, tolerance term edit / add / delete, resolution, area reassign.
   // ===========================================================================
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
-  const { syncToShared, getDiff } = useInstrumentSync();
+  const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
 
   const rowLabel = (kind, item) =>
     kind === "uut" ? item?.description || "" : item?.name || "";
@@ -9065,6 +9067,13 @@ function DetailedView({
     functionKey = null,
     options = {},
   ) => {
+    const variableSymbol = Object.entries(testPointData.variableMappings || {}).find(
+      ([, name]) =>
+        String(name || "").trim() === String(variableType || "").trim(),
+    )?.[0];
+    const savedVariableNominal =
+      (variableSymbol && testPointData.variableNominals?.[variableSymbol]) || {};
+    const inferredVariableUnit = inferVariableUnit(variableType);
     const existing = tmdeTolerancesData.find(
       (tmde) =>
         sameTmdeMaster(tmde, masterTmde) &&
@@ -9075,7 +9084,16 @@ function DetailedView({
       variableNominal?.value !== "" && variableNominal?.unit
         ? variableNominal
         : null;
-    const buildAssignedInstance = (baseInstance = null) => {
+    const shouldApplyTmdeUnitDefault = (previousInstance = null) => {
+      const previousUnit = previousInstance?.measurementPoint?.unit || "";
+      const currentSavedUnit = savedVariableNominal.unit || "";
+      return (
+        !currentSavedUnit ||
+        currentSavedUnit === previousUnit ||
+        currentSavedUnit === inferredVariableUnit
+      );
+    };
+    const buildAssignedInstance = (baseInstance = null, previousInstance = null) => {
       const resolution = resolveUutRangeHelper(
         masterTmde,
         tmdeRangeIndices,
@@ -9089,12 +9107,23 @@ function DetailedView({
       const sibling = tmdeTolerancesData.find(
         (t) => t.variableType === variableType && t.measurementPoint?.unit,
       );
-      const defaultUnit =
-        variableNominal?.unit ||
-        sibling?.measurementPoint?.unit ||
+      const tmdeDefaultUnit =
         activeRange.unit ||
+        activeRange.functionUnit ||
         masterTmde.instrument?.functions?.[0]?.unit ||
+        instrumentFunctions(masterTmde)[0]?.unit ||
         "";
+      const defaultUnit =
+        (shouldApplyTmdeUnitDefault(previousInstance) && tmdeDefaultUnit) ||
+        savedVariableNominal.unit ||
+        tmdeDefaultUnit ||
+        sibling?.measurementPoint?.unit ||
+        variableNominal?.unit ||
+        "";
+      const nominalHasValue =
+        variableNominal?.value !== "" &&
+        variableNominal?.value !== null &&
+        variableNominal?.value !== undefined;
 
       return {
         ...masterTmde,
@@ -9107,12 +9136,28 @@ function DetailedView({
         variableType,
         quantity: baseInstance?.quantity ?? 1,
         measurementPoint:
-          variableNominal?.value !== "" && variableNominal?.unit
-            ? variableNominal
+          nominalHasValue
+            ? { value: variableNominal.value, unit: defaultUnit }
             : baseInstance?.measurementPoint ||
               (masterTmde.measurementPoint?.value
                 ? masterTmde.measurementPoint
                 : { value: "", unit: defaultUnit }),
+      };
+    };
+    const variableNominalPatchFor = (assignedInstance, previousInstance = null) => {
+      if (!variableSymbol) return {};
+      const nextUnit = assignedInstance?.measurementPoint?.unit || "";
+      if (!nextUnit) return {};
+      if (!shouldApplyTmdeUnitDefault(previousInstance)) return {};
+      return {
+        variableNominals: {
+          ...(testPointData.variableNominals || {}),
+          [variableSymbol]: {
+            ...savedVariableNominal,
+            value: savedVariableNominal.value ?? variableNominal?.value ?? "",
+            unit: nextUnit,
+          },
+        },
       };
     };
 
@@ -9128,13 +9173,14 @@ function DetailedView({
     }
 
     if (existing) {
-      const updatedInstance = buildAssignedInstance(existing);
+      const updatedInstance = buildAssignedInstance(existing, existing);
       onUpdateTestPoint({
         tmdeTolerances: tmdeTolerancesData.map((tmde) =>
           tmde.id === existing.id
             ? updatedInstance
             : tmde,
         ),
+        ...variableNominalPatchFor(updatedInstance, existing),
       });
       return updatedInstance.id;
     }
@@ -9144,13 +9190,14 @@ function DetailedView({
           (tmde) => String(tmde.id) === String(options.replaceInstanceId),
         )
       : null;
-    const newInstance = buildAssignedInstance();
+    const newInstance = buildAssignedInstance(null, replaceInstance);
 
     if (replaceInstance) {
       onUpdateTestPoint({
         tmdeTolerances: tmdeTolerancesData.map((tmde) =>
           tmde.id === replaceInstance.id ? newInstance : tmde,
         ),
+        ...variableNominalPatchFor(newInstance, replaceInstance),
       });
       return newInstance.id;
     }
@@ -9160,6 +9207,7 @@ function DetailedView({
         ...tmdeTolerancesData,
         newInstance,
       ],
+      ...variableNominalPatchFor(newInstance),
     });
     return newInstance.id;
   };
@@ -9651,7 +9699,7 @@ function DetailedView({
                 {budgetTmdePicker.options.length > 0 && (
                   <div>
                     <div className="budget-tmde-picker-category">
-                      Measurement standards
+                      TMDEs
                     </div>
                     {budgetTmdePicker.options.map(renderTmdeOption)}
                   </div>
@@ -10494,14 +10542,14 @@ function DetailedView({
                         </div>
                         <div className="var-card-body">
                           <label className="measurement-equation-source-field">
-                            <span>Measurement standard</span>
+                            <span>TMDE</span>
                             <button
                                 type="button"
                                 className="var-source-select var-source-assign-btn"
                                 disabled={!String(variable.name || "").trim()}
                                 title={
                                   String(variable.name || "").trim()
-                                    ? "Choose a measurement standard for this input"
+                                    ? "Choose a TMDE for this input"
                                     : "Name this input first"
                                 }
                                 onClick={(event) =>
@@ -10574,7 +10622,7 @@ function DetailedView({
                                 ? `${variable.assignedTmdes.length} budget TMDEs assigned`
                                 : "Budget TMDE assigned"
                               : String(variable.name || "").trim()
-                                ? "Assign a measurement standard to build this input's budget"
+                                ? "Assign a TMDE to build this input's budget"
                                 : "Name this input before assigning a TMDE"}
                           </em>
                         </div>
@@ -11332,6 +11380,7 @@ const UncertaintyPanel = (props) => {
         onSessionSave={props.onSessionSave}
         instruments={props.instruments || []}
         onSaveInstrument={props.onSaveInstrument}
+        onInstrumentSynced={props.onInstrumentSynced}
         setNotification={props.setNotification}
       />
     );

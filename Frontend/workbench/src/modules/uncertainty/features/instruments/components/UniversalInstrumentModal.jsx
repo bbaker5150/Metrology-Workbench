@@ -23,7 +23,8 @@ import {
   faTools,
   faTag,
   faIndustry,
-  faFingerprint
+  faFingerprint,
+  faSyncAlt
 } from "@fortawesome/free-solid-svg-icons";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -35,6 +36,8 @@ import {
 import ToleranceForm from "../../../components/common/ToleranceForm";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
+import useInstrumentSync from "../../../hooks/useInstrumentSync";
+import { computeSyncState } from "../../../utils/instrumentSync";
 
 import "./UniversalInstrumentModal.css";
 
@@ -122,6 +125,10 @@ const getComparableLibraryInstrument = (instrument) => ({
     functions: instrument?.functions || []
 });
 
+const instrumentsMatch = (a, b) =>
+    JSON.stringify(getComparableLibraryInstrument(a)) ===
+    JSON.stringify(getComparableLibraryInstrument(b));
+
 const hasValidatedSnapshot = (instrument = {}) =>
     instrument.validatedSnapshot != null &&
     typeof instrument.validatedSnapshot === "object" &&
@@ -130,7 +137,10 @@ const hasValidatedSnapshot = (instrument = {}) =>
 const getInstrumentSourceStatus = (instrument = {}, linkedInstrument = null) => {
     const explicitScope = instrument?.scope;
     const linkedScope = linkedInstrument?.scope;
-    const isShared = explicitScope === "validated" || (!explicitScope && linkedScope === "validated");
+    const isShared =
+        explicitScope === "validated" ||
+        (!explicitScope && linkedScope === "validated") ||
+        (linkedScope === "validated" && instrumentsMatch(instrument, linkedInstrument));
 
     if (isShared) {
         return {
@@ -155,6 +165,11 @@ const getInstrumentSourceStatus = (instrument = {}, linkedInstrument = null) => 
     };
 };
 
+const syncDiffSummary = (diffs = []) => {
+    if (!diffs.length) return "This instrument will be promoted to the shared library.";
+    return `Changed shared-library fields: ${diffs.map((diff) => diff.field).join(", ")}.`;
+};
+
 const InstrumentSourceBadge = ({ instrument, linkedInstrument = null }) => {
     const status = getInstrumentSourceStatus(instrument, linkedInstrument);
     return (
@@ -175,6 +190,7 @@ const UniversalInstrumentModal = ({
     onSaveToLibrary,
     onDelete,
     onBatchAdd,
+    onInstrumentSynced,
     mode = 'library', // 'uut', 'tmde', 'library'
     initialData = null,
     instruments = [],
@@ -192,6 +208,8 @@ const UniversalInstrumentModal = ({
     // Delete confirmation. Routed through one choke-point so a password gate can
     // be added here later without touching the call sites.
     const [pendingDelete, setPendingDelete] = useState(null); // { ids: [...] }
+    const [pendingSync, setPendingSync] = useState(null);
+    const [syncNotice, setSyncNotice] = useState(null);
     const [pendingInstrumentSave, setPendingInstrumentSave] = useState(false);
     const [libraryInstrumentId, setLibraryInstrumentId] = useState(null);
     const [initialInstrumentSignature, setInitialInstrumentSignature] = useState("");
@@ -221,6 +239,7 @@ const UniversalInstrumentModal = ({
         defaultWidth: 1100,
         defaultHeight: 850
     });
+    const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
 
     useEffect(() => {
         if (isOpen) {
@@ -230,6 +249,8 @@ const UniversalInstrumentModal = ({
             setSelectedIds([]);
             setSelectionAnchor(null);
             setPendingDelete(null);
+            setPendingSync(null);
+            setSyncNotice(null);
             setPendingInstrumentSave(false);
 
             if (mode === 'library') {
@@ -298,6 +319,30 @@ const UniversalInstrumentModal = ({
             (i.description || "").toLowerCase().includes(lower)
         );
     }, [instruments, searchTerm]);
+
+    const selectedInstrument = useMemo(
+        () =>
+            selectedIds.length === 1
+                ? instruments.find((instrument) => instrument.id === selectedIds[0]) || null
+                : null,
+        [instruments, selectedIds],
+    );
+
+    const linkedSharedFor = useCallback(
+        (instrument) => {
+            const sourceId =
+                instrument?.sourceId ||
+                instrument?.libraryInstrumentId ||
+                (instrument?.scope === "validated" ? instrument.id : null);
+            if (!sourceId) return null;
+            return instruments.find(
+                (candidate) =>
+                    candidate.scope === "validated" &&
+                    String(candidate.id) === String(sourceId),
+            ) || null;
+        },
+        [instruments],
+    );
 
     const activeFunction = useMemo(() => 
         instrumentDef.functions.find(f => f.id === activeFunctionId), 
@@ -397,6 +442,70 @@ const UniversalInstrumentModal = ({
         }
         setSelectedIds((prev) => prev.filter((x) => !ids.includes(x)));
         setPendingDelete(null);
+    };
+
+    const requestSync = (instrument) => {
+        if (!instrument) return;
+        const state = computeSyncState(instrument);
+        const label = `${instrument.manufacturer || ""} ${instrument.model || ""}`.trim() ||
+            instrument.description ||
+            "this instrument";
+        if (state === "green") {
+            setSyncNotice({
+                title: "Already Synced",
+                message: `${label} already matches the shared library snapshot.`,
+            });
+            return;
+        }
+        setPendingSync({ instrument, label });
+    };
+
+    const confirmSync = async (password) => {
+        if (!pendingSync?.instrument) return;
+        const result = await syncToShared(pendingSync.instrument, password);
+        if (result.ok && result.instrument) {
+            const synced = result.instrument;
+            setSelectedIds([synced.id]);
+            setSelectionAnchor(synced.id);
+            setLibraryInstrumentId(synced.id);
+            setInstrumentDef((prev) => {
+                const prevSourceId = prev.sourceId || prev.libraryInstrumentId || prev.id;
+                const pendingSourceId =
+                    pendingSync.instrument.sourceId ||
+                    pendingSync.instrument.libraryInstrumentId ||
+                    pendingSync.instrument.id;
+                if (
+                    String(prev.id) === String(pendingSync.instrument.id) ||
+                    String(prevSourceId) === String(pendingSourceId) ||
+                    String(prevSourceId) === String(synced.id)
+                ) {
+                    return {
+                        ...synced,
+                        measurementArea:
+                            prev.measurementArea || synced.measurementArea || "",
+                        measurementAreaColor:
+                            prev.measurementAreaColor ||
+                            synced.measurementAreaColor ||
+                            "",
+                    };
+                }
+                return prev;
+            });
+            setInitialInstrumentSignature(
+                JSON.stringify(getComparableLibraryInstrument(synced)),
+            );
+            setPendingSync(null);
+            setSyncNotice({
+                title: "Sync Complete",
+                message: `${pendingSync.label} is now synced with the shared library.`,
+            });
+            return;
+        }
+        setPendingSync(null);
+        setSyncNotice({
+            title: "Sync Error",
+            message: result.message || "Could not sync this instrument.",
+        });
     };
 
     const handleBulkUseAs = (useAs) => {
@@ -744,6 +853,7 @@ const UniversalInstrumentModal = ({
                                     {filteredInstruments.map(inst => {
                                         const isExpanded = expandedDetail?.instId === inst.id;
                                         const isRowSelected = selectedIds.includes(inst.id);
+                                        const linkedShared = linkedSharedFor(inst);
                                         return (
                                             <React.Fragment key={inst.id}>
                                                 <tr
@@ -755,7 +865,12 @@ const UniversalInstrumentModal = ({
                                                     <td style={{ fontWeight: '600' }}>{inst.manufacturer}</td>
                                                     <td style={{ color: 'var(--primary-color)', fontWeight: 'bold' }}>{inst.model}</td>
                                                     <td style={{ color: 'var(--text-color-muted)' }}>{inst.description}</td>
-                                                    <td><InstrumentSourceBadge instrument={inst} /></td>
+                                                    <td>
+                                                        <InstrumentSourceBadge
+                                                            instrument={inst}
+                                                            linkedInstrument={linkedShared}
+                                                        />
+                                                    </td>
                                                     <td onClick={e => e.stopPropagation()}>
                                                         <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
                                                             {inst.functions.map(f => (
@@ -831,6 +946,18 @@ const UniversalInstrumentModal = ({
                                             <FontAwesomeIcon icon={faTrashAlt} />
                                         </button>
                                     )}
+                                    <button
+                                        className="lib-pill-btn"
+                                        disabled={!selectedInstrument}
+                                        title={
+                                            selectedInstrument
+                                                ? "Sync selected instrument to the shared library"
+                                                : "Select one instrument to sync"
+                                        }
+                                        onClick={() => requestSync(selectedInstrument)}
+                                    >
+                                        <FontAwesomeIcon icon={faSyncAlt} /> Sync
+                                    </button>
                                     {/* Library manager: choose how to bring the selection into the session. */}
                                     {mode === 'library' ? (
                                         <>
@@ -1140,6 +1267,39 @@ const UniversalInstrumentModal = ({
                 secondaryText="Session Only"
                 onSecondary={() => completeSave(false)}
                 secondaryIsPrimary={true}
+            />
+            <NotificationModal
+                isOpen={!!pendingSync}
+                onClose={() => setPendingSync(null)}
+                title={
+                    pendingSync &&
+                    (pendingSync.instrument?.sourceId ||
+                        pendingSync.instrument?.scope === "validated")
+                        ? "Re-sync Instrument"
+                        : "Sync Instrument"
+                }
+                message={
+                    pendingSync
+                        ? `${syncDiffSummary(getDiff(pendingSync.instrument))} Enter the shared-library password to sync ${pendingSync.label}.`
+                        : ""
+                }
+                inputLabel="Shared library password"
+                inputPlaceholder="Password"
+                confirmText={
+                    pendingSync &&
+                    (pendingSync.instrument?.sourceId ||
+                        pendingSync.instrument?.scope === "validated")
+                        ? "Re-sync"
+                        : "Sync"
+                }
+                validateInput={(value) => (!value.trim() ? "Password is required." : "")}
+                onConfirm={confirmSync}
+            />
+            <NotificationModal
+                isOpen={!!syncNotice}
+                onClose={() => setSyncNotice(null)}
+                title={syncNotice?.title}
+                message={syncNotice?.message}
             />
         </div>,
         document.body

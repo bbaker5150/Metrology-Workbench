@@ -206,6 +206,28 @@ class InstrumentAndBugReportTests(APITestCase):
         self.assertEqual(linked_locals.first().id, "local-copy-1")
         self.assertEqual(linked_locals.first().description, "Ectron 1140A edited again")
 
+        sync = self.client.post(
+            "/api/uncertainty/instruments/",
+            {
+                **second_local,
+                "id": "shared-1140a",
+                "scope": "validated",
+                "sourceId": "shared-1140a",
+                "password": "calibrate",
+            },
+            format="json",
+        )
+        self.assertEqual(sync.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(sync.data["scope"], "validated")
+        self.assertEqual(sync.data["description"], "Ectron 1140A edited again")
+        self.assertFalse(
+            models.Instrument.objects.filter(
+                scope=models.Instrument.SCOPE_LOCAL,
+                owner="bench-1",
+                source_id="shared-1140a",
+            ).exists()
+        )
+
     def test_custom_equation_crud(self):
         payload = {
             "id": "eq-uuid-1",

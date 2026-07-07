@@ -430,6 +430,26 @@ const useSessionManager = () => {
     }
   }, [replaceInstruments]);
 
+  const reconcileSyncedInstrument = useCallback((instrument) => {
+    if (!instrument?.id) return;
+    replaceInstruments((prev) => {
+      const syncedId = String(instrument.id);
+      const syncedSourceId = String(instrument.sourceId || instrument.id);
+      const next = (prev || []).filter((existing) => {
+        if (String(existing.id) === syncedId) return false;
+        if (
+          instrument.scope === "validated" &&
+          existing.scope === "local" &&
+          String(existing.sourceId || "") === syncedSourceId
+        ) {
+          return false;
+        }
+        return true;
+      });
+      return dedupeLibraryInstruments([...next, instrument]);
+    });
+  }, [dedupeLibraryInstruments, replaceInstruments]);
+
   // --- 2.2 Delete Instrument ---
   const deleteInstrument = useCallback(async (instrumentId) => {
     replaceInstruments((prev) => prev.filter((i) => i.id !== instrumentId));
@@ -942,6 +962,7 @@ const useSessionManager = () => {
     deleteCustomEquation,
     bugReports,
     saveInstrument,
+    reconcileSyncedInstrument,
     saveBugReport,
     deleteBugReport,
     deleteInstrument,

@@ -733,3 +733,10 @@
     border-color: var(--primary-color);
     background: var(--primary-color-light);
 }
+.lib-pill-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    border-color: var(--border-color);
+    background: transparent;
+    color: var(--text-color-muted);
+}

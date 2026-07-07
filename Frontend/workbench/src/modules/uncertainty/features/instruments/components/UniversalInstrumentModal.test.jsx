@@ -1,7 +1,14 @@
 import React from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeAll, describe, expect, test, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import axios from "axios";
 import UniversalInstrumentModal from "./UniversalInstrumentModal";
+
+vi.mock("axios", () => ({
+  default: {
+    post: vi.fn(),
+  },
+}));
 
 beforeAll(() => {
   if (!window.ResizeObserver) {
@@ -11,6 +18,10 @@ beforeAll(() => {
       disconnect() {}
     };
   }
+});
+
+beforeEach(() => {
+  axios.post.mockReset();
 });
 
 const libraryInstrument = {
@@ -84,6 +95,66 @@ const toggleResolutionBudget = () => {
 };
 
 describe("UniversalInstrumentModal library synchronization", () => {
+  test("syncs the selected local instrument from the library modal", async () => {
+    const sharedInstrument = {
+      ...libraryInstrument,
+      id: "shared-sync",
+      model: "DMM-SYNC",
+      scope: "validated",
+    };
+    const localInstrument = {
+      ...libraryInstrument,
+      id: "local-sync",
+      model: "DMM-SYNC",
+      description: "Edited local DMM",
+      scope: "local",
+      owner: "bench-1",
+      sourceId: sharedInstrument.id,
+      validatedSnapshot: {
+        manufacturer: libraryInstrument.manufacturer,
+        model: "DMM-SYNC",
+        description: "Library DMM",
+        functions: libraryInstrument.functions,
+      },
+    };
+    const syncedInstrument = {
+      ...localInstrument,
+      id: sharedInstrument.id,
+      scope: "validated",
+      sourceId: sharedInstrument.id,
+    };
+    const onInstrumentSynced = vi.fn();
+    axios.post.mockResolvedValueOnce({ data: syncedInstrument });
+
+    renderModal({
+      mode: "library",
+      initialData: null,
+      instruments: [sharedInstrument, localInstrument],
+      onInstrumentSynced,
+    });
+
+    fireEvent.click(screen.getByText("Edited local DMM").closest("tr"));
+    fireEvent.click(screen.getByRole("button", { name: /Sync/i }));
+
+    fireEvent.change(screen.getByLabelText("Shared library password"), {
+      target: { value: "calibrate" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Re-sync$/i }));
+
+    await waitFor(() => {
+      expect(onInstrumentSynced).toHaveBeenCalledWith(syncedInstrument);
+    });
+    expect(axios.post).toHaveBeenCalledWith(
+      expect.stringContaining("/instruments/"),
+      expect.objectContaining({
+        id: sharedInstrument.id,
+        scope: "validated",
+        sourceId: sharedInstrument.id,
+        password: "calibrate",
+      }),
+    );
+  });
+
   test("shows shared and local source labels in the library list and editor", () => {
     const sharedInstrument = {
       ...libraryInstrument,
