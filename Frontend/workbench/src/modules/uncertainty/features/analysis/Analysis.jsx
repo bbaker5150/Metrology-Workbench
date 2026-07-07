@@ -30,7 +30,10 @@ import DerivedBreakdownModal from "./components/BreakdownModals/DerivedBreakdown
 import RiskBreakdownModal from "./components/BreakdownModals/RiskBreakdownModals";
 import RepeatabilityModal from "./components/RepeatabilityModal";
 import CorrelationMatrixModal from "./components/CorrelationMatrixModal";
-import AddTestPointModal from "../testPoints/components/AddTestPointModal";
+// The Add-Test-Point modal is gone, but its stylesheet also defines the shared
+// `add-point-symbol-*` equation-symbol-menu styles used by the Detailed View's
+// equation editor (UncertaintyPanel / EquationLibraryMenu), so keep it loaded.
+import "../testPoints/components/AddTestPointModal.css";
 
 // --- Utilities ---
 import { convertToPPM } from "../../utils/uncertaintyMath";
@@ -114,8 +117,6 @@ function Analysis({
 
   // --- Modal Visibility State ---
   // REMOVED: activeInstrumentModal state (Handled in App.jsx)
-  const [isTestPointModalOpen, setTestPointModalOpen] = useState(false);
-  const [modalOverrides, setModalOverrides] = useState(null);
   const [isManualModalOpen, setManualModalOpen] = useState(false);
   const [isRepeatabilityModalOpen, setRepeatabilityModalOpen] = useState(false);
   const [isCorrelationModalOpen, setCorrelationModalOpen] = useState(false);
@@ -407,7 +408,6 @@ function Analysis({
     } else {
       onDataSave(updatedData);
     }
-    setTestPointModalOpen(false);
     if (setCurrentUutSelection) setCurrentUutSelection([]);
   };
 
@@ -639,8 +639,20 @@ function Analysis({
     }
     if (resolvedTolerance) overrides.uutTolerance = resolvedTolerance;
 
-    setModalOverrides(overrides);
-    setTestPointModalOpen(true);
+    // Create the point directly (no modal). It starts blank so the user just
+    // types the value inline in the sidebar; the unit/function come from the
+    // resolved tolerance/range.
+    handleSaveTestPointInfo({
+      ...overrides,
+      measurementType: "direct",
+      testPointInfo: {
+        parameter: {
+          name: resolvedTolerance?.functionName || "Measurement",
+          value: "",
+          unit: resolvedTolerance?.unit || "",
+        },
+      },
+    });
   };
 
   // =========================================================================
@@ -660,17 +672,7 @@ function Analysis({
       />
 
       {/* REMOVED: UniversalInstrumentModal - Now handled globally in App.jsx */}
-
-      <AddTestPointModal
-        isOpen={isTestPointModalOpen}
-        onClose={() => {
-          setTestPointModalOpen(false);
-          setModalOverrides(null);
-        }}
-        onSave={handleSaveTestPointInfo}
-        initialData={modalOverrides}
-        previousTestPointData={testPointData}
-      />
+      {/* REMOVED: AddTestPointModal - points are now created inline on the UUT */}
 
       <ManualComponentModal
         isOpen={isManualModalOpen}

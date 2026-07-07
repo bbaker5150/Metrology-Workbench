@@ -8597,6 +8597,41 @@ body.theme-cyberpunk .floating-tool {
   border-color: var(--status-bad);
 }
 
+/* Direct/derived mode toggle beside each UUT's "+" add-point button. A compact
+   two-state segmented control: "x" = direct measured value, "ƒ" = derived
+   (equation) point. */
+.point-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  height: 22px;
+}
+.point-mode-toggle .point-mode-opt {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-style: italic;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.point-mode-toggle .point-mode-opt:hover {
+  color: var(--text-color);
+  background: var(--hover-bg, rgba(127, 127, 127, 0.12));
+}
+.point-mode-toggle .point-mode-opt.active {
+  background: var(--primary-color);
+  color: #fff;
+}
+
 /* --- 2. Base Unit Dropdown Fix (Inside Meta Grid) --- */
 .instrument-meta-grid .react-select__control {
   background-color: var(--background-color) !important; /* Matches grid bg */

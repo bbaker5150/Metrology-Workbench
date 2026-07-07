@@ -13,7 +13,6 @@ import { v4 as uuidv4 } from "uuid";
 // --- Components ---
 import Analysis from "./features/analysis/Analysis";
 import NotificationModal from "./components/modals/NotificationModal";
-import AddTestPointModal from "./features/testPoints/components/AddTestPointModal";
 import TestPointDetailView from "./features/testPoints/components/TestPointDetailView";
 import ToleranceToolModal from "./features/testPoints/components/ToleranceToolModal";
 // OverviewModal Removed
@@ -121,6 +120,7 @@ const getSidebarGridTemplate = (visibleColumns) => {
   // Fixed widths for stable columns
   if (visibleColumns.section) parts.push("50px");
   if (visibleColumns.value) parts.push("80px");
+  if (visibleColumns.qualifier) parts.push("80px");
   if (visibleColumns.tolerance) parts.push("minmax(80px, 1fr)");
 
   // Split Limits Columns
@@ -156,6 +156,7 @@ const getMinSidebarWidth = (visibleColumns) => {
   // Add width for each visible column (use minimum values from grid template)
   if (visibleColumns.section) width += 55;
   if (visibleColumns.value) width += 85;
+  if (visibleColumns.qualifier) width += 85;
   if (visibleColumns.tolerance) width += 90;
   if (visibleColumns.lowLimit) width += 70;
   if (visibleColumns.highLimit) width += 70;
@@ -366,11 +367,12 @@ const SidebarPointItem = ({
   liveRiskMetrics = null,
   isLiveRiskTarget = false,
   onSelect,
-  onModalOpen,
   onSave,
   onContextMenu,
   onDragStart,
   onShowRiskBreakdown,
+  autoEditValue = false,
+  onAutoEditConsumed,
   visibleColumns = {
     section: true,
     value: true,
@@ -383,8 +385,20 @@ const SidebarPointItem = ({
     tar: false,
   },
 }) => {
-  const [editingField, setEditingField] = useState(null); // 'section' | 'value' | null
-  const [tempValue, setTempValue] = useState("");
+  // 'section' | 'value' | 'qualifier' | null. A freshly quick-added direct point
+  // mounts straight into value-edit (autoEditValue) so the user can just type.
+  const [editingField, setEditingField] = useState(
+    autoEditValue ? "value" : null,
+  );
+  const [tempValue, setTempValue] = useState(
+    autoEditValue ? point.testPointInfo?.parameter?.value ?? "" : "",
+  );
+
+  // Clear the parent's one-shot auto-edit flag once we've consumed it.
+  useEffect(() => {
+    if (autoEditValue) onAutoEditConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const startEdit = (e, field, currentVal) => {
     e.stopPropagation();
@@ -432,6 +446,19 @@ const SidebarPointItem = ({
       const newInfo = {
         ...prevInfo,
         parameter: { ...prevParam, value: tempValue },
+      };
+      onSave({ ...point, testPointInfo: newInfo });
+    } else if (editingField === "qualifier") {
+      const prevInfo = point.testPointInfo || {};
+      const prevQual = prevInfo.qualifier || {};
+      const newInfo = {
+        ...prevInfo,
+        qualifier: {
+          name: prevQual.name || "Qualifier",
+          unit: prevQual.unit || "",
+          ...prevQual,
+          value: tempValue,
+        },
       };
       onSave({ ...point, testPointInfo: newInfo });
     }
@@ -572,7 +599,9 @@ const SidebarPointItem = ({
       onDoubleClick={(e) => {
         if (!editingField) {
           e.preventDefault();
-          onModalOpen(point);
+          // Editing is inline + Detailed View now; double-click just opens the
+          // point (selects it, which reveals the Detailed View).
+          onSelect?.(e);
         }
       }}
       onContextMenu={(e) => onContextMenu(e, point)}
@@ -621,6 +650,37 @@ const SidebarPointItem = ({
             title="Click to edit Value"
           >
             {displayValue || <span className="point-placeholder">-</span>}
+          </span>
+        ))}
+
+      {/* Optional Qualifier column (e.g. Frequency) — hidden by default. */}
+      {visibleColumns.qualifier &&
+        (editingField === "qualifier" ? (
+          <input
+            autoFocus
+            className="sidebar-inline-input value"
+            value={tempValue}
+            onChange={(e) => setTempValue(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={handleKeyDown}
+            onClick={(e) => e.stopPropagation()}
+            placeholder="-"
+          />
+        ) : (
+          <span
+            className="point-value"
+            onClick={(e) =>
+              handleSingleClickEdit(
+                e,
+                "qualifier",
+                point.testPointInfo?.qualifier?.value,
+              )
+            }
+            title="Click to edit Qualifier"
+          >
+            {point.testPointInfo?.qualifier?.value || (
+              <span className="point-placeholder">-</span>
+            )}
           </span>
         ))}
 
@@ -1101,8 +1161,6 @@ function App() {
   const { theme } = useTheme();
   const isDarkMode = theme === "dark";
 
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [editingTestPoint, setEditingTestPoint] = useState(null);
   const [isToleranceModalOpen, setIsToleranceModalOpen] = useState(false);
 
   const [breakdownPoint, setBreakdownPoint] = useState(null);
@@ -1158,6 +1216,8 @@ function App() {
   const [sidebarColumns, setSidebarColumns] = useState({
     section: true,
     value: true,
+    // Optional secondary parameter (e.g. Frequency); off by default.
+    qualifier: false,
     tolerance: true,
     lowLimit: true,
     highLimit: true,
@@ -1233,6 +1293,8 @@ function App() {
           return point.section || "";
         case "value":
           return parseSortableNumber(point.testPointInfo?.parameter?.value);
+        case "qualifier":
+          return parseSortableNumber(point.testPointInfo?.qualifier?.value);
         case "tolerance":
           return getPointToleranceSortValue(point);
         case "lowLimit":
@@ -1456,6 +1518,12 @@ function App() {
   // Anchor for shift-click range selection. Context disambiguates a point that
   // is rendered under more than one UUT branch.
   const [sidebarSelectionAnchor, setSidebarSelectionAnchor] = useState(null);
+  // Id of a just-quick-added direct point whose sidebar row should open straight
+  // into value-edit. SidebarPointItem consumes it on mount, then App clears it.
+  const [pendingValueEditPointId, setPendingValueEditPointId] = useState(null);
+  // Per-UUT direct/derived mode for the "+" quick-add button (keyed by the
+  // sidebar UUT row key). Defaults to "direct".
+  const [newPointModeByUut, setNewPointModeByUut] = useState({});
 
   // --- Global UUT Selection State ---
   const [currentUutSelection, setCurrentUutSelection] = useState([]);
@@ -2427,8 +2495,13 @@ function App() {
       }
     }
 
-    setEditingTestPoint(initialData);
-    setIsAddModalOpen(true);
+    // Create the point directly (no modal). Direct points drop into inline
+    // value-edit; derived points open in the Detailed View equation editor.
+    const mode = initialData.measurementType || "direct";
+    const newId = handleSaveTestPoint({ ...initialData, measurementType: mode });
+    if (newId != null && mode === "direct") {
+      setPendingValueEditPointId(newId);
+    }
   };
 
   const handleDeleteSession = (sessionId) => {
@@ -2956,15 +3029,59 @@ function App() {
       ? formData.flatMap(normalizePoint)
       : normalizePoint(formData);
 
-    saveTestPoint(normalized, null);
+    const newId = saveTestPoint(normalized, null);
 
     const firstPoint = Array.isArray(normalized) ? normalized[0] : normalized;
     if (firstPoint?.associatedUutIds && firstPoint.associatedUutIds.length > 0) {
       setSelectedTestPointContextUutId(firstPoint.associatedUutIds[0]);
     }
-    setIsAddModalOpen(false);
-    setEditingTestPoint(null);
     setCurrentUutSelection([]);
+    return newId;
+  };
+
+  // Quick-add a blank point directly onto a UUT (no modal): the unit/function
+  // come from the function group the "+" was clicked under, the point starts
+  // with an empty value, and a direct point is dropped straight into inline
+  // value-edit in the sidebar. Derived points open in the Detailed View where
+  // the equation editor already lives.
+  const buildBlankPoint = (uutId, fnGroup, mode) => {
+    const uut = currentSessionData?.uuts?.find((u) => u.id === uutId);
+    const ranges = uut ? getAllUutRanges(uut) : [];
+    const fnRange =
+      ranges.find(
+        (r) =>
+          (!fnGroup?.name || r.functionName === fnGroup.name) &&
+          (!fnGroup?.unit || (r.unit || "") === (fnGroup.unit || "")),
+      ) ||
+      ranges[activeRangeIndices[uutId] || 0] ||
+      ranges[0] ||
+      null;
+    const functionName =
+      fnGroup?.name ||
+      fnRange?.functionName ||
+      uut?.instrument?.functions?.[0]?.name ||
+      "Measurement";
+    const unit =
+      fnGroup?.unit ||
+      fnRange?.unit ||
+      uut?.instrument?.functions?.[0]?.unit ||
+      "";
+    return {
+      measurementAreaId: null,
+      associatedUutIds: [uutId],
+      measurementType: mode,
+      uutTolerance: fnRange || null,
+      testPointInfo: { parameter: { name: functionName, value: "", unit } },
+    };
+  };
+
+  const handleQuickAddPoint = (fnGroup, uutId, mode = "direct") => {
+    if (!uutId) return;
+    const newId = handleSaveTestPoint(buildBlankPoint(uutId, fnGroup, mode));
+    setSelectedTestPointContextUutId(uutId);
+    if (newId != null && mode === "direct") {
+      setPendingValueEditPointId(newId);
+    }
   };
 
   // ---  Inline update handler for sidebar edits ---
@@ -3403,10 +3520,8 @@ function App() {
       isLiveRiskTarget={true}
       onSelect={(e) => handleSelectTestPoint(e, tp.id, contextUutId)}
       onShowRiskBreakdown={(key) => setPendingRiskBreakdown(key)}
-      onModalOpen={(p) => {
-        setEditingTestPoint(p);
-        setIsAddModalOpen(true);
-      }}
+      autoEditValue={pendingValueEditPointId === tp.id}
+      onAutoEditConsumed={() => setPendingValueEditPointId(null)}
       onSave={handleInlinePointUpdate}
       onDragStart={handleDragStart}
       onContextMenu={(e, p) => {
@@ -3462,6 +3577,8 @@ function App() {
       {visibleSidebarColumns.section &&
         renderSidebarSortHeader("section", "Sect.", { align: "right" })}
       {visibleSidebarColumns.value && renderSidebarSortHeader("value", "Value")}
+      {visibleSidebarColumns.qualifier &&
+        renderSidebarSortHeader("qualifier", "Qual.")}
       {visibleSidebarColumns.tolerance &&
         renderSidebarSortHeader("tolerance", "Tolerance")}
       {visibleSidebarColumns.lowLimit &&
@@ -3589,22 +3706,6 @@ function App() {
           confirmText={confirmationModal?.confirmText || "Delete"}
           isIconConfirm
           onConfirm={confirmationModal?.onConfirm}
-        />
-        <AddTestPointModal
-          isOpen={isAddModalOpen || !!editingTestPoint}
-          onClose={() => {
-            setIsAddModalOpen(false);
-            setEditingTestPoint(null);
-          }}
-          onSave={handleSaveTestPoint}
-          initialData={editingTestPoint || null}
-          hasExistingPoints={currentTestPoints.length > 0}
-          sessionData={currentSessionData}
-          previousTestPointData={
-            currentTestPoints.length > 0
-              ? currentTestPoints[currentTestPoints.length - 1]
-              : null
-          }
         />
         {displayData && displayData.id && displayData.viewMode === "point" && (
           <ToleranceToolModal
@@ -3919,6 +4020,7 @@ function App() {
                               cols: [
                                 { key: "section", label: "Section" },
                                 { key: "value", label: "Value" },
+                                { key: "qualifier", label: "Qualifier" },
                                 { key: "tolerance", label: "Tolerance" },
                                 { key: "lowLimit", label: "Low Limit" },
                                 { key: "highLimit", label: "High Limit" },
@@ -4180,22 +4282,74 @@ function App() {
                                       </span>
                                     </div>
                                     <div className="uut-actions-group">
-                                      <button
-                                        className="btn-icon-only small"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleAddNewTestPoint(
-                                            fnGroup,
-                                            group.id,
-                                          );
-                                        }}
-                                        title="Add Point"
-                                      >
-                                        <FontAwesomeIcon
-                                          icon={faPlus}
-                                          size="xs"
-                                        />
-                                      </button>
+                                      {(() => {
+                                        const pointMode =
+                                          newPointModeByUut[uutKey] || "direct";
+                                        const setMode = (mode) =>
+                                          setNewPointModeByUut((m) => ({
+                                            ...m,
+                                            [uutKey]: mode,
+                                          }));
+                                        return (
+                                          <>
+                                            <div
+                                              className="point-mode-toggle"
+                                              onClick={(e) => e.stopPropagation()}
+                                              title="What the + button adds"
+                                            >
+                                              <button
+                                                type="button"
+                                                className={`point-mode-opt ${pointMode === "direct" ? "active" : ""}`}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setMode("direct");
+                                                }}
+                                                title="Add direct measurement points"
+                                              >
+                                                x
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className={`point-mode-opt ${pointMode === "derived" ? "active" : ""}`}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setMode("derived");
+                                                }}
+                                                title="Add derived (equation) points"
+                                              >
+                                                ƒ
+                                              </button>
+                                            </div>
+                                            <button
+                                              className="btn-icon-only small"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                // Ensure the UUT is expanded so
+                                                // the new row is visible (and can
+                                                // open into inline value-edit).
+                                                setExpandedUuts((prev) =>
+                                                  new Set(prev).add(uutKey),
+                                                );
+                                                handleQuickAddPoint(
+                                                  fnGroup,
+                                                  group.id,
+                                                  pointMode,
+                                                );
+                                              }}
+                                              title={
+                                                pointMode === "derived"
+                                                  ? "Add derived point"
+                                                  : "Add direct point"
+                                              }
+                                            >
+                                              <FontAwesomeIcon
+                                                icon={faPlus}
+                                                size="xs"
+                                              />
+                                            </button>
+                                          </>
+                                        );
+                                      })()}
                                     </div>
                                   </div>
 

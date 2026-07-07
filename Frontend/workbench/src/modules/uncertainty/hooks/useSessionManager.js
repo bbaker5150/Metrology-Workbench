@@ -822,6 +822,9 @@ const useSessionManager = () => {
     }
 
     updateSession(updatedSession);
+    // Return the id of the last newly-created point (null when only updating), so
+    // callers can e.g. drop a freshly added row straight into inline edit.
+    return lastNewId;
   };
 
   const deleteTestPoint = (idToDelete) => {
