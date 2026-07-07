@@ -9047,6 +9047,11 @@ function DetailedView({
         String(tmde.id) === String(masterTmde.id) ||
         String(tmde.sourceId) === String(masterTmde.id),
     );
+    const variableNominal = getNominalForVariableType(variableType);
+    const rangeNominal =
+      variableNominal?.value !== "" && variableNominal?.unit
+        ? variableNominal
+        : null;
 
     if (!variableType) {
       onUpdateTestPoint({
@@ -9060,13 +9065,12 @@ function DetailedView({
     }
 
     if (existing) {
-      const variableNominal = getNominalForVariableType(variableType);
       const resolution = functionKey
         ? resolveUutRangeHelper(
             masterTmde,
             tmdeRangeIndices,
             existing,
-            null,
+            rangeNominal,
             functionKey,
           )
         : null;
@@ -9097,7 +9101,7 @@ function DetailedView({
       masterTmde,
       tmdeRangeIndices,
       null,
-      null,
+      rangeNominal,
       functionKey,
     );
     const activeRange = resolution.activeRange || {};
@@ -9109,7 +9113,6 @@ function DetailedView({
     const sibling = tmdeTolerancesData.find(
       (t) => t.variableType === variableType && t.measurementPoint?.unit,
     );
-    const variableNominal = getNominalForVariableType(variableType);
     const defaultUnit =
       variableNominal?.unit ||
       sibling?.measurementPoint?.unit ||
@@ -9288,11 +9291,14 @@ function DetailedView({
   const getBudgetTmdeDetail = (tmde) => {
     if (!budgetTmdePicker) return "";
     const rowKey = `${budgetTmdePicker.functionKey || "single"}::${tmde.id}`;
+    const rangeNominal = isDerived
+      ? budgetTmdePicker.scope?.nominalPoint || null
+      : null;
     const resolution = resolveUutRangeHelper(
       tmde,
       tmdeRangeIndices,
       null,
-      null,
+      rangeNominal,
       budgetTmdePicker.functionKey,
     );
     const activeIndex =
