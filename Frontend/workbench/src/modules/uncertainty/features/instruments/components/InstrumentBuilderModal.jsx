@@ -82,6 +82,46 @@ const portalStyle = {
   })
 };
 
+const hasValidatedSnapshot = (instrument = {}) =>
+  instrument.validatedSnapshot != null &&
+  typeof instrument.validatedSnapshot === "object" &&
+  Object.keys(instrument.validatedSnapshot).length > 0;
+
+const getInstrumentSourceStatus = (instrument = {}) => {
+  if (instrument?.scope === "validated") {
+    return {
+      label: "Shared",
+      tone: "shared",
+      title: "Shared library instrument"
+    };
+  }
+
+  const isLinkedLocal =
+    Boolean(instrument?.sourceId) ||
+    hasValidatedSnapshot(instrument);
+
+  return {
+    label: "Local",
+    tone: "local",
+    title: isLinkedLocal
+      ? "Local instrument linked to a shared origin"
+      : "Local instrument"
+  };
+};
+
+const InstrumentSourceBadge = ({ instrument }) => {
+  const status = getInstrumentSourceStatus(instrument);
+  return (
+    <span
+      className={`instrument-source-badge instrument-source-badge--${status.tone}`}
+      title={status.title}
+      aria-label={`Instrument source: ${status.label}`}
+    >
+      {status.label}
+    </span>
+  );
+};
+
 const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData = null, instruments = [] }) => {
   const [viewMode, setViewMode] = useState("list");
   const [searchTerm, setSearchTerm] = useState("");
@@ -421,10 +461,11 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                   <thead style={{ position: 'sticky', top: 0, backgroundColor: 'var(--component-header-bg)', zIndex: 1 }}>
                     <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--border-color)' }}>
-                      <th style={{ padding: '12px', width: '20%', color: 'var(--text-color)' }}>Manufacturer</th>
+                      <th style={{ padding: '12px', width: '18%', color: 'var(--text-color)' }}>Manufacturer</th>
                       <th style={{ padding: '12px', width: '15%', color: 'var(--text-color)' }}>Model</th>
-                      <th style={{ padding: '12px', width: '30%', color: 'var(--text-color)' }}>Description</th>
-                      <th style={{ padding: '12px', width: '25%', color: 'var(--text-color)' }}>Functions</th>
+                      <th style={{ padding: '12px', width: '27%', color: 'var(--text-color)' }}>Description</th>
+                      <th style={{ padding: '12px', width: '12%', color: 'var(--text-color)' }}>Source</th>
+                      <th style={{ padding: '12px', width: '18%', color: 'var(--text-color)' }}>Functions</th>
                       <th style={{ padding: '12px', width: '10%', textAlign: 'center', color: 'var(--text-color)' }}>Actions</th>
                     </tr>
                   </thead>
@@ -446,6 +487,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                             <td style={{ padding: '12px', fontWeight: '600' }}>{inst.manufacturer}</td>
                             <td style={{ padding: '12px', color: 'var(--primary-color)', fontWeight: 'bold' }}>{inst.model}</td>
                             <td style={{ padding: '12px', color: 'var(--text-color-muted)' }}>{inst.description}</td>
+                            <td style={{ padding: '12px' }}><InstrumentSourceBadge instrument={inst} /></td>
                             <td style={{ padding: '12px' }}>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
                                 {inst.functions.map(f => {
@@ -480,7 +522,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                           </tr>
                           {isExpanded && (
                             <tr style={{ backgroundColor: "var(--primary-color-light)", borderBottom: "1px solid var(--border-color)" }}>
-                              <td colSpan="5" style={{ padding: "0" }}>
+                              <td colSpan="6" style={{ padding: "0" }}>
                                 <div style={{ padding: "15px 20px", borderLeft: "4px solid var(--primary-color)" }}>
                                   {(() => {
                                     const func = inst.functions.find(f => f.id === expandedDetail.funcId);
@@ -530,6 +572,10 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
               
               {/* TOP IDENTITY CARD */}
               <div className="instrument-identity-card">
+                  <div className="identity-card-header">
+                    <span>Identification</span>
+                    <InstrumentSourceBadge instrument={instrument} />
+                  </div>
                   <div className="identity-grid">
                         <div className="floating-input-group">
                             <input type="text" value={instrument.manufacturer} onChange={e => setInstrument({ ...instrument, manufacturer: e.target.value })} placeholder=" " />

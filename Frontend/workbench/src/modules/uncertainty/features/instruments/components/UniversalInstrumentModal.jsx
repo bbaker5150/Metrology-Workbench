@@ -122,6 +122,52 @@ const getComparableLibraryInstrument = (instrument) => ({
     functions: instrument?.functions || []
 });
 
+const hasValidatedSnapshot = (instrument = {}) =>
+    instrument.validatedSnapshot != null &&
+    typeof instrument.validatedSnapshot === "object" &&
+    Object.keys(instrument.validatedSnapshot).length > 0;
+
+const getInstrumentSourceStatus = (instrument = {}, linkedInstrument = null) => {
+    const explicitScope = instrument?.scope;
+    const linkedScope = linkedInstrument?.scope;
+    const isShared = explicitScope === "validated" || (!explicitScope && linkedScope === "validated");
+
+    if (isShared) {
+        return {
+            label: "Shared",
+            tone: "shared",
+            title: "Shared library instrument"
+        };
+    }
+
+    const isLinkedLocal =
+        Boolean(instrument?.sourceId) ||
+        hasValidatedSnapshot(instrument) ||
+        Boolean(linkedInstrument?.sourceId) ||
+        hasValidatedSnapshot(linkedInstrument || {});
+
+    return {
+        label: "Local",
+        tone: "local",
+        title: isLinkedLocal
+            ? "Local instrument linked to a shared origin"
+            : "Local instrument"
+    };
+};
+
+const InstrumentSourceBadge = ({ instrument, linkedInstrument = null }) => {
+    const status = getInstrumentSourceStatus(instrument, linkedInstrument);
+    return (
+        <span
+            className={`instrument-source-badge instrument-source-badge--${status.tone}`}
+            title={status.title}
+            aria-label={`Instrument source: ${status.label}`}
+        >
+            {status.label}
+        </span>
+    );
+};
+
 const UniversalInstrumentModal = ({
     isOpen,
     onClose,
@@ -688,9 +734,10 @@ const UniversalInstrumentModal = ({
                                 <thead>
                                     <tr>
                                         <th style={{ width: '20%' }}>Manufacturer</th>
-                                        <th style={{ width: '20%' }}>Model</th>
-                                        <th style={{ width: '36%' }}>Description</th>
-                                        <th style={{ width: '24%' }}>Functions</th>
+                                        <th style={{ width: '18%' }}>Model</th>
+                                        <th style={{ width: '30%' }}>Description</th>
+                                        <th style={{ width: '12%' }}>Source</th>
+                                        <th style={{ width: '20%' }}>Functions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -708,6 +755,7 @@ const UniversalInstrumentModal = ({
                                                     <td style={{ fontWeight: '600' }}>{inst.manufacturer}</td>
                                                     <td style={{ color: 'var(--primary-color)', fontWeight: 'bold' }}>{inst.model}</td>
                                                     <td style={{ color: 'var(--text-color-muted)' }}>{inst.description}</td>
+                                                    <td><InstrumentSourceBadge instrument={inst} /></td>
                                                     <td onClick={e => e.stopPropagation()}>
                                                         <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
                                                             {inst.functions.map(f => (
@@ -724,7 +772,7 @@ const UniversalInstrumentModal = ({
                                                 </tr>
                                                 {isExpanded && (
                                                     <tr className="detail-row">
-                                                        <td colSpan="4">
+                                                        <td colSpan="5">
                                                             <div style={{padding: '10px', background: 'var(--background-color-secondary)'}}>
                                                                 {(() => {
                                                                     const func = inst.functions.find(f => f.id === expandedDetail.funcId);
@@ -851,7 +899,13 @@ const UniversalInstrumentModal = ({
                         {/* Top: Identity Card */}
                         <div className="identity-container">
                             <div className="identity-header">
-                                <span>Identification</span>
+                                <div className="identity-title">
+                                    <span>Identification</span>
+                                    <InstrumentSourceBadge
+                                        instrument={instrumentDef}
+                                        linkedInstrument={linkedLibraryInstrument}
+                                    />
+                                </div>
                                 <button className="icon-btn-ghost" onClick={() => setViewMode('list')} title="Import from Library">
                                     <FontAwesomeIcon icon={faBookOpen} />
                                 </button>

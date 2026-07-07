@@ -84,6 +84,49 @@ const toggleResolutionBudget = () => {
 };
 
 describe("UniversalInstrumentModal library synchronization", () => {
+  test("shows shared and local source labels in the library list and editor", () => {
+    const sharedInstrument = {
+      ...libraryInstrument,
+      id: "shared-1",
+      model: "DMM-SHARED",
+      scope: "validated",
+    };
+    const localInstrument = {
+      ...libraryInstrument,
+      id: "local-1",
+      model: "DMM-LOCAL",
+      scope: "local",
+      sourceId: sharedInstrument.id,
+    };
+
+    renderModal({
+      mode: "library",
+      initialData: null,
+      instruments: [sharedInstrument, localInstrument],
+    });
+
+    expect(
+      screen.getByRole("columnheader", { name: /Source/i }),
+    ).toBeInTheDocument();
+
+    const sharedRow = screen.getByText("DMM-SHARED").closest("tr");
+    const localRow = screen.getByText("DMM-LOCAL").closest("tr");
+
+    expect(
+      within(sharedRow).getByLabelText("Instrument source: Shared"),
+    ).toHaveTextContent("Shared");
+    expect(
+      within(localRow).getByLabelText("Instrument source: Local"),
+    ).toHaveTextContent("Local");
+
+    fireEvent.doubleClick(localRow);
+
+    expect(screen.getByText("Identification")).toBeInTheDocument();
+    expect(screen.getByLabelText("Instrument source: Local")).toHaveTextContent(
+      "Local",
+    );
+  });
+
   test("new instruments default to unassigned measurement area and adopt existing area color by name", () => {
     renderModal({
       mode: "uut",
