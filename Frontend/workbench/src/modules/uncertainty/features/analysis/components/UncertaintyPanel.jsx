@@ -4089,23 +4089,28 @@ const SummaryDashboard = ({
     return { areas: [...(areas || []), area], area };
   };
 
-  const instrumentDefFromLibrary = (existing, inst, { track = false, localCopy = false } = {}) => ({
-    ...(existing || {}),
-    id: existing?.id || uuidv4(),
-    manufacturer: inst.manufacturer || "",
-    model: inst.model || "",
-    description: inst.description || "",
-    functions: inst.functions || [],
-    libraryInstrumentId: track ? inst.sourceId || inst.id : undefined,
-    scope: track ? (localCopy ? "local" : inst.scope) : "local",
-    sourceId: track ? inst.sourceId || (inst.scope === "validated" ? inst.id : undefined) : undefined,
-    validatedSnapshot:
-      track && (inst.scope === "validated" || localCopy)
-        ? buildValidatedSnapshot(inst)
-        : track
-          ? existing?.validatedSnapshot || inst.validatedSnapshot || null
-          : null,
-  });
+  const instrumentDefFromLibrary = (existing, inst, { track = false, localCopy = false } = {}) => {
+    const pickedLocalId = inst.scope === "local" ? inst.id : null;
+    const sourceId = inst.sourceId || (inst.scope === "validated" ? inst.id : undefined);
+    const shouldTrack = track || Boolean(sourceId);
+    return {
+      ...(existing || {}),
+      id: pickedLocalId || existing?.id || uuidv4(),
+      manufacturer: inst.manufacturer || "",
+      model: inst.model || "",
+      description: inst.description || "",
+      functions: inst.functions || [],
+      libraryInstrumentId: shouldTrack ? inst.id : pickedLocalId || undefined,
+      scope: shouldTrack ? (localCopy ? "local" : inst.scope) : "local",
+      sourceId: shouldTrack ? sourceId : undefined,
+      validatedSnapshot:
+        shouldTrack && (inst.scope === "validated" || localCopy)
+          ? buildValidatedSnapshot(inst)
+          : shouldTrack
+            ? existing?.validatedSnapshot || inst.validatedSnapshot || null
+            : null,
+    };
+  };
 
   const libraryLabel = (inst) =>
     inst.description ||
@@ -7097,23 +7102,28 @@ function DetailedView({
         String(candidate.sourceId) === String(sourceId),
     );
   };
-  const instrumentDefFromLibrary = (existing, inst, { track = false, localCopy = false } = {}) => ({
-    ...(existing || {}),
-    id: existing?.id || uuidv4(),
-    manufacturer: inst.manufacturer || "",
-    model: inst.model || "",
-    description: inst.description || "",
-    functions: inst.functions || [],
-    libraryInstrumentId: track ? inst.sourceId || inst.id : undefined,
-    scope: track ? (localCopy ? "local" : inst.scope) : "local",
-    sourceId: track ? inst.sourceId || (inst.scope === "validated" ? inst.id : undefined) : undefined,
-    validatedSnapshot:
-      track && (inst.scope === "validated" || localCopy)
-        ? buildValidatedSnapshot(inst)
-        : track
-          ? existing?.validatedSnapshot || inst.validatedSnapshot || null
-          : null,
-  });
+  const instrumentDefFromLibrary = (existing, inst, { track = false, localCopy = false } = {}) => {
+    const pickedLocalId = inst.scope === "local" ? inst.id : null;
+    const sourceId = inst.sourceId || (inst.scope === "validated" ? inst.id : undefined);
+    const shouldTrack = track || Boolean(sourceId);
+    return {
+      ...(existing || {}),
+      id: pickedLocalId || existing?.id || uuidv4(),
+      manufacturer: inst.manufacturer || "",
+      model: inst.model || "",
+      description: inst.description || "",
+      functions: inst.functions || [],
+      libraryInstrumentId: shouldTrack ? inst.id : pickedLocalId || undefined,
+      scope: shouldTrack ? (localCopy ? "local" : inst.scope) : "local",
+      sourceId: shouldTrack ? sourceId : undefined,
+      validatedSnapshot:
+        shouldTrack && (inst.scope === "validated" || localCopy)
+          ? buildValidatedSnapshot(inst)
+          : shouldTrack
+            ? existing?.validatedSnapshot || inst.validatedSnapshot || null
+            : null,
+    };
+  };
   const libraryLabel = (inst) =>
     inst.description ||
     `${inst.manufacturer || ""} ${inst.model || ""}`.trim() ||
@@ -9382,7 +9392,7 @@ function DetailedView({
   }, []);
 
   const openBudgetTmdePicker = useCallback(
-    (scope, event = null) => {
+    (scope, event = null, pickerOptions = {}) => {
       const functionKey = budgetFunctionKey(scope);
       const byLabel = (a, b) =>
         getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b));
@@ -9446,6 +9456,8 @@ function DetailedView({
         resolutionOption,
         tmdeResolutionOptions,
         rect,
+        mode: pickerOptions.mode || "add",
+        replaceInstanceId: pickerOptions.replaceInstanceId || null,
       });
     },
     [
@@ -9460,75 +9472,23 @@ function DetailedView({
     ],
   );
 
-  const getVariableStandardOptions = useCallback(
-    (variable) => {
-      const byLabel = (a, b) =>
-        getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b));
-      const matching = relevantTmdes
-        .filter((tmde) => tmdeMatchesUnit(tmde, variable?.unit || ""))
-        .sort(byLabel);
-      const other = relevantTmdes
-        .filter((tmde) => !tmdeMatchesUnit(tmde, variable?.unit || ""))
-        .sort(byLabel);
-      const optionMap = new Map();
-
-      [...matching, ...other].forEach((tmde) => {
-        optionMap.set(String(tmde.id), tmde);
-      });
-      (variable?.assignedTmdes || []).forEach((assigned) => {
-        const masterId = String(tmdeMasterIdOf(assigned) ?? "");
-        if (!masterId || optionMap.has(masterId)) return;
-        optionMap.set(masterId, assigned);
-      });
-
-      return Array.from(optionMap.values());
-    },
-    [relevantTmdes, tmdeMatchesUnit],
-  );
-
-  const handleVariableStandardChange = (
-    variable,
-    selectedTmde,
-    nextMasterId,
-  ) => {
-    const assignedMatch = (variable.assignedTmdes || []).find(
-      (tmde) => String(tmdeMasterIdOf(tmde) ?? "") === String(nextMasterId),
-    );
-    if (assignedMatch) {
-      setEquationTmdeSelections((prev) => ({
-        ...prev,
-        [variable.symbol]: assignedMatch.id,
-      }));
-      return;
-    }
-
-    const nextMaster = relevantTmdes.find(
-      (tmde) => String(tmde.id) === String(nextMasterId),
-    );
-    if (!nextMaster) return;
-
-    const nextInstanceId = handleAssignTmdeToInput(
-      nextMaster,
-      variable.name,
-      makeFunctionKey(variable.name, variable.unit || ""),
-      { replaceInstanceId: selectedTmde?.id },
-    );
-    if (nextInstanceId) {
-      setEquationTmdeSelections((prev) => ({
-        ...prev,
-        [variable.symbol]: nextInstanceId,
-      }));
-    }
-  };
-
   const addBudgetTmde = (tmde) => {
     if (!budgetTmdePicker) return;
     if (isDerived) {
-      handleAssignTmdeToInput(
+      const nextInstanceId = handleAssignTmdeToInput(
         tmde,
         budgetTmdePicker.scope?.variableType || budgetTmdePicker.scope?.label,
         budgetTmdePicker.functionKey,
+        {
+          replaceInstanceId: budgetTmdePicker.replaceInstanceId,
+        },
       );
+      if (budgetTmdePicker.scope?.symbol && nextInstanceId) {
+        setEquationTmdeSelections((prev) => ({
+          ...prev,
+          [budgetTmdePicker.scope.symbol]: nextInstanceId,
+        }));
+      }
     } else {
       handleToggleTmdeUsage(tmde.id, true, budgetTmdePicker.functionKey);
     }
@@ -9630,7 +9590,7 @@ function DetailedView({
               padding: "2px 6px 6px",
             }}
           >
-            Add to {scopeLabel}
+            {budgetTmdePicker.mode === "assign" ? "Assign" : "Add to"} {scopeLabel}
           </div>
           {/* Grouped by the TYPE of uncertainty source so the user knows exactly
               what they're adding to the budget. */}
@@ -10507,13 +10467,6 @@ function DetailedView({
                       variable.assignedTmdes.find(
                         (tmde) => tmde.id === requestedTmdeId,
                       ) || variable.assignedTmdes[0];
-                    const selectedMasterId =
-                      selectedTmde && tmdeMasterIdOf(selectedTmde) != null
-                        ? String(tmdeMasterIdOf(selectedTmde))
-                        : "";
-                    const standardOptions =
-                      getVariableStandardOptions(variable);
-
                     return (
                       <div
                         key={variable.symbol}
@@ -10542,41 +10495,7 @@ function DetailedView({
                         <div className="var-card-body">
                           <label className="measurement-equation-source-field">
                             <span>Measurement standard</span>
-                            {variable.isAssigned ? (
-                              <select
-                                className="var-source-select"
-                                value={selectedMasterId}
-                                onChange={(e) =>
-                                  handleVariableStandardChange(
-                                    variable,
-                                    selectedTmde,
-                                    e.target.value,
-                                  )
-                                }
-                                aria-label={`TMDE for equation variable ${variable.symbol}`}
-                              >
-                                {standardOptions.map((tmde) => {
-                                  const optionMasterId = String(
-                                    tmdeMasterIdOf(tmde) ?? tmde.id,
-                                  );
-                                  return (
-                                    <option
-                                      key={optionMasterId}
-                                      value={optionMasterId}
-                                    >
-                                      {getEquationTmdeLabel(tmde)}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                            ) : (
-                              // Direct assignment entry point. The per-input
-                              // budget tables (the other assignment surface)
-                              // only render once EVERY variable has a name,
-                              // value, and unit — without this button a fresh
-                              // derived point has no way to assign its first
-                              // TMDE.
-                              <button
+                            <button
                                 type="button"
                                 className="var-source-select var-source-assign-btn"
                                 disabled={!String(variable.name || "").trim()}
@@ -10588,6 +10507,7 @@ function DetailedView({
                                 onClick={(event) =>
                                   openBudgetTmdePicker(
                                     {
+                                      symbol: variable.symbol,
                                       variableType: variable.name,
                                       label: variable.name || variable.symbol,
                                       nominalPoint: {
@@ -10596,13 +10516,18 @@ function DetailedView({
                                       },
                                     },
                                     event,
+                                    {
+                                      mode: "assign",
+                                      replaceInstanceId: selectedTmde?.id || null,
+                                    },
                                   )
                                 }
                                 aria-label={`Assign a TMDE to equation variable ${variable.symbol}`}
                               >
-                                Assign TMDE…
-                              </button>
-                            )}
+                                {selectedTmde
+                                  ? getEquationTmdeLabel(selectedTmde)
+                                  : "Assign TMDE..."}
+                            </button>
                           </label>
                           <label className="measurement-equation-value-field">
                             <span>Nominal value</span>
@@ -10845,10 +10770,9 @@ function DetailedView({
                         String(t.id) === String(masterTmde.id) ||
                         (t.sourceId && String(t.sourceId) === String(masterTmde.id)),
                     );
+                    const displayInstance = activeInstances[0] || masterTmde;
                     const rowsToRender =
-                      activeInstances.length > 0
-                        ? activeInstances
-                        : [masterTmde];
+                      activeInstances.length > 0 ? [displayInstance] : [masterTmde];
 
                     return rowsToRender.map((tmdeInstance, idx) => {
                       const isChecked = activeInstances.includes(tmdeInstance);

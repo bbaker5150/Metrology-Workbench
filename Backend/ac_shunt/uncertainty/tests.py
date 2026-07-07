@@ -166,6 +166,46 @@ class InstrumentAndBugReportTests(APITestCase):
         self.assertEqual(delete.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(models.Instrument.objects.count(), 0)
 
+    def test_linked_local_instrument_upserts_by_source_id(self):
+        self.client.post(
+            "/api/uncertainty/instruments/",
+            {
+                "id": "shared-1140a",
+                "manufacturer": "Ectron",
+                "model": "1140A",
+                "description": "Ectron 1140A",
+                "scope": "validated",
+                "owner": "shared",
+            },
+            format="json",
+        )
+        first_local = {
+            "id": "local-copy-1",
+            "manufacturer": "Ectron",
+            "model": "1140A",
+            "description": "Ectron 1140A edited",
+            "scope": "local",
+            "owner": "bench-1",
+            "sourceId": "shared-1140a",
+        }
+        second_local = {
+            **first_local,
+            "id": "local-copy-2",
+            "description": "Ectron 1140A edited again",
+        }
+
+        self.client.post("/api/uncertainty/instruments/", first_local, format="json")
+        self.client.post("/api/uncertainty/instruments/", second_local, format="json")
+
+        linked_locals = models.Instrument.objects.filter(
+            scope=models.Instrument.SCOPE_LOCAL,
+            owner="bench-1",
+            source_id="shared-1140a",
+        )
+        self.assertEqual(linked_locals.count(), 1)
+        self.assertEqual(linked_locals.first().id, "local-copy-1")
+        self.assertEqual(linked_locals.first().description, "Ectron 1140A edited again")
+
     def test_custom_equation_crud(self):
         payload = {
             "id": "eq-uuid-1",

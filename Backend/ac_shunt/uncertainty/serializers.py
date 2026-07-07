@@ -379,6 +379,17 @@ def save_instrument(data):
     safe choice, since promotion to ``validated`` is password-gated upstream.
     """
     pk = _cid(data.get("id"))
+    owner = data.get("owner", "") or ""
+    scope_in = data.get("scope")
+    source_id_in = data.get("sourceId", "") or ""
+    if scope_in == models.Instrument.SCOPE_LOCAL and source_id_in:
+        linked_local = models.Instrument.objects.filter(
+            scope=models.Instrument.SCOPE_LOCAL,
+            owner=owner,
+            source_id=source_id_in,
+        ).first()
+        if linked_local:
+            pk = linked_local.id
     existing = models.Instrument.objects.filter(id=pk).first()
     scope = data.get("scope") or (existing.scope if existing else models.Instrument.SCOPE_LOCAL)
 
@@ -391,8 +402,8 @@ def save_instrument(data):
         "instrument_type": data.get("type", "") or "",
         "functions": data.get("functions") or [],
         "scope": scope,
-        "owner": data.get("owner", "") or (existing.owner if existing else ""),
-        "source_id": data.get("sourceId", "") or (existing.source_id if existing else ""),
+        "owner": owner or (existing.owner if existing else ""),
+        "source_id": source_id_in or (existing.source_id if existing else ""),
     }
     # Only overwrite the snapshot when the caller explicitly supplies one
     # (e.g. on a sync), so ordinary edits don't wipe the divergence baseline.

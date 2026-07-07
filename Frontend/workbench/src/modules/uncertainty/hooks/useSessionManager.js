@@ -380,6 +380,20 @@ const useSessionManager = () => {
       if (existingLinkedLocal) {
         payload = { ...payload, id: existingLinkedLocal.id };
       }
+    } else if (payload.scope === "local") {
+      const sameDefinition = instrumentsRef.current.find((i) => {
+        if (i.scope !== "local" || i.sourceId) return false;
+        if ((i.owner || getDeviceKey()) !== payload.owner) return false;
+        return (
+          (i.manufacturer || "") === (payload.manufacturer || "") &&
+          (i.model || "") === (payload.model || "") &&
+          (i.description || "") === (payload.description || "") &&
+          JSON.stringify(i.functions || []) === JSON.stringify(payload.functions || [])
+        );
+      });
+      if (sameDefinition) {
+        payload = { ...payload, id: sameDefinition.id };
+      }
     }
 
     replaceInstruments((prev) => {
