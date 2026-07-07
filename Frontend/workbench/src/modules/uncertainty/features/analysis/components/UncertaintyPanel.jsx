@@ -4055,7 +4055,14 @@ const SummaryDashboard = ({
           : { ...t, instrument: applyDescriptionPatch(t, field, value) };
       return updatedItem;
     });
-    onSessionSave({ ...sessionData, tmdes: updatedTmdes });
+    // Propagate the master edit into every point's TMDE instance snapshot (parity
+    // with handleDetailTmdeDescEdit / persistInlineItem), so an assigned TMDE's
+    // name/spec updates wherever it's used — including the measurement-equation
+    // variable field — instead of showing the stale pre-rename value.
+    const nextTestPoints = updatedItem
+      ? refreshSessionPointsForTmde(updatedItem)
+      : sessionData.testPoints;
+    onSessionSave({ ...sessionData, tmdes: updatedTmdes, testPoints: nextTestPoints });
     if (updatedItem) {
       if (
         onSaveInstrument &&
@@ -9362,8 +9369,16 @@ function DetailedView({
     };
   }, [getVariableNominal, isDerived, testPointData, tmdeTolerancesData]);
 
-  const getEquationTmdeLabel = (tmde) =>
-    formatInstrumentIdentity(tmde, "Unnamed TMDE");
+  const getEquationTmdeLabel = (tmde) => {
+    // Resolve the LIVE master by its link id so a rename in the TMDE table shows
+    // up immediately here — the per-point instance carries a snapshot name that
+    // would otherwise stay stale. Prefer the (session-level) TMDE name, matching
+    // how the TMDE table labels the row; fall back to the instrument identity.
+    const masterId = tmde?.sourceId ?? tmde?.id;
+    const master = (sessionData.tmdes || []).find((m) => m.id === masterId);
+    const name = String(master?.name ?? tmde?.name ?? "").trim();
+    return name || formatInstrumentIdentity(master || tmde, "Unnamed TMDE");
+  };
 
   const getBudgetTmdeDetail = (tmde) => {
     if (!budgetTmdePicker) return "";
