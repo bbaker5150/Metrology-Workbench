@@ -93,6 +93,7 @@ const useSessionManager = () => {
       measurementType: "direct",
       equationString: "",
       variableMappings: {},
+      variableNominals: {},
       testPointInfo: {
         parameter: { name: "", value: "", unit: "" },
         qualifier: null,
@@ -755,6 +756,10 @@ const useSessionManager = () => {
               measurementType: formData.measurementType,
               equationString: formData.equationString,
               variableMappings: formData.variableMappings,
+              variableNominals:
+                formData.variableNominals !== undefined
+                  ? formData.variableNominals
+                  : tp.variableNominals || {},
               tmdeTolerances: formData.tmdeTolerances || tp.tmdeTolerances,
               uutTolerance:
                 formData.uutTolerance !== undefined
@@ -806,6 +811,7 @@ const useSessionManager = () => {
           measurementType: formData.measurementType,
           equationString: formData.equationString,
           variableMappings: formData.variableMappings,
+          variableNominals: formData.variableNominals || {},
           measurementAreaId: formData.measurementAreaId || "",
           associatedUutIds: formData.associatedUutIds || [],
         };
@@ -883,7 +889,9 @@ const useSessionManager = () => {
     if (!session) return;
     const updatedTestPoints = session.testPoints.map((tp) => {
       if (tp.id !== selectedTestPointId) return tp;
-      const newTolerances = tp.tmdeTolerances.filter((t) => t.id !== tmdeId);
+      const newTolerances = tp.tmdeTolerances.filter(
+        (t) => t.id !== tmdeId && t.sourceId !== tmdeId,
+      );
       return { ...tp, tmdeTolerances: newTolerances };
     });
     updateSession({ ...session, testPoints: updatedTestPoints });
@@ -896,7 +904,7 @@ const useSessionManager = () => {
       if (tp.id !== selectedTestPointId) return tp;
       const newTolerances = tp.tmdeTolerances
         .map((t) => {
-          if (t.id === tmdeId) {
+          if (t.id === tmdeId || t.sourceId === tmdeId) {
             const newQuantity = (t.quantity || 1) - 1;
             return { ...t, quantity: newQuantity };
           }

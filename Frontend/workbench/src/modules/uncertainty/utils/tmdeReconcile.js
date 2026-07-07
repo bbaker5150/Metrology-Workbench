@@ -13,13 +13,15 @@
 //      live masters) yet is still summed by the math, so a phantom standard
 //      keeps contributing. This is the BRG-3100 "6×" symptom: one visible row,
 //      no quantity field, but the value is multiplied.
-//   2. Stacking — the SAME master appearing on one point more than once, so a
-//      single standard contributes its value repeatedly.
+//   2. Stacking — the SAME master appearing on one point more than once for the
+//      same derived variable/direct point, so a single standard contributes its
+//      value repeatedly.
 //
 // `reconcileTmdeInstances` returns only the instances that map to a LIVE master,
-// keeping at most one instance per master (multiplicity belongs in `quantity`,
-// never in duplicate rows). DISTINCT masters mapped to one variable — the
-// legitimate additive case — are preserved untouched.
+// keeping at most one instance per master+variable (multiplicity belongs in
+// `quantity`, never in duplicate rows). DISTINCT masters mapped to one variable
+// — and the same master mapped once to several derived variables — are preserved
+// untouched.
 //
 // Pure: never mutates its inputs. A deliberate no-op for orphan pruning when the
 // master list is empty/unknown, so it can't wipe a point's instances while a
@@ -28,6 +30,12 @@
 /** The id of the master a per-point instance was derived from. */
 export const masterIdOf = (instance) =>
   instance == null ? undefined : instance.sourceId ?? instance.id;
+
+const variableKeyOf = (instance) =>
+  String(instance?.variableType || "").trim();
+
+const instanceReconcileKey = (instance) =>
+  `${String(masterIdOf(instance) ?? instance?.id ?? "")}::${variableKeyOf(instance)}`;
 
 export const reconcileTmdeInstances = (tmdeTolerances, masterTmdes) => {
   if (!Array.isArray(tmdeTolerances)) return [];
@@ -53,10 +61,12 @@ export const reconcileTmdeInstances = (tmdeTolerances, masterTmdes) => {
       continue;
     }
 
-    // Stacking: this master is already represented on the point. Multiplicity is
-    // expressed via `quantity`, so a second instance of the same master is a
-    // duplicate that would double-count the value.
-    const key = String(masterId ?? inst.id ?? "");
+    // Stacking: this master+variable is already represented on the point.
+    // Multiplicity is expressed via `quantity`, so a second instance with the
+    // same key is a duplicate that would double-count the value. The same
+    // master on a different derived variable is legitimate: it reuses that
+    // TMDE's tolerance in a separate input budget.
+    const key = instanceReconcileKey(inst);
     if (key && seenMasters.has(key)) continue;
     seenMasters.add(key);
 
@@ -74,7 +84,7 @@ export const reconcileTmdeInstances = (tmdeTolerances, masterTmdes) => {
     const seen = new Set();
     return tmdeTolerances.filter((inst) => {
       if (!inst) return false;
-      const key = String(masterIdOf(inst) ?? inst.id ?? "");
+      const key = instanceReconcileKey(inst);
       if (key && seen.has(key)) return false;
       seen.add(key);
       return true;

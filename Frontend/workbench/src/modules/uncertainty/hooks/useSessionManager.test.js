@@ -93,3 +93,63 @@ describe("session undo history", () => {
     expect(result.current.currentSessionData.name).toBe("Original");
   });
 });
+
+describe("saveTestPoint derived equation state", () => {
+  it("preserves variableNominals when updating an existing point without that field", async () => {
+    axios.get.mockImplementation((url) =>
+      Promise.resolve({
+        data: url.endsWith("/sessions/")
+          ? [
+              {
+                id: 1,
+                name: "Original",
+                testPoints: [
+                  {
+                    id: "point-1",
+                    section: "4.1",
+                    measurementType: "derived",
+                    equationString: "t = a + b",
+                    variableMappings: { a: "A", b: "B" },
+                    variableNominals: {
+                      a: { value: "10", unit: "degF" },
+                      b: { value: "20", unit: "degF" },
+                    },
+                    testPointInfo: {
+                      parameter: { name: "Temperature", value: "30", unit: "degF" },
+                    },
+                    tmdeTolerances: [],
+                  },
+                ],
+              },
+            ]
+          : [],
+      }),
+    );
+
+    const { result } = renderHook(() => useSessionManager());
+
+    await waitFor(() => {
+      expect(result.current.currentSessionData?.testPoints).toHaveLength(1);
+    });
+
+    act(() => {
+      result.current.saveTestPoint({
+        id: "point-1",
+        section: "4.1 updated",
+        measurementType: "derived",
+        equationString: "t = a + b",
+        variableMappings: { a: "A", b: "B" },
+        testPointInfo: {
+          parameter: { name: "Temperature", value: "30", unit: "degF" },
+        },
+      });
+    });
+
+    expect(
+      result.current.currentSessionData.testPoints[0].variableNominals,
+    ).toEqual({
+      a: { value: "10", unit: "degF" },
+      b: { value: "20", unit: "degF" },
+    });
+  });
+});

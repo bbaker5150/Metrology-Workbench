@@ -34,13 +34,25 @@ describe("reconcileTmdeInstances", () => {
     expect(tmdeInstancesNeedReconcile(tols, masters)).toBe(true);
   });
 
-  it("collapses duplicate instances of the SAME master (no stacking)", () => {
+  it("collapses duplicate instances of the SAME master and variable (no stacking)", () => {
     const tols = [
       { id: "weight", sourceId: "weight", variableType: "Weight" },
       { id: "weight", sourceId: "weight", variableType: "Weight" },
       { id: "weight", sourceId: "weight", variableType: "Weight" },
     ];
     expect(reconcileTmdeInstances(tols, masters)).toHaveLength(1);
+  });
+
+  it("preserves the same master assigned to separate derived variables", () => {
+    const tols = [
+      { id: "weight::A", sourceId: "weight", variableType: "A" },
+      { id: "weight::B", sourceId: "weight", variableType: "B" },
+      { id: "length", sourceId: "length", variableType: "Length" },
+    ];
+    const out = reconcileTmdeInstances(tols, masters);
+    expect(out).toHaveLength(3);
+    expect(out.map((t) => t.variableType).sort()).toEqual(["A", "B", "Length"]);
+    expect(tmdeInstancesNeedReconcile(tols, masters)).toBe(false);
   });
 
   it("preserves DISTINCT masters mapped to one variable (additive composition)", () => {

@@ -46,6 +46,7 @@ SAMPLE_SESSION = {
         "measurementType": "direct",
         "equationString": "",
         "variableMappings": {},
+        "variableNominals": {"a": {"value": "10", "unit": "V"}},
         "uutTolerance": {"reading": {"high": "0.1", "unit": "%"}},
         "tmdeTolerances": [{"id": "tol-1", "reading": {"high": "0.05", "unit": "%"}}],
         "is_detailed_uncertainty_calculated": True,
@@ -106,6 +107,7 @@ class WholeSessionRoundTripTests(APITestCase):
         tp = data["testPoints"][0]
         self.assertEqual(tp["id"], 999000111)  # numeric id stays numeric
         self.assertEqual(tp["measurementType"], "direct")
+        self.assertEqual(tp["variableNominals"], {"a": {"value": "10", "unit": "V"}})
         self.assertTrue(tp["is_detailed_uncertainty_calculated"])
         self.assertEqual(tp["k_value"], 2.0)
         self.assertEqual(tp["riskMetrics"]["pfa"], 1.2)

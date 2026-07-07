@@ -9041,17 +9041,70 @@ function DetailedView({
     [getVariableNominal, testPointData.variableMappings],
   );
 
-  const handleAssignTmdeToInput = (masterTmde, variableType, functionKey = null) => {
+  const tmdeMasterIdOf = (tmde) => tmde?.sourceId ?? tmde?.id;
+  const sameTmdeMaster = (tmde, masterTmde) =>
+    String(tmdeMasterIdOf(tmde) ?? "") === String(masterTmde?.id ?? "");
+  const sameVariableType = (tmde, variableType) =>
+    String(tmde?.variableType || "").trim() === String(variableType || "").trim();
+  const derivedTmdeInstanceId = (masterId, variableType) =>
+    `${String(masterId)}::${String(variableType || "input").trim() || "input"}`;
+
+  const handleAssignTmdeToInput = (
+    masterTmde,
+    variableType,
+    functionKey = null,
+    options = {},
+  ) => {
     const existing = tmdeTolerancesData.find(
       (tmde) =>
-        String(tmde.id) === String(masterTmde.id) ||
-        String(tmde.sourceId) === String(masterTmde.id),
+        sameTmdeMaster(tmde, masterTmde) &&
+        sameVariableType(tmde, variableType),
     );
     const variableNominal = getNominalForVariableType(variableType);
     const rangeNominal =
       variableNominal?.value !== "" && variableNominal?.unit
         ? variableNominal
         : null;
+    const buildAssignedInstance = (baseInstance = null) => {
+      const resolution = resolveUutRangeHelper(
+        masterTmde,
+        tmdeRangeIndices,
+        baseInstance,
+        rangeNominal,
+        functionKey,
+      );
+      const activeRange = resolution.activeRange || {};
+      const rangeSpecs = { ...activeRange };
+      delete rangeSpecs.id;
+      const sibling = tmdeTolerancesData.find(
+        (t) => t.variableType === variableType && t.measurementPoint?.unit,
+      );
+      const defaultUnit =
+        variableNominal?.unit ||
+        sibling?.measurementPoint?.unit ||
+        activeRange.unit ||
+        masterTmde.instrument?.functions?.[0]?.unit ||
+        "";
+
+      return {
+        ...masterTmde,
+        ...rangeSpecs,
+        id:
+          baseInstance?.id ||
+          derivedTmdeInstanceId(masterTmde.id, variableType),
+        sourceId: masterTmde.id,
+        tolerance: rangeSpecs,
+        variableType,
+        quantity: baseInstance?.quantity ?? 1,
+        measurementPoint:
+          variableNominal?.value !== "" && variableNominal?.unit
+            ? variableNominal
+            : baseInstance?.measurementPoint ||
+              (masterTmde.measurementPoint?.value
+                ? masterTmde.measurementPoint
+                : { value: "", unit: defaultUnit }),
+      };
+    };
 
     if (!variableType) {
       onUpdateTestPoint({
@@ -9065,81 +9118,40 @@ function DetailedView({
     }
 
     if (existing) {
-      const resolution = functionKey
-        ? resolveUutRangeHelper(
-            masterTmde,
-            tmdeRangeIndices,
-            existing,
-            rangeNominal,
-            functionKey,
-          )
-        : null;
-      const nextRangeSpecs = resolution?.activeRange
-        ? { ...resolution.activeRange }
-        : null;
-      if (nextRangeSpecs) delete nextRangeSpecs.id;
+      const updatedInstance = buildAssignedInstance(existing);
       onUpdateTestPoint({
         tmdeTolerances: tmdeTolerancesData.map((tmde) =>
           tmde.id === existing.id
-            ? {
-                ...tmde,
-                ...(nextRangeSpecs || {}),
-                ...(nextRangeSpecs ? { tolerance: nextRangeSpecs } : {}),
-                variableType,
-                measurementPoint:
-                  variableNominal?.value !== "" && variableNominal?.unit
-                    ? variableNominal
-                    : tmde.measurementPoint,
-              }
+            ? updatedInstance
             : tmde,
         ),
       });
-      return;
+      return updatedInstance.id;
     }
 
-    const resolution = resolveUutRangeHelper(
-      masterTmde,
-      tmdeRangeIndices,
-      null,
-      rangeNominal,
-      functionKey,
-    );
-    const activeRange = resolution.activeRange || {};
-    const rangeSpecs = { ...activeRange };
-    delete rangeSpecs.id;
-    // Additive sources on one variable must share a unit so they can be summed.
-    // Inherit the unit from any source already on this variable; fall back to the
-    // range/instrument unit. Value starts empty so the user enters this piece.
-    const sibling = tmdeTolerancesData.find(
-      (t) => t.variableType === variableType && t.measurementPoint?.unit,
-    );
-    const defaultUnit =
-      variableNominal?.unit ||
-      sibling?.measurementPoint?.unit ||
-      activeRange.unit ||
-      masterTmde.instrument?.functions?.[0]?.unit ||
-      "";
+    const replaceInstance = options.replaceInstanceId
+      ? tmdeTolerancesData.find(
+          (tmde) => String(tmde.id) === String(options.replaceInstanceId),
+        )
+      : null;
+    const newInstance = buildAssignedInstance();
+
+    if (replaceInstance) {
+      onUpdateTestPoint({
+        tmdeTolerances: tmdeTolerancesData.map((tmde) =>
+          tmde.id === replaceInstance.id ? newInstance : tmde,
+        ),
+      });
+      return newInstance.id;
+    }
 
     onUpdateTestPoint({
       tmdeTolerances: [
         ...tmdeTolerancesData,
-        {
-          ...masterTmde,
-          ...rangeSpecs,
-          id: masterTmde.id,
-          sourceId: masterTmde.id,
-          tolerance: rangeSpecs,
-          variableType,
-          quantity: 1,
-          measurementPoint:
-            variableNominal?.value !== "" && variableNominal?.unit
-              ? variableNominal
-              : masterTmde.measurementPoint?.value
-                ? masterTmde.measurementPoint
-                : { value: "", unit: defaultUnit },
-        },
+        newInstance,
       ],
     });
+    return newInstance.id;
   };
 
   // Per-SOURCE measurement point update (additive composition): each source on a
@@ -9215,8 +9227,15 @@ function DetailedView({
     }
   };
 
-  const handleTmdeRangeChange = (tmde, newIndex, ranges) => {
-    const activeInstance = tmdeTolerancesData.find((t) => t.id === tmde.id);
+  const handleTmdeRangeChange = (tmde, newIndex, ranges, instance = null) => {
+    const targetId = instance?.id || tmde.id;
+    const activeInstance =
+      instance ||
+      tmdeTolerancesData.find(
+        (t) =>
+          String(t.id) === String(tmde.id) ||
+          (!isDerived && String(t.sourceId) === String(tmde.id)),
+      );
     const selectedRange = ranges[newIndex] || {};
 
     if (activeInstance && !isDerived) {
@@ -9233,7 +9252,7 @@ function DetailedView({
       }
     }
 
-    setTmdeRangeIndices((prev) => ({ ...prev, [tmde.id]: newIndex }));
+    setTmdeRangeIndices((prev) => ({ ...prev, [targetId]: newIndex }));
 
     if (activeInstance && onUpdateTestPoint) {
       const { id: rangeId, ...rangeSpecs } = selectedRange;
@@ -9246,7 +9265,7 @@ function DetailedView({
       };
 
       const updatedTolerances = tmdeTolerancesData.map((t) =>
-        t.id === tmde.id ? updatedInstance : t,
+        t.id === activeInstance.id ? updatedInstance : t,
       );
       onUpdateTestPoint({ tmdeTolerances: updatedTolerances });
     }
@@ -9440,6 +9459,67 @@ function DetailedView({
       tmdeTolerancesData,
     ],
   );
+
+  const getVariableStandardOptions = useCallback(
+    (variable) => {
+      const byLabel = (a, b) =>
+        getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b));
+      const matching = relevantTmdes
+        .filter((tmde) => tmdeMatchesUnit(tmde, variable?.unit || ""))
+        .sort(byLabel);
+      const other = relevantTmdes
+        .filter((tmde) => !tmdeMatchesUnit(tmde, variable?.unit || ""))
+        .sort(byLabel);
+      const optionMap = new Map();
+
+      [...matching, ...other].forEach((tmde) => {
+        optionMap.set(String(tmde.id), tmde);
+      });
+      (variable?.assignedTmdes || []).forEach((assigned) => {
+        const masterId = String(tmdeMasterIdOf(assigned) ?? "");
+        if (!masterId || optionMap.has(masterId)) return;
+        optionMap.set(masterId, assigned);
+      });
+
+      return Array.from(optionMap.values());
+    },
+    [relevantTmdes, tmdeMatchesUnit],
+  );
+
+  const handleVariableStandardChange = (
+    variable,
+    selectedTmde,
+    nextMasterId,
+  ) => {
+    const assignedMatch = (variable.assignedTmdes || []).find(
+      (tmde) => String(tmdeMasterIdOf(tmde) ?? "") === String(nextMasterId),
+    );
+    if (assignedMatch) {
+      setEquationTmdeSelections((prev) => ({
+        ...prev,
+        [variable.symbol]: assignedMatch.id,
+      }));
+      return;
+    }
+
+    const nextMaster = relevantTmdes.find(
+      (tmde) => String(tmde.id) === String(nextMasterId),
+    );
+    if (!nextMaster) return;
+
+    const nextInstanceId = handleAssignTmdeToInput(
+      nextMaster,
+      variable.name,
+      makeFunctionKey(variable.name, variable.unit || ""),
+      { replaceInstanceId: selectedTmde?.id },
+    );
+    if (nextInstanceId) {
+      setEquationTmdeSelections((prev) => ({
+        ...prev,
+        [variable.symbol]: nextInstanceId,
+      }));
+    }
+  };
 
   const addBudgetTmde = (tmde) => {
     if (!budgetTmdePicker) return;
@@ -10427,6 +10507,12 @@ function DetailedView({
                       variable.assignedTmdes.find(
                         (tmde) => tmde.id === requestedTmdeId,
                       ) || variable.assignedTmdes[0];
+                    const selectedMasterId =
+                      selectedTmde && tmdeMasterIdOf(selectedTmde) != null
+                        ? String(tmdeMasterIdOf(selectedTmde))
+                        : "";
+                    const standardOptions =
+                      getVariableStandardOptions(variable);
 
                     return (
                       <div
@@ -10459,20 +10545,29 @@ function DetailedView({
                             {variable.isAssigned ? (
                               <select
                                 className="var-source-select"
-                                value={selectedTmde?.id || ""}
+                                value={selectedMasterId}
                                 onChange={(e) =>
-                                  setEquationTmdeSelections((prev) => ({
-                                    ...prev,
-                                    [variable.symbol]: e.target.value,
-                                  }))
+                                  handleVariableStandardChange(
+                                    variable,
+                                    selectedTmde,
+                                    e.target.value,
+                                  )
                                 }
                                 aria-label={`TMDE for equation variable ${variable.symbol}`}
                               >
-                                {variable.assignedTmdes.map((tmde) => (
-                                  <option key={tmde.id} value={tmde.id}>
-                                    {getEquationTmdeLabel(tmde)}
-                                  </option>
-                                ))}
+                                {standardOptions.map((tmde) => {
+                                  const optionMasterId = String(
+                                    tmdeMasterIdOf(tmde) ?? tmde.id,
+                                  );
+                                  return (
+                                    <option
+                                      key={optionMasterId}
+                                      value={optionMasterId}
+                                    >
+                                      {getEquationTmdeLabel(tmde)}
+                                    </option>
+                                  );
+                                })}
                               </select>
                             ) : (
                               // Direct assignment entry point. The per-input
@@ -10757,6 +10852,9 @@ function DetailedView({
 
                     return rowsToRender.map((tmdeInstance, idx) => {
                       const isChecked = activeInstances.includes(tmdeInstance);
+                      const rangeStateKey = isChecked
+                        ? tmdeInstance.id
+                        : tmdeRowKey;
                       // const referencePoint = tmdeInstance.measurementPoint || { value: '', unit: '' }; // Removed unused reference
 
                       const savedTolerance = isChecked ? tmdeInstance : null;
@@ -10765,7 +10863,11 @@ function DetailedView({
                       // (resolveUutRangeHelper Priority C) instead of range 0.
                       const resolution = resolveUutRangeHelper(
                         masterTmde,
-                        { [masterTmde.id]: tmdeRangeIndices[tmdeRowKey] },
+                        {
+                          [masterTmde.id]:
+                            tmdeRangeIndices[rangeStateKey] ??
+                            tmdeRangeIndices[tmdeRowKey],
+                        },
                         savedTolerance,
                         isDerived ? null : uutNominal,
                         tmdeFnKey,
@@ -10800,7 +10902,7 @@ function DetailedView({
                         const n = visibleRangeRows.length;
                         const spanRows = n + 1; // +1 for the trailing ghost add-row
                         const activeRangeIndex =
-                          tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
+                          tmdeRangeIndices[rangeStateKey] ?? activeIndex;
                         return (
                           <React.Fragment key={`${tmdeRowKey}-${idx}`}>
                             {visibleRangeRows.map(({ range, index, key }, i) => {
@@ -10820,7 +10922,12 @@ function DetailedView({
                                     // is now how a TMDE's applied range is chosen for
                                     // this point (mirrors the old switcher's onSelect).
                                     if (index !== activeRangeIndex) {
-                                      handleTmdeRangeChange(masterTmde, index, ranges);
+                                      handleTmdeRangeChange(
+                                        masterTmde,
+                                        index,
+                                        ranges,
+                                        isChecked ? tmdeInstance : null,
+                                      );
                                     }
                                   }}
                                   style={{
@@ -10956,7 +11063,12 @@ function DetailedView({
                                       editable={!!onSessionSave}
                                       allowSingleToggle
                                       onSelect={(idx) =>
-                                        handleTmdeRangeChange(masterTmde, idx, ranges)
+                                        handleTmdeRangeChange(
+                                          masterTmde,
+                                          idx,
+                                          ranges,
+                                          isChecked ? tmdeInstance : null,
+                                        )
                                       }
                                       onEditBound={(field, value) =>
                                         handleEditRangeBoundDetail(
