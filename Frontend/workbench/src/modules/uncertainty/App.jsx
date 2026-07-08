@@ -3674,9 +3674,9 @@ function App() {
       {visibleSidebarColumns.gbHigh &&
         renderSidebarSortHeader("gbHigh", "GB High")}
       {visibleSidebarColumns.gbCalInt &&
-        renderSidebarSortHeader("gbCalInt", "GB Cal", { align: "center" })}
+        renderSidebarSortHeader("gbCalInt", "Int w/ GB", { align: "center" })}
       {visibleSidebarColumns.noGbCalInt &&
-        renderSidebarSortHeader("noGbCalInt", "No GB Cal", {
+        renderSidebarSortHeader("noGbCalInt", "Int w/o GB", {
           align: "center",
         })}
       {visibleSidebarColumns.noGbMeasRel &&
