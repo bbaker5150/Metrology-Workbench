@@ -785,10 +785,12 @@ const UncertaintyBudgetTable = ({
       (measurementType === "direct" && group.kind === "final"));
 
   const renderSectionSettings = (group) => {
+    // Manual components belong in an individual input/TMDE budget or the final
+    // budget — never the measurement-equation ("equation") table, which is just
+    // the combination of the mapped inputs. Adding a standalone component there
+    // has no metrologically meaningful place in the equation itself.
     const canAddManual =
-      group.kind === "input" ||
-      group.kind === "equation" ||
-      group.kind === "final";
+      group.kind === "input" || group.kind === "final";
     const canAddRepeatability =
       group.kind === "input" || (isDirect && group.kind === "final");
 
