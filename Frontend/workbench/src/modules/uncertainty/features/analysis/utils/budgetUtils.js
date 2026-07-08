@@ -3,11 +3,12 @@
  * * into individual uncertainty budget components.
  */
 
-import { 
-  unitSystem, 
-  convertToPPM, 
+import {
+  unitSystem,
+  convertToPPM,
   errorDistributions,
   DISTRIBUTION_NOT_SET,
+  effectiveFloorTerm,
 } from "../../../utils/uncertaintyMath";
 
 export const oldErrorDistributions = [
@@ -163,12 +164,10 @@ export const getBudgetComponentsFromTolerance = (
     toleranceObject.range, "% Full Scale", rangeFS
   );
 
-  // Floor Value. `readings_iv` is a legacy alias of `floor` (the same absolute
-  // Floor Value), never authored separately by the UI — treat them as ONE term
-  // (floor wins, readings_iv is only a fallback) so a spec carrying both isn't
-  // double-counted into the budget.
+  // ONE effective floor term (floor + its legacy readings_iv alias), value-aware
+  // so a blank floor never shadows a real readings_iv (see effectiveFloorTerm).
   totalAccuracyHalfSpan_Base += calculateComponentSpan(
-      toleranceObject.floor || toleranceObject.readings_iv, "Floor Value", nominalValue
+      effectiveFloorTerm(toleranceObject), "Floor Value", nominalValue
   );
 
   // --- 2. CREATE THE UNIFIED ACCURACY COMPONENT ---

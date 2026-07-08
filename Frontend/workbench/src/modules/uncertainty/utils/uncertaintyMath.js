@@ -769,14 +769,31 @@ export const getToleranceSummary = (toleranceData) => {
     const rangePart = formatPart(toleranceData.range);
     if (rangePart) parts.push(`${rangePart} of FS`);
   }
-  // `readings_iv` is a legacy alias of `floor`; show one term (floor wins) so a
-  // spec carrying both isn't displayed — or summed — as two floor values.
-  const floorPart = toleranceData.floor || toleranceData.readings_iv;
+  // ONE effective floor term (floor + its legacy readings_iv alias), value-aware
+  // so a blank floor never hides a real readings_iv.
+  const floorPart = effectiveFloorTerm(toleranceData);
   if (floorPart) parts.push(formatPart(floorPart));
   if (toleranceData.db) parts.push(formatPart(toleranceData.db));
 
   return parts.filter((p) => p).join(" + ") || "Not Set";
 };
+
+// `readings_iv` is a legacy alias of `floor` (the same absolute "Floor Value")
+// and is never authored separately by the UI. Return the single EFFECTIVE floor
+// term so the two are never summed as separate contributions — preferring a
+// `floor` that carries a real magnitude, otherwise `readings_iv`. Crucially this
+// is value-aware: a blank `floor` placeholder (key present, empty high/low) must
+// NOT shadow a real `readings_iv`, which would drop the contribution entirely
+// (zeroing the tolerance and breaking TAR / guardband / risk).
+const floorTermHasMagnitude = (comp) =>
+  !!comp &&
+  (!isNaN(parseFloat(comp.high)) ||
+    !isNaN(parseFloat(comp.low)) ||
+    !isNaN(parseFloat(comp.value)));
+export const effectiveFloorTerm = (tolerance = {}) =>
+  floorTermHasMagnitude(tolerance.floor)
+    ? tolerance.floor
+    : tolerance.readings_iv || tolerance.floor;
 
 // =================================================================================
 // UPDATED: calculateUncertaintyFromToleranceObject
@@ -939,15 +956,9 @@ export const calculateUncertaintyFromToleranceObject = (
     "% Full Scale",
     parseFloat(toleranceObject.range?.value) || parseFloat(toleranceObject.max)
   );
-  // `readings_iv` is a legacy alias of `floor` (the same absolute "Floor Value"),
-  // never authored separately by the UI. Treat them as ONE term — using
-  // `readings_iv` only as a fallback when no `floor` is present — so a spec that
-  // carries a legacy readings_iv AND a user-entered floor isn't double-counted.
-  addComponent(
-    toleranceObject.floor || toleranceObject.readings_iv,
-    "Floor Value",
-    nominalValue
-  );
+  // ONE effective floor term (floor + its legacy readings_iv alias), value-aware
+  // so a blank floor never shadows a real readings_iv (see effectiveFloorTerm).
+  addComponent(effectiveFloorTerm(toleranceObject), "Floor Value", nominalValue);
 
   const dbTolComp = toleranceObject.db;
   if (dbTolComp && !isNaN(parseFloat(dbTolComp.high))) {

@@ -69,6 +69,7 @@ import {
   getToleranceErrorSummary,
   getAbsoluteLimits,
   calculateUncertaintyFromToleranceObject,
+  effectiveFloorTerm,
   convertPpmToUnit,
   getUnitDisplayLabel,
   unitSystem,
@@ -2905,9 +2906,10 @@ export const getSpecRows = (tolerance) => {
   const present = [];
   let anyAsymmetric = false;
   for (const cfg of componentConfig) {
-    // Floor reads readings_iv as a fallback so a legacy alias still renders.
+    // Floor folds in its legacy readings_iv alias (value-aware, so a blank floor
+    // doesn't hide a real readings_iv).
     const source =
-      cfg.key === "floor" ? tolerance.floor || tolerance.readings_iv : tolerance[cfg.key];
+      cfg.key === "floor" ? effectiveFloorTerm(tolerance) : tolerance[cfg.key];
     const comp = parseComp(source, cfg.unit);
     if (!comp) continue;
     present.push({ comp, cfg });
