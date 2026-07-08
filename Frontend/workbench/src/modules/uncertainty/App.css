@@ -13504,6 +13504,12 @@ body.theme-cyberpunk .area-header-sticky {
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
+.panel-table-container.instrument-panel-table-container {
+  max-height: none;
+  overflow-y: visible;
+  overflow-x: auto;
+}
+
 .panel-table-container::-webkit-scrollbar {
   width: 5px;
   height: 5px;

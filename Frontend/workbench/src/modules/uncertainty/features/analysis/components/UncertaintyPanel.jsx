@@ -5762,7 +5762,7 @@ const SummaryDashboard = ({
             {renderAddFunctionMenu("uut")}
           </div>
         </div>
-        <div className="panel-table-container">
+        <div className="panel-table-container instrument-panel-table-container">
           <table
             className="instrument-summary-table industry-table"
             onMouseLeave={() => {
@@ -6172,7 +6172,7 @@ const SummaryDashboard = ({
             {renderAddFunctionMenu("tmde")}
           </div>
         </div>
-        <div className="panel-table-container">
+        <div className="panel-table-container instrument-panel-table-container">
           <table
             className="instrument-summary-table industry-table equipment-summary-table"
             onMouseLeave={() => {
@@ -10147,7 +10147,7 @@ function DetailedView({
             {renderAddFunctionMenu("uut")}
           </div>
         </div>
-        <div className="panel-table-container" style={{ maxHeight: "300px" }}>
+        <div className="panel-table-container instrument-panel-table-container">
           <table
             className="instrument-summary-table industry-table"
             onMouseLeave={() => {
@@ -10868,7 +10868,7 @@ function DetailedView({
             </div>
           </div>
 
-          <div className="panel-table-container">
+          <div className="panel-table-container instrument-panel-table-container">
             <table
               className="instrument-summary-table industry-table equipment-detail-table"
               onMouseLeave={() => {

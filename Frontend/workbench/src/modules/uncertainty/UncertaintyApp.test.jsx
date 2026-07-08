@@ -180,8 +180,10 @@ describe("UncertaintyApp", () => {
     // The sidebar is organized Function -> UUT -> Point. The point's own
     // parameter ("Voltage") is the top-level function node, replacing the old
     // measurement-area row.
-    const functionRow = await screen.findByText("Voltage");
-    expect(functionRow).toBeInTheDocument();
+    const functionRows = await screen.findAllByText("Voltage");
+    expect(
+      functionRows.some((row) => row.classList.contains("area-label")),
+    ).toBe(true);
   });
 
   test("zooms a table around the cursor without zooming the page", async () => {

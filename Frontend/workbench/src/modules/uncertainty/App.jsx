@@ -284,11 +284,8 @@ const getScopedZoomLabel = (zoomKey) => {
 };
 
 // Default scoped-zoom level (when the user hasn't set one) keyed by surface
-// class. The UUT/TMDE instrument tables (.panel-table-container, in both the
-// Session Overview and Detailed View) default to 80% so wide columns don't wrap.
-const SCOPED_ZOOM_DEFAULTS = {
-  "panel-table-container": 0.8,
-};
+// class. Surfaces omitted here default to 100%.
+const SCOPED_ZOOM_DEFAULTS = {};
 const getDefaultScopedZoom = (zoomKey) => {
   if (!zoomKey) return 1;
   return SCOPED_ZOOM_DEFAULTS[zoomKey.split(":")[0]] ?? 1;
@@ -2057,9 +2054,8 @@ function App() {
       e.preventDefault();
 
       const { surface, content } = zoomTarget;
-      // The applied default (e.g. 80% for instrument tables) is written to
-      // dataset.zoomLevel by applyZoomLevels; fall back to 1 only for surfaces
-      // that haven't been initialized yet.
+      // The applied default is written to dataset.zoomLevel by applyZoomLevels;
+      // fall back to 1 only for surfaces that haven't been initialized yet.
       const currentZoom = parseFloat(surface.dataset.zoomLevel || "1");
       const zoomDirection = e.deltaY < 0 ? 1 : -1;
       const nextZoom = Math.max(
