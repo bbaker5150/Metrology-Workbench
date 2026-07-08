@@ -11042,9 +11042,10 @@ input.inline-function-input:focus {
 /* Function subsection header: color swatch, editable name, unit, and the
    add/delete controls — kept on one tidy baseline-aligned row. */
 .function-header-row {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 4px;
+  width: 100%;
   max-width: 100%;
   min-width: 0;
   white-space: normal;
@@ -11100,6 +11101,28 @@ input.inline-function-input:focus {
 
 .function-header-action-btn:first-of-type {
   margin-left: 4px;
+}
+
+.function-header-collapse-btn {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.function-header-collapse-btn:hover {
+  color: var(--text-color);
+  border-color: var(--border-color);
+  background: var(--input-background);
 }
 
 .range-stack {

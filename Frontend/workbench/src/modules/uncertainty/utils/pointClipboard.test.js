@@ -76,6 +76,62 @@ describe("preparePointForPaste", () => {
     expect(prepared).not.toHaveProperty("effective_dof");
     expect(prepared).not.toHaveProperty("secondOrder");
   });
+
+  it("preserves the copied point's resolution budget settings", () => {
+    const sourcePoint = {
+      ...point,
+      uutTolerance: {
+        max: 10,
+        includeResolutionInBudget: true,
+        measuringResolution: "0.001",
+        measuringResolutionUnit: "V",
+        measuringResolutionDistribution: "1.732",
+      },
+    };
+
+    expect(
+      preparePointForPaste(sourcePoint, {
+        mode: "copy",
+        targetUutId: "uut-2",
+        targetAreaId: "area-2",
+        targetTolerance: {
+          max: 100,
+          measuringResolution: "0.01",
+          measuringResolutionUnit: "V",
+        },
+      }).uutTolerance,
+    ).toEqual({
+      max: 100,
+      includeResolutionInBudget: true,
+      measuringResolution: "0.01",
+      measuringResolutionUnit: "V",
+      measuringResolutionDistribution: "1.732",
+    });
+  });
+
+  it("keeps the source tolerance when paste cannot resolve a target range", () => {
+    const sourcePoint = {
+      ...point,
+      uutTolerance: {
+        max: 10,
+        includeResolutionInBudget: true,
+        measuringResolution: "0.001",
+      },
+    };
+
+    expect(
+      preparePointForPaste(sourcePoint, {
+        mode: "copy",
+        targetUutId: "uut-2",
+        targetAreaId: "area-2",
+        targetTolerance: null,
+      }).uutTolerance,
+    ).toEqual({
+      max: 10,
+      includeResolutionInBudget: true,
+      measuringResolution: "0.001",
+    });
+  });
 });
 
 describe("getRemainingCutPoints", () => {

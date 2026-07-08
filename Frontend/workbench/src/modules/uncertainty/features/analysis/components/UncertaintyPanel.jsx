@@ -27,6 +27,7 @@ import {
   faLink,
   faLinkSlash,
   faChevronDown,
+  faChevronRight,
   faCopy,
   faPaste,
   faScissors,
@@ -3215,6 +3216,27 @@ const buildFunctionGroupedRows = (
     ]);
 };
 
+const functionCollapseStateKey = (kind, fn) =>
+  `${kind || fn?.kind || "instrument"}::${fn?.key || ""}`;
+
+const isFunctionGroupCollapsed = (collapsedKeys, kind, fn) =>
+  collapsedKeys.has(functionCollapseStateKey(kind, fn));
+
+const filterCollapsedFunctionRows = (rows, collapsedKeys, kind) => {
+  let hideCurrentFunctionItems = false;
+  return (rows || []).filter((row) => {
+    if (row.type === "function") {
+      hideCurrentFunctionItems = isFunctionGroupCollapsed(
+        collapsedKeys,
+        kind,
+        row.fn,
+      );
+      return true;
+    }
+    return !hideCurrentFunctionItems;
+  });
+};
+
 const functionNamePart = (functionKey = "") =>
   String(functionKey || "").split("|")[0] || "";
 
@@ -4891,6 +4913,50 @@ const SummaryDashboard = ({
     );
   };
 
+  const toggleFunctionCollapse = (kind, fn) => {
+    setCollapsedFunctionKeys((prev) => {
+      const next = new Set(prev);
+      const key = functionCollapseStateKey(kind, fn);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const renderFunctionCollapseButton = (kind, fn) => {
+    const collapsed = isFunctionGroupCollapsed(collapsedFunctionKeys, kind, fn);
+    return (
+      <button
+        type="button"
+        className="function-header-collapse-btn"
+        title={collapsed ? "Expand function instruments" : "Collapse function instruments"}
+        aria-label={collapsed ? "Expand function instruments" : "Collapse function instruments"}
+        aria-expanded={!collapsed}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleFunctionCollapse(kind, fn);
+        }}
+      >
+        <FontAwesomeIcon icon={collapsed ? faChevronRight : faChevronDown} size="xs" />
+      </button>
+    );
+  };
+
+  const renderFunctionHeaderRow = (kind, fn, colSpan) => (
+    <tr key={`${kind}-fn-${fn.key}`} className="instrument-area-section-row">
+      <td colSpan={colSpan}>
+        <div className="function-header-row">
+          {renderFunctionColorSwatch(fn)}
+          {renderFunctionNameEditor(fn)}
+          {renderFunctionUnitChip(fn)}
+          {renderFunctionAddButton(kind, fn)}
+          {renderFunctionDeleteButton(fn)}
+          {renderFunctionCollapseButton(kind, fn)}
+        </div>
+      </td>
+    </tr>
+  );
+
   // The "Add Function" picker opened from a table's header button: pick a
   // function declared anywhere in the library, or define a brand-new one.
   const renderAddFunctionMenu = (kind) => {
@@ -5053,6 +5119,9 @@ const SummaryDashboard = ({
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
+  const [collapsedFunctionKeys, setCollapsedFunctionKeys] = useState(
+    () => new Set(),
+  );
   // Click-away collapse: while any range list is expanded, a click that
   // lands outside that instrument's row group (tagged data-range-group) snaps it
   // shut — mirroring the tolerance cell's focus-out close across the multi-<tr>
@@ -5421,6 +5490,36 @@ const SummaryDashboard = ({
       return [...pinnedRows, ...buildFunctionGroupedRows(groupedItems, sessionData, kind)];
     },
     [contextId, sessionData, showAreaColumn, viewMode],
+  );
+
+  const groupedUutRows = useMemo(
+    () =>
+      filterCollapsedFunctionRows(
+        getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds, "uut"),
+        collapsedFunctionKeys,
+        "uut",
+      ),
+    [collapsedFunctionKeys, filteredUuts, getGroupedInstrumentRows, pinnedInlineUutIds],
+  );
+
+  const groupedTmdeRows = useMemo(
+    () =>
+      filterCollapsedFunctionRows(
+        getGroupedInstrumentRows(
+          filteredTmdes,
+          "instrument",
+          pinnedInlineTmdeIds,
+          "tmde",
+        ),
+        collapsedFunctionKeys,
+        "tmde",
+      ),
+    [
+      collapsedFunctionKeys,
+      filteredTmdes,
+      getGroupedInstrumentRows,
+      pinnedInlineTmdeIds,
+    ],
   );
 
   // --- HANDLERS ---
@@ -5792,31 +5891,16 @@ const SummaryDashboard = ({
               </tr>
             </thead>
             <tbody>
-              {getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds, "uut").length === 0 ? (
+              {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={5}>
                     No UUTs found in this context.
                   </td>
                 </tr>
               ) : (
-                getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds, "uut").map((row) => {
+                groupedUutRows.map((row) => {
                   if (row.type === "function") {
-                    return (
-                      <tr
-                        key={`uut-fn-${row.fn.key}`}
-                        className="instrument-area-section-row"
-                      >
-                        <td colSpan={5}>
-                          <div className="function-header-row">
-                            {renderFunctionColorSwatch(row.fn)}
-                            {renderFunctionNameEditor(row.fn)}
-                            {renderFunctionUnitChip(row.fn)}
-                            {renderFunctionAddButton("uut", row.fn)}
-                            {renderFunctionDeleteButton(row.fn)}
-                          </div>
-                        </td>
-                      </tr>
-                    );
+                    return renderFunctionHeaderRow("uut", row.fn, 5);
                   }
 
                   const uut = row.item;
@@ -6204,29 +6288,14 @@ const SummaryDashboard = ({
               </tr>
             </thead>
             <tbody>
-              {getGroupedInstrumentRows(filteredTmdes, "instrument", pinnedInlineTmdeIds, "tmde").length === 0 ? (
+              {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={6}>No TMDEs found in session.</td>
                 </tr>
               ) : (
-                getGroupedInstrumentRows(filteredTmdes, "instrument", pinnedInlineTmdeIds, "tmde").map((row) => {
+                groupedTmdeRows.map((row) => {
                   if (row.type === "function") {
-                    return (
-                      <tr
-                        key={`tmde-fn-${row.fn.key}`}
-                        className="instrument-area-section-row"
-                      >
-                        <td colSpan={6}>
-                          <div className="function-header-row">
-                            {renderFunctionColorSwatch(row.fn)}
-                            {renderFunctionNameEditor(row.fn)}
-                            {renderFunctionUnitChip(row.fn)}
-                            {renderFunctionAddButton("tmde", row.fn)}
-                            {renderFunctionDeleteButton(row.fn)}
-                          </div>
-                        </td>
-                      </tr>
-                    );
+                    return renderFunctionHeaderRow("tmde", row.fn, 6);
                   }
 
                   const tmde = row.item;
@@ -6604,6 +6673,8 @@ function DetailedView({
   // the deps array hits a temporal dead zone during render.
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
+  const [collapsedFunctionKeysDetail, setCollapsedFunctionKeysDetail] =
+    useState(() => new Set());
 
   // --- NEW: Local Selection State ---
   const [selectedUutIds, setSelectedUutIds] = useState([]);
@@ -8158,6 +8229,39 @@ function DetailedView({
       </button>
     ) : null;
 
+  const toggleFunctionCollapseDetail = (kind, fn) => {
+    setCollapsedFunctionKeysDetail((prev) => {
+      const next = new Set(prev);
+      const key = functionCollapseStateKey(kind, fn);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const renderFunctionCollapseButton = (kind, fn) => {
+    const collapsed = isFunctionGroupCollapsed(
+      collapsedFunctionKeysDetail,
+      kind,
+      fn,
+    );
+    return (
+      <button
+        type="button"
+        className="function-header-collapse-btn"
+        title={collapsed ? "Expand function instruments" : "Collapse function instruments"}
+        aria-label={collapsed ? "Expand function instruments" : "Collapse function instruments"}
+        aria-expanded={!collapsed}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleFunctionCollapseDetail(kind, fn);
+        }}
+      >
+        <FontAwesomeIcon icon={collapsed ? faChevronRight : faChevronDown} size="xs" />
+      </button>
+    );
+  };
+
   const renderFunctionHeaderRow = (kind, fn, colSpan) => (
     <tr key={`${kind}-fn-${fn.key}`} className="instrument-area-section-row">
       <td colSpan={colSpan}>
@@ -8167,6 +8271,7 @@ function DetailedView({
           {renderFunctionUnitChip(fn)}
           {renderFunctionAddButton(kind, fn)}
           {renderFunctionDeleteButton(fn)}
+          {renderFunctionCollapseButton(kind, fn)}
         </div>
       </td>
     </tr>
@@ -8397,6 +8502,26 @@ function DetailedView({
   const detailTmdeRows = useMemo(
     () => buildFullDetailRows(relevantTmdes, "tmde"),
     [buildFullDetailRows, relevantTmdes],
+  );
+
+  const visibleDetailUutRows = useMemo(
+    () =>
+      filterCollapsedFunctionRows(
+        detailUutRows,
+        collapsedFunctionKeysDetail,
+        "uut",
+      ),
+    [collapsedFunctionKeysDetail, detailUutRows],
+  );
+
+  const visibleDetailTmdeRows = useMemo(
+    () =>
+      filterCollapsedFunctionRows(
+        detailTmdeRows,
+        collapsedFunctionKeysDetail,
+        "tmde",
+      ),
+    [collapsedFunctionKeysDetail, detailTmdeRows],
   );
 
   // --- HANDLERS ---
@@ -10177,12 +10302,12 @@ function DetailedView({
               </tr>
             </thead>
             <tbody>
-              {detailUutRows.length === 0 ? (
+              {visibleDetailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan="5">No UUTs found in this context.</td>
                 </tr>
               ) : (
-                detailUutRows.map((row) => {
+                visibleDetailUutRows.map((row) => {
                   if (row.type === "function") {
                     return renderFunctionHeaderRow("uut", row.fn, 5);
                   }
@@ -10900,12 +11025,12 @@ function DetailedView({
                 </tr>
               </thead>
               <tbody>
-                {detailTmdeRows.length === 0 ? (
+                {visibleDetailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
                     <td colSpan="6">No TMDEs found in session.</td>
                   </tr>
                 ) : (
-                  detailTmdeRows.map((row) => {
+                  visibleDetailTmdeRows.map((row) => {
                     if (row.type === "function") {
                       return renderFunctionHeaderRow("tmde", row.fn, 6);
                     }

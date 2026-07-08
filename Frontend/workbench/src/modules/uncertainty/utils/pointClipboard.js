@@ -21,6 +21,36 @@ const CALCULATION_CACHE_FIELDS = [
   "secondOrder",
 ];
 
+const POINT_RESOLUTION_FIELDS = [
+  "includeResolutionInBudget",
+  "measuringResolution",
+  "measuringResolutionUnit",
+  "measuringResolutionDistribution",
+  "resolution",
+  "resolutionUnit",
+  "resolutionDistribution",
+];
+
+const hasValue = (value) => value !== undefined && value !== null && value !== "";
+
+const resolvePastedTolerance = (sourceTolerance, targetTolerance) => {
+  if (!sourceTolerance) return targetTolerance;
+
+  const resolved = targetTolerance
+    ? { ...targetTolerance }
+    : { ...sourceTolerance };
+
+  POINT_RESOLUTION_FIELDS.forEach((field) => {
+    const sourceValue = sourceTolerance[field];
+    if (!hasValue(sourceValue)) return;
+    if (field === "includeResolutionInBudget" || !hasValue(resolved[field])) {
+      resolved[field] = sourceValue;
+    }
+  });
+
+  return resolved;
+};
+
 export const preparePointForPaste = (
   point,
   { mode, targetUutId, targetAreaId, targetTolerance },
@@ -29,7 +59,7 @@ export const preparePointForPaste = (
     ...point,
     measurementAreaId: targetAreaId,
     associatedUutIds: [targetUutId],
-    uutTolerance: targetTolerance,
+    uutTolerance: resolvePastedTolerance(point.uutTolerance, targetTolerance),
   };
 
   // A pasted point may land on a different UUT/range than the source, so any
