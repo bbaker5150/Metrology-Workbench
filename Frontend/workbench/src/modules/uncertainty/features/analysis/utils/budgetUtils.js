@@ -25,9 +25,32 @@ export const oldErrorDistributions = [
   { value: "1.000", label: "Normal (k=1)" },
 ];
 
+/**
+ * Resolve the instrument-level associated Type B components carried by a TMDE
+ * instance. The instrument definition rides on a TMDE under different keys
+ * depending on how the instance was assembled (`instrument` for the inline /
+ * builder flow, `sourceInstrument` for some derived/legacy instances), so check
+ * both, plus a direct `typeBComponents` on the instance itself.
+ */
+export const resolveInstrumentTypeB = (tmdeLike = {}) => {
+  const candidates = [
+    tmdeLike?.instrument?.typeBComponents,
+    tmdeLike?.sourceInstrument?.typeBComponents,
+    tmdeLike?.typeBComponents,
+  ];
+  const found = candidates.find((c) => Array.isArray(c) && c.length > 0);
+  return found || [];
+};
+
 export const getBudgetComponentsFromTolerance = (
   rawToleranceObject,
-  referenceMeasurementPoint
+  referenceMeasurementPoint,
+  // Type B components associated with the whole instrument (e.g. "head pressure"
+  // on a pressure gage). These are NOT tied to a single range — they are carried
+  // by the instrument definition and added to the budget whenever that
+  // instrument's accuracy contributes. Resolved with the same math as the
+  // per-range manual components below, against the point's nominal.
+  instrumentTypeBComponents = []
 ) => {
 
   // --- 1. STRUCTURE NORMALIZATION ---
@@ -351,23 +374,26 @@ export const getBudgetComponentsFromTolerance = (
     }
   }
 
-  // --- 5. MANUAL TYPE B COMPONENTS ---
-  // User-authored Type B components attached to the instrument range/tolerance
-  // (added via the instrument builder's ToleranceForm). Stored as raw inputs so
-  // they resolve against whichever measurement point the range is used at, just
-  // like the accuracy components above. Each is either a tolerance limit (with a
+  // --- 5. MANUAL / INSTRUMENT-LEVEL TYPE B COMPONENTS ---
+  // User-authored Type B components. Stored as raw inputs so they resolve
+  // against whichever measurement point the range is used at, just like the
+  // accuracy components above. Each is either a tolerance limit (with a
   // distribution divisor) or a directly-entered standard uncertainty.
-  const manualComponents = Array.isArray(toleranceObject.manualComponents)
-    ? toleranceObject.manualComponents
-    : [];
-  manualComponents.forEach((mc, idx) => {
-    if (!mc || typeof mc !== "object") return;
+  //
+  // Shared resolver for a "manual-like" Type B component, used for both the
+  // per-range manual components (tolerance.manualComponents, authored in the
+  // ToleranceForm) and the instrument-level associated components
+  // (instrumentTypeBComponents). The `fromInstrument` flag only affects the id
+  // namespace + a marker flag so the budget table can route edits to the right
+  // source.
+  const buildManualLikeComponent = (mc, idx, { fromInstrument = false } = {}) => {
+    if (!mc || typeof mc !== "object") return null;
 
     const isStandard = mc.inputMode === "standard";
     const rawMagnitude = parseFloat(
       isStandard ? mc.standardUncertainty : mc.toleranceLimit,
     );
-    if (isNaN(rawMagnitude) || rawMagnitude <= 0) return;
+    if (isNaN(rawMagnitude) || rawMagnitude <= 0) return null;
 
     const unit = mc.unit;
 
@@ -398,13 +424,13 @@ export const getBudgetComponentsFromTolerance = (
     let magnitudeBase;
     if (["%", "ppm", "ppb"].includes(unit)) {
       const multiplier = unit === "%" ? 0.01 : unit === "ppm" ? 1e-6 : 1e-9;
-      if (isNaN(nominalValue)) return;
+      if (isNaN(nominalValue)) return null;
       const inNominalUnit = rawMagnitude * multiplier * nominalValue;
       magnitudeBase = unitSystem.toBaseUnit(inNominalUnit, nominalUnit);
     } else {
       magnitudeBase = unitSystem.toBaseUnit(rawMagnitude, unit);
     }
-    if (isNaN(magnitudeBase)) return;
+    if (isNaN(magnitudeBase)) return null;
 
     const u_i_base = Math.abs(magnitudeBase) / divisor;
     const u_i_native = unitSystem.fromBaseUnit(u_i_base, nominalUnit);
@@ -440,8 +466,10 @@ export const getBudgetComponentsFromTolerance = (
       errorDistributions.find((d) => parseFloat(d.value) === parseFloat(mc.specDistribution))
         ?.label || mc.specDistribution;
 
-    budgetComponents.push({
-      id: `${prefix}_manual_${mc.id || idx}${toleranceObject.id ? `_${toleranceObject.id}` : ""}`,
+    const idNamespace = fromInstrument ? "instrTypeB" : "manual";
+
+    return {
+      id: `${prefix}_${idNamespace}_${mc.id || idx}${toleranceObject.id ? `_${toleranceObject.id}` : ""}`,
       name: `${prefix} - ${label}`,
       type: "B",
       value: finalValuePPM,
@@ -453,6 +481,9 @@ export const getBudgetComponentsFromTolerance = (
       distribution: distLabel,
       distributionDivisor: distRaw,
       isManual: true,
+      // Marks an instrument-associated Type B (vs a per-range manual component)
+      // so the budget table / breakdown can label its origin.
+      fromInstrument,
       // Source linkage + raw spec inputs so the budget table can show/edit the
       // entered value and route changes back to this exact manual component.
       manualSourceId: mc.id ?? idx,
@@ -467,8 +498,26 @@ export const getBudgetComponentsFromTolerance = (
         valueOverridden,
         distributionOverridden,
       },
-    });
+    };
+  };
+
+  // Per-range manual Type B components authored on the tolerance itself.
+  const manualComponents = Array.isArray(toleranceObject.manualComponents)
+    ? toleranceObject.manualComponents
+    : [];
+  manualComponents.forEach((mc, idx) => {
+    const comp = buildManualLikeComponent(mc, idx, { fromInstrument: false });
+    if (comp) budgetComponents.push(comp);
   });
+
+  // Instrument-level associated Type B components (e.g. head pressure) — added
+  // whenever this instrument's accuracy contributes to the budget.
+  (Array.isArray(instrumentTypeBComponents) ? instrumentTypeBComponents : []).forEach(
+    (mc, idx) => {
+      const comp = buildManualLikeComponent(mc, idx, { fromInstrument: true });
+      if (comp) budgetComponents.push(comp);
+    },
+  );
 
   return budgetComponents;
 };

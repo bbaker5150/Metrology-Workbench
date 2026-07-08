@@ -25,7 +25,18 @@ export const SYNC_RED = "red";
 // The fields that DEFINE an instrument for divergence purposes. Session-context
 // fields (measurementArea/color, assetId, quantity, owner) are deliberately
 // excluded — they describe usage in a session, not the instrument itself.
-export const SNAPSHOT_FIELDS = ["manufacturer", "model", "description", "functions"];
+// `typeBComponents` (instrument-associated Type B uncertainties) are part of the
+// definition, so editing them diverges from the shared snapshot like any spec.
+export const SNAPSHOT_FIELDS = [
+  "manufacturer",
+  "model",
+  "description",
+  "functions",
+  "typeBComponents",
+];
+
+// Defining fields that are arrays (default to [] rather than "" when absent).
+const ARRAY_SNAPSHOT_FIELDS = new Set(["functions", "typeBComponents"]);
 
 const stableStringify = (value) => {
   // Order-independent JSON so key ordering can't produce false divergence.
@@ -48,7 +59,7 @@ const stableStringify = (value) => {
 /** Capture the validated-definition snapshot from an instrument's current state. */
 export const buildValidatedSnapshot = (instrument = {}) =>
   SNAPSHOT_FIELDS.reduce((snap, field) => {
-    snap[field] = instrument[field] ?? (field === "functions" ? [] : "");
+    snap[field] = instrument[field] ?? (ARRAY_SNAPSHOT_FIELDS.has(field) ? [] : "");
     return snap;
   }, {});
 
@@ -68,8 +79,9 @@ export const diffFromSnapshot = (instrument = {}) => {
   const snapshot = instrument.validatedSnapshot || buildValidatedSnapshot(instrument);
   const diffs = [];
   SNAPSHOT_FIELDS.forEach((field) => {
-    const live = instrument[field] ?? (field === "functions" ? [] : "");
-    const snap = snapshot[field] ?? (field === "functions" ? [] : "");
+    const fallback = ARRAY_SNAPSHOT_FIELDS.has(field) ? [] : "";
+    const live = instrument[field] ?? fallback;
+    const snap = snapshot[field] ?? fallback;
     if (stableStringify(live) !== stableStringify(snap)) {
       diffs.push({ field, from: snap, to: live });
     }

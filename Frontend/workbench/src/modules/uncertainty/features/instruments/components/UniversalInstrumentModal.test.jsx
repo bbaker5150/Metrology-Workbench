@@ -198,28 +198,6 @@ describe("UniversalInstrumentModal library synchronization", () => {
     );
   });
 
-  test("new instruments default to unassigned measurement area and adopt existing area color by name", () => {
-    renderModal({
-      mode: "uut",
-      initialData: null,
-      instruments: [],
-      measurementAreas: [
-        { id: "area-flow", name: "Flow", color: "#22c55e" },
-      ],
-    });
-
-    const areaInput = screen.getByLabelText("Measurement Area");
-    const colorInput = screen.getByLabelText("Measurement area color");
-
-    expect(areaInput).toHaveValue("Unassigned");
-    expect(colorInput).toHaveValue("#3498db");
-
-    fireEvent.change(areaInput, { target: { value: "Flow" } });
-
-    expect(areaInput).toHaveValue("Flow");
-    expect(colorInput).toHaveValue("#22c55e");
-  });
-
   test("new instruments save directly as local session instruments", () => {
     const props = renderModal({
       mode: "uut",

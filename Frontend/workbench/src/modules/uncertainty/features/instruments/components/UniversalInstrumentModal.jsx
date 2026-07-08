@@ -11,7 +11,6 @@ import {
   faPlus,
   faTrashAlt,
   faEdit,
-  faLayerGroup,
   faArrowLeft,
   faSearch,
   faChevronDown,
@@ -24,7 +23,8 @@ import {
   faTag,
   faIndustry,
   faFingerprint,
-  faSyncAlt
+  faSyncAlt,
+  faFlask
 } from "@fortawesome/free-solid-svg-icons";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -34,10 +34,11 @@ import {
   unitFilterOption,
 } from "../../../utils/uncertaintyMath";
 import ToleranceForm from "../../../components/common/ToleranceForm";
+import TypeBComponentsEditor from "./TypeBComponentsEditor";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 import useInstrumentSync from "../../../hooks/useInstrumentSync";
-import { computeSyncState } from "../../../utils/instrumentSync";
+import { computeSyncState, diffFromSnapshot } from "../../../utils/instrumentSync";
 
 import "./UniversalInstrumentModal.css";
 
@@ -156,6 +157,23 @@ const getInstrumentSourceStatus = (instrument = {}, linkedInstrument = null) => 
         Boolean(linkedInstrument?.sourceId) ||
         hasValidatedSnapshot(linkedInstrument || {});
 
+    // A linked instrument that still matches its captured validated snapshot is
+    // in sync with the shared library (green link) even if this record is
+    // scope:"local" — e.g. a synced instrument whose shared origin isn't in
+    // this list, or one demoted by a legacy save. Reflect the synced state
+    // instead of mislabeling it "Local". Requires a real snapshot to match, so
+    // a merely-linked (never-synced) copy still reads "Local".
+    const isSynced =
+        hasValidatedSnapshot(instrument) &&
+        diffFromSnapshot(instrument).length === 0;
+    if (isSynced) {
+        return {
+            label: "Synced",
+            tone: "shared",
+            title: "In sync with the shared library"
+        };
+    }
+
     return {
         label: "Local",
         tone: "local",
@@ -193,8 +211,7 @@ const UniversalInstrumentModal = ({
     onInstrumentSynced,
     mode = 'library', // 'uut', 'tmde', 'library'
     initialData = null,
-    instruments = [],
-    measurementAreas = []
+    instruments = []
 }) => {
     const [viewMode, setViewMode] = useState("edit");
     const [effectiveMode, setEffectiveMode] = useState(mode);
@@ -227,13 +244,16 @@ const UniversalInstrumentModal = ({
         id: uuidv4(),
         manufacturer: "",
         model: "",
-        description: "", 
+        description: "",
         scope: "local",
-        functions: []
+        functions: [],
+        typeBComponents: []
     });
 
     const [activeFunctionId, setActiveFunctionId] = useState(null);
     const [editingRange, setEditingRange] = useState(null);
+    // Slide-over for the instrument-level associated Type B uncertainties.
+    const [showTypeB, setShowTypeB] = useState(false);
 
     const { position, handleMouseDown } = useFloatingWindow({
         isOpen,
@@ -247,6 +267,7 @@ const UniversalInstrumentModal = ({
             setSearchTerm("");
             setExpandedDetail(null);
             setEditingRange(null);
+            setShowTypeB(false);
             setSelectedIds([]);
             setSelectionAnchor(null);
             setPendingDelete(null);
@@ -264,7 +285,7 @@ const UniversalInstrumentModal = ({
             if (initialData) {
                 setViewMode("edit");
                 const loadedInst = initialData.instrument || (initialData.functions ? initialData : null) || {
-                    id: uuidv4(), manufacturer: "", model: "", description: "", scope: "local", functions: []
+                    id: uuidv4(), manufacturer: "", model: "", description: "", scope: "local", functions: [], typeBComponents: []
                 };
                 const existingLibraryId =
                     initialData.libraryInstrumentId ||
@@ -305,7 +326,7 @@ const UniversalInstrumentModal = ({
                     quantity: 1,
                     assetId: ""
                 });
-                setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", scope: "local", functions: [] });
+                setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", scope: "local", functions: [], typeBComponents: [] });
                 setActiveFunctionId(null);
             }
         }
@@ -553,7 +574,8 @@ const UniversalInstrumentModal = ({
             model: "",
             description: "",
             scope: "local",
-            functions: []
+            functions: [],
+            typeBComponents: []
         };
         setInstrumentDef(newInstrument);
         setLibraryInstrumentId(null);
@@ -572,22 +594,11 @@ const UniversalInstrumentModal = ({
     };
 
     const handleMetaChange = (field, value) => {
-        setMetaData(prev => {
-            const patch = { [field]: value };
-            if (field === "measurementArea") {
-                const cleanName = String(value || "").trim();
-                const existingArea = (measurementAreas || []).find(
-                    (area) => String(area.name || "").toLowerCase() === cleanName.toLowerCase()
-                );
-                patch.measurementAreaId = existingArea?.id || "";
-                patch.measurementAreaColor =
-                    existingArea?.color || prev.measurementAreaColor || DEFAULT_MEASUREMENT_AREA_COLOR;
-            }
-            return {
-                ...prev,
-                ...patch
-            };
-        });
+        setMetaData(prev => ({ ...prev, [field]: value }));
+    };
+
+    const updateTypeBComponents = (next) => {
+        setInstrumentDef(prev => ({ ...prev, typeBComponents: next }));
     };
 
     const handleAddFunction = () => {
@@ -1037,6 +1048,33 @@ const UniversalInstrumentModal = ({
                             </div>
                         )}
 
+                        {/* Slide Over for instrument-level associated Type B uncertainties */}
+                        {showTypeB && (
+                            <div className="tolerance-slide-over">
+                                <div className="slide-over-header">
+                                    <div className="slide-over-title">
+                                        <h3><FontAwesomeIcon icon={faFlask} /> Associated Type B</h3>
+                                        <div className="slide-over-subtitle">
+                                            Carried with this instrument across every function and range
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setShowTypeB(false)} className="icon-btn-ghost"><FontAwesomeIcon icon={faTimes} /></button>
+                                </div>
+                                <div className="slide-over-body">
+                                    <TypeBComponentsEditor
+                                        components={instrumentDef.typeBComponents || []}
+                                        onChange={updateTypeBComponents}
+                                        referenceUnit={activeFunction?.unit || instrumentDef.functions?.[0]?.unit || ""}
+                                    />
+                                </div>
+                                <div className="slide-over-footer">
+                                    <button className="btn-large-icon" onClick={() => setShowTypeB(false)} title="Done">
+                                        <FontAwesomeIcon icon={faCheck} />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Top: Identity Card */}
                         <div className="identity-container">
                             <div className="identity-header">
@@ -1047,9 +1085,24 @@ const UniversalInstrumentModal = ({
                                         linkedInstrument={linkedLibraryInstrument}
                                     />
                                 </div>
-                                <button className="icon-btn-ghost" onClick={() => setViewMode('list')} title="Import from Library">
-                                    <FontAwesomeIcon icon={faBookOpen} />
-                                </button>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <button
+                                        className="icon-btn-ghost"
+                                        onClick={() => setShowTypeB(true)}
+                                        title="Associated Type B uncertainties (e.g. head pressure)"
+                                        aria-label="Edit associated Type B uncertainties"
+                                    >
+                                        <FontAwesomeIcon icon={faFlask} />
+                                        {(instrumentDef.typeBComponents?.length || 0) > 0 && (
+                                            <span className="typeb-count-badge">
+                                                {instrumentDef.typeBComponents.length}
+                                            </span>
+                                        )}
+                                    </button>
+                                    <button className="icon-btn-ghost" onClick={() => setViewMode('list')} title="Import from Library">
+                                        <FontAwesomeIcon icon={faBookOpen} />
+                                    </button>
+                                </div>
                             </div>
                             
                             <div className="identity-grid">
@@ -1076,38 +1129,14 @@ const UniversalInstrumentModal = ({
                                 </div>
 
                                 <div className="floating-input-group full-width">
-                                    <input 
-                                        type="text" 
-                                        value={metaData.name} 
-                                        onChange={e => handleMetaChange('name', e.target.value)} 
-                                        placeholder=" " 
+                                    <input
+                                        type="text"
+                                        value={metaData.name}
+                                        onChange={e => handleMetaChange('name', e.target.value)}
+                                        placeholder=" "
                                     />
                                     <label>Description / Name</label>
                                     <FontAwesomeIcon icon={faFingerprint} className="input-icon" />
-                                </div>
-
-                                {/* Measurement Area - Always Visible now */}
-                                <div className="measurement-area-wrapper" style={{gridColumn: '1 / -1'}}>
-                                    <div className="floating-input-group" style={{flex: 1}}>
-                                        <input 
-                                            type="text" 
-                                            value={metaData.measurementArea} 
-                                            onChange={e => handleMetaChange('measurementArea', e.target.value)} 
-                                            placeholder=" " 
-                                            aria-label="Measurement Area"
-                                        />
-                                        <label>Measurement Area</label>
-                                        <FontAwesomeIcon icon={faLayerGroup} className="input-icon" />
-                                    </div>
-                                    <input 
-                                        type="color" 
-                                        className="color-picker-input"
-                                        value={metaData.measurementAreaColor}
-                                        onChange={e => handleMetaChange('measurementAreaColor', e.target.value)}
-                                        title="Area Color"
-                                        aria-label="Measurement area color"
-                                    />
-                                    <span className="color-picker-label">Area Color</span>
                                 </div>
                             </div>
                         </div>

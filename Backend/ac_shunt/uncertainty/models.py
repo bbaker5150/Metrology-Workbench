@@ -242,6 +242,12 @@ class Instrument(models.Model):
     # functions[] -> ranges[] -> tolerances{} : irregular nested tree -> JSON.
     functions = models.JSONField(default=list, blank=True)
 
+    # Instrument-level associated Type B uncertainty components (e.g. head
+    # pressure on a pressure gage). Same shape as a tolerance's manual
+    # components; added to a budget whenever this instrument's accuracy
+    # contributes. Irregular list of small objects -> JSON.
+    type_b_components = models.JSONField(default=list, blank=True)
+
     # Library scope + sync linkage. Existing rows backfill to "validated" via
     # the data migration (they predate the local library and were the de-facto
     # shared catalog).

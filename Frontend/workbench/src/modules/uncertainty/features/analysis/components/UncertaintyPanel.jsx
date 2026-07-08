@@ -31,6 +31,8 @@ import {
   faCopy,
   faPaste,
   faScissors,
+  faFlask,
+  faTimes,
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
@@ -86,6 +88,7 @@ import {
 } from "../../../utils/instrumentSync";
 import { v4 as uuidv4 } from "uuid";
 import useInstrumentSync from "../../../hooks/useInstrumentSync";
+import TypeBComponentsEditor from "../../instruments/components/TypeBComponentsEditor";
 
 // Auto-assigned colors for areas created on the fly when a picked library
 // instrument brings a measurement area the session doesn't have yet.
@@ -1408,7 +1411,10 @@ const EditableDescriptionCell = ({
     if (inst.scope === "validated") return "shared";
     if (!inst.sourceId && !inst.validatedSnapshot) return "local · new";
     const diffs = diffFromSnapshot(inst);
-    if (!diffs.length) return "local";
+    // Linked to the shared library and unchanged from its captured snapshot:
+    // this IS the synced version (green link), so don't mislabel it "local"
+    // just because this record happens to be scope:"local".
+    if (!diffs.length) return inst.validatedSnapshot ? "synced" : "local";
     const labelFor = {
       manufacturer: "mfg",
       model: "model",
@@ -3949,6 +3955,16 @@ const SummaryDashboard = ({
   const saveItemInstrumentToLocalLibrary = (kind, item) => {
     if (!onSaveInstrument || !item) return;
     const instrument = itemInstrumentForLibrary(kind, item);
+    // Never demote an in-sync shared instrument back to a local copy. If the
+    // row is linked to the shared library and still matches its validated
+    // snapshot (green link icon), then editing a session-only field (quantity,
+    // asset id, distribution) must NOT rewrite the library record as
+    // scope:"local" — doing so flipped a just-synced instrument back to Local
+    // while the link stayed green (the "synced but shows Local" staleness).
+    // Only persist a local copy once the definition has actually diverged.
+    const linkedToShared =
+      instrument.scope === "validated" || Boolean(instrument.sourceId);
+    if (linkedToShared && computeSyncState(instrument) === "green") return;
     onSaveInstrument({
       ...instrument,
       scope: "local",
@@ -5579,6 +5595,27 @@ const SummaryDashboard = ({
 
   // --- Cut / copy / paste of instrument rows (context menu + ctrl-c/x/v) ---
   const [rowMenu, setRowMenu] = useState(null);
+  // Inline authoring of an instrument's associated Type B uncertainties.
+  const [typeBEditor, setTypeBEditor] = useState(null); // { kind, item }
+
+  // Persist an edited associated Type B list back onto the row's instrument.
+  // typeBComponents are part of the instrument definition, so this both updates
+  // the session and (when applicable) the local library, and diverges a synced
+  // instrument so the user can re-sync the change to the shared library.
+  const saveTypeBForItem = (kind, item, nextComponents) => {
+    const updatedItem = {
+      ...item,
+      instrument: {
+        ...(item.instrument || {}),
+        typeBComponents: nextComponents,
+      },
+    };
+    persistItem(kind, updatedItem);
+    saveItemInstrumentToLocalLibrary(kind, updatedItem);
+    setTypeBEditor((prev) =>
+      prev && prev.item?.id === item.id ? { ...prev, item: updatedItem } : prev,
+    );
+  };
 
   const copyInstrument = (kind, item, mode = "copy") => {
     instrumentClipboard = { kind, mode, item: JSON.parse(JSON.stringify(item)) };
@@ -5635,6 +5672,12 @@ const SummaryDashboard = ({
         action: () => pasteInstrument(kind, areaId),
       });
     }
+    items.push({ type: "divider" });
+    items.push({
+      label: "Associated Type B…",
+      icon: faFlask,
+      action: () => setTypeBEditor({ kind, item }),
+    });
     items.push({ type: "divider" });
     items.push({
       label: "Delete",
@@ -6617,6 +6660,69 @@ const SummaryDashboard = ({
       </div>
 
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
+
+      {typeBEditor &&
+        ReactDOM.createPortal(
+          <div
+            className="modal-overlay"
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.45)",
+              zIndex: 3000,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            onMouseDown={() => setTypeBEditor(null)}
+          >
+            <div
+              className="modal-content"
+              style={{
+                width: "640px",
+                maxWidth: "94vw",
+                maxHeight: "82vh",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="modal-header">
+                <h3 style={{ margin: 0, fontSize: "1.05rem", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <FontAwesomeIcon icon={faFlask} style={{ color: "var(--primary-color)" }} />
+                  Associated Type B —{" "}
+                  {(typeBEditor.item.instrument &&
+                    `${typeBEditor.item.instrument.manufacturer || ""} ${typeBEditor.item.instrument.model || ""}`.trim()) ||
+                    rowLabel(typeBEditor.kind, typeBEditor.item) ||
+                    "Instrument"}
+                </h3>
+                <button className="modal-close-button" onClick={() => setTypeBEditor(null)}>
+                  <FontAwesomeIcon icon={faTimes} />
+                </button>
+              </div>
+              <div style={{ padding: "16px", overflowY: "auto" }}>
+                <TypeBComponentsEditor
+                  components={typeBEditor.item.instrument?.typeBComponents || []}
+                  onChange={(next) =>
+                    saveTypeBForItem(typeBEditor.kind, typeBEditor.item, next)
+                  }
+                  referenceUnit={
+                    typeBEditor.item.instrument?.functions?.[0]?.unit ||
+                    typeBEditor.item.tolerance?.unit ||
+                    ""
+                  }
+                />
+              </div>
+              <div style={{ padding: "10px 16px", borderTop: "1px solid var(--border-color)", textAlign: "right" }}>
+                <button className="lib-pill-btn" onClick={() => setTypeBEditor(null)}>
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 };
@@ -7007,6 +7113,16 @@ function DetailedView({
   const saveItemInstrumentToLocalLibrary = (kind, item) => {
     if (!onSaveInstrument || !item) return;
     const instrument = itemInstrumentForLibrary(kind, item);
+    // Never demote an in-sync shared instrument back to a local copy. If the
+    // row is linked to the shared library and still matches its validated
+    // snapshot (green link icon), then editing a session-only field (quantity,
+    // asset id, distribution) must NOT rewrite the library record as
+    // scope:"local" — doing so flipped a just-synced instrument back to Local
+    // while the link stayed green (the "synced but shows Local" staleness).
+    // Only persist a local copy once the definition has actually diverged.
+    const linkedToShared =
+      instrument.scope === "validated" || Boolean(instrument.sourceId);
+    if (linkedToShared && computeSyncState(instrument) === "green") return;
     onSaveInstrument({
       ...instrument,
       scope: "local",

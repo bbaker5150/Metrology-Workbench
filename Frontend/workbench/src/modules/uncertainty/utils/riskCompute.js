@@ -42,6 +42,7 @@ import {
 import {
   getBudgetComponentsFromTolerance,
   getUutResolutionComponent,
+  resolveInstrumentTypeB,
 } from "../features/analysis/utils/budgetUtils";
 import { reconcileTmdeInstances } from "./tmdeReconcile";
 import {
@@ -185,6 +186,7 @@ function computeUncertaintyForPoint(point, sessionData) {
         const components = getBudgetComponentsFromTolerance(
           toleranceSource,
           uutNominal,
+          resolveInstrumentTypeB(tmde),
         );
         components.forEach((comp) => {
           totalVariancePPM += comp.value ** 2 * quantity;

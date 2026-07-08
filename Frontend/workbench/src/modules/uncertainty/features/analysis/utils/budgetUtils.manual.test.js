@@ -102,6 +102,52 @@ describe("getBudgetComponentsFromTolerance - manual Type B components", () => {
   });
 });
 
+// Instrument-level associated Type B components (e.g. head pressure on a
+// pressure gage) are passed as the 3rd argument and resolved with the same math
+// as per-range manual components, but tagged fromInstrument so they can be
+// distinguished. They are added whenever the instrument's accuracy contributes.
+describe("getBudgetComponentsFromTolerance - instrument-associated Type B", () => {
+  const ref = { value: "10", unit: "psig" };
+
+  test("associated Type B is added alongside per-range accuracy", () => {
+    const comps = getBudgetComponentsFromTolerance(
+      {
+        name: "Gage",
+        reading: { high: "0.1", low: "-0.1", unit: "%", distribution: "1.732" },
+      },
+      ref,
+      [
+        {
+          id: "hp1",
+          name: "Head Pressure",
+          unit: "psig",
+          inputMode: "tolerance",
+          toleranceLimit: "0.001",
+          distribution: "1.732",
+        },
+      ],
+    );
+    const accuracy = comps.find((c) => c.name === "Gage - Accuracy");
+    const typeB = comps.find((c) => c.fromInstrument);
+    expect(accuracy).toBeTruthy();
+    expect(typeB).toBeTruthy();
+    expect(typeB.name).toBe("Gage - Head Pressure");
+    expect(typeB.type).toBe("B");
+    expect(typeB.isManual).toBe(true);
+    expect(typeB.id).toContain("instrTypeB");
+    // 0.001 psig / 1.732 = 5.774e-4 psig; relative to 10 psig = 57.74 ppm
+    expect(typeB.value).toBeCloseTo(57.737, 2);
+  });
+
+  test("no associated Type B when none are provided", () => {
+    const comps = getBudgetComponentsFromTolerance(
+      { name: "Gage", reading: { high: "0.1", low: "-0.1", unit: "%", distribution: "1.732" } },
+      ref,
+    );
+    expect(comps.some((c) => c.fromInstrument)).toBe(false);
+  });
+});
+
 describe("getBudgetComponentsFromTolerance - unvalidated distribution", () => {
   const ref = { value: "10", unit: "V" };
 
