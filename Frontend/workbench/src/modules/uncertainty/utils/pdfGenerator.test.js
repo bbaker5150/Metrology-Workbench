@@ -10,31 +10,29 @@ const helpers = {
 };
 
 describe("buildSessionReportModel", () => {
-  it("preserves area, UUT, range, and point hierarchy with all risk fields", () => {
+  it("groups by function -> UUT -> range with all risk fields", () => {
     const session = {
       name: "Torque Session",
-      measurementAreas: [{ id: "area-1", name: "Torque" }],
       uuts: [
         {
           id: "uut-1",
           name: "Torque Analyzer",
-          description: "Primary UUT",
-          measurementAreaId: "area-1",
-          ranges: [
-            {
-              id: "range-1",
-              min: 6.000000001,
-              max: 20,
-              unit: "in-oz",
-            },
-          ],
+          instrument: {
+            functions: [
+              {
+                id: "fn-1",
+                name: "Torque",
+                unit: "in-oz",
+                ranges: [{ id: "range-1", min: 6.000000001, max: 20 }],
+              },
+            ],
+          },
         },
       ],
       testPoints: [
         {
           id: "point-1",
           section: "4.1",
-          measurementAreaId: "area-1",
           associatedUutIds: ["uut-1"],
           uutTolerance: {
             min: 6.000000001,
@@ -42,7 +40,7 @@ describe("buildSessionReportModel", () => {
             unit: "in-oz",
           },
           testPointInfo: {
-            parameter: { value: 10, unit: "in-oz" },
+            parameter: { name: "Torque", value: 10, unit: "in-oz" },
           },
         },
       ],
@@ -62,12 +60,13 @@ describe("buildSessionReportModel", () => {
     };
 
     const report = buildSessionReportModel(session, risk, helpers);
-    const area = report.areas[0];
-    const uut = area.uuts[0];
+    const fn = report.functions[0];
+    const uut = fn.uuts[0];
     const range = uut.ranges[0];
     const row = range.rows[0];
 
-    expect(area.name).toBe("Torque");
+    expect(fn.name).toBe("Torque");
+    expect(fn.unit).toBe("in-oz");
     expect(uut.name).toBe("Torque Analyzer");
     expect(range.label).toBe("6 to 20 in-oz");
     expect(row).toMatchObject({
@@ -87,5 +86,75 @@ describe("buildSessionReportModel", () => {
       gbLow: "9.6",
       gbHigh: "10.4",
     });
+  });
+
+  it("places points whose owning UUT is missing under an Unassigned Points function", () => {
+    const session = {
+      name: "Orphan Session",
+      uuts: [],
+      testPoints: [
+        {
+          id: "point-1",
+          section: "1.0",
+          associatedUutIds: ["gone"],
+          testPointInfo: { parameter: { name: "Voltage", value: 5, unit: "V" } },
+        },
+      ],
+    };
+
+    const report = buildSessionReportModel(session, {}, helpers);
+
+    expect(report.functions).toHaveLength(1);
+    expect(report.functions[0].name).toBe("Unassigned Points");
+    expect(report.functions[0].uuts[0].ranges[0].rows[0].section).toBe("1.0");
+  });
+
+  it("keeps two functions on the same UUT as separate report sections", () => {
+    const session = {
+      name: "Multi-Function Session",
+      uuts: [
+        {
+          id: "dmm",
+          name: "Multimeter",
+          instrument: {
+            functions: [
+              { id: "f1", name: "DC Voltage", unit: "V", ranges: [] },
+              { id: "f2", name: "DC Current", unit: "A", ranges: [] },
+            ],
+          },
+        },
+      ],
+      testPoints: [
+        {
+          id: "p-v",
+          associatedUutIds: ["dmm"],
+          testPointInfo: { parameter: { name: "DC Voltage", value: 1, unit: "V" } },
+        },
+        {
+          id: "p-a",
+          associatedUutIds: ["dmm"],
+          testPointInfo: { parameter: { name: "DC Current", value: 2, unit: "A" } },
+        },
+      ],
+    };
+
+    const report = buildSessionReportModel(session, {}, helpers);
+
+    expect(report.functions.map((fn) => fn.name)).toEqual([
+      "DC Current",
+      "DC Voltage",
+    ]);
+    // Every point lands in exactly one function section (none dropped).
+    const rowCount = report.functions.reduce(
+      (sum, fn) =>
+        sum +
+        fn.uuts.reduce(
+          (uSum, uut) =>
+            uSum + uut.ranges.reduce((rSum, r) => rSum + r.rows.length, 0),
+          0,
+        ),
+      0,
+    );
+    expect(rowCount).toBe(2);
   });
 });

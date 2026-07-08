@@ -1,4 +1,10 @@
 import { rgb } from "pdf-lib";
+import {
+  resolveSessionFunctions,
+  functionLabelOf,
+  rangesForFunction,
+} from "./functionGrouping";
+import { getUnitDisplayLabel } from "./uncertaintyMath";
 
 const PAGE = {
   width: 841.89,
@@ -70,33 +76,44 @@ const formatRatio = (value) => {
   return number === null ? "-" : number.toFixed(2);
 };
 
-const getAllUutRanges = (uut) => {
-  let ranges = [];
-  if (Array.isArray(uut?.ranges) && uut.ranges.length) {
-    ranges = uut.ranges;
-  } else if (Array.isArray(uut?.instrument?.functions)) {
-    ranges = uut.instrument.functions.flatMap((fn) =>
-      (fn.ranges || []).map((range) => ({
-        ...range,
-        functionName: fn.name,
-        unit: fn.unit || range.unit,
-      })),
-    );
-  } else if (Array.isArray(uut?.instrument?.ranges)) {
-    ranges = uut.instrument.ranges;
-  } else if (uut?.tolerance) {
-    ranges = [uut.tolerance];
-  }
-
-  return ranges.map((range, index) => ({
-    ...range,
-    _reportId: range.id ?? range._id ?? index,
-    label:
-      range.min !== undefined && range.max !== undefined
-        ? `${formatNumber(range.min, 7)} to ${formatNumber(range.max, 7)}${range.unit ? ` ${range.unit}` : ""}`
-        : `${range.functionName ? `${range.functionName}: ` : ""}${range.range || "Range"}${range.unit ? ` ${range.unit}` : ""}`,
-  }));
+// Human-facing UUT/TMDE label matching the sidebar's formatInstrumentIdentity,
+// so a UUT reads identically in the report and on screen.
+const formatInstrumentIdentity = (item = {}) => {
+  const inst = item.instrument || item;
+  const make = String(inst.manufacturer || item.manufacturer || "").trim();
+  const model = String(inst.model || item.model || "").trim();
+  const name = String(
+    item.description || item.name || inst.description || inst.name || "",
+  ).trim();
+  const prefix = [make, model].filter(Boolean).join(" ");
+  if (!prefix) return name || "Unnamed UUT";
+  if (!name) return prefix;
+  return name.toLowerCase().startsWith(prefix.toLowerCase())
+    ? name
+    : `${prefix} ${name}`;
 };
+
+const rangeLabel = (range) => {
+  const unit = range.unit ? ` ${range.unit}` : "";
+  if (range.min !== undefined && range.max !== undefined) {
+    return `${formatNumber(range.min, 7)} to ${formatNumber(range.max, 7)}${unit}`;
+  }
+  return `${range.range || "Range"}${unit}`;
+};
+
+// The ranges a UUT exposes for a single function, decorated with a stable id and
+// display label. Scoped to the function so a range only appears under the
+// subsection whose points it can hold — the same source of truth
+// (rangesForFunction) the instrument tables render from.
+const getFunctionRanges = (uut, functionKey, functionUnit) =>
+  rangesForFunction(uut, functionKey).map((range, index) => {
+    const decorated = { ...range, unit: range.unit || functionUnit };
+    return {
+      ...decorated,
+      _reportId: range.id ?? range._id ?? index,
+      label: rangeLabel(decorated),
+    };
+  });
 
 const pointMatchesRange = (point, range) => {
   const tolerance = point.uutTolerance;
@@ -163,120 +180,132 @@ const getPointRow = (point, risk, helpers) => {
   };
 };
 
+// Split a UUT's points (already scoped to one function) into its function
+// ranges, then a trailing bucket for anything that doesn't fall in a declared
+// range. Mirrors the sidebar's UUT node: points live under their owning UUT,
+// grouped by the ranges that UUT exposes for the function.
+const buildUutModel = (uut, uutPoints, functionKey, functionUnit, riskMetricsMap, helpers) => {
+  const categorized = new Set();
+  const ranges = getFunctionRanges(uut, functionKey, functionUnit)
+    .map((range) => {
+      const rangePoints = uutPoints.filter((point) => {
+        if (categorized.has(point.id) || !pointMatchesRange(point, range)) {
+          return false;
+        }
+        categorized.add(point.id);
+        return true;
+      });
+      return {
+        id: range._reportId,
+        label: range.label,
+        rows: rangePoints.map((point) =>
+          getPointRow(point, riskMetricsMap[point.id], helpers),
+        ),
+      };
+    })
+    .filter((range) => range.rows.length);
+
+  const uncategorized = uutPoints.filter((point) => !categorized.has(point.id));
+  if (uncategorized.length) {
+    ranges.push({
+      id: "uncategorized",
+      label: ranges.length ? "Other Points" : "All Points",
+      rows: uncategorized.map((point) =>
+        getPointRow(point, riskMetricsMap[point.id], helpers),
+      ),
+    });
+  }
+
+  return {
+    id: uut.id,
+    name: formatInstrumentIdentity(uut),
+    ranges,
+  };
+};
+
+// Organize the report the same way the app now organizes the workspace:
+// Function (name + unit) -> owning UUT -> range -> points. Functions are the
+// primary axis (matching the sidebar and instrument tables via
+// resolveSessionFunctions); measurement areas are no longer a grouping level.
 export const buildSessionReportModel = (
   session,
   riskMetricsMap = {},
   helpers,
 ) => {
-  const areas = session.measurementAreas || [];
   const uuts = session.uuts || [];
   const points = session.testPoints || [];
-  const assignedPointIds = new Set();
+  const uutById = new Map(uuts.map((uut) => [String(uut.id), uut]));
 
-  const areaModels = areas.map((area) => {
-    const areaUuts = uuts.filter(
-      (uut) =>
-        String(uut.measurementAreaId) === String(area.id) ||
-        (!uut.measurementAreaId && uut.measurementArea === area.name),
-    );
+  // Ordered function identities from the shared source of truth, so report
+  // sections appear in the same order as the on-screen function groups.
+  const functionOrder = resolveSessionFunctions(session);
+  const functionMeta = new Map(functionOrder.map((fn) => [fn.key, fn]));
 
-    const uutModels = areaUuts.map((uut) => {
-      const uutPoints = points.filter((point) =>
-        (point.associatedUutIds || []).some(
-          (id) => String(id) === String(uut.id),
-        ),
-      );
-      const categorized = new Set();
-      const ranges = getAllUutRanges(uut)
-        .map((range) => {
-          const rangePoints = uutPoints.filter((point) => {
-            if (categorized.has(point.id) || !pointMatchesRange(point, range)) {
-              return false;
-            }
-            categorized.add(point.id);
-            assignedPointIds.add(point.id);
-            return true;
-          });
-          return {
-            id: range._reportId,
-            label: range.label,
-            rows: rangePoints.map((point) =>
-              getPointRow(point, riskMetricsMap[point.id], helpers),
-            ),
-          };
-        })
-        .filter((range) => range.rows.length);
+  // functionKey -> Map(uutId -> { uut, points })
+  const grouped = new Map();
+  const ensureFn = (key) => {
+    if (!grouped.has(key)) grouped.set(key, new Map());
+    return grouped.get(key);
+  };
+  const ensureUut = (fnMap, uut) => {
+    const id = String(uut.id);
+    if (!fnMap.has(id)) fnMap.set(id, { uut, points: [] });
+    return fnMap.get(id);
+  };
 
-      const uncategorized = uutPoints.filter(
-        (point) => !categorized.has(point.id),
-      );
-      uncategorized.forEach((point) => assignedPointIds.add(point.id));
-      if (uncategorized.length) {
-        ranges.push({
-          id: "uncategorized",
-          label: "Uncategorized Points",
-          rows: uncategorized.map((point) =>
-            getPointRow(point, riskMetricsMap[point.id], helpers),
-          ),
-        });
-      }
-
-      return {
-        id: uut.id,
-        name: uut.name || uut.description || "Unnamed UUT",
-        description:
-          uut.name && uut.description && uut.name !== uut.description
-            ? uut.description
-            : "",
-        ranges,
-      };
-    });
-
-    const unassigned = points.filter(
-      (point) =>
-        String(point.measurementAreaId) === String(area.id) &&
-        !assignedPointIds.has(point.id),
-    );
-    if (unassigned.length) {
-      uutModels.push({
-        id: "unassigned",
-        name: "Unassigned Points",
-        description: "",
-        ranges: [
-          {
-            id: "unassigned",
-            label: "No UUT / Range",
-            rows: unassigned.map((point) =>
-              getPointRow(point, riskMetricsMap[point.id], helpers),
-            ),
-          },
-        ],
-      });
-      unassigned.forEach((point) => assignedPointIds.add(point.id));
+  // Place each point under its own function -> owning UUT (matches sidebarData).
+  const unassignedPoints = [];
+  points.forEach((point) => {
+    const ownerId = (point.associatedUutIds || [])
+      .map((id) => String(id))
+      .find((id) => uutById.has(id));
+    if (!ownerId) {
+      unassignedPoints.push(point);
+      return;
     }
-
-    return {
-      id: area.id,
-      name: area.name || "Measurement Area",
-      uuts: uutModels.filter((uut) => uut.ranges.length),
-    };
+    const { key } = functionLabelOf(point);
+    ensureUut(ensureFn(key), uutById.get(ownerId)).points.push(point);
   });
 
-  const outsideAreas = points.filter((point) => !assignedPointIds.has(point.id));
-  if (outsideAreas.length) {
-    areaModels.push({
-      id: "unassigned-area",
-      name: "Unassigned Measurement Area",
+  // Emit functions in the resolved order, then any grouped keys not in that set
+  // (defensive) so no point is ever silently dropped from the report.
+  const orderedKeys = [
+    ...functionOrder.map((fn) => fn.key).filter((key) => grouped.has(key)),
+    ...Array.from(grouped.keys()).filter((key) => !functionMeta.has(key)),
+  ];
+
+  const functionModels = orderedKeys
+    .map((key) => {
+      const meta = functionMeta.get(key);
+      const unit = meta?.unit || "";
+      const uutModels = Array.from(grouped.get(key).values())
+        .map(({ uut, points: uutPoints }) =>
+          buildUutModel(uut, uutPoints, key, unit, riskMetricsMap, helpers),
+        )
+        .filter((uut) => uut.ranges.length);
+      return {
+        id: key,
+        name: meta?.name || "Measurement",
+        unit,
+        uuts: uutModels,
+      };
+    })
+    .filter((fn) => fn.uuts.length);
+
+  if (unassignedPoints.length) {
+    functionModels.push({
+      id: "unassigned-function",
+      name: "Unassigned Points",
+      unit: "",
       uuts: [
         {
           id: "unassigned-uut",
-          name: "Unassigned Points",
-          description: "",
+          name: "No UUT",
           ranges: [
             {
               id: "unassigned-range",
               label: "No UUT / Range",
-              rows: outsideAreas.map((point) =>
+              rows: unassignedPoints.map((point) =>
                 getPointRow(point, riskMetricsMap[point.id], helpers),
               ),
             },
@@ -289,7 +318,7 @@ export const buildSessionReportModel = (
   return {
     title: session.name || session.uutDescription || "Uncertainty Session",
     pointCount: points.length,
-    areas: areaModels.filter((area) => area.uuts.length),
+    functions: functionModels,
   };
 };
 
@@ -586,7 +615,7 @@ export const generateOverviewReport = async (
     ["Organization", session.organization || "-"],
     ["Document", session.document || "-"],
     ["Document Date", session.documentDate || "-"],
-    ["Measurement Areas", report.areas.length],
+    ["Functions", report.functions.length],
     ["Measurement Points", report.pointCount],
   ];
 
@@ -631,27 +660,28 @@ export const generateOverviewReport = async (
     ["Calibration Interval", requirements.calInt ?? "-"],
   ]);
 
-  if (!report.areas.length) {
+  if (!report.functions.length) {
     renderer.banner("No measurement points", COLORS.areaFill);
     renderer.finish();
     return;
   }
 
-  report.areas.forEach((area) => {
-    renderer.banner(`Measurement Area: ${area.name}`, COLORS.areaFill, 10);
-    area.uuts.forEach((uut) => {
-      renderer.banner(
-        `UUT: ${uut.name}${uut.description ? ` | ${uut.description}` : ""}`,
-        COLORS.uutFill,
-        8.5,
-      );
+  const functionHeading = (fn) => {
+    const unit = fn.unit ? ` (${getUnitDisplayLabel(fn.unit)})` : "";
+    return `Function: ${fn.name}${unit}`;
+  };
+
+  report.functions.forEach((fn) => {
+    renderer.banner(functionHeading(fn), COLORS.areaFill, 10);
+    fn.uuts.forEach((uut) => {
+      renderer.banner(`UUT: ${uut.name}`, COLORS.uutFill, 8.5);
       uut.ranges.forEach((range) => {
         renderer.ensure(42);
         renderer.text(`Range: ${range.label}`, PAGE.margin + 5, renderer.y - 8, 8, renderer.bold);
         renderer.y -= 14;
         renderer.tableHeader();
         const repeatContext = () => {
-          renderer.text(`Measurement Area: ${area.name}`, PAGE.margin, renderer.y - 8, 8, renderer.bold);
+          renderer.text(functionHeading(fn), PAGE.margin, renderer.y - 8, 8, renderer.bold);
           renderer.y -= 13;
           renderer.text(`UUT: ${uut.name} | Range: ${range.label}`, PAGE.margin, renderer.y - 8, 7.5, renderer.bold);
           renderer.y -= 14;
