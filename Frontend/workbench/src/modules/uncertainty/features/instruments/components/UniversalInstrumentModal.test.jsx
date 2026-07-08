@@ -220,6 +220,37 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(colorInput).toHaveValue("#22c55e");
   });
 
+  test("new instruments save directly as local session instruments", () => {
+    const props = renderModal({
+      mode: "uut",
+      initialData: null,
+      instruments: [],
+    });
+    const [manufacturerInput, modelInput, nameInput] =
+      document.querySelectorAll(".identity-grid input[type='text']");
+
+    fireEvent.change(manufacturerInput, { target: { value: "Acme" } });
+    fireEvent.change(modelInput, { target: { value: "LOCAL-1" } });
+    fireEvent.change(nameInput, { target: { value: "Local UUT" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
+
+    expect(
+      screen.queryByRole("alertdialog", { name: /Save Instrument/i }),
+    ).not.toBeInTheDocument();
+    expect(props.onSave).toHaveBeenCalledOnce();
+    expect(props.onSaveToLibrary).not.toHaveBeenCalled();
+
+    const saved = props.onSave.mock.calls[0][0];
+    expect(saved.libraryInstrumentId).toBeUndefined();
+    expect(saved.instrument).toEqual(
+      expect.objectContaining({
+        scope: "local",
+        localOverride: true,
+      }),
+    );
+    expect(saved.instrument.libraryInstrumentId).toBeUndefined();
+  });
+
   test("adds a range with no pre-populated tolerance components", () => {
     const manualInstrument = {
       ...sessionTmde,
@@ -334,5 +365,12 @@ describe("UniversalInstrumentModal library synchronization", () => {
 
     expect(props.onSave).toHaveBeenCalledOnce();
     expect(props.onSaveToLibrary).not.toHaveBeenCalled();
+    expect(props.onSave.mock.calls[0][0].instrument).toEqual(
+      expect.objectContaining({
+        scope: "local",
+        sourceId: libraryInstrument.id,
+        localOverride: true,
+      }),
+    );
   });
 });

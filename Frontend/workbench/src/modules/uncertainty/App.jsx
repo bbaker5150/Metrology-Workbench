@@ -4185,7 +4185,15 @@ function App() {
                             }}
                             size="sm"
                           />
-                          <span className="area-label">{fnGroup.name}</span>
+                          <span
+                            className="area-label"
+                            style={{
+                              color:
+                                fnGroup.color || "var(--primary-color)",
+                            }}
+                          >
+                            {fnGroup.name}
+                          </span>
                           {fnGroup.unit && (
                             <span
                               style={{

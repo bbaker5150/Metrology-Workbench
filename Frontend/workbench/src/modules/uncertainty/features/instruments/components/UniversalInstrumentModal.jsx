@@ -228,6 +228,7 @@ const UniversalInstrumentModal = ({
         manufacturer: "",
         model: "",
         description: "", 
+        scope: "local",
         functions: []
     });
 
@@ -263,7 +264,7 @@ const UniversalInstrumentModal = ({
             if (initialData) {
                 setViewMode("edit");
                 const loadedInst = initialData.instrument || (initialData.functions ? initialData : null) || {
-                    id: uuidv4(), manufacturer: "", model: "", description: "", functions: []
+                    id: uuidv4(), manufacturer: "", model: "", description: "", scope: "local", functions: []
                 };
                 const existingLibraryId =
                     initialData.libraryInstrumentId ||
@@ -304,7 +305,7 @@ const UniversalInstrumentModal = ({
                     quantity: 1,
                     assetId: ""
                 });
-                setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", functions: [] });
+                setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", scope: "local", functions: [] });
                 setActiveFunctionId(null);
             }
         }
@@ -551,6 +552,7 @@ const UniversalInstrumentModal = ({
             manufacturer: "",
             model: "",
             description: "",
+            scope: "local",
             functions: []
         };
         setInstrumentDef(newInstrument);
@@ -696,12 +698,20 @@ const UniversalInstrumentModal = ({
         setEditingRange(null);
     };
 
-    const buildSaveData = (savedLibraryId = libraryInstrumentId) => {
+    const buildSaveData = (savedLibraryId = libraryInstrumentId, { saveToLibrary = false } = {}) => {
         let finalData = {};
         if (effectiveMode === 'uut' || effectiveMode === 'tmde') {
+            const shouldRemainShared = saveToLibrary && savedLibraryId;
             const sessionInstrument = {
                 ...instrumentDef,
-                ...(savedLibraryId ? { libraryInstrumentId: savedLibraryId } : {})
+                scope: shouldRemainShared ? "validated" : "local",
+                ...(savedLibraryId
+                    ? {
+                        libraryInstrumentId: savedLibraryId,
+                        sourceId: instrumentDef.sourceId || savedLibraryId,
+                    }
+                    : {}),
+                ...(!shouldRemainShared ? { localOverride: true } : { localOverride: false }),
             };
             finalData = {
                 id: initialData?.id || uuidv4(),
@@ -732,7 +742,7 @@ const UniversalInstrumentModal = ({
         const savedLibraryId = saveToLibrary
             ? linkedLibraryInstrument?.id || instrumentDef.id
             : libraryInstrumentId || linkedLibraryInstrument?.id || null;
-        const finalData = buildSaveData(savedLibraryId);
+        const finalData = buildSaveData(savedLibraryId, { saveToLibrary });
         console.log("[UniversalInstrumentModal] Saving Data:", finalData);
         onSave(finalData);
 
@@ -740,6 +750,9 @@ const UniversalInstrumentModal = ({
             onSaveToLibrary({
                 ...instrumentDef,
                 id: savedLibraryId,
+                scope: "validated",
+                sourceId: savedLibraryId,
+                localOverride: false,
                 description: linkedLibraryInstrument?.description || metaData.name,
                 measurementArea:
                     linkedLibraryInstrument?.measurementArea || metaData.measurementArea,
@@ -761,7 +774,8 @@ const UniversalInstrumentModal = ({
         if (
             (effectiveMode === 'uut' || effectiveMode === 'tmde') &&
             onSaveToLibrary &&
-            (!isInstrumentInLibrary || hasLibraryChanges)
+            isInstrumentInLibrary &&
+            hasLibraryChanges
         ) {
             setPendingInstrumentSave(true);
             return;
