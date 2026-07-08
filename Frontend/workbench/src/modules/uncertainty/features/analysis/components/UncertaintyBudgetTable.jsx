@@ -776,7 +776,12 @@ const UncertaintyBudgetTable = ({
 
   const canAddTmdeForGroup = (group) =>
     Boolean(onAddTmdeToBudget) &&
-    ((measurementType === "derived" && group.kind === "input") ||
+    // Derived: TMDEs are assigned per input variable; the final budget's "+"
+    // exists so the derived UUT's own measuring resolution can be added there
+    // (matching the direct final budget), instead of a nominal-scaling manual
+    // component.
+    ((measurementType === "derived" &&
+      (group.kind === "input" || group.kind === "final")) ||
       (measurementType === "direct" && group.kind === "final"));
 
   const renderSectionSettings = (group) => {

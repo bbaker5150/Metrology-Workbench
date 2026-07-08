@@ -9535,22 +9535,33 @@ function DetailedView({
   const openBudgetTmdePicker = useCallback(
     (scope, event = null, pickerOptions = {}) => {
       const functionKey = budgetFunctionKey(scope);
+      // The derived FINAL budget scope carries no variableType (input-variable
+      // scopes always do). The UUT's own measuring resolution belongs to that
+      // final budget — not to any single equation input — and equation TMDEs are
+      // assigned per input, so the final scope offers ONLY resolution sources.
+      const isDerivedFinalScope = isDerived && !scope?.variableType;
       const byLabel = (a, b) =>
         getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b));
       const isMatch = isDerived
         ? (tmde) => tmdeMatchesUnit(tmde, scope?.nominalPoint?.unit || "")
         : (tmde) => tmdeSupportsFunction(tmde, functionKey);
-      const options = relevantTmdes.filter(isMatch).sort(byLabel);
+      const options = isDerivedFinalScope
+        ? []
+        : relevantTmdes.filter(isMatch).sort(byLabel);
       // Non-matching TMDEs stay reachable in a secondary section — the picker
       // suggests, it doesn't censor (deliberate cross-function/cross-unit
       // assignments are legitimate).
-      const otherOptions = relevantTmdes
-        .filter((tmde) => !isMatch(tmde))
-        .sort(byLabel);
-      // The UUT's measuring resolution is offered here too (direct points only),
-      // so the user adds every kind of uncertainty source from one organized
-      // menu instead of a separate per-spec checkbox.
-      const resolutionDetail = isDerived ? null : getPointResolutionDetail(uutToleranceData);
+      const otherOptions = isDerivedFinalScope
+        ? []
+        : relevantTmdes.filter((tmde) => !isMatch(tmde)).sort(byLabel);
+      // The UUT's measuring resolution is offered for direct points AND for the
+      // derived final budget (where the derived UUT's rounding lives). Modeling
+      // it as a proper resolution component keeps it absolute (LSD/2/divisor,
+      // nominal-independent) rather than a nominal-scaling manual PPM value.
+      const resolutionDetail =
+        isDerived && !isDerivedFinalScope
+          ? null
+          : getPointResolutionDetail(uutToleranceData);
       const resolutionOption =
         resolutionDetail && !resolutionDetail.included ? resolutionDetail : null;
 
