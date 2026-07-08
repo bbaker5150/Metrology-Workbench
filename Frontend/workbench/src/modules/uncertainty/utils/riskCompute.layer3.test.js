@@ -119,6 +119,25 @@ describe("computePointRiskMetrics Layer 3 integration", () => {
     expect(metrics.gbPfa).toBeLessThanOrEqual(2 * 1.2);
   });
 
+  it("returns mitigation interval and reliability fields with guardband metrics", () => {
+    const metrics = computePointRiskMetrics(
+      makePoint(),
+      {
+        ...sessionData,
+        uncReq: {
+          ...sessionData.uncReq,
+          calInt: 12,
+          measRelCalcAssumed: 90,
+        },
+      },
+      true,
+    );
+
+    expect(metrics.gbCalInt).toBeTypeOf("number");
+    expect(metrics.noGbCalInt).toBeTypeOf("number");
+    expect(metrics.noGbMeasRel).toBeTypeOf("number");
+  });
+
   it("goes stale when the equation changes after the simulation", () => {
     const point = attachFreshSummary(
       makePoint({ propagationMode: "montecarlo" }),

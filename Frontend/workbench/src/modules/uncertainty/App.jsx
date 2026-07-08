@@ -137,12 +137,15 @@ const getSidebarGridTemplate = (visibleColumns) => {
   if (visibleColumns.tur) parts.push("55px");
   if (visibleColumns.tar) parts.push("55px");
 
-  // Guardband columns
+  // Mitigation columns
   if (visibleColumns.gbPfa) parts.push("60px");
   if (visibleColumns.gbPfr) parts.push("60px");
   if (visibleColumns.gbMult) parts.push("60px");
   if (visibleColumns.gbLow) parts.push("minmax(60px, 0.8fr)");
   if (visibleColumns.gbHigh) parts.push("minmax(60px, 0.8fr)");
+  if (visibleColumns.gbCalInt) parts.push("64px");
+  if (visibleColumns.noGbCalInt) parts.push("70px");
+  if (visibleColumns.noGbMeasRel) parts.push("64px");
 
   if (parts.length === 0) return "1fr";
   return parts.join(" ");
@@ -171,6 +174,9 @@ const getMinSidebarWidth = (visibleColumns) => {
   if (visibleColumns.gbMult) width += 65;
   if (visibleColumns.gbLow) width += 70;
   if (visibleColumns.gbHigh) width += 70;
+  if (visibleColumns.gbCalInt) width += 70;
+  if (visibleColumns.noGbCalInt) width += 76;
+  if (visibleColumns.noGbMeasRel) width += 70;
 
   // Add extra buffer for gaps (4px per column gap)
   const columnCount = Object.values(visibleColumns).filter(Boolean).length;
@@ -226,6 +232,9 @@ const DEFAULT_SIDEBAR_COLUMNS = {
   gbMult: false,
   gbLow: false,
   gbHigh: false,
+  gbCalInt: false,
+  noGbCalInt: false,
+  noGbMeasRel: false,
 };
 const DEFAULT_SIDEBAR_SORT = { key: "section", direction: "asc" };
 
@@ -380,6 +389,9 @@ const SidebarPointItem = ({
     pfr: false,
     tur: false,
     tar: false,
+    gbCalInt: false,
+    noGbCalInt: false,
+    noGbMeasRel: false,
   },
 }) => {
   // 'section' | 'value' | 'qualifier' | null. A freshly quick-added direct point
@@ -522,6 +534,16 @@ const SidebarPointItem = ({
     if (val < 4) return "var(--status-warning)";
     return "var(--status-good)";
   };
+
+  const formatMitigationNumber = (value, digits = 1) =>
+    value !== undefined && value !== null && Number.isFinite(Number(value))
+      ? Number(value).toFixed(digits)
+      : "-";
+
+  const formatMitigationPercent = (value, digits = 1) =>
+    value !== undefined && value !== null && Number.isFinite(Number(value))
+      ? `${Number(value).toFixed(digits)}%`
+      : "-";
 
   // Calculate Metrics
   const toleranceSummary = React.useMemo(() => {
@@ -846,6 +868,33 @@ const SidebarPointItem = ({
           onClick={(e) => handleMetricClick(e, "gbhigh")}
         >
           {risk.gbHigh !== undefined ? Number(risk.gbHigh).toPrecision(4) : "-"}
+        </span>
+      )}
+      {visibleColumns.gbCalInt && (
+        <span
+          className="point-risk-metric point-risk-metric-clickable"
+          title="Calibration Interval with Guard Banding"
+          onClick={(e) => handleMetricClick(e, "gbcalint")}
+        >
+          {formatMitigationNumber(risk.gbCalInt)}
+        </span>
+      )}
+      {visibleColumns.noGbCalInt && (
+        <span
+          className="point-risk-metric point-risk-metric-clickable"
+          title="Calibration Interval without Guard Banding"
+          onClick={(e) => handleMetricClick(e, "calint")}
+        >
+          {formatMitigationNumber(risk.noGbCalInt)}
+        </span>
+      )}
+      {visibleColumns.noGbMeasRel && (
+        <span
+          className="point-risk-metric point-risk-metric-clickable"
+          title="Measurement Reliability Needed without Guard Banding"
+          onClick={(e) => handleMetricClick(e, "measrel")}
+        >
+          {formatMitigationPercent(risk.noGbMeasRel)}
         </span>
       )}
     </div>
@@ -1232,6 +1281,9 @@ function App() {
     gbMult: false,
     gbLow: false,
     gbHigh: false,
+    gbCalInt: false,
+    noGbCalInt: false,
+    noGbMeasRel: false,
   });
   const [sidebarSort, setSidebarSort] = useState(DEFAULT_SIDEBAR_SORT);
   const hasAnySectionedPoint = useMemo(
@@ -1254,24 +1306,27 @@ function App() {
   // needing to be clicked (#1).
   // Guardband is iterative/expensive, so only compute it for the sidebar when at
   // least one guardband column is actually enabled in the filter.
-  const guardbandColumnsEnabled =
+  const mitigationColumnsEnabled =
     sidebarColumns.gbPfa ||
     sidebarColumns.gbPfr ||
     sidebarColumns.gbMult ||
     sidebarColumns.gbLow ||
-    sidebarColumns.gbHigh;
+    sidebarColumns.gbHigh ||
+    sidebarColumns.gbCalInt ||
+    sidebarColumns.noGbCalInt ||
+    sidebarColumns.noGbMeasRel;
   const pointRiskMap = useMemo(
     () =>
       computeRiskMetricsMap(
         currentTestPoints,
         currentSessionData,
-        guardbandColumnsEnabled,
+        mitigationColumnsEnabled,
       ),
     [
       currentTestPoints,
       currentSessionData?.uncReq,
       currentSessionData?.uutTolerance,
-      guardbandColumnsEnabled,
+      mitigationColumnsEnabled,
     ],
   );
 
@@ -1310,6 +1365,9 @@ function App() {
         case "gbMult":
         case "gbLow":
         case "gbHigh":
+        case "gbCalInt":
+        case "noGbCalInt":
+        case "noGbMeasRel":
           return risk[key];
         default:
           return "";
@@ -3615,6 +3673,16 @@ function App() {
         renderSidebarSortHeader("gbLow", "GB Low")}
       {visibleSidebarColumns.gbHigh &&
         renderSidebarSortHeader("gbHigh", "GB High")}
+      {visibleSidebarColumns.gbCalInt &&
+        renderSidebarSortHeader("gbCalInt", "GB Cal", { align: "center" })}
+      {visibleSidebarColumns.noGbCalInt &&
+        renderSidebarSortHeader("noGbCalInt", "No GB Cal", {
+          align: "center",
+        })}
+      {visibleSidebarColumns.noGbMeasRel &&
+        renderSidebarSortHeader("noGbMeasRel", "Req Rel", {
+          align: "center",
+        })}
     </div>
   );
 
@@ -4047,13 +4115,16 @@ function App() {
                               ],
                             },
                             {
-                              group: "Guardband",
+                              group: "Mitigation",
                               cols: [
                                 { key: "gbPfa", label: "PFA w/ GB" },
                                 { key: "gbPfr", label: "PFR w/ GB" },
                                 { key: "gbMult", label: "GB Multiplier" },
                                 { key: "gbLow", label: "GB Low Limit" },
                                 { key: "gbHigh", label: "GB High Limit" },
+                                { key: "gbCalInt", label: "GB Cal Interval" },
+                                { key: "noGbCalInt", label: "No GB Cal Int." },
+                                { key: "noGbMeasRel", label: "Req. Meas Rel." },
                               ],
                             },
                           ].map((section) => (

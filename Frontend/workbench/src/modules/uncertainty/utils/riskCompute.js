@@ -35,6 +35,9 @@ import {
   GBMultMgr,
   PFAwGBMgr,
   PFRwGBMgr,
+  CalIntwGBMgr,
+  CalIntMgr,
+  CalRelMgr,
 } from "./uncertaintyMath";
 import {
   getBudgetComponentsFromTolerance,
@@ -328,6 +331,8 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
 
   const reliability = parseFloat(sessionData.uncReq?.reliability) / 100;
   const turNeeded = parseFloat(sessionData.uncReq?.neededTUR);
+  const calInt = parseFloat(sessionData.uncReq?.calInt);
+  const measRelCalc = parseFloat(sessionData.uncReq?.measRelCalcAssumed) / 100;
   if (isNaN(reliability) || reliability <= 0 || reliability >= 1) return null;
 
   const nominalUnit = uutNominal.unit;
@@ -590,12 +595,67 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
           gbHigh,
         );
         const gbMultNum = toNum(gbMult);
+        const [gbCalInt] =
+          Number.isFinite(calInt) && Number.isFinite(measRelCalc)
+            ? CalIntwGBMgr(
+                uutNominal.value,
+                riskAverage,
+                LLow,
+                LUp,
+                uCal_Native,
+                reliability,
+                measRelCalc,
+                gbLow,
+                gbHigh,
+                turResult,
+                turNeeded,
+                calInt,
+              )
+            : [];
+        const [noGbCalInt] =
+          Number.isFinite(calInt) && Number.isFinite(measRelCalc)
+            ? CalIntMgr(
+                uutNominal.value,
+                riskAverage,
+                LLow,
+                LUp,
+                uCal_Native,
+                reliability,
+                measRelCalc,
+                turResult,
+                turNeeded,
+                calInt,
+                pfaRequired,
+              )
+            : [];
+        const [noGbMeasRel] =
+          Number.isFinite(calInt) && Number.isFinite(measRelCalc)
+            ? CalRelMgr(
+                uutNominal.value,
+                riskAverage,
+                LLow,
+                LUp,
+                uCal_Native,
+                reliability,
+                measRelCalc,
+                turResult,
+                turNeeded,
+                calInt,
+                pfaRequired,
+              )
+            : [];
         guardband = {
           gbLow: toNum(gbLow),
           gbHigh: toNum(gbHigh),
           gbMult: gbMultNum !== undefined ? gbMultNum * 100 : undefined,
           gbPfa: gbPfa !== undefined ? gbPfa * 100 : undefined,
           gbPfr: gbPfr !== undefined ? gbPfr * 100 : undefined,
+          gbCalInt: toNum(gbCalInt),
+          noGbCalInt: toNum(noGbCalInt),
+          noGbMeasRel:
+            toNum(noGbMeasRel) !== undefined
+              ? toNum(noGbMeasRel) * 100
+              : undefined,
         };
       } catch {
         guardband = undefined;
