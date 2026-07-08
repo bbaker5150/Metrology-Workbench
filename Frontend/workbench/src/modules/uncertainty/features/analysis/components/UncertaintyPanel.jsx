@@ -9078,6 +9078,40 @@ function DetailedView({
 
   const handleVariableNominalUpdate = (symbol, field, value, variableName = "") => {
     const current = getVariableNominal(symbol, variableName);
+    const varType = String(variableName || "").trim();
+    const prevValue = current.value ?? "";
+    const prevUnit = current.unit ?? "";
+
+    // Keep the measurement point of any TMDE instances assigned to this variable
+    // in step with the nominal as the user types it. Without this, an instance
+    // assigned before the nominal existed keeps an empty measurementPoint, so its
+    // input budget reads N/A until the TMDE is reassigned. Only refresh instances
+    // that still track the variable nominal (an empty point, or one still equal to
+    // the previous nominal) so manually-entered additive per-source values on a
+    // multi-source variable are preserved.
+    let nextTmdeTolerances = tmdeTolerancesData;
+    if (varType) {
+      let changed = false;
+      const patched = tmdeTolerancesData.map((tmde) => {
+        if (String(tmde.variableType || "").trim() !== varType) return tmde;
+        const mp = tmde.measurementPoint || { value: "", unit: "" };
+        const mpValue = mp.value ?? "";
+        const mpUnit = mp.unit ?? "";
+        if (field === "value") {
+          const tracks = mpValue === "" || String(mpValue) === String(prevValue);
+          if (!tracks) return tmde;
+        } else if (field === "unit") {
+          const tracks = mpUnit === "" || String(mpUnit) === String(prevUnit);
+          if (!tracks) return tmde;
+        } else {
+          return tmde;
+        }
+        changed = true;
+        return { ...tmde, measurementPoint: { ...mp, [field]: value } };
+      });
+      if (changed) nextTmdeTolerances = patched;
+    }
+
     onUpdateTestPoint?.({
       variableNominals: {
         ...(testPointData.variableNominals || {}),
@@ -9086,6 +9120,9 @@ function DetailedView({
           [field]: value,
         },
       },
+      ...(nextTmdeTolerances !== tmdeTolerancesData
+        ? { tmdeTolerances: nextTmdeTolerances }
+        : {}),
     });
   };
 

@@ -1,3 +1,26 @@
+// Cached uncertainty-calculation outputs. These are derived from the point's
+// inputs (equation, nominals, tolerances) AND its target UUT range, so they go
+// stale the moment a point is copied or moved to a different UUT/range. Only the
+// point currently open in the Detailed View recomputes, so a pasted point would
+// otherwise keep displaying the SOURCE point's numbers until it is opened. We
+// clear them on paste so the copy reads "not calculated" and recomputes cleanly
+// when opened, rather than silently showing a stale/wrong result.
+const CALCULATION_CACHE_FIELDS = [
+  "is_detailed_uncertainty_calculated",
+  "calculatedNominalValue",
+  "calculatedBudgetComponents",
+  "calculatedBudgetGroups",
+  "combined_uncertainty",
+  "combined_uncertainty_absolute_base",
+  "combined_uncertainty_inputs_native",
+  "combined_uncertainty_inputs_base",
+  "effective_dof",
+  "k_value",
+  "expanded_uncertainty",
+  "expanded_uncertainty_absolute_base",
+  "secondOrder",
+];
+
 export const preparePointForPaste = (
   point,
   { mode, targetUutId, targetAreaId, targetTolerance },
@@ -8,6 +31,13 @@ export const preparePointForPaste = (
     associatedUutIds: [targetUutId],
     uutTolerance: targetTolerance,
   };
+
+  // A pasted point may land on a different UUT/range than the source, so any
+  // cached calculation is no longer valid — drop it and let it recompute.
+  CALCULATION_CACHE_FIELDS.forEach((field) => {
+    delete preparedPoint[field];
+  });
+  preparedPoint.is_detailed_uncertainty_calculated = false;
 
   if (mode === "copy") {
     delete preparedPoint.id;

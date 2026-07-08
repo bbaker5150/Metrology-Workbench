@@ -24,6 +24,7 @@ describe("preparePointForPaste", () => {
       measurementAreaId: "area-2",
       associatedUutIds: ["uut-2"],
       uutTolerance: { max: 100 },
+      is_detailed_uncertainty_calculated: false,
     });
   });
 
@@ -40,7 +41,40 @@ describe("preparePointForPaste", () => {
       measurementAreaId: "area-2",
       associatedUutIds: ["uut-2"],
       uutTolerance: { max: 100 },
+      is_detailed_uncertainty_calculated: false,
     });
+  });
+
+  it("clears cached calculation results so the paste recomputes", () => {
+    const calculatedPoint = {
+      ...point,
+      is_detailed_uncertainty_calculated: true,
+      calculatedNominalValue: 42,
+      calculatedBudgetComponents: [{ id: "c1" }],
+      calculatedBudgetGroups: [{ id: "g1" }],
+      combined_uncertainty: 1.2,
+      expanded_uncertainty: 2.4,
+      k_value: 2,
+      effective_dof: 10,
+      secondOrder: { u: 0.1 },
+    };
+
+    const prepared = preparePointForPaste(calculatedPoint, {
+      mode: "copy",
+      targetUutId: "uut-2",
+      targetAreaId: "area-2",
+      targetTolerance: { max: 100 },
+    });
+
+    expect(prepared.is_detailed_uncertainty_calculated).toBe(false);
+    expect(prepared).not.toHaveProperty("calculatedNominalValue");
+    expect(prepared).not.toHaveProperty("calculatedBudgetComponents");
+    expect(prepared).not.toHaveProperty("calculatedBudgetGroups");
+    expect(prepared).not.toHaveProperty("combined_uncertainty");
+    expect(prepared).not.toHaveProperty("expanded_uncertainty");
+    expect(prepared).not.toHaveProperty("k_value");
+    expect(prepared).not.toHaveProperty("effective_dof");
+    expect(prepared).not.toHaveProperty("secondOrder");
   });
 });
 
