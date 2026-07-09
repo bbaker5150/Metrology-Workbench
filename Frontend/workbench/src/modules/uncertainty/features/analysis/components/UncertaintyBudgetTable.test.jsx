@@ -1,6 +1,28 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
+
+// ContributionPlot draws with the real Plotly bundle; stub it so the budget
+// table tests stay fast and deterministic (they only assert the graph mounts).
+vi.mock("plotly.js-dist", () => ({
+  default: {
+    react: vi.fn(),
+    purge: vi.fn(),
+    Plots: { resize: vi.fn() },
+    Icons: { camera: { width: 1000, path: "" } },
+    toImage: vi.fn(),
+  },
+}));
+
+beforeAll(() => {
+  if (!window.ResizeObserver) {
+    window.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  }
+});
 
 const renderDirectBudget = (overrides = {}) => {
   const props = {

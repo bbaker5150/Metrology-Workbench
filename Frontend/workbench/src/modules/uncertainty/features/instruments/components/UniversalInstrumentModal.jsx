@@ -1552,6 +1552,11 @@ const UniversalInstrumentModal = ({
     const [pendingSync, setPendingSync] = useState(null);
     const [syncNotice, setSyncNotice] = useState(null);
     const [pendingInstrumentSave, setPendingInstrumentSave] = useState(false);
+    // Password prompt for writing an instrument to the validated (shared) library
+    // from the builder. Any save that promotes/updates the shared definition is
+    // password-gated by the backend, so it must be collected here first.
+    const [pendingLibraryPassword, setPendingLibraryPassword] = useState(false);
+    const [libraryPasswordError, setLibraryPasswordError] = useState("");
     const [libraryInstrumentId, setLibraryInstrumentId] = useState(null);
     const [initialInstrumentSignature, setInitialInstrumentSignature] = useState("");
 
@@ -1594,6 +1599,8 @@ const UniversalInstrumentModal = ({
             setPendingSync(null);
             setSyncNotice(null);
             setPendingInstrumentSave(false);
+            setPendingLibraryPassword(false);
+            setLibraryPasswordError("");
 
             if (mode === 'library') {
                 setViewMode("list");
@@ -2122,34 +2129,73 @@ const UniversalInstrumentModal = ({
         return finalData;
     };
 
-    const completeSave = (saveToLibrary = false) => {
-        const savedLibraryId = saveToLibrary
-            ? linkedLibraryInstrument?.id || instrumentDef.id
-            : libraryInstrumentId || linkedLibraryInstrument?.id || null;
-        const finalData = buildSaveData(savedLibraryId, { saveToLibrary });
+    // Session-only save (never writes the shared library). Writing an instrument
+    // to the validated library is password-gated and handled by
+    // completeLibrarySave; this path keeps the edit local to the session.
+    const completeSave = () => {
+        const savedLibraryId =
+            libraryInstrumentId || linkedLibraryInstrument?.id || null;
+        const finalData = buildSaveData(savedLibraryId, { saveToLibrary: false });
         console.log("[UniversalInstrumentModal] Saving Data:", finalData);
         onSave(finalData);
-
-        if (saveToLibrary && onSaveToLibrary) {
-            onSaveToLibrary({
-                ...instrumentDef,
-                id: savedLibraryId,
-                scope: "validated",
-                sourceId: savedLibraryId,
-                localOverride: false,
-                description: linkedLibraryInstrument?.description || metaData.name,
-                measurementArea:
-                    linkedLibraryInstrument?.measurementArea || metaData.measurementArea,
-                measurementAreaColor:
-                    linkedLibraryInstrument?.measurementAreaColor ||
-                    metaData.measurementAreaColor,
-                type: 'library'
-            });
-        }
 
         setLibraryInstrumentId(savedLibraryId);
         setPendingInstrumentSave(false);
         onClose();
+    };
+
+    // Push the edited definition up to the validated (shared) library. The
+    // backend rejects validated writes without the shared-library password, so
+    // the password is collected first (pendingLibraryPassword) and passed here.
+    // On success the session copy is saved too; on failure we keep the prompt
+    // open with an inline error so the user can retry.
+    const completeLibrarySave = async (password) => {
+        const savedLibraryId = linkedLibraryInstrument?.id || instrumentDef.id;
+        const libraryInstrument = {
+            ...instrumentDef,
+            id: savedLibraryId,
+            scope: "validated",
+            sourceId: savedLibraryId,
+            localOverride: false,
+            description: linkedLibraryInstrument?.description || metaData.name,
+            measurementArea:
+                linkedLibraryInstrument?.measurementArea || metaData.measurementArea,
+            measurementAreaColor:
+                linkedLibraryInstrument?.measurementAreaColor ||
+                metaData.measurementAreaColor,
+            type: 'library'
+        };
+
+        const result = await syncToShared(libraryInstrument, password);
+        if (!result.ok) {
+            setLibraryPasswordError(
+                result.message ||
+                    (result.reason === "password"
+                        ? "Invalid shared-library password."
+                        : "Could not reach the shared library. Try again."),
+            );
+            return;
+        }
+
+        // Shared library updated — now persist the session copy as a linked,
+        // validated instrument so this session stays in sync with the library.
+        const finalData = buildSaveData(savedLibraryId, { saveToLibrary: true });
+        console.log("[UniversalInstrumentModal] Saving Data:", finalData);
+        onSave(finalData);
+
+        setLibraryInstrumentId(savedLibraryId);
+        setLibraryPasswordError("");
+        setPendingLibraryPassword(false);
+        setPendingInstrumentSave(false);
+        onClose();
+    };
+
+    // Transition from the "update library vs session only" choice into the
+    // password prompt for the shared-library write.
+    const promptLibraryPassword = () => {
+        setPendingInstrumentSave(false);
+        setLibraryPasswordError("");
+        setPendingLibraryPassword(true);
     };
 
     const handleSave = () => {
@@ -2165,7 +2211,7 @@ const UniversalInstrumentModal = ({
             return;
         }
 
-        completeSave(false);
+        completeSave();
     };
 
     const toggleFunctionDetails = (e, instId, funcId) => {
@@ -2700,10 +2746,36 @@ const UniversalInstrumentModal = ({
                         ? "Update Library & Session"
                         : "Save to Library & Session"
                 }
-                onConfirm={() => completeSave(true)}
+                onConfirm={promptLibraryPassword}
                 secondaryText="Session Only"
-                onSecondary={() => completeSave(false)}
+                onSecondary={() => completeSave()}
                 secondaryIsPrimary={true}
+            />
+            <NotificationModal
+                isOpen={pendingLibraryPassword}
+                onClose={() => {
+                    setPendingLibraryPassword(false);
+                    setLibraryPasswordError("");
+                }}
+                title={isInstrumentInLibrary ? "Update Shared Library" : "Save to Shared Library"}
+                message={
+                    `${libraryPasswordError ? `${libraryPasswordError} ` : ""}Enter the shared-library password to ${
+                        isInstrumentInLibrary ? "update" : "save"
+                    } “${
+                        metaData.name ||
+                        `${instrumentDef.manufacturer || ""} ${instrumentDef.model || ""}`.trim() ||
+                        "this instrument"
+                    }” in the shared library.`
+                }
+                inputLabel="Shared library password"
+                inputPlaceholder="Password"
+                confirmText={
+                    isInstrumentInLibrary
+                        ? "Update Library & Session"
+                        : "Save to Library & Session"
+                }
+                validateInput={(value) => (!value.trim() ? "Password is required." : "")}
+                onConfirm={completeLibrarySave}
             />
             <NotificationModal
                 isOpen={!!pendingSync}

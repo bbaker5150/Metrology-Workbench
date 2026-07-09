@@ -1,4 +1,5 @@
 import { useMemo, useEffect, useRef, useCallback } from "react";
+import Plotly from "plotly.js-dist";
 import { useTheme } from "../../../context/ThemeContext";
 
 const PercentageBarGraph = ({ data, unit = "" }) => {
@@ -159,7 +160,7 @@ const PercentageBarGraph = ({ data, unit = "" }) => {
     try {
         // Step 1: Get the SVG as a 'data:' URI (Allowed by most CSPs, unlike 'blob:')
         // We use 'svg' format here because Plotly uses blobs for PNG generation, which fails.
-        const svgDataUrl = await window.Plotly.toImage(gd, {
+        const svgDataUrl = await Plotly.toImage(gd, {
             format: 'svg',
             height: 500,
             width: 700,
@@ -204,7 +205,7 @@ const PercentageBarGraph = ({ data, unit = "" }) => {
   }, [themeColors]);
 
   const plotConfig = useMemo(() => {
-    const cameraIcon = window.Plotly?.Icons?.camera || {
+    const cameraIcon = Plotly?.Icons?.camera || {
         width: 1000,
         path: "M500 750q104 0 177-73t73-177-73-177-177-73-177 73-73 177 73 177 177 73zm0-417q70 0 119 49t49 119-49 119-119 49-119-49-49-119 49-119 119-49z"
     };
@@ -224,11 +225,46 @@ const PercentageBarGraph = ({ data, unit = "" }) => {
     };
   }, [handleDownload]); // Re-create config if handler changes
 
+  // Draw/redraw the chart whenever its data, layout, or config changes. Plotly
+  // is imported directly (see top of file) rather than read off `window` — the
+  // app never assigns `window.Plotly`, so the old global lookup silently no-oped
+  // and the chart never appeared.
   useEffect(() => {
-    if (window.Plotly && plotContainer.current && plotData.length > 0) {
-      window.Plotly.react(plotContainer.current, plotData, plotLayout, plotConfig);
+    const el = plotContainer.current;
+    if (!el || plotData.length === 0) return;
+    try {
+      Plotly.react(el, plotData, plotLayout, plotConfig);
+    } catch (err) {
+      console.error("Failed to render contribution plot", err);
     }
   }, [plotData, plotLayout, plotConfig]);
+
+  // Keep the plot sized to its container (it lives in a flex column whose width
+  // settles after first paint) and tear it down on unmount so no stale chart or
+  // resize observer leaks.
+  useEffect(() => {
+    const el = plotContainer.current;
+    if (!el) return undefined;
+    let observer;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(() => {
+        try {
+          Plotly.Plots.resize(el);
+        } catch {
+          /* not drawn yet */
+        }
+      });
+      observer.observe(el);
+    }
+    return () => {
+      observer?.disconnect();
+      try {
+        Plotly.purge(el);
+      } catch {
+        /* nothing to purge */
+      }
+    };
+  }, []);
 
   if (processedData.percentages.length === 0) {
       return (

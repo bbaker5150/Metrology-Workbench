@@ -409,7 +409,73 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(props.onSave).not.toHaveBeenCalled();
   });
 
-  test("updates the linked library instrument without changing its id", () => {
+  test("updates the linked library instrument through the password gate", async () => {
+    axios.post.mockResolvedValueOnce({
+      data: {
+        ...libraryInstrument,
+        scope: "validated",
+        sourceId: libraryInstrument.id,
+      },
+    });
+    const onInstrumentSynced = vi.fn();
+    const props = renderModal({ onInstrumentSynced });
+
+    changeResolution("0.01");
+    fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
+    // Choosing "Update Library & Session" opens the shared-library password gate
+    // rather than writing straight to the validated library (which 403s).
+    fireEvent.click(
+      screen.getByRole("button", { name: /Update Library & Session/i }),
+    );
+
+    expect(props.onSave).not.toHaveBeenCalled();
+    expect(props.onSaveToLibrary).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Shared library password"), {
+      target: { value: "calibrate" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Update Library & Session/i }),
+    );
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining("/instruments/"),
+        expect.objectContaining({
+          id: libraryInstrument.id,
+          scope: "validated",
+          sourceId: libraryInstrument.id,
+          password: "calibrate",
+          functions: [
+            expect.objectContaining({
+              ranges: [
+                expect.objectContaining({
+                  resolution: "0.01",
+                }),
+              ],
+            }),
+          ],
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(props.onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          libraryInstrumentId: libraryInstrument.id,
+          instrument: expect.objectContaining({
+            libraryInstrumentId: libraryInstrument.id,
+          }),
+        }),
+      );
+    });
+    expect(props.onSaveToLibrary).not.toHaveBeenCalled();
+  });
+
+  test("keeps the password prompt open when the shared library rejects it", async () => {
+    axios.post.mockRejectedValueOnce({
+      response: { status: 403, data: { detail: "Invalid shared-library password." } },
+    });
     const props = renderModal();
 
     changeResolution("0.01");
@@ -418,28 +484,22 @@ describe("UniversalInstrumentModal library synchronization", () => {
       screen.getByRole("button", { name: /Update Library & Session/i }),
     );
 
-    expect(props.onSave).toHaveBeenCalledWith(
-      expect.objectContaining({
-        libraryInstrumentId: libraryInstrument.id,
-        instrument: expect.objectContaining({
-          libraryInstrumentId: libraryInstrument.id,
-        }),
-      }),
+    fireEvent.change(screen.getByLabelText("Shared library password"), {
+      target: { value: "wrong" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Update Library & Session/i }),
     );
-    expect(props.onSaveToLibrary).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: libraryInstrument.id,
-        functions: [
-          expect.objectContaining({
-            ranges: [
-              expect.objectContaining({
-                resolution: "0.01",
-              }),
-            ],
-          }),
-        ],
-      }),
-    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Invalid shared-library password\./i),
+      ).toBeInTheDocument();
+    });
+    // Neither the session nor the library was written on a rejected password.
+    expect(props.onSave).not.toHaveBeenCalled();
+    expect(props.onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Shared library password")).toBeInTheDocument();
   });
 
   test("session-only keeps the library unchanged", () => {
