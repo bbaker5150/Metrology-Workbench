@@ -522,6 +522,140 @@ export const getBudgetComponentsFromTolerance = (
   return budgetComponents;
 };
 
+const sameId = (left, right) =>
+  left !== undefined &&
+  left !== null &&
+  right !== undefined &&
+  right !== null &&
+  String(left) === String(right);
+
+const instrumentIdentityMatches = (left = {}, right = {}) =>
+  Boolean(left.manufacturer || left.model) &&
+  String(left.manufacturer || "") === String(right.manufacturer || "") &&
+  String(left.model || "") === String(right.model || "");
+
+const findFreshTypeBListForTmde = (
+  sourceTmdeId,
+  tmdeTolerances = [],
+  sessionTmdes = [],
+  instruments = [],
+) => {
+  const pointInstance = (tmdeTolerances || []).find(
+    (tmde) => sameId(tmde?.id, sourceTmdeId) || sameId(tmde?.sourceId, sourceTmdeId),
+  );
+  const masterId = pointInstance?.sourceId ?? sourceTmdeId;
+  const sessionMaster = (sessionTmdes || []).find(
+    (tmde) => sameId(tmde?.id, masterId) || sameId(tmde?.sourceId, masterId),
+  );
+  const sourceInstrument =
+    sessionMaster?.instrument ||
+    pointInstance?.instrument ||
+    pointInstance?.sourceInstrument ||
+    {};
+  const linkId =
+    sourceInstrument.libraryInstrumentId ||
+    sourceInstrument.sourceId ||
+    sourceInstrument.id;
+  const libraryInstrument = (instruments || []).find((instrument) => {
+    const candidateLink =
+      instrument.libraryInstrumentId || instrument.sourceId || instrument.id;
+    return (
+      (linkId && sameId(candidateLink, linkId)) ||
+      (sourceInstrument.sourceId && sameId(instrument.sourceId, sourceInstrument.sourceId)) ||
+      instrumentIdentityMatches(instrument, sourceInstrument)
+    );
+  });
+
+  const lists = [
+    sessionMaster?.instrument?.typeBComponents,
+    pointInstance?.instrument?.typeBComponents,
+    pointInstance?.sourceInstrument?.typeBComponents,
+    pointInstance?.typeBComponents,
+    libraryInstrument?.typeBComponents,
+  ];
+  const list = lists.find((candidate) => Array.isArray(candidate));
+  return { list: list || [], sourceFound: Array.isArray(list) };
+};
+
+const updateSourcePointLabel = (component, name) => {
+  if (!component.variableType) return name;
+  const prefix = String(component.sourcePointLabel || "").split(" - ")[0];
+  return prefix && prefix !== component.sourcePointLabel
+    ? `${prefix} - ${name}`
+    : name;
+};
+
+export const refreshLinkedTypeBComponents = ({
+  components = [],
+  tmdeTolerances = [],
+  sessionTmdes = [],
+  instruments = [],
+  getReferencePoint = () => null,
+} = {}) => {
+  if (!Array.isArray(components) || components.length === 0) return [];
+
+  return components.map((component) => {
+    if (!component?.typeBSourceId || !component?.typeBSourceTmdeId) {
+      return component;
+    }
+
+    const freshTypeBList = findFreshTypeBListForTmde(
+      component.typeBSourceTmdeId,
+      tmdeTolerances,
+      sessionTmdes,
+      instruments,
+    );
+    if (!freshTypeBList.sourceFound) return component;
+    const freshTypeB = freshTypeBList.list.find((candidate) =>
+      sameId(candidate?.id, component.typeBSourceId),
+    );
+    if (!freshTypeB) return null;
+
+    const name =
+      (freshTypeB.name && String(freshTypeB.name).trim()) ||
+      component.name ||
+      "Type B";
+    const referencePoint = getReferencePoint(component);
+    const [resolved] = getBudgetComponentsFromTolerance(
+      { name },
+      referencePoint,
+      [freshTypeB],
+    );
+    const isStandard = freshTypeB.inputMode === "standard";
+    const divisor = String(
+      resolved?.distributionDivisor ||
+        freshTypeB.distribution ||
+        component.originalInput?.errorDistributionDivisor ||
+        "1.732",
+    );
+
+    return {
+      ...component,
+      name,
+      ...(resolved
+        ? {
+            value: resolved.value,
+            isBaseUnitValue: resolved.isBaseUnitValue,
+            value_native: resolved.value_native,
+            unit_native: resolved.unit_native,
+            distribution: resolved.distribution,
+            distributionDivisor: resolved.distributionDivisor,
+          }
+        : {}),
+      sourcePointLabel: updateSourcePointLabel(component, name),
+      originalInput: {
+        ...(component.originalInput || {}),
+        inputMode: isStandard ? "standard" : "tolerance",
+        standardUncertainty: freshTypeB.standardUncertainty || "",
+        toleranceLimit: freshTypeB.toleranceLimit || "",
+        errorDistributionDivisor: divisor,
+        unit: freshTypeB.unit,
+        useFiniteDof: false,
+      },
+    };
+  }).filter(Boolean);
+};
+
 /**
  * Build the single resolution budget component contributed by the *UUT itself*
  * (its measuring resolution / least-significant digit), when the user has ticked

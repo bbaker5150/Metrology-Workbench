@@ -31,8 +31,8 @@ const renderDirectBudget = (overrides = {}) => {
     ...overrides,
   };
 
-  render(<UncertaintyBudgetTable {...props} />);
-  return props;
+  const view = render(<UncertaintyBudgetTable {...props} />);
+  return { ...props, ...view };
 };
 
 describe("UncertaintyBudgetTable direct budget actions", () => {
@@ -296,5 +296,52 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(
       screen.getByText(/Empirical shortest 95% coverage interval/),
     ).toBeInTheDocument();
+  });
+
+  it("shows contribution graph from the bottom display setting", () => {
+    const view = renderDirectBudget({
+      showContribution: true,
+      setShowContribution: vi.fn(),
+      components: [
+        {
+          id: "accuracy",
+          name: "DMM Accuracy",
+          type: "B",
+          value: 10,
+          value_native: 0.01,
+          unit_native: "V",
+          distribution: "Rectangular",
+          isCore: true,
+        },
+      ],
+      calcResults: {
+        combined_uncertainty: 10,
+        effective_dof: Infinity,
+        k_value: 2,
+        expanded_uncertainty: 20,
+        calculatedBudgetComponents: [
+          {
+            id: "accuracy",
+            name: "DMM Accuracy",
+            value: 10,
+            value_native: 0.01,
+          },
+        ],
+      },
+      referencePoint: { name: "Voltage", unit: "V" },
+    });
+
+    expect(view.container.querySelector(".bargraph-container")).toBeInTheDocument();
+  });
+
+  it("does not show bottom-card sig fig settings", () => {
+    renderDirectBudget();
+
+    fireEvent.click(screen.getByTitle("Display settings"));
+
+    expect(screen.getByText("Show contribution")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Expanded Unc (U) Sig Figs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Risk Sig Figs")).not.toBeInTheDocument();
+    expect(screen.queryByText("Display Precision")).not.toBeInTheDocument();
   });
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   reconcileTmdeInstances,
+  refreshTmdeInstancesFromMasters,
   tmdeInstancesNeedReconcile,
   masterIdOf,
 } from "./tmdeReconcile";
@@ -98,5 +99,113 @@ describe("reconcileTmdeInstances", () => {
     expect(masterIdOf({ id: "a", sourceId: "b" })).toBe("b");
     expect(masterIdOf({ id: "a" })).toBe("a");
     expect(masterIdOf(null)).toBeUndefined();
+  });
+});
+
+describe("refreshTmdeInstancesFromMasters", () => {
+  it("refreshes a point snapshot from the live master range", () => {
+    const pointInstances = [
+      {
+        id: "tmde-1",
+        sourceId: "tmde-1",
+        name: "Old Pressure Gage",
+        functionName: "Pressure",
+        rangeId: "range-1",
+        reading: { toleranceLimit: "0.001", distribution: "1.732" },
+        tolerance: {
+          reading: { toleranceLimit: "0.001", distribution: "1.732" },
+        },
+        measurementPoint: { value: "100", unit: "psi" },
+        quantity: 2,
+      },
+    ];
+    const masterTmdes = [
+      {
+        id: "tmde-1",
+        name: "Nozzle Pressure Gage",
+        instrument: {
+          manufacturer: "Acme",
+          model: "P100",
+          functions: [
+            {
+              id: "fn-pressure",
+              name: "Pressure",
+              unit: "psi",
+              ranges: [
+                {
+                  id: "range-1",
+                  min: "0",
+                  max: "100",
+                  unit: "psi",
+                  tolerances: {
+                    reading: {
+                      toleranceLimit: "0.002",
+                      distribution: "1.960",
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+
+    const refreshed = refreshTmdeInstancesFromMasters(
+      pointInstances,
+      masterTmdes,
+    );
+
+    expect(refreshed[0].name).toBe("Nozzle Pressure Gage");
+    expect(refreshed[0].reading.toleranceLimit).toBe("0.002");
+    expect(refreshed[0].reading.distribution).toBe("1.960");
+    expect(refreshed[0].tolerance.reading.toleranceLimit).toBe("0.002");
+    expect(refreshed[0].measurementPoint).toEqual({ value: "100", unit: "psi" });
+    expect(refreshed[0].quantity).toBe(2);
+    expect(refreshed[0].id).toBe("tmde-1");
+    expect(refreshed[0].sourceId).toBe("tmde-1");
+  });
+
+  it("preserves point-level resolution opt-ins while refreshing the master spec", () => {
+    const refreshed = refreshTmdeInstancesFromMasters(
+      [
+        {
+          id: "tmde-1",
+          sourceId: "tmde-1",
+          functionName: "Voltage",
+          includeResolutionInBudget: true,
+          measuringResolutionDistribution: "3.464",
+        },
+      ],
+      [
+        {
+          id: "tmde-1",
+          instrument: {
+            functions: [
+              {
+                name: "Voltage",
+                unit: "V",
+                ranges: [
+                  {
+                    id: "v-range",
+                    tolerances: {
+                      reading: { toleranceLimit: "0.01" },
+                      measuringResolution: "0.001",
+                      measuringResolutionDistribution: "1.732",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    );
+
+    expect(refreshed[0].includeResolutionInBudget).toBe(true);
+    expect(refreshed[0].tolerance.includeResolutionInBudget).toBe(true);
+    expect(refreshed[0].measuringResolutionDistribution).toBe("3.464");
+    expect(refreshed[0].tolerance.measuringResolutionDistribution).toBe("3.464");
+    expect(refreshed[0].reading.toleranceLimit).toBe("0.01");
   });
 });

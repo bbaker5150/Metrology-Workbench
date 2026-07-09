@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { unitSystem, errorDistributions } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
+import PercentageBarGraph from "./ContributionPlot";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCalculator,
@@ -336,11 +337,11 @@ const UncertaintyBudgetTable = ({
   const [uncertaintySigFigsByGroup, setUncertaintySigFigsByGroup] = useState(
     {},
   );
-  const [expandedSigFigs, setExpandedSigFigs] = useState(5);
-  const [riskSigFigs, setRiskSigFigs] = useState(4);
   const [showSettings, setShowSettings] = useState(false);
   const [openSectionSettings, setOpenSectionSettings] = useState(null);
   const settingsRef = useRef(null);
+  const expandedSigFigs = 5;
+  const riskSigFigs = 4;
   const getGroupSigFigs = (group) =>
     uncertaintySigFigsByGroup[group.id] ?? 4;
 
@@ -717,8 +718,8 @@ const UncertaintyBudgetTable = ({
           <label className="budget-settings-check">
             <input
               type="checkbox"
-              checked={showContribution}
-              onChange={(e) => setShowContribution(e.target.checked)}
+              checked={!!showContribution}
+              onChange={(e) => setShowContribution?.(e.target.checked)}
             />
             Show contribution
           </label>
@@ -729,31 +730,6 @@ const UncertaintyBudgetTable = ({
               onChange={(e) => handleGuardbandToggle(e.target.checked)}
             />
             Show guardband
-          </label>
-          <h5>Display Precision</h5>
-          <label>
-            Expanded Unc (U) Sig Figs
-            <input
-              type="number"
-              min="1"
-              max="10"
-              value={expandedSigFigs}
-              onChange={(e) =>
-                setExpandedSigFigs(Math.max(1, parseInt(e.target.value) || 2))
-              }
-            />
-          </label>
-          <label>
-            Risk Sig Figs
-            <input
-              type="number"
-              min="1"
-              max="10"
-              value={riskSigFigs}
-              onChange={(e) =>
-                setRiskSigFigs(Math.max(1, parseInt(e.target.value) || 2))
-              }
-            />
           </label>
         </div>
       )}
@@ -919,6 +895,22 @@ const UncertaintyBudgetTable = ({
   }
   const finalDisplayResults = mcNative || finalGroup?.results;
   const finalExpanded = finalDisplayResults?.expanded;
+  const contributionData = useMemo(() => {
+    const sourceComponents = calcResults?.calculatedBudgetComponents || [];
+    if (!showContribution || sourceComponents.length === 0) return null;
+    return Object.fromEntries(
+      sourceComponents.map((item) => {
+        const value =
+          measurementType === "derived"
+            ? item.contribution || 0
+            : item.value_native || item.value || 0;
+        const label = item.name?.startsWith("Input: ")
+          ? item.name.substring(7)
+          : item.name;
+        return [label || "Uncertainty component", Math.abs(Number(value) || 0)];
+      }),
+    );
+  }, [calcResults?.calculatedBudgetComponents, measurementType, showContribution]);
   // Coverage factor for the footnote — read from the SAME computed result the
   // expanded uncertainty above uses, never hardcoded. It already tracks the
   // configured confidence and any Type A repeatability that lowers the
@@ -1021,6 +1013,9 @@ const UncertaintyBudgetTable = ({
             </span>
           )}
           {renderRiskMetrics()}
+          {contributionData && (
+            <PercentageBarGraph data={contributionData} unit={derivedUnit} />
+          )}
         </div>
       )}
     </div>

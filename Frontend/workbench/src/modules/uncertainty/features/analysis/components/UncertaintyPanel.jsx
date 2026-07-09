@@ -58,7 +58,6 @@ import { symbolCategories } from "../../../utils/equationSymbols";
 
 // Sub-components
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
-import PercentageBarGraph from "./ContributionPlot";
 import MonteCarloCard from "./MonteCarloCard";
 import EquationLibraryMenu from "./EquationLibraryMenu";
 import {
@@ -11838,25 +11837,6 @@ function DetailedView({
                 testPointData.useEffectiveDofByGroup || {}
               }
             />
-            {showContribution &&
-              calcResults?.calculatedBudgetComponents?.length > 0 && (
-                <PercentageBarGraph
-                  type={testPointData.measurementType === "derived"}
-                  unit={uutNominal?.unit || "Units"}
-                  data={Object.fromEntries(
-                    calcResults.calculatedBudgetComponents.map((item) => {
-                      const value =
-                        testPointData.measurementType === "derived"
-                          ? item.contribution || 0
-                          : item.value_native || item.value || 0;
-                      const label = item.name.startsWith("Input: ")
-                        ? item.name.substring(7)
-                        : item.name;
-                      return [label, value];
-                    }),
-                  )}
-                />
-              )}
           </>
         )
       ) : (

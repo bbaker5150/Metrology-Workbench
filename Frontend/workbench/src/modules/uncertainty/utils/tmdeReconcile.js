@@ -1,4 +1,13 @@
 // src/modules/uncertainty/utils/tmdeReconcile.js
+import { resolveInstrumentSelection } from "./instrumentFunctionSelection";
+
+const sameId = (left, right) =>
+  left !== undefined &&
+  left !== null &&
+  right !== undefined &&
+  right !== null &&
+  String(left) === String(right);
+
 //
 // Referential-integrity guard for a test point's TMDE instances.
 //
@@ -92,6 +101,124 @@ export const reconcileTmdeInstances = (tmdeTolerances, masterTmdes) => {
   }
 
   return reconciled;
+};
+
+const firstPresent = (...values) =>
+  values.find((value) => value !== undefined && value !== null && value !== "");
+
+const findMasterForInstance = (instance, masterTmdes = []) => {
+  const masterId = masterIdOf(instance);
+  return (masterTmdes || []).find(
+    (master) =>
+      sameId(master?.id, masterId) ||
+      sameId(master?.sourceId, masterId) ||
+      sameId(master?.id, instance?.id) ||
+      sameId(master?.sourceId, instance?.sourceId),
+  );
+};
+
+const nestedToleranceOf = (instance = {}) => {
+  if (instance?.tolerance && typeof instance.tolerance === "object") {
+    return instance.tolerance;
+  }
+  if (
+    instance?.tolerances &&
+    typeof instance.tolerances === "object" &&
+    !Array.isArray(instance.tolerances)
+  ) {
+    return instance.tolerances;
+  }
+  return instance || {};
+};
+
+const preservePointOverrides = (freshSpecs = {}, instance = {}) => {
+  const source = nestedToleranceOf(instance);
+  const next = { ...freshSpecs };
+
+  [
+    "includeResolutionInBudget",
+    "measuringResolutionDistribution",
+    "resolutionDistribution",
+  ].forEach((key) => {
+    const value = firstPresent(instance[key], source?.[key]);
+    if (value !== undefined) next[key] = value;
+  });
+
+  ["reading", "readings_iv", "range", "floor", "db"].forEach((key) => {
+    const existing = source?.[key];
+    if (!existing || typeof existing !== "object") return;
+    const hasOverride = Object.keys(existing).some((field) =>
+      field.startsWith("spec"),
+    );
+    if (hasOverride) {
+      next[key] = {
+        ...(next[key] || {}),
+        ...existing,
+      };
+    }
+  });
+
+  return next;
+};
+
+/**
+ * Point TMDE entries are snapshots of session TMDE masters. Reconcile keeps the
+ * links valid; this overlays the live master instrument/range definition so
+ * edits to an instrument's name, function, range, tolerance, or resolution are
+ * reflected in the budget immediately without moving point-specific fields.
+ */
+export const refreshTmdeInstancesFromMasters = (
+  tmdeTolerances,
+  masterTmdes = [],
+) => {
+  if (!Array.isArray(tmdeTolerances)) return [];
+  if (!Array.isArray(masterTmdes) || masterTmdes.length === 0) {
+    return tmdeTolerances;
+  }
+
+  return tmdeTolerances.map((instance) => {
+    const master = findMasterForInstance(instance, masterTmdes);
+    if (!master) return instance;
+
+    const selection = {
+      userFunctionId: firstPresent(instance.userFunctionId, instance.functionId),
+      userFunctionName: firstPresent(
+        instance.userFunctionName,
+        instance.functionName,
+      ),
+      userFunctionUnit: firstPresent(
+        instance.userFunctionUnit,
+        instance.functionUnit,
+        instance.unit,
+      ),
+      userRangeId: firstPresent(instance.userRangeId, instance.rangeId),
+      userRangeIndex: firstPresent(instance.userRangeIndex, instance._index),
+    };
+    const resolved = resolveInstrumentSelection(master, selection);
+    const freshSpecs = preservePointOverrides(resolved.specs || {}, instance);
+
+    return {
+      ...master,
+      ...freshSpecs,
+      id: instance.id,
+      sourceId: master.id ?? instance.sourceId,
+      tolerance: freshSpecs,
+      variableType: instance.variableType,
+      quantity: instance.quantity ?? 1,
+      measurementPoint: instance.measurementPoint || master.measurementPoint,
+      ...(instance.userFunctionId ? { userFunctionId: instance.userFunctionId } : {}),
+      ...(instance.userFunctionName
+        ? { userFunctionName: instance.userFunctionName }
+        : {}),
+      ...(instance.userFunctionUnit
+        ? { userFunctionUnit: instance.userFunctionUnit }
+        : {}),
+      ...(instance.userRangeId ? { userRangeId: instance.userRangeId } : {}),
+      ...(instance.userRangeIndex !== undefined
+        ? { userRangeIndex: instance.userRangeIndex }
+        : {}),
+    };
+  });
 };
 
 /**

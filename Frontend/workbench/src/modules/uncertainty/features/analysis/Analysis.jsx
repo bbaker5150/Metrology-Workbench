@@ -37,7 +37,11 @@ import "../testPoints/components/AddTestPointModal.css";
 
 // --- Utilities ---
 import { convertToPPM } from "../../utils/uncertaintyMath";
-import { reconcileTmdeInstances } from "../../utils/tmdeReconcile";
+import {
+  reconcileTmdeInstances,
+  refreshTmdeInstancesFromMasters,
+} from "../../utils/tmdeReconcile";
+import { refreshLinkedTypeBComponents } from "./utils/budgetUtils";
 
 /**
  * Analysis Component
@@ -159,19 +163,48 @@ function Analysis({
   // the single read-boundary feeding both the table and every calculation, so
   // orphaned/stacked instances can never silently multiply a derived variable.
   const tmdeTolerancesData = useMemo(
-    () =>
-      isPointView
-        ? reconcileTmdeInstances(
-            testPointData.tmdeTolerances || [],
-            sessionData.tmdes || [],
-          )
-        : [],
+    () => {
+      if (!isPointView) return [];
+      const reconciled = reconcileTmdeInstances(
+        testPointData.tmdeTolerances || [],
+        sessionData.tmdes || [],
+      );
+      return refreshTmdeInstancesFromMasters(reconciled, sessionData.tmdes || []);
+    },
     [isPointView, testPointData.tmdeTolerances, sessionData.tmdes],
   );
 
   const manualComponents = useMemo(() => {
-    return isPointView ? testPointData.components || [] : [];
-  }, [isPointView, testPointData.components]);
+    if (!isPointView) return [];
+    const rawComponents = testPointData.components || [];
+    const getReferencePoint = (component) => {
+      if (testPointData.measurementType === "derived" && component?.variableType) {
+        const symbol = Object.entries(testPointData.variableMappings || {}).find(
+          ([, name]) =>
+            String(name || "").trim() === String(component.variableType || "").trim(),
+        )?.[0];
+        return symbol ? testPointData.variableNominals?.[symbol] : null;
+      }
+      return uutNominal;
+    };
+    return refreshLinkedTypeBComponents({
+      components: rawComponents,
+      tmdeTolerances: tmdeTolerancesData,
+      sessionTmdes: sessionData.tmdes || [],
+      instruments,
+      getReferencePoint,
+    });
+  }, [
+    isPointView,
+    testPointData.components,
+    testPointData.measurementType,
+    testPointData.variableMappings,
+    testPointData.variableNominals,
+    tmdeTolerancesData,
+    sessionData.tmdes,
+    instruments,
+    uutNominal,
+  ]);
 
   // =========================================================================
   // 3. EFFECTS & SYNC

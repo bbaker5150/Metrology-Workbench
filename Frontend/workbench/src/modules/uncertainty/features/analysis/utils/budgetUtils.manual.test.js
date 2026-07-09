@@ -1,5 +1,8 @@
 import { describe, test, expect } from "vitest";
-import { getBudgetComponentsFromTolerance } from "./budgetUtils";
+import {
+  getBudgetComponentsFromTolerance,
+  refreshLinkedTypeBComponents,
+} from "./budgetUtils";
 import { DISTRIBUTION_NOT_SET } from "../../../utils/uncertaintyMath";
 
 // Manual Type B components authored in the instrument builder are stored on
@@ -146,6 +149,95 @@ describe("getBudgetComponentsFromTolerance - instrument-associated Type B", () =
       ref,
     );
     expect(comps.some((c) => c.fromInstrument)).toBe(false);
+  });
+});
+
+describe("refreshLinkedTypeBComponents", () => {
+  const ref = { value: "10", unit: "psig" };
+
+  test("refreshes a stored budget Type B from the live instrument definition", () => {
+    const refreshed = refreshLinkedTypeBComponents({
+      components: [
+        {
+          id: "budget-typeb",
+          name: "Head Pressure",
+          type: "B",
+          value: 57.737,
+          value_native: 5.7737e-4,
+          unit_native: "psig",
+          distribution: "Rectangular",
+          typeBSourceId: "hp1",
+          typeBSourceTmdeId: "tmde-instance-1",
+          sourcePointLabel: "Head Pressure",
+          originalInput: {
+            inputMode: "tolerance",
+            toleranceLimit: "0.001",
+            errorDistributionDivisor: "1.732",
+            unit: "psig",
+          },
+        },
+      ],
+      tmdeTolerances: [
+        {
+          id: "tmde-instance-1",
+          sourceId: "tmde-master-1",
+        },
+      ],
+      sessionTmdes: [
+        {
+          id: "tmde-master-1",
+          instrument: {
+            typeBComponents: [
+              {
+                id: "hp1",
+                name: "Nozzle Pressure",
+                unit: "psig",
+                inputMode: "tolerance",
+                toleranceLimit: "0.002",
+                distribution: "1.732",
+              },
+            ],
+          },
+        },
+      ],
+      getReferencePoint: () => ref,
+    });
+
+    expect(refreshed[0].name).toBe("Nozzle Pressure");
+    expect(refreshed[0].sourcePointLabel).toBe("Nozzle Pressure");
+    expect(refreshed[0].originalInput.toleranceLimit).toBe("0.002");
+    expect(refreshed[0].value_native).toBeCloseTo(0.0011547, 7);
+    expect(refreshed[0].value).toBeCloseTo(115.47, 2);
+  });
+
+  test("drops a linked budget Type B when the live instrument no longer has it", () => {
+    const refreshed = refreshLinkedTypeBComponents({
+      components: [
+        {
+          id: "budget-typeb",
+          name: "Head Pressure",
+          typeBSourceId: "hp1",
+          typeBSourceTmdeId: "tmde-instance-1",
+        },
+      ],
+      tmdeTolerances: [
+        {
+          id: "tmde-instance-1",
+          sourceId: "tmde-master-1",
+        },
+      ],
+      sessionTmdes: [
+        {
+          id: "tmde-master-1",
+          instrument: {
+            typeBComponents: [],
+          },
+        },
+      ],
+      getReferencePoint: () => ref,
+    });
+
+    expect(refreshed).toEqual([]);
   });
 });
 
