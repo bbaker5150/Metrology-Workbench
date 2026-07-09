@@ -246,26 +246,25 @@ describe("UniversalInstrumentModal library synchronization", () => {
     );
   });
 
-  test("snaps the Description from Manufacturer/Model until the user overrides it", () => {
+  test("composes the Description/Name from the MFG / Make / Model sub-fields", () => {
     renderModal({ mode: "uut", initialData: null, instruments: [] });
-    const [manufacturerInput, modelInput, nameInput] =
+    // Identity mirrors the inline tables: three sub-fields in order MFG, Make,
+    // Model that snap into the composed description shown below them.
+    const [mfgInput, makeInput, modelInput] =
       document.querySelectorAll(".identity-grid input[type='text']");
 
-    // Description tracks "Manufacturer Model" like the inline tables do.
-    fireEvent.change(manufacturerInput, { target: { value: "Fluke" } });
-    expect(nameInput).toHaveValue("Fluke");
+    fireEvent.change(mfgInput, { target: { value: "Fluke" } });
     fireEvent.change(modelInput, { target: { value: "8588A" } });
-    expect(nameInput).toHaveValue("Fluke 8588A");
+    // With no middle token, the description is just MFG + Model.
+    expect(
+      document.querySelector(".identity-composed-value"),
+    ).toHaveTextContent("Fluke 8588A");
 
-    // Typing a custom name takes ownership; later identity edits leave it alone.
-    fireEvent.change(nameInput, { target: { value: "Bench Reference" } });
-    fireEvent.change(modelInput, { target: { value: "8588A-01" } });
-    expect(nameInput).toHaveValue("Bench Reference");
-
-    // Clearing the custom name resumes snapping.
-    fireEvent.change(nameInput, { target: { value: "" } });
-    fireEvent.change(manufacturerInput, { target: { value: "Keysight" } });
-    expect(nameInput).toHaveValue("Keysight 8588A-01");
+    // The middle "Make" token slots between MFG and Model.
+    fireEvent.change(makeInput, { target: { value: "Bench" } });
+    expect(
+      document.querySelector(".identity-composed-value"),
+    ).toHaveTextContent("Fluke Bench 8588A");
   });
 
   test("new instruments save directly as local session instruments", () => {
@@ -274,12 +273,12 @@ describe("UniversalInstrumentModal library synchronization", () => {
       initialData: null,
       instruments: [],
     });
-    const [manufacturerInput, modelInput, nameInput] =
+    const [mfgInput, makeInput, modelInput] =
       document.querySelectorAll(".identity-grid input[type='text']");
 
-    fireEvent.change(manufacturerInput, { target: { value: "Acme" } });
+    fireEvent.change(mfgInput, { target: { value: "Acme" } });
+    fireEvent.change(makeInput, { target: { value: "Bench" } });
     fireEvent.change(modelInput, { target: { value: "LOCAL-1" } });
-    fireEvent.change(nameInput, { target: { value: "Local UUT" } });
     fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
 
     expect(

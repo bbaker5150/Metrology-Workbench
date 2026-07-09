@@ -1581,11 +1581,6 @@ const UniversalInstrumentModal = ({
 
     const [activeFunctionId, setActiveFunctionId] = useState(null);
     const [activeTypeBId, setActiveTypeBId] = useState(null);
-    // Whether the user has typed a custom Description/Name. Until they do, the
-    // Description snaps to "Manufacturer Model" as they type identity fields —
-    // matching how the inline instrument tables compose the description. A
-    // non-empty loaded/typed description counts as user-owned and stops snapping.
-    const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
 
     const { position, handleMouseDown } = useFloatingWindow({
         isOpen,
@@ -1642,9 +1637,6 @@ const UniversalInstrumentModal = ({
                     quantity: initialData.quantity || 1,
                     assetId: initialData.assetId || ""
                 });
-                setNameManuallyEdited(
-                    Boolean((initialData.description || initialData.name || "").trim()),
-                );
             } else {
                 setLibraryInstrumentId(null);
                 setInitialInstrumentSignature(
@@ -1665,7 +1657,6 @@ const UniversalInstrumentModal = ({
                 setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", scope: "local", functions: [], typeBComponents: [] });
                 setActiveFunctionId(null);
                 setActiveTypeBId(null);
-                setNameManuallyEdited(false);
             }
         }
     }, [isOpen, initialData, mode]);
@@ -1727,11 +1718,12 @@ const UniversalInstrumentModal = ({
     const modeIcon = effectiveMode === 'uut' ? faMicroscope : (effectiveMode === 'tmde' ? faTools : faBookOpen);
 
     const isFormValid = useMemo(() => {
+        // MFG + Model define the instrument; the middle "Make" token is optional
+        // (mirrors the inline tables, where a name/label is not required).
         if (!instrumentDef.manufacturer?.trim()) return false;
         if (!instrumentDef.model?.trim()) return false;
-        if (!metaData.name?.trim()) return false;
         return true;
-    }, [instrumentDef.manufacturer, instrumentDef.model, metaData.name]);
+    }, [instrumentDef.manufacturer, instrumentDef.model]);
 
     const isInstrumentInLibrary = useMemo(
         () => instruments.some(
@@ -1906,7 +1898,6 @@ const UniversalInstrumentModal = ({
             JSON.stringify(getComparableLibraryInstrument(newDef))
         );
         setInstrumentDef(newDef);
-        setNameManuallyEdited(Boolean((inst.description || "").trim()));
         if (newDef.functions?.length > 0) setActiveFunctionId(newDef.functions[0].id);
         else setActiveFunctionId(null);
         setActiveTypeBId(newDef.typeBComponents?.[0]?.id || null);
@@ -1937,7 +1928,6 @@ const UniversalInstrumentModal = ({
         }));
         setActiveFunctionId(null);
         setActiveTypeBId(null);
-        setNameManuallyEdited(false);
         setViewMode("edit");
     };
 
@@ -1945,24 +1935,19 @@ const UniversalInstrumentModal = ({
         setMetaData(prev => ({ ...prev, [field]: value }));
     };
 
-    // Update an identity field (manufacturer/model) and, while the user hasn't
-    // typed a custom Description/Name, snap the Description to "Manufacturer
-    // Model" — the same make/model composition the inline instrument tables use.
-    const updateIdentity = (field, value) => {
-        const nextDef = { ...instrumentDef, [field]: value };
-        setInstrumentDef(nextDef);
-        if (!nameManuallyEdited) {
-            const snapped = `${nextDef.manufacturer || ""} ${nextDef.model || ""}`.trim();
-            setMetaData(prev => ({ ...prev, name: snapped }));
-        }
-    };
-
-    // The Description/Name field is now user-owned once they type into it (and
-    // reverts to auto-snapping if they clear it back out).
-    const handleDescriptionChange = (value) => {
-        handleMetaChange('name', value);
-        setNameManuallyEdited(value.trim() !== "");
-    };
+    // The Description/Name shown for an instrument is the live composition of its
+    // three identity sub-fields — MFG (manufacturer), Make (the free name/label,
+    // stored as `description`), and Model — exactly like the inline instrument
+    // tables. The middle "Make" token is what gets stored; the composition is the
+    // display name.
+    const composedDescription = [
+        instrumentDef.manufacturer,
+        metaData.name,
+        instrumentDef.model,
+    ]
+        .map((part) => (part || "").trim())
+        .filter(Boolean)
+        .join(" ");
 
     const updateTypeBComponents = (next) => {
         const normalized = Array.isArray(next) ? next : [];
@@ -2525,39 +2510,51 @@ const UniversalInstrumentModal = ({
                                 </div>
                             </div>
                             
-                            <div className="identity-grid">
+                            {/* Identity mirrors the inline instrument tables: three
+                                sub-fields — MFG / Make / Model — that snap together
+                                into the Description/Name shown below. */}
+                            <div className="identity-grid identity-grid-triple">
                                 <div className="floating-input-group">
-                                    <input 
-                                        type="text" 
+                                    <input
+                                        type="text"
                                         value={instrumentDef.manufacturer}
-                                        onChange={e => updateIdentity('manufacturer', e.target.value)}
+                                        onChange={e => setInstrumentDef({ ...instrumentDef, manufacturer: e.target.value })}
                                         placeholder=" "
                                     />
-                                    <label>Manufacturer</label>
+                                    <label>MFG</label>
                                     <FontAwesomeIcon icon={faIndustry} className="input-icon" />
                                 </div>
 
                                 <div className="floating-input-group">
-                                    <input 
-                                        type="text" 
+                                    <input
+                                        type="text"
+                                        value={metaData.name}
+                                        onChange={e => handleMetaChange('name', e.target.value)}
+                                        placeholder=" "
+                                    />
+                                    <label>Make</label>
+                                    <FontAwesomeIcon icon={faFingerprint} className="input-icon" />
+                                </div>
+
+                                <div className="floating-input-group">
+                                    <input
+                                        type="text"
                                         value={instrumentDef.model}
-                                        onChange={e => updateIdentity('model', e.target.value)}
+                                        onChange={e => setInstrumentDef({ ...instrumentDef, model: e.target.value })}
                                         placeholder=" "
                                     />
                                     <label>Model</label>
                                     <FontAwesomeIcon icon={faTag} className="input-icon" />
                                 </div>
+                            </div>
 
-                                <div className="floating-input-group full-width">
-                                    <input
-                                        type="text"
-                                        value={metaData.name}
-                                        onChange={e => handleDescriptionChange(e.target.value)}
-                                        placeholder=" "
-                                    />
-                                    <label>Description / Name</label>
-                                    <FontAwesomeIcon icon={faFingerprint} className="input-icon" />
-                                </div>
+                            <div className="identity-composed">
+                                <span className="identity-composed-label">Description / Name</span>
+                                <span
+                                    className={`identity-composed-value${composedDescription ? "" : " is-empty"}`}
+                                >
+                                    {composedDescription || "MFG · Make · Model"}
+                                </span>
                             </div>
                         </div>
 

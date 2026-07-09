@@ -105,9 +105,56 @@
 /* GRID LAYOUT */
 .identity-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr; 
+    grid-template-columns: 1fr 1fr;
     gap: 15px;
     align-items: start;
+}
+
+/* MFG / Make / Model — three identity sub-fields that snap into the
+   Description/Name, mirroring the inline instrument tables. */
+.identity-grid-triple {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+
+.identity-composed {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 8px 12px;
+    border: 1px dashed var(--border-color);
+    border-radius: 6px;
+    background: var(--input-background);
+}
+
+.identity-composed-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-color-muted);
+    white-space: nowrap;
+}
+
+.identity-composed-value {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.identity-composed-value.is-empty {
+    font-weight: 400;
+    color: var(--text-color-muted);
+    font-style: italic;
+}
+
+@media (max-width: 620px) {
+    .identity-grid-triple {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* Floating Input Groups */
