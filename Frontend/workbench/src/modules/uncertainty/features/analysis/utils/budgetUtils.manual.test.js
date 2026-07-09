@@ -105,11 +105,12 @@ describe("getBudgetComponentsFromTolerance - manual Type B components", () => {
 // Instrument-level associated Type B components (e.g. head pressure on a
 // pressure gage) are passed as the 3rd argument and resolved with the same math
 // as per-range manual components, but tagged fromInstrument so they can be
-// distinguished. They are added whenever the instrument's accuracy contributes.
+// distinguished. They are opted into the budget explicitly (addBudgetTypeB),
+// which resolves them through this same path.
 describe("getBudgetComponentsFromTolerance - instrument-associated Type B", () => {
   const ref = { value: "10", unit: "psig" };
 
-  test("associated Type B is added alongside per-range accuracy", () => {
+  test("associated Type B resolves alongside per-range accuracy", () => {
     const comps = getBudgetComponentsFromTolerance(
       {
         name: "Gage",

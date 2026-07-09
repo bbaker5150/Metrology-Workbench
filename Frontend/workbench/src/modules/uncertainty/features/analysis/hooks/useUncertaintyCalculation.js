@@ -6,11 +6,7 @@ import {
   combineWithCorrelation,
   normalQuantile
 } from "../../../utils/uncertaintyMath";
-import {
-  getBudgetComponentsFromTolerance,
-  getUutResolutionComponent,
-  resolveInstrumentTypeB,
-} from "../utils/budgetUtils";
+import { getBudgetComponentsFromTolerance, getUutResolutionComponent } from "../utils/budgetUtils";
 
 const normalizeDof = (dof) => {
   const parsed = parseFloat(dof);
@@ -449,8 +445,7 @@ export const useUncertaintyCalculation = (
                 (tmde, tmdeIndex) => {
                     const components = getBudgetComponentsFromTolerance(
                         tmde,
-                        tmde.measurementPoint,
-                        resolveInstrumentTypeB(tmde)
+                        tmde.measurementPoint
                     );
                     if (components.length === 0) {
                         return [
@@ -758,8 +753,7 @@ export const useUncertaintyCalculation = (
 
             const components = getBudgetComponentsFromTolerance(
               toleranceSource,
-              uutNominal,
-              resolveInstrumentTypeB(tmde)
+              uutNominal
             );
             const qualifiedComponents =
               components.length === 0

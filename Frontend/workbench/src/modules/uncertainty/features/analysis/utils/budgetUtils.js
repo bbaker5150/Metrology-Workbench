@@ -46,10 +46,10 @@ export const getBudgetComponentsFromTolerance = (
   rawToleranceObject,
   referenceMeasurementPoint,
   // Type B components associated with the whole instrument (e.g. "head pressure"
-  // on a pressure gage). These are NOT tied to a single range — they are carried
-  // by the instrument definition and added to the budget whenever that
-  // instrument's accuracy contributes. Resolved with the same math as the
-  // per-range manual components below, against the point's nominal.
+  // on a pressure gage). These are NOT tied to a single range and are NOT added
+  // automatically — the user opts each one in from the budget's "Add to" menu
+  // (see addBudgetTypeB). Passing them here resolves them with the same math as
+  // the per-range manual components below, against the point's nominal.
   instrumentTypeBComponents = []
 ) => {
 

@@ -80,7 +80,11 @@ import {
   errorDistributions,
   DISTRIBUTION_NOT_SET,
 } from "../../../utils/uncertaintyMath";
-import { oldErrorDistributions } from "../utils/budgetUtils";
+import {
+  oldErrorDistributions,
+  getBudgetComponentsFromTolerance,
+  resolveInstrumentTypeB,
+} from "../utils/budgetUtils";
 import {
   computeSyncState,
   buildValidatedSnapshot,
@@ -9826,11 +9830,36 @@ function DetailedView({
         })
         .filter(Boolean);
 
+      // Instrument-associated Type B uncertainties (e.g. head pressure) carried
+      // by a contributing TMDE. Offered here (not auto-added) so the user opts
+      // each one into the budget explicitly; already-added ones are hidden.
+      const existingComponents = testPointData.components || [];
+      const typeBAlreadyAdded = (tmde, comp) =>
+        existingComponents.some(
+          (c) =>
+            String(c.typeBSourceId || "") === String(comp.id) &&
+            String(c.typeBSourceTmdeId || "") === String(tmde.id ?? tmde.sourceId),
+        );
+      const typeBHasMagnitude = (comp) => {
+        const raw =
+          comp?.inputMode === "standard"
+            ? comp?.standardUncertainty
+            : comp?.toleranceLimit;
+        const n = parseFloat(raw);
+        return !isNaN(n) && n > 0;
+      };
+      const typeBOptions = contributingTmdeInstances.flatMap((tmde) =>
+        resolveInstrumentTypeB(tmde)
+          .filter((comp) => typeBHasMagnitude(comp) && !typeBAlreadyAdded(tmde, comp))
+          .map((comp) => ({ tmde, comp })),
+      );
+
       if (
         options.length === 0 &&
         otherOptions.length === 0 &&
         !resolutionOption &&
-        tmdeResolutionOptions.length === 0
+        tmdeResolutionOptions.length === 0 &&
+        typeBOptions.length === 0
       ) {
         setNotification?.({
           title: "Nothing to Add",
@@ -9848,6 +9877,7 @@ function DetailedView({
         otherOptions,
         resolutionOption,
         tmdeResolutionOptions,
+        typeBOptions,
         rect,
         mode: pickerOptions.mode || "add",
         replaceInstanceId: pickerOptions.replaceInstanceId || null,
@@ -9862,6 +9892,7 @@ function DetailedView({
       isDerived,
       uutToleranceData,
       tmdeTolerancesData,
+      testPointData.components,
     ],
   );
 
@@ -9919,6 +9950,70 @@ function DetailedView({
       }),
       "point",
     );
+    setBudgetTmdePicker(null);
+  };
+
+  // Add an instrument-associated Type B (e.g. head pressure) to this budget as a
+  // named manual component. Resolved against the scope's nominal with the same
+  // math as any manual Type B, and stored under the user-set Error Source Name.
+  const addBudgetTypeB = (tmde, comp) => {
+    if (!budgetTmdePicker || !tmde || !comp) return;
+    const scope = budgetTmdePicker.scope;
+    const nominal =
+      (isDerived ? scope?.nominalPoint : uutNominal) ||
+      tmde.measurementPoint ||
+      uutNominal;
+    const [resolved] = getBudgetComponentsFromTolerance(
+      { name: comp.name || "Type B" },
+      nominal,
+      [comp],
+    );
+    if (!resolved) {
+      setNotification?.({
+        title: "Nothing to Add",
+        message:
+          "This Type B has no usable value at the current nominal. Enter a nominal for this budget first.",
+      });
+      setBudgetTmdePicker(null);
+      return;
+    }
+    const name =
+      (comp.name && String(comp.name).trim()) ||
+      `${libraryLabel(itemInstrumentForLibrary("tmde", tmde))} - Type B`;
+    const divisor = String(resolved.distributionDivisor || comp.distribution || "1.732");
+    const pointComponent = {
+      id: `instrTypeB_${tmde.id ?? tmde.sourceId}_${comp.id}_${Date.now()}`,
+      name,
+      type: "B",
+      value: resolved.value,
+      isBaseUnitValue: resolved.isBaseUnitValue,
+      value_native: resolved.value_native,
+      unit_native: resolved.unit_native,
+      dof: Infinity,
+      distribution: resolved.distribution,
+      // Source linkage so the Add-to picker can hide an already-added Type B and
+      // so it round-trips. NOTE: deliberately NOT `sourceTmdeId` — that key makes
+      // the remove action delete the whole TMDE. This is a standalone component.
+      typeBSourceId: comp.id,
+      typeBSourceTmdeId: tmde.id ?? tmde.sourceId,
+      ...(isDerived && scope?.variableType
+        ? {
+            variableType: scope.variableType,
+            sourcePointLabel: `${scope.label || scope.variableType} - ${name}`,
+          }
+        : { sourcePointLabel: name }),
+      originalInput: {
+        inputMode: comp.inputMode === "standard" ? "standard" : "tolerance",
+        standardUncertainty: comp.standardUncertainty || "",
+        toleranceLimit: comp.toleranceLimit || "",
+        errorDistributionDivisor: divisor,
+        unit: comp.unit,
+        useFiniteDof: false,
+      },
+    };
+    onUpdateTestPoint?.({
+      components: [...(testPointData.components || []), pointComponent],
+    });
     setBudgetTmdePicker(null);
   };
 
@@ -10148,6 +10243,69 @@ function DetailedView({
                         }}
                       >
                         {`${option.value}${resUnitLabel ? ` ${resUnitLabel}` : ""} · rounding contribution`}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {(budgetTmdePicker.typeBOptions || []).length > 0 && (
+            <div>
+              <div className="budget-tmde-picker-category">
+                Associated Type B
+              </div>
+              {budgetTmdePicker.typeBOptions.map(({ tmde, comp }) => {
+                const unitLabel = getUnitDisplayLabel(comp.unit);
+                const magnitude =
+                  comp.inputMode === "standard"
+                    ? comp.standardUncertainty
+                    : comp.toleranceLimit;
+                return (
+                  <button
+                    key={`typeb-${tmde.id ?? tmde.sourceId}-${comp.id}`}
+                    type="button"
+                    style={itemStyle}
+                    onClick={() => addBudgetTypeB(tmde, comp)}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.background = "var(--input-background)")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.background = "transparent")
+                    }
+                  >
+                    <FontAwesomeIcon icon={faFlask} style={{ marginTop: "2px" }} />
+                    <span
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2px",
+                        minWidth: 0,
+                      }}
+                    >
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {(comp.name && String(comp.name).trim()) || "Type B"}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "0.72rem",
+                          color: "var(--text-color-muted)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {`${getEquationTmdeLabel(tmde)}${
+                          magnitude
+                            ? ` · ${magnitude}${unitLabel ? ` ${unitLabel}` : ""}`
+                            : ""
+                        }`}
                       </span>
                     </span>
                   </button>
