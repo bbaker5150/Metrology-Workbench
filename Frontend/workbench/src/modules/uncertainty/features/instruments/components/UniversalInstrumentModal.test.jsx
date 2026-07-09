@@ -153,6 +153,56 @@ describe("UniversalInstrumentModal library synchronization", () => {
     );
   });
 
+  test("password-gates saving a validated instrument edited in library mode", async () => {
+    const sharedInstrument = {
+      ...libraryInstrument,
+      id: "shared-lib-1",
+      model: "DMM-SHARED",
+      scope: "validated",
+    };
+    const syncedInstrument = { ...sharedInstrument, sourceId: "shared-lib-1" };
+    axios.post.mockResolvedValueOnce({ data: syncedInstrument });
+    const onInstrumentSynced = vi.fn();
+
+    const props = renderModal({
+      mode: "library",
+      initialData: null,
+      instruments: [sharedInstrument],
+      onInstrumentSynced,
+    });
+
+    // Open the shared instrument for editing (as when adding a Type B to it).
+    fireEvent.doubleClick(screen.getByText("DMM-SHARED").closest("tr"));
+
+    // Saving a validated instrument must prompt for the password, never fire an
+    // unguarded POST (the 403 the user hit).
+    fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(props.onSave).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Shared library password"), {
+      target: { value: "calibrate" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Update Shared Library/i }),
+    );
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining("/instruments/"),
+        expect.objectContaining({
+          id: "shared-lib-1",
+          scope: "validated",
+          password: "calibrate",
+        }),
+      );
+    });
+    // Library mode reconciles through onInstrumentSynced; it must not also
+    // re-POST the record via the unguarded session onSave path.
+    expect(onInstrumentSynced).toHaveBeenCalledWith(syncedInstrument);
+    expect(props.onSave).not.toHaveBeenCalled();
+  });
+
   test("shows shared and local source labels in the library list and editor", () => {
     const sharedInstrument = {
       ...libraryInstrument,

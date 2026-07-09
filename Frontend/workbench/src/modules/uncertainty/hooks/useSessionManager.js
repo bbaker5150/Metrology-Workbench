@@ -417,6 +417,18 @@ const useSessionManager = () => {
       return [...withoutDuplicateLinkedLocals, payload];
     });
 
+    // Writing to the validated (shared) library is password-gated on the
+    // backend. Those writes must go through the password-carrying sync flow
+    // (useInstrumentSync.syncToShared), never this unguarded persist — otherwise
+    // the POST is a guaranteed 403. Keep the optimistic local copy but skip the
+    // doomed network call so the failure is explicit instead of a silent 403.
+    if (payload.scope === "validated" && !payload.password) {
+      console.warn(
+        "Skipping validated-library save without a password; use the shared-library sync flow instead.",
+      );
+      return;
+    }
+
     try {
       const res = await axios.post(`${UNCERTAINTY_API}/instruments/`, payload);
       // Reconcile with the server's canonical record (scope/snapshot resolution).

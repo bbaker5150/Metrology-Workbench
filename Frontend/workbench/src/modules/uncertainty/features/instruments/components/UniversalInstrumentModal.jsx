@@ -2150,21 +2150,37 @@ const UniversalInstrumentModal = ({
     // On success the session copy is saved too; on failure we keep the prompt
     // open with an inline error so the user can retry.
     const completeLibrarySave = async (password) => {
-        const savedLibraryId = linkedLibraryInstrument?.id || instrumentDef.id;
-        const libraryInstrument = {
-            ...instrumentDef,
-            id: savedLibraryId,
-            scope: "validated",
-            sourceId: savedLibraryId,
-            localOverride: false,
-            description: linkedLibraryInstrument?.description || metaData.name,
-            measurementArea:
-                linkedLibraryInstrument?.measurementArea || metaData.measurementArea,
-            measurementAreaColor:
-                linkedLibraryInstrument?.measurementAreaColor ||
-                metaData.measurementAreaColor,
-            type: 'library'
-        };
+        const isLibraryMode = effectiveMode === 'library';
+        const savedLibraryId = isLibraryMode
+            ? instrumentDef.id
+            : linkedLibraryInstrument?.id || instrumentDef.id;
+
+        const libraryInstrument = isLibraryMode
+            ? {
+                ...instrumentDef,
+                id: savedLibraryId,
+                scope: "validated",
+                sourceId: instrumentDef.sourceId || savedLibraryId,
+                localOverride: false,
+                description: metaData.name || instrumentDef.description,
+                measurementArea: metaData.measurementArea,
+                measurementAreaColor: metaData.measurementAreaColor,
+                type: 'library'
+            }
+            : {
+                ...instrumentDef,
+                id: savedLibraryId,
+                scope: "validated",
+                sourceId: savedLibraryId,
+                localOverride: false,
+                description: linkedLibraryInstrument?.description || metaData.name,
+                measurementArea:
+                    linkedLibraryInstrument?.measurementArea || metaData.measurementArea,
+                measurementAreaColor:
+                    linkedLibraryInstrument?.measurementAreaColor ||
+                    metaData.measurementAreaColor,
+                type: 'library'
+            };
 
         const result = await syncToShared(libraryInstrument, password);
         if (!result.ok) {
@@ -2177,11 +2193,16 @@ const UniversalInstrumentModal = ({
             return;
         }
 
-        // Shared library updated — now persist the session copy as a linked,
-        // validated instrument so this session stays in sync with the library.
-        const finalData = buildSaveData(savedLibraryId, { saveToLibrary: true });
-        console.log("[UniversalInstrumentModal] Saving Data:", finalData);
-        onSave(finalData);
+        // In UUT/TMDE mode the session carries its own linked copy of the
+        // instrument, so persist that too (via onSave). In library mode the
+        // synced record IS the saved instrument (reconciled through
+        // onInstrumentSynced), so an extra onSave would just re-POST it
+        // unguarded and 403 — skip it and only close.
+        if (!isLibraryMode) {
+            const finalData = buildSaveData(savedLibraryId, { saveToLibrary: true });
+            console.log("[UniversalInstrumentModal] Saving Data:", finalData);
+            onSave(finalData);
+        }
 
         setLibraryInstrumentId(savedLibraryId);
         setLibraryPasswordError("");
@@ -2208,6 +2229,15 @@ const UniversalInstrumentModal = ({
             hasLibraryChanges
         ) {
             setPendingInstrumentSave(true);
+            return;
+        }
+
+        // Library mode: editing a validated (shared) instrument writes straight
+        // to the shared library, which the backend password-gates. Collect the
+        // password first instead of firing an unguarded save that 403s. New /
+        // local instruments stay local and save without a password.
+        if (effectiveMode === 'library' && instrumentDef.scope === 'validated') {
+            promptLibraryPassword();
             return;
         }
 
@@ -2770,9 +2800,11 @@ const UniversalInstrumentModal = ({
                 inputLabel="Shared library password"
                 inputPlaceholder="Password"
                 confirmText={
-                    isInstrumentInLibrary
-                        ? "Update Library & Session"
-                        : "Save to Library & Session"
+                    effectiveMode === 'library'
+                        ? "Update Shared Library"
+                        : isInstrumentInLibrary
+                            ? "Update Library & Session"
+                            : "Save to Library & Session"
                 }
                 validateInput={(value) => (!value.trim() ? "Password is required." : "")}
                 onConfirm={completeLibrarySave}
