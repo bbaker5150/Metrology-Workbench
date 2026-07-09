@@ -4674,6 +4674,20 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   cursor: pointer;
 }
 
+/* Keep the per-row remove (x) control hidden until the row is hovered, so the
+   budget tables stay clean. Scoped to the budget table so the sidebar's own
+   .delete-action is unaffected. */
+.uncertainty-budget-table .budget-row-actions .delete-action {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.uncertainty-budget-table tr:hover .budget-row-actions .delete-action {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .budget-stack-final-display {
   border: 1px solid var(--border-color);
   border-radius: 8px;

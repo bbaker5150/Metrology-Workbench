@@ -8,7 +8,6 @@ import {
   faCog,
   faPlus,
   faPencilAlt,
-  faRedo,
   faProjectDiagram,
   faExclamationTriangle,
 } from "@fortawesome/free-solid-svg-icons";
@@ -341,24 +340,18 @@ const UncertaintyBudgetTable = ({
   const isDirect = measurementType === "direct";
   const [showGuardband, setShowGuardband] = useState(false);
   const [uiSigFigs] = useState(4);
-  const [uncertaintySigFigsByGroup, setUncertaintySigFigsByGroup] = useState(
-    {},
-  );
   const [showSettings, setShowSettings] = useState(false);
-  const [openSectionSettings, setOpenSectionSettings] = useState(null);
   const settingsRef = useRef(null);
   const expandedSigFigs = 5;
   const riskSigFigs = 4;
-  const getGroupSigFigs = (group) =>
-    uncertaintySigFigsByGroup[group.id] ?? 4;
+  // Per-(sub)budget sig figs are no longer user-configurable — the tables render
+  // at a fixed precision. Kept as a helper so existing call sites are untouched.
+  const getGroupSigFigs = () => uiSigFigs;
 
   useEffect(() => {
     function handleClickOutside(event) {
       if (settingsRef.current && !settingsRef.current.contains(event.target)) {
         setShowSettings(false);
-      }
-      if (!event.target.closest(".budget-section-settings-wrap")) {
-        setOpenSectionSettings(null);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -751,18 +744,20 @@ const UncertaintyBudgetTable = ({
   );
 
   const getGroupScope = (group) => ({
+    kind: group.kind,
     variableType: group.variableType,
     label: group.label.replace(/\s+Uncertainty Budget$/i, ""),
     nominalPoint: group.nominalPoint || {
       value: group.nominalValue,
       unit: group.unit,
     },
+    // What the unified "Add component to budget" menu should offer for this
+    // (sub)budget. Manual components belong in any input/final budget;
+    // repeatability (a Type A term) in input budgets and the direct final.
+    canAddManual: group.kind === "input" || group.kind === "final",
+    canAddRepeatability:
+      group.kind === "input" || (isDirect && group.kind === "final"),
   });
-
-  const runSectionAction = (action) => {
-    setOpenSectionSettings(null);
-    action();
-  };
 
   const canAddTmdeForGroup = (group) =>
     Boolean(onAddTmdeToBudget) &&
@@ -774,114 +769,34 @@ const UncertaintyBudgetTable = ({
       (group.kind === "input" || group.kind === "final")) ||
       (measurementType === "direct" && group.kind === "final"));
 
-  const renderSectionSettings = (group) => {
-    // Manual components belong in an individual input/TMDE budget or the final
-    // budget — never the measurement-equation ("equation") table, which is just
-    // the combination of the mapped inputs. Adding a standalone component there
-    // has no metrologically meaningful place in the equation itself.
-    const canAddManual =
-      group.kind === "input" || group.kind === "final";
-    const canAddRepeatability =
-      group.kind === "input" || (isDirect && group.kind === "final");
-
-    return (
-      <div className="budget-section-settings-wrap">
+  // The measurement-equation table's two actions (correlation matrix +
+  // calculation breakdown) now live as clean buttons in that table's header,
+  // instead of behind a settings cog. Add Manual Component / Repeatability moved
+  // into the unified "Add component to budget" (+) menu for input/final budgets.
+  const renderEquationActions = () => (
+    <>
+      {onOpenCorrelation && components?.length >= 2 && (
         <button
           type="button"
-          title={`Settings for ${group.label}`}
-          aria-label={`Settings for ${group.label}`}
-          aria-expanded={openSectionSettings === group.id}
-          onClick={() =>
-            setOpenSectionSettings((open) =>
-              open === group.id ? null : group.id,
-            )
-          }
+          className="budget-section-action-btn"
+          title="Input correlation matrix"
+          aria-label="Input correlation matrix"
+          onClick={() => onOpenCorrelation()}
         >
-          <FontAwesomeIcon icon={faCog} />
+          <FontAwesomeIcon icon={faProjectDiagram} />
         </button>
-        {openSectionSettings === group.id && (
-          <div className="budget-settings-menu budget-section-settings-menu">
-            {(canAddManual ||
-              canAddRepeatability ||
-              group.kind === "equation") && <h5>Actions</h5>}
-            {canAddManual && (
-              <button
-                type="button"
-                className="budget-settings-action"
-                onClick={() =>
-                  runSectionAction(() =>
-                    onAddManualComponent?.(
-                      group.kind === "input" ? getGroupScope(group) : null,
-                    ),
-                  )
-                }
-              >
-                <FontAwesomeIcon icon={faPlus} />
-                Add Manual Component
-              </button>
-            )}
-            {canAddRepeatability && (
-              <button
-                type="button"
-                className="budget-settings-action"
-                onClick={(event) =>
-                  runSectionAction(() =>
-                    group.kind === "input"
-                      ? onOpenRepeatability?.(event, getGroupScope(group))
-                      : onOpenRepeatability?.(event),
-                  )
-                }
-              >
-                <FontAwesomeIcon icon={faRedo} />
-                Repeatability
-              </button>
-            )}
-            {group.kind === "equation" && (
-              <>
-                {onOpenCorrelation && components?.length >= 2 && (
-                  <button
-                    type="button"
-                    className="budget-settings-action"
-                    onClick={() => runSectionAction(onOpenCorrelation)}
-                  >
-                    <FontAwesomeIcon icon={faProjectDiagram} />
-                    Input Correlation Matrix
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="budget-settings-action"
-                  onClick={() => runSectionAction(onShowDerivedBreakdown)}
-                >
-                  <FontAwesomeIcon icon={faCalculator} />
-                  Calculation Breakdown
-                </button>
-              </>
-            )}
-            <h5>Table Precision</h5>
-            <label>
-              Uncertainty Sig Figs
-              <input
-                type="number"
-                min="1"
-                max="10"
-                value={getGroupSigFigs(group)}
-                onChange={(event) =>
-                  setUncertaintySigFigsByGroup((current) => ({
-                    ...current,
-                    [group.id]: Math.min(
-                      10,
-                      Math.max(1, parseInt(event.target.value, 10) || 1),
-                    ),
-                  }))
-                }
-              />
-            </label>
-          </div>
-        )}
-      </div>
-    );
-  };
+      )}
+      <button
+        type="button"
+        className="budget-section-action-btn"
+        title="Calculation breakdown"
+        aria-label="Calculation breakdown"
+        onClick={() => onShowDerivedBreakdown?.()}
+      >
+        <FontAwesomeIcon icon={faCalculator} />
+      </button>
+    </>
+  );
 
   const finalGroup = groups.find((group) => group.kind === "final");
   const usesMonteCarlo =
@@ -950,20 +865,21 @@ const UncertaintyBudgetTable = ({
               <div className="budget-section-title-row">
                 <h4>{group.label}</h4>
                 <div className="budget-section-title-actions">
-                  {canAddTmdeForGroup(group) && (
-                    <button
-                      type="button"
-                      className="btn-add-item"
-                      title={`Add TMDE to ${group.label}`}
-                      aria-label={`Add TMDE to ${group.label}`}
-                      onClick={(event) =>
-                        onAddTmdeToBudget(getGroupScope(group), event)
-                      }
-                    >
-                      <FontAwesomeIcon icon={faPlus} size="xs" />
-                    </button>
-                  )}
-                  {renderSectionSettings(group)}
+                  {group.kind === "equation"
+                    ? renderEquationActions()
+                    : canAddTmdeForGroup(group) && (
+                        <button
+                          type="button"
+                          className="btn-add-item"
+                          title="Add component to budget"
+                          aria-label="Add component to budget"
+                          onClick={(event) =>
+                            onAddTmdeToBudget(getGroupScope(group), event)
+                          }
+                        >
+                          <FontAwesomeIcon icon={faPlus} size="xs" />
+                        </button>
+                      )}
                 </div>
               </div>
               <div className="budget-section-table-wrap">

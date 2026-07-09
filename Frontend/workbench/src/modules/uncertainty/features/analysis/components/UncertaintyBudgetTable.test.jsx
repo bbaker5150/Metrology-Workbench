@@ -87,35 +87,30 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     ).toBeInTheDocument();
   });
 
-  it("groups Add and Repeatability under one table settings button", () => {
-    const props = renderDirectBudget();
+  it("adds budget components through one 'Add component to budget' button", () => {
+    const onAddTmdeToBudget = vi.fn();
+    renderDirectBudget({ onAddTmdeToBudget });
 
+    // The separate settings cog is gone; Add / Repeatability / manual component
+    // now live in the single Add menu (owned by the panel picker).
     expect(
-      screen.queryByTitle("Repeatability Calculator"),
+      screen.queryByTitle("Settings for Torque Uncertainty Budget"),
     ).not.toBeInTheDocument();
 
     fireEvent.click(
-      screen.getByTitle(
-        "Settings for Torque Uncertainty Budget",
-      ),
+      screen.getByRole("button", { name: "Add component to budget" }),
     );
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Add Manual Component" }),
-    );
-    expect(props.onAddManualComponent).toHaveBeenCalledOnce();
-    expect(props.onAddManualComponent).toHaveBeenCalledWith(null);
-
-    fireEvent.click(
-      screen.getByTitle(
-        "Settings for Torque Uncertainty Budget",
-      ),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Repeatability" }));
-    expect(props.onOpenRepeatability).toHaveBeenCalledOnce();
+    expect(onAddTmdeToBudget).toHaveBeenCalledOnce();
+    // The scope tells that menu it may offer a manual component and repeatability
+    // for this direct final budget.
+    expect(onAddTmdeToBudget.mock.calls[0][0]).toMatchObject({
+      kind: "final",
+      canAddManual: true,
+      canAddRepeatability: true,
+    });
   });
 
-  it("changes uncertainty precision without showing nominal table data", () => {
+  it("renders uncertainty at a fixed precision without nominal table data", () => {
     renderDirectBudget({
       components: [
         {
@@ -141,15 +136,13 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       screen.queryByRole("columnheader", { name: "DOF" }),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByTitle("Settings for Voltage Uncertainty Budget"),
-    );
-    fireEvent.change(screen.getByLabelText("Uncertainty Sig Figs"), {
-      target: { value: "2" },
-    });
-
-    expect(screen.getByText("1.2 V")).toBeInTheDocument();
-    expect(screen.queryByText("Nominal 12.34567")).not.toBeInTheDocument();
+    // Sig figs are no longer user-configurable — no per-table settings cog.
+    expect(
+      screen.queryByTitle("Settings for Voltage Uncertainty Budget"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Uncertainty Sig Figs"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows clean instrument descriptions and DOF only for Type A rows", () => {
@@ -189,7 +182,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.getByText("9.000")).toBeInTheDocument();
   });
 
-  it("keeps uncertainty precision independent for each budget table", () => {
+  it("renders every budget table at the same fixed precision", () => {
     renderDirectBudget({
       measurementType: "derived",
       referencePoint: { name: "Power", unit: "W" },
@@ -252,25 +245,10 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.getAllByText("1.235 V")).toHaveLength(2);
     expect(screen.getAllByText("7.654 A")).toHaveLength(2);
 
-    fireEvent.click(
-      screen.getByTitle("Settings for Voltage Uncertainty Budget"),
-    );
-    fireEvent.change(screen.getByLabelText("Uncertainty Sig Figs"), {
-      target: { value: "2" },
-    });
-
-    expect(screen.getAllByText("1.2 V")).toHaveLength(2);
-    expect(screen.getAllByText("7.654 A")).toHaveLength(2);
-
-    fireEvent.click(
-      screen.getByTitle("Settings for Current Uncertainty Budget"),
-    );
-    fireEvent.change(screen.getByLabelText("Uncertainty Sig Figs"), {
-      target: { value: "6" },
-    });
-
-    expect(screen.getAllByText("1.2 V")).toHaveLength(2);
-    expect(screen.getAllByText("7.65432 A")).toHaveLength(2);
+    // No per-table sig-fig control remains — precision is fixed for every table.
+    expect(
+      screen.queryByLabelText("Uncertainty Sig Figs"),
+    ).not.toBeInTheDocument();
   });
 
   it("uses empirical Monte Carlo values for the final budget totals", () => {

@@ -33,6 +33,7 @@ import {
   faScissors,
   faFlask,
   faTimes,
+  faRedo,
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
@@ -9886,12 +9887,19 @@ function DetailedView({
           .map((comp) => ({ tmde, comp })),
       );
 
+      // Manual components and repeatability are always addable to an input/final
+      // budget (the scope carries the flags), so the menu opens for those even
+      // when there's no TMDE / resolution / Type B source to offer.
+      const canAddManual = Boolean(scope?.canAddManual);
+      const canAddRepeatability = Boolean(scope?.canAddRepeatability);
       if (
         options.length === 0 &&
         otherOptions.length === 0 &&
         !resolutionOption &&
         tmdeResolutionOptions.length === 0 &&
-        typeBOptions.length === 0
+        typeBOptions.length === 0 &&
+        !canAddManual &&
+        !canAddRepeatability
       ) {
         setNotification?.({
           title: "Nothing to Add",
@@ -9910,6 +9918,8 @@ function DetailedView({
         resolutionOption,
         tmdeResolutionOptions,
         typeBOptions,
+        canAddManual,
+        canAddRepeatability,
         rect,
         mode: pickerOptions.mode || "add",
         replaceInstanceId: pickerOptions.replaceInstanceId || null,
@@ -10114,6 +10124,89 @@ function DetailedView({
           >
             {budgetTmdePicker.mode === "assign" ? "Assign" : "Add to"} {scopeLabel}
           </div>
+          {/* Directly-entered budget terms — the old settings-cog actions, now
+              folded into this single "Add component to budget" menu. */}
+          {(budgetTmdePicker.canAddManual ||
+            budgetTmdePicker.canAddRepeatability) && (
+            <div>
+              <div className="budget-tmde-picker-category">This budget</div>
+              {budgetTmdePicker.canAddManual && (
+                <button
+                  type="button"
+                  style={itemStyle}
+                  onClick={() => {
+                    const s = budgetTmdePicker.scope;
+                    onAddManualComponent?.(s?.kind === "input" ? s : null);
+                    setBudgetTmdePicker(null);
+                  }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = "var(--input-background)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
+                >
+                  <FontAwesomeIcon icon={faPlus} style={{ marginTop: "2px" }} />
+                  <span
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
+                      minWidth: 0,
+                    }}
+                  >
+                    <span>Add manual component</span>
+                    <span
+                      style={{
+                        fontSize: "0.72rem",
+                        color: "var(--text-color-muted)",
+                      }}
+                    >
+                      A Type A or Type B term you enter directly
+                    </span>
+                  </span>
+                </button>
+              )}
+              {budgetTmdePicker.canAddRepeatability && (
+                <button
+                  type="button"
+                  style={itemStyle}
+                  onClick={(event) => {
+                    const s = budgetTmdePicker.scope;
+                    if (s?.kind === "input") onOpenRepeatability?.(event, s);
+                    else onOpenRepeatability?.(event);
+                    setBudgetTmdePicker(null);
+                  }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = "var(--input-background)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
+                >
+                  <FontAwesomeIcon icon={faRedo} style={{ marginTop: "2px" }} />
+                  <span
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
+                      minWidth: 0,
+                    }}
+                  >
+                    <span>Repeatability</span>
+                    <span
+                      style={{
+                        fontSize: "0.72rem",
+                        color: "var(--text-color-muted)",
+                      }}
+                    >
+                      Type A from repeated readings (respects DOF)
+                    </span>
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
           {/* Grouped by the TYPE of uncertainty source so the user knows exactly
               what they're adding to the budget. */}
           {(() => {
