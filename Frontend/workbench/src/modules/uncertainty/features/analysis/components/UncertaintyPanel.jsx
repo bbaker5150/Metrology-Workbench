@@ -9848,8 +9848,41 @@ function DetailedView({
         const n = parseFloat(raw);
         return !isNaN(n) && n > 0;
       };
+      // A point's TMDE instance is a snapshot taken when it was assigned, so it
+      // can miss Type B added to the instrument afterwards. Resolve from the
+      // freshest definition: the shared/local library, then the session TMDE
+      // master, then the instance's own snapshot.
+      const freshTypeBFor = (tmde) => {
+        const inst = tmde.instrument || {};
+        const linkId = inst.libraryInstrumentId || inst.sourceId || inst.id;
+        const sameMakeModel = (i) =>
+          (i.manufacturer || "") === (inst.manufacturer || "") &&
+          (i.model || "") === (inst.model || "") &&
+          (i.manufacturer || i.model);
+        const libMatch =
+          (instruments || []).find(
+            (i) =>
+              (linkId && String(i.id) === String(linkId)) ||
+              (inst.sourceId && String(i.sourceId) === String(inst.sourceId)),
+          ) ||
+          // Fall back to make/model when ids diverged (e.g. a local copy edited
+          // in the Instrument Manager), preferring one that actually has Type B.
+          (instruments || []).find(
+            (i) => sameMakeModel(i) && (i.typeBComponents || []).length > 0,
+          );
+        const masterId = tmde.sourceId ?? tmde.id;
+        const masterMatch = (sessionData?.tmdes || []).find(
+          (t) => String(t.id) === String(masterId),
+        );
+        const lists = [
+          libMatch?.typeBComponents,
+          masterMatch?.instrument?.typeBComponents,
+          resolveInstrumentTypeB(tmde),
+        ];
+        return lists.find((l) => Array.isArray(l) && l.length > 0) || [];
+      };
       const typeBOptions = contributingTmdeInstances.flatMap((tmde) =>
-        resolveInstrumentTypeB(tmde)
+        freshTypeBFor(tmde)
           .filter((comp) => typeBHasMagnitude(comp) && !typeBAlreadyAdded(tmde, comp))
           .map((comp) => ({ tmde, comp })),
       );
@@ -9893,6 +9926,8 @@ function DetailedView({
       uutToleranceData,
       tmdeTolerancesData,
       testPointData.components,
+      instruments,
+      sessionData,
     ],
   );
 
