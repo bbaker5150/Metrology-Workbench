@@ -7138,36 +7138,16 @@ function DetailedView({
         (instrument.scope === "validated" ? buildValidatedSnapshot(instrument) : null),
     });
   };
+  // New inline instruments (UUT and TMDE) are always saved to the local library
+  // automatically — they stay local / out-of-sync until the user explicitly
+  // syncs them to the shared library. No "Save Local vs Session Only" prompt.
   const promptLocalLibrarySave = (kind, item) => {
     if (!onSaveInstrument || !item?.instrument) return;
     const key = `${kind}:${item.id}`;
-    if (localLibraryChoices[key]) {
-      if (localLibraryChoices[key] === "local")
-        saveItemInstrumentToLocalLibrary(kind, item);
-      return;
-    }
-    const saveLocal = () => {
-      setLocalLibraryChoices((prev) => ({ ...prev, [key]: "local" }));
-      saveItemInstrumentToLocalLibrary(kind, item);
-      setNotification?.(null);
-    };
-    const sessionOnly = () => {
-      setLocalLibraryChoices((prev) => ({ ...prev, [key]: "session" }));
-      setNotification?.(null);
-    };
-    if (!setNotification) {
-      saveLocal();
-      return;
-    }
-    setNotification({
-      title: "Save Instrument",
-      message:
-        "Save this new inline instrument to your local library so it appears in future searches?",
-      confirmText: "Save Local",
-      secondaryText: "Session Only",
-      onConfirm: saveLocal,
-      onSecondary: sessionOnly,
-    });
+    setLocalLibraryChoices((prev) =>
+      prev[key] === "local" ? prev : { ...prev, [key]: "local" },
+    );
+    saveItemInstrumentToLocalLibrary(kind, item);
   };
   const refreshPointTmdeInstance = (updatedItem, { reselectRange = false } = {}) => {
     if (!onUpdateTestPoint || !updatedItem) return;
