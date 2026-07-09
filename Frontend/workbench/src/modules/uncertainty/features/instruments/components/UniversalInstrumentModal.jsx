@@ -1,21 +1,18 @@
 /**
  * src/features/instruments/components/UniversalInstrumentModal.jsx
  */
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import ReactDOM from "react-dom";
-import Select from "react-select";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCheck,
   faTimes,
   faPlus,
   faTrashAlt,
-  faEdit,
   faArrowLeft,
   faSearch,
   faChevronDown,
   faChevronUp,
-  faCalculator,
   faCube,
   faBookOpen,
   faMicroscope,
@@ -28,48 +25,20 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { v4 as uuidv4 } from "uuid";
 import {
+  errorDistributions,
+  DISTRIBUTION_NOT_SET,
+  getToleranceSummary,
   getUnitDisplayLabel,
   unitCategories,
   unitSystem,
-  unitFilterOption,
 } from "../../../utils/uncertaintyMath";
-import ToleranceForm from "../../../components/common/ToleranceForm";
-import TypeBComponentsEditor from "./TypeBComponentsEditor";
+import TypeBComponentsEditor, { createTypeBComponent } from "./TypeBComponentsEditor";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 import useInstrumentSync from "../../../hooks/useInstrumentSync";
 import { computeSyncState, diffFromSnapshot } from "../../../utils/instrumentSync";
 
 import "./UniversalInstrumentModal.css";
-
-// --- React Select Styles ---
-const portalStyle = {
-  menuPortal: (base) => ({ ...base, zIndex: 99999 }),
-  menu: (base) => ({ ...base, zIndex: 99999, backgroundColor: 'var(--input-background)', color: 'var(--text-color)' }),
-  control: (base) => ({
-    ...base,
-    backgroundColor: 'var(--input-background)',
-    borderColor: 'var(--border-color)',
-    color: 'var(--text-color)',
-    minHeight: '40px', 
-    height: '40px',   
-    borderRadius: '4px',
-    fontSize: '0.95rem',
-    boxShadow: 'none',
-    '&:hover': {
-        borderColor: 'var(--border-color)'
-    }
-  }),
-  valueContainer: (base) => ({ ...base, padding: '0 8px', height: '38px', display: 'flex', alignItems: 'center' }),
-  indicatorsContainer: (base) => ({ ...base, height: '38px' }),
-  singleValue: (base) => ({ ...base, color: 'var(--text-color)' }),
-  option: (base, state) => ({
-    ...base,
-    backgroundColor: state.isFocused ? 'var(--primary-color)' : 'transparent',
-    color: state.isFocused ? '#fff' : 'var(--text-color)',
-    fontSize: '0.9rem'
-  })
-};
 
 // --- Helpers ---
 const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
@@ -107,14 +76,1369 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
   return options;
 };
 
+const RESOLUTION_DIST_DEFAULT = "1.732";
+const BAND_KEYS = ["reading", "readings_iv", "range", "floor"];
+
 const formatToleranceSummary = (tolerances) => {
-    if (!tolerances) return <span className="tolerance-badge">N/A</span>;
-    const parts = [];
-    const fmt = (c) => c.symmetric ? `±${c.high}` : `+${c.high}/-${c.low}`;
-    if (tolerances.reading?.high) parts.push(`${fmt(tolerances.reading)}% Rdg`);
-    if (tolerances.range?.high) parts.push(`${fmt(tolerances.range)}% ${tolerances.range.value ? 'FS' : 'Rng'}`);
-    if (tolerances.floor?.high) parts.push(`${fmt(tolerances.floor)} ${getUnitDisplayLabel(tolerances.floor.unit || '')}`);
-    return parts.length > 0 ? <span className="tolerance-badge">{parts.join(" + ")}</span> : <span className="tolerance-badge">Custom Spec</span>;
+    const summary = getToleranceSummary(tolerances);
+    return (
+        <span className={`tolerance-badge${summary === "Not Set" ? " is-empty" : ""}`}>
+            {summary === "Not Set" ? "Set tolerance..." : summary}
+        </span>
+    );
+};
+
+const getBandDistribution = (tolerances = {}) => {
+    const key = BAND_KEYS.find((k) => tolerances?.[k]);
+    if (key) return tolerances[key].distribution || RESOLUTION_DIST_DEFAULT;
+    return tolerances?.bandDistribution || null;
+};
+
+const applyBandDistribution = (tolerances = {}, value) => {
+    const next = { ...(tolerances || {}) };
+    let touched = false;
+    BAND_KEYS.forEach((key) => {
+        if (next[key] && typeof next[key] === "object") {
+            next[key] = { ...next[key], distribution: value };
+            touched = true;
+        }
+    });
+    if (!touched) next.bandDistribution = value;
+    return next;
+};
+
+const getDistributionLabel = (value, fallback = "Rectangular") => {
+    const match = errorDistributions.find((dist) => String(dist.value) === String(value));
+    return match?.label || fallback;
+};
+
+const valuePresent = (value) =>
+    value !== undefined && value !== null && String(value).trim() !== "";
+
+const toPlainNumber = (value) => {
+    if (!valuePresent(value)) return "";
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? String(numeric) : String(value);
+};
+
+const getRangeUnit = (range = {}, fn = {}) =>
+    range.unit || range.functionUnit || fn.unit || "";
+
+const formatBuilderRangeSummary = (range = {}, fn = {}) => {
+    const unitLabel = getUnitDisplayLabel(getRangeUnit(range, fn));
+    if (range.isSingleValue) {
+        const value = range.value ?? range.max ?? range.min ?? "";
+        if (!valuePresent(value)) return "";
+        return unitLabel ? `${value} ${unitLabel}` : String(value);
+    }
+    const min = range.min;
+    const max = range.max;
+    if (!valuePresent(min) && !valuePresent(max)) return "";
+    const body =
+        valuePresent(min) && valuePresent(max)
+            ? `${min} to ${max}`
+            : valuePresent(min)
+              ? `from ${min}`
+              : `to ${max}`;
+    return unitLabel ? `${body} ${unitLabel}` : body;
+};
+
+const formatResolutionSummary = (range = {}, fn = {}) => {
+    const value = range.resolution ?? range.measuringResolution;
+    if (!valuePresent(value)) return "";
+    const unitLabel = getUnitDisplayLabel(
+        range.resolutionUnit || range.measuringResolutionUnit || getRangeUnit(range, fn),
+    );
+    return unitLabel ? `${value} ${unitLabel}` : String(value);
+};
+
+const normalizeUnitSearch = (value) =>
+    String(value || "").toLowerCase().replace(/[^a-z0-9%]+/g, "");
+
+const flattenUnitOptions = (groups = []) =>
+    groups.flatMap((group) => (group.options ? group.options : group));
+
+const BuilderUnitSelect = ({
+    value = "",
+    onChange,
+    options = [],
+    ariaLabel = "Unit",
+    width = "72px",
+}) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [query, setQuery] = useState("");
+    const [menuRect, setMenuRect] = useState(null);
+    const [activeValue, setActiveValue] = useState(value || "");
+    const rootRef = useRef(null);
+    const searchRef = useRef(null);
+    const selectedRef = useRef(null);
+    const activeRef = useRef(null);
+    const flatOptions = useMemo(() => flattenUnitOptions(options), [options]);
+    const selectedOption =
+        flatOptions.find((option) => option.value === value) ||
+        (value ? { value, label: getUnitDisplayLabel(value) || value } : null);
+    const normalizedQuery = normalizeUnitSearch(query);
+    const visibleGroups = useMemo(() => {
+        if (!normalizedQuery) return options;
+        return options
+            .map((group) => {
+                const groupOptions = group.options ? group.options : [group];
+                return {
+                    ...group,
+                    options: groupOptions.filter((option) => {
+                        const groupLabel = normalizeUnitSearch(group.label);
+                        return (
+                            normalizeUnitSearch(option.value).includes(normalizedQuery) ||
+                            normalizeUnitSearch(option.label).includes(normalizedQuery) ||
+                            groupLabel.includes(normalizedQuery)
+                        );
+                    }),
+                };
+            })
+            .filter((group) => (group.options || []).length > 0);
+    }, [options, normalizedQuery]);
+    const visibleOptions = useMemo(
+        () => flattenUnitOptions(visibleGroups),
+        [visibleGroups],
+    );
+
+    const closeMenu = () => setIsOpen(false);
+    const openMenu = () => {
+        const rect = rootRef.current?.getBoundingClientRect();
+        if (rect) {
+            setMenuRect({
+                top: rect.bottom + 4,
+                left: rect.left,
+                width: Math.max(rect.width, 240),
+            });
+        }
+        setQuery("");
+        setActiveValue(value || flatOptions[0]?.value || "");
+        setIsOpen(true);
+    };
+
+    const chooseUnit = (option) => {
+        onChange(option?.value || "");
+        closeMenu();
+    };
+
+    useEffect(() => {
+        if (!isOpen) return undefined;
+        const onPointerDown = (event) => {
+            const target = event.target;
+            if (
+                rootRef.current?.contains(target) ||
+                target?.closest?.(".inline-unit-menu")
+            ) {
+                return;
+            }
+            closeMenu();
+        };
+        document.addEventListener("mousedown", onPointerDown);
+        return () => document.removeEventListener("mousedown", onPointerDown);
+    }, [isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        if (
+            visibleOptions.length > 0 &&
+            !visibleOptions.some((option) => option.value === activeValue)
+        ) {
+            setActiveValue(visibleOptions[0].value);
+        }
+    }, [activeValue, isOpen, visibleOptions]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        requestAnimationFrame(() => {
+            searchRef.current?.focus();
+            (activeRef.current || selectedRef.current)?.scrollIntoView({
+                block: "nearest",
+            });
+        });
+    }, [activeValue, isOpen, normalizedQuery]);
+
+    return (
+        <div
+            ref={rootRef}
+            className="inline-unit-select builder-unit-select"
+            onMouseDown={(e) => e.stopPropagation()}
+            aria-label={ariaLabel}
+            style={{ "--inline-unit-width": width }}
+        >
+            <button
+                type="button"
+                className={`inline-unit-combobox inline-unit-base-button${
+                    isOpen ? " is-open" : ""
+                }`}
+                aria-label={`${ariaLabel} base unit`}
+                aria-haspopup="listbox"
+                aria-expanded={isOpen}
+                title={selectedOption?.label || value || "Unit"}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    if (isOpen) closeMenu();
+                    else openMenu();
+                }}
+            >
+                <span>{selectedOption?.label || value || "Unit"}</span>
+                <FontAwesomeIcon icon={faChevronDown} size="xs" />
+            </button>
+            {isOpen &&
+                menuRect &&
+                ReactDOM.createPortal(
+                    <div
+                        className="inline-unit-menu"
+                        style={{
+                            top: menuRect.top,
+                            left: menuRect.left,
+                            width: menuRect.width,
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                    >
+                        <input
+                            ref={searchRef}
+                            className="inline-unit-search"
+                            value={query}
+                            placeholder="Search units..."
+                            onChange={(e) => setQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Escape") {
+                                    closeMenu();
+                                    return;
+                                }
+                                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                                    e.preventDefault();
+                                    if (visibleOptions.length === 0) return;
+                                    const currentIndex = Math.max(
+                                        0,
+                                        visibleOptions.findIndex(
+                                            (option) => option.value === activeValue,
+                                        ),
+                                    );
+                                    const offset = e.key === "ArrowDown" ? 1 : -1;
+                                    const nextIndex =
+                                        (currentIndex + offset + visibleOptions.length) %
+                                        visibleOptions.length;
+                                    setActiveValue(visibleOptions[nextIndex].value);
+                                    return;
+                                }
+                                if (e.key === "Enter") {
+                                    const activeOption =
+                                        visibleOptions.find(
+                                            (option) => option.value === activeValue,
+                                        ) || visibleOptions[0];
+                                    if (activeOption) chooseUnit(activeOption);
+                                }
+                            }}
+                        />
+                        <div
+                            className="inline-unit-options"
+                            role="listbox"
+                            aria-label={ariaLabel}
+                        >
+                            {visibleGroups.length === 0 ? (
+                                <div className="inline-unit-empty">No matching units</div>
+                            ) : (
+                                visibleGroups.map((group) => (
+                                    <div className="inline-unit-group" key={group.label}>
+                                        <div className="inline-unit-group-label">
+                                            {group.label}
+                                        </div>
+                                        {(group.options || []).map((option) => {
+                                            const isSelected = option.value === value;
+                                            const isActive = option.value === activeValue;
+                                            return (
+                                                <button
+                                                    key={option.value}
+                                                    ref={
+                                                        isActive
+                                                            ? activeRef
+                                                            : isSelected
+                                                              ? selectedRef
+                                                              : null
+                                                    }
+                                                    type="button"
+                                                    role="option"
+                                                    aria-selected={isSelected}
+                                                    className={`inline-unit-option${
+                                                        isSelected ? " is-selected" : ""
+                                                    }${isActive ? " is-active" : ""}`}
+                                                    onMouseEnter={() =>
+                                                        setActiveValue(option.value)
+                                                    }
+                                                    onClick={() => chooseUnit(option)}
+                                                >
+                                                    <span>{option.label}</span>
+                                                    <small>{option.value}</small>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>,
+                    document.body,
+                )}
+        </div>
+    );
+};
+
+const TOLERANCE_TYPE_OPTIONS = [
+    { key: "reading", label: "% IV", title: "Percent of indicated value" },
+    { key: "range", label: "% FS", title: "Percent of full scale" },
+    { key: "floor", label: "Floor", title: "Absolute floor value" },
+    { key: "db", label: "dB", title: "Decibel value" },
+];
+
+const TOLERANCE_SHAPE_OPTIONS = [
+    {
+        key: "symmetric",
+        symbol: "±",
+        label: "Symmetric",
+        detail: "Equal plus and minus limits",
+    },
+    {
+        key: "single",
+        symbol: "+0",
+        label: "Single-sided",
+        detail: "One limit is zero",
+    },
+    {
+        key: "asymmetric",
+        symbol: "+−",
+        label: "Asymmetric",
+        detail: "Independent plus and minus limits",
+    },
+];
+
+const finiteNumber = (value) => Number.isFinite(parseFloat(value));
+
+const getToleranceComponent = (tolerance = {}, typeKey) =>
+    tolerance?.[typeKey] || null;
+
+const toleranceComponentHasNumericValue = (typeKey, component) => {
+    if (!component) return false;
+    if (typeKey === "reading") {
+        return (
+            finiteNumber(component.value) ||
+            finiteNumber(component.high) ||
+            finiteNumber(component.low)
+        );
+    }
+    return finiteNumber(component.high) || finiteNumber(component.low);
+};
+
+const toleranceHasAnyValue = (tolerance = {}) =>
+    TOLERANCE_TYPE_OPTIONS.some((opt) =>
+        toleranceComponentHasNumericValue(
+            opt.key,
+            getToleranceComponent(tolerance, opt.key),
+        ),
+    );
+
+const pruneBlankToleranceTerms = (tolerance = {}) => {
+    const next = { ...(tolerance || {}) };
+    TOLERANCE_TYPE_OPTIONS.forEach(({ key }) => {
+        if (
+            Object.prototype.hasOwnProperty.call(next, key) &&
+            !toleranceComponentHasNumericValue(key, next[key])
+        ) {
+            delete next[key];
+        }
+    });
+    if (next.readings_iv) {
+        if (!next.floor) next.floor = next.readings_iv;
+        delete next.readings_iv;
+    }
+    return next;
+};
+
+const effectiveFloorTerm = (tolerance = {}) => {
+    if (tolerance.floor && toleranceComponentHasNumericValue("floor", tolerance.floor)) {
+        return tolerance.floor;
+    }
+    return tolerance.readings_iv || tolerance.floor;
+};
+
+const getBuilderBandDivisor = (tolerance = {}) => {
+    if (!tolerance || typeof tolerance !== "object") return null;
+    const key = BAND_KEYS.find((k) => tolerance[k]);
+    if (key) return tolerance[key].distribution || RESOLUTION_DIST_DEFAULT;
+    return tolerance.bandDistribution || null;
+};
+
+const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) => {
+    const distribution = getBuilderBandDivisor(tolerance) || DISTRIBUTION_NOT_SET;
+    if (typeKey === "range") {
+        return {
+            value: activeRange?.max ?? "",
+            high: "",
+            low: "",
+            unit: "%",
+            distribution,
+            symmetric: true,
+        };
+    }
+    if (typeKey === "floor") {
+        return {
+            high: "",
+            low: "",
+            unit: activeRange?.unit || "",
+            distribution,
+            symmetric: true,
+        };
+    }
+    if (typeKey === "db") {
+        return {
+            high: "",
+            low: "",
+            multiplier: 20,
+            ref: 1,
+            distribution,
+            symmetric: true,
+        };
+    }
+    return {
+        value: "",
+        high: "",
+        low: "",
+        unit: "%",
+        distribution,
+        symmetric: true,
+    };
+};
+
+const componentLimitMagnitude = (component = {}, side = "high", typeKey = "") => {
+    if (typeKey === "reading" && valuePresent(component?.value)) {
+        return toPlainNumber(Math.abs(parseFloat(component.value)));
+    }
+    const raw = component?.[side];
+    if (valuePresent(raw)) {
+        return toPlainNumber(Math.abs(parseFloat(raw)));
+    }
+    if (side === "low" && valuePresent(component?.high)) {
+        return toPlainNumber(Math.abs(parseFloat(component.high)));
+    }
+    if (typeKey !== "range" && valuePresent(component?.value)) {
+        return toPlainNumber(Math.abs(parseFloat(component.value)));
+    }
+    return "";
+};
+
+const toleranceTermMode = (component = {}) => {
+    const high = parseFloat(component?.high);
+    const low = parseFloat(component?.low);
+    if (!Number.isFinite(high) || !Number.isFinite(low)) return "symmetric";
+    const hZero = Math.abs(high) < 1e-12;
+    const lZero = Math.abs(low) < 1e-12;
+    if (hZero && lZero) return "symmetric";
+    if (hZero || lZero) return "single";
+    return Math.abs(Math.abs(high) - Math.abs(low)) > 1e-9
+        ? "asymmetric"
+        : "symmetric";
+};
+
+const toleranceShapeOption = (mode) =>
+    TOLERANCE_SHAPE_OPTIONS.find((option) => option.key === mode) ||
+    TOLERANCE_SHAPE_OPTIONS[0];
+
+const componentUnitLabel = (typeKey, component = {}, activeRange = {}) => {
+    if (typeKey === "reading") return "% IV";
+    if (typeKey === "range") return "% FS";
+    if (typeKey === "floor") {
+        return getUnitDisplayLabel(component.unit || activeRange?.unit || "");
+    }
+    if (typeKey === "db") return "dB";
+    return "";
+};
+
+const toleranceInputStyleFor = (value, { minCh = 5, maxCh = 12 } = {}) => {
+    const length = String(value ?? "").trim().length || minCh;
+    const ch = Math.min(Math.max(length + 2, minCh), maxCh);
+    return {
+        width: `${ch}ch`,
+        flexBasis: `${ch}ch`,
+    };
+};
+
+const getBuilderSpecRows = (tolerance = {}) => {
+    if (!tolerance) return ["-"];
+    if (Array.isArray(tolerance.tolerances) && tolerance.tolerances.length > 0) {
+        const rows = [];
+        tolerance.tolerances.forEach((t) => rows.push(...getBuilderSpecRows(t)));
+        return rows;
+    }
+
+    const componentConfig = [
+        { key: "reading", tag: "IV" },
+        { key: "range", tag: "FS" },
+        { key: "floor", tag: "" },
+        { key: "db", tag: "", unit: "dB" },
+    ];
+
+    const parseComp = (part, unitOverride) => {
+        if (!part) return null;
+        const hasHL = finiteNumber(part.high) || finiteNumber(part.low);
+        const hasVal = finiteNumber(part.value);
+        if (!hasHL && !hasVal) return null;
+        const unit = unitOverride || part.unit || "";
+        if (part.high === undefined && hasVal) {
+            return { mag: Math.abs(parseFloat(part.value)), symmetric: true, unit };
+        }
+        const high = parseFloat(part.high || 0);
+        const low = parseFloat(part.low || -high);
+        return {
+            mag: Math.abs(high),
+            symmetric: Math.abs(high + low) < 1e-9,
+            high,
+            low,
+            unit,
+        };
+    };
+
+    const tagSuffix = (comp, tag) => {
+        const unitLabel = getUnitDisplayLabel(comp.unit || "");
+        const join = unitLabel === "%" || unitLabel === "" ? "" : " ";
+        const unitPart = `${join}${unitLabel}`;
+        return tag ? `${unitPart} ${tag}` : unitPart;
+    };
+
+    const termText = (comp, tag, { withSign }) => {
+        const suffix = tagSuffix(comp, tag);
+        if (comp.symmetric) {
+            const sign = withSign ? "±" : "";
+            return `${sign}${comp.mag}${suffix}`.trim();
+        }
+        const body = `+${comp.high}/${comp.low}`;
+        return `${withSign ? `(${body})` : body}${suffix}`.trim();
+    };
+
+    const present = [];
+    let anyAsymmetric = false;
+    for (const cfg of componentConfig) {
+        const source =
+            cfg.key === "floor" ? effectiveFloorTerm(tolerance) : tolerance[cfg.key];
+        const comp = parseComp(source, cfg.unit);
+        if (!comp) continue;
+        present.push({ comp, cfg });
+        if (!comp.symmetric) anyAsymmetric = true;
+    }
+
+    if (present.length === 0) return [getToleranceSummary(tolerance)];
+
+    if (!anyAsymmetric) {
+        if (present.length === 1) {
+            return [`± ${termText(present[0].comp, present[0].cfg.tag, { withSign: false })}`];
+        }
+        const inner = present
+            .map((p) => termText(p.comp, p.cfg.tag, { withSign: false }))
+            .join(" + ");
+        return [`±(${inner})`];
+    }
+
+    const inner = present
+        .map((p) => termText(p.comp, p.cfg.tag, { withSign: true }))
+        .join(" + ");
+    return [inner];
+};
+
+const ToleranceTermEditor = ({
+    tolerance = {},
+    activeRange = {},
+    typeKey,
+    showHighSign = true,
+    onCommit,
+}) => {
+    const component =
+        getToleranceComponent(tolerance, typeKey) ||
+        defaultToleranceComponent(typeKey, activeRange, tolerance);
+    const [highValue, setHighValue] = useState(() =>
+        componentLimitMagnitude(component, "high", typeKey),
+    );
+    const [lowValue, setLowValue] = useState(() =>
+        componentLimitMagnitude(component, "low", typeKey),
+    );
+    const [fullScale, setFullScale] = useState(() =>
+        toPlainNumber(component.value ?? activeRange?.max ?? ""),
+    );
+    const [mode, setMode] = useState(() =>
+        typeKey === "reading" ? "symmetric" : toleranceTermMode(component),
+    );
+    const [shapeMenuRect, setShapeMenuRect] = useState(null);
+    const shapeButtonRef = useRef(null);
+    const [singleNeg, setSingleNeg] = useState(
+        () =>
+            typeKey !== "reading" &&
+            toleranceTermMode(component) === "single" &&
+            Math.abs(parseFloat(component?.high) || 0) < 1e-12,
+    );
+
+    useEffect(() => {
+        const nextMode = typeKey === "reading" ? "symmetric" : toleranceTermMode(component);
+        setMode(nextMode);
+        setSingleNeg(
+            nextMode === "single" &&
+                Math.abs(parseFloat(component?.high) || 0) < 1e-12,
+        );
+    }, [typeKey, activeRange?.id]);
+
+    useEffect(() => {
+        setHighValue(componentLimitMagnitude(component, "high", typeKey));
+        setLowValue(componentLimitMagnitude(component, "low", typeKey));
+        setFullScale(toPlainNumber(component.value ?? activeRange?.max ?? ""));
+    }, [typeKey, component.high, component.low, component.value, activeRange?.max]);
+
+    const termMode = typeKey === "reading" ? "symmetric" : mode;
+    const currentShape = toleranceShapeOption(termMode);
+    const singleValue = singleNeg ? lowValue : highValue;
+    const setSingleValue = singleNeg ? setLowValue : setHighValue;
+
+    const commit = (patch = {}) => {
+        const next = {
+            ...defaultToleranceComponent(typeKey, activeRange, tolerance),
+            ...component,
+            ...patch,
+        };
+        onCommit(typeKey, next);
+    };
+
+    const commitLimit = (side, raw) => {
+        const trimmed = String(raw ?? "").trim();
+        const parsed = parseFloat(trimmed);
+        if (termMode === "symmetric") {
+            const magnitude =
+                trimmed === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
+            const patch = {
+                high: magnitude,
+                low: magnitude === "" ? "" : String(-Math.abs(parsed)),
+                symmetric: true,
+            };
+            if (typeKey === "reading") patch.value = magnitude;
+            commit(patch);
+            return;
+        }
+
+        const next = {
+            high:
+                component.high ??
+                (highValue === "" ? "" : String(Math.abs(parseFloat(highValue)))),
+            low:
+                component.low ??
+                (lowValue === "" ? "" : String(-Math.abs(parseFloat(lowValue)))),
+        };
+        if (side === "high") {
+            next.high =
+                trimmed === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
+        } else {
+            next.low =
+                trimmed === "" || Number.isNaN(parsed)
+                    ? ""
+                    : String(-Math.abs(parsed));
+        }
+        const high = parseFloat(next.high);
+        const low = parseFloat(next.low);
+        commit({
+            ...next,
+            symmetric:
+                !Number.isNaN(high) &&
+                !Number.isNaN(low) &&
+                Math.abs(high + low) < 1e-9,
+        });
+    };
+
+    const commitFullScale = (raw) => {
+        const trimmed = String(raw ?? "").trim();
+        if (trimmed === String(component.value ?? activeRange?.max ?? "")) return;
+        commit({ value: trimmed });
+    };
+
+    const commitSingleValue = (raw, neg = singleNeg) => {
+        const trimmed = String(raw ?? "").trim();
+        const parsed = parseFloat(trimmed);
+        if (trimmed === "" || Number.isNaN(parsed)) {
+            commit({ high: "", low: "", symmetric: false });
+            return;
+        }
+        const mag = String(Math.abs(parsed));
+        commit(
+            neg
+                ? { high: "0", low: String(-Math.abs(parsed)), symmetric: false }
+                : { high: mag, low: "0", symmetric: false },
+        );
+    };
+
+    const changeMode = (nextMode) => {
+        setShapeMenuRect(null);
+        if (nextMode === termMode) return;
+        const curMag = termMode === "single" ? singleValue : highValue;
+        const parsed = parseFloat(curMag);
+        const mag =
+            curMag === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
+        setMode(nextMode);
+        setSingleNeg(false);
+        if (nextMode === "symmetric") {
+            setHighValue(mag);
+            setLowValue(mag);
+            commit({
+                high: mag,
+                low: mag === "" ? "" : String(-Math.abs(parsed)),
+                symmetric: true,
+            });
+        } else if (nextMode === "single") {
+            setHighValue(mag);
+            setLowValue("0");
+            if (mag !== "") commit({ high: mag, low: "0", symmetric: false });
+        } else {
+            setHighValue(mag);
+            if (lowValue === "" || lowValue === "0") setLowValue(mag);
+        }
+    };
+
+    const toggleShapeMenu = () => {
+        if (shapeMenuRect) {
+            setShapeMenuRect(null);
+            return;
+        }
+        const rect = shapeButtonRef.current?.getBoundingClientRect();
+        if (rect) setShapeMenuRect(rect);
+    };
+
+    const toggleSingleDir = () => {
+        const mag = singleValue;
+        const nextNeg = !singleNeg;
+        setSingleNeg(nextNeg);
+        if (nextNeg) {
+            setLowValue(mag);
+            setHighValue("0");
+        } else {
+            setHighValue(mag);
+            setLowValue("0");
+        }
+        commitSingleValue(mag, nextNeg);
+    };
+
+    const typeLabel = componentUnitLabel(typeKey, component, activeRange);
+    const typeOption = TOLERANCE_TYPE_OPTIONS.find((opt) => opt.key === typeKey);
+    const shapeMenu =
+        typeKey !== "reading" && shapeMenuRect
+            ? ReactDOM.createPortal(
+                  <>
+                      <div
+                          className="inline-tolerance-shape-backdrop"
+                          onMouseDown={() => setShapeMenuRect(null)}
+                      />
+                      <div
+                          className="inline-tolerance-shape-menu"
+                          style={{
+                              top: `${Math.min(
+                                  shapeMenuRect.bottom + 6,
+                                  window.innerHeight - 132,
+                              )}px`,
+                              left: `${Math.max(
+                                  8,
+                                  Math.min(
+                                      shapeMenuRect.right - 172,
+                                      window.innerWidth - 180,
+                                  ),
+                              )}px`,
+                          }}
+                          onMouseDown={(e) => e.preventDefault()}
+                          role="menu"
+                      >
+                          {TOLERANCE_SHAPE_OPTIONS.map((option) => (
+                              <button
+                                  key={option.key}
+                                  type="button"
+                                  className={`inline-tolerance-shape-option${
+                                      option.key === termMode ? " is-active" : ""
+                                  }`}
+                                  onClick={() => changeMode(option.key)}
+                                  role="menuitemradio"
+                                  aria-checked={option.key === termMode}
+                              >
+                                  <span className="inline-tolerance-shape-option-copy">
+                                      <span>{option.label}</span>
+                                      <small>{option.detail}</small>
+                                  </span>
+                              </button>
+                          ))}
+                      </div>
+                  </>,
+                  document.body,
+              )
+            : null;
+
+    return (
+        <span className="inline-tolerance-term">
+            <span className="inline-tolerance-limits">
+                {termMode === "symmetric" && (
+                    <>
+                        {showHighSign && (
+                            <span className="inline-tolerance-symbol">±</span>
+                        )}
+                        <input
+                            type="text"
+                            inputMode="decimal"
+                            value={highValue}
+                            placeholder="0"
+                            onChange={(e) => setHighValue(e.target.value)}
+                            onBlur={(e) => commitLimit("high", e.target.value)}
+                            onKeyDown={(e) =>
+                                e.key === "Enter" && e.currentTarget.blur()
+                            }
+                            className="inline-tolerance-input"
+                            style={toleranceInputStyleFor(highValue)}
+                        />
+                    </>
+                )}
+                {termMode === "single" && (
+                    <>
+                        {showHighSign && (
+                            <span className="inline-tolerance-symbol">+</span>
+                        )}
+                        {singleNeg ? (
+                            <span
+                                className="inline-tolerance-zero"
+                                title="Upper limit is 0"
+                            >
+                                0
+                            </span>
+                        ) : (
+                            <input
+                                type="text"
+                                inputMode="decimal"
+                                value={singleValue}
+                                placeholder="0"
+                                onChange={(e) => setSingleValue(e.target.value)}
+                                onBlur={(e) => commitSingleValue(e.target.value)}
+                                onKeyDown={(e) =>
+                                    e.key === "Enter" && e.currentTarget.blur()
+                                }
+                                className="inline-tolerance-input"
+                                style={toleranceInputStyleFor(singleValue)}
+                            />
+                        )}
+                        <span className="inline-tolerance-symbol">-</span>
+                        {singleNeg ? (
+                            <input
+                                type="text"
+                                inputMode="decimal"
+                                value={singleValue}
+                                placeholder="0"
+                                onChange={(e) => setSingleValue(e.target.value)}
+                                onBlur={(e) => commitSingleValue(e.target.value)}
+                                onKeyDown={(e) =>
+                                    e.key === "Enter" && e.currentTarget.blur()
+                                }
+                                className="inline-tolerance-input"
+                                style={toleranceInputStyleFor(singleValue)}
+                            />
+                        ) : (
+                            <span
+                                className="inline-tolerance-zero"
+                                title="Lower limit is 0"
+                            >
+                                0
+                            </span>
+                        )}
+                        <button
+                            type="button"
+                            className="inline-tolerance-dir-toggle"
+                            title="Swap which side the limit applies to"
+                            aria-label="Swap single-sided direction"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={toggleSingleDir}
+                        >
+                            ⇄
+                        </button>
+                    </>
+                )}
+                {termMode === "asymmetric" && (
+                    <>
+                        {showHighSign && (
+                            <span className="inline-tolerance-symbol">+</span>
+                        )}
+                        <input
+                            type="text"
+                            inputMode="decimal"
+                            value={highValue}
+                            placeholder="0"
+                            onChange={(e) => setHighValue(e.target.value)}
+                            onBlur={(e) => commitLimit("high", e.target.value)}
+                            onKeyDown={(e) =>
+                                e.key === "Enter" && e.currentTarget.blur()
+                            }
+                            className="inline-tolerance-input"
+                            style={toleranceInputStyleFor(highValue)}
+                        />
+                        <span className="inline-tolerance-symbol">-</span>
+                        <input
+                            type="text"
+                            inputMode="decimal"
+                            value={lowValue}
+                            placeholder="0"
+                            onChange={(e) => setLowValue(e.target.value)}
+                            onBlur={(e) => commitLimit("low", e.target.value)}
+                            onKeyDown={(e) =>
+                                e.key === "Enter" && e.currentTarget.blur()
+                            }
+                            className="inline-tolerance-input"
+                            style={toleranceInputStyleFor(lowValue)}
+                        />
+                    </>
+                )}
+                {typeKey !== "reading" && (
+                    <>
+                        <button
+                            ref={shapeButtonRef}
+                            type="button"
+                            className={`inline-tolerance-shape-button${
+                                shapeMenuRect ? " is-open" : ""
+                            }`}
+                            title={`Tolerance shape: ${currentShape.label}`}
+                            aria-haspopup="menu"
+                            aria-expanded={Boolean(shapeMenuRect)}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={toggleShapeMenu}
+                        >
+                            <span>{currentShape.symbol}</span>
+                            <FontAwesomeIcon icon={faChevronDown} size="xs" />
+                        </button>
+                        {shapeMenu}
+                    </>
+                )}
+            </span>
+            {typeLabel && (
+                <span
+                    className="inline-tolerance-chip inline-tolerance-chip--in-cell"
+                    title={typeOption?.title || typeLabel}
+                >
+                    {typeLabel}
+                </span>
+            )}
+            {typeKey === "range" && (
+                <span className="inline-tolerance-fs">
+                    <span>(FS=</span>
+                    <input
+                        type="text"
+                        inputMode="decimal"
+                        value={fullScale}
+                        placeholder="max"
+                        onChange={(e) => setFullScale(e.target.value)}
+                        onBlur={(e) => commitFullScale(e.target.value)}
+                        onKeyDown={(e) =>
+                            e.key === "Enter" && e.currentTarget.blur()
+                        }
+                        className="inline-tolerance-input inline-tolerance-input--fs"
+                        style={toleranceInputStyleFor(fullScale, {
+                            minCh: 6,
+                            maxCh: 14,
+                        })}
+                    />
+                    <span>{getUnitDisplayLabel(activeRange?.unit || "")}</span>
+                    <span>)</span>
+                </span>
+            )}
+        </span>
+    );
+};
+
+const BuilderRangeCell = ({
+    range = {},
+    fn = {},
+    unitOptions = [],
+    onPatch,
+}) => {
+    const [editing, setEditing] = useState(false);
+    const ref = useRef(null);
+
+    useEffect(() => {
+        if (!editing || !ref.current) return;
+        ref.current.querySelector("input")?.focus();
+    }, [editing]);
+
+    const handleBlur = (event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Element && ref.current?.contains(next)) return;
+        if (next instanceof Element && next.closest(".inline-unit-menu")) return;
+        setEditing(false);
+    };
+
+    const summary = formatBuilderRangeSummary(range, fn);
+    const isSingle = !!range.isSingleValue;
+    const singleValue = range.value ?? range.max ?? range.min ?? "";
+
+    if (!editing) {
+        return (
+            <span className="inline-tolerance-readview builder-inline-readview">
+                <button
+                    type="button"
+                    className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
+                    title={summary ? "Click to edit range" : "Click to set a range"}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setEditing(true);
+                    }}
+                >
+                    {summary || "Set range..."}
+                </button>
+                <button
+                    type="button"
+                    className="range-expand-btn"
+                    title="Edit range"
+                    aria-label="Edit range"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setEditing(true);
+                    }}
+                >
+                    <FontAwesomeIcon icon={faChevronDown} size="xs" />
+                    <span className="range-expand-btn-label">edit / add</span>
+                </button>
+            </span>
+        );
+    }
+
+    return (
+        <div
+            ref={ref}
+            className="builder-inline-range-editor"
+            onMouseDown={(e) => e.stopPropagation()}
+            onBlur={handleBlur}
+        >
+            <button
+                type="button"
+                className="inline-range-mode-toggle"
+                title={isSingle ? "Switch to min-max range" : "Switch to single value"}
+                aria-label={isSingle ? "Switch to min-max range" : "Switch to single value"}
+                onClick={() => {
+                    if (isSingle) {
+                        onPatch({ isSingleValue: false });
+                    } else {
+                        const value = range.value ?? range.max ?? range.min ?? "";
+                        onPatch({ isSingleValue: true, value, min: value, max: value });
+                    }
+                }}
+            >
+                {isSingle ? "↔" : "•"}
+            </button>
+            {isSingle ? (
+                <input
+                    type="text"
+                    inputMode="decimal"
+                    defaultValue={toPlainNumber(singleValue)}
+                    placeholder="value"
+                    className="inline-tolerance-input inline-range-bound-input"
+                    onBlur={(e) =>
+                        onPatch({
+                            isSingleValue: true,
+                            value: e.target.value,
+                            min: e.target.value,
+                            max: e.target.value,
+                        })
+                    }
+                    onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                />
+            ) : (
+                <>
+                    <input
+                        type="text"
+                        inputMode="decimal"
+                        defaultValue={toPlainNumber(range.min)}
+                        placeholder="min"
+                        className="inline-tolerance-input inline-range-bound-input"
+                        onBlur={(e) => onPatch({ min: e.target.value })}
+                        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                    />
+                    <span className="builder-inline-dash">-</span>
+                    <input
+                        type="text"
+                        inputMode="decimal"
+                        defaultValue={toPlainNumber(range.max)}
+                        placeholder="max"
+                        className="inline-tolerance-input inline-range-bound-input"
+                        onBlur={(e) => onPatch({ max: e.target.value })}
+                        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                    />
+                </>
+            )}
+            <BuilderUnitSelect
+                value={getRangeUnit(range, fn)}
+                onChange={(unit) => onPatch({ unit })}
+                options={unitOptions}
+                ariaLabel="Range unit"
+                width="72px"
+            />
+        </div>
+    );
+};
+
+const BuilderToleranceCell = ({
+    range = {},
+    fn = {},
+    onToleranceComponentCommit,
+}) => {
+    const [editing, setEditing] = useState(false);
+    const ref = useRef(null);
+    const tolerance = range.tolerances || {};
+    const activeRange = { ...range, unit: getRangeUnit(range, fn) };
+    const summary = getBuilderSpecRows(tolerance)[0] || "-";
+    const hasValue = toleranceHasAnyValue(tolerance);
+
+    useEffect(() => {
+        if (!editing || !ref.current) return;
+        ref.current.querySelector("input")?.focus();
+    }, [editing]);
+
+    const handleBlur = (event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Element && ref.current?.contains(next)) return;
+        setEditing(false);
+    };
+
+    if (editing) {
+        return (
+            <div
+                ref={ref}
+                className="inline-tolerance-editor inline-tolerance-editor--all builder-inline-tolerance-editor"
+                onMouseDown={(e) => e.stopPropagation()}
+                onBlur={handleBlur}
+            >
+                {TOLERANCE_TYPE_OPTIONS.map((opt) => (
+                    <span key={opt.key} className="inline-tolerance-term-group">
+                        <ToleranceTermEditor
+                            tolerance={tolerance}
+                            activeRange={activeRange}
+                            typeKey={opt.key}
+                            showHighSign
+                            onCommit={onToleranceComponentCommit}
+                        />
+                    </span>
+                ))}
+            </div>
+        );
+    }
+
+    return (
+        <span className="inline-tolerance-readview builder-inline-readview">
+            <button
+                type="button"
+                className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}`}
+                title={hasValue ? "Click to edit tolerance" : "Click to set a tolerance"}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    setEditing(true);
+                }}
+            >
+                {hasValue ? summary : "Set tolerance..."}
+            </button>
+            <button
+                type="button"
+                className="range-expand-btn"
+                title="Edit or add tolerance terms"
+                aria-label="Edit or add tolerance terms"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    setEditing(true);
+                }}
+            >
+                <FontAwesomeIcon icon={faChevronDown} size="xs" />
+                <span className="range-expand-btn-label">edit / add</span>
+            </button>
+        </span>
+    );
+};
+
+const BuilderDistributionCell = ({ value, onChange }) => {
+    const [editing, setEditing] = useState(false);
+    const ref = useRef(null);
+    const divisor = value ? String(value) : null;
+    const label = divisor ? getDistributionLabel(divisor, `k=${divisor}`) : "-";
+
+    useEffect(() => {
+        if (editing) ref.current?.querySelector("select")?.focus();
+    }, [editing]);
+
+    if (!divisor) {
+        return <span className="range-ghost-hint">-</span>;
+    }
+
+    if (!editing) {
+        return (
+            <span className="inline-tolerance-readview builder-inline-readview">
+                <button
+                    type="button"
+                    className="inline-tolerance-summary"
+                    title="Click to edit distribution"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setEditing(true);
+                    }}
+                >
+                    {label}
+                </button>
+                <button
+                    type="button"
+                    className="range-expand-btn"
+                    title="Edit distribution"
+                    aria-label="Edit distribution"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setEditing(true);
+                    }}
+                >
+                    <FontAwesomeIcon icon={faChevronDown} size="xs" />
+                    <span className="range-expand-btn-label">edit / add</span>
+                </button>
+            </span>
+        );
+    }
+
+    return (
+        <span
+            ref={ref}
+            className="inline-distribution-editor"
+            onBlur={(event) => {
+                if (event.relatedTarget && ref.current?.contains(event.relatedTarget)) return;
+                setEditing(false);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+        >
+            <select
+                className="session-selector"
+                value={divisor}
+                aria-label="Spec band distribution"
+                onChange={(e) => {
+                    onChange(e.target.value);
+                    setEditing(false);
+                }}
+            >
+                {errorDistributions.map((dist) => (
+                    <option key={dist.value} value={dist.value}>
+                        {dist.label}
+                    </option>
+                ))}
+            </select>
+        </span>
+    );
+};
+
+const BuilderResolutionCell = ({
+    range = {},
+    fn = {},
+    unitOptions = [],
+    onPatch,
+}) => {
+    const [editing, setEditing] = useState(false);
+    const [value, setValue] = useState(() =>
+        toPlainNumber(range.resolution ?? range.measuringResolution),
+    );
+    const ref = useRef(null);
+
+    useEffect(() => {
+        setValue(toPlainNumber(range.resolution ?? range.measuringResolution));
+    }, [range.resolution, range.measuringResolution]);
+
+    useEffect(() => {
+        if (!editing || !ref.current) return;
+        ref.current.querySelector("input")?.focus();
+    }, [editing]);
+
+    const summary = formatResolutionSummary(range, fn);
+    const selectedUnitValue =
+        range.resolutionUnit || range.measuringResolutionUnit || getRangeUnit(range, fn);
+    const distribution =
+        range.resolutionDistribution ??
+        range.measuringResolutionDistribution ??
+        RESOLUTION_DIST_DEFAULT;
+
+    if (!editing) {
+        return (
+            <span className="inline-tolerance-readview builder-inline-readview">
+                <button
+                    type="button"
+                    className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
+                    title={summary ? "Click to edit resolution" : "Click to set a resolution"}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setEditing(true);
+                    }}
+                >
+                    {summary || "Set resolution..."}
+                </button>
+                <button
+                    type="button"
+                    className="range-expand-btn"
+                    title="Edit resolution, unit, and distribution"
+                    aria-label="Edit resolution, unit, and distribution"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setEditing(true);
+                    }}
+                >
+                    <FontAwesomeIcon icon={faChevronDown} size="xs" />
+                    <span className="range-expand-btn-label">edit / add</span>
+                </button>
+            </span>
+        );
+    }
+
+    return (
+        <span
+            ref={ref}
+            className="builder-inline-resolution-editor"
+            onMouseDown={(e) => e.stopPropagation()}
+            onBlur={(event) => {
+                const next = event.relatedTarget;
+                if (next instanceof Element && ref.current?.contains(next)) return;
+                if (next instanceof Element && next.closest(".inline-unit-menu")) return;
+                setEditing(false);
+            }}
+        >
+            <input
+                type="text"
+                inputMode="decimal"
+                value={value}
+                placeholder="-"
+                className="inline-tolerance-input inline-resolution-input"
+                onChange={(e) => setValue(e.target.value)}
+                onBlur={(e) => onPatch({ resolution: e.target.value })}
+                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+            />
+            <BuilderUnitSelect
+                value={selectedUnitValue}
+                onChange={(unit) =>
+                    onPatch({
+                        resolutionUnit: unit,
+                        measuringResolutionUnit: unit,
+                    })
+                }
+                options={unitOptions}
+                ariaLabel="Resolution unit"
+                width="72px"
+            />
+            <select
+                className="session-selector inline-resolution-dist"
+                value={distribution}
+                aria-label="Resolution distribution"
+                title="Distribution used when this resolution enters a budget"
+                onChange={(e) =>
+                    onPatch({
+                        resolutionDistribution: e.target.value,
+                        measuringResolutionDistribution: e.target.value,
+                    })
+                }
+            >
+                {errorDistributions.map((dist) => (
+                    <option key={dist.value} value={dist.value}>
+                        {dist.label}
+                    </option>
+                ))}
+            </select>
+        </span>
+    );
 };
 
 const DEFAULT_MEASUREMENT_AREA_NAME = "Unassigned";
@@ -251,9 +1575,7 @@ const UniversalInstrumentModal = ({
     });
 
     const [activeFunctionId, setActiveFunctionId] = useState(null);
-    const [editingRange, setEditingRange] = useState(null);
-    // Slide-over for the instrument-level associated Type B uncertainties.
-    const [showTypeB, setShowTypeB] = useState(false);
+    const [activeTypeBId, setActiveTypeBId] = useState(null);
 
     const { position, handleMouseDown } = useFloatingWindow({
         isOpen,
@@ -266,8 +1588,6 @@ const UniversalInstrumentModal = ({
         if (isOpen) {
             setSearchTerm("");
             setExpandedDetail(null);
-            setEditingRange(null);
-            setShowTypeB(false);
             setSelectedIds([]);
             setSelectionAnchor(null);
             setPendingDelete(null);
@@ -300,6 +1620,7 @@ const UniversalInstrumentModal = ({
                 setInstrumentDef(JSON.parse(JSON.stringify(loadedInst)));
                 if (loadedInst.functions?.length > 0) setActiveFunctionId(loadedInst.functions[0].id);
                 else setActiveFunctionId(null);
+                setActiveTypeBId(loadedInst.typeBComponents?.[0]?.id || null);
 
                 setMetaData({
                     name: initialData.description || initialData.name || "",
@@ -328,6 +1649,7 @@ const UniversalInstrumentModal = ({
                 });
                 setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", scope: "local", functions: [], typeBComponents: [] });
                 setActiveFunctionId(null);
+                setActiveTypeBId(null);
             }
         }
     }, [isOpen, initialData, mode]);
@@ -367,8 +1689,13 @@ const UniversalInstrumentModal = ({
     );
 
     const activeFunction = useMemo(() => 
-        instrumentDef.functions.find(f => f.id === activeFunctionId), 
+        (instrumentDef.functions || []).find(f => f.id === activeFunctionId), 
     [instrumentDef.functions, activeFunctionId]);
+
+    const typeBComponents = useMemo(
+        () => (Array.isArray(instrumentDef.typeBComponents) ? instrumentDef.typeBComponents : []),
+        [instrumentDef.typeBComponents],
+    );
 
     const allUnitsRaw = useMemo(() => Object.keys(unitSystem.units), []);
     const categorizedUnitOptions = useMemo(() => {
@@ -564,6 +1891,8 @@ const UniversalInstrumentModal = ({
         );
         setInstrumentDef(newDef);
         if (newDef.functions?.length > 0) setActiveFunctionId(newDef.functions[0].id);
+        else setActiveFunctionId(null);
+        setActiveTypeBId(newDef.typeBComponents?.[0]?.id || null);
         setViewMode("edit");
     };
 
@@ -590,6 +1919,7 @@ const UniversalInstrumentModal = ({
             measurementAreaColor: DEFAULT_MEASUREMENT_AREA_COLOR
         }));
         setActiveFunctionId(null);
+        setActiveTypeBId(null);
         setViewMode("edit");
     };
 
@@ -598,7 +1928,37 @@ const UniversalInstrumentModal = ({
     };
 
     const updateTypeBComponents = (next) => {
-        setInstrumentDef(prev => ({ ...prev, typeBComponents: next }));
+        const normalized = Array.isArray(next) ? next : [];
+        setInstrumentDef(prev => ({ ...prev, typeBComponents: normalized }));
+        setActiveTypeBId(current =>
+            normalized.some(component => component.id === current)
+                ? current
+                : normalized[0]?.id || null
+        );
+    };
+
+    const typeBReferenceUnit =
+        activeFunction?.unit || instrumentDef.functions?.[0]?.unit || "";
+
+    const handleAddTypeBComponent = () => {
+        const component = createTypeBComponent(typeBReferenceUnit);
+        setActiveTypeBId(component.id);
+        setInstrumentDef(prev => ({
+            ...prev,
+            typeBComponents: [
+                ...(Array.isArray(prev.typeBComponents) ? prev.typeBComponents : []),
+                component,
+            ],
+        }));
+    };
+
+    const handleDeleteActiveTypeBComponent = () => {
+        const targetId =
+            activeTypeBId && typeBComponents.some(component => component.id === activeTypeBId)
+                ? activeTypeBId
+                : typeBComponents[typeBComponents.length - 1]?.id;
+        if (!targetId) return;
+        updateTypeBComponents(typeBComponents.filter(component => component.id !== targetId));
     };
 
     const handleAddFunction = () => {
@@ -614,99 +1974,112 @@ const UniversalInstrumentModal = ({
         }));
     };
 
-    const handleDeleteFunction = (id) => {
-        setInstrumentDef(prev => ({ ...prev, functions: prev.functions.filter(f => f.id !== id) }));
-        if (activeFunctionId === id) setActiveFunctionId(null);
+    const updateFunctionById = (functionId, patch) => {
+        setInstrumentDef(prev => ({
+            ...prev,
+            functions: (prev.functions || []).map(fn =>
+                fn.id === functionId ? { ...fn, ...patch } : fn
+            ),
+        }));
     };
 
-    const handleAddRange = () => {
-        if (!activeFunction) return;
+    const handleDeleteFunction = (id) => {
+        const remaining = (instrumentDef.functions || []).filter(f => f.id !== id);
+        setInstrumentDef(prev => ({
+            ...prev,
+            functions: (prev.functions || []).filter(f => f.id !== id),
+        }));
+        if (activeFunctionId === id || !remaining.some(f => f.id === activeFunctionId)) {
+            setActiveFunctionId(remaining[0]?.id || null);
+        }
+    };
+
+    const handleDeleteActiveFunction = () => {
+        const targetId = activeFunctionId || instrumentDef.functions?.[0]?.id;
+        if (targetId) handleDeleteFunction(targetId);
+    };
+
+    const handleAddRange = (functionId) => {
+        const fn = instrumentDef.functions.find((candidate) => candidate.id === functionId);
+        if (!fn) return;
         const newRange = {
             id: uuidv4(),
-            min: 0,
-            max: 0,
-            resolution: 0,
+            min: "",
+            max: "",
+            unit: fn.unit || "",
+            resolution: "",
+            resolutionUnit: fn.unit || "",
+            resolutionDistribution: RESOLUTION_DIST_DEFAULT,
             tolerances: {},
         };
-        const updatedRanges = [...activeFunction.ranges, newRange];
         setInstrumentDef(prev => ({
             ...prev,
-            functions: prev.functions.map(f => f.id === activeFunctionId ? { ...f, ranges: updatedRanges } : f)
+            functions: prev.functions.map(f =>
+                f.id === functionId
+                    ? { ...f, ranges: [...(f.ranges || []), newRange] }
+                    : f
+            )
         }));
     };
 
-    const updateRangeBounds = (rangeId, field, value) => {
+    const updateRangePatch = (functionId, rangeId, patch) => {
         setInstrumentDef(prev => ({
             ...prev,
             functions: prev.functions.map(f => {
-                if (f.id !== activeFunctionId) return f;
-                return { ...f, ranges: f.ranges.map(r => r.id === rangeId ? { ...r, [field]: value } : r) };
-            })
-        }));
-    };
-
-    // Normalize a range field once the user leaves it. Raw onChange keeps typing
-    // fluid (e.g. "0.5"), but on blur we collapse dangerous inputs like "000" or
-    // "015" to a canonical numeric value. Non-numeric/blank entries reset to "".
-    const normalizeRangeBounds = (rangeId, field, value) => {
-        const trimmed = String(value).trim();
-        const numeric = parseFloat(trimmed);
-        const normalized =
-            trimmed === "" || Number.isNaN(numeric) ? "" : String(numeric);
-        if (normalized !== value) updateRangeBounds(rangeId, field, normalized);
-    };
-
-    const updateRangeResolutionBudget = (rangeId, checked) => {
-        setInstrumentDef(prev => ({
-            ...prev,
-            functions: prev.functions.map(f => {
-                if (f.id !== activeFunctionId) return f;
+                if (f.id !== functionId) return f;
                 return {
                     ...f,
-                    ranges: f.ranges.map(r =>
-                        r.id === rangeId
-                            ? {
-                                ...r,
-                                tolerances: {
-                                    ...(r.tolerances || {}),
-                                    includeResolutionInBudget: checked,
-                                },
-                            }
-                            : r
+                    ranges: (f.ranges || []).map(r =>
+                        r.id === rangeId ? { ...r, ...patch } : r
                     ),
                 };
             })
         }));
     };
 
-    const handleDeleteRange = (rangeId) => {
-        setInstrumentDef(prev => ({
-            ...prev,
-            functions: prev.functions.map(f => {
-                if (f.id !== activeFunctionId) return f;
-                return { ...f, ranges: f.ranges.filter(r => r.id !== rangeId) };
-            })
-        }));
+    const updateRangeTolerance = (functionId, rangeId, updater) => {
+        setInstrumentDef(prev => {
+            let functionChanged = false;
+            const functions = prev.functions.map(f => {
+                if (f.id !== functionId) return f;
+                let rangeChanged = false;
+                const ranges = (f.ranges || []).map(r => {
+                    if (r.id !== rangeId) return r;
+                    const currentTolerance = r.tolerances || {};
+                    const nextTolerance =
+                        typeof updater === "function"
+                            ? updater(currentTolerance)
+                            : updater;
+                    const normalizedTolerance = nextTolerance || {};
+                    if (normalizedTolerance === currentTolerance) return r;
+                    rangeChanged = true;
+                    return { ...r, tolerances: normalizedTolerance };
+                });
+                if (!rangeChanged) return f;
+                functionChanged = true;
+                return {
+                    ...f,
+                    ranges,
+                };
+            });
+            return functionChanged ? { ...prev, functions } : prev;
+        });
     };
 
-    const handleToleranceUpdate = useCallback((updater) => {
-        setEditingRange(prev => {
-            if (!prev) return null;
-            const newVal = typeof updater === 'function' ? updater(prev.tolerances) : updater;
-            return { ...prev, tolerances: newVal };
-        });
-    }, []);
+    const updateRangeBandDistribution = (functionId, rangeId, value) => {
+        updateRangeTolerance(functionId, rangeId, (prev) =>
+            applyBandDistribution(prev || {}, value),
+        );
+    };
 
-    const saveRangeSpecs = () => {
-        if (!editingRange) return;
+    const handleDeleteRange = (functionId, rangeId) => {
         setInstrumentDef(prev => ({
             ...prev,
             functions: prev.functions.map(f => {
-                if (f.id !== activeFunctionId) return f;
-                return { ...f, ranges: f.ranges.map(r => r.id === editingRange.id ? { ...r, tolerances: editingRange.tolerances } : r) };
+                if (f.id !== functionId) return f;
+                return { ...f, ranges: (f.ranges || []).filter(r => r.id !== rangeId) };
             })
         }));
-        setEditingRange(null);
     };
 
     const buildSaveData = (savedLibraryId = libraryInstrumentId, { saveToLibrary = false } = {}) => {
@@ -1017,64 +2390,7 @@ const UniversalInstrumentModal = ({
 
                 {/* --- VIEW: EDIT (BUILDER) --- */}
                 {viewMode === "edit" && (
-                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-                        
-                        {/* Slide Over for Tolerances */}
-                        {editingRange && (
-                            <div className="tolerance-slide-over">
-                                <div className="slide-over-header">
-                                    <div className="slide-over-title">
-                                        <h3><FontAwesomeIcon icon={faCalculator} /> Edit Tolerances</h3>
-                                        <div className="slide-over-subtitle">Range: {editingRange.min} - {editingRange.max} {getUnitDisplayLabel(activeFunction?.unit)}</div>
-                                    </div>
-                                    <button onClick={() => setEditingRange(null)} className="icon-btn-ghost"><FontAwesomeIcon icon={faTimes} /></button>
-                                </div>
-                                <div className="slide-over-body">
-                                    <ToleranceForm
-                                        tolerance={editingRange.tolerances || {}}
-                                        setTolerance={handleToleranceUpdate}
-                                        isUUT={effectiveMode === 'uut'}
-                                        referencePoint={{ unit: activeFunction?.unit }}
-                                        showResolution={true}
-                                        resolutionInTable={true}
-                                        showManualComponents={true}
-                                    />
-                                </div>
-                                <div className="slide-over-footer">
-                                    <button className="btn-large-icon" onClick={saveRangeSpecs} title="Save Specs">
-                                        <FontAwesomeIcon icon={faCheck} />
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Slide Over for instrument-level associated Type B uncertainties */}
-                        {showTypeB && (
-                            <div className="tolerance-slide-over">
-                                <div className="slide-over-header">
-                                    <div className="slide-over-title">
-                                        <h3><FontAwesomeIcon icon={faFlask} /> Associated Type B</h3>
-                                        <div className="slide-over-subtitle">
-                                            Carried with this instrument across every function and range
-                                        </div>
-                                    </div>
-                                    <button onClick={() => setShowTypeB(false)} className="icon-btn-ghost"><FontAwesomeIcon icon={faTimes} /></button>
-                                </div>
-                                <div className="slide-over-body">
-                                    <TypeBComponentsEditor
-                                        components={instrumentDef.typeBComponents || []}
-                                        onChange={updateTypeBComponents}
-                                        referenceUnit={activeFunction?.unit || instrumentDef.functions?.[0]?.unit || ""}
-                                    />
-                                </div>
-                                <div className="slide-over-footer">
-                                    <button className="btn-large-icon" onClick={() => setShowTypeB(false)} title="Done">
-                                        <FontAwesomeIcon icon={faCheck} />
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
+                    <div className="instrument-edit-layout">
                         {/* Top: Identity Card */}
                         <div className="identity-container">
                             <div className="identity-header">
@@ -1086,11 +2402,9 @@ const UniversalInstrumentModal = ({
                                     />
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <button
-                                        className="icon-btn-ghost"
-                                        onClick={() => setShowTypeB(true)}
-                                        title="Associated Type B uncertainties (e.g. head pressure)"
-                                        aria-label="Edit associated Type B uncertainties"
+                                    <span
+                                        className="builder-typeb-status"
+                                        title="Associated Type B uncertainties are edited below the function specs"
                                     >
                                         <FontAwesomeIcon icon={faFlask} />
                                         {(instrumentDef.typeBComponents?.length || 0) > 0 && (
@@ -1098,7 +2412,7 @@ const UniversalInstrumentModal = ({
                                                 {instrumentDef.typeBComponents.length}
                                             </span>
                                         )}
-                                    </button>
+                                    </span>
                                     <button className="icon-btn-ghost" onClick={() => setViewMode('list')} title="Import from Library">
                                         <FontAwesomeIcon icon={faBookOpen} />
                                     </button>
@@ -1141,118 +2455,198 @@ const UniversalInstrumentModal = ({
                             </div>
                         </div>
 
-                        {/* Editor Body */}
-                        <div className="instrument-editor-body">
-                            {/* Sidebar: Restored Text Labels */}
-                            <div className="function-nav-rail">
-                                <div className="rail-header">
-                                    <h5>Functions</h5>
-                                    <button className="icon-btn-ghost" onClick={handleAddFunction} title="Add Function"><FontAwesomeIcon icon={faPlus} /></button>
-                                </div>
-                                <div className="rail-list">
-                                    {instrumentDef.functions.map(f => (
-                                        <div key={f.id} className={`rail-item ${activeFunctionId === f.id ? 'active' : ''}`} onClick={() => setActiveFunctionId(f.id)}>
-                                            <FontAwesomeIcon icon={faCube} className="rail-item-icon" />
-                                            <span className="rail-item-text">{f.name}</span>
-                                            <button className="rail-delete-btn" onClick={(e) => { e.stopPropagation(); handleDeleteFunction(f.id); }} title="Delete">
-                                                <FontAwesomeIcon icon={faTrashAlt} size="sm" />
-                                            </button>
-                                        </div>
-                                    ))}
-                                    {instrumentDef.functions.length === 0 && <div className="empty-rail" style={{writingMode: 'horizontal-tb', transform: 'none', padding: '20px'}}>No Functions</div>}
+                        <div className="instrument-spec-sheet">
+                            <div className="spec-sheet-toolbar">
+                                <h5>
+                                    <FontAwesomeIcon icon={faCube} /> Functions and specifications
+                                </h5>
+                                <div className="spec-toolbar-actions">
+                                    <button className="lib-pill-btn" onClick={handleAddFunction} title="Add Function">
+                                        <FontAwesomeIcon icon={faPlus} /> Add Function
+                                    </button>
+                                    <button
+                                        className="builder-x-action builder-toolbar-delete"
+                                        onClick={handleDeleteActiveFunction}
+                                        title="Delete selected function"
+                                        aria-label="Delete selected function"
+                                        disabled={(instrumentDef.functions || []).length === 0}
+                                    >
+                                        x
+                                    </button>
                                 </div>
                             </div>
 
-                            {/* Workspace */}
-                            <div className="function-workspace">
-                                {activeFunction ? (
-                                    <>
-                                        <div className="workspace-header">
-                                            <div className="workspace-input-group" style={{flex: 1}}>
-                                                <label>Function Name</label>
-                                                <input type="text" value={activeFunction.name} onChange={e => updateActiveFunction('name', e.target.value)} />
-                                            </div>
-                                            
-                                            <div className="workspace-input-group" style={{width: '120px'}}>
-                                                <label>Base Unit</label>
-                                                <Select
-                                                    value={categorizedUnitOptions.flatMap(g => g.options ? g.options : g).find(opt => opt.value === activeFunction.unit) || null}
-                                                    onChange={opt => updateActiveFunction('unit', opt.value)}
-                                                    options={categorizedUnitOptions}
-                                                    filterOption={unitFilterOption}
-                                                    menuPortalTarget={document.body}
-                                                    styles={portalStyle}
-                                                    classNamePrefix="react-select"
-                                                />
-                                            </div>
-                                        </div>
+                            <div className="spec-sheet-scroll">
+                                {(instrumentDef.functions || []).length === 0 && (
+                                    <div className="builder-empty-state">
+                                        <FontAwesomeIcon icon={faCube} />
+                                        <span>No functions yet.</span>
+                                    </div>
+                                )}
 
-                                        <div className="ranges-panel">
-                                            <div className="panel-toolbar">
-                                                <h5>Ranges</h5>
-                                                <button className="icon-btn-ghost" onClick={handleAddRange} title="Add Range"><FontAwesomeIcon icon={faPlus} /></button>
+                                {(instrumentDef.functions || []).map((fn) => {
+                                    const unitOptions = getCategorizedUnitOptions(allUnitsRaw, fn.unit);
+                                    const ranges = Array.isArray(fn.ranges) ? fn.ranges : [];
+                                    return (
+                                        <section
+                                            className={`function-spec-section${activeFunctionId === fn.id ? " is-active" : ""}`}
+                                            key={fn.id}
+                                            onMouseDown={() => setActiveFunctionId(fn.id)}
+                                            onFocusCapture={() => setActiveFunctionId(fn.id)}
+                                        >
+                                            <div className="function-spec-header">
+                                                <div className="function-name-control">
+                                                    <FontAwesomeIcon icon={faCube} />
+                                                    <input
+                                                        type="text"
+                                                        value={fn.name || ""}
+                                                        onChange={(e) => updateFunctionById(fn.id, { name: e.target.value })}
+                                                        aria-label="Function name"
+                                                    />
+                                                </div>
+                                                <div className="function-unit-control">
+                                                    <BuilderUnitSelect
+                                                        value={fn.unit || ""}
+                                                        onChange={(unit) => updateFunctionById(fn.id, { unit })}
+                                                        options={unitOptions}
+                                                        ariaLabel={`${fn.name || "Function"} unit`}
+                                                        width="9ch"
+                                                    />
+                                                </div>
+                                                <button
+                                                    className="icon-btn-ghost"
+                                                    onClick={() => handleAddRange(fn.id)}
+                                                    title={`Add range to ${fn.name || "function"}`}
+                                                    aria-label={`Add range to ${fn.name || "function"}`}
+                                                >
+                                                    <FontAwesomeIcon icon={faPlus} />
+                                                </button>
                                             </div>
-                                            <div className="ranges-table-container">
-                                                <table className="ranges-table">
+
+                                            <div className="ranges-table-container builder-ranges-table-container">
+                                                <table className="ranges-table builder-spec-table">
                                                     <thead>
                                                         <tr>
-                                                            <th style={{width:'25%'}}>
-                                                                Min{activeFunction.unit ? ` (${getUnitDisplayLabel(activeFunction.unit)})` : ''}
-                                                            </th>
-                                                            <th style={{width:'25%'}}>
-                                                                Max{activeFunction.unit ? ` (${getUnitDisplayLabel(activeFunction.unit)})` : ''}
-                                                            </th>
-                                                            <th style={{width:'18%'}}>
-                                                                Resolution{activeFunction.unit ? ` (${getUnitDisplayLabel(activeFunction.unit)})` : ''}
-                                                            </th>
-                                                            <th style={{width:'22%'}}>Tolerance</th>
-                                                            <th style={{width:'10%'}}></th>
+                                                            <th style={{ width: "24%" }}>Range</th>
+                                                            <th style={{ width: "30%" }}>Tolerance</th>
+                                                            <th style={{ width: "16%" }}>Distribution</th>
+                                                            <th style={{ width: "24%" }}>Resolution</th>
+                                                            <th style={{ width: "40px" }}></th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
-                                                        {activeFunction.ranges.map(range => (
-                                                            <tr key={range.id}>
-                                                                <td><input type="number" step="any" value={range.min} onChange={e => updateRangeBounds(range.id, 'min', e.target.value)} onBlur={e => normalizeRangeBounds(range.id, 'min', e.target.value)} /></td>
-                                                                <td><input type="number" step="any" value={range.max} onChange={e => updateRangeBounds(range.id, 'max', e.target.value)} onBlur={e => normalizeRangeBounds(range.id, 'max', e.target.value)} /></td>
+                                                        {ranges.map((range) => (
+                                                            <tr key={range.id} className="builder-range-row">
                                                                 <td>
-                                                                    <div className="range-resolution-control">
-                                                                        <input type="number" step="any" value={range.resolution ?? 0} onChange={e => updateRangeBounds(range.id, 'resolution', e.target.value)} onBlur={e => normalizeRangeBounds(range.id, 'resolution', e.target.value)} />
-                                                                        <label
-                                                                            className="range-resolution-budget-toggle"
-                                                                            title="Include this range's resolution as a Type B uncertainty component"
-                                                                            aria-label="Include this range's resolution in the uncertainty budget"
-                                                                        >
-                                                                            <input
-                                                                                type="checkbox"
-                                                                                checked={!!(
-                                                                                    range.tolerances?.includeResolutionInBudget ??
-                                                                                    range.includeResolutionInBudget
-                                                                                )}
-                                                                                onChange={e => updateRangeResolutionBudget(range.id, e.target.checked)}
-                                                                            />
-                                                                        </label>
-                                                                    </div>
+                                                                    <BuilderRangeCell
+                                                                        range={range}
+                                                                        fn={fn}
+                                                                        unitOptions={unitOptions}
+                                                                        onPatch={(patch) =>
+                                                                            updateRangePatch(fn.id, range.id, patch)
+                                                                        }
+                                                                    />
                                                                 </td>
                                                                 <td>
-                                                                    <div className="tolerance-cell" onClick={() => setEditingRange({ ...range })}>
-                                                                        {formatToleranceSummary(range.tolerances)}
-                                                                        <FontAwesomeIcon icon={faEdit} />
-                                                                    </div>
+                                                                    <BuilderToleranceCell
+                                                                        range={range}
+                                                                        fn={fn}
+                                                                        onToleranceComponentCommit={(typeKey, component) =>
+                                                                            updateRangeTolerance(fn.id, range.id, (prev) =>
+                                                                                pruneBlankToleranceTerms({
+                                                                                    ...(prev || {}),
+                                                                                    [typeKey]: component,
+                                                                                }),
+                                                                            )
+                                                                        }
+                                                                    />
                                                                 </td>
-                                                                <td><button className="icon-btn-ghost" onClick={() => handleDeleteRange(range.id)} title="Delete Range"><FontAwesomeIcon icon={faTrashAlt} /></button></td>
+                                                                <td>
+                                                                    <BuilderDistributionCell
+                                                                        value={getBandDistribution(range.tolerances)}
+                                                                        onChange={(value) =>
+                                                                            updateRangeBandDistribution(fn.id, range.id, value)
+                                                                        }
+                                                                    />
+                                                                </td>
+                                                                <td>
+                                                                    <BuilderResolutionCell
+                                                                        range={range}
+                                                                        fn={fn}
+                                                                        unitOptions={unitOptions}
+                                                                        onPatch={(patch) =>
+                                                                            updateRangePatch(fn.id, range.id, patch)
+                                                                        }
+                                                                    />
+                                                                </td>
+                                                                <td>
+                                                                    <button
+                                                                        className="builder-x-action builder-range-delete"
+                                                                        onClick={() => handleDeleteRange(fn.id, range.id)}
+                                                                        title="Delete range"
+                                                                        aria-label="Delete range"
+                                                                    >
+                                                                        x
+                                                                    </button>
+                                                                </td>
                                                             </tr>
                                                         ))}
+                                                        {ranges.length === 0 && (
+                                                            <tr>
+                                                                <td colSpan="5" className="builder-empty-range-cell">
+                                                                    <button
+                                                                        className="lib-pill-btn"
+                                                                        onClick={() => handleAddRange(fn.id)}
+                                                                    >
+                                                                        <FontAwesomeIcon icon={faPlus} /> Add Range
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        )}
                                                     </tbody>
                                                 </table>
                                             </div>
+                                        </section>
+                                    );
+                                })}
+
+                                <section className="instrument-typeb-section">
+                                    <div className="spec-sheet-toolbar typeb-spec-toolbar">
+                                        <h5>
+                                            <FontAwesomeIcon icon={faFlask} /> Type B Uncertainties
+                                        </h5>
+                                        <div className="spec-toolbar-actions">
+                                            <button
+                                                className="lib-pill-btn"
+                                                onClick={handleAddTypeBComponent}
+                                                title="Add Type B uncertainty"
+                                            >
+                                                <FontAwesomeIcon icon={faPlus} /> Add Type B
+                                            </button>
+                                            <button
+                                                className="builder-x-action builder-toolbar-delete"
+                                                onClick={handleDeleteActiveTypeBComponent}
+                                                title="Delete selected Type B"
+                                                aria-label="Delete selected Type B"
+                                                disabled={typeBComponents.length === 0}
+                                            >
+                                                x
+                                            </button>
                                         </div>
-                                    </>
-                                ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-color-muted)' }}>
-                                        <FontAwesomeIcon icon={faCube} size="3x" style={{ marginBottom: '15px', opacity: 0.3 }} />
-                                        <p>Select or create a function</p>
                                     </div>
-                                )}
+                                    <div className="typeb-section-body">
+                                        <TypeBComponentsEditor
+                                            components={typeBComponents}
+                                            onChange={updateTypeBComponents}
+                                            referenceUnit={typeBReferenceUnit}
+                                            showIntro={false}
+                                            showAddButton={false}
+                                            showInlineRemove={false}
+                                            activeId={activeTypeBId}
+                                            onActivate={setActiveTypeBId}
+                                        />
+                                    </div>
+                                </section>
                             </div>
                         </div>
 

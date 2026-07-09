@@ -79,19 +79,17 @@ const renderModal = (overrides = {}) => {
 
 const changeResolution = (value) => {
   const rangesTable = screen.getByRole("columnheader", {
-    name: /Resolution \(V\)/i,
+    name: /^Resolution$/i,
   }).closest("table");
   const row = within(rangesTable).getAllByRole("row")[1];
-  const inputs = within(row).getAllByRole("spinbutton");
-  fireEvent.change(inputs[2], { target: { value } });
-};
-
-const toggleResolutionBudget = () => {
   fireEvent.click(
-    screen.getByRole("checkbox", {
-      name: /Include this range's resolution in the uncertainty budget/i,
+    within(row).getByRole("button", {
+      name: /0\.001 V|Set resolution/i,
     }),
   );
+  const input = within(row).getByDisplayValue("0.001");
+  fireEvent.change(input, { target: { value } });
+  fireEvent.blur(input, { target: { value } });
 };
 
 describe("UniversalInstrumentModal library synchronization", () => {
@@ -229,7 +227,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(saved.instrument.libraryInstrumentId).toBeUndefined();
   });
 
-  test("adds a range with no pre-populated tolerance components", () => {
+  test("adds a range with the inline tolerance term editor", () => {
     const manualInstrument = {
       ...sessionTmde,
       libraryInstrumentId: undefined,
@@ -249,18 +247,125 @@ describe("UniversalInstrumentModal library synchronization", () => {
       instruments: [],
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Add Range/i }));
-    fireEvent.click(screen.getByText("Custom Spec"));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Add range to DC Voltage/i }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Set tolerance/i }));
 
-    expect(
-      screen.getByText("No tolerance components added."),
-    ).toBeInTheDocument();
+    expect(screen.queryByText("Tolerance / Error Limits")).not.toBeInTheDocument();
+    expect(screen.getByText("% IV")).toBeInTheDocument();
+    expect(screen.getByText("% FS")).toBeInTheDocument();
+    expect(screen.getByTitle("Absolute floor value")).toBeInTheDocument();
+    expect(screen.getByText("dB")).toBeInTheDocument();
   });
 
-  test("stores the resolution budget opt-in on the edited range", () => {
+  test("stores an inline tolerance term on the edited range", () => {
+    const manualInstrument = {
+      ...sessionTmde,
+      libraryInstrumentId: undefined,
+      instrument: {
+        ...sessionTmde.instrument,
+        libraryInstrumentId: undefined,
+        functions: [
+          {
+            ...sessionTmde.instrument.functions[0],
+            ranges: [],
+          },
+        ],
+      },
+    };
+    const props = renderModal({
+      initialData: manualInstrument,
+      instruments: [],
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Add range to DC Voltage/i }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Set tolerance/i }));
+
+    const rangesTable = screen.getByRole("columnheader", {
+      name: /^Tolerance$/i,
+    }).closest("table");
+    const row = within(rangesTable).getAllByRole("row")[1];
+    const [readingInput] = within(row).getAllByRole("textbox");
+    fireEvent.change(readingInput, { target: { value: "0.0035" } });
+    fireEvent.blur(readingInput, { target: { value: "0.0035" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
+
+    expect(props.onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instrument: expect.objectContaining({
+          functions: [
+            expect.objectContaining({
+              ranges: [
+                expect.objectContaining({
+                  tolerances: expect.objectContaining({
+                    reading: expect.objectContaining({
+                      value: "0.0035",
+                      high: "0.0035",
+                      low: "-0.0035",
+                    }),
+                  }),
+                }),
+              ],
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  test("shows Type B as a matching section with a header add action", () => {
+    renderModal();
+
+    expect(screen.getByText("Type B Uncertainties")).toBeInTheDocument();
+    expect(screen.queryByText("Associated Type B")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Type B uncertainties carried with this instrument/i)).not.toBeInTheDocument();
+    expect(screen.getByText("No Type B Uncertainties yet.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Add Type B/i }));
+
+    expect(screen.getByLabelText("Type B component name")).toBeInTheDocument();
+  });
+
+  test("keeps empty-state add actions in the section toolbar only", () => {
+    renderModal({
+      mode: "uut",
+      initialData: null,
+      instruments: [],
+    });
+
+    expect(screen.getByText("No functions yet.")).toBeInTheDocument();
+    expect(screen.getByText("No Type B Uncertainties yet.")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Add Function$/i })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^Add Type B$/i })).toHaveLength(1);
+  });
+
+  test("does not expose the obsolete range resolution opt-in", () => {
+    renderModal();
+
+    expect(
+      screen.queryByRole("checkbox", {
+        name: /Include this range's resolution in the uncertainty budget/i,
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("stores the resolution distribution on the edited range", () => {
     const props = renderModal();
 
-    toggleResolutionBudget();
+    const rangesTable = screen.getByRole("columnheader", {
+      name: /^Resolution$/i,
+    }).closest("table");
+    const row = within(rangesTable).getAllByRole("row")[1];
+    fireEvent.click(within(row).getByRole("button", { name: /0\.001 V/i }));
+    const distributionSelect = within(row).getByLabelText(
+      /Resolution distribution/i,
+    );
+    fireEvent.change(distributionSelect, { target: { value: "2.000" } });
+
     fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
     fireEvent.click(screen.getByRole("button", { name: /Session Only/i }));
 
@@ -271,9 +376,8 @@ describe("UniversalInstrumentModal library synchronization", () => {
             expect.objectContaining({
               ranges: [
                 expect.objectContaining({
-                  tolerances: expect.objectContaining({
-                    includeResolutionInBudget: true,
-                  }),
+                  resolutionDistribution: "2.000",
+                  measuringResolutionDistribution: "2.000",
                 }),
               ],
             }),

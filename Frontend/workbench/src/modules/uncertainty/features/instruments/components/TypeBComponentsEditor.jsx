@@ -20,7 +20,7 @@
 import React, { useMemo } from "react";
 import Select from "react-select";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTrashAlt, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faFlask, faPlus } from "@fortawesome/free-solid-svg-icons";
 import {
   unitSystem,
   unitCategories,
@@ -106,6 +106,11 @@ const TypeBComponentsEditor = ({
   components = [],
   onChange,
   referenceUnit = "",
+  showIntro = true,
+  showAddButton = true,
+  showInlineRemove = true,
+  activeId = null,
+  onActivate,
 }) => {
   const list = Array.isArray(components) ? components : [];
   const unitOptions = useMemo(() => buildUnitOptions(referenceUnit), [referenceUnit]);
@@ -121,19 +126,21 @@ const TypeBComponentsEditor = ({
 
   return (
     <div className="typeb-editor">
-      <small
-        style={{
-          display: "block",
-          marginBottom: "10px",
-          color: "var(--text-color-muted)",
-          fontSize: "0.75rem",
-        }}
-      >
-        Type B uncertainties carried with this instrument (e.g. head pressure on
-        a pressure gage). Each is added to the budget whenever this instrument's
-        accuracy contributes, and is resolved against the measurement point where
-        it is used.
-      </small>
+      {showIntro && (
+        <small
+          style={{
+            display: "block",
+            marginBottom: "10px",
+            color: "var(--text-color-muted)",
+            fontSize: "0.75rem",
+          }}
+        >
+          Type B uncertainties carried with this instrument (e.g. head pressure on
+          a pressure gage). Each is added to the budget whenever this instrument's
+          accuracy contributes, and is resolved against the measurement point where
+          it is used.
+        </small>
+      )}
 
       <div className="typeb-cards" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
         {list.map((mc) => {
@@ -142,7 +149,9 @@ const TypeBComponentsEditor = ({
           return (
             <div
               key={mc.id}
-              className="typeb-card"
+              className={`typeb-card${activeId === mc.id ? " is-active" : ""}`}
+              onMouseDown={() => onActivate?.(mc.id)}
+              onFocusCapture={() => onActivate?.(mc.id)}
               style={{
                 border: "1px solid var(--border-color)",
                 borderRadius: "6px",
@@ -159,15 +168,17 @@ const TypeBComponentsEditor = ({
                   style={{ flex: 1 }}
                   aria-label="Type B component name"
                 />
-                <button
-                  type="button"
-                  onClick={() => removeComponent(mc.id)}
-                  className="icon-btn-ghost"
-                  title="Remove component"
-                  aria-label="Remove Type B component"
-                >
-                  <FontAwesomeIcon icon={faTrashAlt} />
-                </button>
+                {showInlineRemove && (
+                  <button
+                    type="button"
+                    onClick={() => removeComponent(mc.id)}
+                    className="typeb-card-remove"
+                    title="Remove component"
+                    aria-label="Remove Type B component"
+                  >
+                    x
+                  </button>
+                )}
               </div>
 
               <div
@@ -246,29 +257,38 @@ const TypeBComponentsEditor = ({
 
         {list.length === 0 && (
           <div
+            className="builder-empty-state typeb-empty-state"
             style={{
-              padding: "14px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "10px",
+              minHeight: "100px",
               textAlign: "center",
               color: "var(--text-color-muted)",
               fontSize: "0.8rem",
               border: "1px dashed var(--border-color)",
-              borderRadius: "6px",
+              borderRadius: "8px",
+              marginBottom: 0,
             }}
           >
-            No associated Type B uncertainties yet.
+            <FontAwesomeIcon icon={faFlask} />
+            <span>No Type B Uncertainties yet.</span>
           </div>
         )}
       </div>
 
-      <button
-        type="button"
-        className="lib-pill-btn"
-        onClick={addComponent}
-        style={{ marginTop: "10px" }}
-        title="Add an associated Type B uncertainty"
-      >
-        <FontAwesomeIcon icon={faPlus} /> Add Type B
-      </button>
+      {showAddButton && (
+        <button
+          type="button"
+          className="lib-pill-btn"
+          onClick={addComponent}
+          style={{ marginTop: "10px" }}
+          title="Add an associated Type B uncertainty"
+        >
+          <FontAwesomeIcon icon={faPlus} /> Add Type B
+        </button>
+      )}
     </div>
   );
 };
