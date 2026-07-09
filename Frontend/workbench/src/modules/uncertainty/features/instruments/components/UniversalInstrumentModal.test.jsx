@@ -324,6 +324,10 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(screen.queryByText("Associated Type B")).not.toBeInTheDocument();
     expect(screen.queryByText(/Type B uncertainties carried with this instrument/i)).not.toBeInTheDocument();
     expect(screen.getByText("No Type B Uncertainties yet.")).toBeInTheDocument();
+    const typeBToolbar = screen.getByText("Type B Uncertainties").closest(".spec-sheet-toolbar");
+    expect(typeBToolbar).toHaveClass("typeb-spec-toolbar");
+    expect(typeBToolbar.closest(".instrument-typeb-section")).toBeNull();
+    expect(typeBToolbar.closest(".typeb-spec-section")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Add Type B/i }));
 

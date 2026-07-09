@@ -2610,7 +2610,7 @@ const UniversalInstrumentModal = ({
                                     );
                                 })}
 
-                                <section className="instrument-typeb-section">
+                                <section className="typeb-spec-section">
                                     <div className="spec-sheet-toolbar typeb-spec-toolbar">
                                         <h5>
                                             <FontAwesomeIcon icon={faFlask} /> Type B Uncertainties
