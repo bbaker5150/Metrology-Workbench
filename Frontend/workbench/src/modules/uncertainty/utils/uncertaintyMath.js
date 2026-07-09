@@ -464,6 +464,7 @@ export const DISTRIBUTION_NOT_SET = "not_set";
 export const errorDistributions = [
   { value: DISTRIBUTION_NOT_SET, label: "Not Set" },
   { value: "1.732", label: "Rectangular" },
+  { value: "3.464", label: "Rectangular (resolution)" },
   { value: "2.449", label: "Triangular" },
   { value: "1.414", label: "U-Shaped" },
   { value: "1.645", label: "Normal (90%)" },

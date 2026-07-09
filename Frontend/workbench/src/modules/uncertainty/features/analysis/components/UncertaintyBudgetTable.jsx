@@ -77,6 +77,13 @@ const getComponentDisplayName = (component) => {
   return quantity > 1 ? `${name} (Qty: ${quantity})` : name;
 };
 
+const isInstrumentLinkedTypeB = (component = {}) =>
+  Boolean(
+    component.typeBSourceId ||
+      component.typeBSourceTmdeId ||
+      component.fromInstrument,
+  );
+
 // The tolerance (error) limit is the half-span the spec was entered as, i.e.
 // the standard uncertainty multiplied back up by its distribution divisor:
 //   limit = uᵢ × divisor.
@@ -390,6 +397,10 @@ const UncertaintyBudgetTable = ({
   }, [calcResults, components, derivedName, derivedUnit]);
 
   const renderDistributionCell = (component) => {
+    if (isInstrumentLinkedTypeB(component)) {
+      return <span>{component.distribution || "Not Set"}</span>;
+    }
+
     if (component.sourceTmdeId || component.isCore || component.isResolution) {
       return <span>{component.distribution || "Normal"}</span>;
     }
@@ -476,7 +487,10 @@ const UncertaintyBudgetTable = ({
     if (component.isCore && !component.sourceTmdeId) return null;
     // A TMDE-sourced row's tolerance is edited directly on the instrument tables
     // now, so it only gets a remove control here — no edit pencil.
-    const showEdit = !component.missingTolerance && !component.sourceTmdeId;
+    const showEdit =
+      !component.missingTolerance &&
+      !component.sourceTmdeId &&
+      !isInstrumentLinkedTypeB(component);
     return (
       <div className="budget-row-actions">
         {showEdit && (

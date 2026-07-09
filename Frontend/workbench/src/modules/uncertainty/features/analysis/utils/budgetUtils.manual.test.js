@@ -150,6 +150,27 @@ describe("getBudgetComponentsFromTolerance - instrument-associated Type B", () =
     );
     expect(comps.some((c) => c.fromInstrument)).toBe(false);
   });
+
+  test("associated Type B supports rectangular resolution divisor", () => {
+    const comps = getBudgetComponentsFromTolerance(
+      { name: "Gage" },
+      ref,
+      [
+        {
+          id: "res-typeb",
+          name: "Display Resolution",
+          unit: "psig",
+          inputMode: "tolerance",
+          toleranceLimit: "0.003464",
+          distribution: "3.464",
+        },
+      ],
+    );
+    const typeB = comps.find((c) => c.fromInstrument);
+    expect(typeB.distribution).toBe("Rectangular (resolution)");
+    expect(typeB.distributionDivisor).toBe("3.464");
+    expect(typeB.value_native).toBeCloseTo(0.001, 8);
+  });
 });
 
 describe("refreshLinkedTypeBComponents", () => {

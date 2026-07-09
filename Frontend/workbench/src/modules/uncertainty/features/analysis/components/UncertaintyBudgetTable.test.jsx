@@ -344,4 +344,35 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.queryByLabelText("Risk Sig Figs")).not.toBeInTheDocument();
     expect(screen.queryByText("Display Precision")).not.toBeInTheDocument();
   });
+
+  it("keeps instrument-linked Type B distribution read-only in the budget table", () => {
+    renderDirectBudget({
+      components: [
+        {
+          id: "instr-typeb",
+          name: "Head Pressure",
+          type: "B",
+          value: 10,
+          value_native: 0.01,
+          unit_native: "psig",
+          distribution: "Rectangular (resolution)",
+          distributionDivisor: "3.464",
+          typeBSourceId: "typeb-1",
+          typeBSourceTmdeId: "tmde-1",
+          originalInput: {
+            inputMode: "tolerance",
+            toleranceLimit: "0.03464",
+            errorDistributionDivisor: "3.464",
+            unit: "psig",
+          },
+        },
+      ],
+    });
+
+    expect(screen.getByText("Head Pressure")).toBeInTheDocument();
+    expect(screen.getByText("Rectangular (resolution)")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Edit Component")).not.toBeInTheDocument();
+    expect(screen.getByTitle("Remove Component")).toBeInTheDocument();
+  });
 });
