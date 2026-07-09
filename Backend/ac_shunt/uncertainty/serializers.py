@@ -39,11 +39,28 @@ def _cid(value):
     return "" if value is None else str(value)
 
 
+COMPONENT_KNOWN_KEYS = {
+    "id",
+    "name",
+    "type",
+    "value",
+    "value_native",
+    "unit_native",
+    "dof",
+    "distribution",
+    "isCore",
+    "sourcePointLabel",
+    "variableType",
+    "originalInput",
+    "savedInputs",
+}
+
+
 # --------------------------------------------------------------------------- #
 # model -> dict (output)
 # --------------------------------------------------------------------------- #
 def component_to_dict(c):
-    return {
+    data = {
         "id": _coerce_id(c.cid),
         "name": c.name,
         "type": c.component_type,
@@ -58,6 +75,8 @@ def component_to_dict(c):
         "originalInput": c.original_input,
         "savedInputs": c.saved_inputs,
     }
+    data.update(c.extra or {})
+    return data
 
 
 def test_point_to_dict(tp):
@@ -337,6 +356,11 @@ def save_session(data):
             risk_metrics=tp.get("riskMetrics"),
         )
         for c in tp.get("components", []) or []:
+            extra = {
+                key: value
+                for key, value in c.items()
+                if key not in COMPONENT_KNOWN_KEYS
+            }
             models.ManualComponent.objects.create(
                 test_point=point,
                 cid=_cid(c.get("id")),
@@ -352,6 +376,7 @@ def save_session(data):
                 variable_type=c.get("variableType", "") or "",
                 original_input=c.get("originalInput"),
                 saved_inputs=c.get("savedInputs"),
+                extra=extra,
             )
 
     # Upsert note-image refs without clobbering stored base64 data.

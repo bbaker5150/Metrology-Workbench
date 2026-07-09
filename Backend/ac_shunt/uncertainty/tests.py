@@ -61,6 +61,26 @@ SAMPLE_SESSION = {
             "id": 555000222, "name": "UUT Stability", "type": "A", "value": 3.3,
             "value_native": 0.0003, "unit_native": "V", "dof": 9,
             "distribution": "Normal", "isCore": False, "sourcePointLabel": "Manual",
+        }, {
+            "id": "instrTypeB_tmde-uuid-1_typeb-1",
+            "name": "Nozzle Pressure",
+            "type": "B",
+            "value": 57.7,
+            "value_native": 0.001,
+            "unit_native": "psig",
+            "distribution": "Rectangular (resolution)",
+            "distributionDivisor": "3.464",
+            "isCore": False,
+            "isManual": True,
+            "typeBSourceId": "typeb-1",
+            "typeBSourceTmdeId": "tmde-uuid-1",
+            "sourcePointLabel": "Nozzle Pressure",
+            "originalInput": {
+                "inputMode": "tolerance",
+                "toleranceLimit": "0.003464",
+                "errorDistributionDivisor": "3.464",
+                "unit": "psig",
+            },
         }],
     }],
     "noteImages": [],
@@ -113,6 +133,17 @@ class WholeSessionRoundTripTests(APITestCase):
         self.assertEqual(tp["riskMetrics"]["pfa"], 1.2)
         self.assertEqual(tp["components"][0]["type"], "A")
         self.assertEqual(tp["components"][0]["name"], "UUT Stability")
+        linked_type_b = next(
+            c for c in tp["components"] if c["id"] == "instrTypeB_tmde-uuid-1_typeb-1"
+        )
+        self.assertEqual(linked_type_b["typeBSourceId"], "typeb-1")
+        self.assertEqual(linked_type_b["typeBSourceTmdeId"], "tmde-uuid-1")
+        self.assertEqual(linked_type_b["distributionDivisor"], "3.464")
+        self.assertTrue(linked_type_b["isManual"])
+        self.assertEqual(
+            linked_type_b["originalInput"]["errorDistributionDivisor"],
+            "3.464",
+        )
 
     def test_update_rebuilds_children(self):
         self.client.post("/api/uncertainty/sessions/", SAMPLE_SESSION, format="json")

@@ -534,6 +534,66 @@ const instrumentIdentityMatches = (left = {}, right = {}) =>
   String(left.manufacturer || "") === String(right.manufacturer || "") &&
   String(left.model || "") === String(right.model || "");
 
+const normalizeTypeBText = (value) =>
+  String(value || "").trim().toLowerCase();
+
+const sameLooseValue = (left, right) => {
+  if (left === undefined || left === null || left === "") return false;
+  if (right === undefined || right === null || right === "") return false;
+  const leftNum = Number(left);
+  const rightNum = Number(right);
+  if (Number.isFinite(leftNum) && Number.isFinite(rightNum)) {
+    return Math.abs(leftNum - rightNum) <= Math.max(1e-12, Math.abs(rightNum) * 1e-9);
+  }
+  return String(left) === String(right);
+};
+
+const componentNameMatchesTypeB = (component, typeB) => {
+  const typeBName = normalizeTypeBText(typeB?.name);
+  if (!typeBName) return false;
+  const names = [
+    component?.name,
+    component?.sourcePointLabel,
+    String(component?.sourcePointLabel || "").split(" - ").pop(),
+  ].map(normalizeTypeBText);
+  return names.includes(typeBName);
+};
+
+const storedComponentMatchesTypeB = (component, typeB) => {
+  if (!componentNameMatchesTypeB(component, typeB)) return false;
+  const original = component?.originalInput || {};
+  const mode = original.inputMode === "standard" ? "standard" : "tolerance";
+  const typeBMode = typeB?.inputMode === "standard" ? "standard" : "tolerance";
+  if (mode !== typeBMode) return false;
+
+  const originalMagnitude =
+    mode === "standard"
+      ? original.standardUncertainty ?? component.manualRawValue
+      : original.toleranceLimit ?? component.manualRawValue;
+  const typeBMagnitude =
+    mode === "standard" ? typeB?.standardUncertainty : typeB?.toleranceLimit;
+  if (!sameLooseValue(originalMagnitude, typeBMagnitude)) return false;
+
+  if (
+    original.unit &&
+    typeB?.unit &&
+    String(original.unit) !== String(typeB.unit)
+  ) {
+    return false;
+  }
+
+  if (
+    mode !== "standard" &&
+    original.errorDistributionDivisor &&
+    typeB?.distribution &&
+    !sameLooseValue(original.errorDistributionDivisor, typeB.distribution)
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
 const findFreshTypeBListForTmde = (
   sourceTmdeId,
   tmdeTolerances = [],
@@ -585,6 +645,38 @@ const updateSourcePointLabel = (component, name) => {
     : name;
 };
 
+const inferLinkedTypeB = (
+  component,
+  tmdeTolerances = [],
+  sessionTmdes = [],
+  instruments = [],
+) => {
+  if (!component?.originalInput || component?.sourceTmdeId) return null;
+  const matches = [];
+  const seen = new Set();
+
+  (tmdeTolerances || []).forEach((tmde) => {
+    const sourceTmdeId = tmde?.id ?? tmde?.sourceId;
+    if (sourceTmdeId === undefined || sourceTmdeId === null) return;
+    const freshTypeBList = findFreshTypeBListForTmde(
+      sourceTmdeId,
+      tmdeTolerances,
+      sessionTmdes,
+      instruments,
+    );
+    if (!freshTypeBList.sourceFound) return;
+    freshTypeBList.list.forEach((candidate) => {
+      if (!storedComponentMatchesTypeB(component, candidate)) return;
+      const key = `${String(sourceTmdeId)}::${String(candidate?.id)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      matches.push({ sourceTmdeId, typeB: candidate });
+    });
+  });
+
+  return matches.length === 1 ? matches[0] : null;
+};
+
 export const refreshLinkedTypeBComponents = ({
   components = [],
   tmdeTolerances = [],
@@ -595,19 +687,26 @@ export const refreshLinkedTypeBComponents = ({
   if (!Array.isArray(components) || components.length === 0) return [];
 
   return components.map((component) => {
-    if (!component?.typeBSourceId || !component?.typeBSourceTmdeId) {
+    const inferred = !component?.typeBSourceId
+      ? inferLinkedTypeB(component, tmdeTolerances, sessionTmdes, instruments)
+      : null;
+    const typeBSourceId = component?.typeBSourceId || inferred?.typeB?.id;
+    const typeBSourceTmdeId =
+      component?.typeBSourceTmdeId || inferred?.sourceTmdeId;
+
+    if (!typeBSourceId || !typeBSourceTmdeId) {
       return component;
     }
 
     const freshTypeBList = findFreshTypeBListForTmde(
-      component.typeBSourceTmdeId,
+      typeBSourceTmdeId,
       tmdeTolerances,
       sessionTmdes,
       instruments,
     );
     if (!freshTypeBList.sourceFound) return component;
     const freshTypeB = freshTypeBList.list.find((candidate) =>
-      sameId(candidate?.id, component.typeBSourceId),
+      sameId(candidate?.id, typeBSourceId),
     );
     if (!freshTypeB) return null;
 
@@ -631,6 +730,8 @@ export const refreshLinkedTypeBComponents = ({
 
     return {
       ...component,
+      typeBSourceId,
+      typeBSourceTmdeId,
       name,
       ...(resolved
         ? {

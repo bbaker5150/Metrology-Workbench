@@ -260,6 +260,57 @@ describe("refreshLinkedTypeBComponents", () => {
 
     expect(refreshed).toEqual([]);
   });
+
+  test("recovers an instrument Type B link lost by an older backend round-trip", () => {
+    const refreshed = refreshLinkedTypeBComponents({
+      components: [
+        {
+          id: "budget-typeb",
+          name: "Nozzle Pressure",
+          type: "B",
+          value: 115.47,
+          value_native: 0.0011547,
+          unit_native: "psig",
+          distribution: "Rectangular",
+          originalInput: {
+            inputMode: "tolerance",
+            toleranceLimit: "0.002",
+            errorDistributionDivisor: "1.732",
+            unit: "psig",
+          },
+        },
+      ],
+      tmdeTolerances: [
+        {
+          id: "tmde-instance-1",
+          sourceId: "tmde-master-1",
+        },
+      ],
+      sessionTmdes: [
+        {
+          id: "tmde-master-1",
+          instrument: {
+            typeBComponents: [
+              {
+                id: "hp1",
+                name: "Nozzle Pressure",
+                unit: "psig",
+                inputMode: "tolerance",
+                toleranceLimit: "0.002",
+                distribution: "1.732",
+              },
+            ],
+          },
+        },
+      ],
+      getReferencePoint: () => ref,
+    });
+
+    expect(refreshed[0].typeBSourceId).toBe("hp1");
+    expect(refreshed[0].typeBSourceTmdeId).toBe("tmde-instance-1");
+    expect(refreshed[0].name).toBe("Nozzle Pressure");
+    expect(refreshed[0].originalInput.errorDistributionDivisor).toBe("1.732");
+  });
 });
 
 describe("getBudgetComponentsFromTolerance - unvalidated distribution", () => {

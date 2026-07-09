@@ -187,6 +187,7 @@ class ManualComponent(models.Model):
     variable_type = models.CharField(max_length=64, blank=True, default="")
     original_input = models.JSONField(default=dict, blank=True, null=True)
     saved_inputs = models.JSONField(default=dict, blank=True, null=True)
+    extra = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["id"]
