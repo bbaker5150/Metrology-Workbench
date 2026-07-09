@@ -246,6 +246,28 @@ describe("UniversalInstrumentModal library synchronization", () => {
     );
   });
 
+  test("snaps the Description from Manufacturer/Model until the user overrides it", () => {
+    renderModal({ mode: "uut", initialData: null, instruments: [] });
+    const [manufacturerInput, modelInput, nameInput] =
+      document.querySelectorAll(".identity-grid input[type='text']");
+
+    // Description tracks "Manufacturer Model" like the inline tables do.
+    fireEvent.change(manufacturerInput, { target: { value: "Fluke" } });
+    expect(nameInput).toHaveValue("Fluke");
+    fireEvent.change(modelInput, { target: { value: "8588A" } });
+    expect(nameInput).toHaveValue("Fluke 8588A");
+
+    // Typing a custom name takes ownership; later identity edits leave it alone.
+    fireEvent.change(nameInput, { target: { value: "Bench Reference" } });
+    fireEvent.change(modelInput, { target: { value: "8588A-01" } });
+    expect(nameInput).toHaveValue("Bench Reference");
+
+    // Clearing the custom name resumes snapping.
+    fireEvent.change(nameInput, { target: { value: "" } });
+    fireEvent.change(manufacturerInput, { target: { value: "Keysight" } });
+    expect(nameInput).toHaveValue("Keysight 8588A-01");
+  });
+
   test("new instruments save directly as local session instruments", () => {
     const props = renderModal({
       mode: "uut",

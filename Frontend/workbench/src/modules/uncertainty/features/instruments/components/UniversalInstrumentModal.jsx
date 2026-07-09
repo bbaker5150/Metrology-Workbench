@@ -1581,6 +1581,11 @@ const UniversalInstrumentModal = ({
 
     const [activeFunctionId, setActiveFunctionId] = useState(null);
     const [activeTypeBId, setActiveTypeBId] = useState(null);
+    // Whether the user has typed a custom Description/Name. Until they do, the
+    // Description snaps to "Manufacturer Model" as they type identity fields —
+    // matching how the inline instrument tables compose the description. A
+    // non-empty loaded/typed description counts as user-owned and stops snapping.
+    const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
 
     const { position, handleMouseDown } = useFloatingWindow({
         isOpen,
@@ -1634,9 +1639,12 @@ const UniversalInstrumentModal = ({
                     measurementArea: initialData.measurementArea || DEFAULT_MEASUREMENT_AREA_NAME,
                     measurementAreaId: initialData.measurementAreaId || "",
                     measurementAreaColor: initialData.measurementAreaColor || DEFAULT_MEASUREMENT_AREA_COLOR,
-                    quantity: initialData.quantity || 1, 
+                    quantity: initialData.quantity || 1,
                     assetId: initialData.assetId || ""
                 });
+                setNameManuallyEdited(
+                    Boolean((initialData.description || initialData.name || "").trim()),
+                );
             } else {
                 setLibraryInstrumentId(null);
                 setInitialInstrumentSignature(
@@ -1657,6 +1665,7 @@ const UniversalInstrumentModal = ({
                 setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", scope: "local", functions: [], typeBComponents: [] });
                 setActiveFunctionId(null);
                 setActiveTypeBId(null);
+                setNameManuallyEdited(false);
             }
         }
     }, [isOpen, initialData, mode]);
@@ -1897,6 +1906,7 @@ const UniversalInstrumentModal = ({
             JSON.stringify(getComparableLibraryInstrument(newDef))
         );
         setInstrumentDef(newDef);
+        setNameManuallyEdited(Boolean((inst.description || "").trim()));
         if (newDef.functions?.length > 0) setActiveFunctionId(newDef.functions[0].id);
         else setActiveFunctionId(null);
         setActiveTypeBId(newDef.typeBComponents?.[0]?.id || null);
@@ -1927,11 +1937,31 @@ const UniversalInstrumentModal = ({
         }));
         setActiveFunctionId(null);
         setActiveTypeBId(null);
+        setNameManuallyEdited(false);
         setViewMode("edit");
     };
 
     const handleMetaChange = (field, value) => {
         setMetaData(prev => ({ ...prev, [field]: value }));
+    };
+
+    // Update an identity field (manufacturer/model) and, while the user hasn't
+    // typed a custom Description/Name, snap the Description to "Manufacturer
+    // Model" — the same make/model composition the inline instrument tables use.
+    const updateIdentity = (field, value) => {
+        const nextDef = { ...instrumentDef, [field]: value };
+        setInstrumentDef(nextDef);
+        if (!nameManuallyEdited) {
+            const snapped = `${nextDef.manufacturer || ""} ${nextDef.model || ""}`.trim();
+            setMetaData(prev => ({ ...prev, name: snapped }));
+        }
+    };
+
+    // The Description/Name field is now user-owned once they type into it (and
+    // reverts to auto-snapping if they clear it back out).
+    const handleDescriptionChange = (value) => {
+        handleMetaChange('name', value);
+        setNameManuallyEdited(value.trim() !== "");
     };
 
     const updateTypeBComponents = (next) => {
@@ -2499,9 +2529,9 @@ const UniversalInstrumentModal = ({
                                 <div className="floating-input-group">
                                     <input 
                                         type="text" 
-                                        value={instrumentDef.manufacturer} 
-                                        onChange={e => setInstrumentDef({ ...instrumentDef, manufacturer: e.target.value })} 
-                                        placeholder=" " 
+                                        value={instrumentDef.manufacturer}
+                                        onChange={e => updateIdentity('manufacturer', e.target.value)}
+                                        placeholder=" "
                                     />
                                     <label>Manufacturer</label>
                                     <FontAwesomeIcon icon={faIndustry} className="input-icon" />
@@ -2510,9 +2540,9 @@ const UniversalInstrumentModal = ({
                                 <div className="floating-input-group">
                                     <input 
                                         type="text" 
-                                        value={instrumentDef.model} 
-                                        onChange={e => setInstrumentDef({ ...instrumentDef, model: e.target.value })} 
-                                        placeholder=" " 
+                                        value={instrumentDef.model}
+                                        onChange={e => updateIdentity('model', e.target.value)}
+                                        placeholder=" "
                                     />
                                     <label>Model</label>
                                     <FontAwesomeIcon icon={faTag} className="input-icon" />
@@ -2522,7 +2552,7 @@ const UniversalInstrumentModal = ({
                                     <input
                                         type="text"
                                         value={metaData.name}
-                                        onChange={e => handleMetaChange('name', e.target.value)}
+                                        onChange={e => handleDescriptionChange(e.target.value)}
                                         placeholder=" "
                                     />
                                     <label>Description / Name</label>

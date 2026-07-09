@@ -106,7 +106,14 @@ function Analysis({
   // =========================================================================
 
   // --- UI State ---
-  const analysisMode = preferredAnalysisMode;
+  // Risk Analysis and Risk Mitigation tabs are hidden for now — their info is
+  // surfaced in the measurement-point sidebar — until the logic and design are
+  // refined. The modes and their content stay wired so re-enabling is just a
+  // matter of listing them here again.
+  const VISIBLE_ANALYSIS_MODES = ["uncertaintyTool"];
+  const analysisMode = VISIBLE_ANALYSIS_MODES.includes(preferredAnalysisMode)
+    ? preferredAnalysisMode
+    : "uncertaintyTool";
   const showContribution = preferredShowContribution;
   const setShowContribution = useCallback(
     (nextValue) => {
@@ -814,7 +821,7 @@ function Analysis({
         <>
           {/* Detailed View Navigation Tabs */}
           <div className="analysis-tabs">
-            {["uncertaintyTool", "risk", "riskmitigation"].map((mode) => (
+            {VISIBLE_ANALYSIS_MODES.map((mode) => (
               <button
                 key={mode}
                 className={analysisMode === mode ? "active" : ""}
