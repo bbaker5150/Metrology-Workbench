@@ -668,6 +668,9 @@ const ToleranceTermEditor = ({
     );
     const [shapeMenuRect, setShapeMenuRect] = useState(null);
     const shapeButtonRef = useRef(null);
+    // Floor-only unit picker (absolute unit vs a ppm/%/ppb adder).
+    const [unitMenuRect, setUnitMenuRect] = useState(null);
+    const unitButtonRef = useRef(null);
     const [singleNeg, setSingleNeg] = useState(
         () =>
             typeKey !== "reading" &&
@@ -805,6 +808,34 @@ const ToleranceTermEditor = ({
         if (rect) setShapeMenuRect(rect);
     };
 
+    const toggleUnitMenu = () => {
+        if (unitMenuRect) {
+            setUnitMenuRect(null);
+            return;
+        }
+        const rect = unitButtonRef.current?.getBoundingClientRect();
+        if (rect) setUnitMenuRect(rect);
+    };
+    // Floor unit choices: the range's physical unit plus relative adders
+    // (ppm/%/ppb are scaled off the reading downstream — see budgetUtils).
+    const floorUnitOptions = (() => {
+        const native = activeRange?.unit || "";
+        const opts = [];
+        if (native && !["%", "ppm", "ppb"].includes(native)) {
+            opts.push({ value: native, label: getUnitDisplayLabel(native) });
+        }
+        opts.push({ value: "ppm", label: "ppm" });
+        opts.push({ value: "%", label: "%" });
+        opts.push({ value: "ppb", label: "ppb" });
+        return opts;
+    })();
+    const activeFloorUnit = component.unit || activeRange?.unit || "";
+    const commitUnit = (unit) => {
+        setUnitMenuRect(null);
+        if (unit === activeFloorUnit) return;
+        commit({ unit });
+    };
+
     const toggleSingleDir = () => {
         const mag = singleValue;
         const nextNeg = !singleNeg;
@@ -861,6 +892,54 @@ const ToleranceTermEditor = ({
                                   <span className="inline-tolerance-shape-option-copy">
                                       <span>{option.label}</span>
                                       <small>{option.detail}</small>
+                                  </span>
+                              </button>
+                          ))}
+                      </div>
+                  </>,
+                  document.body,
+              )
+            : null;
+
+    const unitMenu =
+        typeKey === "floor" && unitMenuRect
+            ? ReactDOM.createPortal(
+                  <>
+                      <div
+                          className="inline-tolerance-shape-backdrop"
+                          onMouseDown={() => setUnitMenuRect(null)}
+                      />
+                      <div
+                          className="inline-tolerance-shape-menu"
+                          style={{
+                              top: `${Math.min(
+                                  unitMenuRect.bottom + 6,
+                                  window.innerHeight - 132,
+                              )}px`,
+                              left: `${Math.max(
+                                  8,
+                                  Math.min(
+                                      unitMenuRect.right - 132,
+                                      window.innerWidth - 140,
+                                  ),
+                              )}px`,
+                          }}
+                          onMouseDown={(e) => e.preventDefault()}
+                          role="menu"
+                      >
+                          {floorUnitOptions.map((option) => (
+                              <button
+                                  key={option.value}
+                                  type="button"
+                                  className={`inline-tolerance-shape-option${
+                                      option.value === activeFloorUnit ? " is-active" : ""
+                                  }`}
+                                  onClick={() => commitUnit(option.value)}
+                                  role="menuitemradio"
+                                  aria-checked={option.value === activeFloorUnit}
+                              >
+                                  <span className="inline-tolerance-shape-option-copy">
+                                      <span>{option.label}</span>
                                   </span>
                               </button>
                           ))}
@@ -1010,14 +1089,34 @@ const ToleranceTermEditor = ({
                     </>
                 )}
             </span>
-            {typeLabel && (
-                <span
-                    className="inline-tolerance-chip inline-tolerance-chip--in-cell"
-                    title={typeOption?.title || typeLabel}
-                >
-                    {typeLabel}
-                </span>
-            )}
+            {typeLabel &&
+                (typeKey === "floor" ? (
+                    <>
+                        <button
+                            ref={unitButtonRef}
+                            type="button"
+                            className={`inline-tolerance-chip inline-tolerance-chip--in-cell inline-tolerance-chip--button${
+                                unitMenuRect ? " is-open" : ""
+                            }`}
+                            title="Floor unit — click to change (e.g. ppm)"
+                            aria-haspopup="menu"
+                            aria-expanded={Boolean(unitMenuRect)}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={toggleUnitMenu}
+                        >
+                            <span>{typeLabel}</span>
+                            <FontAwesomeIcon icon={faChevronDown} size="xs" />
+                        </button>
+                        {unitMenu}
+                    </>
+                ) : (
+                    <span
+                        className="inline-tolerance-chip inline-tolerance-chip--in-cell"
+                        title={typeOption?.title || typeLabel}
+                    >
+                        {typeLabel}
+                    </span>
+                ))}
             {typeKey === "range" && (
                 <span className="inline-tolerance-fs">
                     <span>(FS=</span>

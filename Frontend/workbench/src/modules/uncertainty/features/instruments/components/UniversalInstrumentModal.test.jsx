@@ -326,7 +326,8 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(screen.queryByText("Tolerance / Error Limits")).not.toBeInTheDocument();
     expect(screen.getByText("% IV")).toBeInTheDocument();
     expect(screen.getByText("% FS")).toBeInTheDocument();
-    expect(screen.getByTitle("Absolute floor value")).toBeInTheDocument();
+    // The floor term exposes a clickable unit picker (physical unit vs ppm/%/ppb).
+    expect(screen.getByTitle(/Floor unit/i)).toBeInTheDocument();
     expect(screen.getByText("dB")).toBeInTheDocument();
   });
 
@@ -378,6 +379,75 @@ describe("UniversalInstrumentModal library synchronization", () => {
                       high: "0.0035",
                       low: "-0.0035",
                     }),
+                  }),
+                }),
+              ],
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  test("lets the floor tolerance be expressed in ppm", () => {
+    const manualInstrument = {
+      ...sessionTmde,
+      libraryInstrumentId: undefined,
+      instrument: {
+        ...sessionTmde.instrument,
+        libraryInstrumentId: undefined,
+        functions: [
+          {
+            ...sessionTmde.instrument.functions[0],
+            ranges: [
+              {
+                id: "range-ppm",
+                min: 0,
+                max: 10,
+                unit: "V",
+                tolerances: {
+                  floor: {
+                    high: "50",
+                    low: "-50",
+                    unit: "V",
+                    symmetric: true,
+                    distribution: "1.732",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const props = renderModal({
+      initialData: manualInstrument,
+      instruments: [],
+    });
+
+    // Open the tolerance editor for the existing floor term.
+    fireEvent.click(
+      screen.getByRole("button", { name: /Edit or add tolerance terms/i }),
+    );
+
+    // The floor unit starts as the range's physical unit and can switch to ppm
+    // through the clickable unit chip.
+    expect(screen.getByTitle(/Floor unit/i)).toHaveTextContent("V");
+    fireEvent.click(screen.getByTitle(/Floor unit/i));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "ppm" }));
+    expect(screen.getByTitle(/Floor unit/i)).toHaveTextContent("ppm");
+
+    fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
+
+    expect(props.onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instrument: expect.objectContaining({
+          functions: [
+            expect.objectContaining({
+              ranges: [
+                expect.objectContaining({
+                  tolerances: expect.objectContaining({
+                    floor: expect.objectContaining({ unit: "ppm", high: "50" }),
                   }),
                 }),
               ],

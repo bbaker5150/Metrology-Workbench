@@ -551,9 +551,16 @@ const ToleranceForm = ({
           </div>
         );
     } else {
-        // "% of Indicated Value" (reading) is strictly relative (%/ppm/ppb);
-        // floor is an absolute value, so it only offers physical units.
-        const unitOptions = (key === 'reading') ? ratioUnitOptions : physicalUnitOptions;
+        // "% of Indicated Value" (reading) is strictly relative (%/ppm/ppb). The
+        // floor is usually an absolute value, but some specs state it as a ratio
+        // (e.g. a ppm-of-reading adder), so it offers BOTH ratios and physical
+        // units. Everything else (range %FS) stays physical.
+        const unitOptions =
+          key === 'reading'
+            ? ratioUnitOptions
+            : (key === 'floor' || key === 'readings_iv')
+              ? manualUnitOptions
+              : physicalUnitOptions;
         content = (
           <div className="config-stack">
             {limitsSection}

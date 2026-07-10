@@ -11726,6 +11726,22 @@ select.inline-resolution-dist {
   font-size: 0.7rem;
 }
 
+/* Clickable unit chip (floor term) — reads as a picker, not a static tag. */
+.inline-tolerance-chip--button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.inline-tolerance-chip--button:hover,
+.inline-tolerance-chip--button.is-open {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.06);
+}
+
 .inline-tolerance-term-group:hover .inline-tolerance-chip {
   border-color: transparent;
   color: var(--primary-color);
