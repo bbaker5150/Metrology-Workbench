@@ -12379,6 +12379,7 @@ input.inline-function-input:focus {
 .inline-tolerance-summary:focus-visible {
   border-color: var(--border-color);
   background: var(--input-background);
+  color: var(--primary-color);
   outline: none;
 }
 

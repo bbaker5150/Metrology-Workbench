@@ -756,6 +756,9 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     });
 
     expect(screen.queryByText("Manual Component", { selector: "h3" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Error source name")).not.toHaveAttribute(
+      "placeholder",
+    );
     fireEvent.change(screen.getByLabelText("Error source name"), {
       target: { value: "Thermal drift" },
     });

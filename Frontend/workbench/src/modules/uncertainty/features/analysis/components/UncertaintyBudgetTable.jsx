@@ -502,7 +502,6 @@ const InlineManualComponentRow = ({
           type="text"
           className="budget-inline-input budget-inline-name"
           aria-label="Error source name"
-          placeholder="Error source name"
           value={draft.name}
           onChange={(event) =>
             setDraft((current) => ({ ...current, name: event.target.value }))

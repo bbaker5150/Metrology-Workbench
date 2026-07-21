@@ -13286,7 +13286,6 @@ function DetailedView({
                       type="text"
                       value={testPointData.equationName || ""}
                       onChange={(e) => handleEquationNameChange(e.target.value)}
-                      placeholder="Measurement Equation"
                       maxLength={120}
                     />
                   </label>
@@ -13298,7 +13297,6 @@ function DetailedView({
                         className="measurement-equation-input"
                         value={equationDisplayData.equation}
                         onChange={(e) => handleEquationChange(e.target.value)}
-                        placeholder="e.g. V / R or W * L"
                       />
                       <div className="measurement-equation-actions">
                         <button
