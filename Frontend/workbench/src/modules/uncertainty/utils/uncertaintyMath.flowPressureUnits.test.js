@@ -3,6 +3,7 @@ import {
   unitSystem,
   unitCategories,
   getUnitDisplayLabel,
+  getUniqueUnitDisplayLabels,
 } from "./uncertaintyMath";
 
 // Regression coverage for the SCCM/inWa unit families so their conversion
@@ -72,5 +73,29 @@ describe("water-column pressure units", () => {
   it("renders chemical subscripts for water-column labels", () => {
     expect(getUnitDisplayLabel("inH2O")).toBe("inH₂O");
     expect(getUnitDisplayLabel("mmH2O")).toBe("mmH₂O");
+  });
+});
+
+describe("function-header unit labels", () => {
+  it("deduplicates aliases and legacy case variants after display formatting", () => {
+    expect(
+      getUniqueUnitDisplayLabels([
+        "deg",
+        "DEG",
+        "rad",
+        "RAD",
+        "Ohm",
+        "ohm",
+        "in",
+        "inch",
+      ]),
+    ).toEqual(["°", "rad", "Ω", "in."]);
+  });
+
+  it("does not merge case-sensitive metric prefixes", () => {
+    expect(getUniqueUnitDisplayLabels(["mOhm", "MOhm"])).toEqual([
+      "mΩ",
+      "MΩ",
+    ]);
   });
 });

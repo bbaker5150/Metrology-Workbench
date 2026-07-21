@@ -18,42 +18,18 @@
  * same way regardless of how the instrument was created.
  */
 import React, { useMemo } from "react";
-import Select from "react-select";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFlask, faPlus } from "@fortawesome/free-solid-svg-icons";
 import {
   unitSystem,
   unitCategories,
-  errorDistributions,
   DISTRIBUTION_NOT_SET,
   getUnitDisplayLabel,
-  unitFilterOption,
 } from "../../../utils/uncertaintyMath";
-
-const portalStyle = {
-  menuPortal: (base) => ({ ...base, zIndex: 100000 }),
-  menu: (base) => ({
-    ...base,
-    zIndex: 100000,
-    backgroundColor: "var(--input-background)",
-    color: "var(--text-color)",
-  }),
-  control: (base) => ({
-    ...base,
-    backgroundColor: "var(--input-background)",
-    borderColor: "var(--border-color)",
-    color: "var(--text-color)",
-    minHeight: "34px",
-    boxShadow: "none",
-  }),
-  singleValue: (base) => ({ ...base, color: "var(--text-color)" }),
-  option: (base, state) => ({
-    ...base,
-    backgroundColor: state.isFocused ? "var(--primary-color)" : "transparent",
-    color: state.isFocused ? "#fff" : "var(--text-color)",
-    fontSize: "0.85rem",
-  }),
-};
+import TypeBToleranceEditor, {
+  TypeBDistributionSelect,
+} from "./TypeBToleranceEditor";
+import BuilderUnitSelect from "./BuilderUnitSelect";
 
 const buildUnitOptions = (referenceUnit) => {
   const allUnits = Object.keys(unitSystem.units);
@@ -92,7 +68,13 @@ const buildUnitOptions = (referenceUnit) => {
 };
 
 /** Factory for a fresh, empty associated Type B component. */
-export const createTypeBComponent = (referenceUnit) => ({
+export const TYPE_B_SCOPE_OPTIONS = [
+  { value: "instrument", label: "Entire instrument" },
+  { value: "function", label: "Entire function" },
+  { value: "range", label: "Range specific" },
+];
+
+export const createTypeBComponent = (referenceUnit, scopeContext = {}) => ({
   id: `typeb_${Date.now()}_${Math.floor(Math.random() * 1e6)}`,
   name: "",
   unit: referenceUnit || "%",
@@ -100,6 +82,10 @@ export const createTypeBComponent = (referenceUnit) => ({
   toleranceLimit: "",
   standardUncertainty: "",
   distribution: DISTRIBUTION_NOT_SET,
+  tolerance: {},
+  scope: "instrument",
+  functionId: scopeContext.functionId || "",
+  rangeId: "",
 });
 
 const TypeBComponentsEditor = ({
@@ -111,15 +97,17 @@ const TypeBComponentsEditor = ({
   showInlineRemove = true,
   activeId = null,
   onActivate,
+  functions = [],
+  activeFunctionId = "",
 }) => {
   const list = Array.isArray(components) ? components : [];
   const unitOptions = useMemo(() => buildUnitOptions(referenceUnit), [referenceUnit]);
-  const flatUnitOptions = useMemo(
-    () => unitOptions.flatMap((g) => (g.options ? g.options : g)),
-    [unitOptions],
-  );
 
-  const addComponent = () => onChange([...list, createTypeBComponent(referenceUnit)]);
+  const addComponent = () =>
+    onChange([
+      ...list,
+      createTypeBComponent(referenceUnit, { functionId: activeFunctionId }),
+    ]);
   const updateComponent = (id, field, value) =>
     onChange(list.map((mc) => (mc.id === id ? { ...mc, [field]: value } : mc)));
   const removeComponent = (id) => onChange(list.filter((mc) => mc.id !== id));
@@ -142,32 +130,97 @@ const TypeBComponentsEditor = ({
         </small>
       )}
 
-      <div className="typeb-cards" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      <div className="typeb-cards">
         {list.map((mc) => {
           const isStandard = mc.inputMode === "standard";
-          const selectedUnit = flatUnitOptions.find((o) => o.value === mc.unit) || null;
+          const scope = mc.scope || "instrument";
+          const selectedFunction =
+            functions.find((fn) => String(fn.id) === String(mc.functionId)) ||
+            functions.find((fn) => String(fn.id) === String(activeFunctionId)) ||
+            functions[0] ||
+            null;
+          const selectedRange =
+            selectedFunction?.ranges?.find(
+              (range) => String(range.id) === String(mc.rangeId),
+            ) || selectedFunction?.ranges?.[0] || null;
+          const toleranceReferencePoint = {
+            value:
+              selectedRange?.max ??
+              selectedRange?.value ??
+              selectedRange?.min ??
+              "",
+            unit: mc.unit || selectedRange?.unit || selectedFunction?.unit || referenceUnit,
+          };
+          const updateScope = (nextScope) => {
+            onChange(
+              list.map((item) => {
+                if (item.id !== mc.id) return item;
+                const nextFunctionId =
+                  item.functionId || activeFunctionId || functions[0]?.id || "";
+                const nextFunction = functions.find(
+                  (fn) => String(fn.id) === String(nextFunctionId),
+                );
+                const firstRangeId = nextFunction?.ranges?.[0]?.id || "";
+                return {
+                  ...item,
+                  scope: nextScope,
+                  functionId:
+                    nextScope === "instrument"
+                      ? ""
+                      : nextFunctionId,
+                  rangeId:
+                    nextScope === "range"
+                      ? item.rangeId || firstRangeId
+                      : "",
+                };
+              }),
+            );
+          };
+          const updateUnit = (nextUnit) => {
+            onChange(
+              list.map((item) => {
+                if (item.id !== mc.id) return item;
+                if (isStandard || !item.tolerance || typeof item.tolerance !== "object") {
+                  return { ...item, unit: nextUnit };
+                }
+                const nextTolerance = Object.fromEntries(
+                  Object.entries(item.tolerance).map(([key, value]) =>
+                    value && typeof value === "object"
+                      ? [key, { ...value, unit: nextUnit }]
+                      : [key, value],
+                  ),
+                );
+                return { ...item, unit: nextUnit, tolerance: nextTolerance };
+              }),
+            );
+          };
           return (
             <div
               key={mc.id}
               className={`typeb-card${activeId === mc.id ? " is-active" : ""}`}
               onMouseDown={() => onActivate?.(mc.id)}
               onFocusCapture={() => onActivate?.(mc.id)}
-              style={{
-                border: "1px solid var(--border-color)",
-                borderRadius: "6px",
-                padding: "10px",
-                background: "var(--background-color-secondary)",
-              }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-                <input
-                  type="text"
-                  value={mc.name || ""}
-                  onChange={(e) => updateComponent(mc.id, "name", e.target.value)}
-                  placeholder="Component name (e.g., Head Pressure)"
-                  style={{ flex: 1 }}
-                  aria-label="Type B component name"
-                />
+              <div className="function-spec-header typeb-card-header">
+                <div className="function-name-control">
+                  <FontAwesomeIcon icon={faFlask} />
+                  <input
+                    type="text"
+                    value={mc.name || ""}
+                    onChange={(e) => updateComponent(mc.id, "name", e.target.value)}
+                    placeholder="Component name (e.g., Head Pressure)"
+                    aria-label="Type B component name"
+                  />
+                </div>
+                <div className="function-unit-control">
+                  <BuilderUnitSelect
+                    value={mc.unit || ""}
+                    onChange={updateUnit}
+                    options={unitOptions}
+                    ariaLabel="Type B component unit"
+                    width="9ch"
+                  />
+                </div>
                 {showInlineRemove && (
                   <button
                     type="button"
@@ -179,17 +232,85 @@ const TypeBComponentsEditor = ({
                     x
                   </button>
                 )}
+                {!showInlineRemove && <span aria-hidden="true" />}
               </div>
 
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: isStandard ? "1fr 1fr 1fr" : "1fr 1fr 1fr 1fr",
-                  gap: "8px",
-                  alignItems: "end",
-                }}
-              >
-                <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "0.72rem" }}>
+              <div className="typeb-card-fields">
+                <label className="typeb-scope-field">
+                  <span>Applies to</span>
+                  <select
+                    value={scope}
+                    onChange={(e) => updateScope(e.target.value)}
+                    aria-label="Type B component scope"
+                  >
+                    {TYPE_B_SCOPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {scope !== "instrument" && (
+                  <label className="typeb-scope-field">
+                    <span>Function</span>
+                    <select
+                      value={mc.functionId || activeFunctionId || functions[0]?.id || ""}
+                      onChange={(e) =>
+                        onChange(
+                          list.map((item) =>
+                            item.id === mc.id
+                              ? {
+                                  ...item,
+                                  functionId: e.target.value,
+                                  rangeId:
+                                    scope === "range"
+                                      ? functions.find(
+                                          (fn) =>
+                                            String(fn.id) ===
+                                            String(e.target.value),
+                                        )?.ranges?.[0]?.id || ""
+                                      : item.rangeId,
+                                }
+                              : item,
+                          ),
+                        )
+                      }
+                      aria-label="Type B component function"
+                      disabled={functions.length === 0}
+                    >
+                      <option value="">Select function…</option>
+                      {functions.map((fn) => (
+                        <option key={fn.id} value={fn.id}>
+                          {fn.name || "Unnamed function"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                {scope === "range" && (
+                  <label className="typeb-scope-field">
+                    <span>Range</span>
+                    <select
+                      value={mc.rangeId || ""}
+                      onChange={(e) =>
+                        updateComponent(mc.id, "rangeId", e.target.value)
+                      }
+                      aria-label="Type B component range"
+                      disabled={!selectedFunction?.ranges?.length}
+                    >
+                      <option value="">Select range…</option>
+                      {(selectedFunction?.ranges || []).map((range) => (
+                        <option key={range.id} value={range.id}>
+                          {range.min ?? ""} to {range.max ?? ""} {range.unit || selectedFunction?.unit || ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                <label className="typeb-field typeb-scope-field">
                   <span>Entry Mode</span>
                   <select
                     value={mc.inputMode || "tolerance"}
@@ -200,56 +321,46 @@ const TypeBComponentsEditor = ({
                   </select>
                 </label>
 
-                <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "0.72rem" }}>
-                  <span>{isStandard ? "Std. Uncertainty (±)" : "Tolerance Limit (±)"}</span>
-                  <input
-                    type="number"
-                    step="any"
-                    value={isStandard ? mc.standardUncertainty || "" : mc.toleranceLimit || ""}
-                    onChange={(e) =>
-                      updateComponent(
-                        mc.id,
-                        isStandard ? "standardUncertainty" : "toleranceLimit",
-                        e.target.value,
-                      )
-                    }
-                    placeholder="e.g., 0.5"
-                  />
-                </label>
-
-                <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "0.72rem" }}>
-                  <span>Units</span>
-                  <Select
-                    value={selectedUnit}
-                    onChange={(opt) => updateComponent(mc.id, "unit", opt ? opt.value : "")}
-                    options={unitOptions}
-                    filterOption={unitFilterOption}
-                    classNamePrefix="react-select"
-                    placeholder="Select…"
-                    isSearchable
-                    menuPortalTarget={typeof document !== "undefined" ? document.body : undefined}
-                    menuPosition="fixed"
-                    styles={portalStyle}
-                  />
-                </label>
+                {isStandard ? (
+                  <label className="typeb-field typeb-scope-field">
+                    <span>Std. Uncertainty (uᵢ)</span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={mc.standardUncertainty || ""}
+                      onChange={(e) =>
+                        updateComponent(mc.id, "standardUncertainty", e.target.value)
+                      }
+                      placeholder="e.g., 0.5"
+                    />
+                  </label>
+                ) : (
+                  <div className="typeb-field typeb-tolerance-field">
+                    <span>Tolerance / Error limits</span>
+                    <TypeBToleranceEditor
+                      component={mc}
+                      referencePoint={toleranceReferencePoint}
+                      showDistribution={false}
+                      onChange={(next) =>
+                        onChange(list.map((item) => (item.id === mc.id ? next : item)))
+                      }
+                    />
+                  </div>
+                )}
 
                 {!isStandard && (
-                  <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "0.72rem" }}>
+                  <label className="typeb-field typeb-scope-field typeb-distribution-field">
                     <span>Distribution</span>
-                    <select
-                      value={mc.distribution || DISTRIBUTION_NOT_SET}
-                      onChange={(e) => updateComponent(mc.id, "distribution", e.target.value)}
-                    >
-                      {errorDistributions.map((dist) => (
-                        <option key={dist.value} value={dist.value}>
-                          {dist.value === DISTRIBUTION_NOT_SET
-                            ? dist.label
-                            : `${dist.label} (k=${dist.value})`}
-                        </option>
-                      ))}
-                    </select>
+                    <TypeBDistributionSelect
+                      component={mc}
+                      referencePoint={toleranceReferencePoint}
+                      onChange={(next) =>
+                        onChange(list.map((item) => (item.id === mc.id ? next : item)))
+                      }
+                    />
                   </label>
                 )}
+
               </div>
             </div>
           );

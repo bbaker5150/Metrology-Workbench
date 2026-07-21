@@ -5,6 +5,8 @@ import {
   tmdeInstancesNeedReconcile,
   masterIdOf,
 } from "./tmdeReconcile";
+import { getBudgetComponentsFromTolerance } from "../features/analysis/utils/budgetUtils";
+import derivedSession from "../../../../../../Backend/ac_shunt/uncertainty/fixtures/mock/Derived.json";
 
 const masters = [{ id: "weight" }, { id: "length" }];
 
@@ -207,5 +209,112 @@ describe("refreshTmdeInstancesFromMasters", () => {
     expect(refreshed[0].measuringResolutionDistribution).toBe("3.464");
     expect(refreshed[0].tolerance.measuringResolutionDistribution).toBe("3.464");
     expect(refreshed[0].reading.toleranceLimit).toBe("0.01");
+  });
+
+  it("refreshes legacy derived snapshots linked through sourceInstrument.id", () => {
+    const masterTmdes = [
+      {
+        id: "tmde-weight",
+        instrument: {
+          id: "inst-weight",
+          functions: [
+            {
+              id: "fn-weight",
+              name: "Weight",
+              unit: "ozf",
+              ranges: [
+                {
+                  id: "range-weight",
+                  min: 0,
+                  max: 1,
+                  unit: "ozf",
+                  tolerances: {
+                    reading: {
+                      high: "0.0002",
+                      low: "-0.0002",
+                      unit: "ozf",
+                      distribution: "1.960",
+                      symmetric: true,
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+    const legacySnapshot = {
+      id: "point-weight-instance",
+      name: "F Class Weight",
+      variableType: "Weight",
+      measurementPoint: { value: "0.5", unit: "ozf" },
+      // This is the link shape used by the imported torque fixture. There is
+      // intentionally no sourceId, functionName, rangeId, or nested tolerance.
+      sourceInstrument: { id: "inst-weight", functions: [{ name: "Weight" }] },
+      reading: {
+        high: "0.0001",
+        low: "-0.0001",
+        unit: "ozf",
+        distribution: "1.960",
+        symmetric: true,
+      },
+    };
+
+    const refreshed = refreshTmdeInstancesFromMasters(
+      [legacySnapshot],
+      masterTmdes,
+    );
+
+    expect(refreshed[0].reading.high).toBe("0.0002");
+    expect(refreshed[0].tolerance.reading.high).toBe("0.0002");
+    const [accuracy] = getBudgetComponentsFromTolerance(
+      refreshed[0],
+      legacySnapshot.measurementPoint,
+    );
+    expect(accuracy.value_native).toBeCloseTo(0.0002 / 1.96, 10);
+    expect(Number.isFinite(accuracy.value_native)).toBe(true);
+  });
+
+  it("reconciles legacy sourceInstrument aliases without pruning the point", () => {
+    const instances = [
+      {
+        id: "point-weight-instance",
+        variableType: "Weight",
+        sourceInstrument: { id: "inst-weight" },
+      },
+    ];
+    const masters = [
+      { id: "tmde-weight", instrument: { id: "inst-weight" } },
+    ];
+    expect(reconcileTmdeInstances(instances, masters)).toHaveLength(1);
+    expect(masterIdOf(instances[0])).toBe("inst-weight");
+  });
+
+  it("refreshes the imported torque fixture's weight and length budgets", () => {
+    const derivedPoints = (derivedSession.testPoints || []).filter(
+      (point) => point.measurementType === "derived",
+    );
+    expect(derivedPoints.length).toBeGreaterThan(0);
+
+    derivedPoints.forEach((point) => {
+      const refreshed = refreshTmdeInstancesFromMasters(
+        point.tmdeTolerances,
+        derivedSession.tmdes,
+      );
+      expect(refreshed).toHaveLength(point.tmdeTolerances.length);
+      refreshed.forEach((instance) => {
+        expect(instance.sourceId).toBeTruthy();
+        const components = getBudgetComponentsFromTolerance(
+          instance,
+          instance.measurementPoint,
+        );
+        expect(
+          components.some((component) =>
+            Number.isFinite(component.value_native),
+          ),
+        ).toBe(true);
+      });
+    });
   });
 });

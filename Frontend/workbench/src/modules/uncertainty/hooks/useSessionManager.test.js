@@ -92,6 +92,80 @@ describe("session undo history", () => {
     expect(didUndo).toBe(true);
     expect(result.current.currentSessionData.name).toBe("Original");
   });
+
+  it("follows workspace chronology across edits and newly added sessions", async () => {
+    const { result } = renderHook(() => useSessionManager());
+
+    await waitFor(() => {
+      expect(result.current.currentSessionData?.name).toBe("Original");
+    });
+
+    act(() => {
+      result.current.updateSession({
+        ...result.current.currentSessionData,
+        name: "Edited before add",
+      });
+    });
+    act(() => {
+      result.current.addSession();
+    });
+    expect(result.current.sessions).toHaveLength(2);
+
+    act(() => {
+      expect(result.current.undoLastSessionChange()).toBe(true);
+    });
+    expect(result.current.sessions).toHaveLength(1);
+    expect(result.current.currentSessionData.name).toBe("Edited before add");
+
+    act(() => {
+      expect(result.current.undoLastSessionChange()).toBe(true);
+    });
+    expect(result.current.currentSessionData.name).toBe("Original");
+  });
+
+  it("restores a deleted session and its previous selection", async () => {
+    const { result } = renderHook(() => useSessionManager());
+
+    await waitFor(() => {
+      expect(result.current.currentSessionData?.id).toBe(1);
+    });
+
+    act(() => {
+      result.current.deleteSession(1);
+    });
+    expect(result.current.sessions).toHaveLength(0);
+
+    act(() => {
+      expect(result.current.undoLastSessionChange()).toBe(true);
+    });
+    expect(result.current.sessions).toHaveLength(1);
+    expect(result.current.currentSessionData).toMatchObject({
+      id: 1,
+      name: "Original",
+    });
+  });
+
+  it("keeps rapid discrete workspace actions as separate undo steps", async () => {
+    const { result } = renderHook(() => useSessionManager());
+
+    await waitFor(() => {
+      expect(result.current.sessions).toHaveLength(1);
+    });
+    act(() => {
+      result.current.addSession();
+      result.current.addSession();
+    });
+    expect(result.current.sessions).toHaveLength(3);
+
+    act(() => {
+      expect(result.current.undoLastSessionChange()).toBe(true);
+    });
+    expect(result.current.sessions).toHaveLength(2);
+    act(() => {
+      expect(result.current.undoLastSessionChange()).toBe(true);
+    });
+    expect(result.current.sessions).toHaveLength(1);
+  });
 });
 
 describe("saveTestPoint derived equation state", () => {
@@ -109,6 +183,7 @@ describe("saveTestPoint derived equation state", () => {
                     section: "4.1",
                     measurementType: "derived",
                     equationString: "t = a + b",
+                    equationName: "Temperature Ratio",
                     variableMappings: { a: "A", b: "B" },
                     variableNominals: {
                       a: { value: "10", unit: "degF" },
@@ -151,6 +226,9 @@ describe("saveTestPoint derived equation state", () => {
       a: { value: "10", unit: "degF" },
       b: { value: "20", unit: "degF" },
     });
+    expect(result.current.currentSessionData.testPoints[0].equationName).toBe(
+      "Temperature Ratio",
+    );
   });
 });
 
@@ -206,5 +284,59 @@ describe("instrument sync reconciliation", () => {
     });
 
     expect(result.current.instruments).toEqual([synced]);
+  });
+});
+
+describe("local instrument persistence", () => {
+  it("updates a local instrument when its specifications change", async () => {
+    const savedLocal = {
+      id: "local-dmm-1",
+      owner: "bench-1",
+      scope: "local",
+      manufacturer: "Acme",
+      model: "DMM-1",
+      description: "Bench meter",
+      functions: [{ name: "Voltage", ranges: [] }],
+    };
+    axios.get.mockImplementation((url) =>
+      Promise.resolve({
+        data: url.endsWith("/instruments/")
+          ? [savedLocal]
+          : url.endsWith("/sessions/")
+            ? [{ id: 1, name: "Original", testPoints: [] }]
+            : [],
+      }),
+    );
+
+    const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => {
+      expect(result.current.instruments).toEqual([savedLocal]);
+    });
+
+    const editedDefinition = {
+      ...savedLocal,
+      id: "new-session-row-id",
+      functions: [
+        {
+          name: "Voltage",
+          ranges: [{ min: "0", max: "10", unit: "V", tolerance: { iv: 1 } }],
+        },
+      ],
+    };
+    axios.post.mockResolvedValue({});
+
+    await act(async () => {
+      await result.current.saveInstrument(editedDefinition);
+    });
+
+    expect(axios.post).toHaveBeenCalledWith(
+      expect.stringContaining("/instruments/"),
+      expect.objectContaining({ id: savedLocal.id }),
+    );
+    expect(result.current.instruments).toHaveLength(1);
+    expect(result.current.instruments[0]).toMatchObject({
+      id: savedLocal.id,
+      functions: editedDefinition.functions,
+    });
   });
 });

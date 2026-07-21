@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from "react";
+import React, { Suspense, lazy, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FaBolt, FaCalculator, FaFileAlt, FaArrowRight } from "react-icons/fa";
 import { MODULES } from "./moduleRegistry";
@@ -18,22 +18,41 @@ const MODULE_ICONS = {
 
 export default function HomeLauncher() {
   const navigate = useNavigate();
+  const [emblemReady, setEmblemReady] = useState(false);
+
+  useEffect(() => {
+    // The uncertainty workspace is the primary launcher destination. Warm its
+    // route immediately after the home screen paints so a normal card click
+    // mounts from cache instead of starting a multi-megabyte download.
+    const uncertaintyModule = MODULES.find((module) => module.id === "uncertainty");
+    const timer = window.setTimeout(() => {
+      uncertaintyModule?.preload?.().catch(() => {
+        // React.lazy will surface a real load failure when the user navigates.
+        // A speculative warm-up failure should not disturb the launcher.
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const warmModule = (module) => {
+    module.preload?.().catch(() => {});
+  };
 
   return (
     <div className="workbench-home">
       <header className="workbench-home-header">
         <div className="workbench-home-emblem">
-          <Suspense
-            fallback={
-              <img
-                src="/navair-seal.png"
-                alt=""
-                className="workbench-home-seal"
-                aria-hidden
-              />
-            }
-          >
-            <LauncherEmblem />
+          <img
+            src="/navair-seal-384.webp"
+            alt=""
+            width="384"
+            height="384"
+            fetchPriority="high"
+            className={`workbench-home-seal${emblemReady ? " is-ready" : ""}`}
+            aria-hidden
+          />
+          <Suspense fallback={null}>
+            <LauncherEmblem onReady={() => setEmblemReady(true)} />
           </Suspense>
         </div>
         <div className="workbench-home-heading">
@@ -53,6 +72,9 @@ export default function HomeLauncher() {
               key={m.id}
               type="button"
               className={`workbench-card${ready ? "" : " is-disabled"}`}
+              onPointerEnter={() => ready && warmModule(m)}
+              onPointerDown={() => ready && warmModule(m)}
+              onFocus={() => ready && warmModule(m)}
               onClick={() => ready && navigate(m.path)}
               disabled={!ready}
               aria-label={

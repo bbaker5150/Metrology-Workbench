@@ -4,13 +4,15 @@ import {
   functionLabelOf,
   rangesForFunction,
 } from "./functionGrouping";
-import { getUnitDisplayLabel } from "./uncertaintyMath";
+import { getUnitDisplayLabel, unitSystem } from "./uncertaintyMath";
 
 const PAGE = {
   width: 841.89,
   height: 595.28,
   margin: 30,
 };
+const BASE_PAGE_WIDTH = 841.89; // A4 landscape
+const MAX_PAGE_WIDTH = 1683.78; // A2 landscape for dense, fully-filtered reports
 
 const COLORS = {
   ink: rgb(0.08, 0.12, 0.2),
@@ -23,25 +25,86 @@ const COLORS = {
   white: rgb(1, 1, 1),
 };
 
-const COLUMN_DEFS = [
-  { key: "section", label: "Sect.", width: 36, align: "left" },
-  { key: "value", label: "Value", width: 62, align: "right" },
-  { key: "unit", label: "Unit", width: 32, align: "left" },
-  { key: "tolerance", label: "Tolerance", width: 104, align: "left" },
-  { key: "lowLimit", label: "Low", width: 54, align: "right" },
-  { key: "highLimit", label: "High", width: 54, align: "right" },
-  { key: "pfa", label: "PFA %", width: 40, align: "right" },
-  { key: "pfr", label: "PFR %", width: 40, align: "right" },
-  { key: "tur", label: "TUR", width: 36, align: "right" },
-  { key: "tar", label: "TAR", width: 36, align: "right" },
-  { key: "gbPfa", label: "PFA GB %", width: 48, align: "right" },
-  { key: "gbPfr", label: "PFR GB %", width: 48, align: "right" },
-  { key: "gbMult", label: "GB %", width: 40, align: "right" },
-  { key: "gbLow", label: "GB Low", width: 55, align: "right" },
-  { key: "gbHigh", label: "GB High", width: 55, align: "right" },
+const column = (key, label, width, align = "right") => ({ key, label, width, align });
+
+export const PDF_COLUMN_GROUPS = [
+  {
+    key: "measurement",
+    label: "Measurement",
+    columns: [
+      column("section", "Section", 60, "left"), column("value", "Value", 70),
+      column("qualifier", "Qualifier", 65, "left"), column("tolerance", "Tolerance", 110, "left"),
+      column("lowLimit", "UUT Low", 65), column("highLimit", "UUT High", 65),
+      column("standardUncertainty", "Combined u", 75), column("measurementUncertainty", "Expanded U", 75),
+      column("tmdeLow", "TMDE Low", 65), column("tmdeHigh", "TMDE High", 65),
+      column("tur", "TUR", 48), column("tar", "TAR", 48),
+    ],
+  },
+  {
+    key: "risk",
+    label: "Risk",
+    columns: [
+      column("observedReop", "R_REOP @ TUR %", 90), column("pfa", "PFA %", 70),
+      column("pfr", "PFR %", 70), column("maxReop", "Max REOP %", 90),
+      column("trueReop", "R_meas %", 85),
+    ],
+  },
+  {
+    key: "mitigation-gb",
+    label: "Mitigation (GB + Interval)",
+    columns: [
+      column("gbMult", "GB Mult %", 75), column("gbLow", "GB Low", 80),
+      column("gbHigh", "GB High", 80), column("gbPfa", "PFA + GB %", 80),
+      column("gbPfr", "PFR + GB %", 80), column("gbCalInt", "Cal Int + GB", 85),
+      column("gbMeasRel", "Target REOP + GB %", 105),
+    ],
+  },
+  {
+    key: "mitigation-int",
+    label: "Mitigation (Interval Only)",
+    columns: [
+      column("noGbPfa", "PFA w/o GB %", 90), column("noGbPfr", "PFR w/o GB %", 90),
+      column("noGbCalInt", "Cal Int w/o GB", 100), column("noGbMeasRel", "Target REOP w/o GB %", 115),
+    ],
+  },
 ];
 
-const TABLE_WIDTH = COLUMN_DEFS.reduce((sum, column) => sum + column.width, 0);
+export const resolvePdfColumnGroups = (visibleColumns) => {
+  const effective = {
+    ...(visibleColumns || Object.fromEntries(
+    PDF_COLUMN_GROUPS.flatMap((group) => group.columns.map((item) => [item.key, true])),
+    )),
+    // Every result row needs its measurement identity even if the screen's
+    // Value checkbox is off. All other report columns follow the live filter.
+    value: true,
+  };
+  return PDF_COLUMN_GROUPS.map((group) => ({
+    ...group,
+    columns: group.columns.filter((item) => effective[item.key]),
+  })).filter((group) => group.columns.length > 0);
+};
+
+export const resolvePdfTableLayout = (visibleColumns) => {
+  const groups = resolvePdfColumnGroups(visibleColumns);
+  const naturalColumns = groups.flatMap((group) =>
+    group.columns.map((item) => ({
+      ...item,
+      groupKey: group.key,
+      groupLabel: group.label,
+    })),
+  );
+  const naturalWidth = naturalColumns.reduce((sum, item) => sum + item.width, 0);
+  const pageWidth = Math.min(
+    MAX_PAGE_WIDTH,
+    Math.max(BASE_PAGE_WIDTH, naturalWidth + PAGE.margin * 2),
+  );
+  const availableWidth = pageWidth - PAGE.margin * 2;
+  const scale = naturalWidth > availableWidth ? availableWidth / naturalWidth : 1;
+  return {
+    pageWidth,
+    columns: naturalColumns.map((item) => ({ ...item, width: item.width * scale })),
+  };
+};
 
 const replaceUnicode = (value) =>
   String(value ?? "")
@@ -156,18 +219,48 @@ const getPointRow = (point, risk, helpers) => {
     replaceUnicode(value)
       .replace(new RegExp(`\\s*${replaceUnicode(parameter.unit)}\\s*$`), "")
       .trim();
+  const tmdeLimits = helpers.getTmdeAbsoluteLimits?.(
+    point.tmdeTolerances,
+    parameter,
+  );
+  const nativeUnit = parameter.unit || "";
+  const absoluteUncertainty = (baseValue, fallback) => {
+    const base = finite(baseValue);
+    if (base !== null && nativeUnit) {
+      try {
+        return `${formatNumber(unitSystem.fromBaseUnit(base, nativeUnit), 7)} ${nativeUnit}`;
+      } catch {
+        return `${formatNumber(base, 7)} ${nativeUnit}`;
+      }
+    }
+    const value = finite(fallback);
+    return value === null ? "-" : `${formatNumber(value, 7)} ppm`;
+  };
 
   return {
     id: point.id,
     section: point.section || "-",
-    value: formatNumber(parameter.value, 7),
+    value: `${formatNumber(parameter.value, 7)}${parameter.unit ? ` ${parameter.unit}` : ""}`,
     unit: parameter.unit || "-",
+    qualifier: point.testPointInfo?.qualifier?.value == null
+      ? "-"
+      : `${point.testPointInfo.qualifier.value} ${point.testPointInfo.qualifier.unit || ""}`.trim(),
     tolerance:
       toleranceSummary === "Not Set" || toleranceSummary === "Not Calculated"
         ? "-"
         : toleranceSummary,
     lowLimit: limits?.low === "N/A" ? "-" : stripUnit(limits.low),
     highLimit: limits?.high === "N/A" ? "-" : stripUnit(limits.high),
+    standardUncertainty: absoluteUncertainty(
+      point.combined_uncertainty_absolute_base,
+      point.combined_uncertainty,
+    ),
+    measurementUncertainty: absoluteUncertainty(
+      point.expanded_uncertainty_absolute_base,
+      point.expanded_uncertainty,
+    ),
+    tmdeLow: tmdeLimits?.low === "N/A" ? "-" : stripUnit(tmdeLimits?.low || "-"),
+    tmdeHigh: tmdeLimits?.high === "N/A" ? "-" : stripUnit(tmdeLimits?.high || "-"),
     pfa: formatPercent(risk?.pfa),
     pfr: formatPercent(risk?.pfr),
     tur: formatRatio(risk?.tur),
@@ -177,6 +270,15 @@ const getPointRow = (point, risk, helpers) => {
     gbMult: formatPercent(risk?.gbMult),
     gbLow: formatNumber(risk?.gbLow),
     gbHigh: formatNumber(risk?.gbHigh),
+    observedReop: formatPercent(risk?.observedReop),
+    maxReop: formatPercent(risk?.maxReop),
+    trueReop: formatPercent(risk?.trueReop),
+    gbCalInt: formatNumber(risk?.gbCalInt, 7),
+    gbMeasRel: formatPercent(risk?.gbMeasRel),
+    noGbPfa: formatPercent(risk?.noGbPfa),
+    noGbPfr: formatPercent(risk?.noGbPfr),
+    noGbCalInt: formatNumber(risk?.noGbCalInt, 7),
+    noGbMeasRel: formatPercent(risk?.noGbMeasRel),
   };
 };
 
@@ -474,22 +576,56 @@ class ReportRenderer {
     this.y -= cellHeight + 9;
   }
 
-  tableHeader() {
-    const height = 18;
+  tableHeader(columns) {
+    const groupHeight = 12;
+    const columnHeight = 18;
+    const height = groupHeight + columnHeight;
     let x = PAGE.margin;
+    const tableWidth = columns.reduce((sum, item) => sum + item.width, 0);
     this.page.drawRectangle({
       x,
       y: this.y - height,
-      width: TABLE_WIDTH,
-      height,
+      width: tableWidth,
+      height: columnHeight,
       color: COLORS.header,
     });
-    COLUMN_DEFS.forEach((column) => {
+    let groupStart = x;
+    let groupKey = columns[0]?.groupKey;
+    columns.forEach((item, index) => {
+      const next = columns[index + 1];
+      if (!next || next.groupKey !== groupKey) {
+        const groupWidth = x + item.width - groupStart;
+        this.page.drawRectangle({
+          x: groupStart,
+          y: this.y - groupHeight,
+          width: groupWidth,
+          height: groupHeight,
+          color: COLORS.headerFill,
+          borderColor: COLORS.line,
+          borderWidth: 0.35,
+        });
+        this.alignedText(
+          item.groupLabel || "Measurement",
+          groupStart,
+          groupWidth,
+          this.y - 8.5,
+          "center",
+          5.8,
+          this.bold,
+          COLORS.header,
+        );
+        groupStart = x + item.width;
+        groupKey = next?.groupKey;
+      }
+      x += item.width;
+    });
+    x = PAGE.margin;
+    columns.forEach((column) => {
       this.alignedText(
         column.label,
         x,
         column.width,
-        this.y - 12,
+        this.y - groupHeight - 12,
         column.align,
         6.2,
         this.bold,
@@ -498,7 +634,7 @@ class ReportRenderer {
       x += column.width;
       this.page.drawLine({
         start: { x, y: this.y - height },
-        end: { x, y: this.y },
+        end: { x, y: this.y - groupHeight },
         thickness: 0.25,
         color: rgb(0.35, 0.45, 0.58),
       });
@@ -524,9 +660,9 @@ class ReportRenderer {
     return lines.slice(0, 3);
   }
 
-  row(row, index, repeatContext) {
+  row(row, index, repeatContext, columns) {
     const linesByColumn = Object.fromEntries(
-      COLUMN_DEFS.map((column) => [
+      columns.map((column) => [
         column.key,
         this.wrap(row[column.key], column.width),
       ]),
@@ -539,17 +675,18 @@ class ReportRenderer {
     this.ensure(height, repeatContext);
 
     let x = PAGE.margin;
+    const tableWidth = columns.reduce((sum, item) => sum + item.width, 0);
     this.page.drawRectangle({
       x,
       y: this.y - height,
-      width: TABLE_WIDTH,
+      width: tableWidth,
       height,
       color: index % 2 ? COLORS.white : rgb(0.985, 0.99, 1),
       borderColor: COLORS.line,
       borderWidth: 0.35,
     });
 
-    COLUMN_DEFS.forEach((column) => {
+    columns.forEach((column) => {
       const lines = linesByColumn[column.key];
       lines.forEach((line, lineIndex) => {
         this.alignedText(
@@ -603,13 +740,17 @@ export const generateOverviewReport = async (
   fonts,
   helpers,
   riskMetricsMap = {},
+  visibleColumns,
 ) => {
   const report = buildSessionReportModel(
     session,
     riskMetricsMap,
     helpers,
   );
+  const tableLayout = resolvePdfTableLayout(visibleColumns);
+  PAGE.width = tableLayout.pageWidth;
   const renderer = new ReportRenderer(pdfDoc, fonts, session);
+  const reportColumns = tableLayout.columns;
   const metadata = [
     ["Analyst", session.analyst || "-"],
     ["Organization", session.organization || "-"],
@@ -676,19 +817,19 @@ export const generateOverviewReport = async (
     fn.uuts.forEach((uut) => {
       renderer.banner(`UUT: ${uut.name}`, COLORS.uutFill, 8.5);
       uut.ranges.forEach((range) => {
-        renderer.ensure(42);
+        renderer.ensure(48);
         renderer.text(`Range: ${range.label}`, PAGE.margin + 5, renderer.y - 8, 8, renderer.bold);
-        renderer.y -= 14;
-        renderer.tableHeader();
+        renderer.y -= 16;
+        renderer.tableHeader(reportColumns);
         const repeatContext = () => {
           renderer.text(functionHeading(fn), PAGE.margin, renderer.y - 8, 8, renderer.bold);
           renderer.y -= 13;
           renderer.text(`UUT: ${uut.name} | Range: ${range.label}`, PAGE.margin, renderer.y - 8, 7.5, renderer.bold);
           renderer.y -= 14;
-          renderer.tableHeader();
+          renderer.tableHeader(reportColumns);
         };
         range.rows.forEach((row, index) =>
-          renderer.row(row, index, repeatContext),
+          renderer.row(row, index, repeatContext, reportColumns),
         );
         renderer.y -= 9;
       });

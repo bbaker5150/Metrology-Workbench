@@ -92,6 +92,7 @@ const useSessionManager = () => {
       is_detailed_uncertainty_calculated: false,
       measurementType: "direct",
       equationString: "",
+      equationName: "",
       variableMappings: {},
       variableNominals: {},
       testPointInfo: {
@@ -152,7 +153,10 @@ const useSessionManager = () => {
   const selectedSessionIdRef = useRef(null);
   const selectedTestPointIdRef = useRef(null);
   const instrumentsRef = useRef([]);
-  const undoHistoryRef = useRef(new Map());
+  // One chronological history for the whole uncertainty workspace. Keeping a
+  // per-session map made Ctrl+Z depend on whichever session happened to be
+  // selected and left add/delete/import outside undo entirely.
+  const undoHistoryRef = useRef([]);
   const persistTimersRef = useRef(new Map());
   const pendingPersistRef = useRef(new Map());
   const persistQueuesRef = useRef(new Map());
@@ -185,6 +189,22 @@ const useSessionManager = () => {
     });
   }, []);
 
+  // A local library record represents the instrument identified by its Mfr.,
+  // Model, and optional Name. Specifications (functions, ranges, tolerances,
+  // resolution, etc.) are deliberately *not* part of that identity: editing a
+  // specification must update the existing local record instead of creating a
+  // second version of the same instrument.
+  const sameLocalInstrumentIdentity = (left = {}, right = {}) => {
+    const normalize = (value) => String(value || "").trim().toLowerCase();
+    const identity = ["manufacturer", "model", "description"];
+    return (
+      identity.some((field) => normalize(left[field]) || normalize(right[field])) &&
+      identity.every((field) =>
+        normalize(left[field]) === normalize(right[field]),
+      )
+    );
+  };
+
   const replaceSessions = useCallback((updater) => {
     const nextSessions =
       typeof updater === "function" ? updater(sessionsRef.current) : updater;
@@ -193,41 +213,63 @@ const useSessionManager = () => {
     return nextSessions;
   }, []);
 
-  const recordUndoSnapshot = useCallback((session, groupKey) => {
-    if (!session || !groupKey) return;
-
-    const sessionKey = String(session.id);
+  const pushUndoEntry = useCallback((entry, groupKey) => {
+    if (!entry || !groupKey) return;
     const now = Date.now();
-    const history = undoHistoryRef.current.get(sessionKey) || {
-      entries: [],
-      lastGroupKey: null,
-      lastRecordedAt: 0,
-    };
+    const history = undoHistoryRef.current;
+    const lastEntry = history[history.length - 1];
     const shouldCoalesce =
-      history.lastGroupKey === groupKey &&
-      now - history.lastRecordedAt <= UNDO_COALESCE_MS;
+      entry.kind === "session" &&
+      lastEntry?.kind === "session" &&
+      lastEntry?.groupKey === groupKey &&
+      lastEntry?.scopeKey === entry.scopeKey &&
+      now - lastEntry.recordedAt <= UNDO_COALESCE_MS;
 
     if (!shouldCoalesce) {
-      history.entries.push({
-        session: cloneSession(session),
-        selectedTestPointId: selectedTestPointIdRef.current,
-      });
-      if (history.entries.length > MAX_UNDO_STEPS) {
-        history.entries.splice(0, history.entries.length - MAX_UNDO_STEPS);
+      history.push({ ...entry, groupKey, recordedAt: now });
+      if (history.length > MAX_UNDO_STEPS) {
+        history.splice(0, history.length - MAX_UNDO_STEPS);
       }
+    } else {
+      // Preserve the original before-snapshot while extending a typing/editing
+      // burst, exactly as a native editor treats it as one undo step.
+      lastEntry.recordedAt = now;
     }
-
-    history.lastGroupKey = groupKey;
-    history.lastRecordedAt = now;
-    undoHistoryRef.current.set(sessionKey, history);
   }, []);
+
+  const recordUndoSnapshot = useCallback((session, groupKey) => {
+    if (!session || !groupKey) return;
+    pushUndoEntry(
+      {
+        kind: "session",
+        scopeKey: `session:${session.id}`,
+        session: cloneSession(session),
+        selectedSessionId: selectedSessionIdRef.current,
+        selectedTestPointId: selectedTestPointIdRef.current,
+      },
+      groupKey,
+    );
+  }, [pushUndoEntry]);
+
+  const recordWorkspaceUndoSnapshot = useCallback((groupKey) => {
+    pushUndoEntry(
+      {
+        kind: "workspace",
+        scopeKey: "workspace",
+        sessions: cloneSession(sessionsRef.current),
+        selectedSessionId: selectedSessionIdRef.current,
+        selectedTestPointId: selectedTestPointIdRef.current,
+      },
+      groupKey,
+    );
+  }, [pushUndoEntry]);
 
   // --- 1. Load Data (Sessions) ---
   const loadData = useCallback(async () => {
     try {
       const res = await axios.get(`${UNCERTAINTY_API}/sessions/`);
       const loaded = Array.isArray(res.data) ? res.data : [];
-      undoHistoryRef.current.clear();
+      undoHistoryRef.current.length = 0;
       replaceSessions(loaded);
       if (loaded.length > 0) {
         setSelectedSessionId((prev) =>
@@ -247,12 +289,22 @@ const useSessionManager = () => {
 
   // --- 1.1 Load Shared Data (Instruments & Bugs) ---
   const loadSharedData = useCallback(async () => {
+    const [instrumentResult, equationResult, bugResult] =
+      await Promise.allSettled([
+        axios.get(`${UNCERTAINTY_API}/instruments/`, {
+          params: { owner: getDeviceKey() },
+        }),
+        axios.get(`${UNCERTAINTY_API}/equations/`),
+        axios.get(`${UNCERTAINTY_API}/bug_reports/`),
+      ]);
+
     try {
       // Load the validated (shared) library plus this user's own local
       // instruments — the backend resolves both from the owner key.
-      const instRes = await axios.get(`${UNCERTAINTY_API}/instruments/`, {
-        params: { owner: getDeviceKey() },
-      });
+      if (instrumentResult.status !== "fulfilled") {
+        throw instrumentResult.reason;
+      }
+      const instRes = instrumentResult.value;
       replaceInstruments(
         dedupeLibraryInstruments(Array.isArray(instRes.data) ? instRes.data : []),
       );
@@ -261,14 +313,20 @@ const useSessionManager = () => {
     }
 
     try {
-      const eqRes = await axios.get(`${UNCERTAINTY_API}/equations/`);
+      if (equationResult.status !== "fulfilled") {
+        throw equationResult.reason;
+      }
+      const eqRes = equationResult.value;
       setCustomEquations(Array.isArray(eqRes.data) ? eqRes.data : []);
     } catch (e) {
       console.error("Failed to load custom equations from backend", e);
     }
 
     try {
-      const bugRes = await axios.get(`${UNCERTAINTY_API}/bug_reports/`);
+      if (bugResult.status !== "fulfilled") {
+        throw bugResult.reason;
+      }
+      const bugRes = bugResult.value;
       const bugs = Array.isArray(bugRes.data) ? bugRes.data : [];
       setBugReports(
         bugs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
@@ -323,6 +381,35 @@ const useSessionManager = () => {
       }
     });
 
+    return queuedSave;
+  }, []);
+
+  // Rich notes autosave independently from the nested session document. The
+  // same per-session queue preserves ordering with full saves (including image
+  // uploads), while avoiding a relational rebuild for every paragraph edit.
+  const persistSessionNotes = useCallback((sessionId, notes) => {
+    if (sessionId == null) return Promise.resolve();
+
+    const previousSave =
+      persistQueuesRef.current.get(sessionId) || Promise.resolve();
+    const queuedSave = previousSave
+      .catch(() => {})
+      .then(() =>
+        axios.patch(`${UNCERTAINTY_API}/sessions/${sessionId}/notes/`, {
+          notes,
+        }),
+      );
+
+    persistQueuesRef.current.set(sessionId, queuedSave);
+    const releaseQueue = () => {
+      if (persistQueuesRef.current.get(sessionId) === queuedSave) {
+        persistQueuesRef.current.delete(sessionId);
+      }
+    };
+    queuedSave.then(releaseQueue, (error) => {
+      releaseQueue();
+      console.error("Failed to save session notes", error);
+    });
     return queuedSave;
   }, []);
 
@@ -384,12 +471,7 @@ const useSessionManager = () => {
       const sameDefinition = instrumentsRef.current.find((i) => {
         if (i.scope !== "local" || i.sourceId) return false;
         if ((i.owner || getDeviceKey()) !== payload.owner) return false;
-        return (
-          (i.manufacturer || "") === (payload.manufacturer || "") &&
-          (i.model || "") === (payload.model || "") &&
-          (i.description || "") === (payload.description || "") &&
-          JSON.stringify(i.functions || []) === JSON.stringify(payload.functions || [])
-        );
+        return sameLocalInstrumentIdentity(i, payload);
       });
       if (sameDefinition) {
         payload = { ...payload, id: sameDefinition.id };
@@ -574,12 +656,29 @@ const useSessionManager = () => {
     });
   }, [replaceSessions]);
 
-  const deleteSessionFromDisk = useCallback(async (sessionId) => {
-    try {
-      await axios.delete(`${UNCERTAINTY_API}/sessions/${sessionId}/`);
-    } catch (e) {
-      console.error("Failed to delete session from backend", e);
-    }
+  const deleteSessionFromDisk = useCallback((sessionId) => {
+    // Serialize DELETE with the same per-session queue used by PUT. If the user
+    // immediately undoes an Add/Delete, the restoring PUT is guaranteed to run
+    // after this DELETE instead of racing it and leaving the backend missing a
+    // session that the UI has already restored.
+    const previousSave = persistQueuesRef.current.get(sessionId) || Promise.resolve();
+    const queuedDelete = previousSave
+      .catch(() => {})
+      .then(async () => {
+        try {
+          await axios.delete(`${UNCERTAINTY_API}/sessions/${sessionId}/`);
+        } catch (e) {
+          console.error("Failed to delete session from backend", e);
+        }
+      });
+
+    persistQueuesRef.current.set(sessionId, queuedDelete);
+    queuedDelete.finally(() => {
+      if (persistQueuesRef.current.get(sessionId) === queuedDelete) {
+        persistQueuesRef.current.delete(sessionId);
+      }
+    });
+    return queuedDelete;
   }, []);
 
   // --- 5. CRUD Operations ---
@@ -598,9 +697,9 @@ const useSessionManager = () => {
         ),
       );
       if (newImages.length > 0) {
-        persistSession(updatedSession, newImages);
+        return persistSession(updatedSession, newImages);
       } else {
-        persistSessionDebounced(updatedSession);
+        return persistSessionDebounced(updatedSession);
       }
     },
     [
@@ -612,22 +711,52 @@ const useSessionManager = () => {
   );
 
   const undoLastSessionChange = useCallback(() => {
-    const sessionId = selectedSessionIdRef.current;
-    if (sessionId == null) return false;
-
-    const history = undoHistoryRef.current.get(String(sessionId));
-    const undoEntry = history?.entries.pop();
+    const undoEntry = undoHistoryRef.current.pop();
     if (!undoEntry) return false;
 
-    history.lastGroupKey = null;
-    history.lastRecordedAt = 0;
+    if (undoEntry.kind === "workspace") {
+      const currentSessions = sessionsRef.current;
+      const restoredSessions = cloneSession(undoEntry.sessions || []);
+      const restoredIds = new Set(restoredSessions.map((session) => String(session.id)));
+
+      // Undoing Add/Import removes the newly persisted session. Undoing Delete
+      // re-PUTs the captured session; the backend endpoint is an upsert.
+      currentSessions.forEach((session) => {
+        if (!restoredIds.has(String(session.id))) deleteSessionFromDisk(session.id);
+      });
+      restoredSessions.forEach((session) => persistSessionDebounced(session, 0));
+      replaceSessions(restoredSessions);
+
+      const restoredSessionId = restoredSessions.some(
+        (session) => session.id === undoEntry.selectedSessionId,
+      )
+        ? undoEntry.selectedSessionId
+        : restoredSessions[0]?.id ?? null;
+      const restoredSession = restoredSessions.find(
+        (session) => session.id === restoredSessionId,
+      );
+      const restoredPointId = restoredSession?.testPoints?.some(
+        (point) => point.id === undoEntry.selectedTestPointId,
+      )
+        ? undoEntry.selectedTestPointId
+        : null;
+      selectedSessionIdRef.current = restoredSessionId;
+      selectedTestPointIdRef.current = restoredPointId;
+      setSelectedSessionId(restoredSessionId);
+      setSelectedTestPointId(restoredPointId);
+      return true;
+    }
+
     const restoredSession = undoEntry.session;
     replaceSessions((prevSessions) =>
-      prevSessions.map((session) =>
-        session.id === restoredSession.id ? restoredSession : session,
-      ),
+      prevSessions.some((session) => session.id === restoredSession.id)
+        ? prevSessions.map((session) =>
+            session.id === restoredSession.id ? restoredSession : session,
+          )
+        : [restoredSession, ...prevSessions],
     );
 
+    const restoredSessionId = undoEntry.selectedSessionId ?? restoredSession.id;
     const restoredPointId =
       undoEntry.selectedTestPointId != null &&
       restoredSession.testPoints?.some(
@@ -635,23 +764,27 @@ const useSessionManager = () => {
       )
         ? undoEntry.selectedTestPointId
         : null;
+    selectedSessionIdRef.current = restoredSessionId;
     selectedTestPointIdRef.current = restoredPointId;
+    setSelectedSessionId(restoredSessionId);
     setSelectedTestPointId(restoredPointId);
     persistSessionDebounced(restoredSession, 0);
     return true;
-  }, [persistSessionDebounced, replaceSessions]);
+  }, [deleteSessionFromDisk, persistSessionDebounced, replaceSessions]);
 
   const addSession = useCallback(() => {
+    recordWorkspaceUndoSnapshot("workspace:add-session");
     const newSession = createNewSession();
     replaceSessions((prev) => [newSession, ...prev]);
     setSelectedSessionId(newSession.id);
     setSelectedTestPointId(null);
     persistSession(newSession);
     return newSession;
-  }, [createNewSession, persistSession, replaceSessions]);
+  }, [createNewSession, persistSession, recordWorkspaceUndoSnapshot, replaceSessions]);
 
   const deleteSession = useCallback(
     (sessionId) => {
+      recordWorkspaceUndoSnapshot("workspace:delete-session");
       deleteSessionFromDisk(sessionId);
       replaceSessions((prev) => {
         const newSessions = prev.filter((s) => s.id !== sessionId);
@@ -666,11 +799,37 @@ const useSessionManager = () => {
         return newSessions;
       });
     },
-    [deleteSessionFromDisk, replaceSessions, selectedSessionId]
+    [
+      deleteSessionFromDisk,
+      recordWorkspaceUndoSnapshot,
+      replaceSessions,
+      selectedSessionId,
+    ]
+  );
+
+  const updateSessionNotes = useCallback(
+    (sessionId, notes) => {
+      const previousSession = sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
+      if (!previousSession || previousSession.notes === notes) {
+        return Promise.resolve();
+      }
+
+      recordUndoSnapshot(previousSession, "session:notes");
+      replaceSessions((previousSessions) =>
+        previousSessions.map((session) =>
+          session.id === sessionId ? { ...session, notes } : session,
+        ),
+      );
+      return persistSessionNotes(sessionId, notes);
+    },
+    [persistSessionNotes, recordUndoSnapshot, replaceSessions],
   );
 
   const importSession = useCallback(
     async (loadedSession, importedImages = new Map()) => {
+      recordWorkspaceUndoSnapshot("workspace:import-session");
       const saves = [];
       const currentSession = sessions.find(
         (session) => session.id === selectedSessionId,
@@ -697,7 +856,13 @@ const useSessionManager = () => {
       await Promise.all(saves);
       return importedSession;
     },
-    [persistSession, replaceSessions, selectedSessionId, sessions]
+    [
+      persistSession,
+      recordWorkspaceUndoSnapshot,
+      replaceSessions,
+      selectedSessionId,
+      sessions,
+    ]
   );
 
   // --- 6. Workflow Redesign CRUD (Area, UUT, TMDE) ---
@@ -801,6 +966,10 @@ const useSessionManager = () => {
               testPointInfo: { ...formData.testPointInfo },
               measurementType: formData.measurementType,
               equationString: formData.equationString,
+              equationName:
+                formData.equationName !== undefined
+                  ? formData.equationName
+                  : tp.equationName || "",
               variableMappings: formData.variableMappings,
               variableNominals:
                 formData.variableNominals !== undefined
@@ -856,6 +1025,7 @@ const useSessionManager = () => {
           uutTolerance: formData.uutTolerance || null,
           measurementType: formData.measurementType,
           equationString: formData.equationString,
+          equationName: formData.equationName || "",
           variableMappings: formData.variableMappings,
           variableNominals: formData.variableNominals || {},
           measurementAreaId: formData.measurementAreaId || "",
@@ -993,6 +1163,7 @@ const useSessionManager = () => {
     addSession,
     deleteSession,
     updateSession,
+    updateSessionNotes,
     undoLastSessionChange,
     importSession,
     saveTestPoint,

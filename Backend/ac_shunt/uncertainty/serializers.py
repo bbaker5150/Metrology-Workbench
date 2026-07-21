@@ -91,6 +91,7 @@ def test_point_to_dict(tp):
         "is_detailed_uncertainty_calculated": tp.is_detailed_uncertainty_calculated,
         "measurementType": tp.measurement_type,
         "equationString": tp.equation_string,
+        "equationName": tp.equation_name,
         "variableMappings": tp.variable_mappings or {},
         "variableNominals": tp.variable_nominals or {},
         "inputCorrelations": tp.input_correlations or {},
@@ -110,6 +111,9 @@ def test_point_to_dict(tp):
         "calculatedNominalValue": tp.calculated_nominal_value,
         "calculatedBudgetComponents": tp.calculated_budget_components or [],
         "calculatedBudgetGroups": tp.calculated_budget_groups or [],
+        "budgetPropagationMethod": tp.budget_propagation_method or "",
+        "monteCarloTrials": tp.monte_carlo_trials or 10000,
+        "risk8MonteCarloResult": tp.risk8_monte_carlo_result,
         "riskMetrics": tp.risk_metrics,
     }
 
@@ -324,6 +328,7 @@ def save_session(data):
             specifications=tp.get("specifications") or {},
             measurement_type=tp.get("measurementType", "direct") or "direct",
             equation_string=tp.get("equationString", "") or "",
+            equation_name=tp.get("equationName", "") or "",
             variable_mappings=tp.get("variableMappings") or {},
             variable_nominals=tp.get("variableNominals") or {},
             input_correlations=tp.get("inputCorrelations") or {},
@@ -353,6 +358,9 @@ def save_session(data):
             calculated_nominal_value=_num(tp.get("calculatedNominalValue")),
             calculated_budget_components=tp.get("calculatedBudgetComponents") or [],
             calculated_budget_groups=tp.get("calculatedBudgetGroups") or [],
+            budget_propagation_method=tp.get("budgetPropagationMethod", "") or "",
+            monte_carlo_trials=max(100, int(tp.get("monteCarloTrials") or 10000)),
+            risk8_monte_carlo_result=tp.get("risk8MonteCarloResult"),
             risk_metrics=tp.get("riskMetrics"),
         )
         for c in tp.get("components", []) or []:

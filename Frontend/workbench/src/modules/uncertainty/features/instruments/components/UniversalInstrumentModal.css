@@ -110,7 +110,7 @@
     align-items: start;
 }
 
-/* MFG / Make / Model — three identity sub-fields that snap into the
+/* Mfr. / Model / Name — three identity sub-fields that snap into the
    Description/Name, mirroring the inline instrument tables. */
 .identity-grid-triple {
     grid-template-columns: 1fr 1fr 1fr;
@@ -908,9 +908,8 @@
 
 .builder-inline-resolution-editor {
     align-items: flex-start;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     overflow: visible;
-    row-gap: 6px;
 }
 
 .builder-inline-range-editor .builder-unit-select,
@@ -925,13 +924,51 @@
 }
 
 .builder-inline-resolution-editor .inline-resolution-dist {
-    flex: 1 1 150px;
-    min-width: 138px;
-    max-width: 100%;
+    flex: 0 0 var(--inline-unit-width, 72px);
+    width: var(--inline-unit-width, 72px);
+    min-width: var(--inline-unit-width, 72px);
+    max-width: var(--inline-unit-width, 72px);
+    height: 24px;
+    min-height: 24px;
+    max-height: 24px;
+    box-sizing: border-box;
+    padding: 0 6px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-color-muted);
+    font-size: 0.78rem;
+    line-height: 1;
+}
+
+.builder-inline-resolution-editor .inline-resolution-dist:hover,
+.builder-inline-resolution-editor .inline-resolution-dist:focus {
+    color: var(--text-color);
+}
+
+.builder-inline-resolution-editor .inline-resolution-dist .inline-menu-select-trigger {
+    height: 24px;
+    min-height: 24px;
+    padding: 0 6px;
+    border-radius: 4px;
+    border-color: transparent;
+    color: var(--text-color-muted);
+}
+
+.builder-inline-resolution-editor .inline-resolution-dist .inline-menu-select-trigger:hover,
+.builder-inline-resolution-editor .inline-resolution-dist .inline-menu-select-trigger:focus,
+.builder-inline-resolution-editor .inline-resolution-dist .inline-menu-select-trigger.is-open {
+    border-color: var(--border-color);
+    color: var(--text-color);
+    outline: none;
 }
 
 .builder-inline-tolerance-editor {
-    min-width: 360px;
+    /* The builder's tolerance column is narrower than the analysis table.
+       Let it use the cell width instead of forcing the single-sided rows into
+       the neighboring Distribution / Resolution columns. */
+    min-width: 0;
+    width: 100%;
     max-width: 100%;
     padding: 4px 0;
 }
@@ -951,6 +988,99 @@
 
 .builder-inline-tolerance-editor .inline-tolerance-fs {
     min-width: 0;
+}
+
+.builder-inline-tolerance-editor .inline-tolerance-term--single-sided {
+    width: 100%;
+    min-width: 0;
+    gap: 4px;
+}
+
+.builder-inline-tolerance-editor .builder-single-sided-row {
+    /* One explicit line per case: radio + label | limit | unit. */
+    display: grid;
+    grid-template-columns: max-content max-content max-content;
+    grid-template-areas: "choice limit unit";
+    justify-content: start;
+    align-items: center;
+    column-gap: 5px;
+    width: 100%;
+    min-width: 0;
+    min-height: 24px;
+    box-sizing: border-box;
+}
+
+.builder-inline-tolerance-editor .builder-single-sided-choice {
+    display: inline-flex;
+    grid-area: choice;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    color: var(--text-color-muted);
+    font-size: 0.72rem;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.builder-inline-tolerance-editor .builder-single-sided-row.is-selected .builder-single-sided-choice {
+    color: var(--text-color);
+}
+
+.builder-inline-tolerance-editor .builder-single-sided-choice input {
+    /* Override the builder's broad text-input sizing rule: without this, a
+       radio expands to the full label width and pushes its text out of view. */
+    width: 13px !important;
+    height: 13px;
+    flex: 0 0 13px !important;
+    margin: 0;
+    accent-color: var(--primary-color);
+}
+
+.builder-inline-tolerance-editor .builder-single-sided-limits {
+    display: inline-flex;
+    grid-area: limit;
+    align-items: center;
+    min-width: 0;
+    gap: 3px;
+}
+
+.builder-inline-tolerance-editor .builder-single-sided-input {
+    width: 34px !important;
+    min-width: 0;
+}
+
+.builder-inline-tolerance-editor .builder-single-sided-unit {
+    grid-area: unit;
+    color: var(--text-color-muted);
+    font-size: 0.78rem;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* The source has older mojibake glyphs in this component. Suppress that text
+   and render the mathematical symbol through CSS escapes instead, which is
+   stable in both Vite and Electron. */
+.builder-inline-tolerance-editor .builder-single-sided-symbol {
+    font-size: 0;
+    min-width: 9px;
+}
+
+.builder-inline-tolerance-editor .builder-single-sided-symbol::after {
+    font-size: 0.78rem;
+    line-height: 1;
+}
+
+.builder-inline-tolerance-editor .builder-single-sided-symbol.is-high::after {
+    content: "\2264";
+}
+
+.builder-inline-tolerance-editor .builder-single-sided-symbol.is-low::after {
+    content: "\2265";
+}
+
+.builder-spec-table td:has(.inline-tolerance-term--single-sided) {
+    height: auto;
+    min-height: 94px;
 }
 
 .builder-inline-dash {

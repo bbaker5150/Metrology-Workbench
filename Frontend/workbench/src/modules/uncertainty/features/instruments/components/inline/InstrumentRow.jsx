@@ -1,8 +1,9 @@
 import React, { useState, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTrashAlt, faPencilAlt, faLink, faLinkSlash } from "@fortawesome/free-solid-svg-icons";
+import { faTrashAlt, faLink, faLinkSlash } from "@fortawesome/free-solid-svg-icons";
 import { getToleranceSummary, errorDistributions } from "../../../../utils/uncertaintyMath";
 import TolerancePopover from "./TolerancePopover";
+import InlineMenuSelect from "../../../../components/common/InlineMenuSelect";
 
 // reading/range/floor share ONE "spec band" distribution (mirrors ToleranceForm).
 // dB / manual / resolution keep their own and are edited only in the popover.
@@ -101,7 +102,7 @@ const InstrumentRow = ({
         <div className="inline-desc-cell">
           <input
             className="inline-desc-make"
-            placeholder="Make"
+            placeholder="Mfr."
             value={item.manufacturer || ""}
             onChange={(e) => handleDescChange("manufacturer", e.target.value)}
             onFocus={() => item.manufacturer && setSearchOpen(true)}
@@ -116,7 +117,7 @@ const InstrumentRow = ({
           />
           <input
             className="inline-desc-name"
-            placeholder="Name / label"
+            placeholder="Name"
             value={item.name || ""}
             onChange={(e) => handleDescChange("name", e.target.value)}
           />
@@ -167,25 +168,23 @@ const InstrumentRow = ({
           {item.tolerance && Object.keys(item.tolerance).length ? (
             <span>{tolSummary}</span>
           ) : (
-            <span className="inline-tol-empty">Set tolerance…</span>
+            <span className="inline-tol-empty" aria-hidden="true">&nbsp;</span>
           )}
-          <FontAwesomeIcon icon={faPencilAlt} className="tol-edit-icon" />
         </span>
       </td>
 
       {/* Distribution (spec band) */}
       <td>
-        <select
-          className="inline-dist-select"
+        <InlineMenuSelect
           value={getBandDistribution(item.tolerance)}
-          onChange={(e) => setBandDistribution(e.target.value)}
-        >
-          {errorDistributions.map((d) => (
-            <option key={d.value} value={d.value}>
-              {d.label}
-            </option>
-          ))}
-        </select>
+          options={errorDistributions}
+          ariaLabel="Spec band distribution"
+          title="Distribution used for this tolerance band"
+          onChange={setBandDistribution}
+          width="118px"
+          menuWidth={240}
+          className="inline-distribution-select"
+        />
       </td>
 
       {/* Quantity */}

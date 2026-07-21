@@ -21,11 +21,11 @@ import { useRiskCalculation } from "./hooks/useRiskCalculation";
 import UncertaintyPanel from "./components/UncertaintyPanel";
 import RiskAnalysisDashboard from "./components/RiskAnalysisDashboard";
 import RiskMitigationDashboard from "./components/RiskMitigationDashboard";
+import SessionNotesWorkspace from "./components/SessionNotesWorkspace";
 
 // --- Modals ---
 import NotificationModal from "../../components/modals/NotificationModal";
 // REMOVED: UniversalInstrumentModal import (Now handled globally in App.jsx)
-import ManualComponentModal from "./components/ManualComponentModal";
 import DerivedBreakdownModal from "./components/BreakdownModals/DerivedBreakdownModal";
 import RiskBreakdownModal from "./components/BreakdownModals/RiskBreakdownModals";
 import RepeatabilityModal from "./components/RepeatabilityModal";
@@ -40,8 +40,14 @@ import { convertToPPM } from "../../utils/uncertaintyMath";
 import {
   reconcileTmdeInstances,
   refreshTmdeInstancesFromMasters,
+  tmdeInstanceMatchesMaster,
 } from "../../utils/tmdeReconcile";
-import { refreshLinkedTypeBComponents } from "./utils/budgetUtils";
+import {
+  getBudgetComponentsFromTolerance,
+  refreshLinkedTypeBComponents,
+} from "./utils/budgetUtils";
+import { getInstrumentRangeRows } from "../../utils/instrumentFunctionSelection";
+import { createInlineManualComponent } from "./utils/manualComponentUtils";
 
 /**
  * Analysis Component
@@ -63,6 +69,10 @@ function Analysis({
   onSessionSave,
   onSaveTestPoint,
   onApplyToSessionPoints,
+  onNotesSave,
+  sessionImageCache,
+  onSessionImageCacheChange,
+  onLoadSessionImages,
 
   // Navigation & Actions
   handleOpenSessionEditor,
@@ -100,6 +110,9 @@ function Analysis({
   onAnalysisModeChange = () => {},
   preferredShowContribution = false,
   onShowContributionChange = () => {},
+  collapsedFunctionKeys,
+  setCollapsedFunctionKeys,
+  keyboardShortcutsEnabled = true,
 }) {
   // =========================================================================
   // 1. STATE MANAGEMENT
@@ -110,7 +123,7 @@ function Analysis({
   // surfaced in the measurement-point sidebar — until the logic and design are
   // refined. The modes and their content stay wired so re-enabling is just a
   // matter of listing them here again.
-  const VISIBLE_ANALYSIS_MODES = ["uncertaintyTool"];
+  const VISIBLE_ANALYSIS_MODES = ["uncertaintyTool", "notes"];
   const analysisMode = VISIBLE_ANALYSIS_MODES.includes(preferredAnalysisMode)
     ? preferredAnalysisMode
     : "uncertaintyTool";
@@ -129,7 +142,6 @@ function Analysis({
 
   // --- Modal Visibility State ---
   // REMOVED: activeInstrumentModal state (Handled in App.jsx)
-  const [isManualModalOpen, setManualModalOpen] = useState(false);
   const [isRepeatabilityModalOpen, setRepeatabilityModalOpen] = useState(false);
   const [isCorrelationModalOpen, setCorrelationModalOpen] = useState(false);
   const [isDerivedBreakdownOpen, setIsDerivedBreakdownOpen] = useState(false);
@@ -194,8 +206,77 @@ function Analysis({
       }
       return uutNominal;
     };
+    // TMDE error limits added to a derived input budget remain linked to the
+    // instrument definition. Re-resolve their selected range on every render so
+    // an inline/builder tolerance or distribution edit immediately updates the
+    // already-added budget row without reintroducing equation-variable assignment.
+    const refreshedTmdeComponents = rawComponents
+      .map((component) => {
+        if (!component?.tmdeBudgetSourceId) return component;
+        const sourceId = component.tmdeBudgetSourceId;
+        const master = (sessionData.tmdes || []).find(
+          (tmde) =>
+            String(tmde.id) === String(sourceId) ||
+            String(tmde.sourceId) === String(sourceId),
+        );
+        if (!master) return null;
+        const ranges = getInstrumentRangeRows(master, { flattenTolerances: true });
+        const selectedRange =
+          ranges.find(
+            (range) =>
+              component.tmdeBudgetRangeId &&
+              String(range.rangeId ?? range.id) ===
+                String(component.tmdeBudgetRangeId) &&
+              (!component.tmdeBudgetFunctionId ||
+                !range.functionId ||
+                String(range.functionId) === String(component.tmdeBudgetFunctionId)),
+          ) ||
+          ranges.find(
+            (range) =>
+              component.tmdeBudgetFunctionName &&
+              String(range.functionName || "").trim() ===
+                String(component.tmdeBudgetFunctionName).trim(),
+          ) ||
+          ranges[0];
+        if (!selectedRange) return null;
+        const referencePoint = getReferencePoint(component);
+        const resolved = getBudgetComponentsFromTolerance(
+          selectedRange,
+          referencePoint,
+        );
+        const replacement = resolved.find(
+          (candidate) =>
+            String(candidate.name || "").split(" - ").slice(1).join(" - ") ===
+            String(component.tmdeBudgetComponentKind || ""),
+        );
+        if (!replacement) return null;
+        const divisor = replacement.distributionDivisor;
+        const numericDivisor = Number(divisor);
+        const toleranceLimit =
+          Number.isFinite(numericDivisor) &&
+          Number.isFinite(Number(replacement.value_native))
+            ? Math.abs(Number(replacement.value_native) * numericDivisor)
+            : "";
+        return {
+          ...component,
+          value: replacement.value,
+          isBaseUnitValue: replacement.isBaseUnitValue,
+          value_native: replacement.value_native,
+          unit_native: replacement.unit_native,
+          distribution: replacement.distribution,
+          distributionDivisor: replacement.distributionDivisor,
+          originalInput: {
+            ...(component.originalInput || {}),
+            toleranceLimit,
+            errorDistributionDivisor: divisor,
+            unit: replacement.unit_native || component.originalInput?.unit || "",
+          },
+        };
+      })
+      .filter(Boolean);
+
     return refreshLinkedTypeBComponents({
-      components: rawComponents,
+      components: refreshedTmdeComponents,
       tmdeTolerances: tmdeTolerancesData,
       sessionTmdes: sessionData.tmdes || [],
       instruments,
@@ -277,6 +358,7 @@ function Analysis({
     riskResults,
     riskInputs,
     notification: riskNotification,
+    dismissNotification: dismissRiskNotification,
   } = useRiskCalculation(
     sessionData,
     hookTestPointData,
@@ -288,10 +370,14 @@ function Analysis({
     handleRiskResultsChange,
   );
 
-  // Sync risk notifications to local UI state
-  if (riskNotification && !notification) {
-    setNotification(riskNotification);
-  }
+  // Sync risk notifications without setting state during render. Dismissing
+  // the modal clears both layers below, so an unchanged validation warning
+  // stays closed until a risk input actually changes and validation reruns.
+  useEffect(() => {
+    if (riskNotification) {
+      setNotification((current) => current || riskNotification);
+    }
+  }, [riskNotification]);
 
   // =========================================================================
   // 5. EVENT HANDLERS
@@ -347,7 +433,7 @@ function Analysis({
 
     // 2. Update Local Test Point Instances
     const updatedTolerances = tmdeTolerancesData.map((t) => {
-      if (t.id === tmdeToSave.id || t.sourceId === tmdeToSave.id) {
+      if (tmdeInstanceMatchesMaster(t, tmdeToSave)) {
         const newInstDef = tmdeToSave.instrument || tmdeToSave;
         let funcName = t.functionName || "";
 
@@ -392,6 +478,8 @@ function Analysis({
           id: t.id,
           sourceId: tmdeToSave.id,
           functionName: funcName,
+          functionId: func?.id || t.functionId || "",
+          rangeId: newActiveRange.id || t.rangeId || "",
           _index: activeIndex,
           measurementPoint: tmdeToSave.measurementPoint || t.measurementPoint,
         };
@@ -452,34 +540,6 @@ function Analysis({
     if (setCurrentUutSelection) setCurrentUutSelection([]);
   };
 
-  const handleSaveManualComponent = (componentData) => {
-    const scopedComponentData =
-      manualComponentScope && !editingComponent
-        ? {
-            ...componentData,
-            variableType: manualComponentScope.variableType,
-            sourcePointLabel:
-              componentData.sourcePointLabel ||
-              `${manualComponentScope.label || manualComponentScope.variableType} Manual`,
-          }
-        : componentData;
-    let updatedComponents;
-    if (editingComponent) {
-      updatedComponents = manualComponents.map((c) =>
-        c.id === editingComponent.id ? scopedComponentData : c,
-      );
-    } else {
-      updatedComponents = [
-        ...manualComponents,
-        { ...scopedComponentData, id: Date.now() },
-      ];
-    }
-    onDataSave({ components: updatedComponents });
-    setManualModalOpen(false);
-    setEditingComponent(null);
-    setManualComponentScope(null);
-  };
-
   const handleEditComponent = (event, component) => {
     setEditingComponent(component);
     setManualComponentScope(null);
@@ -493,9 +553,21 @@ function Analysis({
           : null;
       setModalPosition(pos);
       setRepeatabilityModalOpen(true);
-    } else {
-      setManualModalOpen(true);
     }
+  };
+
+  const handleAddInlineManualComponent = (scope = null) => {
+    const id = `manual_${Date.now()}_${uuidv4()}`;
+    const component = createInlineManualComponent({
+      id,
+      scope,
+      referencePoint: scope?.nominalPoint || uutNominal,
+    });
+    onDataSave({
+      components: [...(testPointData.components || []), component],
+    });
+    setEditingComponent(null);
+    setManualComponentScope(null);
   };
 
   const handleRemoveComponent = (id, component = null) => {
@@ -505,6 +577,17 @@ function Analysis({
       onDataSave({
         uutTolerance: { ...uutToleranceData, includeResolutionInBudget: false },
       });
+      return;
+    }
+
+    // Derived TMDE budget rows are standalone, source-linked components. They
+    // must not remove a legacy equation assignment that happens to reference
+    // the same master TMDE; remove only this component instance.
+    if (component?.tmdeBudgetSourceId) {
+      const updatedComponents = manualComponents.filter((c) => c.id !== id);
+      if (updatedComponents.length < manualComponents.length) {
+        onDataSave({ components: updatedComponents });
+      }
       return;
     }
 
@@ -613,7 +696,14 @@ function Analysis({
       equationString: testPointData.equationString,
       components: calcResults.calculatedBudgetComponents || [],
       results: calcResults,
-      derivedNominalPoint: uutNominal,
+      // Preserve the exact variable scope used by the calculator so the
+      // breakdown can evaluate derivative strings in base SI units instead
+      // of guessing from formatted source labels.
+      derivedNominalPoint: {
+        ...uutNominal,
+        variableNominals: testPointData.variableNominals || {},
+        variableMappings: testPointData.variableMappings || {},
+      },
       tmdeTolerances: tmdeTolerancesData,
     });
     setIsDerivedBreakdownOpen(true);
@@ -700,6 +790,50 @@ function Analysis({
   // 6. RENDER
   // =========================================================================
 
+  const analysisTabs = (
+    <div className="analysis-tabs">
+      {VISIBLE_ANALYSIS_MODES.map((mode) => (
+        <button
+          key={mode}
+          className={analysisMode === mode ? "active" : ""}
+          onClick={() => {
+            if (mode === "riskmitigation") {
+              const gbResults = riskResults?.gbResults || {};
+              if (isNaN(gbResults.GBLOW) || isNaN(gbResults.GBUP)) {
+                const inputs = riskResults?.gbInputs || {};
+                setNotification({
+                  title: "Math Engine Convergence Failure",
+                  isFloating: true,
+                  message: `Cannot calculate guard bands. Required TUR: ${inputs.reqTUR || "N/A"}, Achieved: ${inputs.turVal?.toFixed(2) || "N/A"}.`,
+                });
+              }
+            }
+            onAnalysisModeChange(mode);
+          }}
+        >
+          {mode === "uncertaintyTool"
+            ? "Uncertainty Budget"
+            : mode === "notes"
+              ? "Notes"
+              : mode === "risk"
+                ? "Risk Analysis"
+                : "Risk Mitigation"}
+        </button>
+      ))}
+    </div>
+  );
+
+  const notesWorkspace = (
+    <SessionNotesWorkspace
+      sessionData={sessionData}
+      sessionImageCache={sessionImageCache}
+      onSessionImageCacheChange={onSessionImageCacheChange}
+      onLoadSessionImages={onLoadSessionImages}
+      onSessionSave={onSessionSave}
+      onNotesSave={onNotesSave}
+    />
+  );
+
   return (
     <div
       className="analysis-container"
@@ -708,25 +842,15 @@ function Analysis({
       {/* 1. Global Modals */}
       <NotificationModal
         isOpen={!!notification}
-        onClose={() => setNotification(null)}
+        onClose={() => {
+          setNotification(null);
+          dismissRiskNotification?.();
+        }}
         {...notification}
       />
 
       {/* REMOVED: UniversalInstrumentModal - Now handled globally in App.jsx */}
       {/* REMOVED: AddTestPointModal - points are now created inline on the UUT */}
-
-      <ManualComponentModal
-        isOpen={isManualModalOpen}
-        onClose={() => {
-          setManualModalOpen(false);
-          setEditingComponent(null);
-          setManualComponentScope(null);
-        }}
-        onSave={handleSaveManualComponent}
-        existingComponent={editingComponent}
-        uutNominal={manualComponentScope?.nominalPoint || uutNominal}
-        budgetScope={manualComponentScope}
-      />
 
       <RepeatabilityModal
         isOpen={isRepeatabilityModalOpen}
@@ -780,11 +904,14 @@ function Analysis({
 
       {/* 2. Main View Logic: Summary vs Detailed */}
       {!isPointView ? (
-        <div
-          className="analysis-content"
-          style={{ flex: 1, overflowY: "auto", padding: "20px" }}
-        >
-          <UncertaintyPanel
+        <>
+          {analysisTabs}
+          <div
+            className="analysis-content"
+            style={{ flex: 1, overflowY: "auto", padding: "20px" }}
+          >
+            {analysisMode === "notes" ? notesWorkspace : (
+              <UncertaintyPanel
             // Data
             testPointData={testPointData}
             sessionData={sessionData}
@@ -795,6 +922,9 @@ function Analysis({
             setNotification={setNotification}
             currentUutSelection={currentUutSelection}
             selectedTablePointIds={selectedTablePointIds}
+            collapsedFunctionKeys={collapsedFunctionKeys}
+            setCollapsedFunctionKeys={setCollapsedFunctionKeys}
+            keyboardShortcutsEnabled={keyboardShortcutsEnabled}
             // Actions & Navigation
             onDefineTestPoint={handleDefineTestPoint}
             handleOpenSessionEditor={handleOpenSessionEditor}
@@ -814,48 +944,24 @@ function Analysis({
             uutToleranceData={null}
             tmdeTolerancesData={[]}
             riskResults={null}
-            manualComponents={[]}
-          />
-        </div>
+                manualComponents={[]}
+              />
+            )}
+          </div>
+        </>
       ) : (
         <>
           {/* Detailed View Navigation Tabs */}
-          <div className="analysis-tabs">
-            {VISIBLE_ANALYSIS_MODES.map((mode) => (
-              <button
-                key={mode}
-                className={analysisMode === mode ? "active" : ""}
-                onClick={() => {
-                  if (mode === "riskmitigation") {
-                    // Validation override for Risk Mitigation
-                    const gbResults = riskResults?.gbResults || {};
-                    if (isNaN(gbResults.GBLOW) || isNaN(gbResults.GBUP)) {
-                      const inputs = riskResults?.gbInputs || {};
-                      setNotification({
-                        title: "Math Engine Convergence Failure",
-                        isFloating: true,
-                        message: `Cannot calculate guard bands. Required TUR: ${inputs.reqTUR || "N/A"}, Achieved: ${inputs.turVal?.toFixed(2) || "N/A"}.`,
-                      });
-                      // Still allow tab switch or block? Original code allowed it but showed notification.
-                    }
-                  }
-                  onAnalysisModeChange(mode);
-                }}
-              >
-                {mode === "uncertaintyTool"
-                  ? "Uncertainty Analysis"
-                  : mode === "risk"
-                    ? "Risk Analysis"
-                    : "Risk Mitigation"}
-              </button>
-            ))}
-          </div>
+          {analysisTabs}
 
           <div
             className="analysis-content"
             style={{ flex: 1, overflowY: "auto", padding: "20px" }}
           >
+            {analysisMode === "notes" && notesWorkspace}
+
             {analysisMode === "uncertaintyTool" && (
+              <>
               <UncertaintyPanel
                 // Data
                 testPointData={testPointData}
@@ -873,12 +979,11 @@ function Analysis({
                 // UI State
                 showContribution={showContribution}
                 setShowContribution={setShowContribution}
+                collapsedFunctionKeys={collapsedFunctionKeys}
+                setCollapsedFunctionKeys={setCollapsedFunctionKeys}
+                keyboardShortcutsEnabled={keyboardShortcutsEnabled}
                 // Handlers: Components
-                onAddManualComponent={(scope = null) => {
-                  setManualComponentScope(scope);
-                  setEditingComponent(null);
-                  setManualModalOpen(true);
-                }}
+                onAddManualComponent={handleAddInlineManualComponent}
                 onEditManualComponent={handleEditComponent}
                 onRemoveComponent={handleRemoveComponent}
                 // Handlers: Instruments
@@ -924,6 +1029,7 @@ function Analysis({
                 activeRangeIndices={activeRangeIndices}
                 onRangeSelectionChange={onRangeSelectionChange}
               />
+              </>
             )}
 
             {analysisMode === "risk" && (
@@ -962,11 +1068,13 @@ function Analysis({
                     <p>Uncertainty budget must be calculated first.</p>
                   </div>
                 ) : riskResults ? (
-                  <RiskMitigationDashboard
-                    results={riskResults}
-                    onShowBreakdown={handleShowRiskBreakdown}
-                    activeModals={activeRiskModals}
-                  />
+                  <>
+                    <RiskMitigationDashboard
+                      results={riskResults}
+                      onShowBreakdown={handleShowRiskBreakdown}
+                      activeModals={activeRiskModals}
+                    />
+                  </>
                 ) : (
                   <div
                     className="placeholder-content"

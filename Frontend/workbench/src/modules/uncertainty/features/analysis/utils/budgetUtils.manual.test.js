@@ -1,6 +1,7 @@
 import { describe, test, expect } from "vitest";
 import {
   getBudgetComponentsFromTolerance,
+  getUutResolutionComponent,
   refreshLinkedTypeBComponents,
 } from "./budgetUtils";
 import { DISTRIBUTION_NOT_SET } from "../../../utils/uncertaintyMath";
@@ -33,9 +34,39 @@ describe("getBudgetComponentsFromTolerance - manual Type B components", () => {
     expect(mc.name).toBe("UUT - Cal Cert");
     expect(mc.type).toBe("B");
     expect(mc.dof).toBe(Infinity);
-    // 0.001 psig / 1.732 = 5.774e-4 psig of u_i; relative to 10 psig = 57.74 ppm
-    expect(mc.value).toBeCloseTo(57.737, 2);
-    expect(mc.value_native).toBeCloseTo(5.7737e-4, 7);
+    // Persisted "1.732" is calculated as exact √3, matching Risk 8.0.
+    expect(mc.value).toBeCloseTo((0.001 / Math.sqrt(3) / 10) * 1e6, 8);
+    expect(mc.value_native).toBeCloseTo(0.001 / Math.sqrt(3), 12);
+  });
+
+  test("resolves the canonical inline tolerance shape for Type B components", () => {
+    const comps = getBudgetComponentsFromTolerance(
+      {
+        name: "UUT",
+      },
+      ref,
+      [
+        {
+            id: "structured",
+            name: "Cal cert",
+            inputMode: "tolerance",
+            tolerance: {
+              floor: {
+                high: "0.001",
+                low: "-0.001",
+                unit: "psig",
+                distribution: "1.732",
+                symmetric: true,
+              },
+            },
+        },
+      ],
+    );
+
+    expect(comps).toHaveLength(1);
+    expect(comps[0].value_native).toBeCloseTo(0.001 / Math.sqrt(3), 12);
+    expect(comps[0].manualInputMode).toBe("tolerance");
+    expect(comps[0].manualRawValue.floor.high).toBe("0.001");
   });
 
   test("relative standard uncertainty is used directly (divisor 1)", () => {
@@ -57,6 +88,42 @@ describe("getBudgetComponentsFromTolerance - manual Type B components", () => {
     const mc = comps.find((c) => c.isManual);
     // 0.05% of reading entered as a standard uncertainty -> 500 ppm
     expect(mc.value).toBeCloseTo(500, 3);
+  });
+
+  test("only includes scoped instrument Type B components for the active function/range", () => {
+    const components = [
+      {
+        id: "function-match",
+        name: "Pressure head",
+        scope: "function",
+        functionId: "pressure",
+        unit: "psig",
+        inputMode: "tolerance",
+        toleranceLimit: "0.001",
+        distribution: "1.732",
+      },
+      {
+        id: "range-miss",
+        name: "Other range",
+        scope: "range",
+        functionId: "pressure",
+        rangeId: "r-2",
+        unit: "psig",
+        inputMode: "tolerance",
+        toleranceLimit: "0.001",
+        distribution: "1.732",
+      },
+    ];
+
+    const resolved = getBudgetComponentsFromTolerance(
+      { name: "TMDE", functionId: "pressure", rangeId: "r-1" },
+      ref,
+      components,
+    );
+
+    expect(resolved.map((component) => component.manualSourceId)).toEqual([
+      "function-match",
+    ]);
   });
 
   test("incomplete or non-positive components are skipped", () => {
@@ -169,7 +236,39 @@ describe("getBudgetComponentsFromTolerance - instrument-associated Type B", () =
     const typeB = comps.find((c) => c.fromInstrument);
     expect(typeB.distribution).toBe("Rectangular (resolution)");
     expect(typeB.distributionDivisor).toBe("3.464");
-    expect(typeB.value_native).toBeCloseTo(0.001, 8);
+    expect(typeB.value_native).toBeCloseTo(0.003464 / Math.sqrt(12), 12);
+  });
+
+  test("resolution supports the triangular full-LSD divisor", () => {
+    const comps = getBudgetComponentsFromTolerance(
+      {
+        name: "UUT",
+        includeResolutionInBudget: true,
+        resolution: "0.003",
+        resolutionUnit: "psig",
+        resolutionDistribution: "4.899",
+      },
+      ref,
+    );
+    const resolution = comps.find((c) => c.isResolution);
+    expect(resolution.distribution).toBe("Triangular (resolution)");
+    expect(resolution.distributionDivisor).toBe("4.899");
+    expect(resolution.value_native).toBeCloseTo(0.003 / Math.sqrt(24), 12);
+  });
+
+  test("resolution-specific rectangular divisor uses the full LSD once", () => {
+    const resolution = getUutResolutionComponent(
+      {
+        includeResolutionInBudget: true,
+        measuringResolution: "0.01",
+        measuringResolutionUnit: "psig",
+        measuringResolutionDistribution: "3.464",
+      },
+      ref,
+    );
+
+    expect(resolution.distribution).toBe("Rectangular (resolution)");
+    expect(resolution.value_native).toBeCloseTo(0.01 / Math.sqrt(12), 12);
   });
 });
 

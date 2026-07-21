@@ -51,6 +51,89 @@ const EmpiricalMethodNote = ({ results }) => {
   );
 };
 
+const LegacyMetricBreakdown = ({
+  title,
+  description,
+  value,
+  equation,
+  status,
+}) => (
+  <div className="modal-body-scrollable">
+    <div className="breakdown-step">
+      <h5>What this metric represents</h5>
+      <p>{description}</p>
+    </div>
+    <div className="breakdown-step">
+      <h5>Calculation</h5>
+      <Latex>{`$$${equation}$$`}</Latex>
+      <p>
+        <strong>{title}: {safeFixed(value, 4)}%</strong>
+      </p>
+      {status && <p>Engine status: {status}</p>}
+    </div>
+  </div>
+);
+
+export const ObservedReopBreakdown = ({ results }) => (
+  <LegacyMetricBreakdown
+    title="Observed reliability"
+    description="The probability that the reported measurement passes at the actual test-point TUR. It is the sum of correct accepts and false accepts."
+    value={results?.observedReop}
+    equation={`R_{obs}=P_{CA}+PFA=\\mathbf{${safePrecision(Number(results?.observedReop) / 100)}}`}
+    status={results?.risk8?.out?.statusCore}
+  />
+);
+
+export const MaxReopBreakdown = ({ results }) => (
+  <LegacyMetricBreakdown
+    title="Maximum achievable reliability"
+    description="The calibration-uncertainty-limited pass probability at the current acceptance limits and test-point TUR."
+    value={results?.maxReop}
+    equation={`R_{max}=P_{pass}(GB\\mid\\mu_{obs},s_{c,in})=\\mathbf{${safePrecision(Number(results?.maxReop) / 100)}}`}
+    status={results?.risk8?.out?.statusCore}
+  />
+);
+
+export const TrueReopBreakdown = ({ results }) => (
+  <LegacyMetricBreakdown
+    title="True UUT reliability"
+    description="The modeled probability that the true, unobserved UUT value is within specification. It is the sum of correct accepts and false rejects."
+    value={results?.trueReop}
+    equation={`R_{true}=P_{CA}+PFR=\\mathbf{${safePrecision(Number(results?.trueReop) / 100)}}`}
+    status={results?.risk8?.out?.statusCore}
+  />
+);
+
+export const GBMeasRelBreakdown = ({ results }) => (
+  <LegacyMetricBreakdown
+    title="Targeted reliability with guardbanding"
+    description="The reliability operating point selected jointly with the guardband multiplier to satisfy the mitigation PFA and reliability requirements."
+    value={results?.gbMeasRel}
+    equation={`R_{GB}^{*}=\\min\\{R:PFA(g^{*},R)\\le PFA_{req},\\;R_{obs}(g^{*},R)\\ge R_{req}\\}=\\mathbf{${safePrecision(Number(results?.gbMeasRel) / 100)}}`}
+    status={results?.risk8?.out?.statusMit}
+  />
+);
+
+export const NoGBPFABreakdown = ({ results }) => (
+  <LegacyMetricBreakdown
+    title="PFA without guardbanding"
+    description="The false-accept probability at the interval-only reliability recommendation. The acceptance limits remain unchanged."
+    value={results?.noGbPfa}
+    equation={`PFA_{int}=P_{obs}-P_{CA}=\\mathbf{${safePrecision(Number(results?.noGbPfa) / 100)}}`}
+    status={results?.risk8?.out?.statusInt}
+  />
+);
+
+export const NoGBPFRBreakdown = ({ results }) => (
+  <LegacyMetricBreakdown
+    title="PFR without guardbanding"
+    description="The false-reject probability at the interval-only reliability recommendation. The acceptance limits remain unchanged."
+    value={results?.noGbPfr}
+    equation={`PFR_{int}=P_{true}-P_{CA}=\\mathbf{${safePrecision(Number(results?.noGbPfr) / 100)}}`}
+    status={results?.risk8?.out?.statusInt}
+  />
+);
+
 // ==========================================
 // 1. KEY INPUTS BREAKDOWN
 // ==========================================
@@ -995,6 +1078,29 @@ export const GBHighBreakdown = ({ inputs, results }) => {
 export const GBPFABreakdown = ({ inputs, results }) => {
   if (!results || !inputs) return null;
 
+  const gb = results.gbResults || {};
+  const hasLegacyIntermediates = [
+    gb.GBUP,
+    gb.GBLOW,
+    gb.GBPFAUUUT,
+    gb.GBPFAUDEV,
+    gb.GBPFACOR,
+    gb.GBPFAT1,
+    gb.GBPFAT2,
+    gb.GBPFA,
+  ].every((value) => Number.isFinite(Number(value)));
+  if (!hasLegacyIntermediates) {
+    return (
+      <LegacyMetricBreakdown
+        title="PFA with guardbanding"
+        description="The false-accept probability evaluated at the recommended guardband and reliability operating point. Detailed legacy bivariate intermediates were not stored for this point, so the current engine result is shown safely."
+        value={results.gbPfa ?? gb.GBPFA}
+        equation={`PFA_{GB}=P_{obs,GB}-P_{CA,GB}=\\mathbf{${safePrecision(((results.gbPfa ?? gb.GBPFA) || 0) / 100)}}`}
+        status={results?.risk8?.out?.statusMit}
+      />
+    );
+  }
+
   // Use Guardband Limits for Normalization in this Breakdown
   const mid = (results.gbResults.GBUP + results.gbResults.GBLOW) / 2;
   const LLow_norm = inputs.LLow - mid;
@@ -1173,6 +1279,29 @@ export const GBPFABreakdown = ({ inputs, results }) => {
 
 export const GBPFRBreakdown = ({ inputs, results }) => {
   if (!results || !inputs) return null;
+
+  const gb = results.gbResults || {};
+  const hasLegacyIntermediates = [
+    gb.GBUP,
+    gb.GBLOW,
+    gb.GBPFAUUUT,
+    gb.GBPFAUDEV,
+    gb.GBPFACOR,
+    gb.GBPFRT1,
+    gb.GBPFRT2,
+    gb.GBPFR,
+  ].every((value) => Number.isFinite(Number(value)));
+  if (!hasLegacyIntermediates) {
+    return (
+      <LegacyMetricBreakdown
+        title="PFR with guardbanding"
+        description="The false-reject probability evaluated at the recommended guardband and reliability operating point. Detailed legacy bivariate intermediates were not stored for this point, so the current engine result is shown safely."
+        value={results.gbPfr ?? gb.GBPFR}
+        equation={`PFR_{GB}=P_{true,GB}-P_{CA,GB}=\\mathbf{${safePrecision(((results.gbPfr ?? gb.GBPFR) || 0) / 100)}}`}
+        status={results?.risk8?.out?.statusMit}
+      />
+    );
+  }
 
   const mid = (results.gbResults.GBUP + results.gbResults.GBLOW) / 2;
   const LLow_norm = inputs.LLow - mid;

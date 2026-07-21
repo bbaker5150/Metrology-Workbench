@@ -10,6 +10,7 @@ import {
   resolveResolutionNative,
   getTmdeAbsoluteLimits,
   getTmdeAbsoluteLimitEntries,
+  unitSystem,
 } from "./uncertaintyMath";
 import { computePointRiskMetrics } from "./riskCompute";
 
@@ -166,6 +167,13 @@ describe("getTmdeAbsoluteLimits", () => {
 });
 
 describe("getTmdeAbsoluteLimitEntries", () => {
+  test("supports legacy resistance aliases without duplicating unit menus", () => {
+    expect(unitSystem.units.ohm).toBe(unitSystem.units.Ohm);
+    expect(unitSystem.units["Ω"]).toBe(unitSystem.units.Ohm);
+    expect(Object.keys(unitSystem.units)).not.toContain("ohm");
+    expect(Object.keys(unitSystem.units)).not.toContain("Ω");
+  });
+
   test("preserves the limits and labels of every derived TMDE", () => {
     const entries = getTmdeAbsoluteLimitEntries([
       {
@@ -196,8 +204,8 @@ describe("getTmdeAbsoluteLimitEntries", () => {
       id: "tmde-b",
       variableType: "Resistance",
       description: "Meter B",
-      low: "98.00000 ohm",
-      high: "102.0000 ohm",
+      low: "98.00000 Ω",
+      high: "102.0000 Ω",
     });
   });
 });

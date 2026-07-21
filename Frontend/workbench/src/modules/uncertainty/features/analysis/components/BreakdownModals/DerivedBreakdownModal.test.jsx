@@ -90,3 +90,58 @@ test("omits the 2nd-order sections for a linear equation", () => {
     screen.queryByText("2nd-Order Taylor Series (Nonlinearity Correction)"),
   ).not.toBeInTheDocument();
 });
+
+test("uses the live derived budget result instead of rebuilding raw TMDE terms", () => {
+  const data = makeBreakdownData();
+  data.derivedNominalPoint.variableNominals = { x: { value: 1, unit: "V" } };
+  data.results.combined_uncertainty_absolute_base = 3;
+  data.results.calculatedBudgetComponents[0] = {
+    ...data.results.calculatedBudgetComponents[0],
+    value: 0.1,
+    unit: "V",
+    isBaseUnitValue: true,
+    quantity: 8,
+  };
+  data.results.calculatedBudgetGroups = [
+    {
+      id: "measurement_equation",
+      kind: "equation",
+      correlationApplied: true,
+      results: { combined: 1 },
+    },
+    { id: "final_budget", kind: "final", results: { combined: 3 } },
+  ];
+
+  render(<DerivedBreakdownModal isOpen onClose={() => {}} breakdownData={data} />);
+
+  // The displayed final value comes from the authoritative base-unit result,
+  // not from the deliberately different component RSS value or raw TMDE data.
+  expect(document.body.textContent).toContain("3.0000 V");
+  expect(document.body.textContent).toContain("correlations applied");
+  expect(document.body.textContent).toContain("(aggregated input)");
+});
+
+test("shows the saved Monte Carlo matrices and sampling walkthrough instead of Taylor terms", () => {
+  const data = makeBreakdownData();
+  data.results.propagationMethod = "montecarlo";
+  data.results.monteCarlo = {
+    trials: 10000,
+    meanBase: 1.02,
+    nominalResultBase: 1,
+    standardUncertaintyBase: 0.12,
+    influenceFractions: [1],
+    inputs: [{ symbol: "x", componentId: "input-x", meanBase: 1, standardUncertaintyBase: 0.1 }],
+    correlationMatrix: [[1]],
+    choleskyMatrix: [[1]],
+  };
+  data.results.combined_uncertainty_absolute_base = 0.13;
+
+  render(<DerivedBreakdownModal isOpen onClose={() => {}} breakdownData={data} />);
+
+  expect(screen.getByText("Monte Carlo Input Model (10,000 trials)")).toBeInTheDocument();
+  expect(screen.getByText("Correlation matrix (R)")).toBeInTheDocument();
+  expect(screen.getByText(/Lower Cholesky matrix/)).toBeInTheDocument();
+  expect(screen.getByText("Monte Carlo Propagation Walkthrough")).toBeInTheDocument();
+  expect(screen.queryByText(/Sensitivity Coefficient/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/2nd-Order Taylor Term/)).not.toBeInTheDocument();
+});

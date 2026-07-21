@@ -45,4 +45,28 @@ describe("ppb ratio unit", () => {
     expect(result.totalToleranceForTar).toBeCloseTo(1, 6);
     expect(result.breakdown[0].ppm).toBeCloseTo(1, 6);
   });
+
+  it("keeps relative tolerance limits ordered for a negative indication", () => {
+    const tolerance = {
+      reading: {
+        high: 1,
+        low: -1,
+        unit: "%",
+        distribution: "1.7320508075688772",
+        symmetric: true,
+      },
+    };
+
+    const result = calculateUncertaintyFromToleranceObject(tolerance, {
+      value: -2,
+      unit: "V",
+    });
+
+    expect(result.breakdown[0].absoluteLow).toBeCloseTo(-2.02, 12);
+    expect(result.breakdown[0].absoluteHigh).toBeCloseTo(-1.98, 12);
+    expect(result.breakdown[0].absoluteLow).toBeLessThan(
+      result.breakdown[0].absoluteHigh,
+    );
+    expect(result.breakdown[0].ppm).toBeCloseTo(10000, 6);
+  });
 });

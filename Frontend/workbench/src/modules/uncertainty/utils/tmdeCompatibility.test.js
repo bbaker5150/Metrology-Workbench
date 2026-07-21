@@ -20,6 +20,15 @@ describe("assessTmdeCompatibility", () => {
     ).toBe(true);
   });
 
+  it("treats a unit-bearing specification without bounds as all values", () => {
+    expect(
+      assessTmdeCompatibility(
+        { min: "", max: "", unit: "V" },
+        { value: 1e12, unit: "V" },
+      ),
+    ).toEqual({ compatible: true, reason: "" });
+  });
+
   it("rejects incompatible quantities and out-of-range values", () => {
     expect(
       assessTmdeCompatibility(

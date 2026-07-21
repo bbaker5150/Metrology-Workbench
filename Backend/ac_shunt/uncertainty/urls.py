@@ -15,6 +15,7 @@ urlpatterns = [
 
     path("sessions/", views.sessions, name="sessions"),
     path("sessions/<int:session_id>/", views.session_detail, name="session-detail"),
+    path("sessions/<int:session_id>/notes/", views.session_notes, name="session-notes"),
     path("sessions/<int:session_id>/images/", views.session_images, name="session-images"),
     path(
         "sessions/<int:session_id>/images/<str:image_id>/",

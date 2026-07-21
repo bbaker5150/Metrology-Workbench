@@ -93,6 +93,66 @@ const changeResolution = (value) => {
 };
 
 describe("UniversalInstrumentModal library synchronization", () => {
+  test("owns Delete and routes it to the selected library instrument", async () => {
+    const onDelete = vi.fn(async () => {});
+    renderModal({
+      mode: "library",
+      initialData: null,
+      instruments: [libraryInstrument],
+      onDelete,
+    });
+
+    fireEvent.click(screen.getByText("DMM-1").closest("tr"));
+
+    // Simulate a background analysis shortcut. The open modal must consume the
+    // event and open its own existing confirmation instead of letting that
+    // background selection react.
+    const backgroundDelete = vi.fn();
+    window.addEventListener("keydown", backgroundDelete);
+    fireEvent.keyDown(window, { key: "Delete" });
+    window.removeEventListener("keydown", backgroundDelete);
+
+    expect(backgroundDelete).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("alertdialog", { name: "Delete Instrument" }),
+    ).toBeInTheDocument();
+    expect(onDelete).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith("library-1"));
+  });
+
+  test("merges same-name function declarations while retaining each range unit", () => {
+    const multiUnitInstrument = {
+      ...sessionTmde,
+      libraryInstrumentId: undefined,
+      instrument: {
+        ...sessionTmde.instrument,
+        libraryInstrumentId: undefined,
+        functions: [
+          {
+            id: "weight-kg",
+            name: "Weight",
+            unit: "kg",
+            ranges: [{ id: "kg-range", min: 0, max: 10, unit: "kg", tolerances: {} }],
+          },
+          {
+            id: "weight-lb",
+            name: "Weight",
+            unit: "lb",
+            ranges: [{ id: "lb-range", min: 0, max: 20, unit: "lb", tolerances: {} }],
+          },
+        ],
+      },
+    };
+
+    renderModal({ initialData: multiUnitInstrument, instruments: [] });
+
+    expect(screen.getAllByLabelText("Function name")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /0 to 10 kg/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /0 to 20 lb/i })).toBeInTheDocument();
+  });
+
   test("syncs the selected local instrument from the library modal", async () => {
     const sharedInstrument = {
       ...libraryInstrument,
@@ -246,25 +306,31 @@ describe("UniversalInstrumentModal library synchronization", () => {
     );
   });
 
-  test("composes the Description/Name from the MFG / Make / Model sub-fields", () => {
+  test("composes the Description/Name from the Mfr. / Model / Name sub-fields", () => {
     renderModal({ mode: "uut", initialData: null, instruments: [] });
-    // Identity mirrors the inline tables: three sub-fields in order MFG, Make,
-    // Model that snap into the composed description shown below them.
-    const [mfgInput, makeInput, modelInput] =
+    // Identity mirrors the inline tables: three sub-fields in order Mfr., Model,
+    // Name that snap into the composed description shown below them.
+    const [mfrInput, modelInput, nameInput] =
       document.querySelectorAll(".identity-grid input[type='text']");
 
-    fireEvent.change(mfgInput, { target: { value: "Fluke" } });
+    expect(
+      Array.from(document.querySelectorAll(".identity-grid label")).map(
+        (label) => label.textContent,
+      ),
+    ).toEqual(["Mfr.", "Model", "Name"]);
+
+    fireEvent.change(mfrInput, { target: { value: "Fluke" } });
     fireEvent.change(modelInput, { target: { value: "8588A" } });
-    // With no middle token, the description is just MFG + Model.
+    // With no trailing token, the description is just Mfr. + Model.
     expect(
       document.querySelector(".identity-composed-value"),
     ).toHaveTextContent("Fluke 8588A");
 
-    // The middle "Make" token slots between MFG and Model.
-    fireEvent.change(makeInput, { target: { value: "Bench" } });
+    // The trailing Name token follows Mfr. and Model.
+    fireEvent.change(nameInput, { target: { value: "Bench" } });
     expect(
       document.querySelector(".identity-composed-value"),
-    ).toHaveTextContent("Fluke Bench 8588A");
+    ).toHaveTextContent("Fluke 8588A Bench");
   });
 
   test("new instruments save directly as local session instruments", () => {
@@ -273,11 +339,11 @@ describe("UniversalInstrumentModal library synchronization", () => {
       initialData: null,
       instruments: [],
     });
-    const [mfgInput, makeInput, modelInput] =
+    const [mfrInput, modelInput, nameInput] =
       document.querySelectorAll(".identity-grid input[type='text']");
 
-    fireEvent.change(mfgInput, { target: { value: "Acme" } });
-    fireEvent.change(makeInput, { target: { value: "Bench" } });
+    fireEvent.change(mfrInput, { target: { value: "Acme" } });
+    fireEvent.change(nameInput, { target: { value: "Bench" } });
     fireEvent.change(modelInput, { target: { value: "LOCAL-1" } });
     fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
 
@@ -298,7 +364,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(saved.instrument.libraryInstrumentId).toBeUndefined();
   });
 
-  test("adds a range with the inline tolerance term editor", () => {
+  test("edits an all-values tolerance without requiring range bounds", () => {
     const manualInstrument = {
       ...sessionTmde,
       libraryInstrumentId: undefined,
@@ -318,17 +384,15 @@ describe("UniversalInstrumentModal library synchronization", () => {
       instruments: [],
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /Add range to DC Voltage/i }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: /Set tolerance/i }));
+    const emptyTolerance = screen.getByRole("button", { name: "Set tolerance" });
+    expect(emptyTolerance).toHaveTextContent(/^\s*$/);
+    fireEvent.click(emptyTolerance);
 
     expect(screen.queryByText("Tolerance / Error Limits")).not.toBeInTheDocument();
-    expect(screen.getByText("% IV")).toBeInTheDocument();
+    expect(screen.getByText(/IV %/)).toBeInTheDocument();
     expect(screen.getByText("% FS")).toBeInTheDocument();
-    // The floor term exposes a clickable unit picker (physical unit vs ppm/%/ppb).
-    expect(screen.getByTitle(/Floor unit/i)).toBeInTheDocument();
     expect(screen.getByText("dB")).toBeInTheDocument();
+    expect(screen.getByText("Single Sided High")).toBeInTheDocument();
   });
 
   test("stores an inline tolerance term on the edited range", () => {
@@ -351,9 +415,6 @@ describe("UniversalInstrumentModal library synchronization", () => {
       instruments: [],
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /Add range to DC Voltage/i }),
-    );
     fireEvent.click(screen.getByRole("button", { name: /Set tolerance/i }));
 
     const rangesTable = screen.getByRole("columnheader", {
@@ -389,7 +450,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     );
   });
 
-  test("lets the floor tolerance be expressed in ppm", () => {
+  test("lets an IV tolerance be expressed in ppm", () => {
     const manualInstrument = {
       ...sessionTmde,
       libraryInstrumentId: undefined,
@@ -401,12 +462,12 @@ describe("UniversalInstrumentModal library synchronization", () => {
             ...sessionTmde.instrument.functions[0],
             ranges: [
               {
-                id: "range-ppm",
+                id: "range-iv-ppm",
                 min: 0,
                 max: 10,
                 unit: "V",
                 tolerances: {
-                  floor: {
+                  reading: {
                     high: "50",
                     low: "-50",
                     unit: "V",
@@ -425,17 +486,17 @@ describe("UniversalInstrumentModal library synchronization", () => {
       instruments: [],
     });
 
-    // Open the tolerance editor for the existing floor term.
+    // Open the tolerance editor for the existing IV term.
     fireEvent.click(
-      screen.getByRole("button", { name: /Edit or add tolerance terms/i }),
+      screen.getByRole("button", { name: /50 V IV/i }),
     );
 
-    // The floor unit starts as the range's physical unit and can switch to ppm
-    // through the clickable unit chip.
-    expect(screen.getByTitle(/Floor unit/i)).toHaveTextContent("V");
-    fireEvent.click(screen.getByTitle(/Floor unit/i));
+    // IV can use %, ppm, or ppb; Floor remains a non-editable physical unit.
+    const ivUnit = screen.getByTitle(/IV unit/i);
+    expect(ivUnit).toHaveTextContent("IV V");
+    fireEvent.click(ivUnit);
     fireEvent.click(screen.getByRole("menuitemradio", { name: "ppm" }));
-    expect(screen.getByTitle(/Floor unit/i)).toHaveTextContent("ppm");
+    expect(screen.getByTitle(/IV unit/i)).toHaveTextContent("IV ppm");
 
     fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
 
@@ -447,7 +508,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
               ranges: [
                 expect.objectContaining({
                   tolerances: expect.objectContaining({
-                    floor: expect.objectContaining({ unit: "ppm", high: "50" }),
+                    reading: expect.objectContaining({ unit: "ppm", high: "50" }),
                   }),
                 }),
               ],
@@ -473,6 +534,70 @@ describe("UniversalInstrumentModal library synchronization", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add Type B/i }));
 
     expect(screen.getByLabelText("Type B component name")).toBeInTheDocument();
+  });
+
+  test("owns Ctrl+Z and undoes builder actions without touching the session behind it", async () => {
+    renderModal();
+    const rangesTable = screen.getByRole("columnheader", {
+      name: /^Range$/i,
+    }).closest("table");
+
+    await waitFor(() => {
+      expect(within(rangesTable).getAllByRole("row")).toHaveLength(2);
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Add range to DC Voltage/i }),
+    );
+    expect(within(rangesTable).getAllByRole("row")).toHaveLength(3);
+
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await waitFor(() => {
+      expect(within(rangesTable).getAllByRole("row")).toHaveLength(2);
+    });
+  });
+
+  test("stores the workbook-style single-sided tolerance case", () => {
+    const manualInstrument = {
+      ...sessionTmde,
+      libraryInstrumentId: undefined,
+      instrument: {
+        ...sessionTmde.instrument,
+        libraryInstrumentId: undefined,
+      },
+    };
+    const props = renderModal({ initialData: manualInstrument, instruments: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Set tolerance" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Single-sided direction" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Low" }));
+    fireEvent.click(screen.getByLabelText("Measurement unknown"));
+    const limit = screen.getByLabelText("Measurement unknown Lower limit");
+    fireEvent.change(limit, { target: { value: "2.5" } });
+    fireEvent.blur(limit, { target: { value: "2.5" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
+
+    expect(props.onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instrument: expect.objectContaining({
+          functions: [
+            expect.objectContaining({
+              ranges: [
+                expect.objectContaining({
+                  tolerances: {
+                    singleSided: expect.objectContaining({
+                      direction: "low",
+                      measurement: "unknown",
+                      limit: "2.5",
+                    }),
+                  },
+                }),
+              ],
+            }),
+          ],
+        }),
+      }),
+    );
   });
 
   test("keeps empty-state add actions in the section toolbar only", () => {
@@ -506,10 +631,18 @@ describe("UniversalInstrumentModal library synchronization", () => {
     }).closest("table");
     const row = within(rangesTable).getAllByRole("row")[1];
     fireEvent.click(within(row).getByRole("button", { name: /0\.001 V/i }));
-    const distributionSelect = within(row).getByLabelText(
-      /Resolution distribution/i,
-    );
-    fireEvent.change(distributionSelect, { target: { value: "2.000" } });
+    const distributionSelect = within(row).getByRole("button", {
+      name: /Resolution distribution/i,
+    });
+    fireEvent.click(distributionSelect);
+    expect(screen.getByRole("option", { name: /Triangular\s+2\.449/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", {
+        name: /Triangular \(resolution\)\s+4\.899/,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Normal \(95%\)/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: /Normal \(95\.45%\)/ }));
 
     fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
     fireEvent.click(screen.getByRole("button", { name: /Session Only/i }));

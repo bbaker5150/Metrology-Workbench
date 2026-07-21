@@ -953,10 +953,12 @@ body.theme-cyberpunk:not(.dark-mode) .uut-row.active,
 body.theme-cyberpunk:not(.dark-mode) .range-label-row.active,
 body.theme-cyberpunk:not(.dark-mode) .point-grid-item.active {
     background-color: var(--selection-bg) !important;
-    border-left: var(--selection-border) !important;
+    border: 1px solid transparent !important;
     color: #000 !important;
     border-radius: 0 !important;
-    box-shadow: inset 1px 1px 0px rgba(255, 255, 255, 0.7);
+    box-shadow:
+      inset 3px 0 0 var(--primary-color),
+      inset 1px 1px 0px rgba(255, 255, 255, 0.7);
 }
 
 /* Sidebar Hover (Non-Active) */
@@ -1270,6 +1272,8 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 
 /* --- Sidebar Global Actions (The Tree Header) --- */
 .sidebar-global-actions {
+  position: relative;
+  container-type: inline-size;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1443,6 +1447,16 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   white-space: nowrap;
 }
 
+.sidebar-column-menu {
+  position: static;
+  display: flex;
+  align-items: center;
+}
+
+.point-uncertainty-metric {
+  text-align: center;
+}
+
 /* Risk/guardband cells open a breakdown on click. */
 .point-risk-metric-clickable {
   cursor: pointer;
@@ -1461,17 +1475,52 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   opacity: 0.3;
 }
 
+/* Two-level measurement-point headers: category band + metric labels. */
+.sidebar-column-header-stack {
+  width: 100%;
+  min-width: min-content;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.sidebar-column-groups {
+  display: grid;
+  column-gap: 8px;
+  align-items: stretch;
+  width: 100%;
+  min-width: min-content;
+  padding: 0 10px;
+  box-sizing: border-box;
+  background: rgba(var(--primary-rgb), 0.018);
+}
+
+.sidebar-column-group {
+  min-width: 0;
+  padding: 6px 8px 5px;
+  overflow: hidden;
+  border-bottom: 2px solid rgba(var(--primary-rgb), 0.22);
+  color: var(--text-color-muted);
+  font-size: 0.54rem;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: 0.075em;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 /* Column Header Row */
 .sidebar-column-headers {
   display: grid;
-  font-size: 0.6rem;
+  font-size: 0.56rem;
   color: var(--text-color-muted);
-  padding: 4px 10px;
+  padding: 7px 10px 6px;
   margin-bottom: 0;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 0;
   border-left: 1px solid transparent;
   border-right: 1px solid transparent;
-  opacity: 0.7;
+  opacity: 0.82;
   gap: 8px;
   text-transform: uppercase;
   font-weight: 700;
@@ -1480,6 +1529,7 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 }
 
 .sidebar-sort-header {
+  width: 100%;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -1489,10 +1539,21 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   font: inherit;
   letter-spacing: inherit;
   text-transform: inherit;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   justify-content: flex-start;
+  overflow: hidden;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.sidebar-sort-header > span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-sort-header:hover,
@@ -1548,16 +1609,23 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   top: calc(100% + 2px);
   left: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(100px, 1fr));
+  grid-template-columns:
+    minmax(150px, 0.9fr)
+    minmax(145px, 0.85fr)
+    minmax(190px, 1.15fr)
+    minmax(190px, 1.15fr);
   align-items: start;
   gap: 0;
   background: var(--content-background);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  padding: 8px;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+  padding: 10px 8px;
   z-index: 3000;
-  width: min(350px, calc(100vw - 32px));
+  width: min(790px, calc(100vw - 24px));
+  max-height: min(540px, calc(100vh - 100px));
+  overflow-x: hidden;
+  overflow-y: auto;
   animation: filterDropdownIn 0.12s ease-out;
 }
 
@@ -1569,7 +1637,7 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 /* Grouped sections in the column filter dropdown (Measurement / Risk / GB). */
 .filter-option-group {
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 10px;
 }
 
 .filter-option-group + .filter-option-group {
@@ -1580,23 +1648,45 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 }
 
 .filter-option-group-title {
-  font-size: 0.62rem;
-  font-weight: 700;
+  min-height: 27px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.59rem;
+  font-weight: 750;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-color-muted);
-  padding: 2px 4px 5px;
+  padding: 2px 4px 7px;
+  line-height: 1.15;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.filter-option-group-title input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--primary-color);
+  cursor: pointer;
+}
+
+.filter-option-group-title span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .filter-option {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 26px;
+  min-height: 25px;
   margin: 0;
   padding: 3px 4px;
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   line-height: 1.2;
   color: var(--text-color);
   border-radius: 4px;
@@ -1605,6 +1695,8 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 
 .filter-option span {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1618,6 +1710,42 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   accent-color: var(--primary-color);
   margin: 0;
   cursor: pointer;
+}
+
+@container (max-width: 760px) {
+  .sidebar-filter-dropdown {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+    width: calc(100% - 20px);
+  }
+
+  .filter-option-group:nth-child(3) {
+    padding-top: 9px;
+    border-top: 1px solid var(--border-color);
+    border-left: 0;
+  }
+
+  .filter-option-group:nth-child(4) {
+    padding-top: 9px;
+    border-top: 1px solid var(--border-color);
+  }
+}
+
+@media (max-width: 760px) {
+  .sidebar-filter-dropdown {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+    width: min(470px, calc(100vw - 20px));
+  }
+
+  .filter-option-group:nth-child(3) {
+    padding-top: 9px;
+    border-top: 1px solid var(--border-color);
+    border-left: 0;
+  }
+
+  .filter-option-group:nth-child(4) {
+    padding-top: 9px;
+    border-top: 1px solid var(--border-color);
+  }
 }
 
 /* --- Sidebar Quick Add (Inline) --- */
@@ -2010,9 +2138,33 @@ body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+/* When the sidebar is deliberately stretched wide, preserve the budget's
+   useful layout and let the main pane scroll instead of crushing tables,
+   controls, and navigation tabs into unreadable columns. */
+.results-content .test-point-details-view,
+.results-content .analysis-container {
+  min-width: 720px;
+}
+
+.results-content .test-point-details-view {
+  min-height: 100%;
+}
+
+.analysis-tabs {
+  column-gap: clamp(12px, 2vw, 32px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.analysis-tabs button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .placeholder-content {
@@ -2185,7 +2337,7 @@ body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
 
 .analysis-tabs {
   display: flex;
-  gap: 2rem;
+  gap: clamp(12px, 2vw, 32px);
   border-bottom: 2px solid var(--border-color);
   margin-bottom: 10px;
 }
@@ -4226,6 +4378,43 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   margin-top: 4px;
 }
 
+/* The add-to-budget picker is a stack of independent source groups. Keep the
+   ordering intentional even when one or more groups are absent: UUT
+   resolution is the first source, matching/primary TMDEs follow, and the
+   cross-unit "Other TMDEs" group is always last. */
+.budget-tmde-picker-menu > .budget-picker-heading {
+  order: 0;
+}
+
+.budget-tmde-picker-menu > .budget-picker-section {
+  order: 10;
+  min-width: 0;
+}
+
+.budget-tmde-picker-menu > .budget-picker-section--this {
+  order: 10;
+}
+
+.budget-tmde-picker-menu > .budget-picker-section--uut-resolution {
+  order: 5;
+}
+
+.budget-tmde-picker-menu > .budget-picker-section--primary {
+  order: 20;
+}
+
+.budget-tmde-picker-menu > .budget-picker-section--tmde-resolution {
+  order: 30;
+}
+
+.budget-tmde-picker-menu > .budget-picker-section--typeb {
+  order: 40;
+}
+
+.budget-tmde-picker-menu > .budget-picker-section--other {
+  order: 100;
+}
+
 .budget-settings-menu h5 {
   margin: 0 0 10px;
   padding-bottom: 8px;
@@ -4293,10 +4482,6 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   overflow: visible;
 }
 
-.budget-stack-section.final {
-  border-color: color-mix(in srgb, var(--primary-color) 35%, var(--border-color));
-}
-
 .budget-section-title-row {
   min-height: 52px;
   padding: 12px 14px;
@@ -4321,7 +4506,58 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 .budget-section-title-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.budget-propagation-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-sunken) 62%, transparent);
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.budget-propagation-label {
+  color: var(--text-color-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  transition: color 0.15s ease;
+}
+
+.budget-propagation-label.is-active {
+  color: var(--primary-color);
+}
+
+.budget-section-title-actions .budget-contribution-button {
+  border-color: transparent;
+  color: var(--text-color-muted);
+}
+
+.budget-section-title-actions .budget-contribution-button:hover {
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 8%, transparent);
+}
+
+.budget-section-title-actions .budget-contribution-button.is-active {
+  color: var(--primary-color);
+  border-color: color-mix(in srgb, var(--primary-color) 32%, transparent);
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 8%, transparent);
+}
+
+.budget-final-support {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-top: 1px solid var(--border-color);
 }
 
 .budget-section-title-actions button {
@@ -4486,7 +4722,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
    (brushed-metal puck switch). Copied here because the uncertainty module
    loads its own stylesheet, independent of the ac-shunt module's.
    ========================================================================== */
-.budget-results-dof-label .direction-toggle-switch {
+:is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-switch {
   position: relative;
   display: inline-block;
   width: 50px;
@@ -4496,13 +4732,13 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   flex: 0 0 auto;
 }
 
-.budget-results-dof-label .direction-toggle-switch input {
+:is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-switch input {
   opacity: 0;
   width: 0;
   height: 0;
 }
 
-.budget-results-dof-label .direction-toggle-slider {
+:is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-slider {
   position: absolute;
   cursor: pointer;
   inset: 0;
@@ -4516,7 +4752,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   overflow: hidden;
 }
 
-.budget-results-dof-label .direction-toggle-slider::after {
+:is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-slider::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -4532,7 +4768,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   pointer-events: none;
 }
 
-.budget-results-dof-label .direction-toggle-slider:before {
+:is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-slider:before {
   position: absolute;
   content: "";
   height: 20px;
@@ -4561,7 +4797,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
     background 0.3s ease;
 }
 
-.budget-results-dof-label .direction-toggle-switch input:checked + .direction-toggle-slider {
+:is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-switch input:checked + .direction-toggle-slider {
   /* Saturated fill so ON reads clearly in light mode (the soft tint was too
      close to the OFF sunken track to distinguish at a glance). */
   background: var(--primary-color);
@@ -4571,11 +4807,11 @@ body.dark-mode .symbol-popout .symbol-button:hover {
     0 1px 2px rgba(255, 255, 255, 0.6);
 }
 
-.budget-results-dof-label .direction-toggle-switch input:checked + .direction-toggle-slider::after {
+:is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-switch input:checked + .direction-toggle-slider::after {
   opacity: 0.15;
 }
 
-.budget-results-dof-label .direction-toggle-switch input:checked + .direction-toggle-slider:before {
+:is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-switch input:checked + .direction-toggle-slider:before {
   transform: translateX(22px);
   background:
     radial-gradient(circle at 50% 50%, #fff 6%, var(--primary-color) 16%, transparent 22%),
@@ -4595,7 +4831,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 }
 
 /* Dark-mode overrides (heavy gunmetal), matching the ac-shunt toggle. */
-body.dark-mode .budget-results-dof-label .direction-toggle-slider {
+body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-slider {
   background: color-mix(in srgb, var(--surface-sunken) 50%, #000 50%);
   box-shadow:
     inset 0 3px 8px rgba(0, 0, 0, 0.8),
@@ -4603,13 +4839,13 @@ body.dark-mode .budget-results-dof-label .direction-toggle-slider {
     0 1px 1px rgba(255, 255, 255, 0.05);
 }
 
-body.dark-mode .budget-results-dof-label .direction-toggle-slider::after {
+body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-slider::after {
   background: repeating-linear-gradient(
     -45deg, transparent, transparent 3px, rgba(0, 0, 0, 0.4) 3px, rgba(0, 0, 0, 0.4) 6px
   );
 }
 
-body.dark-mode .budget-results-dof-label .direction-toggle-slider:before {
+body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-slider:before {
   background:
     radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--text-color-muted) 40%, #000) 14%, transparent 18%),
     conic-gradient(
@@ -4626,7 +4862,7 @@ body.dark-mode .budget-results-dof-label .direction-toggle-slider:before {
     inset 0 -1px 2px rgba(0, 0, 0, 0.5);
 }
 
-body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked + .direction-toggle-slider {
+body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-switch input:checked + .direction-toggle-slider {
   background: color-mix(in srgb, var(--primary-color) 25%, #000 75%);
   box-shadow:
     inset 0 3px 8px rgba(0, 0, 0, 0.8),
@@ -4634,7 +4870,7 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
     0 0 12px color-mix(in srgb, var(--primary-color) 40%, transparent);
 }
 
-body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked + .direction-toggle-slider:before {
+body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-switch input:checked + .direction-toggle-slider:before {
   background:
     radial-gradient(circle at 50% 50%, #fff 6%, var(--primary-color) 16%, transparent 22%),
     conic-gradient(
@@ -4705,31 +4941,92 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   pointer-events: auto;
 }
 
-.budget-stack-final-display {
+/* Manual budget terms use the same compact read/edit rhythm as the inline
+   instrument tables: clean strings at rest, one cohesive editor row on click,
+   and an automatic return to the string view when focus leaves the row. */
+.budget-inline-manual-row:not(.is-editing) {
+  cursor: pointer;
+}
+
+.budget-inline-manual-row.is-editing {
+  background: color-mix(
+    in srgb,
+    var(--primary-color) 5%,
+    var(--content-background)
+  );
+  box-shadow: inset 2px 0 0 var(--primary-color);
+}
+
+.budget-inline-manual-row.has-warning {
+  box-shadow: inset 2px 0 0 var(--status-warning, #e0a106);
+}
+
+.budget-inline-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 3px 7px;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  overflow: hidden;
+  border-radius: 4px;
+  background: var(--input-background);
+  color: var(--text-color);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  outline: none;
 }
 
-.budget-final-toggles {
-  position: absolute;
-  inset: 18px 20px auto 20px;
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  pointer-events: none;
+.budget-inline-input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.12);
 }
 
-.budget-final-toggles label {
-  display: flex;
+.budget-inline-name {
+  min-width: 110px;
+}
+
+.budget-inline-magnitude {
+  display: grid;
+  grid-template-columns: minmax(58px, 1fr) minmax(54px, 72px);
   align-items: center;
-  gap: 10px;
-  color: var(--text-color-muted);
+  gap: 4px;
+  min-width: 118px;
+}
+
+.budget-inline-unit,
+.budget-inline-type,
+.budget-inline-distribution {
+  box-sizing: border-box;
+  height: 28px;
+  min-width: 0;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.budget-inline-type {
+  width: 58px;
+}
+
+.budget-inline-mode-button {
+  width: 100%;
+  min-width: 100px;
+  padding: 3px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--primary-color);
+  font: inherit;
   font-size: 0.78rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  pointer-events: auto;
+  text-align: left;
+  cursor: pointer;
+}
+
+.budget-inline-mode-button:hover,
+.budget-inline-mode-button:focus-visible {
+  text-decoration: underline;
+}
+
+.budget-inline-empty {
+  color: var(--text-color-muted);
 }
 
 @media (max-width: 980px) {
@@ -4745,11 +5042,75 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
     grid-column: 1 / -1;
   }
 
-  .budget-final-toggles {
-    position: static;
-    width: 100%;
-    margin-bottom: 12px;
+}
+
+@media (max-width: 700px) {
+  .budget-section-title-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
+
+  .budget-section-title-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .budget-propagation-control {
+    max-width: 100%;
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+}
+
+.budget-mc-trials {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 2px;
+  color: var(--text-color-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.budget-mc-trials input {
+  width: 72px;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  color: var(--text-color);
+  background: var(--input-background);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-mc-trials input:focus {
+  border-color: var(--primary-color);
+  outline: none;
+}
+
+.budget-mc-trials.is-disabled {
+  color: color-mix(in srgb, var(--text-color-muted) 65%, transparent);
+}
+
+.budget-mc-trials input:disabled {
+  color: var(--text-color-muted);
+  background: color-mix(in srgb, var(--input-background) 55%, transparent);
+  border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
+.budget-propagation-remove {
+  appearance: none;
+  padding: 0;
+  color: var(--status-bad);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
 }
 
 /* Measurement equation section header — match panel section titles. */
@@ -6688,31 +7049,6 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   --pod-accent: var(--status-bad);
 }
 
-/* Display-settings gear that lives with the bottom readout toggles. */
-.budget-final-toggles .budget-settings-wrap {
-  pointer-events: auto;
-  margin-left: auto;
-}
-
-.budget-result-settings-btn {
-  pointer-events: auto;
-  background: transparent;
-  border: none;
-  color: var(--text-color-muted);
-  cursor: pointer;
-  font-size: 0.85rem;
-  padding: 4px 6px;
-  border-radius: 6px;
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease;
-}
-
-.budget-result-settings-btn:hover {
-  color: var(--primary-color);
-  background: var(--primary-color-light);
-}
-
 /* Separator for Guardband Section */
 .metrics-separator {
   width: 100%;
@@ -6974,6 +7310,51 @@ body.dark-mode .plot-floating-control input {
   transition:
     border-color 0.3s ease,
     background-color 0.3s ease;
+}
+
+/* Contribution chart: a quiet, token-driven surface that reads as part of the
+   budget instead of an embedded third-party widget. */
+.bargraph-container.contribution-plot,
+.bargraph-container.contribution-plot-empty {
+  height: var(--contribution-plot-height, 320px);
+  min-height: 300px;
+  margin-top: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  border-radius: 10px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--table-header-bg) 35%, transparent),
+      transparent 34%
+    ),
+    var(--component-bg);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
+}
+
+.bargraph-container.contribution-plot .modebar {
+  top: 8px !important;
+  right: 8px !important;
+}
+
+.bargraph-container.contribution-plot .modebar-btn {
+  color: var(--text-color-muted) !important;
+  opacity: 0.62;
+}
+
+.bargraph-container.contribution-plot .modebar-btn:hover {
+  color: var(--primary-color) !important;
+  opacity: 1;
+}
+
+.bargraph-container.contribution-plot-empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-color-muted);
+}
+
+body.dark-mode .bargraph-container.contribution-plot,
+body.dark-mode .bargraph-container.contribution-plot-empty {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
 }
 
 /* --- Edit Session Modal - Overview Text Row --- */
@@ -8628,39 +9009,27 @@ body.theme-cyberpunk .floating-tool {
   border-color: var(--status-bad);
 }
 
-/* Direct/derived mode toggle beside each UUT's "+" add-point button. A compact
-   two-state segmented control: "x" = direct measured value, "ƒ" = derived
-   (equation) point. */
-.point-mode-toggle {
+/* Direct/derived uses the same physical switch language as the propagation and
+   DOF controls, but stays compact enough for a UUT tree row. */
+.point-mode-control {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius);
-  overflow: hidden;
-  height: 22px;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 2px;
+  white-space: nowrap;
 }
-.point-mode-toggle .point-mode-opt {
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  background: transparent;
+
+.point-mode-label {
   color: var(--text-color-muted);
-  cursor: pointer;
-  font-size: 0.72rem;
-  font-style: italic;
+  font-size: 0.66rem;
+  font-weight: 650;
   line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  transition: color 0.15s ease;
 }
-.point-mode-toggle .point-mode-opt:hover {
-  color: var(--text-color);
-  background: var(--hover-bg, rgba(127, 127, 127, 0.12));
-}
-.point-mode-toggle .point-mode-opt.active {
-  background: var(--primary-color);
-  color: #fff;
+
+.point-mode-label.is-active {
+  color: var(--primary-color);
 }
 
 /* --- 2. Base Unit Dropdown Fix (Inside Meta Grid) --- */
@@ -9767,20 +10136,91 @@ body.theme-cyberpunk .notification-window .window-header {
 
 .measurement-equation-section {
   margin-bottom: 24px;
+  order: 3;
+}
+
+.configuration-panel > .uut-measurement-grid {
+  order: 1;
+}
+
+.measurement-tmde-section {
+  order: 2;
+}
+
+.measurement-budget-section {
+  order: 4;
 }
 
 .measurement-equation-block {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.measurement-equation-block > .panel-section-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.measurement-equation-input-panel {
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.measurement-equation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
 }
 
 .measurement-equation-card {
+  width: 100%;
+  box-sizing: border-box;
   background-color: var(--content-background);
   border: 1px solid var(--border-color);
   border-radius: 8px;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.025);
   padding: 14px;
-  max-width: 900px;
+  max-width: none;
   overflow: auto;
+}
+
+.measurement-equation-card.is-editor-collapsed {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  overflow: visible;
+}
+
+.measurement-equation-card.is-editor-open {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  overflow: visible;
+}
+
+/* The equation is intentionally centered within the generous left-hand pane.
+   Keep the editor and its preview on the same visual axis so switching between
+   compact and expanded states never makes the equation jump to a corner. */
+.measurement-equation-card.is-editor-collapsed > .scoped-zoom-content,
+.measurement-equation-card.is-editor-open > .scoped-zoom-content {
+  align-items: center;
+}
+
+.measurement-equation-card.measurement-equation-inputs-card {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  overflow: visible;
+  display: block;
 }
 
 .measurement-equation-card > .scoped-zoom-content {
@@ -9795,6 +10235,276 @@ body.theme-cyberpunk .notification-window .window-header {
 .measurement-equation-input-row {
   display: flex;
   align-items: stretch;
+}
+
+.measurement-equation-editor-stack {
+  width: min(100%, 760px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.measurement-equation-name-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 2px;
+}
+
+.measurement-equation-name-label {
+  flex: 0 0 auto;
+  color: var(--text-color-muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.measurement-equation-name-field input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--input-background);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.measurement-equation-name-field input:focus {
+  border-color: var(--primary-color);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.12);
+}
+
+.measurement-equation-editor {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.measurement-equation-preview {
+  display: flex;
+  min-width: 0;
+  min-height: 96px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin-top: 0;
+  padding: 8px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-color);
+  text-align: left;
+}
+
+.measurement-equation-preview-trigger {
+  width: 100%;
+  min-height: 96px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.measurement-equation-preview-trigger:hover {
+  color: var(--primary-color);
+  background: transparent;
+}
+
+.measurement-equation-preview-trigger:focus-visible {
+  outline: 2px solid rgba(var(--primary-rgb), 0.45);
+  outline-offset: -2px;
+}
+
+.measurement-equation-preview-markup {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0 6px;
+  scrollbar-width: thin;
+}
+
+.measurement-equation-preview .katex-display {
+  margin: 0;
+  min-width: max-content;
+  padding: 0 2px;
+  text-align: center;
+}
+
+.measurement-equation-preview .katex {
+  /* The equation owns the full row now, so it can read as the visual anchor
+     while still scaling down safely for long expressions. */
+  font-size: clamp(1.08rem, 1.55vw, 1.52rem);
+}
+
+.measurement-equation-preview-empty {
+  color: var(--text-color-muted);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.measurement-equation-inputs-empty {
+  padding: 14px 4px;
+  color: var(--text-color-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.measurement-inputs-table-wrap {
+  width: 100%;
+  max-height: 460px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.measurement-equation-inputs-card {
+  width: 100%;
+  min-width: 0;
+}
+
+.measurement-equation-inputs-card .measurement-equation-status {
+  margin: 0;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border-color);
+  justify-content: center;
+  text-align: center;
+}
+
+.measurement-inputs-table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin: 0;
+}
+
+.measurement-inputs-table th {
+  height: 30px;
+  padding: 6px 10px;
+  color: var(--text-color-muted);
+  background: color-mix(in srgb, var(--surface-sunken) 72%, transparent);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.measurement-inputs-table td {
+  height: 42px;
+  padding: 5px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
+  vertical-align: middle;
+}
+
+.measurement-inputs-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.measurement-input-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 7px;
+  border-radius: 6px;
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 9%, transparent);
+  font-family: "Cambria Math", "STIX Two Math", serif;
+  font-size: 0.98rem;
+  font-weight: 700;
+  box-sizing: border-box;
+}
+
+.measurement-input-name,
+.measurement-input-value {
+  width: 100%;
+  min-width: 0;
+}
+
+.measurement-input-cell-editor {
+  width: 100%;
+  min-width: 0;
+}
+
+.measurement-input-summary {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 3px 7px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color);
+  cursor: text;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.measurement-input-summary:hover,
+.measurement-input-summary:focus-visible {
+  border-color: var(--border-color);
+  background: color-mix(in srgb, var(--primary-color) 5%, transparent);
+  outline: none;
+}
+
+.measurement-input-summary.is-empty {
+  color: var(--text-color-muted);
+  font-weight: 500;
+  font-style: italic;
+}
+
+.measurement-input-name {
+  max-width: 280px;
+}
+
+.measurement-input-value:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.measurement-input-nominal {
+  display: grid;
+  grid-template-columns: minmax(0, 140px) 124px;
+  align-items: center;
+  gap: 6px;
+  width: min(100%, 270px);
+  min-width: 0;
+}
+
+@media (max-width: 700px) {
+  .measurement-inputs-table th,
+  .measurement-inputs-table td {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
 }
 
 .measurement-equation-input {
@@ -9859,6 +10569,27 @@ body.theme-cyberpunk .notification-window .window-header {
 .measurement-equation-card .add-point-fx-button.is-library svg {
   font-size: 0.8rem;
   opacity: 0.85;
+}
+
+@media (max-width: 1180px) {
+  .measurement-equation-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .measurement-equation-preview {
+    margin-top: 0;
+    min-height: 52px;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .measurement-equation-preview-trigger {
+    min-height: 52px;
+  }
+
+  .measurement-equation-editor-stack {
+    width: min(100%, 760px);
+  }
 }
 
 /* Inline variable mapper: mirrors the Add/Edit Measurement Point modal's
@@ -10111,24 +10842,24 @@ body.theme-cyberpunk .notification-window .window-header {
 .measurement-equation-status {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-size: 0.82rem;
+  justify-content: flex-start;
+  gap: 16px;
+  padding: 2px 2px 0;
+  font-size: 0.76rem;
   font-weight: 600;
 }
 
 .measurement-equation-status-main {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   min-width: 0;
+  white-space: nowrap;
 }
 
 .measurement-equation-status-target {
   color: var(--text-color-muted);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   white-space: nowrap;
 }
 
@@ -10164,8 +10895,8 @@ body.theme-cyberpunk .notification-window .window-header {
 }
 
 .measurement-equation-var-grid .var-card-body {
-  padding: 10px;
-  gap: 10px;
+  padding: 9px 10px 10px;
+  gap: 8px;
 }
 
 .measurement-equation-var-grid .var-source-select {
@@ -10174,7 +10905,14 @@ body.theme-cyberpunk .notification-window .window-header {
 }
 
 .measurement-equation-var-grid .var-value-display {
-  padding: 7px 9px;
+  width: min(100%, 220px);
+  min-height: 32px;
+  height: 32px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  overflow: hidden;
 }
 
 .measurement-equation-var-grid .var-val {
@@ -10195,8 +10933,52 @@ body.theme-cyberpunk .notification-window .window-header {
 }
 
 .measurement-equation-value-field .var-value-display {
-  min-height: 36px;
+  min-height: 32px;
   background: var(--input-background);
+}
+
+.measurement-equation-value-field .var-value-input {
+  height: 100%;
+  min-height: 32px;
+  padding: 0 9px;
+  box-sizing: border-box;
+}
+
+.measurement-equation-value-field .inline-unit-select {
+  align-self: stretch;
+  width: 78px;
+  min-width: 78px;
+  height: 100%;
+  flex: 0 0 78px;
+}
+
+.measurement-equation-value-field .inline-unit-combobox {
+  height: 100%;
+  min-height: 32px;
+  border: 0;
+  border-left: 1px solid var(--border-color);
+  border-radius: 0;
+  padding: 0 7px;
+  background: transparent;
+}
+
+.measurement-equation-value-field .inline-unit-combobox:hover,
+.measurement-equation-value-field .inline-unit-combobox:focus,
+.measurement-equation-value-field .inline-unit-combobox.is-open {
+  border-color: var(--primary-color);
+  border-left-color: var(--primary-color);
+}
+
+.measurement-equation-value-field .inline-unit-split-select {
+  width: 124px;
+  min-width: 124px;
+  flex-basis: 124px;
+}
+
+.measurement-equation-value-field .inline-unit-split-select .inline-unit-combobox {
+  border: 0;
+  border-left: 1px solid var(--border-color);
+  border-radius: 0;
 }
 
 .var-value-input {
@@ -10471,6 +11253,13 @@ body.theme-cyberpunk .notification-window .window-header {
   max-width: 0; /* Needed for text-overflow to work with table-layout: fixed */
 }
 
+/* When the inline tolerance editor grows to multiple lines, keep the UUT
+   description and active badge centered with the neighboring range/resolution
+   controls instead of leaving them stranded at the top of the tall row. */
+.instrument-summary-table tbody tr:has(.inline-tolerance-editor) > td.cell-description {
+  vertical-align: middle;
+}
+
 /* Tolerance & value cells: top-align for multi-spec rows */
 .instrument-summary-table td.cell-tolerance,
 .instrument-summary-table td.cell-value,
@@ -10507,6 +11296,12 @@ body.theme-cyberpunk .notification-window .window-header {
 
 .panel-table-container .equipment-detail-table {
   min-width: 1120px;
+}
+
+/* Inline UUT/TMDE editors need enough room for a resolution magnitude, unit,
+   optional metric prefix, and distribution without entering the Sync column. */
+.panel-table-container .instrument-equipment-table {
+  min-width: 1200px;
 }
 
 .equipment-summary-table th,
@@ -10727,6 +11522,18 @@ input.inline-function-input:focus {
   font-size: 0.78rem;
 }
 
+/* The compact non-search selectors (prefix and resolution distribution) use
+   the same portaled menu as the full unit picker. */
+.inline-menu-select {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.inline-menu-select-trigger {
+  width: 100%;
+}
+
 .inline-unit-split-select {
   display: inline-grid;
   grid-template-columns: minmax(56px, 1fr) var(--inline-prefix-width, 58px);
@@ -10780,34 +11587,14 @@ input.inline-function-input:focus {
 
 .inline-unit-prefix-select {
   width: var(--inline-prefix-width, 58px);
-  height: 24px;
-  min-height: 24px;
-  padding: 0 5px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  background-color: transparent;
-  color: var(--text-color);
-  cursor: pointer;
+  min-width: var(--inline-prefix-width, 58px);
+  flex: 0 0 var(--inline-prefix-width, 58px);
+}
+
+.inline-unit-prefix-select .inline-menu-select-trigger {
   font-size: 0.76rem;
-  line-height: 22px;
-  box-sizing: border-box;
-}
-
-.inline-unit-prefix-select:disabled {
-  color: var(--text-color-muted);
-  cursor: default;
-  opacity: 0.65;
-}
-
-.inline-unit-prefix-select:hover:not(:disabled),
-.inline-unit-prefix-select:focus {
-  border-color: var(--primary-color);
-  outline: none;
-}
-
-.inline-unit-prefix-select option {
-  background: var(--component-bg);
-  color: var(--text-color);
+  padding-left: 5px;
+  padding-right: 5px;
 }
 
 .inline-unit-menu {
@@ -10903,9 +11690,9 @@ input.inline-function-input:focus {
 .inline-resolution-editor {
   display: inline-flex;
   align-items: center;
-  /* Edit view now carries magnitude + unit + distribution; allow it to wrap so
-     the distribution picker never gets clipped in a narrow Resolution column. */
-  flex-wrap: wrap;
+  /* Keep the magnitude, unit, and distribution controls on one editing line.
+     The distribution selector belongs immediately beside the unit selector. */
+  flex-wrap: nowrap;
   gap: 4px;
   width: auto;
   min-width: 0;
@@ -10934,6 +11721,31 @@ input.inline-function-input:focus {
 .inline-range-mode-toggle:hover {
   color: var(--text-color);
   border-color: var(--primary-color);
+}
+
+/* Clear only the bounds while preserving the range-owned all-values
+   tolerance. This is deliberately quieter than the destructive row delete. */
+.inline-range-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+}
+
+.inline-range-clear:hover,
+.inline-range-clear:focus-visible {
+  color: var(--primary-color);
+  background: var(--input-background);
+  outline: none;
 }
 
 /* "Use this resolution in the budget" toggle, sits right of the unit dropdown. */
@@ -11134,6 +11946,21 @@ input.inline-function-input:focus {
   margin-left: 4px;
 }
 
+/* Destructive function actions stay visually quiet until the user is working
+   in that function header. Keyboard focus reveals the action as well. */
+.function-header-row .function-header-action-btn.range-header-action-btn--delete {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+
+.function-header-row:hover .function-header-action-btn.range-header-action-btn--delete,
+.function-header-row:focus-within .function-header-action-btn.range-header-action-btn--delete,
+.function-header-row .function-header-action-btn.range-header-action-btn--delete:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .function-header-collapse-btn {
   width: 24px;
   height: 24px;
@@ -11187,6 +12014,20 @@ input.inline-function-input:focus {
   border-bottom: 1px dashed var(--border-color);
 }
 
+/* The range editor contains two bounds plus a unit control. Keep that editor
+   above the adjacent tolerance cell so its unit selector's border and label
+   are never painted over at the column boundary. */
+.industry-table tbody tr.inline-range-row > td.cell-value:has(.inline-range-editor) {
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+}
+
+.industry-table tbody tr.inline-range-row > td.cell-tolerance {
+  position: relative;
+  z-index: 1;
+}
+
 /* Separate one instrument's range block from the next with a solid rule. */
 .industry-table tbody tr.inline-range-row--first > td {
   border-top: 1px solid var(--border-color-strong);
@@ -11196,7 +12037,7 @@ input.inline-function-input:focus {
   border-bottom: 1px solid var(--border-color-strong);
 }
 
-/* rowSpan Description / Sync cells stay top-aligned over the group. */
+/* rowSpan Description / Sync cells stay vertically centered over the group. */
 .industry-table tbody tr.inline-range-row--first > td.cell-description,
 .industry-table tbody tr.inline-range-row--first > td.cell-sync {
   vertical-align: middle;
@@ -11222,6 +12063,14 @@ input.inline-function-input:focus {
 .industry-table tbody tr.inline-range-row.is-active-range > td.cell-description,
 .industry-table tbody tr.inline-range-row.is-active-range > td.cell-sync {
   box-shadow: none;
+}
+
+/* Ctrl/Cmd-selected ranges get a restrained second highlight so a multi-range
+   Delete is visible without competing with the single active-range accent. */
+.industry-table tbody tr.inline-range-row.is-selected-range > td.cell-value[data-range-cell],
+.industry-table tbody tr.inline-range-row.is-selected-range > td.cell-value:has(.inline-resolution-editor) {
+  background-color: color-mix(in srgb, var(--primary-color) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 55%, transparent);
 }
 
 /* Range cell: editor fills the row, delete tucks to the right edge. */
@@ -11255,9 +12104,9 @@ input.inline-function-input:focus {
   transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
 }
 
-/* Reveal the delete affordance when the row is hovered or active. */
+/* Reveal the delete affordance only while the row is hovered or keyboard-focused. */
 .industry-table tbody tr.inline-range-row:hover .range-row-delete,
-.industry-table tbody tr.inline-range-row.is-active-range .range-row-delete {
+.range-row-delete:focus-visible {
   opacity: 1;
 }
 
@@ -11271,8 +12120,8 @@ input.inline-function-input:focus {
   opacity: 0;
 }
 
-/* --- Collapsed range cell: active range inline + the expand affordance that
-   opens the full editable list (add via ghost row, remove by clearing). --- */
+/* --- Collapsed range cell: clicking the active range opens the full editable
+   list (add via ghost row; remove with the per-range hover action). --- */
 .range-collapsed-cell {
   display: flex;
   align-items: center;
@@ -11339,6 +12188,20 @@ input.inline-function-input:focus {
   color: var(--text-color-muted);
   opacity: 0.5;
   font-size: 0.85em;
+}
+
+.range-ghost-tolerance {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.range-ghost-tolerance:hover .range-ghost-hint,
+.range-ghost-tolerance:focus-visible .range-ghost-hint {
+  color: var(--primary-color);
+  opacity: 1;
 }
 
 /* The inherited-unit label shown (non-editable) in the ghost add-row. */
@@ -11408,11 +12271,39 @@ input.inline-function-input:focus {
 .inline-tolerance-summary.is-empty {
   color: var(--text-color-muted);
   font-style: italic;
+  min-width: 100%;
+  min-height: 24px;
+}
+
+/* Unset tolerance, distribution, and resolution controls should only react
+   when their visible label is clicked. RangeCell intentionally retains its
+   full-row editor wrapper, so scope this to the shared read-view wrapper. */
+.inline-tolerance-readview .inline-tolerance-summary.is-empty {
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.inline-tolerance-readview:has(.inline-tolerance-summary.is-empty) {
+  width: auto;
+  max-width: 100%;
 }
 
 .inline-tolerance-summary.is-empty:hover,
 .inline-tolerance-summary.is-empty:focus-visible {
   color: var(--primary-color);
+}
+
+/* Distribution cannot be authored until its tolerance band exists. Keep that
+   unavailable Not Set state visually consistent without implying a click. */
+.inline-tolerance-summary.is-static {
+  cursor: default;
+}
+
+.inline-tolerance-summary.is-empty.is-static:hover {
+  color: var(--text-color-muted);
+  border-color: transparent;
+  background: transparent;
 }
 
 /* Read view of the tolerance cell: summary text + the hover-revealed
@@ -11433,6 +12324,108 @@ input.inline-function-input:focus {
   white-space: nowrap;
 }
 
+/* The workbook-style single-sided control has a direction selector and one
+   compact row for each measurement state. This keeps it inside its table cell
+   while making the selected calculation mode explicit. */
+.inline-tolerance-term--single-sided {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  width: 100%;
+  white-space: normal;
+}
+
+.inline-tolerance-single-sided-header,
+.inline-tolerance-single-sided-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.inline-tolerance-single-sided-header {
+  height: 24px;
+}
+
+.inline-tolerance-single-sided-row {
+  display: grid;
+  grid-template-columns: max-content max-content max-content;
+  gap: 5px;
+  justify-content: start;
+  min-height: 24px;
+  padding: 1px 3px;
+  border-radius: 4px;
+}
+
+.inline-tolerance-single-sided-choice {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 5px;
+  color: var(--text-color-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.inline-tolerance-single-sided-choice input {
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--primary-color);
+}
+
+.inline-tolerance-single-sided-row.is-selected .inline-tolerance-single-sided-choice {
+  color: var(--text-color);
+}
+
+.inline-tolerance-term--single-sided .inline-tolerance-chip--in-cell {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  box-sizing: border-box;
+  line-height: 1;
+}
+
+.uncertainty-module .industry-table .inline-tolerance-selector,
+.uncertainty-module .instrument-summary-table .inline-tolerance-selector {
+  flex: 0 0 auto;
+  height: 24px;
+  min-width: 0;
+  max-height: 24px;
+  padding: 2px 24px 2px 7px;
+  font-size: 0.78rem;
+  line-height: 18px;
+  box-sizing: border-box;
+}
+
+/* Resolution's distribution control is the same compact, 72px control as the
+   adjacent unit selector; keep the table-wide select minimum from stretching
+   it back into the next column. */
+.uncertainty-module .instrument-summary-table .inline-resolution-editor
+  > .inline-resolution-dist.inline-unit-like-selector {
+  flex: 0 0 var(--inline-unit-width, 72px);
+  width: var(--inline-unit-width, 72px);
+  min-width: var(--inline-unit-width, 72px);
+  max-width: var(--inline-unit-width, 72px);
+}
+
+.inline-tolerance-single-sided-row .inline-tolerance-limits {
+  min-width: 0;
+}
+
+.inline-tolerance-single-sided-row .inline-tolerance-input {
+  width: 100% !important;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.inline-tolerance-single-sided-row .inline-tolerance-input:disabled {
+  color: var(--text-color-muted);
+  cursor: pointer;
+  opacity: 0.65;
+}
+
 .inline-tolerance-term-group {
   display: inline-flex;
   align-items: center;
@@ -11441,18 +12434,154 @@ input.inline-function-input:focus {
   min-height: 24px;
   padding: 3px 5px;
   margin: 0;
-  border: 1px solid transparent;
-  border-radius: 5px;
+  border: 0;
+  border-radius: 0;
   white-space: nowrap;
   box-sizing: border-box;
-  transition:
-    border-color 0.15s ease,
-    background-color 0.15s ease;
 }
 
-.inline-tolerance-term-group:hover {
+/* Shared Type B cards use the same compact tolerance summary/read view as the
+   inline range tables. Keep the editor contained inside the card instead of
+   stretching the builder. */
+.typeb-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.typeb-card {
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--background-color);
+}
+
+.typeb-card-header {
+  margin-bottom: 0;
+}
+
+.typeb-card-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 8px 12px;
+  padding: 10px 12px;
+}
+
+.typeb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font-size: 0.72rem;
+}
+
+.typeb-scope-field {
+  width: 100%;
+}
+
+.typeb-scope-field select,
+.typeb-field > input,
+.typeb-field > select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.typeb-tolerance-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 0.72rem;
+}
+
+.typeb-tolerance-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(112px, auto);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.typeb-tolerance-editor--single {
+  display: block;
+}
+
+.typeb-tolerance-main {
+  min-width: 0;
+}
+
+.typeb-tolerance-distribution {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  min-width: 112px;
+  min-height: 24px;
+  font-size: 0.72rem;
+  color: var(--text-color-muted);
+}
+
+.typeb-tolerance-distribution-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.typeb-tolerance-distribution select {
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  padding: 2px 5px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--input-background);
+  color: var(--text-color);
+  font-size: 0.72rem;
+  box-sizing: border-box;
+}
+
+.typeb-tolerance-distribution select:focus {
   border-color: var(--primary-color);
-  background: rgba(var(--primary-rgb), 0.06);
+  outline: none;
+}
+
+.typeb-distribution-field {
+  align-self: start;
+}
+
+.typeb-distribution-field select {
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--input-background);
+  color: var(--text-color);
+  font-size: 0.78rem;
+}
+
+.typeb-distribution-field select:focus {
+  border-color: var(--primary-color);
+  outline: none;
+}
+
+.typeb-tolerance-form {
+  width: 100%;
+  max-height: 420px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--background-color);
+  box-sizing: border-box;
+}
+
+.typeb-scope-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.72rem;
 }
 
 .inline-tolerance-limits {
@@ -11675,6 +12804,14 @@ input.inline-resolution-input {
   min-width: 52px;
 }
 
+/* Measurement inputs intentionally reuse the inline UUT/TMDE field classes.
+   Only relax their fixed cell widths so they fill these wider table columns. */
+.measurement-inputs-table input.inline-tolerance-input.measurement-input-value {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 /* Two-view Distribution cell (TMDE tables): edit view wraps the dropdown so it
    fills the column the same way the other inline editors do. */
 .inline-distribution-editor {
@@ -11688,14 +12825,49 @@ input.inline-resolution-input {
   min-width: 0;
 }
 
+/* Spec-band distribution editors use the same custom, portaled menu as the
+   resolution selector. Keep the trigger compact while giving the TMDE tables
+   enough room to show the selected distribution label. */
+.inline-menu-select.inline-distribution-select {
+  flex: 0 0 var(--inline-unit-width, 118px);
+  width: var(--inline-unit-width, 118px);
+  min-width: var(--inline-unit-width, 118px);
+  max-width: var(--inline-unit-width, 118px);
+  height: 24px;
+  min-height: 24px;
+  max-height: 24px;
+  box-sizing: border-box;
+}
+
+.inline-menu-select.inline-distribution-select .inline-menu-select-trigger {
+  border-radius: 4px;
+  padding: 0 6px;
+}
+
 /* Resolution-cell distribution picker (its rounding distribution for the
    budget). Compact so the value + unit + distribution fit one editing row. */
-select.inline-resolution-dist {
-  flex: 0 1 auto;
-  max-width: 130px;
-  min-width: 72px;
+.inline-menu-select.inline-resolution-dist.inline-unit-like-selector {
+  flex: 0 0 var(--inline-unit-width, 72px);
+  width: var(--inline-unit-width, 72px);
+  min-width: var(--inline-unit-width, 72px);
+  max-width: var(--inline-unit-width, 72px);
   height: 24px;
+  min-height: 24px;
+  max-height: 24px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color-muted);
   font-size: 0.78rem;
+  line-height: 1;
+}
+
+.inline-menu-select.inline-resolution-dist.inline-unit-like-selector
+  .inline-menu-select-trigger {
+  border-radius: 4px;
+  padding: 0 6px;
 }
 
 .inline-tolerance-unit,
@@ -11721,9 +12893,19 @@ select.inline-resolution-dist {
 }
 
 .inline-tolerance-chip--in-cell {
+  display: inline-flex;
+  align-items: center;
   flex: 0 0 auto;
-  height: 22px;
+  height: 24px;
   font-size: 0.7rem;
+}
+
+/* Floor and dB are static unit labels, not editable controls. */
+.inline-tolerance-chip--static {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
 }
 
 /* Clickable unit chip (floor term) — reads as a picker, not a static tag. */
@@ -11740,12 +12922,6 @@ select.inline-resolution-dist {
   color: var(--primary-color);
   border-color: var(--primary-color);
   background: rgba(var(--primary-rgb), 0.06);
-}
-
-.inline-tolerance-term-group:hover .inline-tolerance-chip {
-  border-color: transparent;
-  color: var(--primary-color);
-  background: transparent;
 }
 
 .inline-tolerance-chip.is-pending {
@@ -12717,10 +13893,12 @@ input.area-label-edit {
 
 .uut-actions-group {
   display: flex;
+  align-items: center;
   gap: 2px;
   opacity: 0;
   transition: opacity 0.15s ease;
   flex-shrink: 0;
+  position: relative;
 }
 
 .uut-row:hover .uut-actions-group,
@@ -12860,7 +14038,9 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
   color: var(--primary-color);
   font-weight: 700;
   border-color: transparent;
-  border-left: 3px solid var(--primary-color);
+  /* An inset rail communicates selection without changing the grid's content
+     box. A wider real border shifted every selected cell away from its header. */
+  box-shadow: inset 3px 0 0 var(--primary-color);
 }
 
 /* --- POINT FIELDS (The Editable Text) --- */
@@ -12883,12 +14063,42 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
   font-family: "Consolas", monospace;
   font-weight: 600;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  text-overflow: clip;
   transition: all 0.1s ease;
   border: 1px solid transparent;
   border-radius: 3px;
   padding: 0 2px;
+}
+
+/* Keep a point's native unit beside its value so same-function points with
+   different range units remain immediately distinguishable in the sidebar. */
+.point-value-with-unit {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: max-content;
+  width: 100%;
+  overflow: visible;
+}
+
+.point-value-number {
+  min-width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.point-value-unit {
+  flex: 0 0 auto;
+  color: var(--text-color-muted);
+  font-family: inherit;
+  font-size: 1em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.point-value-unit--editor {
+  padding-right: 2px;
 }
 
 /* --- INTERACTION STATES (Visual Cues) --- */
@@ -12927,7 +14137,7 @@ body.dark-mode .point-grid-item.active {
     0.15
   ); /* Slightly stronger in dark mode */
   color: var(--primary-color);
-  border-left: 3px solid var(--primary-color);
+  box-shadow: inset 3px 0 0 var(--primary-color);
 }
 
 /* 2. Orbital Theme Override */
@@ -12938,8 +14148,8 @@ body.theme-orbital .point-grid-item.active {
     transparent 100%
   );
   color: var(--primary-color-dark);
-  border-left: 3px solid var(--primary-color);
-  box-shadow: none;
+  border-left-color: transparent;
+  box-shadow: inset 3px 0 0 var(--primary-color);
 }
 
 /* 3. Cyberpunk Theme Override - REFINED (Readable) */
@@ -12961,8 +14171,10 @@ body.theme-cyberpunk.dark-mode .point-grid-item.active {
   background-color: rgba(0, 0, 0, 0.7);
   color: var(--primary-color);
   border: 1px solid var(--primary-color);
-  border-left: 5px solid var(--primary-color);
-  box-shadow: inset 0 0 10px rgba(var(--primary-rgb), 0.2);
+  border-left-color: var(--primary-color);
+  box-shadow:
+    inset 3px 0 0 var(--primary-color),
+    inset 0 0 10px rgba(var(--primary-rgb), 0.2);
   text-shadow: 0 0 3px var(--primary-color);
   animation: none;
 }
@@ -13485,6 +14697,69 @@ body.theme-cyberpunk .industry-table tr.selected-row {
   width: 20px;
   height: 20px;
   font-size: 0.65rem;
+  border-color: transparent;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+}
+
+.uut-actions-group .btn-icon-only.small:hover {
+  border-color: transparent;
+  background: var(--primary-color-light);
+  transform: none;
+}
+
+/* When one function exposes multiple range units, the UUT quick-add button
+   asks which unit the new measurement point should use. Keep this chooser
+   anchored to the action cluster so it never changes the sidebar row layout. */
+.point-unit-picker {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  padding: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--header-background);
+  box-shadow: var(--box-shadow-glow);
+}
+
+.point-unit-picker-title {
+  padding: 2px 6px 4px;
+  color: var(--text-color-muted, var(--text-color));
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.point-unit-picker button {
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 0.78rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.point-unit-picker button:hover,
+.point-unit-picker button:focus-visible {
+  background: var(--primary-color);
+  color: #fff;
+  outline: none;
+}
+
+.point-unit-picker .point-unit-picker-cancel {
+  margin-top: 2px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-color-muted, var(--text-color));
 }
 
 /* =================================================================== */
@@ -13670,7 +14945,7 @@ body.theme-cyberpunk .area-header-sticky {
 /* Table Selection Highlight for Sidebar Items */
 .point-grid-item.table-highlight:not(.active) {
     background-color: var(--primary-color-light);
-    border-left: 2px dashed var(--primary-color);
+    box-shadow: inset 2px 0 0 var(--primary-color);
 }
 
 /* Ensure the value text is slightly bolder to indicate relation */
@@ -14204,6 +15479,26 @@ body.dark-mode
   height: 100%;
 }
 
+.uncertainty-module .app-header-emblem-layers {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.uncertainty-module .app-header-emblem-fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 1;
+  transition: opacity 0.18s ease;
+}
+
+.uncertainty-module .app-header-emblem-fallback.is-ready {
+  opacity: 0;
+}
+
 body:not(.dark-mode)
   .uncertainty-module
   .app-chrome-brand-mark-img {
@@ -14213,6 +15508,8 @@ body:not(.dark-mode)
 /* The 3D canvas fills the plate and must not capture pointer events (the
    medallion is decorative / non-interactive in the header). */
 .uncertainty-module .app-chrome-brand-mark-img canvas {
+  position: absolute !important;
+  inset: 0;
   width: 100% !important;
   height: 100% !important;
   pointer-events: none;
@@ -14351,6 +15648,353 @@ body:not(.dark-mode)
   padding: 10px 14px;
 }
 
+/* --- Session notes workspace ------------------------------------------- */
+.session-notes-workspace {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  color: var(--text-color);
+}
+
+.session-notes-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  color: var(--text-color-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.session-notes-save-state.is-saved {
+  color: var(--success-color, #1b9a66);
+}
+
+.session-notes-save-state.is-error {
+  color: var(--danger-color, #d84d5c);
+}
+
+.session-notes-document-shell {
+  position: relative;
+  overflow: visible;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-background, var(--panel-background));
+  box-shadow: 0 8px 28px rgba(10, 24, 46, 0.06);
+}
+
+.session-notes-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-height: 44px;
+  padding: 6px 9px;
+  border-bottom: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--card-background, var(--panel-background)) 92%, var(--primary-color) 8%);
+}
+
+.session-notes-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 31px;
+  height: 31px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.session-notes-toolbar button:hover,
+.session-notes-toolbar button:focus-visible {
+  border-color: var(--border-color);
+  background: var(--input-background);
+  color: var(--primary-color);
+  outline: none;
+}
+
+.session-notes-toolbar-spacer {
+  flex: 1 1 18px;
+}
+
+.session-notes-file-input {
+  display: none;
+}
+
+.session-notes-image-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 46px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--card-background, var(--panel-background)) 94%, var(--primary-color) 6%);
+  box-shadow: 0 5px 14px rgba(8, 18, 35, 0.06);
+}
+
+.session-notes-image-toolbar-label {
+  padding: 0 7px 0 2px;
+  color: var(--primary-color);
+  font-size: 0.73rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.session-notes-image-tool-group,
+.session-notes-image-wrap-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+  border-right: 1px solid var(--border-color);
+}
+
+.session-notes-image-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 29px;
+  height: 29px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+}
+
+.session-notes-image-toolbar button:hover,
+.session-notes-image-toolbar button:focus-visible,
+.session-notes-image-toolbar button.is-active {
+  border-color: color-mix(in srgb, var(--primary-color) 35%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+  color: var(--primary-color);
+  outline: none;
+}
+
+.session-notes-image-width-control,
+.session-notes-image-caption-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 31px;
+  color: var(--text-color-muted);
+  font-size: 0.7rem;
+}
+
+.session-notes-image-width-control input[type="range"] {
+  width: 88px;
+  accent-color: var(--primary-color);
+}
+
+.session-notes-image-width-control output {
+  min-width: 30px;
+  color: var(--text-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.session-notes-image-caption-control {
+  flex: 1 1 230px;
+  min-width: 190px;
+}
+
+.session-notes-image-caption-control input {
+  flex: 1 1 auto;
+  min-width: 120px;
+  height: 29px;
+  padding: 0 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--input-background);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.session-notes-image-caption-control input:focus {
+  border-color: var(--primary-color);
+  outline: none;
+}
+
+.session-notes-image-delete {
+  color: var(--danger-color, #d84d5c) !important;
+}
+
+.session-notes-editor {
+  min-height: clamp(420px, 56vh, 760px);
+  padding: clamp(30px, 5vw, 68px) clamp(30px, 7vw, 92px);
+  background: var(--card-background, var(--panel-background));
+  color: var(--text-color);
+  font-size: 0.98rem;
+  line-height: 1.72;
+  overflow-wrap: anywhere;
+  outline: none;
+}
+
+.session-notes-editor::after {
+  content: "";
+  display: block;
+  clear: both;
+}
+
+.session-notes-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-color-muted);
+  opacity: 0.68;
+  pointer-events: none;
+}
+
+.session-notes-editor h1,
+.session-notes-editor h2,
+.session-notes-editor h3 {
+  line-height: 1.25;
+  margin: 1.4em 0 0.55em;
+}
+
+.session-notes-editor p {
+  margin: 0 0 0.9em;
+}
+
+.session-notes-editor blockquote {
+  margin: 1.2em 0;
+  padding: 2px 0 2px 18px;
+  border-left: 3px solid var(--primary-color);
+  color: var(--text-color-muted);
+}
+
+.session-notes-editor a {
+  color: var(--primary-color);
+  text-decoration: underline;
+}
+
+.session-notes-editor figure {
+  position: relative;
+  max-width: 100%;
+  margin: 26px auto;
+  text-align: center;
+  cursor: grab;
+  transition: margin 0.15s ease, box-shadow 0.15s ease;
+}
+
+.session-notes-editor figure:active {
+  cursor: grabbing;
+}
+
+.session-notes-editor figure[data-note-align="left"][data-note-wrap="none"] {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.session-notes-editor figure[data-note-align="center"][data-note-wrap="none"] {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.session-notes-editor figure[data-note-align="right"][data-note-wrap="none"] {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.session-notes-editor figure[data-note-wrap="left"] {
+  float: left;
+  margin: 8px 24px 14px 0;
+}
+
+.session-notes-editor figure[data-note-wrap="right"] {
+  float: right;
+  margin: 8px 0 14px 24px;
+}
+
+.session-notes-editor figure img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  max-height: 680px;
+  margin: 0 auto;
+  border-radius: 6px;
+  object-fit: contain;
+  box-shadow: 0 5px 20px rgba(8, 18, 35, 0.14);
+}
+
+.session-notes-editor figcaption {
+  margin-top: 8px;
+  color: var(--text-color-muted);
+  font-size: 0.78rem;
+  cursor: text;
+}
+
+.session-notes-image-selection {
+  position: absolute;
+  z-index: 12;
+  box-sizing: border-box;
+  border: 2px solid var(--primary-color);
+  border-radius: 6px;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--card-background, #fff) 75%, transparent);
+}
+
+.session-notes-image-resize-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 2px solid var(--card-background, #fff);
+  border-radius: 2px;
+  background: var(--primary-color);
+  pointer-events: auto;
+}
+
+.session-notes-image-resize-handle.is-nw {
+  top: -7px;
+  left: -7px;
+  cursor: nwse-resize;
+}
+
+.session-notes-image-resize-handle.is-ne {
+  top: -7px;
+  right: -7px;
+  cursor: nesw-resize;
+}
+
+.session-notes-image-resize-handle.is-sw {
+  bottom: -7px;
+  left: -7px;
+  cursor: nesw-resize;
+}
+
+.session-notes-image-resize-handle.is-se {
+  right: -7px;
+  bottom: -7px;
+  cursor: nwse-resize;
+}
+
+@media (max-width: 760px) {
+  .session-notes-editor {
+    min-height: 360px;
+    padding: 26px 22px;
+  }
+
+  .session-notes-image-toolbar {
+    align-items: flex-start;
+  }
+
+  .session-notes-image-caption-control {
+    flex-basis: 100%;
+  }
+}
+
 .uncertainty-module .session-controls {
   gap: 5px;
 }
@@ -14465,9 +16109,9 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
     transparent
   ) !important;
   border-color: transparent !important;
-  border-left: 3px solid var(--primary-color) !important;
+  border-left-color: transparent !important;
   color: var(--primary-color) !important;
-  box-shadow: none !important;
+  box-shadow: inset 3px 0 0 var(--primary-color) !important;
   text-shadow: none !important;
 }
 

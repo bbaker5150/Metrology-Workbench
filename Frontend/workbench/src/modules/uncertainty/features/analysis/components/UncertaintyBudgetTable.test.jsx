@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
 
@@ -108,6 +108,9 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       canAddManual: true,
       canAddRepeatability: true,
     });
+    expect(onAddTmdeToBudget.mock.calls[0][0]).not.toHaveProperty(
+      "canAddPropagation",
+    );
   });
 
   it("renders uncertainty at a fixed precision without nominal table data", () => {
@@ -242,8 +245,10 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       },
     });
 
-    expect(screen.getAllByText("1.235 V")).toHaveLength(2);
-    expect(screen.getAllByText("7.654 A")).toHaveLength(2);
+    expect(screen.getAllByText("1.235 V")).toHaveLength(1);
+    expect(screen.getAllByText("7.654 A")).toHaveLength(1);
+    expect(screen.getByText("1.234567 V")).toBeInTheDocument();
+    expect(screen.getByText("7.654321 A")).toBeInTheDocument();
 
     // No per-table sig-fig control remains — precision is fixed for every table.
     expect(
@@ -251,54 +256,153 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("uses empirical Monte Carlo values for the final budget totals", () => {
+  it("switches derived propagation methods and shows the fixed Type B approximation", () => {
+    const onTrials = vi.fn();
+    const onMethod = vi.fn();
     renderDirectBudget({
-      components: [
-        {
-          id: "measurement-equation",
-          name: "Measurement Equation Uncertainty",
-          sourcePointLabel: "Measurement Equation",
-          type: "B",
-          value: 1,
-          unit: "V",
-          distribution: "Other (Std. Unc.)",
-          isCore: true,
-        },
-      ],
+      measurementType: "derived",
       calcResults: {
-        combined_uncertainty: 1,
-        effective_dof: Infinity,
-        k_value: 2,
-        expanded_uncertainty: 2,
+        calculatedBudgetGroups: [
+          {
+            id: "final_budget",
+            kind: "final",
+            label: "Voltage Uncertainty Budget",
+            unit: "V",
+            components: [
+              {
+                id: "risk8_monte_carlo_uncertainty",
+                name: "Monte Carlo Approximation",
+                type: "B",
+                value_native: 1.5,
+                unit_native: "V",
+                dof: 24,
+                distribution: "Standard uncertainty (k=1)",
+                distributionDivisor: 1,
+                isCore: true,
+                isPropagationSummary: true,
+                propagationMethod: "montecarlo",
+                trials: 25000,
+              },
+            ],
+            results: {
+              combined: 1.5,
+              effective_dof: 24,
+              k_value: 2.064,
+              expanded: 3.096,
+            },
+          },
+        ],
       },
       referencePoint: { name: "Voltage", unit: "V" },
-      propagationMode: "montecarlo",
-      riskResults: {
-        riskMethod: "empirical",
-        pfa: 1.1,
-        pfr: 2.2,
-        tur: 4,
-      },
-      mcSummary: {
-        meanBase: 10,
-        uBase: 1.5,
-        intervalLowBase: 7,
-        intervalHighBase: 14,
+      budgetPropagationMethod: "montecarlo",
+      monteCarloTrials: 25000,
+      onMonteCarloTrialsChange: onTrials,
+      onPropagationMethodChange: onMethod,
+    });
+
+    expect(screen.queryByText("Risk 8.0 Monte Carlo")).not.toBeInTheDocument();
+    expect(screen.getByText("Monte Carlo Approximation")).toBeInTheDocument();
+    expect(screen.getByText("Standard uncertainty (k=1)")).toBeInTheDocument();
+    expect(screen.getByText("B")).toBeInTheDocument();
+    expect(screen.getByLabelText("Use Monte Carlo approximation")).toBeChecked();
+    expect(screen.getByLabelText("Monte Carlo trials")).toHaveValue(25000);
+    expect(screen.getByLabelText("Monte Carlo trials")).toBeEnabled();
+    expect(screen.getAllByText("24.00")).toHaveLength(2);
+    // k=1 means the approximation's tolerance limit and standard uncertainty
+    // are intentionally identical. Results cards retain calculation precision
+    // separately from the table's fixed four-significant-digit formatting.
+    expect(screen.getAllByText("1.500 V")).toHaveLength(2);
+    expect(screen.getByText("1.5 V")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Monte Carlo trials"), {
+      target: { value: "50000" },
+    });
+    fireEvent.blur(screen.getByLabelText("Monte Carlo trials"));
+    expect(onTrials).toHaveBeenCalledWith(50000);
+    fireEvent.click(screen.getByLabelText("Use Monte Carlo approximation"));
+    expect(onMethod).toHaveBeenCalledWith("equation");
+    expect(
+      screen.queryByRole("button", { name: /Remove Monte Carlo/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("defaults a newly enabled Monte Carlo method to 10,000 trials", () => {
+    renderDirectBudget({
+      measurementType: "derived",
+      budgetPropagationMethod: "montecarlo",
+      onPropagationMethodChange: vi.fn(),
+    });
+
+    expect(screen.getByLabelText("Monte Carlo trials")).toHaveValue(10000);
+    expect(screen.getByLabelText("Monte Carlo trials")).toBeEnabled();
+  });
+
+  it("shows the true expanded result and simplified derived headings", () => {
+    renderDirectBudget({
+      measurementType: "derived",
+      referencePoint: { name: "Torque", unit: "in-oz" },
+      calcResults: {
+        calculatedBudgetGroups: [
+          {
+            id: "length-input",
+            kind: "input",
+            label: "Length (l) Uncertainty Budget",
+            variableType: "Length",
+            unit: "in",
+            components: [],
+            results: {
+              combined: 0.00102,
+              effective_dof: Infinity,
+              k_value: 1.96,
+              expanded: 0.00102 * 1.96,
+            },
+          },
+        ],
       },
     });
 
     expect(
-      screen.getAllByText("Monte Carlo", { selector: ".method-chip" }),
-    ).toHaveLength(2);
-    expect(screen.getByText("Empirical")).toBeInTheDocument();
-    expect(screen.getByText("1.500 V")).toBeInTheDocument();
-    expect(screen.getByText("+4.0000 / -3.0000")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Empirical shortest 95% coverage interval/),
+      screen.getByRole("heading", { name: "Uncertainty Budget", level: 3 }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Length Uncertainty Budget", level: 4 }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Length \(l\) Uncertainty Budget/i)).not.toBeInTheDocument();
+    expect(screen.getByText("0.0019992 in")).toBeInTheDocument();
+    expect(screen.queryByText("0.002000 in")).not.toBeInTheDocument();
   });
 
-  it("shows contribution graph from the bottom display setting", () => {
+  it("keeps the Monte Carlo trial count visible but disabled for Taylor Series", () => {
+    renderDirectBudget({
+      measurementType: "derived",
+      budgetPropagationMethod: "linear",
+      monteCarloTrials: 25000,
+      onMonteCarloTrialsChange: vi.fn(),
+      onPropagationMethodChange: vi.fn(),
+    });
+
+    const trials = screen.getByLabelText("Monte Carlo trials");
+    expect(trials).toHaveValue(25000);
+    expect(trials).toBeDisabled();
+    expect(trials.closest(".budget-mc-trials")).toHaveClass("is-disabled");
+  });
+
+  it("does not offer Monte Carlo for direct budgets", () => {
+    renderDirectBudget({
+      measurementType: "direct",
+      budgetPropagationMethod: "montecarlo",
+      monteCarloTrials: 25000,
+      onPropagationMethodChange: vi.fn(),
+      onMonteCarloTrialsChange: vi.fn(),
+    });
+
+    expect(
+      screen.queryByLabelText("Use Monte Carlo approximation"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Monte Carlo trials")).not.toBeInTheDocument();
+    expect(screen.queryByText("Taylor Series")).not.toBeInTheDocument();
+  });
+
+  it("shows contribution graph from the bottom display setting", async () => {
     const view = renderDirectBudget({
       showContribution: true,
       setShowContribution: vi.fn(),
@@ -331,18 +435,49 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       referencePoint: { name: "Voltage", unit: "V" },
     });
 
-    expect(view.container.querySelector(".bargraph-container")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(view.container.querySelector(".bargraph-container")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("button", { name: "Hide contribution chart" }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("does not show bottom-card sig fig settings", () => {
-    renderDirectBudget();
+  it("uses a compact chart control beside Add for contribution display", () => {
+    const setShowContribution = vi.fn();
+    renderDirectBudget({ setShowContribution });
 
-    fireEvent.click(screen.getByTitle("Display settings"));
+    expect(document.querySelector(".budget-stack-final-display")).not.toBeInTheDocument();
+    expect(screen.queryByText("Expanded Uncertainty (U)")).not.toBeInTheDocument();
+    const chartButton = screen.getByRole("button", {
+      name: "Show contribution chart",
+    });
+    expect(chartButton).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(chartButton);
+    expect(setShowContribution).toHaveBeenCalledWith(true);
+  });
 
-    expect(screen.getByText("Show contribution")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Expanded Unc (U) Sig Figs")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Risk Sig Figs")).not.toBeInTheDocument();
-    expect(screen.queryByText("Display Precision")).not.toBeInTheDocument();
+  it("keeps risk cards out of the budget table and labels final results in the point unit", () => {
+    renderDirectBudget({
+      referencePoint: { name: "Voltage", unit: "V" },
+      riskResults: { pfa: 1, pfr: 2, tur: 3 },
+      calcResults: {
+        calculatedBudgetGroups: [
+          {
+            id: "final_budget",
+            kind: "final",
+            label: "Voltage Uncertainty Budget",
+            unit: "ppm",
+            components: [],
+            results: { combined: 0.001, effective_dof: Infinity, k_value: 2, expanded: 0.002 },
+          },
+        ],
+      },
+    });
+
+    expect(document.querySelector(".budget-risk-strip")).not.toBeInTheDocument();
+    expect(screen.getByText("0.001 V")).toBeInTheDocument();
+    expect(screen.queryByText("0.001000 ppm")).not.toBeInTheDocument();
   });
 
   it("keeps instrument-linked Type B distribution read-only in the budget table", () => {
@@ -374,5 +509,161 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Edit Component")).not.toBeInTheDocument();
     expect(screen.getByTitle("Remove Component")).toBeInTheDocument();
+  });
+
+  it("keeps TMDE accuracy distribution read-only in the budget table", () => {
+    renderDirectBudget({
+      components: [
+        {
+          id: "tmde-accuracy",
+          name: "F-Class Weight - Accuracy",
+          sourceTmdeId: "tmde-weight",
+          sourcePointLabel: "10 ozf",
+          type: "B",
+          value: NaN,
+          value_native: NaN,
+          unit_native: "ozf",
+          distribution: "Not Set",
+          distributionDivisor: "not_set",
+          isCore: true,
+        },
+      ],
+    });
+
+    expect(screen.getByText("Not Set")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it("authors a new manual component directly in an expanded budget row", () => {
+    const onComponentUpdate = vi.fn();
+    renderDirectBudget({
+      onComponentUpdate,
+      components: [
+        {
+          id: "manual-inline",
+          name: "",
+          type: "B",
+          value: 0,
+          value_native: 0,
+          unit_native: "V",
+          distribution: "Rectangular",
+          distributionDivisor: "1.732",
+          isManual: true,
+          isInlineManual: true,
+          inlineDraft: true,
+          originalInput: {
+            inputMode: "tolerance",
+            toleranceLimit: "",
+            standardUncertainty: "",
+            errorDistributionDivisor: "1.732",
+            unit: "V",
+          },
+        },
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    expect(screen.queryByText("Manual Component", { selector: "h3" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Error source name"), {
+      target: { value: "Thermal drift" },
+    });
+    fireEvent.change(screen.getByLabelText("Tolerance limit"), {
+      target: { value: "0.5" },
+    });
+    fireEvent.change(screen.getByLabelText("Error limit distribution"), {
+      target: { value: "2.000" },
+    });
+    fireEvent.pointerDown(document.body);
+
+    expect(onComponentUpdate).toHaveBeenCalledOnce();
+    expect(onComponentUpdate.mock.calls[0][0]).toBe("manual-inline");
+    expect(onComponentUpdate.mock.calls[0][1]).toMatchObject({
+      inlineManualDraft: {
+        name: "Thermal drift",
+        type: "B",
+        inputMode: "tolerance",
+        toleranceLimit: "0.5",
+        errorDistributionDivisor: "2.000",
+        unit: "V",
+      },
+      referencePoint: { value: 10, unit: "V" },
+    });
+  });
+
+  it("switches a manual row to direct standard-uncertainty entry inline", () => {
+    const onComponentUpdate = vi.fn();
+    renderDirectBudget({
+      onComponentUpdate,
+      components: [
+        {
+          id: "manual-standard",
+          name: "Environmental effect",
+          type: "B",
+          value: 0,
+          value_native: 0,
+          unit_native: "V",
+          distribution: "Rectangular",
+          isManual: true,
+          isInlineManual: true,
+          inlineDraft: true,
+          originalInput: {
+            inputMode: "tolerance",
+            toleranceLimit: "0.6",
+            standardUncertainty: "",
+            errorDistributionDivisor: "2",
+            unit: "V",
+          },
+        },
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Enter standard uncertainty" }),
+    );
+    const standardInput = screen.getByLabelText("Standard uncertainty");
+    expect(standardInput).toHaveValue(0.3);
+    fireEvent.change(standardInput, { target: { value: "0.2" } });
+    fireEvent.pointerDown(document.body);
+
+    expect(onComponentUpdate.mock.calls[0][1].inlineManualDraft).toMatchObject({
+      inputMode: "standard",
+      standardUncertainty: "0.2",
+    });
+  });
+
+  it("keeps a saved manual row clean until the user clicks it", () => {
+    renderDirectBudget({
+      onComponentUpdate: vi.fn(),
+      components: [
+        {
+          id: "manual-saved",
+          name: "Operator influence",
+          type: "B",
+          value: 25000,
+          value_native: 0.25,
+          unit_native: "V",
+          distribution: "Standard uncertainty (k=1)",
+          isManual: true,
+          isInlineManual: true,
+          inlineDraft: false,
+          originalInput: {
+            inputMode: "standard",
+            toleranceLimit: "",
+            standardUncertainty: "0.25",
+            errorDistributionDivisor: "1",
+            unit: "V",
+          },
+        },
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    expect(screen.getByText("Operator influence")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Error source name")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Operator influence"));
+    expect(screen.getByLabelText("Error source name")).toHaveValue(
+      "Operator influence",
+    );
   });
 });

@@ -32,14 +32,15 @@ const formatNumber = (value, digits = 5) => {
   return Number(number.toPrecision(digits)).toString();
 };
 
-// Matches the PFA color thresholds used by the measurement point list
-// (getPfaColor in App.jsx): >5% bad, >2% warning, otherwise good.
-const pfaStatus = (value) => {
+// Match the live Required PFA input rather than a baked-in 2% threshold.
+const pfaStatus = (value, requiredPercent = 2) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return "muted";
-  if (parsed > 5) return "bad";
-  if (parsed > 2) return "warning";
-  return "good";
+  const configured = Number(requiredPercent);
+  const limit = Number.isFinite(configured) && configured >= 0 ? configured : 2;
+  if (parsed <= limit) return "good";
+  if (parsed > Math.max(limit * 2.5, limit + 3)) return "bad";
+  return "warning";
 };
 
 const distributionKind = (label = "") => {
@@ -984,7 +985,10 @@ const RiskDistributionVisualizer = ({
               <button
                 type="button"
                 data-testid="risk-outcome-pfa"
-                className={`risk-viz-outcome status-${pfaStatus(pfa)} ${activeModals.includes(
+                className={`risk-viz-outcome status-${pfaStatus(
+                  pfa,
+                  Number(results.gbInputs?.reqPFA) * 100,
+                )} ${activeModals.includes(
                   guardbandEnabled ? "gbpfa" : "pfa",
                 ) ? "active" : ""}`}
                 onClick={() => onShowBreakdown(guardbandEnabled ? "gbpfa" : "pfa")}

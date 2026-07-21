@@ -3,6 +3,7 @@ import { generateOverviewReport } from "./pdfGenerator";
 import { 
   getToleranceErrorSummary,
   getAbsoluteLimits, 
+  getTmdeAbsoluteLimits,
 } from "./uncertaintyMath";
 import { computeRiskMetricsMap } from "./riskCompute";
 
@@ -124,6 +125,7 @@ const extractAttachments = (pdfDoc) => {
 export const createSessionPdfBytes = async (
   currentSession,
   sessionImagesMap,
+  reportOptions = {},
 ) => {
   let now = new Date();
 
@@ -169,11 +171,21 @@ export const createSessionPdfBytes = async (
   pdfDoc.setModificationDate(now);
 
   // 4. Generate Overview Pages
-  const helpers = { getToleranceErrorSummary, getAbsoluteLimits };
-  const riskMetricsMap = computeRiskMetricsMap(
+  const helpers = { getToleranceErrorSummary, getAbsoluteLimits, getTmdeAbsoluteLimits };
+  const freshlyComputedRisk = computeRiskMetricsMap(
     currentSession.testPoints || [],
     currentSession,
     true,
+  );
+  // Some workbook-parity fields (for example REOP and interval projections)
+  // are persisted by the detailed risk calculation, while the lightweight
+  // bulk calculator refreshes PFA/PFR/TUR and guardband fields. Merge both so
+  // a filtered report mirrors every value visible in the point list.
+  const riskMetricsMap = Object.fromEntries(
+    (currentSession.testPoints || []).map((point) => [
+      point.id,
+      { ...(point.riskMetrics || {}), ...(freshlyComputedRisk[point.id] || {}) },
+    ]),
   );
   
   await generateOverviewReport(
@@ -182,6 +194,7 @@ export const createSessionPdfBytes = async (
     fonts,
     helpers,
     riskMetricsMap,
+    reportOptions.visibleColumns,
   );
 
   // 5. Attach JSON
@@ -218,10 +231,11 @@ export const createSessionPdfBytes = async (
 };
 
 // --- Exported: Save Session ---
-export const saveSessionToPdf = async (currentSession, sessionImagesMap) => {
+export const saveSessionToPdf = async (currentSession, sessionImagesMap, reportOptions = {}) => {
   const { pdfBytes, fileName } = await createSessionPdfBytes(
     currentSession,
     sessionImagesMap,
+    reportOptions,
   );
   const blob = new Blob([pdfBytes], { type: "application/pdf" });
   const href = URL.createObjectURL(blob);

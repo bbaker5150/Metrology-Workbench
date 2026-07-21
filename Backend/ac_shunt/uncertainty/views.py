@@ -195,6 +195,33 @@ def bug_report_detail(request, report_id):
 # --------------------------------------------------------------------------- #
 # Session note images (base64 data fetched/saved separately from the session)
 # --------------------------------------------------------------------------- #
+@api_view(["GET", "PATCH", "PUT"])
+@permission_classes([AllowAny])
+def session_notes(request, session_id):
+    """Read or update only a session's rich-text notes document.
+
+    Notes autosave while the user types.  Keeping this endpoint separate from
+    the full nested-session PUT avoids rebuilding every instrument, point, and
+    budget row for each edit while still using the same session transaction
+    queue on the client.
+    """
+    session = get_object_or_404(models.Session, pk=session_id)
+    if request.method == "GET":
+        return Response({"notes": session.notes or ""})
+
+    notes = request.data.get("notes")
+    if not isinstance(notes, str):
+        return Response(
+            {"detail": "notes must be a string"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    session.notes = notes
+    session.save(update_fields=["notes"])
+    return Response({"notes": session.notes})
+
+
+# --------------------------------------------------------------------------- #
 @api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def session_images(request, session_id):

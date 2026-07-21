@@ -3,6 +3,16 @@ import * as math from "mathjs";
 // ==========================================
 // 1. Unit Systems & Conversions
 // ==========================================
+// Old saved sessions and a few imported libraries used the lowercase `ohm`
+// spelling before resistance units were standardized on `Ohm`. Normalize at
+// the conversion boundary instead of registering duplicate units (which would
+// make both spellings appear in unit dropdowns).
+const UNIT_ALIASES = Object.freeze({
+  ohm: "Ohm",
+  "Ω": "Ohm",
+});
+const canonicalUnit = (unit) => UNIT_ALIASES[unit] || unit;
+
 export const unitSystem = {
   units: {
     // --- Voltage ---
@@ -62,6 +72,11 @@ export const unitSystem = {
     degC: { to_si: 1, quantity: "Temperature" },
     degF: { to_si: 0.55555555, quantity: "Temperature" },
     K: { to_si: 1, quantity: "Temperature" },
+    "1/K": { to_si: 1, quantity: "InverseTemperature" },
+    "1/degC": { to_si: 1, quantity: "InverseTemperature" },
+    "ppm/degC": { to_si: 1e-6, quantity: "InverseTemperature" },
+    "1/K^2": { to_si: 1, quantity: "InverseTemperatureSquared" },
+    "1/degC^2": { to_si: 1, quantity: "InverseTemperatureSquared" },
 
     // --- Length ---
     m: { to_si: 1, quantity: "Length" },
@@ -104,6 +119,12 @@ export const unitSystem = {
     gal: { to_si: 0.00378541, quantity: "Volume" },
     "fl-oz": { to_si: 2.95735e-5, quantity: "Volume" },
 
+    // --- Area ---
+    "m^2": { to_si: 1, quantity: "Area" },
+    "cm^2": { to_si: 1e-4, quantity: "Area" },
+    "mm^2": { to_si: 1e-6, quantity: "Area" },
+    "in^2": { to_si: 0.00064516, quantity: "Area" },
+
     // --- Velocity ---
     "m/s": { to_si: 1, quantity: "Velocity" },
     "km/h": { to_si: 0.277778, quantity: "Velocity" },
@@ -115,6 +136,13 @@ export const unitSystem = {
     "m/s^2": { to_si: 1, quantity: "Acceleration" },
     G_accel: { to_si: 9.80665, quantity: "Acceleration" },
     "ft/s^2": { to_si: 0.3048, quantity: "Acceleration" },
+
+    // --- Density / mass flow ---
+    "kg/m^3": { to_si: 1, quantity: "Density" },
+    "g/cm^3": { to_si: 1000, quantity: "Density" },
+    "kg/s": { to_si: 1, quantity: "MassFlow" },
+    "g/s": { to_si: 1e-3, quantity: "MassFlow" },
+    "kg/min": { to_si: 1 / 60, quantity: "MassFlow" },
 
     // --- Pressure ---
     Pa: { to_si: 1, quantity: "Pressure" },
@@ -181,6 +209,22 @@ export const unitSystem = {
     // --- Light / Illuminance ---
     lx: { to_si: 1, quantity: "Illuminance" },
     fc: { to_si: 10.7639, quantity: "Illuminance" },
+    cd: { to_si: 1, quantity: "LuminousIntensity" },
+
+    // --- Equation coefficient / analytical units ---
+    "V/K": { to_si: 1, quantity: "VoltagePerTemperature" },
+    "mV/K": { to_si: 1e-3, quantity: "VoltagePerTemperature" },
+    "uV/K": { to_si: 1e-6, quantity: "VoltagePerTemperature" },
+    "V/(m/s^2)": { to_si: 1, quantity: "VoltagePerAcceleration" },
+    "mV/(m/s^2)": { to_si: 1e-3, quantity: "VoltagePerAcceleration" },
+    mol: { to_si: 1, quantity: "Amount" },
+    mmol: { to_si: 1e-3, quantity: "Amount" },
+    umol: { to_si: 1e-6, quantity: "Amount" },
+    "kg/mol": { to_si: 1, quantity: "MolarMass" },
+    "g/mol": { to_si: 1e-3, quantity: "MolarMass" },
+    "mol/m^3": { to_si: 1, quantity: "MolarConcentration" },
+    "mol/L": { to_si: 1000, quantity: "MolarConcentration" },
+    "mmol/L": { to_si: 1, quantity: "MolarConcentration" },
 
     // --- Magnetic Flux / Field ---
     T: { to_si: 1, quantity: "Magnetic Field" },
@@ -205,7 +249,7 @@ export const unitSystem = {
   },
 
   getQuantity(unit) {
-    return this.units[unit]?.quantity || null;
+    return this.units[canonicalUnit(unit)]?.quantity || null;
   },
 
   getRelevantUnits: (baseUnit) => {
@@ -218,15 +262,29 @@ export const unitSystem = {
   },
 
   toBaseUnit: (value, unit) => {
-    if (!unitSystem.units[unit]) return value;
-    return value * unitSystem.units[unit].to_si;
+    const normalizedUnit = canonicalUnit(unit);
+    if (!unitSystem.units[normalizedUnit]) return value;
+    return value * unitSystem.units[normalizedUnit].to_si;
   },
 
   fromBaseUnit: (value, targetUnit) => {
-    if (!unitSystem.units[targetUnit]) return value;
-    return value / unitSystem.units[targetUnit].to_si;
+    const normalizedUnit = canonicalUnit(targetUnit);
+    if (!unitSystem.units[normalizedUnit]) return value;
+    return value / unitSystem.units[normalizedUnit].to_si;
   }
 };
+
+// Direct unit lookups are used throughout the risk and budget engines. Expose
+// legacy spellings there as non-enumerable aliases: old data keeps working,
+// while Object.keys(unitSystem.units) (which feeds unit pickers) remains free
+// of duplicate `ohm` / `Ω` choices.
+Object.entries(UNIT_ALIASES).forEach(([alias, canonical]) => {
+  Object.defineProperty(unitSystem.units, alias, {
+    configurable: false,
+    enumerable: false,
+    get: () => unitSystem.units[canonical],
+  });
+});
 
 export const UNIT_DISPLAY_LABELS = {
   uV: "µV",
@@ -258,6 +316,19 @@ export const UNIT_DISPLAY_LABELS = {
   in: "in.",
   inch: "in.",
   "m^3": "m³",
+  "m^2": "m²",
+  "cm^2": "cm²",
+  "mm^2": "mm²",
+  "in^2": "in.²",
+  "kg/m^3": "kg/m³",
+  "g/cm^3": "g/cm³",
+  "mol/m^3": "mol/m³",
+  "1/K^2": "1/K²",
+  "1/degC^2": "1/°C²",
+  "1/degC": "1/°C",
+  "ppm/degC": "ppm/°C",
+  umol: "µmol",
+  "uV/K": "µV/K",
   "g/m^3": "g/m³",
   "m/s^2": "m/s²",
   "ft/s^2": "ft/s²",
@@ -285,7 +356,45 @@ export const UNIT_DISPLAY_LABELS = {
   scfm: "SCFM",
 };
 
-export const getUnitDisplayLabel = (unit) => UNIT_DISPLAY_LABELS[unit] || unit;
+const displayUnitKey = (unit) => {
+  const raw = unit === undefined || unit === null ? "" : String(unit).trim();
+  const canonical = canonicalUnit(raw);
+  if (!canonical || UNIT_DISPLAY_LABELS[canonical] || unitSystem.units[canonical]) {
+    return canonical;
+  }
+
+  // Imported/legacy definitions sometimes differ only in capitalization
+  // (for example `RAD` versus `rad`). Only fold case when it identifies one
+  // unambiguous registered unit so metric prefixes such as m/M stay distinct.
+  const folded = canonical.toLocaleLowerCase();
+  const matches = Object.keys(unitSystem.units).filter(
+    (candidate) => candidate.toLocaleLowerCase() === folded,
+  );
+  return matches.length === 1 ? matches[0] : canonical;
+};
+
+export const getUnitDisplayLabel = (unit) => {
+  const key = displayUnitKey(unit);
+  return UNIT_DISPLAY_LABELS[key] || key;
+};
+
+// Function headers combine units from persisted function defaults, ranges,
+// and imported instrument definitions. Deduplicate after formatting so aliases
+// such as `ohm`/`Ohm`, `in`/`inch`, and case-only legacy spellings appear once.
+export const getUniqueUnitDisplayLabels = (units = []) => {
+  const seen = new Set();
+  return (Array.isArray(units) ? units : [units]).reduce((labels, unit) => {
+    const label = String(getUnitDisplayLabel(unit) || "").trim();
+    // displayUnitKey already folds unambiguous legacy casing. Preserve the
+    // formatted label's case here because SI prefixes are case-sensitive
+    // (`mΩ` and `MΩ` are different units).
+    const identity = label;
+    if (!label || seen.has(identity)) return labels;
+    seen.add(identity);
+    labels.push(label);
+    return labels;
+  }, []);
+};
 
 export const unitCategories = {
   Voltage: ["V", "mV", "uV", "kV", "nV", "TV"],
@@ -466,6 +575,7 @@ export const errorDistributions = [
   { value: "1.732", label: "Rectangular" },
   { value: "3.464", label: "Rectangular (resolution)" },
   { value: "2.449", label: "Triangular" },
+  { value: "4.899", label: "Triangular (resolution)" },
   { value: "1.414", label: "U-Shaped" },
   { value: "1.645", label: "Normal (90%)" },
   { value: "1.960", label: "Normal (95%)" },
@@ -475,6 +585,34 @@ export const errorDistributions = [
   { value: "4.179", label: "Rayleigh" },
   { value: "1.000", label: "Normal (k=1)" },
 ];
+
+// The UI and persisted instrument schema intentionally retain the historical
+// short divisor strings (for example, "1.732"). Risk 8.0's workbook does not
+// calculate with those rounded strings: its VBA uses Sqr(3), Sqr(12), Sqr(6),
+// Sqr(24), and Sqr(2). Resolve the legacy values to the same full-precision
+// constants at the calculation boundary so existing saved instruments remain
+// compatible while uncertainty propagation stays workbook-identical.
+const EXACT_SHAPE_DIVISORS = [
+  { aliases: [1.732, Math.sqrt(3)], value: Math.sqrt(3) },
+  { aliases: [3.464, Math.sqrt(12)], value: Math.sqrt(12) },
+  { aliases: [2.449, Math.sqrt(6)], value: Math.sqrt(6) },
+  { aliases: [4.899, Math.sqrt(24)], value: Math.sqrt(24) },
+  { aliases: [1.414, Math.sqrt(2)], value: Math.sqrt(2) },
+  // The 8.0 workbook explicitly uses 4.178 for Rayleigh. Older app data used
+  // 4.179, so accept either persisted spelling and calculate with 4.178.
+  { aliases: [4.178, 4.179], value: 4.178 },
+];
+
+export const distributionDivisorValue = (rawValue) => {
+  if (rawValue === DISTRIBUTION_NOT_SET) return NaN;
+  const numeric = Number(rawValue);
+  if (!Number.isFinite(numeric) || numeric <= 0) return NaN;
+
+  const shape = EXACT_SHAPE_DIVISORS.find(({ aliases }) =>
+    aliases.some((alias) => Math.abs(numeric - alias) < 1e-9),
+  );
+  return shape?.value ?? numeric;
+};
 
 // ---------------------------------------------------------------------------
 // Student-t inverse CDF (coverage factor at finite degrees of freedom)
@@ -878,7 +1016,7 @@ export const calculateUncertaintyFromToleranceObject = (
     const divisor =
       tolComp.distribution === DISTRIBUTION_NOT_SET
         ? NaN
-        : parseFloat(tolComp.distribution);
+        : distributionDivisorValue(tolComp.distribution);
     const distributionLabel =
       errorDistributions.find((d) => d.value === String(tolComp.distribution))
         ?.label || (tolComp.distribution === DISTRIBUTION_NOT_SET ? "Not Set" : "Rectangular");
@@ -892,11 +1030,18 @@ export const calculateUncertaintyFromToleranceObject = (
     let explanation = "";
 
     if (unit === "%" || unit === "ppm" || unit === "ppb") {
+      // Relative tolerances are magnitudes. For a negative indicated value,
+      // multiplying by the signed reading reverses the physical low/high
+      // limits (e.g. +1 % moves farther negative). The uncertainty happened
+      // to remain positive downstream because it is squared, masking the bad
+      // interval until PFA/PFR/TUR rejected it. Risk 8.0 applies %IV to the
+      // magnitude of the indication, so mirror that behavior here.
+      const relativeBaseMagnitude = Math.abs(baseValueForRelative);
       valueInNominalUnits =
-        halfSpan * unitSystem.units[unit].to_si * baseValueForRelative;
+        halfSpan * unitSystem.units[unit].to_si * relativeBaseMagnitude;
       explanation = `${halfSpan.toExponential(
         3
-      )}${unitLabel} of ${baseValueForRelative}${nominalUnitLabel}`;
+      )}${unitLabel} of |${baseValueForRelative}|${nominalUnitLabel}`;
     } else {
       const valueInBase = unitSystem.toBaseUnit(halfSpan, unit);
       const nominalUnitInBase = unitSystem.toBaseUnit(1, nominalUnit);
@@ -973,7 +1118,7 @@ export const calculateUncertaintyFromToleranceObject = (
       const divisor =
         dbTolComp.distribution === DISTRIBUTION_NOT_SET
           ? NaN
-          : parseFloat(dbTolComp.distribution);
+          : distributionDivisorValue(dbTolComp.distribution);
       const distributionLabel =
         errorDistributions.find(
           (d) => d.value === String(dbTolComp.distribution)
@@ -1086,6 +1231,34 @@ export const getToleranceErrorSummary = (toleranceObject, referencePoint) => {
 export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
   if (!toleranceObject || !referencePoint || !referencePoint.value) {
     return { high: "N/A", low: "N/A" };
+  }
+
+  // A single-sided tolerance stores an absolute physical limit rather than a
+  // +/- deviation. Show that active side directly and leave the unbounded side
+  // explicit; falling through to an empty breakdown previously displayed the
+  // nominal on both sides, which hid the actual Type 3/4 geometry.
+  const singleSided =
+    toleranceObject.singleSided || toleranceObject.tolerances?.singleSided;
+  const singleLimit = parseFloat(singleSided?.limit);
+  if (Number.isFinite(singleLimit)) {
+    const nominalUnit = referencePoint.unit;
+    const limitUnit = singleSided.unit || nominalUnit;
+    let limitInNominalUnit = singleLimit;
+    try {
+      if (limitUnit !== nominalUnit) {
+        limitInNominalUnit = unitSystem.fromBaseUnit(
+          unitSystem.toBaseUnit(singleLimit, limitUnit),
+          nominalUnit,
+        );
+      }
+    } catch {
+      return { high: "N/A", low: "N/A" };
+    }
+    const label = getUnitDisplayLabel(nominalUnit || "");
+    const formatted = `${limitInNominalUnit.toPrecision(7)} ${label}`;
+    return singleSided.direction === "low"
+      ? { low: formatted, high: "—" }
+      : { low: "—", high: formatted };
   }
 
   const { breakdown } = calculateUncertaintyFromToleranceObject(
@@ -1303,13 +1476,455 @@ export function resolveResolutionNative(toleranceObject, nominalUnit) {
 // budget is measurably understating the input's contribution.
 const NONLINEARITY_WARN_RATIO = 0.1;
 
+// Unit dimensions used to validate derived equations before converting the
+// numeric result into the UUT's display unit. The calculator historically
+// converted every base-SI result into the target unit even when the equation
+// produced a different physical quantity (for example, force / length shown
+// as torque). Keep this map separate from the display-unit conversion table so
+// existing unit aliases continue to work unchanged.
+const DIMENSIONS_BY_QUANTITY = {
+  Ratio: { M: 0, L: 0, T: 0, I: 0, Th: 0 },
+  Length: { M: 0, L: 1, T: 0, I: 0, Th: 0 },
+  Area: { M: 0, L: 2, T: 0, I: 0, Th: 0 },
+  Mass: { M: 1, L: 0, T: 0, I: 0, Th: 0 },
+  Density: { M: 1, L: -3, T: 0, I: 0, Th: 0 },
+  MassFlow: { M: 1, L: 0, T: -1, I: 0, Th: 0 },
+  Time: { M: 0, L: 0, T: 1, I: 0, Th: 0 },
+  Temperature: { M: 0, L: 0, T: 0, I: 0, Th: 1 },
+  DewPoint: { M: 0, L: 0, T: 0, I: 0, Th: 1 },
+  InverseTemperature: { M: 0, L: 0, T: 0, I: 0, Th: -1 },
+  InverseTemperatureSquared: { M: 0, L: 0, T: 0, I: 0, Th: -2 },
+  Current: { M: 0, L: 0, T: 0, I: 1, Th: 0 },
+  Angle: { M: 0, L: 0, T: 0, I: 0, Th: 0 },
+  Frequency: { M: 0, L: 0, T: -1, I: 0, Th: 0 },
+  "Angular Speed": { M: 0, L: 0, T: -1, I: 0, Th: 0 },
+  Volume: { M: 0, L: 3, T: 0, I: 0, Th: 0 },
+  Velocity: { M: 0, L: 1, T: -1, I: 0, Th: 0 },
+  Acceleration: { M: 0, L: 1, T: -2, I: 0, Th: 0 },
+  Flow: { M: 0, L: 3, T: -1, I: 0, Th: 0 },
+  Force: { M: 1, L: 1, T: -2, I: 0, Th: 0 },
+  Pressure: { M: 1, L: -1, T: -2, I: 0, Th: 0 },
+  Torque: { M: 1, L: 2, T: -2, I: 0, Th: 0 },
+  Energy: { M: 1, L: 2, T: -2, I: 0, Th: 0 },
+  Power: { M: 1, L: 2, T: -3, I: 0, Th: 0 },
+  Voltage: { M: 1, L: 2, T: -3, I: -1, Th: 0 },
+  Resistance: { M: 1, L: 2, T: -3, I: -2, Th: 0 },
+  Capacitance: { M: -1, L: -2, T: 4, I: 2, Th: 0 },
+  Inductance: { M: 1, L: 2, T: -2, I: -2, Th: 0 },
+  VoltagePerTemperature: { M: 1, L: 2, T: -3, I: -1, Th: -1 },
+  VoltagePerAcceleration: { M: 1, L: 1, T: -1, I: -1, Th: 0 },
+  "Magnetic Field": { M: 1, L: 0, T: -2, I: -1, Th: 0 },
+  Humidity: { M: 0, L: 0, T: 0, I: 0, Th: 0 },
+  AbsoluteHumidity: { M: 1, L: -3, T: 0, I: 0, Th: 0 },
+  SpecificHumidity: { M: 0, L: 0, T: 0, I: 0, Th: 0 },
+  VolumeConcentration: { M: 0, L: 0, T: 0, I: 0, Th: 0 },
+  Amount: { M: 0, L: 0, T: 0, I: 0, Th: 0, N: 1 },
+  MolarMass: { M: 1, L: 0, T: 0, I: 0, Th: 0, N: -1 },
+  MolarConcentration: { M: 0, L: -3, T: 0, I: 0, Th: 0, N: 1 },
+  LuminousIntensity: { M: 0, L: 0, T: 0, I: 0, Th: 0, J: 1 },
+  Illuminance: { M: 0, L: -2, T: 0, I: 0, Th: 0, J: 1 },
+};
+
+const DIMENSION_KEYS = ["M", "L", "T", "I", "Th", "N", "J"];
+const zeroDimensions = () =>
+  DIMENSION_KEYS.reduce((result, key) => ({ ...result, [key]: 0 }), {});
+const cloneDimensions = (dimensions) =>
+  DIMENSION_KEYS.reduce(
+    (result, key) => ({ ...result, [key]: dimensions?.[key] || 0 }),
+    {},
+  );
+const dimensionsEqual = (left, right) =>
+  DIMENSION_KEYS.every(
+    (key) => Math.abs((left?.[key] || 0) - (right?.[key] || 0)) < 1e-10,
+  );
+
+const dimensionsForUnit = (unit) => {
+  const quantity = unitSystem.getQuantity(unit);
+  const dimensions = quantity ? DIMENSIONS_BY_QUANTITY[quantity] : null;
+  return dimensions ? cloneDimensions(dimensions) : null;
+};
+
+const describeDimensions = (dimensions) => {
+  const knownLabels = [
+    ["Dimensionless", zeroDimensions()],
+    ["Length", DIMENSIONS_BY_QUANTITY.Length],
+    ["Area", DIMENSIONS_BY_QUANTITY.Area],
+    ["Mass", DIMENSIONS_BY_QUANTITY.Mass],
+    ["Density", DIMENSIONS_BY_QUANTITY.Density],
+    ["Mass Flow", DIMENSIONS_BY_QUANTITY.MassFlow],
+    ["Force", DIMENSIONS_BY_QUANTITY.Force],
+    ["Force / Length", { M: 1, L: 0, T: -2, I: 0, Th: 0 }],
+    ["Pressure", DIMENSIONS_BY_QUANTITY.Pressure],
+    ["Torque", DIMENSIONS_BY_QUANTITY.Torque],
+    ["Energy", DIMENSIONS_BY_QUANTITY.Energy],
+    ["Power", DIMENSIONS_BY_QUANTITY.Power],
+    ["Voltage", DIMENSIONS_BY_QUANTITY.Voltage],
+    ["Amount", DIMENSIONS_BY_QUANTITY.Amount],
+    ["Molar Concentration", DIMENSIONS_BY_QUANTITY.MolarConcentration],
+    ["Luminous Intensity", DIMENSIONS_BY_QUANTITY.LuminousIntensity],
+    ["Illuminance", DIMENSIONS_BY_QUANTITY.Illuminance],
+  ];
+  const known = knownLabels.find(([, candidate]) => dimensionsEqual(dimensions, candidate));
+  if (known) return known[0];
+
+  return DIMENSION_KEYS
+    .filter((key) => Math.abs(dimensions[key]) > 1e-10)
+    .map((key) => `${key}${dimensions[key] === 1 ? "" : `^${dimensions[key]}`}`)
+    .join(" ") || "Dimensionless";
+};
+
+// 8.0 evaluates an Excel formula numerically; it does not require the user to
+// annotate the physical units carried by numeric coefficients such as the
+// 0.001 W reference in log(P / 0.001). The app adds a dimensional safeguard,
+// but must not reject those valid workbook-style formulas. To reconcile the
+// two, each numeric literal is treated as an unknown (possibly unit-bearing)
+// coefficient and the expression builds linear dimensional constraints. A
+// formula is rejected only when those constraints are impossible for the
+// explicitly selected input and output units.
+const affineFromDimensions = (dimensions) =>
+  DIMENSION_KEYS.reduce(
+    (result, key) => ({
+      ...result,
+      [key]: { constant: dimensions?.[key] || 0, coefficients: {} },
+    }),
+    {},
+  );
+
+const affineLiteral = (literalId) =>
+  DIMENSION_KEYS.reduce(
+    (result, key) => ({
+      ...result,
+      [key]: { constant: 0, coefficients: { [literalId]: 1 } },
+    }),
+    {},
+  );
+
+const combineAffineDimensions = (left, right, sign = 1) =>
+  DIMENSION_KEYS.reduce((result, key) => {
+    const leftPart = left[key];
+    const rightPart = right[key];
+    const coefficients = { ...leftPart.coefficients };
+    Object.entries(rightPart.coefficients).forEach(([id, value]) => {
+      coefficients[id] = (coefficients[id] || 0) + sign * value;
+      if (Math.abs(coefficients[id]) < 1e-12) delete coefficients[id];
+    });
+    result[key] = {
+      constant: leftPart.constant + sign * rightPart.constant,
+      coefficients,
+    };
+    return result;
+  }, {});
+
+const scaleAffineDimensions = (dimensions, factor) =>
+  DIMENSION_KEYS.reduce((result, key) => {
+    const part = dimensions[key];
+    result[key] = {
+      constant: part.constant * factor,
+      coefficients: Object.fromEntries(
+        Object.entries(part.coefficients)
+          .map(([id, value]) => [id, value * factor])
+          .filter(([, value]) => Math.abs(value) >= 1e-12),
+      ),
+    };
+    return result;
+  }, {});
+
+const concreteAffineDimensions = (dimensions) => {
+  const isConcrete = DIMENSION_KEYS.every(
+    (key) => Object.keys(dimensions[key].coefficients).length === 0,
+  );
+  if (!isConcrete) return null;
+  return DIMENSION_KEYS.reduce(
+    (result, key) => ({ ...result, [key]: dimensions[key].constant }),
+    {},
+  );
+};
+
+const constrainDimensionsEqual = (context, left, right, issue = null) => {
+  context.constraints.push(combineAffineDimensions(left, right, -1));
+
+  // Preserve the local reason for a concrete contradiction. The overall
+  // expression can still have the same dimensions as its target while an
+  // internal rule is violated (for example V * A * cos(theta) produces Power
+  // even when theta was accidentally entered in Ohms). Without this context,
+  // the caller could only report the confusing "Power vs Power" mismatch.
+  if (!issue) return;
+  const leftDimensions = concreteAffineDimensions(left);
+  const rightDimensions = concreteAffineDimensions(right);
+  if (
+    leftDimensions &&
+    rightDimensions &&
+    !dimensionsEqual(leftDimensions, rightDimensions)
+  ) {
+    context.issues.push({
+      ...issue,
+      leftDimensions,
+      rightDimensions,
+    });
+  }
+};
+
+const evaluateDimensionlessNumber = (node) => {
+  try {
+    const value = node?.compile().evaluate({});
+    return typeof value === "number" && Number.isFinite(value) ? value : NaN;
+  } catch {
+    return NaN;
+  }
+};
+
+const literalDimensions = (context, node) => {
+  let literalId = context.literalIds.get(node);
+  if (!literalId) {
+    literalId = `c${context.nextLiteralId++}`;
+    context.literalIds.set(node, literalId);
+  }
+  return affineLiteral(literalId);
+};
+
+const inferAffineExpressionDimensions = (node, variableDimensions, context) => {
+  if (!node) return null;
+
+  if (node.isConstantNode) {
+    return typeof node.value === "number" ? literalDimensions(context, node) : null;
+  }
+
+  if (node.isSymbolNode) {
+    if (variableDimensions[node.name]) {
+      return affineFromDimensions(variableDimensions[node.name]);
+    }
+    // mathjs constants (pi, e, tau, etc.) are intrinsically dimensionless.
+    if (math[node.name] !== undefined && typeof math[node.name] !== "function") {
+      return affineFromDimensions(zeroDimensions());
+    }
+    return null;
+  }
+
+  if (node.isParenthesisNode) {
+    return inferAffineExpressionDimensions(node.content, variableDimensions, context);
+  }
+
+  if (node.isOperatorNode) {
+    const args = node.args || [];
+    if (args.length === 1 && ["unaryMinus", "unaryPlus"].includes(node.fn)) {
+      return inferAffineExpressionDimensions(args[0], variableDimensions, context);
+    }
+
+    const left = inferAffineExpressionDimensions(args[0], variableDimensions, context);
+    const right = inferAffineExpressionDimensions(args[1], variableDimensions, context);
+    if (!left || !right) return null;
+
+    if (node.op === "+" || node.op === "-") {
+      constrainDimensionsEqual(context, left, right, {
+        type: "additive-operands",
+        operator: node.op,
+        leftExpression: args[0]?.toString?.() || "left operand",
+        rightExpression: args[1]?.toString?.() || "right operand",
+      });
+      return left;
+    }
+    if (node.op === "*") return combineAffineDimensions(left, right);
+    if (node.op === "/") return combineAffineDimensions(left, right, -1);
+    if (node.op === "^") {
+      constrainDimensionsEqual(context, right, affineFromDimensions(zeroDimensions()));
+      const exponentValue = evaluateDimensionlessNumber(args[1]);
+      if (Number.isFinite(exponentValue)) {
+        return scaleAffineDimensions(left, exponentValue);
+      }
+      // A variable exponent is only meaningful for a dimensionless base.
+      constrainDimensionsEqual(context, left, affineFromDimensions(zeroDimensions()));
+      return affineFromDimensions(zeroDimensions());
+    }
+    return null;
+  }
+
+  if (!node.isFunctionNode) return null;
+
+  const name = node.fn?.name || node.name || "";
+  const args = node.args || [];
+  const inferred = args.map((arg) =>
+    inferAffineExpressionDimensions(arg, variableDimensions, context),
+  );
+  if (inferred.some((dimensions) => !dimensions)) return null;
+
+  const dimensionless = affineFromDimensions(zeroDimensions());
+  const first = inferred[0];
+
+  if (["abs", "floor", "ceil"].includes(name)) return first;
+  if (name === "round") {
+    if (inferred[1]) constrainDimensionsEqual(context, inferred[1], dimensionless);
+    return first;
+  }
+  if (name === "sign") return dimensionless;
+  if (name === "sqrt") return scaleAffineDimensions(first, 0.5);
+  if (name === "cbrt") return scaleAffineDimensions(first, 1 / 3);
+  if (name === "nthRoot") {
+    if (!inferred[1]) return null;
+    constrainDimensionsEqual(context, inferred[1], dimensionless);
+    const root = evaluateDimensionlessNumber(args[1]);
+    return Number.isFinite(root) && root !== 0
+      ? scaleAffineDimensions(first, 1 / root)
+      : null;
+  }
+  if (name === "pow") {
+    if (!inferred[1]) return null;
+    constrainDimensionsEqual(context, inferred[1], dimensionless);
+    const exponent = evaluateDimensionlessNumber(args[1]);
+    if (Number.isFinite(exponent)) return scaleAffineDimensions(first, exponent);
+    constrainDimensionsEqual(context, first, dimensionless);
+    return dimensionless;
+  }
+
+  const dimensionlessInputFunctions = new Set([
+    "sin", "cos", "tan", "sec", "csc", "cot",
+    "asin", "acos", "atan",
+    "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+    "exp", "log", "log10", "log2",
+  ]);
+  if (dimensionlessInputFunctions.has(name)) {
+    constrainDimensionsEqual(context, first, dimensionless, {
+      type: "dimensionless-function-argument",
+      functionName: name,
+      argumentExpression: args[0]?.toString?.() || "argument",
+    });
+    inferred.slice(1).forEach((dimensions, index) =>
+      constrainDimensionsEqual(context, dimensions, dimensionless, {
+        type: "dimensionless-function-argument",
+        functionName: name,
+        argumentExpression: args[index + 1]?.toString?.() || "argument",
+      }),
+    );
+    return dimensionless;
+  }
+
+  if (name === "atan2") {
+    if (!inferred[1]) return null;
+    constrainDimensionsEqual(context, first, inferred[1]);
+    return dimensionless;
+  }
+
+  if (["min", "max", "hypot", "mod"].includes(name)) {
+    inferred.slice(1).forEach((dimensions) =>
+      constrainDimensionsEqual(context, dimensions, first),
+    );
+    return first;
+  }
+
+  return null;
+};
+
+const dimensionalConstraintsAreConsistent = (constraints) => {
+  const literalIds = [
+    ...new Set(
+      constraints.flatMap((constraint) =>
+        DIMENSION_KEYS.flatMap((key) =>
+          Object.keys(constraint[key].coefficients),
+        ),
+      ),
+    ),
+  ];
+  const tolerance = 1e-10;
+
+  return DIMENSION_KEYS.every((key) => {
+    const rows = constraints.map((constraint) => [
+      ...literalIds.map((id) => constraint[key].coefficients[id] || 0),
+      -constraint[key].constant,
+    ]);
+    let pivotRow = 0;
+
+    for (let col = 0; col < literalIds.length && pivotRow < rows.length; col += 1) {
+      let best = pivotRow;
+      for (let row = pivotRow + 1; row < rows.length; row += 1) {
+        if (Math.abs(rows[row][col]) > Math.abs(rows[best][col])) best = row;
+      }
+      if (Math.abs(rows[best][col]) < tolerance) continue;
+      [rows[pivotRow], rows[best]] = [rows[best], rows[pivotRow]];
+
+      const pivot = rows[pivotRow][col];
+      for (let cell = col; cell <= literalIds.length; cell += 1) {
+        rows[pivotRow][cell] /= pivot;
+      }
+      for (let row = 0; row < rows.length; row += 1) {
+        if (row === pivotRow) continue;
+        const factor = rows[row][col];
+        if (Math.abs(factor) < tolerance) continue;
+        for (let cell = col; cell <= literalIds.length; cell += 1) {
+          rows[row][cell] -= factor * rows[pivotRow][cell];
+        }
+      }
+      pivotRow += 1;
+    }
+
+    return rows.every((row) => {
+      const allZero = row
+        .slice(0, literalIds.length)
+        .every((value) => Math.abs(value) < tolerance);
+      return !allZero || Math.abs(row[literalIds.length]) < tolerance;
+    });
+  });
+};
+
+export const validateEquationDimensions = (
+  nodeOrExpression,
+  variableDimensions,
+  targetDimensions,
+) => {
+  const node = typeof nodeOrExpression === "string"
+    ? math.parse(nodeOrExpression)
+    : nodeOrExpression;
+  const context = {
+    constraints: [],
+    issues: [],
+    literalIds: new WeakMap(),
+    nextLiteralId: 1,
+  };
+  const result = inferAffineExpressionDimensions(node, variableDimensions, context);
+  if (!result || !targetDimensions) return { status: "unknown", resultDimensions: null };
+
+  const concreteResult = concreteAffineDimensions(result);
+  constrainDimensionsEqual(context, result, affineFromDimensions(targetDimensions));
+  return dimensionalConstraintsAreConsistent(context.constraints)
+    ? { status: "valid", resultDimensions: concreteResult, issues: [] }
+    : {
+        status: "invalid",
+        resultDimensions: concreteResult,
+        issues: context.issues,
+      };
+};
+
+export const validateEquationUnits = (
+  nodeOrExpression,
+  variableUnits,
+  targetUnit,
+) => {
+  const variableDimensions = {};
+  const allUnitsKnown = Object.entries(variableUnits || {}).every(([symbol, unit]) => {
+    const dimensions = dimensionsForUnit(unit);
+    if (!dimensions) return false;
+    variableDimensions[symbol] = dimensions;
+    return true;
+  });
+  const targetDimensions = dimensionsForUnit(targetUnit);
+  if (!allUnitsKnown || !targetDimensions) {
+    return { status: "unknown", resultDimensions: null };
+  }
+  return validateEquationDimensions(
+    nodeOrExpression,
+    variableDimensions,
+    targetDimensions,
+  );
+};
+
 export const calculateDerivedUncertainty = (
   equationString,
   variableMappings,
   tmdeTolerances,
   derivedNominalPoint,
-  manualComponents = []
+  manualComponents = [],
+  calculationOptions = {},
 ) => {
+  const strictUnitValidation = Boolean(calculationOptions?.strictUnitValidation);
+  const allowFiniteDifference = Boolean(calculationOptions?.allowFiniteDifference);
   // 1. Basic Validation
   if (!equationString || !variableMappings || !tmdeTolerances) {
     console.error("calculateDerivedUncertainty missing essential inputs", {
@@ -1455,9 +2070,22 @@ export const calculateDerivedUncertainty = (
     if (manualComponents && Array.isArray(manualComponents)) {
       manualComponents.forEach((comp) => {
         const varType = comp.variableType || comp.name;
-        const nominalValue = parseFloat(comp.nominal);
+        const mappedSymbol = Object.entries(variableMappings || {}).find(
+          ([, type]) =>
+            String(type || "").trim() === String(varType || "").trim(),
+        )?.[0];
+        const inferredNominal =
+          derivedNominalPoint?.variableNominals?.[mappedSymbol] ||
+          derivedNominalPoint?.variableNominals?.[varType] ||
+          null;
+        const nominalValue = parseFloat(comp.nominal ?? inferredNominal?.value);
         const existingInput = uncertaintyInputs[varType];
-        const nativeUnit = comp.unit_native || comp.unit || existingInput?.unit || "";
+        const nativeUnit =
+          comp.unit_native ||
+          comp.unit ||
+          existingInput?.unit ||
+          inferredNominal?.unit ||
+          "";
         const uNative =
           comp.value_native !== undefined && comp.value_native !== null
             ? parseFloat(comp.value_native)
@@ -1473,16 +2101,20 @@ export const calculateDerivedUncertainty = (
 
         if (!isNaN(nominalValue)) {
           // Normalize manual input to Base Units
-          const nominalInBase = comp.unit 
-            ? unitSystem.toBaseUnit(nominalValue, comp.unit)
+          const nominalInBase = nativeUnit
+            ? unitSystem.toBaseUnit(nominalValue, nativeUnit)
             : nominalValue;
 
           // Convert uncertainty value to Base Units
           // Check if value is provided in Base or Native. 
           // Usually manualComponents store 'value' as calculated standard uncertainty in NATIVE units (if unit provided) or PPM?
           // For simplicity in this context, assuming 'value' is absolute in the component's unit.
-          const u_val_native = parseFloat(comp.value) || 0; 
-          const u_val_base = comp.unit ? unitSystem.toBaseUnit(u_val_native, comp.unit) : u_val_native;
+          const u_val_native = Number.isFinite(uNative)
+            ? uNative
+            : parseFloat(comp.value) || 0;
+          const u_val_base = nativeUnit
+            ? unitSystem.toBaseUnit(u_val_native, nativeUnit)
+            : u_val_native;
           
           const variance_base = u_val_base ** 2;
 
@@ -1492,7 +2124,7 @@ export const calculateDerivedUncertainty = (
             uncertaintyInputs[varType] = {
               ui_squared_sum_base: variance_base,
               nominalBase: nominalInBase,
-              unit: comp.unit || "",
+              unit: nativeUnit,
             };
           }
         }
@@ -1545,6 +2177,103 @@ export const calculateDerivedUncertainty = (
       };
     }
 
+    // Never present a numerically converted value with the wrong physical
+    // unit. For example, w / l produces force-per-length; converting that SI
+    // number into an in-ozf target (torque) creates a plausible-looking but
+    // physically meaningless value. Strict validation is enabled by the live
+    // analysis hook; the lower-level utility remains permissive for legacy
+    // callers and saved test fixtures that intentionally use abstract units.
+    if (strictUnitValidation && targetUnitInfo) {
+      const variableDimensions = {};
+      const allVariableUnitsKnown = variables.every((symbol) => {
+        const input = uncertaintyInputs[variableMappings[symbol]];
+        const dimensions = dimensionsForUnit(input?.unit);
+        if (!dimensions) return false;
+        variableDimensions[symbol] = dimensions;
+        return true;
+      });
+      const targetDimensions = dimensionsForUnit(targetUnit);
+      const dimensionValidation = allVariableUnitsKnown && targetDimensions
+        ? validateEquationDimensions(node, variableDimensions, targetDimensions)
+        : { status: "unknown", resultDimensions: null };
+
+      if (dimensionValidation.status === "invalid") {
+        const functionArgumentIssue = dimensionValidation.issues?.find(
+          (issue) => issue.type === "dimensionless-function-argument",
+        );
+        if (functionArgumentIssue) {
+          const argumentExpression = functionArgumentIssue.argumentExpression;
+          const argumentSymbol = variables.find(
+            (symbol) => symbol === argumentExpression,
+          );
+          const mappedType = argumentSymbol
+            ? variableMappings[argumentSymbol]
+            : null;
+          const inputUnit = mappedType
+            ? uncertaintyInputs[mappedType]?.unit || ""
+            : "";
+          const inputQuantity = inputUnit
+            ? unitSystem.getQuantity(inputUnit) ||
+              describeDimensions(functionArgumentIssue.leftDimensions)
+            : describeDimensions(functionArgumentIssue.leftDimensions);
+          const argumentLabel = argumentSymbol
+            ? `'${argumentSymbol}' (${mappedType})`
+            : `'${argumentExpression}'`;
+          const unitLabel = inputUnit
+            ? ` uses '${inputUnit}' (${inputQuantity})`
+            : ` is ${inputQuantity}`;
+          const angleInputFunctions = new Set([
+            "sin", "cos", "tan", "sec", "csc", "cot",
+          ]);
+          const acceptsAngle = angleInputFunctions.has(
+            functionArgumentIssue.functionName,
+          );
+          const requirement = acceptsAngle
+            ? "an angle or dimensionless input"
+            : "a dimensionless input";
+          const correction = acceptsAngle
+            ? "Set this measurement input to an angle unit such as rad or deg."
+            : "Set this measurement input to a dimensionless unit.";
+          return {
+            combinedUncertaintyNative: NaN,
+            breakdown: [],
+            nominalResult: NaN,
+            error: `Unit mismatch: ${argumentLabel}${unitLabel}, but ${functionArgumentIssue.functionName}(...) requires ${requirement}. ${correction}`,
+            unitMismatch: {
+              reason: "dimensionless-function-argument",
+              expression: argumentExpression,
+              functionName: functionArgumentIssue.functionName,
+              variable: argumentSymbol || null,
+              variableType: mappedType,
+              inputUnit,
+              inputQuantity,
+              target: describeDimensions(targetDimensions),
+              targetUnit,
+            },
+          };
+        }
+
+        const resultDescription = dimensionValidation.resultDimensions
+          ? describeDimensions(dimensionValidation.resultDimensions)
+          : "incompatible input dimensions";
+        const targetDescription = describeDimensions(targetDimensions);
+        const torqueHint = targetDescription === "Torque" && dimensionValidation.resultDimensions
+          ? " Use multiplication (for example, w * l) when calculating torque."
+          : " Check additions, subtractions, ratios, dimensionless function arguments, and the selected target unit.";
+        return {
+          combinedUncertaintyNative: NaN,
+          breakdown: [],
+          nominalResult: NaN,
+          error: `Unit mismatch: the equation produces ${resultDescription}, but the target unit '${targetUnit}' is ${targetDescription}.${torqueHint}`,
+          unitMismatch: {
+            result: resultDescription,
+            target: targetDescription,
+            targetUnit,
+          },
+        };
+      }
+    }
+
     // Pre-calculate final uncertainty for each input type
     Object.keys(uncertaintyInputs).forEach((type) => {
       uncertaintyInputs[type].ui_base = Math.sqrt(
@@ -1559,13 +2288,32 @@ export const calculateDerivedUncertainty = (
 
       const ui_base = inputData.ui_base;
 
-      // MathJS Derivative
-      const derivativeNode = math.derivative(node, variableSymbol);
-      const derivativeStr = derivativeNode.toString();
-      const derivativeFunc = derivativeNode.compile();
-
-      // Sensitivity in Base Units: d(ResultBase) / d(InputBase)
-      const sensitivityCoeffBase = derivativeFunc.evaluate(nominalScope);
+      // MathJS derivative is retained for ordinary first-order budgets. Risk
+      // 8.0 Monte Carlo still needs local sensitivities only for its approximate
+      // Welch-Satterthwaite denominator; the workbook obtains those with a
+      // central finite difference, which also supports abs/min/max and other
+      // expressions MathJS cannot symbolically differentiate.
+      let derivativeNode = null;
+      let derivativeStr = "";
+      let sensitivityCoeffBase;
+      try {
+        derivativeNode = math.derivative(node, variableSymbol);
+        derivativeStr = derivativeNode.toString();
+        sensitivityCoeffBase = derivativeNode.compile().evaluate(nominalScope);
+      } catch (derivativeError) {
+        if (!allowFiniteDifference) throw derivativeError;
+        const mean = nominalScope[variableSymbol];
+        let scale = Math.max(Math.abs(mean), Math.abs(ui_base));
+        if (scale <= 0) scale = 1;
+        const h = Math.max(scale * 1e-6, 1e-15);
+        const compiledEquation = node.compile();
+        const plusScope = { ...nominalScope, [variableSymbol]: mean + h };
+        const minusScope = { ...nominalScope, [variableSymbol]: mean - h };
+        const yPlus = compiledEquation.evaluate(plusScope);
+        const yMinus = compiledEquation.evaluate(minusScope);
+        sensitivityCoeffBase = (yPlus - yMinus) / (2 * h);
+        derivativeStr = `central finite difference (h=${h})`;
+      }
 
       if (isNaN(sensitivityCoeffBase)) {
         if (sensitivityCoeffBase && typeof sensitivityCoeffBase === 'object') {
@@ -1591,6 +2339,7 @@ export const calculateDerivedUncertainty = (
       let secondDerivativeString = null;
       let secondDerivativeBase = null;
       try {
+        if (!derivativeNode) throw new Error("No symbolic second derivative");
         const secondDerivNode = math.derivative(derivativeNode, variableSymbol);
         const secondDeriv = secondDerivNode.compile().evaluate(nominalScope);
         if (typeof secondDeriv === "number" && Number.isFinite(secondDeriv)) {

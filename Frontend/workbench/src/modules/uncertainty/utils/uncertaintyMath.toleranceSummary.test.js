@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DISTRIBUTION_NOT_SET,
+  distributionDivisorValue,
   errorDistributions,
   getAbsoluteLimits,
   getToleranceErrorSummary,
@@ -65,6 +66,15 @@ describe("getToleranceErrorSummary", () => {
 });
 
 describe("errorDistributions", () => {
+  it("calculates legacy shape divisors with Risk 8.0 workbook precision", () => {
+    expect(distributionDivisorValue("1.732")).toBe(Math.sqrt(3));
+    expect(distributionDivisorValue("3.464")).toBe(Math.sqrt(12));
+    expect(distributionDivisorValue("2.449")).toBe(Math.sqrt(6));
+    expect(distributionDivisorValue("4.899")).toBe(Math.sqrt(24));
+    expect(distributionDivisorValue("1.414")).toBe(Math.sqrt(2));
+    expect(distributionDivisorValue("4.179")).toBe(4.178);
+  });
+
   it("offers an explicit not-set option for unvalidated instrument specs", () => {
     expect(errorDistributions[0]).toEqual({
       value: DISTRIBUTION_NOT_SET,
@@ -77,5 +87,28 @@ describe("errorDistributions", () => {
       value: "1.000",
       label: "Normal (k=1)",
     });
+  });
+
+  it("offers the resolution-specific triangular divisor", () => {
+    expect(errorDistributions).toContainEqual({
+      value: "4.899",
+      label: "Triangular (resolution)",
+    });
+  });
+
+  it("shows only the active absolute limit for a single-sided tolerance", () => {
+    expect(
+      getAbsoluteLimits(
+        { singleSided: { direction: "low", limit: 1, unit: "V" } },
+        { value: 2, unit: "V" },
+      ),
+    ).toEqual({ low: "1.000000 V", high: "—" });
+
+    expect(
+      getAbsoluteLimits(
+        { singleSided: { direction: "high", limit: 3, unit: "V" } },
+        { value: 2, unit: "V" },
+      ),
+    ).toEqual({ low: "—", high: "3.000000 V" });
   });
 });

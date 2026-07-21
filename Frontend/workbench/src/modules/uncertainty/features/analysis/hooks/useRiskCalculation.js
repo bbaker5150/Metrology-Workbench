@@ -31,10 +31,23 @@ import {
   CalRelMgr
 } from "../../../utils/uncertaintyMath";
 import {
-  getFreshMcSummary,
   computeEmpiricalRisk,
   findEmpiricalGuardBand,
 } from "../../../utils/empiricalRisk";
+import { toleranceUnboundedSide } from "../../../utils/toleranceShape";
+import {
+  computeUnknownMeasurementBoundary8,
+  isUnknownMeasurementTolerance,
+  toUnknownMeasurementSummary,
+} from "../../../utils/risk8/unknownMeasurementRisk8";
+import {
+  computeKnownMeasurementRisk8,
+  computeKnownTwoSidedRisk8,
+  isKnownTwoSidedTolerance,
+  isKnownMeasurementTolerance,
+  toKnownMeasurementSummary,
+  validateKnownSingleSidedGeometry,
+} from "../../../utils/risk8/knownMeasurementRisk8";
 
 export const useRiskCalculation = (
   sessionData,
@@ -55,11 +68,30 @@ export const useRiskCalculation = (
   
   // Ref to store the last calculated metrics to prevent infinite loops
   const prevRiskMetricsRef = useRef(null);
+  const dismissNotification = useCallback(() => setNotification(null), []);
 
   // --- 1. Auto-Populate Limits from UUT Tolerance ---
   useEffect(() => {
-    if (!uutToleranceData || !uutNominal || !uutNominal.value) {
+    const singleSided =
+      uutToleranceData?.singleSided || uutToleranceData?.tolerances?.singleSided;
+    const hasSingleSidedLimit = Number.isFinite(parseFloat(singleSided?.limit));
+
+    if (!uutToleranceData || (!hasSingleSidedLimit && (!uutNominal || !uutNominal.value))) {
       setRiskInputs((prev) => ({ ...prev, LLow: "", LUp: "" }));
+      return;
+    }
+
+    // Match the workbook's single-sided cases exactly: the stored value is the
+    // one physical acceptance limit. A known measurement supplies the nominal
+    // (Types 3/4); an unknown measurement deliberately has no nominal (Types
+    // 5/6), but the active lower/upper limit is the same.
+    if (hasSingleSidedLimit) {
+      const limit = singleSided.limit;
+      setRiskInputs((prev) => ({
+        ...prev,
+        LLow: singleSided.direction === "low" ? limit : "",
+        LUp: singleSided.direction === "low" ? "" : limit,
+      }));
       return;
     }
 
@@ -99,10 +131,15 @@ export const useRiskCalculation = (
       resolveResolutionNative(uutToleranceData, uutNominal.unit)
     );
 
+    // Single-sided (threshold) tolerance: leave the unbounded side blank so the
+    // downstream risk (both the current threshold path and the 8.0 single-sided
+    // types 3/4) sees a one-sided acceptance limit rather than a symmetric band.
+    const unbounded = toleranceUnboundedSide(uutToleranceData);
+
     setRiskInputs((prev) => ({
       ...prev,
-      LLow: snappedLow,
-      LUp: snappedHigh,
+      LLow: unbounded === "low" ? "" : snappedLow,
+      LUp: unbounded === "high" ? "" : snappedHigh,
     }));
   }, [uutToleranceData, uutNominal]);
 
@@ -110,20 +147,58 @@ export const useRiskCalculation = (
   const calculateRiskMetrics = useCallback(() => {
     const LLow = parseFloat(riskInputs.LLow);
     const LUp = parseFloat(riskInputs.LUp);
+    const unknownMeasurement = isUnknownMeasurementTolerance(uutToleranceData);
+    const knownSingleSided = isKnownMeasurementTolerance(uutToleranceData);
+    const hasLowerLimit = Number.isFinite(LLow);
+    const hasUpperLimit = Number.isFinite(LUp);
 
     const pfaRequired = parseFloat(sessionData.uncReq.reqPFA) / 100;
     const reliability = parseFloat(sessionData.uncReq.reliability) / 100;
     const calInt = parseFloat(sessionData.uncReq.calInt);
-    const measRelCalc = parseFloat(sessionData.uncReq.measRelCalcAssumed) / 100;
+    const assumedReliability =
+      parseFloat(sessionData.uncReq.measRelCalcAssumed) / 100;
+    const measRelCalc = Number.isFinite(assumedReliability)
+      ? assumedReliability
+      : reliability;
     const turNeeded = parseFloat(sessionData.uncReq.neededTUR);
     const uutName = sessionData.uutDescription || "UUT";
 
-    if (isNaN(LLow) || isNaN(LUp) || LUp === LLow) {
-      return;
+    const publishRiskMetrics = (nextMetrics) => {
+      const prevJSON = JSON.stringify(prevRiskMetricsRef.current);
+      const nextJSON = JSON.stringify(nextMetrics);
+      if (prevJSON === nextJSON) return;
+      prevRiskMetricsRef.current = nextMetrics;
+      setRiskResults(nextMetrics);
+      onRiskResultsChange?.(nextMetrics);
+    };
+
+    // Workbook Types 3-6 legitimately have exactly one physical limit. The
+    // legacy two-sided path is the only one that requires both limits.
+    if (unknownMeasurement) {
+      if (hasLowerLimit === hasUpperLimit) return;
+    } else if (knownSingleSided) {
+      if (hasLowerLimit === hasUpperLimit) return;
+      const geometry = validateKnownSingleSidedGeometry(
+        uutToleranceData,
+        uutNominal?.value,
+      );
+      if (!geometry.ok) {
+        const isLower = geometry.direction === "low";
+        setNotification({
+          title: "Invalid Single-Sided Tolerance",
+          message: isLower
+            ? "Single Sided Low is a lower limit (≥), so it must be below the measurement point."
+            : "Single Sided High is an upper limit (≤), so it must be above the measurement point.",
+        });
+        publishRiskMetrics(null);
+        return;
+      }
+      if (isNaN(reliability) || reliability <= 0 || reliability >= 1) return;
+    } else {
+      if (!hasLowerLimit || !hasUpperLimit || LUp === LLow) return;
+      if (isNaN(reliability) || reliability <= 0 || reliability >= 1) return;
     }
-    if (isNaN(reliability) || reliability <= 0 || reliability >= 1) {
-      return;
-    }
+    setNotification(null);
     if (!calcResults) {
       return;
     }
@@ -133,7 +208,13 @@ export const useRiskCalculation = (
     let uCal_Native = calcResults.combined_uncertainty_absolute_base / targetUnitInfo?.to_si;
     let U_Native = calcResults.expanded_uncertainty_absolute_base / targetUnitInfo?.to_si;
     const calculatedAverage = parseFloat(calcResults.calculatedNominalValue);
-    let riskAverage = Number.isFinite(calculatedAverage) ? calculatedAverage : 0;
+    // Direct points do not have a separately calculated nominal. Their stored
+    // test-point value is the measured value; treating the absent derived-only
+    // field as zero invalidates otherwise-correct single-sided geometry.
+    const nominalValue = parseFloat(uutNominal?.value);
+    let riskAverage = Number.isFinite(calculatedAverage)
+      ? calculatedAverage
+      : nominalValue;
 
     if (!targetUnitInfo || isNaN(targetUnitInfo.to_si)) {
       setNotification({
@@ -149,7 +230,9 @@ export const useRiskCalculation = (
     // shortest-95% interval half-width (so TUR is interval-based), and
     // PFA/PFR/guard bands below are quadrant-counted against the empirical
     // measurement-error distribution.
-    const mcSummary = getFreshMcSummary(testPointData, tmdeTolerancesData);
+    // Retired empirical MC summaries never override Risk 8.0. The new Monte
+    // Carlo component is already reflected in calcResults.u_c and U above.
+    const mcSummary = null;
     let mcErrorQuantilesNative = null;
     if (mcSummary) {
       uCal_Native = mcSummary.uBase / targetUnitInfo.to_si;
@@ -169,6 +252,80 @@ export const useRiskCalculation = (
         nominalUnit
       );
       if (Number.isFinite(mcMeanNative)) riskAverage = mcMeanNative;
+    }
+
+    if (unknownMeasurement) {
+      const safeRes = resolveResolutionNative(uutToleranceData, nominalUnit);
+      const boundary = computeUnknownMeasurementBoundary8({
+        tolerance: uutToleranceData,
+        // Workbook column J is expanded U_cal for the type-5/6 boundary.
+        uCalNative: U_Native,
+        reqPFA: pfaRequired,
+        resolution: safeRes,
+      });
+      const summary = toUnknownMeasurementSummary(boundary);
+      if (!summary) return;
+
+      const gbInputs = {
+        nominal: undefined,
+        uutLower: boundary.lowerLimit,
+        uutUpper: boundary.upperLimit,
+        tmdeLower: undefined,
+        tmdeUpper: undefined,
+        combUnc: U_Native,
+        expandedUncertainty: U_Native,
+        uncertaintyKind: "expanded",
+        turVal: undefined,
+        measRelTarget: undefined,
+        calibrationInt: undefined,
+        measrelCalcAssumed: undefined,
+        initialGB: undefined,
+        reqTUR: undefined,
+        reqPFA: pfaRequired,
+        nominalUnit,
+        safeRes,
+      };
+      const gbResults = {
+        GBLOW: summary.gbLow,
+        GBLOWMULT: undefined,
+        GBUP: summary.gbHigh,
+        GBUPMULT: undefined,
+        GBMULT: undefined,
+        GBPFA: summary.gbPfa,
+        GBPFAT1: boundary.direction === "low" ? summary.gbPfa : undefined,
+        GBPFAT2: boundary.direction === "high" ? summary.gbPfa : undefined,
+        GBPFAUUUT: undefined,
+        GBPFAUDEV: undefined,
+        GBPFACOR: undefined,
+        GBPFR: undefined,
+        GBPFRT1: undefined,
+        GBPFRT2: undefined,
+        GBCALINT: undefined,
+        NOGBCALINT: undefined,
+        NOGBMEASREL: undefined,
+      };
+
+      publishRiskMetrics({
+        ...summary,
+        LLow: boundary.lowerLimit,
+        LUp: boundary.upperLimit,
+        ALow: summary.gbLow,
+        AUp: summary.gbHigh,
+        riskAverage: undefined,
+        uCal: U_Native,
+        expandedUncertainty: U_Native,
+        nativeUnit: nominalUnit,
+        gbInputs,
+        gbResults,
+        risk8: {
+          out: boundary.out,
+          fields: boundary.fields,
+          meta: boundary.meta,
+        },
+        uutResolution:
+          testPointData?.uutTolerance?.measuringResolution?.length || 0,
+      });
+      return;
     }
 
     // ... [Logic: UUT Breakdown for TAR] ...
@@ -308,6 +465,102 @@ export const useRiskCalculation = (
       LUp,
       U_Native
     );
+
+    const knownTwoSided = isKnownTwoSidedTolerance(
+      uutNominal.value,
+      LLow,
+      LUp,
+    );
+
+    if (knownSingleSided || knownTwoSided) {
+      const safeRes = resolveResolutionNative(uutToleranceData, nominalUnit);
+      const sharedRisk8Inputs = {
+        nominal: parseFloat(uutNominal.value),
+        riskAverage,
+        expandedUncertaintyNative: U_Native,
+        tur: turResult,
+        assumedReop: measRelCalc,
+        requiredReop: reliability,
+        turNeeded,
+        reqPFA: pfaRequired,
+        initialGB: parseFloat(sessionData.uncReq.guardBandMultiplier),
+        originalInterval: calInt,
+        resolution: safeRes,
+      };
+      const risk8Result = knownSingleSided
+        ? computeKnownMeasurementRisk8({
+            ...sharedRisk8Inputs,
+            tolerance: uutToleranceData,
+          })
+        : computeKnownTwoSidedRisk8({
+            ...sharedRisk8Inputs,
+            lowerLimit: LLow,
+            upperLimit: LUp,
+          });
+      const summary = toKnownMeasurementSummary(risk8Result);
+      if (!summary) return;
+
+      const gbInputs = {
+        nominal: parseFloat(uutNominal.value),
+        uutLower: risk8Result.lowerLimit,
+        uutUpper: risk8Result.upperLimit,
+        tmdeLower: parseFloat(uutNominal.value) + tmdeToleranceLow_Native,
+        tmdeUpper: parseFloat(uutNominal.value) + tmdeToleranceHigh_Native,
+        combUnc: uCal_Native,
+        expandedUncertainty: U_Native,
+        turVal: summary.tur,
+        measRelTarget: reliability,
+        calibrationInt: calInt,
+        measrelCalcAssumed: measRelCalc,
+        initialGB: parseFloat(sessionData.uncReq.guardBandMultiplier),
+        reqTUR: turNeeded,
+        reqPFA: pfaRequired,
+        nominalUnit,
+        safeRes,
+      };
+      const gbResults = {
+        GBLOW: summary.gbLow,
+        GBUP: summary.gbHigh,
+        GBMULT: summary.gbMult,
+        GBPFA: summary.gbPfa,
+        GBPFR: summary.gbPfr,
+        GBCALINT: summary.gbCalInt,
+        NOGBCALINT: summary.noGbCalInt,
+        NOGBMEASREL: summary.noGbMeasRel,
+      };
+
+      publishRiskMetrics({
+        ...summary,
+        LLow: risk8Result.lowerLimit,
+        LUp: risk8Result.upperLimit,
+        ALow: summary.gbLow,
+        AUp: summary.gbHigh,
+        riskAverage,
+        tar: Number.isFinite(Number(tarResult)) ? Number(tarResult) : undefined,
+        uCal: uCal_Native,
+        expandedUncertainty: U_Native,
+        tmdeToleranceSpan: tmdeToleranceSpan_Native,
+        tmdeToleranceHigh: tmdeToleranceHigh_Native,
+        tmdeToleranceLow: tmdeToleranceLow_Native,
+        nominalValue: parseFloat(uutNominal.value),
+        uutBreakdownForTar,
+        tmdeBreakdownForTar,
+        nativeUnit: nominalUnit,
+        gbInputs,
+        gbResults,
+        risk8: {
+          out: risk8Result.out,
+          fields: risk8Result.fields,
+          meta: risk8Result.meta,
+          input: risk8Result.input,
+          diagnostics: risk8Result.diagnostics,
+        },
+        uutResolution:
+          testPointData?.uutTolerance?.measuringResolution?.length || 0,
+      });
+      return;
+    }
+
     let [pfaResult, pfa_term1, pfa_term2, uUUT, uDev, cor] = PFAMgr(
       uutNominal.value,
       riskAverage,
@@ -564,6 +817,7 @@ export const useRiskCalculation = (
       measRelTarget: reliability,
       calibrationInt: calInt,
       measrelCalcAssumed: measRelCalc,
+      initialGB: parseFloat(sessionData.uncReq.guardBandMultiplier),
       reqTUR: turNeeded,
       reqPFA: pfaRequired,
       nominalUnit: nominalUnit,
@@ -643,14 +897,7 @@ export const useRiskCalculation = (
 
     // --- INFINITE LOOP FIX ---
     // Compare new results with previous results. Only update state/parent if different.
-    const prevJSON = JSON.stringify(prevRiskMetricsRef.current);
-    const newJSON = JSON.stringify(newRiskMetrics);
-
-    if (prevJSON !== newJSON) {
-        prevRiskMetricsRef.current = newRiskMetrics;
-        setRiskResults(newRiskMetrics);
-        onRiskResultsChange?.(newRiskMetrics);
-    }
+    publishRiskMetrics(newRiskMetrics);
     
   }, [
     riskInputs.LLow,
@@ -666,13 +913,10 @@ export const useRiskCalculation = (
     uutToleranceData,
     tmdeTolerancesData,
     testPointData?.uutTolerance?.measuringResolution, // FIXED Dependency
-    // Layer 3 inputs: when MonteCarloCard persists a fresh summary (or the
-    // user toggles MC mode / changes the trial count), the risk metrics must
-    // recompute immediately — otherwise the PFA/PFR cards and the visualizer
-    // keep showing the pre-MC closed-form numbers until an unrelated edit.
-    testPointData?.propagationMode,
-    testPointData?.mcSummary,
-    testPointData?.mcMaxSamples,
+    // Risk 8.0 Monte Carlo changes the uncertainty budget, so risk recomputes
+    // when its component method or trial count changes.
+    testPointData?.budgetPropagationMethod,
+    testPointData?.monteCarloTrials,
     onRiskResultsChange,
   ]);
 
@@ -717,6 +961,7 @@ export const useRiskCalculation = (
     riskInputs, 
     setRiskInputs, 
     calculateRiskMetrics,
-    notification 
+    notification,
+    dismissNotification,
   };
 };

@@ -170,6 +170,53 @@ describe("calculateDerivedUncertainty second-order Taylor data", () => {
 });
 
 describe("calculateDerivedUncertainty input contributors", () => {
+  it("rejects a force-per-length equation labeled as torque", () => {
+    const result = calculateDerivedUncertainty(
+      "y = w / l",
+      { l: "Length", w: "Weight" },
+      [],
+      {
+        value: 0.5,
+        unit: "in-ozf",
+        variableNominals: {
+          l: { value: 1, unit: "in" },
+          w: { value: 2, unit: "ozf" },
+        },
+      },
+      [],
+      { strictUnitValidation: true },
+    );
+
+    expect(result.unitMismatch).toMatchObject({
+      result: "Force / Length",
+      target: "Torque",
+      targetUnit: "in-ozf",
+    });
+    expect(result.error).toMatch(/w \* l/i);
+    expect(result.nominalResult).toBeNaN();
+  });
+
+  it("accepts a force-times-length equation for a torque target", () => {
+    const result = calculateDerivedUncertainty(
+      "y = w * l",
+      { l: "Length", w: "Weight" },
+      [],
+      {
+        value: 0.5,
+        unit: "in-ozf",
+        variableNominals: {
+          l: { value: 1, unit: "in" },
+          w: { value: 2, unit: "ozf" },
+        },
+      },
+      [],
+      { strictUnitValidation: true },
+    );
+
+    expect(result.error).toBeNull();
+    expect(result.nominalResult).toBeCloseTo(2, 5);
+  });
+
   it("uses point-level variable nominals before TMDEs are added to input budgets", () => {
     const result = calculateDerivedUncertainty(
       "torque = w * l",
@@ -212,5 +259,31 @@ describe("calculateDerivedUncertainty input contributors", () => {
     );
     expect(result.breakdown).toHaveLength(1);
     expect(result.breakdown[0].type).toBe("Length");
+  });
+
+  it("uses manually added TMDE budget components without equation assignments", () => {
+    const result = calculateDerivedUncertainty(
+      "y = x",
+      { x: "Length" },
+      [],
+      {
+        value: 2,
+        unit: "m",
+        variableNominals: { x: { value: 2, unit: "m" } },
+      },
+      [
+        {
+          id: "tmde-budget-1",
+          variableType: "Length",
+          value: 0.5,
+          value_native: 0.5,
+          unit_native: "m",
+        },
+      ],
+    );
+
+    expect(result.error).toBeNull();
+    expect(result.nominalResult).toBeCloseTo(2, 10);
+    expect(result.combinedUncertaintyNative).toBeCloseTo(0.5, 10);
   });
 });

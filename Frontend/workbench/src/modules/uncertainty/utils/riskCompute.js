@@ -43,15 +43,111 @@ import {
   getBudgetComponentsFromTolerance,
   getUutResolutionComponent,
 } from "../features/analysis/utils/budgetUtils";
+import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 import { reconcileTmdeInstances } from "./tmdeReconcile";
+import { computeEmpiricalRisk, findEmpiricalGuardBand } from "./empiricalRisk";
 import {
-  getFreshMcSummary,
-  computeEmpiricalRisk,
-  findEmpiricalGuardBand,
-} from "./empiricalRisk";
+  normalizeRisk8MonteCarloTrials,
+  risk8MonteCarloInputHash,
+  runRisk8EquationMonteCarlo,
+} from "./risk8/monteCarloEngine8";
+import {
+  computeUnknownMeasurementBoundary8,
+  isUnknownMeasurementTolerance,
+  toUnknownMeasurementSummary,
+} from "./risk8/unknownMeasurementRisk8";
+import {
+  computeKnownMeasurementRisk8,
+  computeKnownTwoSidedRisk8,
+  isKnownTwoSidedTolerance,
+  isKnownMeasurementTolerance,
+  toKnownMeasurementSummary,
+} from "./risk8/knownMeasurementRisk8";
 
 const isFilledNumber = (v) =>
   v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v));
+
+// Derived points keep TMDE error sources as linked manual budget components.
+// Resolve those links against the live session master before computing sidebar
+// risk so a tolerance/range edit updates PFA/PFR immediately, just as it does
+// in the open point's Analysis component.
+const refreshLinkedDerivedManualComponents = (
+  point,
+  sessionData,
+  uutNominal,
+) => {
+  const components = point?.components || [];
+  if (point?.measurementType !== "derived" || components.length === 0) {
+    return components;
+  }
+
+  const getReferencePoint = (component) => {
+    if (component?.variableType) {
+      const symbol = Object.entries(point.variableMappings || {}).find(
+        ([, name]) =>
+          String(name || "").trim() ===
+          String(component.variableType || "").trim(),
+      )?.[0];
+      return symbol ? point.variableNominals?.[symbol] : null;
+    }
+    return uutNominal;
+  };
+
+  return components
+    .map((component) => {
+      if (!component?.tmdeBudgetSourceId) return component;
+
+      const sourceId = component.tmdeBudgetSourceId;
+      const master = (sessionData?.tmdes || []).find(
+        (tmde) =>
+          String(tmde.id) === String(sourceId) ||
+          String(tmde.sourceId) === String(sourceId),
+      );
+      if (!master) return null;
+
+      const ranges = getInstrumentRangeRows(master, { flattenTolerances: true });
+      const selectedRange =
+        ranges.find(
+          (range) =>
+            component.tmdeBudgetRangeId &&
+            String(range.rangeId ?? range.id) ===
+              String(component.tmdeBudgetRangeId) &&
+            (!component.tmdeBudgetFunctionId ||
+              !range.functionId ||
+              String(range.functionId) === String(component.tmdeBudgetFunctionId)),
+        ) ||
+        ranges.find(
+          (range) =>
+            component.tmdeBudgetFunctionName &&
+            String(range.functionName || "").trim() ===
+              String(component.tmdeBudgetFunctionName).trim(),
+        ) ||
+        ranges[0];
+      if (!selectedRange) return null;
+
+      const resolved = getBudgetComponentsFromTolerance(
+        selectedRange,
+        getReferencePoint(component),
+      );
+      const replacement = resolved.find(
+        (candidate) =>
+          String(candidate.name || "").split(" - ").slice(1).join(" - ") ===
+          String(component.tmdeBudgetComponentKind || ""),
+      );
+      if (!replacement) return null;
+
+      return {
+        ...component,
+        value: replacement.value,
+        isBaseUnitValue: replacement.isBaseUnitValue,
+        value_native: replacement.value_native,
+        unit_native: replacement.unit_native,
+        distribution: replacement.distribution,
+        distributionDivisor: replacement.distributionDivisor,
+      };
+    })
+    .filter(Boolean);
+};
 
 // --- Pure uncertainty (mirrors useUncertaintyCalculation, display fields only) ---
 // Returns { combined_uncertainty_absolute_base, expanded_uncertainty_absolute_base }
@@ -68,7 +164,11 @@ function computeUncertaintyForPoint(point, sessionData) {
     point.tmdeTolerances || [],
     sessionData?.tmdes || [],
   );
-  const manualComponents = point.components || [];
+  const manualComponents = refreshLinkedDerivedManualComponents(
+    point,
+    sessionData,
+    uutNominal,
+  );
   const derivedNominalValue = parseFloat(uutNominal.value);
   const derivedNominalUnit = uutNominal.unit;
   const targetUnitInfo = unitSystem.units[derivedNominalUnit];
@@ -78,7 +178,6 @@ function computeUncertaintyForPoint(point, sessionData) {
   let combinedUncertaintyAbsoluteBase = NaN;
   let effectiveDof = Infinity;
   let calculatedNominalValue;
-  let mcSummary = null;
   const componentsForBudgetTable = [];
 
   try {
@@ -103,19 +202,35 @@ function computeUncertaintyForPoint(point, sessionData) {
         point.equationString,
         point.variableMappings,
         tmdeTolerancesData,
-        uutNominal,
+        // Derived points no longer need TMDE assignment rows: their input
+        // nominals live on the point while linked TMDE/manual components carry
+        // the uncertainty. Keep the nominal-only variable values available to
+        // the pure sidebar calculator just like the open-point hook does.
+        {
+          ...uutNominal,
+          variableNominals: point.variableNominals || {},
+        },
         manualComponents,
+        {
+          allowFiniteDifference:
+            point.budgetPropagationMethod === "montecarlo",
+        },
       );
+      const monteCarloCanReplaceDegenerateTaylor =
+        point.budgetPropagationMethod === "montecarlo" &&
+        derivedCalculationResult.degenerate &&
+        Array.isArray(derivedCalculationResult.breakdown) &&
+        derivedCalculationResult.breakdown.length > 0;
       if (
         derivedCalculationResult.missingInputs ||
-        derivedCalculationResult.error
+        (derivedCalculationResult.error && !monteCarloCanReplaceDegenerateTaylor)
       ) {
         return null;
       }
 
       const { combinedUncertaintyNative, breakdown: derivedBreakdown } =
         derivedCalculationResult;
-      if (isNaN(combinedUncertaintyNative)) return null;
+      if (isNaN(combinedUncertaintyNative) && !monteCarloCanReplaceDegenerateTaylor) return null;
       calculatedNominalValue = derivedCalculationResult.nominalResult;
 
       // Unified SIGNED contributions in base SI (equation inputs + non-mapped
@@ -124,6 +239,7 @@ function computeUncertaintyForPoint(point, sessionData) {
       // open point.
       const inputCorrelations = point.inputCorrelations || {};
       const signedContribsBase = [];
+      const additionalSignedContribsBase = [];
       derivedBreakdown.forEach((item) => {
         signedContribsBase.push({
           id: item.componentId,
@@ -140,6 +256,10 @@ function computeUncertaintyForPoint(point, sessionData) {
             (comp.value / 1e6) * Math.abs(derivedNominalValue) * targetUnitInfo.to_si;
           if (!isNaN(absUncBase)) {
             signedContribsBase.push({ id: varType, contribution: absUncBase });
+            additionalSignedContribsBase.push({
+              id: varType,
+              contribution: absUncBase,
+            });
           }
         }
       });
@@ -153,6 +273,10 @@ function computeUncertaintyForPoint(point, sessionData) {
           (uutResComp.value / 1e6) * Math.abs(derivedNominalValue) * targetUnitInfo.to_si;
         if (!isNaN(absUncBase)) {
           signedContribsBase.push({
+            id: uutResComp.componentId,
+            contribution: absUncBase,
+          });
+          additionalSignedContribsBase.push({
             id: uutResComp.componentId,
             contribution: absUncBase,
           });
@@ -172,9 +296,39 @@ function computeUncertaintyForPoint(point, sessionData) {
       // below, PFA/PFR — reflect the actual (possibly asymmetric) output
       // distribution. A stale or absent summary falls through to the linear
       // numbers; computePointRiskMetrics flags that as mcStale.
-      mcSummary = getFreshMcSummary(point, tmdeTolerancesData);
-      if (mcSummary) {
-        combinedUncertaintyAbsoluteBase = mcSummary.uBase;
+      if (point.budgetPropagationMethod === "montecarlo") {
+        const inputs = derivedBreakdown.map((item) => ({
+            symbol: item.variable,
+            componentId: item.componentId,
+            meanBase: unitSystem.toBaseUnit(item.nominal, item.unit),
+            standardUncertaintyBase: item.ui_absolute_base,
+        }));
+        const trials = normalizeRisk8MonteCarloTrials(point.monteCarloTrials);
+        const hash = risk8MonteCarloInputHash({
+          equationString: point.equationString,
+          inputs,
+          correlations: inputCorrelations,
+          trials,
+        });
+        const result =
+          point.risk8MonteCarloResult?.hash === hash
+            ? point.risk8MonteCarloResult
+            : runRisk8EquationMonteCarlo({
+                equationString: point.equationString,
+                inputs,
+                correlations: inputCorrelations,
+                trials,
+              });
+        combinedUncertaintyAbsoluteBase = combineWithCorrelation(
+          [
+            {
+              id: "risk8_monte_carlo_uncertainty",
+              contribution: result.standardUncertaintyBase,
+            },
+            ...additionalSignedContribsBase,
+          ],
+          inputCorrelations,
+        );
       }
     } else {
       // Direct measurement.
@@ -259,19 +413,14 @@ function computeUncertaintyForPoint(point, sessionData) {
 
     // Empirical expanded uncertainty: half-width of the shortest coverage
     // interval (correct for asymmetric outputs); k follows as its ratio to u.
-    const expandedBase = mcSummary
-      ? (mcSummary.intervalHighBase - mcSummary.intervalLowBase) / 2
-      : kValue * combinedUncertaintyAbsoluteBase;
+    const expandedBase = kValue * combinedUncertaintyAbsoluteBase;
 
     return {
       combined_uncertainty_absolute_base: combinedUncertaintyAbsoluteBase,
       expanded_uncertainty_absolute_base: expandedBase,
       calculated_nominal_value: calculatedNominalValue,
-      k_value:
-        mcSummary && combinedUncertaintyAbsoluteBase > 0
-          ? expandedBase / combinedUncertaintyAbsoluteBase
-          : kValue,
-      mcSummary,
+      k_value: kValue,
+      mcSummary: null,
     };
   } catch {
     return null;
@@ -293,46 +442,86 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
   const uutToleranceData = point.uutTolerance || sessionData.uutTolerance || {};
   const nominalValue = parseFloat(uutNominal.value);
 
+  // Risk 8.0 types 5/6: without a measured value there is no TUR, REOP, PFR,
+  // or TAR calculation. Run the approved PFA-only acceptance-boundary method
+  // before the legacy two-sided limit derivation (which requires both limits
+  // and would otherwise discard this valid tolerance case).
+  if (isUnknownMeasurementTolerance(uutToleranceData)) {
+    const targetUnitInfo = unitSystem.units[uutNominal.unit];
+    const reqPFA = parseFloat(sessionData.uncReq?.reqPFA) / 100;
+    if (!targetUnitInfo || !Number.isFinite(targetUnitInfo.to_si)) return null;
+
+    const expandedUncertaintyNative =
+      calcResults.expanded_uncertainty_absolute_base / targetUnitInfo.to_si;
+    const boundary = computeUnknownMeasurementBoundary8({
+      tolerance: uutToleranceData,
+      uCalNative: expandedUncertaintyNative,
+      reqPFA,
+      resolution: resolveResolutionNative(uutToleranceData, uutNominal.unit),
+    });
+    const summary = toUnknownMeasurementSummary(boundary);
+    return summary ? { ...summary, mcStale: false } : null;
+  }
+
+  const knownSingleSided = isKnownMeasurementTolerance(uutToleranceData);
+
   // Derive acceptance limits from the UUT tolerance + nominal.
   let LLow;
   let LUp;
   try {
-    const { breakdown } = calculateUncertaintyFromToleranceObject(
-      uutToleranceData,
-      uutNominal,
-    );
-    const specComponents = (breakdown || []).filter(
-      (comp) =>
-        comp.absoluteHigh !== undefined && comp.absoluteLow !== undefined,
-    );
-    if (specComponents.length === 0) return null;
-    const totalHighDeviation = specComponents.reduce(
-      (sum, comp) => sum + (comp.absoluteHigh - nominalValue),
-      0,
-    );
-    const totalLowDeviation = specComponents.reduce(
-      (sum, comp) => sum + (comp.absoluteLow - nominalValue),
-      0,
-    );
-    LUp = nominalValue + totalHighDeviation;
-    LLow = nominalValue + totalLowDeviation;
-    // Mirror the workbook: snap the acceptance band inward to the UUT's
-    // measuring resolution before computing risk.
-    ({ low: LLow, high: LUp } = snapLimitsToResolution(
-      LLow,
-      LUp,
-      resolveResolutionNative(uutToleranceData, uutNominal.unit),
-    ));
+    if (knownSingleSided) {
+      const singleSided =
+        uutToleranceData.singleSided || uutToleranceData.tolerances?.singleSided;
+      const limit = Number(singleSided?.limit);
+      if (!Number.isFinite(limit)) return null;
+      LLow = singleSided.direction === "low" ? limit : NaN;
+      LUp = singleSided.direction === "low" ? NaN : limit;
+    } else {
+      const { breakdown } = calculateUncertaintyFromToleranceObject(
+        uutToleranceData,
+        uutNominal,
+      );
+      const specComponents = (breakdown || []).filter(
+        (comp) =>
+          comp.absoluteHigh !== undefined && comp.absoluteLow !== undefined,
+      );
+      if (specComponents.length === 0) return null;
+      const totalHighDeviation = specComponents.reduce(
+        (sum, comp) => sum + (comp.absoluteHigh - nominalValue),
+        0,
+      );
+      const totalLowDeviation = specComponents.reduce(
+        (sum, comp) => sum + (comp.absoluteLow - nominalValue),
+        0,
+      );
+      LUp = nominalValue + totalHighDeviation;
+      LLow = nominalValue + totalLowDeviation;
+      // Mirror the workbook: snap the acceptance band inward to the UUT's
+      // measuring resolution before computing risk.
+      ({ low: LLow, high: LUp } = snapLimitsToResolution(
+        LLow,
+        LUp,
+        resolveResolutionNative(uutToleranceData, uutNominal.unit),
+      ));
+    }
   } catch {
     return null;
   }
 
-  if (isNaN(LLow) || isNaN(LUp) || LUp === LLow) return null;
+  if (knownSingleSided) {
+    if (Number.isFinite(LLow) === Number.isFinite(LUp)) return null;
+  } else if (isNaN(LLow) || isNaN(LUp) || LUp === LLow) {
+    return null;
+  }
 
   const reliability = parseFloat(sessionData.uncReq?.reliability) / 100;
   const turNeeded = parseFloat(sessionData.uncReq?.neededTUR);
   const calInt = parseFloat(sessionData.uncReq?.calInt);
-  const measRelCalc = parseFloat(sessionData.uncReq?.measRelCalcAssumed) / 100;
+  const assumedReliability =
+    parseFloat(sessionData.uncReq?.measRelCalcAssumed) / 100;
+  const measRelCalc = Number.isFinite(assumedReliability)
+    ? assumedReliability
+    : reliability;
   if (isNaN(reliability) || reliability <= 0 || reliability >= 1) return null;
 
   const nominalUnit = uutNominal.unit;
@@ -344,7 +533,11 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
   const U_Native =
     calcResults.expanded_uncertainty_absolute_base / targetUnitInfo.to_si;
   const calculatedAverage = parseFloat(calcResults.calculated_nominal_value);
-  let riskAverage = Number.isFinite(calculatedAverage) ? calculatedAverage : 0;
+  // Direct points have no derived calculated nominal. Use the actual test
+  // point value instead of silently recentering their risk calculation at 0.
+  let riskAverage = Number.isFinite(calculatedAverage)
+    ? calculatedAverage
+    : nominalValue;
   // Layer 3: for MC-mode points the MC mean is the corrected estimate of the
   // measurand (JCGM 101) — it carries the nonlinear ½f″u² shift that
   // f(nominals) misses. Center every risk metric on it, mirroring
@@ -431,6 +624,45 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
     LUp,
     U_Native,
   );
+
+  const knownTwoSided = isKnownTwoSidedTolerance(
+    nominalValue,
+    LLow,
+    LUp,
+  );
+  if (knownSingleSided || knownTwoSided) {
+    const sharedRisk8Inputs = {
+      nominal: nominalValue,
+      riskAverage,
+      expandedUncertaintyNative: U_Native,
+      tur: turResult,
+      assumedReop: measRelCalc,
+      requiredReop: reliability,
+      turNeeded,
+      reqPFA: parseFloat(sessionData.uncReq?.reqPFA) / 100,
+      initialGB: parseFloat(sessionData.uncReq?.guardBandMultiplier),
+      originalInterval: calInt,
+      resolution: resolveResolutionNative(uutToleranceData, nominalUnit),
+    };
+    const result = knownSingleSided
+      ? computeKnownMeasurementRisk8({
+          ...sharedRisk8Inputs,
+          tolerance: uutToleranceData,
+        })
+      : computeKnownTwoSidedRisk8({
+          ...sharedRisk8Inputs,
+          lowerLimit: LLow,
+          upperLimit: LUp,
+        });
+    const summary = toKnownMeasurementSummary(result);
+    if (!summary) return null;
+    return {
+      ...summary,
+      tar: Number.isFinite(Number(tarResult)) ? Number(tarResult) : undefined,
+      mcStale: false,
+    };
+  }
+
   const pfaArr = PFAMgr(
     uutNominal.value,
     riskAverage,
@@ -490,7 +722,7 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
       riskMethod = "empirical";
     }
   }
-  const mcStale = point.propagationMode === "montecarlo" && !mcSummary;
+  const mcStale = false;
 
   // --- Guardband (mirrors useRiskCalculation lines ~315-399) ---
   // Iterative/convergent, so only computed when requested by the caller to keep

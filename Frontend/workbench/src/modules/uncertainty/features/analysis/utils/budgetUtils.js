@@ -6,8 +6,11 @@
 import {
   unitSystem,
   convertToPPM,
+  convertPpmToUnit,
+  calculateUncertaintyFromToleranceObject,
   errorDistributions,
   DISTRIBUTION_NOT_SET,
+  distributionDivisorValue,
   effectiveFloorTerm,
 } from "../../../utils/uncertaintyMath";
 
@@ -42,6 +45,39 @@ export const resolveInstrumentTypeB = (tmdeLike = {}) => {
   return found || [];
 };
 
+const normalizeScopeText = (value) => String(value || "").trim().toLowerCase();
+
+const typeBScopeMatches = (component, scopeContext) => {
+  const scope = normalizeScopeText(component?.scope || "instrument");
+  if (scope === "instrument" || scope === "entire instrument") return true;
+  // A picker can resolve a Type B directly before it has a range context. In
+  // that case preserve the explicit selection and let the user add it once;
+  // automatic range inclusion below is strict whenever context is available.
+  if (!scopeContext) return true;
+
+  const sameFunction = () => {
+    if (component.functionId && scopeContext.functionId) {
+      return String(component.functionId) === String(scopeContext.functionId);
+    }
+    if (component.functionName && scopeContext.functionName) {
+      return normalizeScopeText(component.functionName) ===
+        normalizeScopeText(scopeContext.functionName);
+    }
+    return false;
+  };
+
+  if (scope === "function" || scope === "entire function") {
+    return sameFunction();
+  }
+  if (scope === "range" || scope === "range specific") {
+    return sameFunction() &&
+      component.rangeId &&
+      scopeContext.rangeId &&
+      String(component.rangeId) === String(scopeContext.rangeId);
+  }
+  return true;
+};
+
 export const getBudgetComponentsFromTolerance = (
   rawToleranceObject,
   referenceMeasurementPoint,
@@ -50,8 +86,27 @@ export const getBudgetComponentsFromTolerance = (
   // automatically — the user opts each one in from the budget's "Add to" menu
   // (see addBudgetTypeB). Passing them here resolves them with the same math as
   // the per-range manual components below, against the point's nominal.
-  instrumentTypeBComponents = []
+  instrumentTypeBComponents = [],
+  scopeContext = undefined,
 ) => {
+
+  const rawScopeSource =
+    rawToleranceObject && typeof rawToleranceObject === "object"
+      ? rawToleranceObject
+      : null;
+  const resolvedScopeContext =
+    scopeContext !== undefined
+      ? scopeContext
+      : rawScopeSource &&
+          (rawScopeSource.functionId ||
+            rawScopeSource.functionName ||
+            rawScopeSource.rangeId)
+        ? {
+            functionId: rawScopeSource.functionId,
+            functionName: rawScopeSource.functionName,
+            rangeId: rawScopeSource.rangeId,
+          }
+        : null;
 
   // --- 1. STRUCTURE NORMALIZATION ---
   let toleranceObject = rawToleranceObject;
@@ -92,7 +147,7 @@ export const getBudgetComponentsFromTolerance = (
 
   // --- ACCUMULATORS FOR LINEAR SUM ---
   let totalAccuracyHalfSpan_Base = 0;
-  let activeDistributionDivisor = 1.732; // Default to Rectangular
+  let activeDistributionDivisor = distributionDivisorValue("1.732"); // Rectangular = √3
   let activeDistributionLabel = "Rectangular";
   // Canonical divisor string (matches an errorDistributions value, e.g.
   // "1.960"). The budget-table dropdown round-trips on this exact string.
@@ -130,7 +185,7 @@ export const getBudgetComponentsFromTolerance = (
         activeDistributionDivisor =
           activeDistributionRaw === DISTRIBUTION_NOT_SET
             ? NaN
-            : parseFloat(activeDistributionRaw);
+            : distributionDivisorValue(activeDistributionRaw);
         activeDistributionLabel =
           distEntry?.label ||
           (activeDistributionRaw === DISTRIBUTION_NOT_SET ? "Not Set" : "Rectangular");
@@ -284,7 +339,7 @@ export const getBudgetComponentsFromTolerance = (
       const dbDivisor =
         dbDistRaw === DISTRIBUTION_NOT_SET
           ? NaN
-          : parseFloat(dbDistRaw) || activeDistributionDivisor;
+          : distributionDivisorValue(dbDistRaw) || activeDistributionDivisor;
       const dbLabel = dbDistEntry?.label || activeDistributionLabel;
 
         if (!isNaN(ppm)) {
@@ -307,9 +362,8 @@ export const getBudgetComponentsFromTolerance = (
   }
 
   // --- 4. OPTIONAL: RESOLUTION COMPONENT ---
-  // Only included when the instrument/UUT explicitly opted in (#10). Modeled as
-  // a rectangular distribution spanning one least-significant-digit, i.e.
-  // u = LSD / (2*sqrt(3)).
+  // Only included when the instrument/UUT explicitly opted in (#10). The
+  // selected resolution distribution spans one least-significant-digit.
   // The LSD lives under `measuringResolution` (instrument-range tolerances) or
   // `resolution` (inline tables / derived equation tolerances); read both, and
   // mirror the unit/distribution fallbacks the same way.
@@ -327,11 +381,8 @@ export const getBudgetComponentsFromTolerance = (
       nominalUnit;
     const resBase = unitSystem.toBaseUnit(resVal, resUnit);
     if (!isNaN(resBase) && resBase > 0) {
-      // Resolution rounding spans one LSD (half-width = LSD/2). The divisor is
-      // user-selectable in the budget table (default Rectangular = 1.732, which
-      // gives the conventional LSD/(2*sqrt(3))). distributionDivisor + the
-      // isResolution flag let handleComponentUpdate route a change to the
-      // resolution itself rather than the accuracy sub-components.
+      // Standard distributions apply to the half-LSD error limit. The
+      // resolution-specific divisors already incorporate the full LSD.
       const resDistEntry = errorDistributions.find(
         (d) =>
           parseFloat(d.value) ===
@@ -341,10 +392,13 @@ export const getBudgetComponentsFromTolerance = (
           ),
       );
       const resDistRaw = resDistEntry ? resDistEntry.value : "1.732";
-      const resDivisor = parseFloat(resDistRaw) || 1.732;
+      const resDivisor =
+        distributionDivisorValue(resDistRaw) || distributionDivisorValue("1.732");
       const resDistLabel = resDistEntry?.label || "Rectangular";
 
-      const u_i_base = resBase / 2 / resDivisor;
+      const usesFullLsdDivisor = ["3.464", "4.899"].includes(resDistRaw);
+      const u_i_base =
+        resBase / (usesFullLsdDivisor ? resDivisor : 2 * resDivisor);
       const u_i_native = unitSystem.fromBaseUnit(u_i_base, nominalUnit);
       const nominalBase = unitSystem.toBaseUnit(nominalValue, nominalUnit);
 
@@ -390,6 +444,59 @@ export const getBudgetComponentsFromTolerance = (
     if (!mc || typeof mc !== "object") return null;
 
     const isStandard = mc.inputMode === "standard";
+    const structuredTolerance =
+      !isStandard && mc.tolerance && typeof mc.tolerance === "object" &&
+      Object.keys(mc.tolerance).some((key) => mc.tolerance[key]);
+
+    if (structuredTolerance) {
+      const resolved = calculateUncertaintyFromToleranceObject(
+        mc.tolerance,
+        referenceMeasurementPoint,
+      );
+      if (!Number.isFinite(resolved.standardUncertainty) || resolved.standardUncertainty <= 0) {
+        return null;
+      }
+      const firstBreakdown = resolved.breakdown?.[0];
+      const distRaw = firstBreakdown?.divisor
+        ? String(firstBreakdown.divisor)
+        : DISTRIBUTION_NOT_SET;
+      const distLabel = firstBreakdown?.distributionLabel || "Tolerance / Error limits";
+      const label = (mc.name && String(mc.name).trim()) || "Manual";
+      const valueNative = convertPpmToUnit(
+        resolved.standardUncertainty,
+        nominalUnit,
+        referenceMeasurementPoint,
+      );
+      const nominalBase = unitSystem.toBaseUnit(nominalValue, nominalUnit);
+      return {
+        id: `${prefix}_${fromInstrument ? "instrTypeB" : "manual"}_${mc.id || idx}${toleranceObject.id ? `_${toleranceObject.id}` : ""}`,
+        name: `${prefix} - ${label}`,
+        type: "B",
+        value: resolved.standardUncertainty,
+        isBaseUnitValue: nominalBase === 0 || !Number.isFinite(nominalBase),
+        value_native: valueNative,
+        unit_native: nominalUnit,
+        dof: Infinity,
+        isCore: true,
+        distribution: distLabel,
+        distributionDivisor: distRaw,
+        isManual: true,
+        fromInstrument,
+        manualSourceId: mc.id ?? idx,
+        manualInputMode: "tolerance",
+        manualRawValue: mc.tolerance,
+        manualUnit: nominalUnit,
+        specOverride: false,
+        specBaseline: {
+          value: mc.tolerance,
+          unit: nominalUnit,
+          distributionLabel: distLabel,
+          valueOverridden: false,
+          distributionOverridden: false,
+        },
+      };
+    }
+
     const rawMagnitude = parseFloat(
       isStandard ? mc.standardUncertainty : mc.toleranceLimit,
     );
@@ -413,7 +520,10 @@ export const getBudgetComponentsFromTolerance = (
       distRaw = distEntry
         ? distEntry.value
         : rawManualDistribution;
-      divisor = distRaw === DISTRIBUTION_NOT_SET ? NaN : parseFloat(distRaw);
+      divisor =
+        distRaw === DISTRIBUTION_NOT_SET
+          ? NaN
+          : distributionDivisorValue(distRaw);
       distLabel =
         distEntry?.label ||
         (distRaw === DISTRIBUTION_NOT_SET ? "Not Set" : "Rectangular");
@@ -514,6 +624,7 @@ export const getBudgetComponentsFromTolerance = (
   // whenever this instrument's accuracy contributes to the budget.
   (Array.isArray(instrumentTypeBComponents) ? instrumentTypeBComponents : []).forEach(
     (mc, idx) => {
+      if (!typeBScopeMatches(mc, resolvedScopeContext)) return;
       const comp = buildManualLikeComponent(mc, idx, { fromInstrument: true });
       if (comp) budgetComponents.push(comp);
     },
@@ -769,7 +880,9 @@ export const refreshLinkedTypeBComponents = ({
  *
  * Returns one component (stable `componentId: "UUT Resolution"`, `isResolution`)
  * or null when not opted in / no usable resolution. The math mirrors the
- * resolution block of getBudgetComponentsFromTolerance: u = LSD / (2*divisor).
+ * resolution block of getBudgetComponentsFromTolerance. Standard distribution
+ * divisors describe the half-LSD error limit, while the resolution-specific
+ * divisors (sqrt(12), sqrt(24)) already describe the full LSD.
  */
 export const getUutResolutionComponent = (
   uutTolerance,
@@ -810,10 +923,16 @@ export const getUutResolutionComponent = (
     (d) => parseFloat(d.value) === parseFloat(resDistRawSource)
   );
   const resDistRaw = resDistEntry ? resDistEntry.value : "1.732";
-  const resDivisor = parseFloat(resDistRaw) || 1.732;
+  const resDivisor =
+    distributionDivisorValue(resDistRaw) || distributionDivisorValue("1.732");
   const resDistLabel = resDistEntry?.label || "Rectangular";
 
-  const u_i_base = resBase / 2 / resDivisor;
+  // Do not halve the resolution twice. "Rectangular (resolution)" uses
+  // LSD/sqrt(12), and "Triangular (resolution)" uses LSD/sqrt(24). The regular
+  // rectangular/triangular options describe a +/- LSD/2 limit and therefore
+  // retain the explicit factor of two.
+  const usesFullLsdDivisor = ["3.464", "4.899"].includes(resDistRaw);
+  const u_i_base = resBase / (usesFullLsdDivisor ? resDivisor : 2 * resDivisor);
   const u_i_native = unitSystem.fromBaseUnit(u_i_base, nominalUnit);
   const nominalBase = unitSystem.toBaseUnit(nominalValue, nominalUnit);
 

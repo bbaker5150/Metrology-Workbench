@@ -29,7 +29,7 @@ const InstrumentTable = ({
   const header = (
     <thead>
       <tr>
-        <th>Description (make / model / name)</th>
+        <th>Description (mfr. / model / name)</th>
         <th>Asset ID</th>
         <th>Tolerance</th>
         <th>Distribution</th>

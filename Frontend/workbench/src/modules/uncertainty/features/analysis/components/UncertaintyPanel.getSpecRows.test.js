@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyToleranceCaseChange,
   getSpecRows,
+  getUutSpecRows,
   componentIsAsymmetric,
   resolveUutRangeHelper,
   scopeLibraryInstrumentToFunction,
@@ -51,6 +53,61 @@ describe("getSpecRows compact spec line", () => {
   it("falls back to a placeholder when nothing is set", () => {
     expect(getSpecRows({})[0]).toBe("Not Set");
     expect(getSpecRows(null)[0]).toBe("-");
+  });
+
+  it("renders standalone workbook-style single-sided limits", () => {
+    expect(
+      getSpecRows({
+        singleSided: {
+          direction: "high",
+          measurement: "unknown",
+          limit: "300",
+          unit: "degF",
+        },
+      })[0],
+    ).toBe("≤ 300 °F (measurement unknown)");
+    expect(
+      getSpecRows({
+        singleSided: {
+          direction: "low",
+          measurement: "known",
+          limit: "10",
+          unit: "V",
+        },
+      })[0],
+    ).toBe("≥ 10 V (measurement known)");
+  });
+
+  it("keeps measurement state out of ordinary two-sided UUT tolerances", () => {
+    const tol = {
+      reading: { high: "25", low: "-5", unit: "%" },
+    };
+    expect(getUutSpecRows(tol)[0]).toBe("(+25/-5)% IV");
+    expect(getSpecRows(tol)[0]).toBe("(+25/-5)% IV");
+  });
+});
+
+describe("applyToleranceCaseChange", () => {
+  it("keeps the standalone single-sided case exclusive", () => {
+    const single = applyToleranceCaseChange(
+      {
+        reading: { high: "1", low: "-1", value: "1" },
+        floor: { high: "0.1", low: "-0.1", unit: "V" },
+      },
+      "singleSided",
+      { direction: "high", measurement: "known", limit: "10", unit: "V" },
+    );
+    expect(single).toEqual({
+      singleSided: { direction: "high", measurement: "known", limit: "10", unit: "V" },
+    });
+
+    const double = applyToleranceCaseChange(
+      single,
+      "reading",
+      { high: "1", low: "-1", value: "1", unit: "%" },
+    );
+    expect(double.singleSided).toBeUndefined();
+    expect(double.reading.high).toBe("1");
   });
 });
 

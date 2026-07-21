@@ -7,6 +7,8 @@ import React, {
   useEffect,
   useCallback,
   useRef,
+  lazy,
+  Suspense,
 } from "react";
 import { v4 as uuidv4 } from "uuid";
 
@@ -21,17 +23,16 @@ import FullBreakdownModal from "./features/analysis/components/BreakdownModals/F
 import TestPointInfoModal from "./features/testPoints/components/TestPointInfoModal";
 import UniversalInstrumentModal from "./features/instruments/components/UniversalInstrumentModal";
 import UnresolvedToleranceModal from "./features/testPoints/components/UnresolvedToleranceModal";
-import HelpModal from "./components/common/HelpModal";
 import BugReportModal from "./components/modals/BugReportModal";
 
 // --- Brand emblem (shared 3D medallion recipe) ---
 import HeaderEmblem from "./components/HeaderEmblem";
 
 // --- Floating Tools ---
-import FloatingNotepad from "./components/tools/FloatingNotepad";
-import FloatingImagesPanel from "./components/tools/FloatingImagesPanel";
 import UnitConverter from "./components/tools/UnitConverter";
-import ReverseTraceabilityTool from "./components/tools/ReverseTraceabilityTool";
+const ReverseTraceabilityTool = lazy(
+  () => import("./components/tools/ReverseTraceabilityTool"),
+);
 
 // --- Workbench shared layers (theme + toast live at the shell root) ---
 import { useTheme } from "../../shared/ThemeContext";
@@ -39,7 +40,6 @@ import { useNotifications } from "../../shared/NotificationContext";
 
 // --- Utils & Hooks ---
 import useSessionManager from "./hooks/useSessionManager";
-import { saveSessionToPdf, parseSessionPdf } from "./utils/fileIo";
 import "./App.css";
 
 // --- Icons ---
@@ -56,8 +56,6 @@ import {
   faCube,
   faRadio,
   faHistory,
-  faImages,
-  faStickyNote,
   faRightLeft,
   faSave,
   faFolderOpen,
@@ -90,7 +88,10 @@ import {
   associateUutWithPoint,
   resolvePointAreaId,
 } from "./utils/areaWorkspace";
-import { UNCERTAINTY_REQUIREMENT_FIELDS } from "./constants/constants";
+import {
+  MITIGATION_INPUT_FIELDS,
+  RISK_INPUT_FIELDS,
+} from "./constants/constants";
 import {
   getRemainingCutPoints,
   preparePointForPaste,
@@ -107,6 +108,7 @@ import {
   resolveSessionFunctions,
 } from "./utils/functionGrouping";
 import { formatRangeLabel } from "./utils/rangeFormatting";
+import { formatSidebarUncertainty } from "./utils/sidebarUncertainty";
 import { ZOOM_TOAST_EVENT } from "../../shared/ZoomToast";
 
 // Synthetic ids for the top-level "Unassigned Points" bucket (points whose
@@ -114,12 +116,60 @@ import { ZOOM_TOAST_EVENT } from "../../shared/ZoomToast";
 // consumer can treat the sidebar uniformly.
 const UNASSIGNED_FUNCTION_ID = "__unassigned_function__";
 const UNASSIGNED_UUT_ID = "__unassigned_uut__";
+// Keep the sidebar table compact and deterministic. The surrounding scroller
+// handles genuinely wide column sets; flexible `1fr` tracks made short values
+// appear detached from their headers and changed spacing with viewport width.
+const SIDEBAR_UNCERTAINTY_COLUMN = "110px";
 
-const getSidebarGridTemplate = (visibleColumns) => {
+const SIDEBAR_COLUMN_GROUPS = [
+  {
+    key: "measurement",
+    label: "Measurement",
+    columns: [
+      "section",
+      "value",
+      "qualifier",
+      "tolerance",
+      "lowLimit",
+      "highLimit",
+      "standardUncertainty",
+      "measurementUncertainty",
+      "tmdeLow",
+      "tmdeHigh",
+      "tur",
+      "tar",
+    ],
+  },
+  {
+    key: "risk",
+    label: "Risk",
+    columns: ["observedReop", "pfa", "pfr", "maxReop", "trueReop"],
+  },
+  {
+    key: "mitigation-gb",
+    label: "Mitigation (GB + Int)",
+    columns: [
+      "gbMult",
+      "gbLow",
+      "gbHigh",
+      "gbPfa",
+      "gbPfr",
+      "gbCalInt",
+      "gbMeasRel",
+    ],
+  },
+  {
+    key: "mitigation-int",
+    label: "Mitigation (Int Only)",
+    columns: ["noGbPfa", "noGbPfr", "noGbCalInt", "noGbMeasRel"],
+  },
+];
+
+const getSidebarGridTemplate = (visibleColumns, valueColumnWidth = "80px") => {
   const parts = [];
   // Fixed widths for stable columns
   if (visibleColumns.section) parts.push("50px");
-  if (visibleColumns.value) parts.push("80px");
+  if (visibleColumns.value) parts.push(valueColumnWidth);
   if (visibleColumns.qualifier) parts.push("80px");
   if (visibleColumns.tolerance) parts.push("minmax(80px, 1fr)");
 
@@ -127,25 +177,35 @@ const getSidebarGridTemplate = (visibleColumns) => {
   if (visibleColumns.lowLimit) parts.push("minmax(60px, 0.8fr)");
   if (visibleColumns.highLimit) parts.push("minmax(60px, 0.8fr)");
 
+  if (visibleColumns.standardUncertainty) parts.push(SIDEBAR_UNCERTAINTY_COLUMN);
+  if (visibleColumns.measurementUncertainty) parts.push(SIDEBAR_UNCERTAINTY_COLUMN);
   // TMDE (standard) limit columns
   if (visibleColumns.tmdeLow) parts.push("minmax(90px, 1fr)");
   if (visibleColumns.tmdeHigh) parts.push("minmax(90px, 1fr)");
 
-  // Fixed widths for Risk Columns
-  if (visibleColumns.pfa) parts.push("55px");
-  if (visibleColumns.pfr) parts.push("55px");
+  // Workbook measurement and test-point risk columns
   if (visibleColumns.tur) parts.push("55px");
   if (visibleColumns.tar) parts.push("55px");
+  if (visibleColumns.observedReop) parts.push("78px");
+  if (visibleColumns.pfa) parts.push("55px");
+  if (visibleColumns.pfr) parts.push("55px");
+  if (visibleColumns.maxReop) parts.push("70px");
+  if (visibleColumns.trueReop) parts.push("70px");
 
-  // Mitigation columns
-  if (visibleColumns.gbPfa) parts.push("60px");
-  if (visibleColumns.gbPfr) parts.push("60px");
+  // Mitigation (GB + interval)
   if (visibleColumns.gbMult) parts.push("60px");
   if (visibleColumns.gbLow) parts.push("minmax(60px, 0.8fr)");
   if (visibleColumns.gbHigh) parts.push("minmax(60px, 0.8fr)");
-  if (visibleColumns.gbCalInt) parts.push("64px");
-  if (visibleColumns.noGbCalInt) parts.push("70px");
-  if (visibleColumns.noGbMeasRel) parts.push("64px");
+  if (visibleColumns.gbPfa) parts.push("60px");
+  if (visibleColumns.gbPfr) parts.push("60px");
+  if (visibleColumns.gbCalInt) parts.push("84px");
+  if (visibleColumns.gbMeasRel) parts.push("98px");
+
+  // Mitigation (interval only)
+  if (visibleColumns.noGbPfa) parts.push("64px");
+  if (visibleColumns.noGbPfr) parts.push("64px");
+  if (visibleColumns.noGbCalInt) parts.push("90px");
+  if (visibleColumns.noGbMeasRel) parts.push("102px");
 
   if (parts.length === 0) return "1fr";
   return parts.join(" ");
@@ -165,18 +225,26 @@ const getMinSidebarWidth = (visibleColumns) => {
   if (visibleColumns.highLimit) width += 70;
   if (visibleColumns.tmdeLow) width += 100;
   if (visibleColumns.tmdeHigh) width += 100;
+  if (visibleColumns.standardUncertainty) width += 130;
+  if (visibleColumns.measurementUncertainty) width += 130;
   if (visibleColumns.pfa) width += 60;
   if (visibleColumns.pfr) width += 60;
   if (visibleColumns.tur) width += 60;
   if (visibleColumns.tar) width += 60;
+  if (visibleColumns.observedReop) width += 84;
+  if (visibleColumns.maxReop) width += 76;
+  if (visibleColumns.trueReop) width += 76;
   if (visibleColumns.gbPfa) width += 65;
   if (visibleColumns.gbPfr) width += 65;
   if (visibleColumns.gbMult) width += 65;
   if (visibleColumns.gbLow) width += 70;
   if (visibleColumns.gbHigh) width += 70;
   if (visibleColumns.gbCalInt) width += 70;
+  if (visibleColumns.gbMeasRel) width += 104;
+  if (visibleColumns.noGbPfa) width += 70;
+  if (visibleColumns.noGbPfr) width += 70;
   if (visibleColumns.noGbCalInt) width += 76;
-  if (visibleColumns.noGbMeasRel) width += 70;
+  if (visibleColumns.noGbMeasRel) width += 108;
 
   // Add extra buffer for gaps (4px per column gap)
   const columnCount = Object.values(visibleColumns).filter(Boolean).length;
@@ -216,23 +284,32 @@ const SCOPED_ZOOM_SURFACE_SELECTOR = [
 
 const UNCERTAINTY_UI_PREFERENCES_PREFIX = "uncertalytics.uiPreferences.v1";
 const DEFAULT_SIDEBAR_COLUMNS = {
-  section: true,
+  section: false,
   value: true,
-  tolerance: true,
+  qualifier: false,
+  tolerance: false,
   lowLimit: true,
   highLimit: true,
+  standardUncertainty: true,
+  measurementUncertainty: true,
   tmdeLow: false,
   tmdeHigh: false,
   pfa: true,
   pfr: true,
-  tur: false,
+  tur: true,
   tar: false,
+  observedReop: false,
+  maxReop: false,
+  trueReop: false,
   gbPfa: false,
   gbPfr: false,
   gbMult: false,
   gbLow: false,
   gbHigh: false,
   gbCalInt: false,
+  gbMeasRel: false,
+  noGbPfa: false,
+  noGbPfr: false,
   noGbCalInt: false,
   noGbMeasRel: false,
 };
@@ -328,6 +405,20 @@ const parseSortableNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+// Keep the value column wide enough for the longest saved measurement point.
+// This must be an absolute pixel track: `ch` is resolved against each grid's
+// own font, so the smaller header font and bold selected-row font produced
+// different physical column widths from the exact same template string.
+const getSidebarValueColumnWidth = (points = []) => {
+  const longest = (points || []).reduce((max, point) => {
+    const parameter = point?.testPointInfo?.parameter || {};
+    const valueLength = String(parameter.value ?? "").length;
+    const unitLength = getUnitDisplayLabel(parameter.unit || "").length;
+    return Math.max(max, valueLength + (unitLength ? unitLength + 1 : 0));
+  }, 0);
+  return `${Math.max(88, longest * 8 + 12)}px`;
+};
+
 const getPointToleranceSortValue = (point) => {
   const summary = getToleranceErrorSummary(
     point.uutTolerance,
@@ -365,13 +456,15 @@ const getPointTmdeLimitSortValue = (point, key) => {
 };
 
 // --- HELPER COMPONENT: Sidebar Point Item (Supports Inline Editing) ---
-const SidebarPointItem = ({
+export const SidebarPointItem = ({
   point,
+  valueColumnWidth = "80px",
   isSelected,
   isActivePoint = false,
   isTableSelected,
   liveRiskMetrics = null,
   isLiveRiskTarget = false,
+  riskRequirements = {},
   onSelect,
   onSave,
   onContextMenu,
@@ -385,11 +478,24 @@ const SidebarPointItem = ({
     tolerance: true,
     lowLimit: true,
     highLimit: true,
+    standardUncertainty: true,
+    measurementUncertainty: true,
     pfa: false,
     pfr: false,
-    tur: false,
+    tur: true,
     tar: false,
+    observedReop: false,
+    maxReop: false,
+    trueReop: false,
+    gbPfa: false,
+    gbPfr: false,
+    gbMult: false,
+    gbLow: false,
+    gbHigh: false,
     gbCalInt: false,
+    gbMeasRel: false,
+    noGbPfa: false,
+    noGbPfr: false,
     noGbCalInt: false,
     noGbMeasRel: false,
   },
@@ -483,61 +589,78 @@ const SidebarPointItem = ({
 
   // Safe Accessors
   const displayValue = point.testPointInfo?.parameter?.value;
+  const displayUnit = point.testPointInfo?.parameter?.unit || "";
   // Prefer the live, reactively-computed metrics (always current with the
   // session inputs); fall back to the persisted backend snapshot only if the
   // point can't currently be evaluated (#1).
   const risk = liveRiskMetrics || point.riskMetrics || {};
 
-  // Layer 3 marker for Monte Carlo-mode points: "MC" when the risk numbers
-  // are empirical (quadrant-counted from the point's simulated distribution),
-  // an amber ↻ when the simulation is out of date and the row is temporarily
-  // showing first-order values.
-  const riskMethodMark = risk.mcStale
-    ? {
-        label: "MC stale",
-        className: "stale",
-        note: "Monte Carlo results out of date — open the point to re-simulate (showing first-order values)",
-      }
-    : risk.riskMethod === "empirical"
+  // Monte Carlo is an uncertainty-budget method now, not a separate risk
+  // method. Only the measurement-unknown Risk 8 boundary needs a row marker.
+  const riskMethodMark =
+    risk.riskMethod === "risk8-pfa-boundary"
       ? {
-          label: "MC",
+          label: "Boundary",
           className: "",
-          note: "Empirical risk from this point's Monte Carlo distribution",
+          note: "Single-sided measurement unknown: PFA-only acceptance boundary",
         }
       : null;
+  // Measurement-unknown rows expose only the Risk 8 PFA boundary. A known
+  // single-sided measurement has the full Risk 8 result set and dedicated
+  // breakdowns, so its metrics remain available to Ctrl/Cmd-click.
+  const boundaryOnly = risk.riskMethod === "risk8-pfa-boundary";
 
-  // --- COLOR LOGIC (Matches UncertaintyPanel) ---
+  // --- COLOR LOGIC ---
+  // Status colors are requirements-relative.  Keeping these thresholds local
+  // to the row used to leave a freshly recalculated value painted against the
+  // old hard-coded 2% / 4:1 defaults after the user changed Risk Inputs.
+  const configuredPfaLimit = Number(riskRequirements?.reqPFA);
+  const pfaLimit = Number.isFinite(configuredPfaLimit) && configuredPfaLimit >= 0
+    ? configuredPfaLimit
+    : 2;
+  const configuredRatioLimit = Number(riskRequirements?.neededTUR);
+  const ratioLimit = Number.isFinite(configuredRatioLimit) && configuredRatioLimit > 0
+    ? configuredRatioLimit
+    : 4;
+  const lowerIsBetterColor = (val, limit) => {
+    const numeric = Number(val);
+    if (!Number.isFinite(numeric)) return "var(--text-color-muted)";
+    if (numeric <= limit) return "var(--status-good)";
+    return numeric > Math.max(limit * 2.5, limit + 3)
+      ? "var(--status-bad)"
+      : "var(--status-warning)";
+  };
+  const higherIsBetterColor = (val, limit) => {
+    const numeric = Number(val);
+    if (!Number.isFinite(numeric)) return "var(--text-color-muted)";
+    if (numeric >= limit) return "var(--status-good)";
+    return numeric < Math.min(1, limit / 4)
+      ? "var(--status-bad)"
+      : "var(--status-warning)";
+  };
+
   const getPfaColor = (val) => {
-    if (val === undefined || val === null) return "var(--text-color-muted)";
-    if (val > 5) return "var(--status-bad)"; // Red (> 5%)
-    if (val > 2) return "var(--status-warning)"; // Yellow (2% - 5%)
-    return "var(--status-good)"; // Green (< 2%)
+    return lowerIsBetterColor(val, pfaLimit);
   };
 
   const getPfrColor = (val) => {
-    // PFR usually follows PFA logic or is purely informational (Blue/Muted)
-    // Adjust logic here if you have specific thresholds for PFR
-    if (val === undefined || val === null) return "var(--text-color-muted)";
-    return "var(--text-color-muted)";
+    // Risk Inputs expose one allowable decision-risk limit (Required PFA).
+    // Use it as the visual attention threshold for both decision-risk columns;
+    // the numerical PFR calculation itself remains independent.
+    return lowerIsBetterColor(val, pfaLimit);
   };
 
   const getTurColor = (val) => {
-    if (val === undefined || val === null) return "var(--text-color-muted)";
-    if (val < 4) return "var(--status-warning)"; // Yellow (< 4:1)
-    if (val < 1) return "var(--status-bad)"; // Red (< 1:1) - Optional strict check
-    return "var(--status-good)"; // Green (>= 4:1)
+    return higherIsBetterColor(val, ratioLimit);
   };
 
   const getTarColor = (val) => {
-    // TAR matches TUR logic generally
-    if (val === undefined || val === null) return "var(--text-color-muted)";
-    if (val < 4) return "var(--status-warning)";
-    return "var(--status-good)";
+    return higherIsBetterColor(val, ratioLimit);
   };
 
-  const formatMitigationNumber = (value, digits = 1) =>
+  const formatMitigationNumber = (value, digits = 8) =>
     value !== undefined && value !== null && Number.isFinite(Number(value))
-      ? Number(value).toFixed(digits)
+      ? Number(value).toFixed(digits).replace(/\.?0+$/, "")
       : "-";
 
   const formatMitigationPercent = (value, digits = 1) =>
@@ -607,7 +730,7 @@ const SidebarPointItem = ({
     <div
       draggable={!editingField}
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
-      style={{ gridTemplateColumns: getSidebarGridTemplate(visibleColumns) }}
+      style={{ gridTemplateColumns: getSidebarGridTemplate(visibleColumns, valueColumnWidth) }}
       onClick={(e) => {
         if (!editingField) {
           e.stopPropagation();
@@ -661,14 +784,26 @@ const SidebarPointItem = ({
               onKeyDown={handleKeyDown}
               onClick={(e) => e.stopPropagation()}
             />
+            {displayUnit && (
+              <span className="point-value-unit point-value-unit--editor">
+                {getUnitDisplayLabel(displayUnit)}
+              </span>
+            )}
           </div>
         ) : (
           <span
-            className="point-value"
+            className="point-value point-value-with-unit"
             onClick={(e) => handleSingleClickEdit(e, "value", displayValue)}
             title="Click to edit Value"
           >
-            {displayValue || <span className="point-placeholder">-</span>}
+            <span className="point-value-number">
+              {displayValue || <span className="point-placeholder">-</span>}
+            </span>
+            {displayUnit && (
+              <span className="point-value-unit">
+                {getUnitDisplayLabel(displayUnit)}
+              </span>
+            )}
           </span>
         ))}
 
@@ -727,6 +862,25 @@ const SidebarPointItem = ({
         </span>
       )}
 
+      {/* Calculated uncertainty columns are persisted in PPM by the analysis
+          calculation, so the unit is shown directly with each value. */}
+      {visibleColumns.standardUncertainty && (
+        <span
+          className="point-metric point-uncertainty-metric"
+          title="Standard Uncertainty (combined)"
+        >
+          {formatSidebarUncertainty(point, "combined")}
+        </span>
+      )}
+      {visibleColumns.measurementUncertainty && (
+        <span
+          className="point-metric point-uncertainty-metric"
+          title="Measurement Uncertainty (expanded)"
+        >
+          {formatSidebarUncertainty(point, "expanded")}
+        </span>
+      )}
+
       {/* TMDE Low Limit */}
       {visibleColumns.tmdeLow && (
         <span
@@ -774,14 +928,43 @@ const SidebarPointItem = ({
       {/* Col 5-8 Risk Columns. Clicking a metric selects the point and opens
           that metric's risk breakdown (handled in Analysis once the point's
           riskResults are ready). */}
+      {visibleColumns.tur && (
+        <span
+          className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          style={{ color: getTurColor(risk.tur), fontWeight: 600 }}
+          title="TUR — Ctrl+click for breakdown"
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "tur")}
+        >
+          {risk.tur !== undefined ? `${Number(risk.tur).toFixed(2)}` : "-"}
+        </span>
+      )}
+      {visibleColumns.tar && (
+        <span
+          className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          style={{ color: getTarColor(risk.tar) }}
+          title="TAR — Ctrl+click for breakdown"
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "tar")}
+        >
+          {risk.tar !== undefined ? `${Number(risk.tar).toFixed(1)}` : "-"}
+        </span>
+      )}
+      {visibleColumns.observedReop && (
+        <span
+          className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          title="R_REOP at test-point TUR - Ctrl+click for breakdown"
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "observedreop")}
+        >
+          {formatMitigationPercent(risk.observedReop, 2)}
+        </span>
+      )}
       {visibleColumns.pfa && (
         <span
-          className="point-risk-metric point-risk-metric-clickable"
+          className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getPfaColor(risk.pfa), fontWeight: 600 }}
           title={`PFA — Ctrl+click for breakdown${
             riskMethodMark ? ` · ${riskMethodMark.note}` : ""
           }`}
-          onClick={(e) => handleMetricClick(e, "pfa")}
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "pfa")}
         >
           {risk.pfa !== undefined ? `${Number(risk.pfa).toFixed(2)}%` : "-"}
           {riskMethodMark && (
@@ -795,106 +978,131 @@ const SidebarPointItem = ({
       )}
       {visibleColumns.pfr && (
         <span
-          className="point-risk-metric point-risk-metric-clickable"
+          className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getPfrColor(risk.pfr) }}
           title="PFR — Ctrl+click for breakdown"
-          onClick={(e) => handleMetricClick(e, "pfr")}
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "pfr")}
         >
           {risk.pfr !== undefined ? `${Number(risk.pfr).toFixed(2)}%` : "-"}
         </span>
       )}
-      {visibleColumns.tur && (
+      {visibleColumns.maxReop && (
         <span
-          className="point-risk-metric point-risk-metric-clickable"
-          style={{ color: getTurColor(risk.tur), fontWeight: 600 }}
-          title="TUR — Ctrl+click for breakdown"
-          onClick={(e) => handleMetricClick(e, "tur")}
+          className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          title="Maximum R_REOP - Ctrl+click for breakdown"
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "maxreop")}
         >
-          {risk.tur !== undefined ? `${Number(risk.tur).toFixed(1)}` : "-"}
+          {formatMitigationPercent(risk.maxReop, 2)}
         </span>
       )}
-      {visibleColumns.tar && (
+      {visibleColumns.trueReop && (
         <span
-          className="point-risk-metric point-risk-metric-clickable"
-          style={{ color: getTarColor(risk.tar) }}
-          title="TAR — Ctrl+click for breakdown"
-          onClick={(e) => handleMetricClick(e, "tar")}
+          className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          title="R_meas - Ctrl+click for breakdown"
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "truereop")}
         >
-          {risk.tar !== undefined ? `${Number(risk.tar).toFixed(1)}` : "-"}
-        </span>
-      )}
-      {visibleColumns.gbPfa && (
-        <span
-          className="point-risk-metric point-risk-metric-clickable"
-          style={{ color: getPfaColor(risk.gbPfa), fontWeight: 600 }}
-          title="PFA w/ Guardband — Ctrl+click for breakdown"
-          onClick={(e) => handleMetricClick(e, "gbpfa")}
-        >
-          {risk.gbPfa !== undefined ? `${Number(risk.gbPfa).toFixed(2)}%` : "-"}
-        </span>
-      )}
-      {visibleColumns.gbPfr && (
-        <span
-          className="point-risk-metric point-risk-metric-clickable"
-          style={{ color: getPfrColor(risk.gbPfr) }}
-          title="PFR w/ Guardband — Ctrl+click for breakdown"
-          onClick={(e) => handleMetricClick(e, "gbpfr")}
-        >
-          {risk.gbPfr !== undefined ? `${Number(risk.gbPfr).toFixed(2)}%` : "-"}
+          {formatMitigationPercent(risk.trueReop, 2)}
         </span>
       )}
       {visibleColumns.gbMult && (
         <span
-          className="point-risk-metric point-risk-metric-clickable"
+          className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           title="Guardband Multiplier — Ctrl+click for breakdown"
-          onClick={(e) => handleMetricClick(e, "gbmult")}
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbmult")}
         >
-          {risk.gbMult !== undefined ? `${Number(risk.gbMult).toFixed(1)}%` : "-"}
+          {risk.gbMult !== undefined ? `${Number(risk.gbMult).toFixed(2)}%` : "-"}
         </span>
       )}
       {visibleColumns.gbLow && (
         <span
-          className="point-metric point-risk-metric-clickable"
+          className={`point-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           title="Guardband Low Limit — Ctrl+click for breakdown"
-          onClick={(e) => handleMetricClick(e, "gblow")}
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gblow")}
         >
           {risk.gbLow !== undefined ? Number(risk.gbLow).toPrecision(4) : "-"}
         </span>
       )}
       {visibleColumns.gbHigh && (
         <span
-          className="point-metric point-risk-metric-clickable"
+          className={`point-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           title="Guardband High Limit — Ctrl+click for breakdown"
-          onClick={(e) => handleMetricClick(e, "gbhigh")}
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbhigh")}
         >
           {risk.gbHigh !== undefined ? Number(risk.gbHigh).toPrecision(4) : "-"}
         </span>
       )}
+      {visibleColumns.gbPfa && (
+        <span
+          className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          style={{ color: getPfaColor(risk.gbPfa), fontWeight: 600 }}
+          title="PFA w/ Guardband — Ctrl+click for breakdown"
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbpfa")}
+        >
+          {risk.gbPfa !== undefined ? `${Number(risk.gbPfa).toFixed(2)}%` : "-"}
+        </span>
+      )}
+      {visibleColumns.gbPfr && (
+        <span
+          className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          style={{ color: getPfrColor(risk.gbPfr) }}
+          title="PFR w/ Guardband — Ctrl+click for breakdown"
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbpfr")}
+        >
+          {risk.gbPfr !== undefined ? `${Number(risk.gbPfr).toFixed(2)}%` : "-"}
+        </span>
+      )}
       {visibleColumns.gbCalInt && (
         <span
-          className="point-risk-metric point-risk-metric-clickable"
+          className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           title="Calibration Interval with Guard Banding"
-          onClick={(e) => handleMetricClick(e, "gbcalint")}
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbcalint")}
         >
           {formatMitigationNumber(risk.gbCalInt)}
         </span>
       )}
+      {visibleColumns.gbMeasRel && (
+        <span
+          className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          title="Targeted R_REOP with GB - Ctrl+click for breakdown"
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbmeasrel")}
+        >
+          {formatMitigationPercent(risk.gbMeasRel, 2)}
+        </span>
+      )}
+      {visibleColumns.noGbPfa && (
+        <span
+          className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          title="PFA without GB - Ctrl+click for breakdown"
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "nogbpfa")}
+        >
+          {formatMitigationPercent(risk.noGbPfa, 2)}
+        </span>
+      )}
+      {visibleColumns.noGbPfr && (
+        <span
+          className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          title="PFR without GB - Ctrl+click for breakdown"
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "nogbpfr")}
+        >
+          {formatMitigationPercent(risk.noGbPfr, 2)}
+        </span>
+      )}
       {visibleColumns.noGbCalInt && (
         <span
-          className="point-risk-metric point-risk-metric-clickable"
-          title="Calibration Interval without Guard Banding"
-          onClick={(e) => handleMetricClick(e, "calint")}
+          className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          title="Calibration Interval without Guard Banding - Ctrl+click for breakdown"
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "calint")}
         >
           {formatMitigationNumber(risk.noGbCalInt)}
         </span>
       )}
       {visibleColumns.noGbMeasRel && (
         <span
-          className="point-risk-metric point-risk-metric-clickable"
-          title="Measurement Reliability Needed without Guard Banding"
-          onClick={(e) => handleMetricClick(e, "measrel")}
+          className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          title="Targeted R_REOP without GB - Ctrl+click for breakdown"
+          onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "measrel")}
         >
-          {formatMitigationPercent(risk.noGbMeasRel)}
+          {formatMitigationPercent(risk.noGbMeasRel, 2)}
         </span>
       )}
     </div>
@@ -973,8 +1181,10 @@ const SidebarSessionHeader = ({
   onSelect,
   isSessionInfoOpen,
   onSessionInfoOpenChange,
-  isRequirementsOpen,
-  onRequirementsOpenChange,
+  isRiskInputsOpen,
+  onRiskInputsOpenChange,
+  isMitigationInputsOpen,
+  onMitigationInputsOpenChange,
 }) => {
   const [editingField, setEditingField] = useState(null);
   const [tempValue, setTempValue] = useState("");
@@ -1145,16 +1355,44 @@ const SidebarSessionHeader = ({
           className="session-section-toggle"
           onClick={(e) => {
             e.stopPropagation();
-            onRequirementsOpenChange(!isRequirementsOpen);
+            onRiskInputsOpenChange(!isRiskInputsOpen);
           }}
-          aria-expanded={isRequirementsOpen}
+          aria-expanded={isRiskInputsOpen}
         >
-          <span>Uncertainty Requirements</span>
-          <FontAwesomeIcon icon={isRequirementsOpen ? faChevronDown : faChevronRight} />
+          <span>Risk Inputs</span>
+          <FontAwesomeIcon icon={isRiskInputsOpen ? faChevronDown : faChevronRight} />
         </button>
-        {isRequirementsOpen && (
+        {isRiskInputsOpen && (
           <div className="session-requirements-grid">
-            {UNCERTAINTY_REQUIREMENT_FIELDS.map((field) =>
+            {RISK_INPUT_FIELDS.map((field) =>
+              renderEditableField(
+                `uncReq.${field.name}`,
+                requirements[field.name],
+                field.sidebarLabel,
+                "number",
+                field.tooltip,
+              ),
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="session-collapsible-block session-requirements-block">
+        <button
+          type="button"
+          className="session-section-toggle"
+          onClick={(e) => {
+            e.stopPropagation();
+            onMitigationInputsOpenChange(!isMitigationInputsOpen);
+          }}
+          aria-expanded={isMitigationInputsOpen}
+        >
+          <span>Mitigation Inputs</span>
+          <FontAwesomeIcon icon={isMitigationInputsOpen ? faChevronDown : faChevronRight} />
+        </button>
+        {isMitigationInputsOpen && (
+          <div className="session-requirements-grid">
+            {MITIGATION_INPUT_FIELDS.map((field) =>
               renderEditableField(
                 `uncReq.${field.name}`,
                 requirements[field.name],
@@ -1193,13 +1431,13 @@ function App() {
     addSession,
     deleteSession,
     updateSession,
+    updateSessionNotes,
     undoLastSessionChange,
     importSession,
     saveTestPoint,
     updateTestPointData,
     decrementTmdeQuantity,
     loadSessionImages,
-    deleteSessionImage,
   } = useSessionManager();
 
   // Theme + toasts are provided by the workbench shell (global light/dark
@@ -1218,8 +1456,6 @@ function App() {
   const [unresolvedToleranceModal, setUnresolvedToleranceModal] =
     useState(null);
 
-  const [isNotepadOpen, setIsNotepadOpen] = useState(false);
-  const [isImagesOpen, setIsImagesOpen] = useState(false);
   const [isConverterOpen, setIsConverterOpen] = useState(false);
   const [isTraceabilityOpen, setIsTraceabilityOpen] = useState(false);
 
@@ -1233,7 +1469,6 @@ function App() {
     associateToPointId: null,
   });
 
-  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isBugReportOpen, setIsBugReportOpen] = useState(false);
 
   const [sessionImageCache, setSessionImageCache] = useState(new Map());
@@ -1245,7 +1480,8 @@ function App() {
 
   const [sidebarWidth, setSidebarWidth] = useState(550);
   const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(true);
-  const [isRequirementsOpen, setIsRequirementsOpen] = useState(true);
+  const [isRiskInputsOpen, setIsRiskInputsOpen] = useState(true);
+  const [isMitigationInputsOpen, setIsMitigationInputsOpen] = useState(true);
   const [analysisMode, setAnalysisMode] = useState("uncertaintyTool");
   const [showContribution, setShowContribution] = useState(false);
   const [scopedZoomLevels, setScopedZoomLevels] = useState({});
@@ -1261,19 +1497,24 @@ function App() {
 
   // --- SIDEBAR PREFERENCES ---
   const [sidebarColumns, setSidebarColumns] = useState({
-    section: true,
+    section: false,
     value: true,
     // Optional secondary parameter (e.g. Frequency); off by default.
     qualifier: false,
-    tolerance: true,
+    tolerance: false,
     lowLimit: true,
     highLimit: true,
+    standardUncertainty: true,
+    measurementUncertainty: true,
     tmdeLow: false,
     tmdeHigh: false,
     pfa: true,
     pfr: true,
-    tur: false,
+    tur: true,
     tar: false,
+    observedReop: false,
+    maxReop: false,
+    trueReop: false,
     // Guardband columns (off by default; guardband is only computed when at
     // least one of these is enabled — see pointRiskMap below).
     gbPfa: false,
@@ -1282,6 +1523,9 @@ function App() {
     gbLow: false,
     gbHigh: false,
     gbCalInt: false,
+    gbMeasRel: false,
+    noGbPfa: false,
+    noGbPfr: false,
     noGbCalInt: false,
     noGbMeasRel: false,
   });
@@ -1313,6 +1557,9 @@ function App() {
     sidebarColumns.gbLow ||
     sidebarColumns.gbHigh ||
     sidebarColumns.gbCalInt ||
+    sidebarColumns.gbMeasRel ||
+    sidebarColumns.noGbPfa ||
+    sidebarColumns.noGbPfr ||
     sidebarColumns.noGbCalInt ||
     sidebarColumns.noGbMeasRel;
   const pointRiskMap = useMemo(
@@ -1326,6 +1573,11 @@ function App() {
       currentTestPoints,
       currentSessionData?.uncReq,
       currentSessionData?.uutTolerance,
+      // Derived points can keep linked TMDE error sources in their manual
+      // budget instead of tmdeTolerances. Include the live master collection
+      // so editing an instrument invalidates the sidebar risk map even when
+      // the point's own snapshot array is unchanged.
+      currentSessionData?.tmdes,
       mitigationColumnsEnabled,
     ],
   );
@@ -1356,16 +1608,26 @@ function App() {
         case "tmdeLow":
         case "tmdeHigh":
           return getPointTmdeLimitSortValue(point, key);
+        case "standardUncertainty":
+          return parseSortableNumber(point.combined_uncertainty);
+        case "measurementUncertainty":
+          return parseSortableNumber(point.expanded_uncertainty);
         case "pfa":
         case "pfr":
         case "tur":
         case "tar":
+        case "observedReop":
+        case "maxReop":
+        case "trueReop":
         case "gbPfa":
         case "gbPfr":
         case "gbMult":
         case "gbLow":
         case "gbHigh":
         case "gbCalInt":
+        case "gbMeasRel":
+        case "noGbPfa":
+        case "noGbPfr":
         case "noGbCalInt":
         case "noGbMeasRel":
           return risk[key];
@@ -1407,19 +1669,19 @@ function App() {
   );
 
   const renderSidebarSortHeader = useCallback(
-    (key, label, { align = "left" } = {}) => {
+    (key, label, { align = "left", title = label } = {}) => {
       const isActive = sidebarSort.key === key;
       const directionLabel = sidebarSort.direction === "asc" ? "ascending" : "descending";
       return (
         <button
           type="button"
-          className={`sidebar-sort-header ${isActive ? "active" : ""}`}
+          className={`sidebar-sort-header sidebar-sort-header--${key} ${isActive ? "active" : ""}`}
           onClick={(e) => {
             e.stopPropagation();
             handleSidebarSort(key);
           }}
-          title={`Sort by ${label}${isActive ? ` (${directionLabel})` : ""}`}
-          aria-label={`Sort by ${label}`}
+          title={`Sort by ${title}${isActive ? ` (${directionLabel})` : ""}`}
+          aria-label={`Sort by ${title}`}
           aria-sort={isActive ? directionLabel : "none"}
           style={{ textAlign: align }}
         >
@@ -1443,8 +1705,8 @@ function App() {
 
       // --- CONFIGURATION ---
       const MIN_SIDEBAR_WIDTH = 300;
-      const MAX_SIDEBAR_WIDTH = 1200; // Let wide screens expose more measurement-point columns
-      const MIN_CONTENT_WIDTH = 480; // Keep the analysis pane usable at the widest sidebar setting
+      const MAX_SIDEBAR_WIDTH = 1800; // Wide workstations can expose the full measurement/risk result set
+      const MIN_CONTENT_WIDTH = 320; // The main pane scrolls cleanly below its comfortable content width
 
       // Measure against the container's own box, not the viewport. The sidebar
       // is laid out inside this padded element, so the desired width is the
@@ -1561,6 +1823,11 @@ function App() {
   // independently.
   const [expandedFunctions, setExpandedFunctions] = useState(new Set());
   const [expandedUuts, setExpandedUuts] = useState(new Set());
+  // Shared by the session overview and every detailed measurement-point view.
+  // This state lives above TestPointDetailView's keyed remount boundary so a
+  // point/view change cannot reset the UUT/TMDE function accordions.
+  const [collapsedInstrumentFunctionKeys, setCollapsedInstrumentFunctionKeys] =
+    useState(new Set());
 
   // Tracks which UUT "folder" was clicked in the sidebar to enforce context
   const [selectedTestPointContextUutId, setSelectedTestPointContextUutId] =
@@ -1580,6 +1847,20 @@ function App() {
   // Per-UUT direct/derived mode for the "+" quick-add button (keyed by the
   // sidebar UUT row key). Defaults to "direct".
   const [newPointModeByUut, setNewPointModeByUut] = useState({});
+  // When a function exposes more than one range unit, the quick-add button
+  // pauses here so the new direct/derived point can be attached to an explicit
+  // unit instead of silently choosing the first range.
+  const [pendingPointUnitChoice, setPendingPointUnitChoice] = useState(null);
+
+  useEffect(() => {
+    if (!pendingPointUnitChoice) return undefined;
+    const closePicker = (event) => {
+      if (event.target?.closest?.(".point-unit-picker")) return;
+      setPendingPointUnitChoice(null);
+    };
+    document.addEventListener("pointerdown", closePicker);
+    return () => document.removeEventListener("pointerdown", closePicker);
+  }, [pendingPointUnitChoice]);
 
   // --- Global UUT Selection State ---
   const [currentUutSelection, setCurrentUutSelection] = useState([]);
@@ -1605,11 +1886,18 @@ function App() {
         : 550,
     );
     setIsSessionInfoOpen(preferences.isSessionInfoOpen ?? true);
-    setIsRequirementsOpen(preferences.isRequirementsOpen ?? true);
+    const legacyRequirementsOpen = preferences.isRequirementsOpen ?? true;
+    setIsRiskInputsOpen(preferences.isRiskInputsOpen ?? legacyRequirementsOpen);
+    setIsMitigationInputsOpen(
+      preferences.isMitigationInputsOpen ?? legacyRequirementsOpen,
+    );
     setIsMeasurementPointsOpen(preferences.isMeasurementPointsOpen ?? true);
     setIsGlobalExpanded(preferences.isGlobalExpanded ?? false);
     setExpandedFunctions(new Set(preferences.expandedFunctions || []));
     setExpandedUuts(new Set(preferences.expandedUuts || []));
+    setCollapsedInstrumentFunctionKeys(
+      new Set(preferences.collapsedInstrumentFunctionKeys || []),
+    );
     setActiveRangeIndices(preferences.activeRangeIndices || {});
     setAnalysisMode(preferences.analysisMode || "uncertaintyTool");
     setShowContribution(preferences.showContribution ?? false);
@@ -1630,11 +1918,15 @@ function App() {
       sidebarSort,
       sidebarWidth,
       isSessionInfoOpen,
-      isRequirementsOpen,
+      isRiskInputsOpen,
+      isMitigationInputsOpen,
       isMeasurementPointsOpen,
       isGlobalExpanded,
       expandedFunctions: Array.from(expandedFunctions),
       expandedUuts: Array.from(expandedUuts),
+      collapsedInstrumentFunctionKeys: Array.from(
+        collapsedInstrumentFunctionKeys,
+      ),
       activeRangeIndices,
       analysisMode,
       showContribution,
@@ -1652,11 +1944,13 @@ function App() {
   }, [
     activeRangeIndices,
     analysisMode,
+    collapsedInstrumentFunctionKeys,
     expandedFunctions,
     expandedUuts,
     isGlobalExpanded,
     isMeasurementPointsOpen,
-    isRequirementsOpen,
+    isRiskInputsOpen,
+    isMitigationInputsOpen,
     isSessionInfoOpen,
     loadedPreferencesSessionId,
     scopedZoomLevels,
@@ -1967,6 +2261,11 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // The Universal Instrument editor owns keyboard input while it is open.
+      // Its list has its own Delete behavior; allowing this background handler
+      // to run would delete the previously selected analysis UUT/point instead.
+      if (isInstrumentBuilderOpen) return;
+
       const key = e.key.toLowerCase();
       const isTextEntry =
         document.activeElement?.tagName === "INPUT" ||
@@ -2098,6 +2397,7 @@ function App() {
     handlePasteUut,
     showToast,
     undoLastSessionChange,
+    isInstrumentBuilderOpen,
   ]);
 
   useEffect(() => {
@@ -2584,12 +2884,6 @@ function App() {
         setAppNotification(null);
       },
     });
-  };
-
-  const handleUpdateNotes = (newNotes) => {
-    if (!currentSessionData) return;
-    const updatedSession = { ...currentSessionData, notes: newNotes };
-    updateSession(updatedSession);
   };
 
   // --- NEW HANDLERS to Open Modal in Correct Mode ---
@@ -3110,14 +3404,15 @@ function App() {
   // with an empty value, and a direct point is dropped straight into inline
   // value-edit in the sidebar. Derived points open in the Detailed View where
   // the equation editor already lives.
-  const buildBlankPoint = (uutId, fnGroup, mode) => {
+  const buildBlankPoint = (uutId, fnGroup, mode, selectedUnit = "") => {
     const uut = currentSessionData?.uuts?.find((u) => u.id === uutId);
     const ranges = uut ? getAllUutRanges(uut) : [];
+    const requestedUnit = selectedUnit || fnGroup?.unit || "";
     const fnRange =
       ranges.find(
         (r) =>
-          (!fnGroup?.name || r.functionName === fnGroup.name) &&
-          (!fnGroup?.unit || (r.unit || "") === (fnGroup.unit || "")),
+          (!fnGroup?.name || !r.functionName || r.functionName === fnGroup.name) &&
+          (!requestedUnit || (r.unit || "") === requestedUnit),
       ) ||
       ranges[activeRangeIndices[uutId] || 0] ||
       ranges[0] ||
@@ -3128,8 +3423,9 @@ function App() {
       uut?.instrument?.functions?.[0]?.name ||
       "Measurement";
     const unit =
-      fnGroup?.unit ||
+      selectedUnit ||
       fnRange?.unit ||
+      fnGroup?.unit ||
       uut?.instrument?.functions?.[0]?.unit ||
       "";
     return {
@@ -3141,13 +3437,44 @@ function App() {
     };
   };
 
-  const handleQuickAddPoint = (fnGroup, uutId, mode = "direct") => {
+  // A shared function section can span several UUTs. Only offer units that
+  // belong to the UUT whose + button was clicked; the section-level list is a
+  // fallback for legacy instruments that do not carry range metadata yet.
+  const unitsForQuickAddPoint = (fnGroup, uutId) => {
+    const uut = currentSessionData?.uuts?.find((candidate) => candidate.id === uutId);
+    const declared = instrumentFunctions(uut || {}).find(
+      (fn) => fn.key === fnGroup?.id,
+    );
+    const units = Array.from(
+      new Set([...(declared?.units || []), ...(fnGroup?.units || []), fnGroup?.unit].filter(Boolean)),
+    );
+    return declared?.units?.length ? declared.units : units;
+  };
+
+  const handleQuickAddPoint = (
+    fnGroup,
+    uutId,
+    mode = "direct",
+    selectedUnit = "",
+  ) => {
     if (!uutId) return;
-    const newId = handleSaveTestPoint(buildBlankPoint(uutId, fnGroup, mode));
+    const newId = handleSaveTestPoint(
+      buildBlankPoint(uutId, fnGroup, mode, selectedUnit),
+    );
     setSelectedTestPointContextUutId(uutId);
+    setPendingPointUnitChoice(null);
     if (newId != null && mode === "direct") {
       setPendingValueEditPointId(newId);
     }
+  };
+
+  const openQuickAddPoint = (fnGroup, uutId, mode) => {
+    const units = unitsForQuickAddPoint(fnGroup, uutId);
+    if (units.length > 1) {
+      setPendingPointUnitChoice({ functionId: fnGroup.id, uutId, mode, units });
+      return;
+    }
+    handleQuickAddPoint(fnGroup, uutId, mode, units[0] || "");
   };
 
   // ---  Inline update handler for sidebar edits ---
@@ -3186,7 +3513,7 @@ function App() {
       message:
         ids.length > 1
           ? `Are you sure you want to delete these ${ids.length} TMDE definitions?`
-          : "Are you sure you want to delete this entire TMDE definition (all instances)?",
+          : "Are you sure you want to delete this TMDE definition?",
       confirmText: "Delete",
       isIconConfirm: true,
       onConfirm: () => {
@@ -3278,7 +3605,12 @@ function App() {
     if (!currentSessionData) return;
     const sessionCache = sessionImageCache.get(currentSessionData.id);
     try {
-      await saveSessionToPdf(currentSessionData, sessionCache);
+      // PDF generation is an explicit user action. Keep pdf-lib and the report
+      // renderer out of the module's startup path.
+      const { saveSessionToPdf } = await import("./utils/fileIo");
+      await saveSessionToPdf(currentSessionData, sessionCache, {
+        visibleColumns: visibleSidebarColumns,
+      });
     } catch (error) {
       console.error("PDF Save Error:", error);
       setAppNotification({
@@ -3292,6 +3624,7 @@ function App() {
     const file = event.target.files[0];
     if (!file) return;
     try {
+      const { parseSessionPdf } = await import("./utils/fileIo");
       const { session, images } = await parseSessionPdf(file);
       const importedSession = await importSession(session, images);
       setSessionImageCache((prevCache) => {
@@ -3323,11 +3656,23 @@ function App() {
       resolveSessionFunctions(currentSessionData).map((fn) => [fn.key, fn.color]),
     );
 
-    // functionKey -> { id, name, unit, uutMap: Map(uutId -> { ...uut, points }) }
+    // functionKey -> { id, name, unit, units, uutMap: Map(uutId -> { ...uut, points }) }
     const functionMap = new Map();
-    const ensureFunction = ({ key, name, unit }) => {
+    const ensureFunction = ({ key, name, unit, units }) => {
       if (!functionMap.has(key)) {
-        functionMap.set(key, { id: key, name, unit, uutMap: new Map() });
+        functionMap.set(key, {
+          id: key,
+          name,
+          unit: unit || units?.[0] || "",
+          units: Array.from(new Set([...(units || []), unit].filter(Boolean))),
+          uutMap: new Map(),
+        });
+      } else {
+        const existing = functionMap.get(key);
+        existing.units = Array.from(
+          new Set([...(existing.units || []), ...(units || []), unit].filter(Boolean)),
+        );
+        existing.unit = existing.units[0] || existing.unit || "";
       }
       return functionMap.get(key);
     };
@@ -3341,7 +3686,9 @@ function App() {
 
     // 1. Seed function + UUT nodes from each UUT's declared functions so a UUT
     //    can host the first point of a function it can measure even before any
-    //    point exists. (Empty nodes are hidden in the tree unless Expand All.)
+    //    point exists. Function headers remain visible even when their point
+    //    list is empty, so the collapsed sidebar accurately reflects every UUT
+    //    function available for a new point.
     uuts.forEach((uut) => {
       instrumentFunctions(uut).forEach((fn) => {
         ensureUut(ensureFunction(fn), uut);
@@ -3374,6 +3721,7 @@ function App() {
         id: node.id,
         name: node.name,
         unit: node.unit,
+        units: node.units || (node.unit ? [node.unit] : []),
         color: functionColorByKey.get(node.id) || null,
         uutGroups: Array.from(node.uutMap.values()),
       }));
@@ -3384,6 +3732,7 @@ function App() {
         id: UNASSIGNED_FUNCTION_ID,
         name: "Unassigned Points",
         unit: "",
+        units: [],
         isUnassigned: true,
         uutGroups: [
           {
@@ -3398,6 +3747,11 @@ function App() {
 
     return result;
   }, [currentSessionData, currentTestPoints]);
+
+  const sidebarValueColumnWidth = useMemo(
+    () => getSidebarValueColumnWidth(currentTestPoints),
+    [currentTestPoints],
+  );
 
   // Exact top-to-bottom order of the point rows currently visible in the
   // sidebar. Shift-click must follow the active sort and skip collapsed rows.
@@ -3578,11 +3932,13 @@ function App() {
     <SidebarPointItem
       key={tp.id}
       point={tp}
+      valueColumnWidth={sidebarValueColumnWidth}
       visibleColumns={visibleSidebarColumns}
       isSelected={selectedSidebarPointIds.includes(tp.id)}
       isActivePoint={selectedTestPointId === tp.id}
       isTableSelected={selectedTablePointIds.includes(tp.id)}
       liveRiskMetrics={pointRiskMap[tp.id]}
+      riskRequirements={currentSessionData?.uncReq || {}}
       isLiveRiskTarget={true}
       onSelect={(e) => handleSelectTestPoint(e, tp.id, contextUutId)}
       onShowRiskBreakdown={(key) => setPendingRiskBreakdown(key)}
@@ -3626,20 +3982,42 @@ function App() {
     />
   );
 
-  const renderSidebarColumnHeaders = () => (
-    <div
-      className="sidebar-column-headers"
-      style={{
-        display: "grid",
-        gridTemplateColumns: getSidebarGridTemplate(visibleSidebarColumns),
-        fontSize: "0.7rem",
-        fontWeight: "bold",
-        color: "var(--text-color-muted)",
-        borderBottom: "1px solid var(--border-color)",
-        width: "100%",
-        minWidth: "min-content",
-      }}
-    >
+  const renderSidebarColumnHeaders = () => {
+    const gridTemplateColumns = getSidebarGridTemplate(
+      visibleSidebarColumns,
+      sidebarValueColumnWidth,
+    );
+    const visibleGroups = SIDEBAR_COLUMN_GROUPS.map((group) => ({
+      ...group,
+      visibleCount: group.columns.filter((key) => visibleSidebarColumns[key])
+        .length,
+    })).filter((group) => group.visibleCount > 0);
+
+    return (
+      <div className="sidebar-column-header-stack">
+        <div
+          className="sidebar-column-groups"
+          style={{ gridTemplateColumns }}
+          aria-label="Measurement point column groups"
+        >
+          {visibleGroups.map((group) => (
+            <div
+              key={group.key}
+              className={`sidebar-column-group sidebar-column-group--${group.key}`}
+              style={{ gridColumn: `span ${group.visibleCount}` }}
+              title={group.label}
+            >
+              {group.label}
+            </div>
+          ))}
+        </div>
+        <div
+          className="sidebar-column-headers"
+          style={{
+            display: "grid",
+            gridTemplateColumns,
+          }}
+        >
       {visibleSidebarColumns.section &&
         renderSidebarSortHeader("section", "Sect.", { align: "right" })}
       {visibleSidebarColumns.value && renderSidebarSortHeader("value", "Value")}
@@ -3648,43 +4026,101 @@ function App() {
       {visibleSidebarColumns.tolerance &&
         renderSidebarSortHeader("tolerance", "Tolerance")}
       {visibleSidebarColumns.lowLimit &&
-        renderSidebarSortHeader("lowLimit", "Low")}
+        renderSidebarSortHeader("lowLimit", "UUT Low", {
+          title: "UUT Low Limit",
+        })}
       {visibleSidebarColumns.highLimit &&
-        renderSidebarSortHeader("highLimit", "High")}
+        renderSidebarSortHeader("highLimit", "UUT High", {
+          title: "UUT High Limit",
+        })}
+      {visibleSidebarColumns.standardUncertainty &&
+        renderSidebarSortHeader("standardUncertainty", "Std. Unc.", {
+          align: "center",
+          title: "Standard Uncertainty (combined)",
+        })}
+      {visibleSidebarColumns.measurementUncertainty &&
+        renderSidebarSortHeader("measurementUncertainty", "Exp. Unc.", {
+          align: "center",
+          title: "Measurement Uncertainty (expanded)",
+        })}
       {visibleSidebarColumns.tmdeLow &&
         renderSidebarSortHeader("tmdeLow", "TMDE Low")}
       {visibleSidebarColumns.tmdeHigh &&
         renderSidebarSortHeader("tmdeHigh", "TMDE High")}
-      {visibleSidebarColumns.pfa &&
-        renderSidebarSortHeader("pfa", "PFA", { align: "center" })}
-      {visibleSidebarColumns.pfr &&
-        renderSidebarSortHeader("pfr", "PFR", { align: "center" })}
       {visibleSidebarColumns.tur &&
         renderSidebarSortHeader("tur", "TUR", { align: "center" })}
       {visibleSidebarColumns.tar &&
         renderSidebarSortHeader("tar", "TAR", { align: "center" })}
-      {visibleSidebarColumns.gbPfa &&
-        renderSidebarSortHeader("gbPfa", "PFA GB", { align: "center" })}
-      {visibleSidebarColumns.gbPfr &&
-        renderSidebarSortHeader("gbPfr", "PFR GB", { align: "center" })}
-      {visibleSidebarColumns.gbMult &&
-        renderSidebarSortHeader("gbMult", "GBx", { align: "center" })}
-      {visibleSidebarColumns.gbLow &&
-        renderSidebarSortHeader("gbLow", "GB Low")}
-      {visibleSidebarColumns.gbHigh &&
-        renderSidebarSortHeader("gbHigh", "GB High")}
-      {visibleSidebarColumns.gbCalInt &&
-        renderSidebarSortHeader("gbCalInt", "Int w/ GB", { align: "center" })}
-      {visibleSidebarColumns.noGbCalInt &&
-        renderSidebarSortHeader("noGbCalInt", "Int w/o GB", {
+      {visibleSidebarColumns.observedReop &&
+        renderSidebarSortHeader("observedReop", "REOP @ TUR", {
           align: "center",
+          title: "R_REOP at Test-Point TUR",
+        })}
+      {visibleSidebarColumns.pfa &&
+        renderSidebarSortHeader("pfa", "PFA", { align: "center" })}
+      {visibleSidebarColumns.pfr &&
+        renderSidebarSortHeader("pfr", "PFR", { align: "center" })}
+      {visibleSidebarColumns.maxReop &&
+        renderSidebarSortHeader("maxReop", "Max REOP", {
+          align: "center",
+          title: "Maximum REOP",
+        })}
+      {visibleSidebarColumns.trueReop &&
+        renderSidebarSortHeader("trueReop", "R_meas", { align: "center" })}
+      {visibleSidebarColumns.gbMult &&
+        renderSidebarSortHeader("gbMult", "GB Mult", { align: "center" })}
+      {visibleSidebarColumns.gbLow &&
+        renderSidebarSortHeader("gbLow", "GB Low", {
+          title: "GB Lower Limit",
+        })}
+      {visibleSidebarColumns.gbHigh &&
+        renderSidebarSortHeader("gbHigh", "GB High", {
+          title: "GB Upper Limit",
+        })}
+      {visibleSidebarColumns.gbPfa &&
+        renderSidebarSortHeader("gbPfa", "PFA + GB", {
+          align: "center",
+          title: "PFA with Guardband",
+        })}
+      {visibleSidebarColumns.gbPfr &&
+        renderSidebarSortHeader("gbPfr", "PFR + GB", {
+          align: "center",
+          title: "PFR with Guardband",
+        })}
+      {visibleSidebarColumns.gbCalInt &&
+        renderSidebarSortHeader("gbCalInt", "Cal Int + GB", {
+          align: "center",
+          title: "Calibration Interval with Guardband",
+        })}
+      {visibleSidebarColumns.gbMeasRel &&
+        renderSidebarSortHeader("gbMeasRel", "Target REOP + GB", {
+          align: "center",
+          title: "Targeted R_REOP with Guardband",
+        })}
+      {visibleSidebarColumns.noGbPfa &&
+        renderSidebarSortHeader("noGbPfa", "PFA no GB", {
+          align: "center",
+          title: "PFA without Guardband",
+        })}
+      {visibleSidebarColumns.noGbPfr &&
+        renderSidebarSortHeader("noGbPfr", "PFR no GB", {
+          align: "center",
+          title: "PFR without Guardband",
+        })}
+      {visibleSidebarColumns.noGbCalInt &&
+        renderSidebarSortHeader("noGbCalInt", "Cal Int no GB", {
+          align: "center",
+          title: "Calibration Interval without Guardband",
         })}
       {visibleSidebarColumns.noGbMeasRel &&
-        renderSidebarSortHeader("noGbMeasRel", "Req Rel", {
+        renderSidebarSortHeader("noGbMeasRel", "Target REOP no GB", {
           align: "center",
+          title: "Targeted R_REOP without Guardband",
         })}
-    </div>
-  );
+        </div>
+      </div>
+    );
+  };
 
   return (
     <ThemeContext.Provider value={isDarkMode}>
@@ -3713,7 +4149,6 @@ function App() {
           />
         )}
 
-        <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
         <BugReportModal
           isOpen={isBugReportOpen}
           onClose={() => setIsBugReportOpen(false)}
@@ -3724,30 +4159,18 @@ function App() {
         {currentSessionData && (
           <>
             {" "}
-            <FloatingNotepad
-              isOpen={isNotepadOpen}
-              onClose={() => setIsNotepadOpen(false)}
-              notes={currentSessionData.notes || ""}
-              onSave={handleUpdateNotes}
-            />{" "}
-            <FloatingImagesPanel
-              isOpen={isImagesOpen}
-              onClose={() => setIsImagesOpen(false)}
-              sessionData={currentSessionData}
-              sessionImageCache={sessionImageCache}
-              onSessionSave={updateSession}
-              onImageCacheChange={setSessionImageCache}
-              onLoadImages={loadSessionImages}
-              onDeleteImage={deleteSessionImage}
-            />{" "}
             <UnitConverter
               isOpen={isConverterOpen}
               onClose={() => setIsConverterOpen(false)}
             />{" "}
-            <ReverseTraceabilityTool
-              isOpen={isTraceabilityOpen}
-              onClose={() => setIsTraceabilityOpen(false)}
-            />{" "}
+            {isTraceabilityOpen && (
+              <Suspense fallback={null}>
+                <ReverseTraceabilityTool
+                  isOpen
+                  onClose={() => setIsTraceabilityOpen(false)}
+                />
+              </Suspense>
+            )}{" "}
           </>
         )}
         <UnresolvedToleranceModal
@@ -3871,24 +4294,6 @@ function App() {
                   </button>
                   <button
                     type="button"
-                    className={`app-chrome-meta-icon${isNotepadOpen ? " is-active" : ""}`}
-                    onClick={() => setIsNotepadOpen((o) => !o)}
-                    title="Session notes"
-                    aria-label="Session notes"
-                  >
-                    <FontAwesomeIcon icon={faStickyNote} />
-                  </button>
-                  <button
-                    type="button"
-                    className={`app-chrome-meta-icon${isImagesOpen ? " is-active" : ""}`}
-                    onClick={() => setIsImagesOpen((o) => !o)}
-                    title="Session images"
-                    aria-label="Session images"
-                  >
-                    <FontAwesomeIcon icon={faImages} />
-                  </button>
-                  <button
-                    type="button"
                     className={`app-chrome-meta-icon${isConverterOpen ? " is-active" : ""}`}
                     onClick={() => setIsConverterOpen((o) => !o)}
                     title="Unit converter"
@@ -3933,7 +4338,7 @@ function App() {
 
                 <div
                   className="app-chrome-meta-group app-chrome-meta-group--tools"
-                  aria-label="Help and feedback"
+                  aria-label="Feedback"
                 >
                   <button
                     type="button"
@@ -3943,15 +4348,6 @@ function App() {
                     aria-label="Report an issue"
                   >
                     <FontAwesomeIcon icon={faBug} />
-                  </button>
-                  <button
-                    type="button"
-                    className="app-chrome-meta-icon"
-                    onClick={() => setIsHelpOpen(true)}
-                    title="Help & tutorial"
-                    aria-label="Help and tutorial"
-                  >
-                    <FontAwesomeIcon icon={faQuestionCircle} />
                   </button>
                 </div>
               </div>
@@ -4024,8 +4420,10 @@ function App() {
                   onUpdate={updateSession}
                   isSessionInfoOpen={isSessionInfoOpen}
                   onSessionInfoOpenChange={setIsSessionInfoOpen}
-                  isRequirementsOpen={isRequirementsOpen}
-                  onRequirementsOpenChange={setIsRequirementsOpen}
+                  isRiskInputsOpen={isRiskInputsOpen}
+                  onRiskInputsOpenChange={setIsRiskInputsOpen}
+                  isMitigationInputsOpen={isMitigationInputsOpen}
+                  onMitigationInputsOpenChange={setIsMitigationInputsOpen}
                   isActive={
                     selectedSessionId &&
                     !selectedFunctionId &&
@@ -4076,7 +4474,7 @@ function App() {
                     </button>
 
                     {/* Column Filter Menu */}
-                    <div style={{ position: "relative" }} ref={columnMenuRef}>
+                    <div className="sidebar-column-menu" ref={columnMenuRef}>
                       <button
                         onClick={() => setIsColumnMenuOpen(!isColumnMenuOpen)}
                         title="Filter visible columns"
@@ -4088,7 +4486,7 @@ function App() {
                       {isColumnMenuOpen && (
                         <div
                           className="sidebar-filter-dropdown"
-                          style={{ top: "100%", right: 0, left: "auto" }}
+                          style={{ top: "100%", right: "auto", left: 0 }}
                         >
                           {[
                             {
@@ -4098,62 +4496,122 @@ function App() {
                                 { key: "value", label: "Value" },
                                 { key: "qualifier", label: "Qualifier" },
                                 { key: "tolerance", label: "Tolerance" },
-                                { key: "lowLimit", label: "Low Limit" },
-                                { key: "highLimit", label: "High Limit" },
+                                { key: "lowLimit", label: "UUT Low Limit" },
+                                { key: "highLimit", label: "UUT High Limit" },
+                                {
+                                  key: "standardUncertainty",
+                                  label: "Comb. Uncertainty",
+                                },
+                                {
+                                  key: "measurementUncertainty",
+                                  label: "Exp. Uncertainty",
+                                },
                                 { key: "tmdeLow", label: "TMDE Low Limit" },
                                 { key: "tmdeHigh", label: "TMDE High Limit" },
-                              ],
-                            },
-                            {
-                              group: "Risk",
-                              cols: [
-                                { key: "pfa", label: "PFA" },
-                                { key: "pfr", label: "PFR" },
                                 { key: "tur", label: "TUR" },
                                 { key: "tar", label: "TAR" },
                               ],
                             },
                             {
-                              group: "Mitigation",
+                              group: "Risk",
                               cols: [
-                                { key: "gbPfa", label: "PFA w/ GB" },
-                                { key: "gbPfr", label: "PFR w/ GB" },
-                                { key: "gbMult", label: "GB Multiplier" },
-                                { key: "gbLow", label: "GB Low Limit" },
-                                { key: "gbHigh", label: "GB High Limit" },
-                                { key: "gbCalInt", label: "GB Cal Interval" },
-                                { key: "noGbCalInt", label: "No GB Cal Int." },
-                                { key: "noGbMeasRel", label: "Req. Meas Rel." },
+                                {
+                                  key: "observedReop",
+                                  label: "R_REOP @ test pt TUR",
+                                },
+                                { key: "pfa", label: "PFA" },
+                                { key: "pfr", label: "PFR" },
+                                { key: "maxReop", label: "Max REOP" },
+                                { key: "trueReop", label: "R_meas" },
                               ],
                             },
-                          ].map((section) => (
-                            <div
-                              key={section.group}
-                              className="filter-option-group"
-                            >
-                              <div className="filter-option-group-title">
-                                {section.group}
-                              </div>
-                              {section.cols.map((col) => (
-                                <label
-                                  key={col.key}
-                                  className="filter-option"
-                                >
+                            {
+                              group: "Mitigation (GB + Int)",
+                              cols: [
+                                { key: "gbMult", label: "GB Mult" },
+                                { key: "gbLow", label: "GB Lower Limit" },
+                                { key: "gbHigh", label: "GB Upper Limit" },
+                                { key: "gbPfa", label: "PFA with GB" },
+                                { key: "gbPfr", label: "PFR with GB" },
+                                { key: "gbCalInt", label: "Cal Int with GB" },
+                                {
+                                  key: "gbMeasRel",
+                                  label: "Targeted R_REOP w/ GB",
+                                },
+                              ],
+                            },
+                            {
+                              group: "Mitigation (Int Only)",
+                              cols: [
+                                { key: "noGbPfa", label: "PFA w/o GB" },
+                                { key: "noGbPfr", label: "PFR w/o GB" },
+                                { key: "noGbCalInt", label: "Cal Int w/o GB" },
+                                {
+                                  key: "noGbMeasRel",
+                                  label: "Targeted R_REOP w/o GB",
+                                },
+                              ],
+                            },
+                          ].map((section) => {
+                            const selectedCount = section.cols.filter(
+                              (col) => Boolean(sidebarColumns[col.key]),
+                            ).length;
+                            const allSelected =
+                              selectedCount === section.cols.length;
+                            const partlySelected =
+                              selectedCount > 0 && !allSelected;
+
+                            return (
+                              <div
+                                key={section.group}
+                                className="filter-option-group"
+                              >
+                                <label className="filter-option-group-title">
                                   <input
                                     type="checkbox"
-                                    checked={sidebarColumns[col.key]}
-                                    onChange={() =>
-                                      setSidebarColumns((prev) => ({
-                                        ...prev,
-                                        [col.key]: !prev[col.key],
-                                      }))
+                                    aria-label={`Toggle all ${section.group} columns`}
+                                    aria-checked={
+                                      partlySelected ? "mixed" : allSelected
+                                    }
+                                    checked={allSelected}
+                                    ref={(input) => {
+                                      if (input) {
+                                        input.indeterminate = partlySelected;
+                                      }
+                                    }}
+                                    onChange={(event) =>
+                                      setSidebarColumns((prev) => {
+                                        const next = { ...prev };
+                                        section.cols.forEach((col) => {
+                                          next[col.key] = event.target.checked;
+                                        });
+                                        return next;
+                                      })
                                     }
                                   />
-                                  <span>{col.label}</span>
+                                  <span>{section.group}</span>
                                 </label>
-                              ))}
-                            </div>
-                          ))}
+                                {section.cols.map((col) => (
+                                  <label
+                                    key={col.key}
+                                    className="filter-option"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(sidebarColumns[col.key])}
+                                      onChange={() =>
+                                        setSidebarColumns((prev) => ({
+                                          ...prev,
+                                          [col.key]: !prev[col.key],
+                                        }))
+                                      }
+                                    />
+                                    <span>{col.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -4167,12 +4625,6 @@ function App() {
                       !selectedUutId &&
                       !selectedTestPointId;
                     const isFnExpanded = expandedFunctions.has(fnGroup.id);
-                    const fnHasPoints = fnGroup.uutGroups.some(
-                      (g) => g.points.length > 0,
-                    );
-                    // Hide functions with no points unless Expand All is active.
-                    if (!fnHasPoints && !isGlobalExpanded) return null;
-
                     // The Unassigned bucket renders its points directly under the
                     // function header (no real UUT to nest under).
                     if (fnGroup.isUnassigned) {
@@ -4260,17 +4712,6 @@ function App() {
                           >
                             {fnGroup.name}
                           </span>
-                          {fnGroup.unit && (
-                            <span
-                              style={{
-                                marginLeft: "auto",
-                                opacity: 0.55,
-                                fontSize: "0.75em",
-                              }}
-                            >
-                              {getUnitDisplayLabel(fnGroup.unit)}
-                            </span>
-                          )}
                         </div>
 
                         {isFnExpanded && (
@@ -4380,32 +4821,33 @@ function App() {
                                         return (
                                           <>
                                             <div
-                                              className="point-mode-toggle"
+                                              className="point-mode-control"
+                                              role="group"
+                                              aria-label="Direct / Derived: what the add button creates"
                                               onClick={(e) => e.stopPropagation()}
                                               title="What the + button adds"
                                             >
-                                              <button
-                                                type="button"
-                                                className={`point-mode-opt ${pointMode === "direct" ? "active" : ""}`}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  setMode("direct");
-                                                }}
-                                                title="Add direct measurement points"
-                                              >
-                                                x
-                                              </button>
-                                              <button
-                                                type="button"
-                                                className={`point-mode-opt ${pointMode === "derived" ? "active" : ""}`}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  setMode("derived");
-                                                }}
-                                                title="Add derived (equation) points"
-                                              >
-                                                ƒ
-                                              </button>
+                                              <span className={`point-mode-label ${pointMode === "direct" ? "is-active" : ""}`}>
+                                                Direct
+                                              </span>
+                                              <label className="direction-toggle-switch">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={pointMode === "derived"}
+                                                  aria-label="Create derived measurement points"
+                                                  onChange={(e) =>
+                                                    setMode(
+                                                      e.target.checked
+                                                        ? "derived"
+                                                        : "direct",
+                                                    )
+                                                  }
+                                                />
+                                                <span className="direction-toggle-slider" />
+                                              </label>
+                                              <span className={`point-mode-label ${pointMode === "derived" ? "is-active" : ""}`}>
+                                                Derived
+                                              </span>
                                             </div>
                                             <button
                                               className="btn-icon-only small"
@@ -4417,7 +4859,7 @@ function App() {
                                                 setExpandedUuts((prev) =>
                                                   new Set(prev).add(uutKey),
                                                 );
-                                                handleQuickAddPoint(
+                                                openQuickAddPoint(
                                                   fnGroup,
                                                   group.id,
                                                   pointMode,
@@ -4434,6 +4876,55 @@ function App() {
                                                 size="xs"
                                               />
                                             </button>
+                                            {pendingPointUnitChoice?.functionId ===
+                                              fnGroup.id &&
+                                              pendingPointUnitChoice?.uutId ===
+                                                group.id && (
+                                                <div
+                                                  className="budget-settings-menu point-unit-picker"
+                                                  role="menu"
+                                                  aria-label="Choose measurement point unit"
+                                                  onClick={(e) =>
+                                                    e.stopPropagation()
+                                                  }
+                                                >
+                                                  <h5 className="point-unit-picker-title">
+                                                    Choose unit
+                                                  </h5>
+                                                  {pendingPointUnitChoice.units.map(
+                                                    (unit) => (
+                                                      <button
+                                                        key={unit}
+                                                        type="button"
+                                                        role="menuitem"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleQuickAddPoint(
+                                                            fnGroup,
+                                                            group.id,
+                                                            pendingPointUnitChoice.mode,
+                                                            unit,
+                                                          );
+                                                        }}
+                                                      >
+                                                        {getUnitDisplayLabel(unit)}
+                                                      </button>
+                                                    ),
+                                                  )}
+                                                  <button
+                                                    type="button"
+                                                    className="point-unit-picker-cancel"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      setPendingPointUnitChoice(
+                                                        null,
+                                                      );
+                                                    }}
+                                                  >
+                                                    Cancel
+                                                  </button>
+                                                </div>
+                                              )}
                                           </>
                                         );
                                       })()}
@@ -4478,6 +4969,10 @@ function App() {
                     onDataSave={handleAnalysisDataSave}
                     onApplyToSessionPoints={handleApplyToSessionPoints}
                     onSessionSave={updateSession}
+                    onNotesSave={updateSessionNotes}
+                    sessionImageCache={sessionImageCache}
+                    onSessionImageCacheChange={setSessionImageCache}
+                    onLoadSessionImages={loadSessionImages}
                     onSaveTestPoint={handleSaveTestPoint}
                     defaultTestPoint={defaultTestPoint}
                     setContextMenu={setContextMenu}
@@ -4509,6 +5004,9 @@ function App() {
                     onAnalysisModeChange={setAnalysisMode}
                     preferredShowContribution={showContribution}
                     onShowContributionChange={setShowContribution}
+                    collapsedFunctionKeys={collapsedInstrumentFunctionKeys}
+                    setCollapsedFunctionKeys={setCollapsedInstrumentFunctionKeys}
+                    keyboardShortcutsEnabled={!isInstrumentBuilderOpen}
                     onSelectUut={handleSelectUut}
                     onSelectTestPoint={handleSelectTestPoint}
                     onDefineTestPoint={handleAddNewTestPoint}

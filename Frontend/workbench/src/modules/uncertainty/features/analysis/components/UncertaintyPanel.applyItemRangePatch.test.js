@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   applyItemRangeFunction,
   applyItemRangePatch,
+  getItemRangeTolerance,
+  rangeIdOf,
 } from "./UncertaintyPanel";
+import { refreshTmdeInstancesFromMasters } from "../../../utils/tmdeReconcile";
+import { getBudgetComponentsFromTolerance } from "../utils/budgetUtils";
 
 // A freshly added inline instrument has `functions: []`, so its row renders a
 // synthetic { id: "default" } range. Editing the unit/min/max/resolution must
@@ -52,6 +56,168 @@ describe("applyItemRangePatch on a new instrument with no ranges", () => {
     expect(patched.instrument.functions[0].ranges[0].unit).toBe("mV");
     // No extra range was created.
     expect(patched.instrument.functions[0].ranges).toHaveLength(1);
+  });
+
+  it("stores a function tolerance on an unbounded range for all values", () => {
+    const item = {
+      id: "uut-unbounded",
+      instrument: {
+        functions: [{ id: "fn-voltage", name: "Voltage", unit: "V", ranges: [] }],
+      },
+    };
+    const tolerance = {
+      reading: { high: "1", low: "-1", unit: "%", distribution: "1.732" },
+    };
+
+    const patched = applyItemRangePatch(item, "default", {
+      tolerances: tolerance,
+    });
+    const [range] = patched.instrument.functions[0].ranges;
+
+    expect(range).toMatchObject({ min: "", max: "", unit: "V" });
+    expect(getItemRangeTolerance(patched, range.id)).toEqual(tolerance);
+  });
+
+  it("reads and patches legacy ranges identified by rangeId", () => {
+    const item = {
+      id: "tmde-legacy-range",
+      instrument: {
+        functions: [
+          {
+            id: "fn1",
+            unit: "lb",
+            ranges: [
+              {
+                rangeId: "legacy-r1",
+                min: 0,
+                max: 10,
+                tolerances: {
+                  reading: { high: "1", low: "-1", distribution: "1.732" },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    expect(rangeIdOf(item.instrument.functions[0].ranges[0])).toBe("legacy-r1");
+    expect(getItemRangeTolerance(item, "legacy-r1")).toMatchObject({
+      reading: { distribution: "1.732" },
+    });
+    const patched = applyItemRangePatch(item, "legacy-r1", {
+      tolerances: {
+        reading: { high: "1", low: "-1", distribution: "2.449" },
+      },
+    });
+    expect(patched.instrument.functions[0].ranges[0].tolerances.reading.distribution).toBe(
+      "2.449",
+    );
+    expect(patched.instrument.functions[0].ranges).toHaveLength(1);
+  });
+
+  it("matches either stored range identity when both id forms are present", () => {
+    const item = {
+      id: "tmde-dual-range",
+      instrument: {
+        functions: [
+          {
+            id: "fn1",
+            ranges: [
+              {
+                id: "row-id",
+                rangeId: "master-range-id",
+                tolerances: {
+                  reading: { high: "1", low: "-1", distribution: "1.732" },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    expect(
+      getItemRangeTolerance(item, "row-id").reading.distribution,
+    ).toBe("1.732");
+    const patched = applyItemRangePatch(item, "row-id", {
+      tolerances: {
+        reading: { high: "1", low: "-1", distribution: "2.449" },
+      },
+    });
+    expect(
+      patched.instrument.functions[0].ranges[0].tolerances.reading.distribution,
+    ).toBe("2.449");
+  });
+
+  it("updates a legacy derived TMDE snapshot when its master distribution is edited", () => {
+    const master = {
+      id: "tmde-weight",
+      instrument: {
+        id: "inst-weight",
+        functions: [
+          {
+            id: "fn-weight",
+            name: "Weight",
+            unit: "ozf",
+            ranges: [
+              {
+                id: "range-weight",
+                min: 0,
+                max: 1,
+                unit: "ozf",
+                tolerances: {
+                  reading: {
+                    high: "0.0002",
+                    low: "-0.0002",
+                    unit: "ozf",
+                    distribution: "not_set",
+                    symmetric: true,
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const updatedMaster = applyItemRangePatch(
+      master,
+      "range-weight",
+      {
+        tolerances: {
+          reading: {
+            ...getItemRangeTolerance(master, "range-weight").reading,
+            distribution: "1.960",
+          },
+        },
+      },
+    );
+    const instance = {
+      id: "point-weight",
+      variableType: "Weight",
+      measurementPoint: { value: "0.5", unit: "ozf" },
+      sourceInstrument: { id: "inst-weight", functions: [{ name: "Weight" }] },
+      reading: {
+        high: "0.0002",
+        low: "-0.0002",
+        unit: "ozf",
+        distribution: "not_set",
+        symmetric: true,
+      },
+    };
+    const [refreshed] = refreshTmdeInstancesFromMasters([instance], [updatedMaster]);
+    const [component] = getBudgetComponentsFromTolerance(
+      refreshed,
+      instance.measurementPoint,
+    );
+
+    expect(
+      updatedMaster.instrument.functions[0].ranges[0].tolerances.reading.distribution,
+    ).toBe("1.960");
+    expect(refreshed.reading.distribution).toBe("1.960");
+    expect(component.distributionDivisor).toBe("1.960");
+    expect(component.value_native).toBeCloseTo(0.0002 / 1.96, 10);
   });
 });
 

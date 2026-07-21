@@ -3,8 +3,13 @@ import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faPenSquare } from "@fortawesome/free-solid-svg-icons";
 import ConversionInfo from "../../../components/common/ConversionInfo";
+import TypeBToleranceEditor, {
+  typeBToTolerance,
+} from "../../instruments/components/TypeBToleranceEditor";
 import {
+  calculateUncertaintyFromToleranceObject,
   convertToPPM,
+  convertPpmToUnit,
   getUnitDisplayLabel,
   unitSystem,
 } from "../../../utils/uncertaintyMath";
@@ -33,6 +38,7 @@ const ManualComponentModal = ({
     toleranceLimit: "",
     unit: "ppm",
     standardUncertainty: "",
+    tolerance: {},
     useFiniteDof: false,
     dof: "",
   };
@@ -77,6 +83,10 @@ const ManualComponentModal = ({
         inputMode,
         standardUncertainty:
           existingComponent.originalInput?.standardUncertainty || "",
+        tolerance:
+          existingComponent.originalInput?.tolerance ||
+          existingComponent.tolerance ||
+          {},
         toleranceLimit: existingComponent.originalInput?.toleranceLimit || "",
         errorDistributionDivisor:
           existingComponent.originalInput?.errorDistributionDivisor || "1.732",
@@ -190,27 +200,38 @@ const ManualComponentModal = ({
       valueInPPM = ppm;
       valueNative = stdUnc;
     } else {
-      const rawValue = parseFloat(component.toleranceLimit);
-      const divisor = parseFloat(component.errorDistributionDivisor);
-      if (isNaN(rawValue) || rawValue <= 0 || isNaN(divisor) || divisor <= 0) {
-        setError("Provide a valid positive tolerance limit and distribution.");
-        return;
-      }
+      const tolerance = typeBToTolerance(component, uutNominal);
+      if (Object.keys(tolerance).length > 0) {
+        const result = calculateUncertaintyFromToleranceObject(tolerance, uutNominal);
+        if (!Number.isFinite(result.standardUncertainty) || result.standardUncertainty <= 0) {
+          setError("Provide a valid tolerance component and distribution.");
+          return;
+        }
+        valueInPPM = result.standardUncertainty;
+        valueNative = convertPpmToUnit(valueInPPM, uutNominal?.unit, uutNominal);
+      } else {
+        const rawValue = parseFloat(component.toleranceLimit);
+        const divisor = parseFloat(component.errorDistributionDivisor);
+        if (isNaN(rawValue) || rawValue <= 0 || isNaN(divisor) || divisor <= 0) {
+          setError("Provide a valid positive tolerance limit and distribution.");
+          return;
+        }
 
-      const { value: ppm, warning } = convertToPPM(
-        rawValue,
-        component.unit,
-        uutNominal?.value,
-        uutNominal?.unit,
-        null,
-        true,
-      );
-      if (warning) {
-        setError(warning);
-        return;
+        const { value: ppm, warning } = convertToPPM(
+          rawValue,
+          component.unit,
+          uutNominal?.value,
+          uutNominal?.unit,
+          null,
+          true,
+        );
+        if (warning) {
+          setError(warning);
+          return;
+        }
+        valueInPPM = ppm / divisor;
+        valueNative = rawValue / divisor;
       }
-      valueInPPM = ppm / divisor;
-      valueNative = rawValue / divisor;
     }
 
     let finalValueNative = valueNative;
@@ -225,10 +246,18 @@ const ManualComponentModal = ({
       }
     }
 
+    const tolerance = typeBToTolerance(component, uutNominal);
+    const firstToleranceKey = ["reading", "range", "floor", "db", "singleSided"].find(
+      (key) => tolerance[key],
+    );
     const distributionLabel = usesStandardUncertainty
       ? component.type === "A"
         ? "Normal"
         : "Standard Uncertainty"
+      : firstToleranceKey
+        ? oldErrorDistributions.find(
+            (d) => d.value === tolerance[firstToleranceKey]?.distribution,
+          )?.label || "Tolerance / Error limits"
       : oldErrorDistributions.find(
           (d) => d.value === component.errorDistributionDivisor,
         )?.label;
@@ -245,6 +274,7 @@ const ManualComponentModal = ({
         inputMode: usesStandardUncertainty ? "standard" : "tolerance",
         standardUncertainty: component.standardUncertainty,
         toleranceLimit: component.toleranceLimit,
+        tolerance,
         errorDistributionDivisor: component.errorDistributionDivisor,
         unit: component.unit,
         useFiniteDof: component.useFiniteDof,
@@ -404,35 +434,15 @@ const ManualComponentModal = ({
           )}
 
           {component.type === "B" && component.inputMode === "tolerance" && (
-            <>
-              <div className="config-column">
-                <label>Distribution</label>
-                <select
-                  name="errorDistributionDivisor"
-                  value={component.errorDistributionDivisor}
-                  onChange={handleChange}
-                >
-                  {oldErrorDistributions.map((dist) => (
-                    <option key={dist.value} value={dist.value}>
-                      {dist.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="config-column">
-                <label>Tolerance Limit (+/-)</label>
-                {renderUnitInput(
-                  "toleranceLimit",
-                  component.toleranceLimit,
-                  "e.g., 0.001",
-                )}
-                <ConversionInfo
-                  value={component.toleranceLimit}
-                  unit={component.unit}
-                  nominal={uutNominal}
-                />
-              </div>
-            </>
+            <div className="config-column">
+              <label>Tolerance / Error limits</label>
+              <TypeBToleranceEditor
+                component={component}
+                referencePoint={uutNominal || { unit: component.unit }}
+                defaultExpanded
+                onChange={(next) => setComponent(next)}
+              />
+            </div>
           )}
 
           {component.type === "A" ? (
@@ -459,14 +469,7 @@ const ManualComponentModal = ({
                 />
               )}
             </div>
-          ) : (
-            <div className="config-column manual-dof-column">
-              <label>Degrees of Freedom</label>
-              <span style={{ color: "var(--text-color-muted)", fontSize: "0.85rem" }}>
-                Type B treated as infinite (ν = ∞)
-              </span>
-            </div>
-          )}
+          ) : null}
         </div>
 
         <div className="modal-actions" style={{ marginTop: "20px" }}>

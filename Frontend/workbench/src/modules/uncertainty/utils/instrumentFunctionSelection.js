@@ -30,7 +30,16 @@ export const annotateRangeWithFunction = (
   fn = null,
   rangeIndex = null,
 ) => {
-  const functionUnit = firstValue(fn?.unit, range.functionUnit, range.unit, "");
+  // A function may expose ranges in different units. Prefer the range's own
+  // unit when annotating it; the function unit is only the default for legacy
+  // ranges that do not carry one.
+  const functionUnit = firstValue(
+    range.functionUnit,
+    range.unit,
+    fn?.unit,
+    fn?.units?.[0],
+    "",
+  );
   const rangeId = firstValue(range.rangeId, range.id);
   const rangeName = firstValue(
     range.rangeName,
@@ -43,7 +52,7 @@ export const annotateRangeWithFunction = (
     functionId: firstValue(fn?.id, range.functionId),
     functionName: firstValue(fn?.name, range.functionName),
     functionUnit,
-    unit: firstValue(range.unit, functionUnit, ""),
+    unit: firstValue(range.unit, range.functionUnit, functionUnit, ""),
     rangeId,
     rangeName,
     ...(rangeIndex !== null && rangeIndex !== undefined
@@ -153,10 +162,10 @@ const resolveRange = (ranges, selection = {}) => {
 export const flattenRangeSpecs = (range = {}, functionUnit = "", functionMeta = {}) => {
   const rawSpecs = range?.tolerances || range?.tolerance || {};
   const resolvedFunctionUnit = firstValue(
-    functionMeta.functionUnit,
-    functionUnit,
     range.functionUnit,
     range.unit,
+    functionMeta.functionUnit,
+    functionUnit,
     "",
   );
   const resolvedRangeId = firstValue(range.rangeId, range.id);
@@ -216,11 +225,12 @@ export const resolveInstrumentSelection = (masterDef = {}, selection = {}) => {
     "",
   );
   const functionUnit = firstValue(
-    activeFunction?.unit,
-    selection.userFunctionUnit,
-    selection.functionUnit,
     activeRange.functionUnit,
     activeRange.unit,
+    selection.userFunctionUnit,
+    selection.functionUnit,
+    activeFunction?.unit,
+    activeFunction?.units?.[0],
     "",
   );
   const rangeId = firstValue(activeRange.rangeId, activeRange.id, selection.rangeId);

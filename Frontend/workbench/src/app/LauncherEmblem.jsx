@@ -1,4 +1,4 @@
-import React, { Suspense, useRef } from "react";
+import React, { Suspense, useEffect, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF, Stage } from "@react-three/drei";
 
@@ -12,9 +12,13 @@ import { useGLTF, Stage } from "@react-three/drei";
 // toward the viewer (the medallion's back is blank), with a soft float and
 // breathing tilt so it never looks static. Non-interactive by design.
 // ---------------------------------------------------------------------
-function AliveEmblem() {
+function AliveEmblem({ onReady }) {
   const { scene } = useGLTF("/3demblem.glb");
   const ref = useRef();
+
+  useEffect(() => {
+    onReady?.();
+  }, [onReady]);
 
   useFrame((state) => {
     const node = ref.current;
@@ -31,7 +35,7 @@ function AliveEmblem() {
   return <primitive ref={ref} object={scene} scale={1.7} />;
 }
 
-export default function LauncherEmblem() {
+export default function LauncherEmblem({ onReady }) {
   // gl alpha:true keeps the canvas transparent so the page background /
   // CSS glow show through behind the medallion.
   return (
@@ -50,7 +54,7 @@ export default function LauncherEmblem() {
           adjustCamera={false}
           shadows={false}
         >
-          <AliveEmblem />
+          <AliveEmblem onReady={onReady} />
         </Stage>
       </Suspense>
     </Canvas>

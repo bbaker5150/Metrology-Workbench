@@ -1,12 +1,29 @@
 // src/modules/uncertainty/utils/tmdeReconcile.js
 import { resolveInstrumentSelection } from "./instrumentFunctionSelection";
 
-const sameId = (left, right) =>
-  left !== undefined &&
-  left !== null &&
-  right !== undefined &&
-  right !== null &&
-  String(left) === String(right);
+// Point snapshots created by older derived-session imports do not carry the
+// session TMDE id in `sourceId`. They retain the embedded instrument definition
+// under `sourceInstrument` instead. Newer snapshots use `sourceId`/`definitionId`
+// and may carry the definition under `instrument`. Treat all of these stable
+// identifiers as aliases so edits to a live TMDE master reach every snapshot.
+const identityCandidates = (record) =>
+  [
+    record?.sourceId,
+    record?.definitionId,
+    record?.sourceInstrumentId,
+    record?.instrumentId,
+    record?.sourceInstrument?.id,
+    record?.instrument?.id,
+    record?.id,
+  ].filter((value) => value !== undefined && value !== null && value !== "");
+
+const identityKeys = (record) =>
+  new Set(identityCandidates(record).map((value) => String(value)));
+
+export const tmdeInstanceMatchesMaster = (instance, master) => {
+  const masterKeys = identityKeys(master);
+  return [...identityKeys(instance)].some((key) => masterKeys.has(key));
+};
 
 //
 // Referential-integrity guard for a test point's TMDE instances.
@@ -38,7 +55,7 @@ const sameId = (left, right) =>
 
 /** The id of the master a per-point instance was derived from. */
 export const masterIdOf = (instance) =>
-  instance == null ? undefined : instance.sourceId ?? instance.id;
+  instance == null ? undefined : identityCandidates(instance)[0];
 
 const variableKeyOf = (instance) =>
   String(instance?.variableType || "").trim();
@@ -50,7 +67,7 @@ export const reconcileTmdeInstances = (tmdeTolerances, masterTmdes) => {
   if (!Array.isArray(tmdeTolerances)) return [];
 
   const validIds = new Set(
-    (masterTmdes || []).map((m) => m && m.id).filter((id) => id != null),
+    (masterTmdes || []).flatMap((master) => [...identityKeys(master)]),
   );
   // Only prune orphans when we actually know the master list. An empty set means
   // "masters not loaded yet" — pruning then would wrongly blank every instance.
@@ -62,10 +79,12 @@ export const reconcileTmdeInstances = (tmdeTolerances, masterTmdes) => {
 
   for (const inst of tmdeTolerances) {
     if (!inst) continue;
-    const masterId = masterIdOf(inst);
+    const linkedToLiveMaster = [...identityKeys(inst)].some((key) =>
+      validIds.has(key),
+    );
 
     // Orphan: the master this instance came from is gone from the session.
-    if (knowMasters && !validIds.has(masterId) && !validIds.has(inst.id)) {
+    if (knowMasters && !linkedToLiveMaster) {
       prunedOrphan = true;
       continue;
     }
@@ -107,13 +126,8 @@ const firstPresent = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
 
 const findMasterForInstance = (instance, masterTmdes = []) => {
-  const masterId = masterIdOf(instance);
   return (masterTmdes || []).find(
-    (master) =>
-      sameId(master?.id, masterId) ||
-      sameId(master?.sourceId, masterId) ||
-      sameId(master?.id, instance?.id) ||
-      sameId(master?.sourceId, instance?.sourceId),
+    (master) => tmdeInstanceMatchesMaster(instance, master),
   );
 };
 
@@ -180,18 +194,38 @@ export const refreshTmdeInstancesFromMasters = (
     const master = findMasterForInstance(instance, masterTmdes);
     if (!master) return instance;
 
+    // Legacy derived snapshots embed the selected instrument as
+    // `sourceInstrument`, including its function metadata, but do not copy the
+    // function/range ids onto the instance. Use the embedded function as a
+    // stable fallback so the refreshed master resolves the same function.
+    const sourceInstrument = instance?.sourceInstrument || instance?.instrument || {};
+    const sourceFunction = Array.isArray(sourceInstrument.functions)
+      ? sourceInstrument.functions[0]
+      : null;
+
     const selection = {
-      userFunctionId: firstPresent(instance.userFunctionId, instance.functionId),
+      userFunctionId: firstPresent(
+        instance.userFunctionId,
+        instance.functionId,
+        sourceFunction?.id,
+      ),
       userFunctionName: firstPresent(
         instance.userFunctionName,
         instance.functionName,
+        sourceFunction?.name,
       ),
       userFunctionUnit: firstPresent(
         instance.userFunctionUnit,
         instance.functionUnit,
         instance.unit,
+        sourceFunction?.unit,
+        sourceFunction?.units?.[0],
       ),
-      userRangeId: firstPresent(instance.userRangeId, instance.rangeId),
+      userRangeId: firstPresent(
+        instance.userRangeId,
+        instance.rangeId,
+        nestedToleranceOf(instance)?.rangeId,
+      ),
       userRangeIndex: firstPresent(instance.userRangeIndex, instance._index),
     };
     const resolved = resolveInstrumentSelection(master, selection);

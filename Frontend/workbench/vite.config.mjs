@@ -64,6 +64,12 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['./src/setupTests.js'],
       css: true,
+      // Several statistical validation tests intentionally run tens of
+      // thousands of deterministic Monte Carlo trials. They complete in a
+      // few seconds in isolation, but can exceed Vitest's 5 s default while
+      // the full suite is sharing CPU. Preserve their full assertions and
+      // sample counts while allowing realistic CI/workstation contention.
+      testTimeout: 30000,
     },
   };
 });

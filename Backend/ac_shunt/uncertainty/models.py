@@ -133,6 +133,7 @@ class TestPoint(models.Model):
     # Measurement mode.
     measurement_type = models.CharField(max_length=32, default="direct")
     equation_string = models.TextField(blank=True, default="")
+    equation_name = models.CharField(max_length=255, blank=True, default="")
     variable_mappings = models.JSONField(default=dict, blank=True)
     variable_nominals = models.JSONField(default=dict, blank=True)
     # Optional correlation matrix between derived-equation inputs. Sparse,
@@ -159,6 +160,14 @@ class TestPoint(models.Model):
     calculated_nominal_value = models.FloatField(null=True, blank=True)
     calculated_budget_components = models.JSONField(default=list, blank=True, null=True)
     calculated_budget_groups = models.JSONField(default=list, blank=True, null=True)
+    # Risk 8.0 propagation choice. Derived points default to the equation method
+    # in the frontend; blank preserves backward-compatible direct budgets.
+    budget_propagation_method = models.CharField(max_length=24, blank=True, default="")
+    monte_carlo_trials = models.PositiveIntegerField(default=10000)
+    # Audited stochastic result + complete input hash. Reusing it while the hash
+    # is unchanged prevents an ordinary React save/re-render from silently
+    # producing a different simulation.
+    risk8_monte_carlo_result = models.JSONField(default=dict, blank=True, null=True)
 
     # Risk snapshot (large irregular DTO -> JSON).
     risk_metrics = models.JSONField(default=dict, blank=True, null=True)

@@ -70,7 +70,9 @@ export function makeGaussian(rng) {
 // mattered for converting the spec to u, which has already happened.
 const DIVISOR_SHAPES = [
   { value: Math.sqrt(3), id: "rectangular" },
+  { value: 2 * Math.sqrt(3), id: "rectangular" },
   { value: Math.sqrt(6), id: "triangular" },
+  { value: 2 * Math.sqrt(6), id: "triangular" },
   { value: Math.sqrt(2), id: "arcsine" }, // "U-Shaped"
   { value: 4.179, id: "rayleigh" },
 ];

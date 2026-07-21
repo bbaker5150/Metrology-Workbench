@@ -24,7 +24,9 @@ const normalInput = (symbol, nominalBase, u) => ({
 describe("distributionFromDivisor", () => {
   it("maps the app's divisor values to distribution shapes", () => {
     expect(distributionFromDivisor("1.732")).toBe("rectangular");
+    expect(distributionFromDivisor("3.464")).toBe("rectangular");
     expect(distributionFromDivisor("2.449")).toBe("triangular");
+    expect(distributionFromDivisor("4.899")).toBe("triangular");
     expect(distributionFromDivisor("1.414")).toBe("arcsine");
     expect(distributionFromDivisor("4.179")).toBe("rayleigh");
     expect(distributionFromDivisor("1.960")).toBe("normal");

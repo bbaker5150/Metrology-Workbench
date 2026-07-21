@@ -8,6 +8,8 @@ const RiskMitigationDashboard = ({ results, onShowBreakdown, activeModals = [] }
   const guardBand = results.gbResults;
 
   const isActive = (key) => activeModals.includes(key);
+  const boundaryOnly = results.riskMethod === "risk8-pfa-boundary";
+  const singleSidedKnown = results.riskMethod === "risk8-single-sided-known";
 
   const nativeUnit = results.nativeUnit || "units";
 
@@ -18,6 +20,74 @@ const RiskMitigationDashboard = ({ results, onShowBreakdown, activeModals = [] }
   const fmtLimit = (v) =>
     typeof v === "number" ? v.toFixed(results.uutResolution + 1) : "N/A";
   const fmt = (v, p = 6) => (typeof v === "number" ? v.toPrecision(p) : "N/A");
+
+  if (boundaryOnly) {
+    const isLower = typeof guardBand.GBLOW === "number";
+    const acceptanceLimit = isLower ? guardBand.GBLOW : guardBand.GBUP;
+    const specLimit = isLower ? guardBandInputs.uutLower : guardBandInputs.uutUpper;
+
+    return (
+      <div className="risk-dashboard">
+        <section className="risk-inputs-panel">
+          <div className="risk-inputs-header">
+            <span>Single-Sided Measurement Unknown</span>
+          </div>
+          <div className="risk-inputs-grid">
+            <div className="risk-spec">
+              <span className="risk-spec-label">Specification Limit</span>
+              <span className="risk-spec-value">{fmt(specLimit)} {nativeUnit}</span>
+            </div>
+            <div className="risk-spec">
+              <span className="risk-spec-label">Expanded Uncertainty</span>
+              <span className="risk-spec-value">{fmt(guardBandInputs.expandedUncertainty)} {nativeUnit}</span>
+            </div>
+            <div className="risk-spec">
+              <span className="risk-spec-label">Required PFA</span>
+              <span className="risk-spec-value">{fmtPct(guardBand.GBPFA)}</span>
+            </div>
+            <div className="risk-spec">
+              <span className="risk-spec-label">Available Calculation</span>
+              <span className="risk-spec-value">PFA-only acceptance boundary</span>
+            </div>
+          </div>
+        </section>
+
+        <RiskGauge
+          label={isLower ? "Lower Acceptance Limit" : "Upper Acceptance Limit"}
+          value={`${fmt(acceptanceLimit)} ${nativeUnit}`}
+          accent="accent-guardband"
+          note="Calculated from expanded uncertainty and the requested PFA."
+        />
+        <RiskGauge
+          label="Probability of False Accept at Boundary"
+          value={fmtPct(guardBand.GBPFA)}
+          accent="accent-guardband"
+          note="PFR, TUR, REOP, and calibration-interval recommendations require a measured value and remain N/A."
+        />
+      </div>
+    );
+  }
+
+  if (singleSidedKnown) {
+    const isLower = typeof guardBand.GBLOW === "number";
+    return (
+      <div className="risk-dashboard">
+        <section className="risk-inputs-panel">
+          <button type="button" className={`risk-inputs-header ${isActive("gbinputs") ? "active" : ""}`} onClick={() => onShowBreakdown("gbinputs")}><span>Single-Sided Measurement Known</span><span className="risk-inputs-hint">View breakdown</span></button>
+          <div className="risk-inputs-grid">
+            <div className="risk-spec"><span className="risk-spec-label">Specification Limit</span><span className="risk-spec-value">{fmt(isLower ? guardBandInputs.uutLower : guardBandInputs.uutUpper)} {nativeUnit}</span></div>
+            <div className="risk-spec"><span className="risk-spec-label">TUR</span><span className="risk-spec-value">{fmt(results.tur)}</span></div>
+            <div className="risk-spec"><span className="risk-spec-label">Required PFA</span><span className="risk-spec-value">{fmtPct((guardBandInputs.reqPFA || 0) * 100)}</span></div>
+            <div className="risk-spec"><span className="risk-spec-label">Measurement Reliability Target</span><span className="risk-spec-value">{fmtPct((guardBandInputs.measRelTarget || 0) * 100)}</span></div>
+          </div>
+        </section>
+        <RiskGauge label={isLower ? "Lower Acceptance Limit" : "Upper Acceptance Limit"} value={`${fmt(isLower ? guardBand.GBLOW : guardBand.GBUP)} ${nativeUnit}`} accent="accent-guardband" active={isActive(isLower ? "gblow" : "gbhigh")} onClick={() => onShowBreakdown(isLower ? "gblow" : "gbhigh")} />
+        <RiskGauge label="PFA with Guard Banding" value={fmtPct(guardBand.GBPFA)} accent="accent-guardband" active={isActive("gbpfa")} onClick={() => onShowBreakdown("gbpfa")} />
+        <RiskGauge label="PFR with Guard Banding" value={fmtPct(guardBand.GBPFR)} accent="accent-guardband" active={isActive("gbpfr")} onClick={() => onShowBreakdown("gbpfr")} />
+        <RiskGauge label="Recommended Calibration Interval" value={typeof guardBand.GBCALINT === "number" ? `${fmtNum(guardBand.GBCALINT, 2)} months` : "N/A"} accent="accent-guardband" active={isActive("gbcalint")} onClick={() => onShowBreakdown("gbcalint")} />
+      </div>
+    );
+  }
 
   const inputSpecs = [
     { label: "Calibration Interval", value: `${guardBandInputs.calibrationInt} months` },

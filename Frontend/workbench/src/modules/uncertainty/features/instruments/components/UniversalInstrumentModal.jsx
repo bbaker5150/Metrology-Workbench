@@ -33,6 +33,8 @@ import {
   unitSystem,
 } from "../../../utils/uncertaintyMath";
 import TypeBComponentsEditor, { createTypeBComponent } from "./TypeBComponentsEditor";
+import BuilderUnitSelect from "./BuilderUnitSelect";
+import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 import useInstrumentSync from "../../../hooks/useInstrumentSync";
@@ -77,6 +79,7 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
 };
 
 const RESOLUTION_DIST_DEFAULT = "1.732";
+const MAX_BUILDER_UNDO_STEPS = 50;
 const BAND_KEYS = ["reading", "readings_iv", "range", "floor"];
 
 const formatToleranceSummary = (tolerances) => {
@@ -122,7 +125,72 @@ const toPlainNumber = (value) => {
 };
 
 const getRangeUnit = (range = {}, fn = {}) =>
-    range.unit || range.functionUnit || fn.unit || "";
+    range.unit || range.functionUnit || fn.unit || fn.units?.[0] || "";
+
+// A unit-bearing row with no lower/upper bounds is the persisted form of an
+// all-values specification. It lets an instrument carry a tolerance before (or
+// without) a finite range and remains compatible with every point in that unit.
+const createUnboundedBuilderRange = (unit = "") => ({
+    id: uuidv4(),
+    min: "",
+    max: "",
+    unit,
+    resolution: "",
+    resolutionUnit: unit,
+    resolutionDistribution: RESOLUTION_DIST_DEFAULT,
+    tolerances: {},
+});
+
+// A function is identified by its name. Range units are independent choices,
+// so legacy data that stored one function per unit is folded into one builder
+// section while retaining every range and unit.
+const normalizeBuilderFunctions = (functions = []) => {
+    const byName = new Map();
+    (Array.isArray(functions) ? functions : []).forEach((sourceFn) => {
+        const name = String(sourceFn?.name || "Measurement").trim() || "Measurement";
+        const key = name.toLowerCase();
+        const ranges = (Array.isArray(sourceFn?.ranges) ? sourceFn.ranges : []).map((range) => ({
+            ...range,
+            id: range?.id || uuidv4(),
+        }));
+        const rangeUnits = Array.from(
+            new Set(
+                ranges
+                    .flatMap((range) => [range.unit, range.functionUnit])
+                    .filter(Boolean)
+                    .map((unit) => String(unit).trim())
+                    .filter(Boolean),
+            ),
+        );
+        const declaredUnits = Array.from(
+            new Set([
+                ...(Array.isArray(sourceFn?.units) ? sourceFn.units : []),
+                sourceFn?.unit,
+            ].filter(Boolean).map((unit) => String(unit).trim()).filter(Boolean)),
+        );
+        const units = rangeUnits.length ? rangeUnits : declaredUnits;
+        const existing = byName.get(key);
+        if (existing) {
+            existing.ranges.push(...ranges);
+            existing.units = Array.from(new Set([...existing.units, ...units]));
+            existing.unit = existing.units[0] || existing.unit || "";
+            return;
+        }
+        byName.set(key, {
+            ...sourceFn,
+            id: sourceFn?.id || uuidv4(),
+            name,
+            unit: units[0] || "",
+            units,
+            ranges,
+        });
+    });
+    return Array.from(byName.values()).map((fn) =>
+        fn.ranges.length > 0
+            ? fn
+            : { ...fn, ranges: [createUnboundedBuilderRange(fn.unit)] },
+    );
+};
 
 const formatBuilderRangeSummary = (range = {}, fn = {}) => {
     const unitLabel = getUnitDisplayLabel(getRangeUnit(range, fn));
@@ -152,244 +220,16 @@ const formatResolutionSummary = (range = {}, fn = {}) => {
     return unitLabel ? `${value} ${unitLabel}` : String(value);
 };
 
-const normalizeUnitSearch = (value) =>
-    String(value || "").toLowerCase().replace(/[^a-z0-9%]+/g, "");
-
-const flattenUnitOptions = (groups = []) =>
-    groups.flatMap((group) => (group.options ? group.options : group));
-
-const BuilderUnitSelect = ({
-    value = "",
-    onChange,
-    options = [],
-    ariaLabel = "Unit",
-    width = "72px",
-}) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const [query, setQuery] = useState("");
-    const [menuRect, setMenuRect] = useState(null);
-    const [activeValue, setActiveValue] = useState(value || "");
-    const rootRef = useRef(null);
-    const searchRef = useRef(null);
-    const selectedRef = useRef(null);
-    const activeRef = useRef(null);
-    const flatOptions = useMemo(() => flattenUnitOptions(options), [options]);
-    const selectedOption =
-        flatOptions.find((option) => option.value === value) ||
-        (value ? { value, label: getUnitDisplayLabel(value) || value } : null);
-    const normalizedQuery = normalizeUnitSearch(query);
-    const visibleGroups = useMemo(() => {
-        if (!normalizedQuery) return options;
-        return options
-            .map((group) => {
-                const groupOptions = group.options ? group.options : [group];
-                return {
-                    ...group,
-                    options: groupOptions.filter((option) => {
-                        const groupLabel = normalizeUnitSearch(group.label);
-                        return (
-                            normalizeUnitSearch(option.value).includes(normalizedQuery) ||
-                            normalizeUnitSearch(option.label).includes(normalizedQuery) ||
-                            groupLabel.includes(normalizedQuery)
-                        );
-                    }),
-                };
-            })
-            .filter((group) => (group.options || []).length > 0);
-    }, [options, normalizedQuery]);
-    const visibleOptions = useMemo(
-        () => flattenUnitOptions(visibleGroups),
-        [visibleGroups],
-    );
-
-    const closeMenu = () => setIsOpen(false);
-    const openMenu = () => {
-        const rect = rootRef.current?.getBoundingClientRect();
-        if (rect) {
-            setMenuRect({
-                top: rect.bottom + 4,
-                left: rect.left,
-                width: Math.max(rect.width, 240),
-            });
-        }
-        setQuery("");
-        setActiveValue(value || flatOptions[0]?.value || "");
-        setIsOpen(true);
-    };
-
-    const chooseUnit = (option) => {
-        onChange(option?.value || "");
-        closeMenu();
-    };
-
-    useEffect(() => {
-        if (!isOpen) return undefined;
-        const onPointerDown = (event) => {
-            const target = event.target;
-            if (
-                rootRef.current?.contains(target) ||
-                target?.closest?.(".inline-unit-menu")
-            ) {
-                return;
-            }
-            closeMenu();
-        };
-        document.addEventListener("mousedown", onPointerDown);
-        return () => document.removeEventListener("mousedown", onPointerDown);
-    }, [isOpen]);
-
-    useEffect(() => {
-        if (!isOpen) return;
-        if (
-            visibleOptions.length > 0 &&
-            !visibleOptions.some((option) => option.value === activeValue)
-        ) {
-            setActiveValue(visibleOptions[0].value);
-        }
-    }, [activeValue, isOpen, visibleOptions]);
-
-    useEffect(() => {
-        if (!isOpen) return;
-        requestAnimationFrame(() => {
-            searchRef.current?.focus();
-            (activeRef.current || selectedRef.current)?.scrollIntoView({
-                block: "nearest",
-            });
-        });
-    }, [activeValue, isOpen, normalizedQuery]);
-
-    return (
-        <div
-            ref={rootRef}
-            className="inline-unit-select builder-unit-select"
-            onMouseDown={(e) => e.stopPropagation()}
-            aria-label={ariaLabel}
-            style={{ "--inline-unit-width": width }}
-        >
-            <button
-                type="button"
-                className={`inline-unit-combobox inline-unit-base-button${
-                    isOpen ? " is-open" : ""
-                }`}
-                aria-label={`${ariaLabel} base unit`}
-                aria-haspopup="listbox"
-                aria-expanded={isOpen}
-                title={selectedOption?.label || value || "Unit"}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    if (isOpen) closeMenu();
-                    else openMenu();
-                }}
-            >
-                <span>{selectedOption?.label || value || "Unit"}</span>
-                <FontAwesomeIcon icon={faChevronDown} size="xs" />
-            </button>
-            {isOpen &&
-                menuRect &&
-                ReactDOM.createPortal(
-                    <div
-                        className="inline-unit-menu"
-                        style={{
-                            top: menuRect.top,
-                            left: menuRect.left,
-                            width: menuRect.width,
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                    >
-                        <input
-                            ref={searchRef}
-                            className="inline-unit-search"
-                            value={query}
-                            placeholder="Search units..."
-                            onChange={(e) => setQuery(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === "Escape") {
-                                    closeMenu();
-                                    return;
-                                }
-                                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                                    e.preventDefault();
-                                    if (visibleOptions.length === 0) return;
-                                    const currentIndex = Math.max(
-                                        0,
-                                        visibleOptions.findIndex(
-                                            (option) => option.value === activeValue,
-                                        ),
-                                    );
-                                    const offset = e.key === "ArrowDown" ? 1 : -1;
-                                    const nextIndex =
-                                        (currentIndex + offset + visibleOptions.length) %
-                                        visibleOptions.length;
-                                    setActiveValue(visibleOptions[nextIndex].value);
-                                    return;
-                                }
-                                if (e.key === "Enter") {
-                                    const activeOption =
-                                        visibleOptions.find(
-                                            (option) => option.value === activeValue,
-                                        ) || visibleOptions[0];
-                                    if (activeOption) chooseUnit(activeOption);
-                                }
-                            }}
-                        />
-                        <div
-                            className="inline-unit-options"
-                            role="listbox"
-                            aria-label={ariaLabel}
-                        >
-                            {visibleGroups.length === 0 ? (
-                                <div className="inline-unit-empty">No matching units</div>
-                            ) : (
-                                visibleGroups.map((group) => (
-                                    <div className="inline-unit-group" key={group.label}>
-                                        <div className="inline-unit-group-label">
-                                            {group.label}
-                                        </div>
-                                        {(group.options || []).map((option) => {
-                                            const isSelected = option.value === value;
-                                            const isActive = option.value === activeValue;
-                                            return (
-                                                <button
-                                                    key={option.value}
-                                                    ref={
-                                                        isActive
-                                                            ? activeRef
-                                                            : isSelected
-                                                              ? selectedRef
-                                                              : null
-                                                    }
-                                                    type="button"
-                                                    role="option"
-                                                    aria-selected={isSelected}
-                                                    className={`inline-unit-option${
-                                                        isSelected ? " is-selected" : ""
-                                                    }${isActive ? " is-active" : ""}`}
-                                                    onMouseEnter={() =>
-                                                        setActiveValue(option.value)
-                                                    }
-                                                    onClick={() => chooseUnit(option)}
-                                                >
-                                                    <span>{option.label}</span>
-                                                    <small>{option.value}</small>
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>,
-                    document.body,
-                )}
-        </div>
-    );
-};
-
 const TOLERANCE_TYPE_OPTIONS = [
-    { key: "reading", label: "% IV", title: "Percent of indicated value" },
+    { key: "reading", label: "IV", title: "Indicated value" },
     { key: "range", label: "% FS", title: "Percent of full scale" },
     { key: "floor", label: "Floor", title: "Absolute floor value" },
     { key: "db", label: "dB", title: "Decibel value" },
+    {
+        key: "singleSided",
+        label: "Single Sided",
+        title: "One workbook-style acceptance limit",
+    },
 ];
 
 const TOLERANCE_SHAPE_OPTIONS = [
@@ -398,12 +238,6 @@ const TOLERANCE_SHAPE_OPTIONS = [
         symbol: "±",
         label: "Symmetric",
         detail: "Equal plus and minus limits",
-    },
-    {
-        key: "single",
-        symbol: "+0",
-        label: "Single-sided",
-        detail: "One limit is zero",
     },
     {
         key: "asymmetric",
@@ -420,6 +254,7 @@ const getToleranceComponent = (tolerance = {}, typeKey) =>
 
 const toleranceComponentHasNumericValue = (typeKey, component) => {
     if (!component) return false;
+    if (typeKey === "singleSided") return finiteNumber(component.limit);
     if (typeKey === "reading") {
         return (
             finiteNumber(component.value) ||
@@ -428,6 +263,23 @@ const toleranceComponentHasNumericValue = (typeKey, component) => {
         );
     }
     return finiteNumber(component.high) || finiteNumber(component.low);
+};
+
+// A single-sided acceptance limit is a distinct workbook tolerance case. It
+// cannot be combined with IV / FS / Floor / dB terms on the same range.
+const applyToleranceCaseChange = (tolerance = {}, typeKey, component) => {
+    const next = { ...tolerance, [typeKey]: component };
+    if (!toleranceComponentHasNumericValue(typeKey, component)) {
+        return pruneBlankToleranceTerms(next);
+    }
+    if (typeKey === "singleSided") {
+        TOLERANCE_TYPE_OPTIONS.forEach(({ key }) => {
+            if (key !== "singleSided") delete next[key];
+        });
+    } else {
+        delete next.singleSided;
+    }
+    return pruneBlankToleranceTerms(next);
 };
 
 const toleranceHasAnyValue = (tolerance = {}) =>
@@ -500,6 +352,14 @@ const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) =>
             symmetric: true,
         };
     }
+    if (typeKey === "singleSided") {
+        return {
+            direction: "high",
+            measurement: "known",
+            limit: "",
+            unit: activeRange?.unit || "",
+        };
+    }
     return {
         value: "",
         high: "",
@@ -545,7 +405,7 @@ const toleranceShapeOption = (mode) =>
     TOLERANCE_SHAPE_OPTIONS[0];
 
 const componentUnitLabel = (typeKey, component = {}, activeRange = {}) => {
-    if (typeKey === "reading") return "% IV";
+    if (typeKey === "reading") return "IV";
     if (typeKey === "range") return "% FS";
     if (typeKey === "floor") {
         return getUnitDisplayLabel(component.unit || activeRange?.unit || "");
@@ -816,23 +676,20 @@ const ToleranceTermEditor = ({
         const rect = unitButtonRef.current?.getBoundingClientRect();
         if (rect) setUnitMenuRect(rect);
     };
-    // Floor unit choices: the range's physical unit plus relative adders
-    // (ppm/%/ppb are scaled off the reading downstream — see budgetUtils).
-    const floorUnitOptions = (() => {
+    // IV and Range/FS can use %, ppm, or ppb. Floor is always the range's
+    // physical unit, while dB is fixed.
+    const relativeUnitOptions = (() => {
         const native = activeRange?.unit || "";
         const opts = [];
-        if (native && !["%", "ppm", "ppb"].includes(native)) {
-            opts.push({ value: native, label: getUnitDisplayLabel(native) });
-        }
-        opts.push({ value: "ppm", label: "ppm" });
         opts.push({ value: "%", label: "%" });
+        opts.push({ value: "ppm", label: "ppm" });
         opts.push({ value: "ppb", label: "ppb" });
         return opts;
     })();
-    const activeFloorUnit = component.unit || activeRange?.unit || "";
+    const activeComponentUnit = component.unit || "%";
     const commitUnit = (unit) => {
         setUnitMenuRect(null);
-        if (unit === activeFloorUnit) return;
+        if (unit === activeComponentUnit) return;
         commit({ unit });
     };
 
@@ -902,7 +759,7 @@ const ToleranceTermEditor = ({
             : null;
 
     const unitMenu =
-        typeKey === "floor" && unitMenuRect
+        (typeKey === "reading" || typeKey === "range") && unitMenuRect
             ? ReactDOM.createPortal(
                   <>
                       <div
@@ -927,16 +784,16 @@ const ToleranceTermEditor = ({
                           onMouseDown={(e) => e.preventDefault()}
                           role="menu"
                       >
-                          {floorUnitOptions.map((option) => (
+                          {relativeUnitOptions.map((option) => (
                               <button
                                   key={option.value}
                                   type="button"
                                   className={`inline-tolerance-shape-option${
-                                      option.value === activeFloorUnit ? " is-active" : ""
+                                      option.value === activeComponentUnit ? " is-active" : ""
                                   }`}
                                   onClick={() => commitUnit(option.value)}
                                   role="menuitemradio"
-                                  aria-checked={option.value === activeFloorUnit}
+                                  aria-checked={option.value === activeComponentUnit}
                               >
                                   <span className="inline-tolerance-shape-option-copy">
                                       <span>{option.label}</span>
@@ -1090,7 +947,7 @@ const ToleranceTermEditor = ({
                 )}
             </span>
             {typeLabel &&
-                (typeKey === "floor" ? (
+                (typeKey === "reading" || typeKey === "range" ? (
                     <>
                         <button
                             ref={unitButtonRef}
@@ -1098,20 +955,22 @@ const ToleranceTermEditor = ({
                             className={`inline-tolerance-chip inline-tolerance-chip--in-cell inline-tolerance-chip--button${
                                 unitMenuRect ? " is-open" : ""
                             }`}
-                            title="Floor unit — click to change (e.g. ppm)"
+                            title={`${typeKey === "reading" ? "IV" : "Range/FS"} unit - click to change`}
                             aria-haspopup="menu"
                             aria-expanded={Boolean(unitMenuRect)}
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={toggleUnitMenu}
                         >
-                            <span>{typeLabel}</span>
+                            <span>{typeKey === "reading" ? `IV ${activeComponentUnit}` : `${activeComponentUnit} FS`}</span>
                             <FontAwesomeIcon icon={faChevronDown} size="xs" />
                         </button>
                         {unitMenu}
                     </>
                 ) : (
                     <span
-                        className="inline-tolerance-chip inline-tolerance-chip--in-cell"
+                        className={`inline-tolerance-chip inline-tolerance-chip--in-cell${
+                            typeKey === "floor" || typeKey === "db" ? " inline-tolerance-chip--static" : ""
+                        }`}
                         title={typeOption?.title || typeLabel}
                     >
                         {typeLabel}
@@ -1140,6 +999,153 @@ const ToleranceTermEditor = ({
                     <span>)</span>
                 </span>
             )}
+        </span>
+    );
+};
+
+// Workbook single-sided tolerances are their own case: a High or Low limit and
+// either a known or unknown measurement. This mirrors the inline editor rather
+// than representing a threshold as a special IV/FS/Floor term.
+const BuilderSingleSidedToleranceEditor = ({
+    tolerance = {},
+    activeRange = {},
+    onCommit,
+}) => {
+    const stored = getToleranceComponent(tolerance, "singleSided");
+    const component = stored || defaultToleranceComponent("singleSided", activeRange, tolerance);
+    const [direction, setDirection] = useState(component.direction === "low" ? "low" : "high");
+    const [measurement, setMeasurement] = useState(
+        component.measurement === "unknown" ? "unknown" : "known",
+    );
+    const [limit, setLimit] = useState(() => toPlainNumber(component.limit));
+    const [menuRect, setMenuRect] = useState(null);
+    const menuButtonRef = useRef(null);
+
+    useEffect(() => {
+        if (!stored) return;
+        setDirection(stored.direction === "low" ? "low" : "high");
+        setMeasurement(stored.measurement === "unknown" ? "unknown" : "known");
+        setLimit(toPlainNumber(stored.limit));
+    }, [activeRange?.id, stored?.direction, stored?.measurement, stored?.limit]);
+
+    const commit = (patch = {}) =>
+        onCommit("singleSided", {
+            ...defaultToleranceComponent("singleSided", activeRange, tolerance),
+            ...component,
+            direction,
+            measurement,
+            unit: component.unit || activeRange?.unit || "",
+            ...patch,
+        });
+    const chooseDirection = (next) => {
+        setMenuRect(null);
+        setDirection(next);
+        commit({ direction: next });
+    };
+    const chooseMeasurement = (next) => {
+        setMeasurement(next);
+        commit({ measurement: next });
+    };
+    const toggleMenu = () => {
+        if (menuRect) return setMenuRect(null);
+        const rect = menuButtonRef.current?.getBoundingClientRect();
+        if (rect) setMenuRect(rect);
+    };
+    const directionMenu = menuRect
+        ? ReactDOM.createPortal(
+              <>
+                  <div
+                      className="inline-tolerance-shape-backdrop"
+                      onMouseDown={() => setMenuRect(null)}
+                  />
+                  <div
+                      className="inline-tolerance-shape-menu"
+                      style={{
+                          top: `${Math.min(menuRect.bottom + 6, window.innerHeight - 100)}px`,
+                          left: `${Math.max(8, Math.min(menuRect.left, window.innerWidth - 140))}px`,
+                      }}
+                      onMouseDown={(event) => event.preventDefault()}
+                      role="menu"
+                  >
+                      {["low", "high"].map((option) => (
+                          <button
+                              key={option}
+                              type="button"
+                              className={`inline-tolerance-shape-option${option === direction ? " is-active" : ""}`}
+                              onClick={() => chooseDirection(option)}
+                              role="menuitemradio"
+                              aria-checked={option === direction}
+                              aria-label={option === "low" ? "Low" : "High"}
+                          >
+                              <span className="inline-tolerance-shape-option-copy">
+                                  <span>{option === "low" ? "Low (≥ lower limit)" : "High (≤ upper limit)"}</span>
+                              </span>
+                          </button>
+                      ))}
+                  </div>
+              </>,
+              document.body,
+          )
+        : null;
+    const unit = getUnitDisplayLabel(component.unit || activeRange?.unit || "");
+    const limitLabel = direction === "low" ? "Lower limit" : "Upper limit";
+
+    return (
+        <span className="inline-tolerance-term inline-tolerance-term--single-sided">
+            <span className="inline-tolerance-single-sided-header">
+                <button
+                    ref={menuButtonRef}
+                    type="button"
+                    className={`inline-tolerance-chip inline-tolerance-chip--in-cell inline-tolerance-chip--button${menuRect ? " is-open" : ""}`}
+                    aria-label="Single-sided direction"
+                    aria-haspopup="menu"
+                    aria-expanded={Boolean(menuRect)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={toggleMenu}
+                >
+                    {`Single Sided ${direction === "low" ? "Low" : "High"}`}
+                    <FontAwesomeIcon icon={faChevronDown} size="xs" />
+                </button>
+            </span>
+            {directionMenu}
+            {[{ value: "known", label: "Measurement known" }, { value: "unknown", label: "Measurement unknown" }].map(({ value, label }) => {
+                const selected = measurement === value;
+                return (
+                    <div key={value} className={`builder-single-sided-row${selected ? " is-selected" : ""}`}>
+                        <label className="builder-single-sided-choice">
+                            <input
+                                type="radio"
+                                name={`builder-single-sided-measurement-${activeRange?.id || "new"}`}
+                                checked={selected}
+                                onChange={() => chooseMeasurement(value)}
+                            />
+                            <span>{label}</span>
+                        </label>
+                        <span className="builder-single-sided-limits">
+                            <span
+                                className={`inline-tolerance-symbol builder-single-sided-symbol ${
+                                    direction === "low" ? "is-low" : "is-high"
+                                }`}
+                                title={limitLabel}
+                            >
+                                {direction === "low" ? "â‰¥" : "â‰¤"}
+                            </span>
+                            <input
+                                type="text"
+                                inputMode="decimal"
+                                value={selected ? limit : ""}
+                                aria-label={`${label} ${limitLabel}`}
+                                disabled={!selected}
+                                onChange={(event) => setLimit(event.target.value)}
+                                onBlur={(event) => commit({ limit: event.target.value.trim() })}
+                                onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+                                className="inline-tolerance-input builder-single-sided-input"
+                            />
+                        </span>
+                        {unit && <span className="builder-single-sided-unit">{unit}</span>}
+                    </div>
+                );
+            })}
         </span>
     );
 };
@@ -1283,7 +1289,7 @@ const BuilderToleranceCell = ({
     const ref = useRef(null);
     const tolerance = range.tolerances || {};
     const activeRange = { ...range, unit: getRangeUnit(range, fn) };
-    const summary = getBuilderSpecRows(tolerance)[0] || "-";
+    const summary = getBuilderSpecRows(tolerance)[0] || "";
     const hasValue = toleranceHasAnyValue(tolerance);
 
     useEffect(() => {
@@ -1307,13 +1313,21 @@ const BuilderToleranceCell = ({
             >
                 {TOLERANCE_TYPE_OPTIONS.map((opt) => (
                     <span key={opt.key} className="inline-tolerance-term-group">
-                        <ToleranceTermEditor
-                            tolerance={tolerance}
-                            activeRange={activeRange}
-                            typeKey={opt.key}
-                            showHighSign
-                            onCommit={onToleranceComponentCommit}
-                        />
+                        {opt.key === "singleSided" ? (
+                            <BuilderSingleSidedToleranceEditor
+                                tolerance={tolerance}
+                                activeRange={activeRange}
+                                onCommit={onToleranceComponentCommit}
+                            />
+                        ) : (
+                            <ToleranceTermEditor
+                                tolerance={tolerance}
+                                activeRange={activeRange}
+                                typeKey={opt.key}
+                                showHighSign
+                                onCommit={onToleranceComponentCommit}
+                            />
+                        )}
                     </span>
                 ))}
             </div>
@@ -1326,25 +1340,13 @@ const BuilderToleranceCell = ({
                 type="button"
                 className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}`}
                 title={hasValue ? "Click to edit tolerance" : "Click to set a tolerance"}
+                aria-label={hasValue ? undefined : "Set tolerance"}
                 onClick={(e) => {
                     e.stopPropagation();
                     setEditing(true);
                 }}
             >
-                {hasValue ? summary : "Set tolerance..."}
-            </button>
-            <button
-                type="button"
-                className="range-expand-btn"
-                title="Edit or add tolerance terms"
-                aria-label="Edit or add tolerance terms"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    setEditing(true);
-                }}
-            >
-                <FontAwesomeIcon icon={faChevronDown} size="xs" />
-                <span className="range-expand-btn-label">edit / add</span>
+                {hasValue ? summary : "\u00a0"}
             </button>
         </span>
     );
@@ -1357,7 +1359,7 @@ const BuilderDistributionCell = ({ value, onChange }) => {
     const label = divisor ? getDistributionLabel(divisor, `k=${divisor}`) : "-";
 
     useEffect(() => {
-        if (editing) ref.current?.querySelector("select")?.focus();
+        if (editing) ref.current?.querySelector("button")?.focus();
     }, [editing]);
 
     if (!divisor) {
@@ -1378,19 +1380,6 @@ const BuilderDistributionCell = ({ value, onChange }) => {
                 >
                     {label}
                 </button>
-                <button
-                    type="button"
-                    className="range-expand-btn"
-                    title="Edit distribution"
-                    aria-label="Edit distribution"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setEditing(true);
-                    }}
-                >
-                    <FontAwesomeIcon icon={faChevronDown} size="xs" />
-                    <span className="range-expand-btn-label">edit / add</span>
-                </button>
             </span>
         );
     }
@@ -1405,21 +1394,19 @@ const BuilderDistributionCell = ({ value, onChange }) => {
             }}
             onMouseDown={(e) => e.stopPropagation()}
         >
-            <select
-                className="session-selector"
+            <InlineMenuSelect
                 value={divisor}
-                aria-label="Spec band distribution"
-                onChange={(e) => {
-                    onChange(e.target.value);
+                options={errorDistributions}
+                ariaLabel="Spec band distribution"
+                title="Distribution used for this tolerance band"
+                onChange={(value) => {
+                    onChange(value);
                     setEditing(false);
                 }}
-            >
-                {errorDistributions.map((dist) => (
-                    <option key={dist.value} value={dist.value}>
-                        {dist.label}
-                    </option>
-                ))}
-            </select>
+                width="118px"
+                menuWidth={240}
+                className="inline-distribution-select"
+            />
         </span>
     );
 };
@@ -1460,25 +1447,13 @@ const BuilderResolutionCell = ({
                     type="button"
                     className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
                     title={summary ? "Click to edit resolution" : "Click to set a resolution"}
+                    aria-label={summary ? undefined : "Set resolution"}
                     onClick={(e) => {
                         e.stopPropagation();
                         setEditing(true);
                     }}
                 >
-                    {summary || "Set resolution..."}
-                </button>
-                <button
-                    type="button"
-                    className="range-expand-btn"
-                    title="Edit resolution, unit, and distribution"
-                    aria-label="Edit resolution, unit, and distribution"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setEditing(true);
-                    }}
-                >
-                    <FontAwesomeIcon icon={faChevronDown} size="xs" />
-                    <span className="range-expand-btn-label">edit / add</span>
+                    {summary || "\u00a0"}
                 </button>
             </span>
         );
@@ -1518,24 +1493,21 @@ const BuilderResolutionCell = ({
                 ariaLabel="Resolution unit"
                 width="72px"
             />
-            <select
-                className="session-selector inline-resolution-dist"
+            <InlineMenuSelect
                 value={distribution}
-                aria-label="Resolution distribution"
+                options={errorDistributions}
+                ariaLabel="Resolution distribution"
                 title="Distribution used when this resolution enters a budget"
-                onChange={(e) =>
+                onChange={(value) =>
                     onPatch({
-                        resolutionDistribution: e.target.value,
-                        measuringResolutionDistribution: e.target.value,
+                        resolutionDistribution: value,
+                        measuringResolutionDistribution: value,
                     })
                 }
-            >
-                {errorDistributions.map((dist) => (
-                    <option key={dist.value} value={dist.value}>
-                        {dist.label}
-                    </option>
-                ))}
-            </select>
+                width="72px"
+                menuWidth={220}
+                className="inline-resolution-dist inline-unit-like-selector inline-distribution-select"
+            />
         </span>
     );
 };
@@ -1680,6 +1652,11 @@ const UniversalInstrumentModal = ({
 
     const [activeFunctionId, setActiveFunctionId] = useState(null);
     const [activeTypeBId, setActiveTypeBId] = useState(null);
+    const builderUndoHistoryRef = useRef([]);
+    const builderUndoSnapshotRef = useRef(null);
+    const builderUndoStateRef = useRef(null);
+    const builderUndoReadyRef = useRef(false);
+    const builderApplyingUndoRef = useRef(false);
 
     const { position, handleMouseDown } = useFloatingWindow({
         isOpen,
@@ -1719,12 +1696,16 @@ const UniversalInstrumentModal = ({
                     (instruments.some((instrument) => instrument.id === loadedInst.id)
                         ? loadedInst.id
                         : null);
+                const normalizedLoadedInst = {
+                    ...loadedInst,
+                    functions: normalizeBuilderFunctions(loadedInst.functions),
+                };
                 setLibraryInstrumentId(existingLibraryId);
                 setInitialInstrumentSignature(
-                    JSON.stringify(getComparableLibraryInstrument(loadedInst))
+                    JSON.stringify(getComparableLibraryInstrument(normalizedLoadedInst))
                 );
-                setInstrumentDef(JSON.parse(JSON.stringify(loadedInst)));
-                if (loadedInst.functions?.length > 0) setActiveFunctionId(loadedInst.functions[0].id);
+                setInstrumentDef(JSON.parse(JSON.stringify(normalizedLoadedInst)));
+                if (normalizedLoadedInst.functions?.length > 0) setActiveFunctionId(normalizedLoadedInst.functions[0].id);
                 else setActiveFunctionId(null);
                 setActiveTypeBId(loadedInst.typeBComponents?.[0]?.id || null);
 
@@ -1759,6 +1740,95 @@ const UniversalInstrumentModal = ({
             }
         }
     }, [isOpen, initialData, mode]);
+
+    // The app-level shortcut deliberately yields while this editor is open, so
+    // the builder owns its own snapshot history. This captures button/menu
+    // actions as well as committed field edits without ever undoing the session
+    // behind the modal.
+    useEffect(() => {
+        const snapshot = {
+            instrumentDef,
+            metaData,
+            activeFunctionId,
+            activeTypeBId,
+        };
+        builderUndoStateRef.current = snapshot;
+        if (!builderUndoReadyRef.current) return;
+
+        if (builderApplyingUndoRef.current) {
+            builderApplyingUndoRef.current = false;
+            builderUndoSnapshotRef.current = JSON.parse(JSON.stringify(snapshot));
+            return;
+        }
+
+        const previous = builderUndoSnapshotRef.current;
+        const dataChanged = previous && (
+            JSON.stringify(previous.instrumentDef) !== JSON.stringify(snapshot.instrumentDef) ||
+            JSON.stringify(previous.metaData) !== JSON.stringify(snapshot.metaData)
+        );
+        if (dataChanged) {
+            builderUndoHistoryRef.current.push(previous);
+            if (builderUndoHistoryRef.current.length > MAX_BUILDER_UNDO_STEPS) {
+                builderUndoHistoryRef.current.splice(
+                    0,
+                    builderUndoHistoryRef.current.length - MAX_BUILDER_UNDO_STEPS,
+                );
+            }
+        }
+        builderUndoSnapshotRef.current = JSON.parse(JSON.stringify(snapshot));
+    }, [activeFunctionId, activeTypeBId, instrumentDef, metaData]);
+
+    useEffect(() => {
+        builderUndoReadyRef.current = false;
+        builderUndoHistoryRef.current = [];
+        builderUndoSnapshotRef.current = null;
+        if (!isOpen) return undefined;
+
+        // Let the modal's initialization effect finish loading initialData
+        // before establishing the first (non-undoable) baseline.
+        const timer = window.setTimeout(() => {
+            const baseline = builderUndoStateRef.current;
+            builderUndoSnapshotRef.current = baseline
+                ? JSON.parse(JSON.stringify(baseline))
+                : null;
+            builderUndoReadyRef.current = true;
+        }, 0);
+        return () => window.clearTimeout(timer);
+    }, [initialData, isOpen, mode]);
+
+    useEffect(() => {
+        if (!isOpen || viewMode !== "edit") return undefined;
+        const handleBuilderUndo = (event) => {
+            const key = String(event.key || "").toLowerCase();
+            if (
+                !(event.ctrlKey || event.metaKey) ||
+                event.altKey ||
+                event.shiftKey ||
+                key !== "z"
+            ) {
+                return;
+            }
+
+            const active = document.activeElement;
+            const isTextEntry =
+                active?.tagName === "INPUT" ||
+                active?.tagName === "TEXTAREA" ||
+                active?.isContentEditable;
+            if (isTextEntry) return; // retain the browser's native typing undo
+
+            const previous = builderUndoHistoryRef.current.pop();
+            if (!previous) return;
+            event.preventDefault();
+            builderApplyingUndoRef.current = true;
+            builderUndoSnapshotRef.current = JSON.parse(JSON.stringify(previous));
+            setInstrumentDef(previous.instrumentDef);
+            setMetaData(previous.metaData);
+            setActiveFunctionId(previous.activeFunctionId);
+            setActiveTypeBId(previous.activeTypeBId);
+        };
+        window.addEventListener("keydown", handleBuilderUndo);
+        return () => window.removeEventListener("keydown", handleBuilderUndo);
+    }, [isOpen, viewMode]);
 
     const filteredInstruments = useMemo(() => {
         if (!searchTerm) return instruments;
@@ -1817,7 +1887,7 @@ const UniversalInstrumentModal = ({
     const modeIcon = effectiveMode === 'uut' ? faMicroscope : (effectiveMode === 'tmde' ? faTools : faBookOpen);
 
     const isFormValid = useMemo(() => {
-        // MFG + Model define the instrument; the middle "Make" token is optional
+        // Mfr. + Model define the instrument; the trailing Name token is optional
         // (mirrors the inline tables, where a name/label is not required).
         if (!instrumentDef.manufacturer?.trim()) return false;
         if (!instrumentDef.model?.trim()) return false;
@@ -1850,6 +1920,10 @@ const UniversalInstrumentModal = ({
 
     // --- Library list multi-select (ctrl = toggle, shift = range) ---
     const handleRowSelect = (e, instId) => {
+        // Move keyboard ownership from the auto-focused search box to the row
+        // the user just selected. This makes Delete unambiguously target the
+        // selected instrument while preserving native Delete inside search.
+        e.currentTarget?.focus?.();
         const visibleIds = filteredInstruments.map((i) => i.id);
         const targetIdx = visibleIds.indexOf(instId);
 
@@ -1888,6 +1962,40 @@ const UniversalInstrumentModal = ({
         const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean);
         if (list.length) setPendingDelete({ ids: list });
     };
+
+    // The modal owns Delete while open. In library-list mode it follows the
+    // existing toolbar delete path for the selected instruments; everywhere
+    // else it simply prevents a stale analysis selection behind the modal from
+    // receiving the key. Native text deletion remains untouched in editors.
+    useEffect(() => {
+        if (!isOpen) return undefined;
+        const handleDeleteKey = (event) => {
+            if (event.key !== "Delete") return;
+            const active = document.activeElement;
+            if (
+                active &&
+                (active.tagName === "INPUT" ||
+                    active.tagName === "TEXTAREA" ||
+                    active.isContentEditable)
+            ) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (
+                viewMode === "list" &&
+                selectedIds.length > 0 &&
+                onDelete &&
+                !pendingDelete
+            ) {
+                setPendingDelete({ ids: [...selectedIds] });
+            }
+        };
+
+        window.addEventListener("keydown", handleDeleteKey, true);
+        return () => window.removeEventListener("keydown", handleDeleteKey, true);
+    }, [isOpen, onDelete, pendingDelete, selectedIds, viewMode]);
 
     const confirmDelete = async () => {
         const ids = pendingDelete?.ids || [];
@@ -2035,14 +2143,13 @@ const UniversalInstrumentModal = ({
     };
 
     // The Description/Name shown for an instrument is the live composition of its
-    // three identity sub-fields — MFG (manufacturer), Make (the free name/label,
-    // stored as `description`), and Model — exactly like the inline instrument
-    // tables. The middle "Make" token is what gets stored; the composition is the
-    // display name.
+    // three identity sub-fields — Mfr. (manufacturer), Model, and Name (the free
+    // name/label stored as `description`) — exactly like the inline instrument
+    // tables.
     const composedDescription = [
         instrumentDef.manufacturer,
-        metaData.name,
         instrumentDef.model,
+        metaData.name,
     ]
         .map((part) => (part || "").trim())
         .filter(Boolean)
@@ -2062,7 +2169,9 @@ const UniversalInstrumentModal = ({
         activeFunction?.unit || instrumentDef.functions?.[0]?.unit || "";
 
     const handleAddTypeBComponent = () => {
-        const component = createTypeBComponent(typeBReferenceUnit);
+        const component = createTypeBComponent(typeBReferenceUnit, {
+            functionId: activeFunctionId || "",
+        });
         setActiveTypeBId(component.id);
         setInstrumentDef(prev => ({
             ...prev,
@@ -2083,7 +2192,14 @@ const UniversalInstrumentModal = ({
     };
 
     const handleAddFunction = () => {
-        const newFunc = { id: uuidv4(), name: "New Function", unit: "V", ranges: [] };
+        const defaultUnit = "V";
+        const newFunc = {
+            id: uuidv4(),
+            name: "New Function",
+            unit: defaultUnit,
+            units: [defaultUnit],
+            ranges: [createUnboundedBuilderRange(defaultUnit)],
+        };
         setInstrumentDef(prev => ({ ...prev, functions: [...prev.functions, newFunc] }));
         setActiveFunctionId(newFunc.id);
     };
@@ -2099,7 +2215,19 @@ const UniversalInstrumentModal = ({
         setInstrumentDef(prev => ({
             ...prev,
             functions: (prev.functions || []).map(fn =>
-                fn.id === functionId ? { ...fn, ...patch } : fn
+                fn.id !== functionId
+                    ? fn
+                    : {
+                        ...fn,
+                        ...patch,
+                        ...(patch.unit !== undefined
+                            ? {
+                                units: Array.from(
+                                    new Set([...(fn.units || []), fn.unit, patch.unit].filter(Boolean)),
+                                ),
+                            }
+                            : {}),
+                    }
             ),
         }));
     };
@@ -2137,7 +2265,11 @@ const UniversalInstrumentModal = ({
             ...prev,
             functions: prev.functions.map(f =>
                 f.id === functionId
-                    ? { ...f, ranges: [...(f.ranges || []), newRange] }
+                    ? {
+                        ...f,
+                        units: Array.from(new Set([...(f.units || []), f.unit, newRange.unit].filter(Boolean))),
+                        ranges: [...(f.ranges || []), newRange],
+                    }
                     : f
             )
         }));
@@ -2150,6 +2282,13 @@ const UniversalInstrumentModal = ({
                 if (f.id !== functionId) return f;
                 return {
                     ...f,
+                    ...(patch.unit !== undefined
+                        ? {
+                            units: Array.from(
+                                new Set([...(f.units || []), f.unit, patch.unit].filter(Boolean)),
+                            ),
+                        }
+                        : {}),
                     ranges: (f.ranges || []).map(r =>
                         r.id === rangeId ? { ...r, ...patch } : r
                     ),
@@ -2198,7 +2337,13 @@ const UniversalInstrumentModal = ({
             ...prev,
             functions: prev.functions.map(f => {
                 if (f.id !== functionId) return f;
-                return { ...f, ranges: (f.ranges || []).filter(r => r.id !== rangeId) };
+                const remaining = (f.ranges || []).filter(r => r.id !== rangeId);
+                return {
+                    ...f,
+                    ranges: remaining.length > 0
+                        ? remaining
+                        : [createUnboundedBuilderRange(f.unit || f.units?.[0] || "")],
+                };
             })
         }));
     };
@@ -2449,6 +2594,8 @@ const UniversalInstrumentModal = ({
                                                     onDoubleClick={() => handleEditLibraryItem(inst)}
                                                     className={`hover-row ${isRowSelected ? 'row-selected' : ''}`}
                                                     title="Click to select (Ctrl/Shift for multi); double-click to open"
+                                                    tabIndex={0}
+                                                    aria-selected={isRowSelected}
                                                 >
                                                     <td style={{ fontWeight: '600' }}>{inst.manufacturer}</td>
                                                     <td style={{ color: 'var(--primary-color)', fontWeight: 'bold' }}>{inst.model}</td>
@@ -2610,7 +2757,7 @@ const UniversalInstrumentModal = ({
                             </div>
                             
                             {/* Identity mirrors the inline instrument tables: three
-                                sub-fields — MFG / Make / Model — that snap together
+                                sub-fields — Mfr. / Model / Name — that snap together
                                 into the Description/Name shown below. */}
                             <div className="identity-grid identity-grid-triple">
                                 <div className="floating-input-group">
@@ -2620,19 +2767,8 @@ const UniversalInstrumentModal = ({
                                         onChange={e => setInstrumentDef({ ...instrumentDef, manufacturer: e.target.value })}
                                         placeholder=" "
                                     />
-                                    <label>MFG</label>
+                                    <label>Mfr.</label>
                                     <FontAwesomeIcon icon={faIndustry} className="input-icon" />
-                                </div>
-
-                                <div className="floating-input-group">
-                                    <input
-                                        type="text"
-                                        value={metaData.name}
-                                        onChange={e => handleMetaChange('name', e.target.value)}
-                                        placeholder=" "
-                                    />
-                                    <label>Make</label>
-                                    <FontAwesomeIcon icon={faFingerprint} className="input-icon" />
                                 </div>
 
                                 <div className="floating-input-group">
@@ -2645,6 +2781,17 @@ const UniversalInstrumentModal = ({
                                     <label>Model</label>
                                     <FontAwesomeIcon icon={faTag} className="input-icon" />
                                 </div>
+
+                                <div className="floating-input-group">
+                                    <input
+                                        type="text"
+                                        value={metaData.name}
+                                        onChange={e => handleMetaChange('name', e.target.value)}
+                                        placeholder=" "
+                                    />
+                                    <label>Name</label>
+                                    <FontAwesomeIcon icon={faFingerprint} className="input-icon" />
+                                </div>
                             </div>
 
                             <div className="identity-composed">
@@ -2652,7 +2799,7 @@ const UniversalInstrumentModal = ({
                                 <span
                                     className={`identity-composed-value${composedDescription ? "" : " is-empty"}`}
                                 >
-                                    {composedDescription || "MFG · Make · Model"}
+                                    {composedDescription || "Mfr. · Model · Name"}
                                 </span>
                             </div>
                         </div>
@@ -2729,10 +2876,10 @@ const UniversalInstrumentModal = ({
                                                 <table className="ranges-table builder-spec-table">
                                                     <thead>
                                                         <tr>
-                                                            <th style={{ width: "24%" }}>Range</th>
-                                                            <th style={{ width: "30%" }}>Tolerance</th>
-                                                            <th style={{ width: "16%" }}>Distribution</th>
-                                                            <th style={{ width: "24%" }}>Resolution</th>
+                                                            <th style={{ width: "22%" }}>Range</th>
+                                                            <th style={{ width: "36%" }}>Tolerance</th>
+                                                            <th style={{ width: "15%" }}>Distribution</th>
+                                                            <th style={{ width: "21%" }}>Resolution</th>
                                                             <th style={{ width: "40px" }}></th>
                                                         </tr>
                                                     </thead>
@@ -2755,10 +2902,11 @@ const UniversalInstrumentModal = ({
                                                                         fn={fn}
                                                                         onToleranceComponentCommit={(typeKey, component) =>
                                                                             updateRangeTolerance(fn.id, range.id, (prev) =>
-                                                                                pruneBlankToleranceTerms({
-                                                                                    ...(prev || {}),
-                                                                                    [typeKey]: component,
-                                                                                }),
+                                                                                applyToleranceCaseChange(
+                                                                                    prev || {},
+                                                                                    typeKey,
+                                                                                    component,
+                                                                                ),
                                                                             )
                                                                         }
                                                                     />
@@ -2846,6 +2994,8 @@ const UniversalInstrumentModal = ({
                                             showInlineRemove={false}
                                             activeId={activeTypeBId}
                                             onActivate={setActiveTypeBId}
+                                            functions={instrumentDef.functions || []}
+                                            activeFunctionId={activeFunctionId || ""}
                                         />
                                     </div>
                                 </section>

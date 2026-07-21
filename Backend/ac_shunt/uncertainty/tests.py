@@ -169,6 +169,42 @@ class WholeSessionRoundTripTests(APITestCase):
         self.assertEqual(delete.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(models.Session.objects.count(), 0)
 
+    def test_rich_notes_update_without_rebuilding_session_children(self):
+        self.client.post("/api/uncertainty/sessions/", SAMPLE_SESSION, format="json")
+        point_ids_before = list(models.TestPoint.objects.values_list("pk", flat=True))
+        rich_notes = (
+            '<h2>OEM specification</h2><p>Part <strong>ABC-123</strong></p>'
+            '<figure data-note-image-id="image-1"><img '
+            'data-note-image-id="image-1"><figcaption>Limit table</figcaption></figure>'
+        )
+
+        patch = self.client.patch(
+            f"/api/uncertainty/sessions/{SAMPLE_SESSION['id']}/notes/",
+            {"notes": rich_notes},
+            format="json",
+        )
+        self.assertEqual(patch.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch.data["notes"], rich_notes)
+        self.assertEqual(
+            list(models.TestPoint.objects.values_list("pk", flat=True)),
+            point_ids_before,
+        )
+
+        get = self.client.get(
+            f"/api/uncertainty/sessions/{SAMPLE_SESSION['id']}/notes/"
+        )
+        self.assertEqual(get.status_code, status.HTTP_200_OK)
+        self.assertEqual(get.data["notes"], rich_notes)
+
+    def test_rich_notes_reject_non_string_payload(self):
+        self.client.post("/api/uncertainty/sessions/", SAMPLE_SESSION, format="json")
+        response = self.client.patch(
+            f"/api/uncertainty/sessions/{SAMPLE_SESSION['id']}/notes/",
+            {"notes": {"unexpected": "object"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_database_isolation(self):
         """Uncertainty tables exist on the uncertainty alias, not on default."""
         uncertainty_tables = connections["uncertainty"].introspection.table_names()

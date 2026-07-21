@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildSessionReportModel } from "./pdfGenerator";
+import {
+  buildSessionReportModel,
+  resolvePdfColumnGroups,
+  resolvePdfTableLayout,
+} from "./pdfGenerator";
 
 const helpers = {
   getToleranceErrorSummary: () => "+/- 0.5 in-oz",
@@ -10,6 +14,30 @@ const helpers = {
 };
 
 describe("buildSessionReportModel", () => {
+  it("uses exactly the active measurement-point filter columns in report groups", () => {
+    const groups = resolvePdfColumnGroups({ value: true, pfa: true, gbPfr: true });
+    expect(groups.map((group) => group.label)).toEqual([
+      "Measurement",
+      "Risk",
+      "Mitigation (GB + Interval)",
+    ]);
+    expect(groups.flatMap((group) => group.columns.map((item) => item.key))).toEqual([
+      "value",
+      "pfa",
+      "gbPfr",
+    ]);
+  });
+
+  it("lays every selected field into one continuous value-anchored table", () => {
+    const layout = resolvePdfTableLayout({ value: false, pfa: true, gbPfr: true });
+    expect(layout.columns.map((item) => item.key)).toEqual(["value", "pfa", "gbPfr"]);
+    expect(layout.columns.map((item) => item.groupLabel)).toEqual([
+      "Measurement",
+      "Risk",
+      "Mitigation (GB + Interval)",
+    ]);
+  });
+
   it("groups by function -> UUT -> range with all risk fields", () => {
     const session = {
       name: "Torque Session",
@@ -71,7 +99,7 @@ describe("buildSessionReportModel", () => {
     expect(range.label).toBe("6 to 20 in-oz");
     expect(row).toMatchObject({
       section: "4.1",
-      value: "10",
+      value: "10 in-oz",
       unit: "in-oz",
       tolerance: "+/- 0.5 in-oz",
       lowLimit: "9.5",

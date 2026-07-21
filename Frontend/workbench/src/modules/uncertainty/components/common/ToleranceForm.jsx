@@ -551,16 +551,12 @@ const ToleranceForm = ({
           </div>
         );
     } else {
-        // "% of Indicated Value" (reading) is strictly relative (%/ppm/ppb). The
-        // floor is usually an absolute value, but some specs state it as a ratio
-        // (e.g. a ppm-of-reading adder), so it offers BOTH ratios and physical
-        // units. Everything else (range %FS) stays physical.
+        // IV and Range/FS are both relative terms (%/ppm/ppb). Floor is an
+        // absolute physical-unit term, matching the inline tolerance editor.
         const unitOptions =
-          key === 'reading'
+          key === 'reading' || key === 'range'
             ? ratioUnitOptions
-            : (key === 'floor' || key === 'readings_iv')
-              ? manualUnitOptions
-              : physicalUnitOptions;
+            : physicalUnitOptions;
         content = (
           <div className="config-stack">
             {limitsSection}

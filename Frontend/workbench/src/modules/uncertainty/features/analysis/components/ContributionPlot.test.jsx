@@ -50,6 +50,13 @@ describe("ContributionPlot", () => {
     expect(plotData[0].y).toEqual(
       expect.arrayContaining(["DMM Accuracy", "Reference"]),
     );
+    const [, , layout, config] = Plotly.react.mock.calls[0];
+    expect(layout.paper_bgcolor).toBe("rgba(0, 0, 0, 0)");
+    expect(layout.plot_bgcolor).toBe("rgba(0, 0, 0, 0)");
+    expect(layout.xaxis.title.text).toBe("Relative contribution (%)");
+    expect(config.displayModeBar).toBe(false);
+    expect(config.modeBarButtonsToAdd).toBeUndefined();
+    expect(document.querySelector(".contribution-plot")).toBeInTheDocument();
   });
 
   it("purges the chart on unmount", () => {

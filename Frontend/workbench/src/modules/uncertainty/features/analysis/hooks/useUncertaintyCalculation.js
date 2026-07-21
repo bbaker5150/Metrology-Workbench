@@ -7,6 +7,11 @@ import {
   normalQuantile
 } from "../../../utils/uncertaintyMath";
 import { getBudgetComponentsFromTolerance, getUutResolutionComponent } from "../utils/budgetUtils";
+import {
+  normalizeRisk8MonteCarloTrials,
+  risk8MonteCarloInputHash,
+  runRisk8EquationMonteCarlo,
+} from "../../../utils/risk8/monteCarloEngine8";
 
 const normalizeDof = (dof) => {
   const parsed = parseFloat(dof);
@@ -230,6 +235,7 @@ export const useUncertaintyCalculation = (
     let derivedUcInputs_Native = 0;
     let derivedUcInputs_Base = 0;
     let calculatedBudgetGroups = [];
+    let monteCarloResult = null;
 
     try {
       setCalculationError(null);
@@ -326,6 +332,20 @@ export const useUncertaintyCalculation = (
           ? parseFloat(testPointData.coverageFactorOverride)
           : null;
       const normalCoverageFactor = normalQuantile(probability);
+      // Derived equations expose the workbook's Taylor/Monte Carlo choices.
+      // Direct budgets are RSS-only; normalize any legacy direct Monte Carlo
+      // state back to "linear" so old sessions follow the workbook workflow.
+      const propagationMethod =
+        testPointData.measurementType === "derived" &&
+        testPointData.budgetPropagationMethod === "montecarlo"
+          ? "montecarlo"
+          : testPointData.measurementType === "derived"
+            ? "equation"
+            : "linear";
+      const monteCarloTrials =
+        propagationMethod === "montecarlo"
+          ? normalizeRisk8MonteCarloTrials(testPointData.monteCarloTrials)
+          : 10000;
 
       if (testPointData.measurementType === "derived") {
 
@@ -342,7 +362,12 @@ export const useUncertaintyCalculation = (
           testPointData.variableMappings,
           tmdeTolerancesData,
           { ...uutNominal, variableNominals: testPointData.variableNominals || {} },
-          manualComponents
+          manualComponents,
+          {
+            strictUnitValidation: true,
+            allowFiniteDifference:
+              propagationMethod === "montecarlo",
+          },
         );
 
         if (derivedCalculationResult.missingInputs) {
@@ -371,15 +396,22 @@ export const useUncertaintyCalculation = (
           error: calcError,
         } = derivedCalculationResult;
         
-        if (calcError) {
+        const monteCarloCanReplaceDegenerateTaylor =
+          propagationMethod === "montecarlo" &&
+          derivedCalculationResult.degenerate &&
+          Array.isArray(derivedBreakdown) &&
+          derivedBreakdown.length > 0;
+        if (calcError && !monteCarloCanReplaceDegenerateTaylor) {
           throw new Error(calcError);
         }
-        if (isNaN(combinedUncertaintyNative)) {
+        if (isNaN(combinedUncertaintyNative) && !monteCarloCanReplaceDegenerateTaylor) {
           throw new Error(
             "Derived uncertainty calculation (inputs) resulted in NaN."
           );
         }
-        derivedUcInputs_Native = combinedUncertaintyNative;
+        derivedUcInputs_Native = monteCarloCanReplaceDegenerateTaylor
+          ? 0
+          : combinedUncertaintyNative;
         derivedUcInputs_Base = derivedUcInputs_Native * targetUnitInfo.to_si;
 
         calculatedNominalResult = nominalResult;
@@ -401,6 +433,7 @@ export const useUncertaintyCalculation = (
         // components), so the equation budget's combined uncertainty can be
         // combined with the SAME correlation matrix the final budget uses.
         const equationSignedContribsBase = [];
+        const additionalSignedContribsBase = [];
 
         const inputBudgetGroups = [];
 
@@ -485,7 +518,7 @@ export const useUncertaintyCalculation = (
             inputBudgetGroups.push({
                 id: `input_${item.variable}_${index}`,
                 kind: "input",
-                label: `${item.type} (${item.variable}) Uncertainty Budget`,
+                label: `${item.type} Uncertainty Budget`,
                 variable: item.variable,
                 variableType: item.type,
                 unit: item.unit,
@@ -543,6 +576,10 @@ export const useUncertaintyCalculation = (
                             id: varType,
                             contribution: absUncBase,
                         });
+                        additionalSignedContribsBase.push({
+                            id: varType,
+                            contribution: absUncBase,
+                        });
 
                         componentsForBudgetTable.push({
                             ...comp,
@@ -573,6 +610,10 @@ export const useUncertaintyCalculation = (
                     id: uutResComp.componentId,
                     contribution: absUncBase,
                 });
+                additionalSignedContribsBase.push({
+                    id: uutResComp.componentId,
+                    contribution: absUncBase,
+                });
                 componentsForBudgetTable.push({
                     ...uutResComp,
                     value: absUncBase,
@@ -583,11 +624,6 @@ export const useUncertaintyCalculation = (
                 });
             }
         }
-
-        combinedUncertaintyAbsoluteBase = combineWithCorrelation(
-          signedContribsBase,
-          inputCorrelations
-        );
 
         // The measurement-equation uncertainty IS the correlated combination of
         // its input contributions. Previously it reported the plain RSS while
@@ -612,7 +648,7 @@ export const useUncertaintyCalculation = (
             uncorrelatedEquationInputsBase >
             1e-9;
 
-        const equationRows = componentsForBudgetTable
+        let equationRows = componentsForBudgetTable
           .filter((component) => component.name.startsWith("Input:"))
           .map((component) => ({
             id: component.id,
@@ -628,6 +664,120 @@ export const useUncertaintyCalculation = (
             )?.contribution,
           }));
 
+        const equationDenominator = equationRows.reduce((sum, row) => {
+          const dof = normalizeDof(row.dof);
+          const signedBase = Number(row.contributionSignedBase);
+          return dof === Infinity || dof <= 0 || !Number.isFinite(signedBase)
+            ? sum
+            : sum + Math.pow(Math.abs(signedBase), 4) / dof;
+        }, 0);
+
+        // Risk 8.0 Monte Carlo replaces ONLY the calculated measurement-
+        // equation contribution.  Additional final-budget sources (for example
+        // UUT resolution) remain separate rows and are combined afterwards.
+        // Every equation input is sampled as one correlated Normal parameter
+        // using its input budget's combined standard uncertainty, exactly as
+        // frmCalEquationUncertainty does in the workbook.
+        let equationContributionBase = correlatedEquationInputsBase;
+        if (propagationMethod === "montecarlo") {
+          const monteCarloInputs = derivedBreakdown.map((item) => ({
+              symbol: item.variable,
+              componentId: item.componentId,
+              meanBase: unitSystem.toBaseUnit(item.nominal, item.unit),
+              standardUncertaintyBase: item.ui_absolute_base,
+          }));
+          const monteCarloHash = risk8MonteCarloInputHash({
+            equationString: testPointData.equationString,
+            inputs: monteCarloInputs,
+            correlations: inputCorrelations,
+            trials: monteCarloTrials,
+          });
+          const cachedMonteCarlo = testPointData.risk8MonteCarloResult;
+          monteCarloResult =
+            cachedMonteCarlo?.hash === monteCarloHash &&
+            Array.isArray(cachedMonteCarlo?.correlationMatrix) &&
+            Array.isArray(cachedMonteCarlo?.choleskyMatrix)
+              ? cachedMonteCarlo
+              : {
+                  ...runRisk8EquationMonteCarlo({
+                    equationString: testPointData.equationString,
+                    inputs: monteCarloInputs,
+                    correlations: inputCorrelations,
+                    trials: monteCarloTrials,
+                  }),
+                  hash: monteCarloHash,
+                };
+          equationContributionBase = monteCarloResult.standardUncertaintyBase;
+          calculatedNominalResult = unitSystem.fromBaseUnit(
+            monteCarloResult.nominalResultBase,
+            derivedNominalUnit,
+          );
+          derivedUcInputs_Base = equationContributionBase;
+          derivedUcInputs_Native = equationContributionBase / targetUnitInfo.to_si;
+          equationRows = equationRows.map((row, index) => ({
+            ...row,
+            influence: monteCarloResult.influenceFractions[index],
+          }));
+        }
+
+        const equationEffectiveDof =
+          equationDenominator > 0 && equationContributionBase > 0
+            ? Math.pow(equationContributionBase, 4) / equationDenominator
+            : Infinity;
+        effectiveDof = equationEffectiveDof;
+        const equationK =
+          Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
+            ? manualCoverageFactor
+            : !applyDofForGroup("equation") || effectiveDof === Infinity || isNaN(effectiveDof)
+            ? normalCoverageFactor
+            : getKValueFromTDistribution(effectiveDof, probability);
+
+        const propagationComponent = {
+                id:
+                  propagationMethod === "montecarlo"
+                    ? "risk8_monte_carlo_uncertainty"
+                    : "measurement_equation_uncertainty",
+                name:
+                  propagationMethod === "montecarlo"
+                    ? "Monte Carlo Approximation"
+                    : "Taylor Series Approximation",
+                type: "B",
+                value: equationContributionBase / targetUnitInfo.to_si,
+                value_native: equationContributionBase / targetUnitInfo.to_si,
+                unit_native: derivedNominalUnit,
+                dof: equationEffectiveDof,
+                isCore: true,
+                isPropagationSummary: true,
+                propagationMethod,
+                trials:
+                  propagationMethod === "montecarlo"
+                    ? monteCarloResult.trials
+                    : undefined,
+                // The approximation is already a standard uncertainty.  Its
+                // budget tolerance is therefore the same number (k = 1).
+                distribution: "Standard uncertainty (k=1)",
+                distributionDivisor: 1,
+                sourcePointLabel: "Measurement Equation",
+              };
+
+        if (propagationMethod === "equation") {
+          // Preserve the established linear-budget correlation behavior.
+          combinedUncertaintyAbsoluteBase = combineWithCorrelation(
+            signedContribsBase,
+            inputCorrelations,
+          );
+        } else {
+          const finalContributions = [...additionalSignedContribsBase];
+          finalContributions.unshift({
+            id: propagationComponent.id,
+            contribution: equationContributionBase,
+          });
+          combinedUncertaintyAbsoluteBase = combineWithCorrelation(
+            finalContributions,
+            inputCorrelations,
+          );
+        }
+
         if (
           !isNaN(derivedNominalValue) &&
           derivedNominalUnit &&
@@ -635,7 +785,7 @@ export const useUncertaintyCalculation = (
         ) {
           const derivedNominalInBase = unitSystem.toBaseUnit(
             derivedNominalValue,
-            derivedNominalUnit
+            derivedNominalUnit,
           );
           if (!isNaN(derivedNominalInBase) && derivedNominalInBase !== 0) {
             combinedUncertaintyPPM =
@@ -645,38 +795,8 @@ export const useUncertaintyCalculation = (
           }
         }
 
-        const equationNumerator = Math.pow(combinedUncertaintyAbsoluteBase, 4);
-        const equationDenominator = equationRows.reduce((sum, row) => {
-          const dof = normalizeDof(row.dof);
-          const signedBase = Number(row.contributionSignedBase);
-          return dof === Infinity || dof <= 0 || !Number.isFinite(signedBase)
-            ? sum
-            : sum + Math.pow(Math.abs(signedBase), 4) / dof;
-        }, 0);
-        effectiveDof =
-          equationDenominator > 0
-            ? equationNumerator / equationDenominator
-            : Infinity;
-        const equationK =
-          Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
-            ? manualCoverageFactor
-            : !applyDofForGroup("equation") || effectiveDof === Infinity || isNaN(effectiveDof)
-            ? normalCoverageFactor
-            : getKValueFromTDistribution(effectiveDof, probability);
-
         const finalBudgetComponents = [
-          {
-            id: "measurement_equation_uncertainty",
-            name: `${uutNominal.name || "Derived"} Measurement Equation Uncertainty`,
-            type: "B",
-            value: derivedUcInputs_Native,
-            value_native: derivedUcInputs_Native,
-            unit_native: derivedNominalUnit,
-            dof: effectiveDof,
-            isCore: true,
-            distribution: "Other (Std. Unc.)",
-            sourcePointLabel: "Measurement Equation",
-          },
+          propagationComponent,
           ...componentsForBudgetTable.filter(
             (component) =>
               !component.name.startsWith("Input:") &&
@@ -711,9 +831,14 @@ export const useUncertaintyCalculation = (
           {
             id: "measurement_equation",
             kind: "equation",
-            label: "Measurement Equation Uncertainty",
+            label:
+              propagationMethod === "montecarlo"
+                ? "Monte Carlo Approximation"
+                : "Taylor Series Approximation",
             unit: derivedNominalUnit,
             rows: equationRows,
+            method: propagationMethod,
+            trials: monteCarloResult?.trials,
             // Surface the correlation effect: whether the combined value below
             // includes off-diagonal terms, and the plain RSS for comparison.
             correlationApplied: correlationAffectsEquation,
@@ -721,7 +846,7 @@ export const useUncertaintyCalculation = (
               uncorrelatedEquationInputsBase / targetUnitInfo.to_si,
             results: {
               combined: derivedUcInputs_Native,
-              effective_dof: effectiveDof,
+              effective_dof: equationEffectiveDof,
               k_value: equationK,
               expanded: derivedUcInputs_Native * equationK,
             },
@@ -749,10 +874,8 @@ export const useUncertaintyCalculation = (
         tmdeTolerancesData.forEach((tmde, tmdeIndex) => {
           if (uutNominal && uutNominal.value) {
             const quantity = tmde.quantity || 1;
-            const toleranceSource = tmde.tolerance || tmde;
-
             const components = getBudgetComponentsFromTolerance(
-              toleranceSource,
+              tmde,
               uutNominal
             );
             const qualifiedComponents =
@@ -840,6 +963,11 @@ export const useUncertaintyCalculation = (
             });
           }
         }
+
+        // A direct budget is already expressed by its physical source rows.
+        // Risk 8.0 exposes Monte Carlo only for calculation equations, so a
+        // direct point always combines these sources using the workbook's RSS
+        // uncertainty-budget workflow.
         calculatedBudgetGroups = [
           {
             id: "final_budget",
@@ -928,12 +1056,32 @@ export const useUncertaintyCalculation = (
         ),
         calculatedNominalValue: finiteNumberOrNull(calculatedNominalResult),
         secondOrder: derivedSecondOrder,
+        propagationMethod,
+        monteCarlo:
+          monteCarloResult && propagationMethod === "montecarlo"
+            ? {
+                method: monteCarloResult.method,
+                trials: monteCarloResult.trials,
+                meanBase: monteCarloResult.meanBase,
+                nominalResultBase: monteCarloResult.nominalResultBase,
+                influenceFractions: monteCarloResult.influenceFractions,
+                inputs: monteCarloResult.inputs,
+                correlationMatrix: monteCarloResult.correlationMatrix,
+                choleskyMatrix: monteCarloResult.choleskyMatrix,
+                standardUncertaintyBase:
+                  monteCarloResult.standardUncertaintyBase,
+                hash: monteCarloResult.hash,
+              }
+            : null,
       };
 
       setCalcResults(newResults);
 
       const resultsHaveChanged =
         !testPointData.is_detailed_uncertainty_calculated ||
+        testPointData.budgetPropagationMethod !== propagationMethod ||
+        (propagationMethod !== "montecarlo" &&
+          testPointData.risk8MonteCarloResult != null) ||
         Math.abs(
           (testPointData.expanded_uncertainty || 0) -
             (newResults.expanded_uncertainty || 0)
@@ -970,6 +1118,8 @@ export const useUncertaintyCalculation = (
           calculatedBudgetComponents: newResults.calculatedBudgetComponents,
           calculatedBudgetGroups: newResults.calculatedBudgetGroups,
           calculatedNominalValue: newResults.calculatedNominalValue,
+          budgetPropagationMethod: propagationMethod,
+          risk8MonteCarloResult: newResults.monteCarlo,
         });
       }
     } catch (error) {
@@ -1004,6 +1154,8 @@ export const useUncertaintyCalculation = (
     testPointData.coverageFactorMode,
     testPointData.coverageFactorOverride,
     testPointData.useEffectiveDofByGroup,
+    testPointData.budgetPropagationMethod,
+    testPointData.monteCarloTrials,
     onDataSave,
     // NOTE: the computed OUTPUT fields this effect persists via onDataSave —
     // is_detailed_uncertainty_calculated, expanded_uncertainty(_absolute_base),

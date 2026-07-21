@@ -125,6 +125,30 @@ describe("resolveInstrumentSelection", () => {
     expect(selection.rangeIndex).toBe(1);
     expect(selection.specs.unit).toBe("V");
   });
+
+  it("keeps a range-specific unit when one function spans multiple units", () => {
+    const instrument = {
+      functions: [
+        {
+          id: "fn-weight",
+          name: "Weight",
+          unit: "kg",
+          units: ["kg", "lb"],
+          ranges: [
+            { id: "kg-range", min: 0, max: 10, unit: "kg" },
+            { id: "lb-range", min: 0, max: 20, unit: "lb" },
+          ],
+        },
+      ],
+    };
+    const rows = getInstrumentRangeRows(instrument);
+    expect(rows.map((row) => row.functionUnit)).toEqual(["kg", "lb"]);
+    expect(rows.map((row) => row.unit)).toEqual(["kg", "lb"]);
+    expect(
+      resolveInstrumentSelection(instrument, { userRangeId: "lb-range" }).specs
+        .unit,
+    ).toBe("lb");
+  });
 });
 
 describe("instrumentFactory function/range metadata", () => {

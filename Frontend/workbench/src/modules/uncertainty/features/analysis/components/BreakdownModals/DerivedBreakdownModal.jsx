@@ -16,6 +16,24 @@ const formatNumberForLatex = (num, precision = 4) => {
     return parseFloat(num.toPrecision(precision)).toString();
 };
 
+const MonteCarloMatrix = ({ title, symbols, values }) => {
+    if (!Array.isArray(values) || values.length === 0) return null;
+    return (
+        <div style={{ marginTop: '14px', overflowX: 'auto' }}>
+            <strong>{title}</strong>
+            <table className="uncertainty-table" style={{ marginTop: '7px', width: 'auto', minWidth: '360px' }}>
+                <thead><tr><th aria-label="Matrix row" />{symbols.map((symbol) => <th key={symbol}>{symbol}</th>)}</tr></thead>
+                <tbody>{values.map((row, rowIndex) => (
+                    <tr key={`${title}-${symbols[rowIndex] || rowIndex}`}>
+                        <th>{symbols[rowIndex] || rowIndex + 1}</th>
+                        {symbols.map((_, columnIndex) => <td key={columnIndex}>{formatNumberForLatex(Number(row?.[columnIndex]), 6)}</td>)}
+                    </tr>
+                ))}</tbody>
+            </table>
+        </div>
+    );
+};
+
 
 const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
     
@@ -25,103 +43,130 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
         defaultHeight: Math.min(720, window.innerHeight - 120)
     });
 
-    // --- This hook now rebuilds the formula from individual TMDEs ---
+    // Use the same aggregated rows that drive the live derived budget. The
+    // older implementation rebuilt uncertainty from raw TMDE assignments,
+    // which became stale once derived inputs stopped requiring TMDE mapping and
+    // could also double-count resolution. These rows already contain the
+    // authoritative standard uncertainty, sensitivity, contribution, and
+    // second-order diagnostics in display units.
     const formulaTerms = useMemo(() => {
-        const tmdes = breakdownData?.tmdeTolerances || [];
         const components = breakdownData?.results?.calculatedBudgetComponents || [];
         const derivedUnit = breakdownData?.derivedNominalPoint?.unit || 'Units';
         const targetUnitInfo = unitSystem.units[derivedUnit];
-        if (!tmdes || !components || !targetUnitInfo?.to_si) return [];
+        if (!Array.isArray(components) || !targetUnitInfo?.to_si) return [];
 
-        // 1. Get terms from TMDE definitions
-        const tmdeTerms = tmdes.map(tmde => {
-            const quantity = tmde.quantity || 1;
-            const varType = tmde.variableType;
-
-            // Find the matching component in the budget to get the symbol and ci
-            const budgetComp = components.find(c => c.name.startsWith(`Input: ${varType}`));
-            if (!budgetComp) return null;
-
-            const symbolMatch = budgetComp.name?.match(/\(([^)]+)\)$/);
-            const symbol = symbolMatch ? symbolMatch[1] : varType;
-            const ciValue = budgetComp.sensitivityCoefficient;
-
-            // Calculate the *individual* standard uncertainty (u_i) for this one TMDE
-            const { standardUncertainty: ui_ppm } = calculateUncertaintyFromToleranceObject(tmde, tmde.measurementPoint);
-            if (isNaN(ui_ppm)) return null;
-
-            // Convert individual u_i from PPM to native absolute units (e.g., oz, in)
-            const nominalValue = parseFloat(tmde.measurementPoint.value);
-            const nominalInBase = unitSystem.toBaseUnit(nominalValue, tmde.measurementPoint.unit);
-            const ui_absolute_base = (ui_ppm / 1e6) * Math.abs(nominalInBase);
-            
-            const unitInfo = unitSystem.units[tmde.measurementPoint.unit];
-            if (!unitInfo || !unitInfo.to_si) return null;
-            const uiValueAbsoluteNative = ui_absolute_base / unitInfo.to_si; // ui in native units (e.g., inches, oz)
-
-            // Calculate contribution and variance in derived units
-            const contributionInDerivedUnit = Math.abs(ciValue * uiValueAbsoluteNative);
-            const varianceInDerivedUnitSq = contributionInDerivedUnit ** 2;
-
-            return {
-                symbolLatex: quantity > 1
-                    ? `${quantity} \\cdot (c_{${symbol}} u_{${symbol}})^2`
-                    : `(c_{${symbol}} u_{${symbol}})^2`,
-                varianceDerivedSq: varianceInDerivedUnitSq * quantity, // Total variance for this definition
-                ci: ciValue,
-                ui_native: uiValueAbsoluteNative,
-                ui_unit_native: tmde.measurementPoint.unit || '',
-                contribution: contributionInDerivedUnit, // Contribution of a *single* unit
-                varSymbol: symbol,
-                name: tmde.name || 'TMDE',
-                quantity: quantity,
-            };
-        }).filter(term => term !== null);
-
-        // 2. Get term from Resolution (which is a 'direct' component)
-        const resolutionComp = components.find(c => c.name?.includes('Resolution'));
-        if (resolutionComp) {
-            const symbol = 'res';
-            const ciValue = 1; // By definition for direct components
-
-            // Get ui in native absolute units (which is derivedUnit)
-            let uiValueAbsoluteNative = NaN;
-            if (resolutionComp.isBaseUnitValue && !isNaN(resolutionComp.value) && resolutionComp.unit) {
-                const unitInfo = unitSystem.units[resolutionComp.unit];
-                if (unitInfo?.to_si) {
-                    uiValueAbsoluteNative = resolutionComp.value / unitInfo.to_si; // Convert base ui back to native unit
-                }
+        const toNativeUncertainty = (component) => {
+            const rawValue = Number(component?.value);
+            const nativeUnit = component?.unit || component?.unit_native || derivedUnit;
+            if (!Number.isFinite(rawValue)) return NaN;
+            if (component?.isBaseUnitValue) {
+                return unitSystem.fromBaseUnit(rawValue, nativeUnit);
             }
-            
-            const contributionInDerivedUnit = Math.abs(ciValue * uiValueAbsoluteNative);
-            const varianceInDerivedUnitSq = contributionInDerivedUnit ** 2;
+            if (Number.isFinite(Number(component?.value_native))) {
+                return Number(component.value_native);
+            }
+            return rawValue;
+        };
 
-            tmdeTerms.push({
-                symbolLatex: `u_{${symbol}}^2`,
-                varianceDerivedSq: varianceInDerivedUnitSq,
-                ci: ciValue,
-                ui_native: uiValueAbsoluteNative,
-                ui_unit_native: resolutionComp.unit || '',
-                contribution: contributionInDerivedUnit,
-                varSymbol: symbol,
-                name: 'Resolution',
-                quantity: 1,
+        const authoritativeTerms = components
+            .filter((component) => Number.isFinite(Number(component?.contribution)))
+            .map((component, index) => {
+                const rawName = String(component.name || `Component ${index + 1}`);
+                const isInput = rawName.startsWith("Input:");
+                const symbolMatch = rawName.match(/\(([^)]+)\)$/);
+                const symbol = symbolMatch
+                    ? symbolMatch[1]
+                    : component.isResolution
+                      ? "res"
+                      : `b_{${index + 1}}`;
+                const contribution = Math.abs(Number(component.contribution));
+                const quantity = isInput ? 1 : Math.max(1, Number(component.quantity) || 1);
+                return {
+                    component,
+                    symbolLatex: isInput
+                        ? `(c_{${symbol}} u_{${symbol}})^2`
+                        : `u_{${symbol}}^2`,
+                    varianceDerivedSq: contribution ** 2 * quantity,
+                    ci: Number(component.sensitivityCoefficient),
+                    ui_native: toNativeUncertainty(component),
+                    ui_unit_native: component.unit || component.unit_native || derivedUnit,
+                    contribution,
+                    varSymbol: symbol,
+                    name: rawName.replace(/^Input:\s*/, ""),
+                    quantity,
+                    isInput,
+                };
             });
-        }
-        
-        return tmdeTerms;
+
+        // Backward compatibility for old saved points that predate the
+        // calculatedBudgetComponents snapshot. This path is deliberately only
+        // used when no authoritative rows exist.
+        if (authoritativeTerms.length > 0) return authoritativeTerms;
+        return (breakdownData?.tmdeTolerances || []).map((tmde, index) => {
+            const reference = tmde?.measurementPoint;
+            if (!reference) return null;
+            const { standardUncertainty } = calculateUncertaintyFromToleranceObject(
+                tmde.tolerance || tmde,
+                reference,
+                true,
+            );
+            const nominalBase = unitSystem.toBaseUnit(
+                Number(reference.value),
+                reference.unit,
+            );
+            const uiBase = (standardUncertainty / 1e6) * Math.abs(nominalBase);
+            const uiNative = unitSystem.fromBaseUnit(uiBase, reference.unit);
+            return {
+                component: null,
+                symbolLatex: `(c_{b_${index + 1}} u_{b_${index + 1}})^2`,
+                varianceDerivedSq: NaN,
+                ci: NaN,
+                ui_native: uiNative,
+                ui_unit_native: reference.unit,
+                contribution: NaN,
+                varSymbol: `b_${index + 1}`,
+                name: tmde.name || "TMDE",
+                quantity: 1,
+                isInput: true,
+            };
+        }).filter(Boolean);
     }, [breakdownData]);
 
-    // Reconstruct nominal scope for display
+    // Reconstruct the exact nominal scope used by the derived calculator. The
+    // derivative strings are evaluated in the calculator's base-unit scope;
+    // parsing a formatted sourcePointLabel can silently produce the wrong
+    // sensitivity coefficient when an input is displayed in a prefixed unit.
     const nominalScopeForDisplay = useMemo(() => {
-        const scope = {}; const components = breakdownData?.results?.calculatedBudgetComponents || [];
-         components.forEach(c => {
-             if (c.name?.includes('Input:')) {
-                 const symbolMatch = c.name.match(/\(([^)]+)\)$/); const symbol = symbolMatch ? symbolMatch[1] : null;
-                 const nominalMatch = c.sourcePointLabel?.match(/^([+-]?\d*\.?\d+(?:[eE][+-]?\d+)?)/); const nominalValue = nominalMatch ? parseFloat(nominalMatch[1]) : NaN;
-                 if (symbol && !isNaN(nominalValue)) { scope[symbol] = nominalValue; }
-             }
-         }); return scope;
+        const scope = {};
+        const derivedPoint = breakdownData?.derivedNominalPoint || {};
+        const variableNominals = derivedPoint.variableNominals || {};
+
+        Object.entries(variableNominals).forEach(([symbol, nominal]) => {
+            const value = Number(nominal?.value);
+            const unit = nominal?.unit;
+            if (Number.isFinite(value) && unit) {
+                scope[symbol] = unitSystem.toBaseUnit(value, unit);
+            }
+        });
+
+        // Backward compatibility for snapshots that predate variableNominals.
+        if (Object.keys(scope).length === 0) {
+            const components = breakdownData?.results?.calculatedBudgetComponents || [];
+            components.forEach((component) => {
+                if (!component.name?.includes('Input:')) return;
+                const symbolMatch = component.name.match(/\(([^)]+)\)$/);
+                const symbol = symbolMatch ? symbolMatch[1] : null;
+                const nominalMatch = component.sourcePointLabel?.match(/^([+-]?\d*\.?\d+(?:[eE][+-]?\d+)?)/);
+                const nominalValue = nominalMatch ? parseFloat(nominalMatch[1]) : NaN;
+                const nominalUnit = nominalMatch
+                    ? component.sourcePointLabel.slice(nominalMatch[0].length).trim()
+                    : null;
+                if (symbol && Number.isFinite(nominalValue)) {
+                    scope[symbol] = unitSystem.toBaseUnit(nominalValue, nominalUnit);
+                }
+            });
+        }
+        return scope;
     }, [breakdownData]);
 
 
@@ -137,10 +182,41 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
      let expressionTex = expressionOnly; try { expressionTex = math.parse(expressionOnly).toTex(); } catch(e) {}
 
     const derivedUnit = derivedNominalPoint?.unit || 'Units';
+    const monteCarlo = breakdownData.results.monteCarlo;
+    const usesMonteCarlo = breakdownData.results.propagationMethod === 'montecarlo' && monteCarlo;
 
-    // Calculate final combined uncertainty in derived units using the variances calculated in the memo
+    const calculatedBudgetGroups = breakdownData.results.calculatedBudgetGroups || [];
+    const equationBudgetGroup = calculatedBudgetGroups.find(
+        (group) => group.kind === "equation" || group.id === "measurement_equation",
+    );
+    const finalBudgetGroup = calculatedBudgetGroups.find(
+        (group) => group.kind === "final" || group.id === "final_budget",
+    );
+
+    // The component variances are useful for showing the independent RSS
+    // reference, but the authoritative result may include input correlations
+    // and final-budget components. Prefer the value emitted by the calculator.
     const sumOfVariancesDerivedUnits = formulaTerms.reduce((sum, term) => sum + (isNaN(term.varianceDerivedSq) ? 0 : term.varianceDerivedSq), 0);
-    const combinedUncertaintyInDerivedUnit = Math.sqrt(sumOfVariancesDerivedUnits);
+    const independentCombinedUncertainty = Math.sqrt(sumOfVariancesDerivedUnits);
+    const sumOfEquationVariancesDerivedUnits = formulaTerms
+        .filter((term) => term.isInput)
+        .reduce((sum, term) => sum + (isNaN(term.varianceDerivedSq) ? 0 : term.varianceDerivedSq), 0);
+    const independentEquationCombinedUncertainty = Math.sqrt(sumOfEquationVariancesDerivedUnits);
+    const resultCombinedBase = breakdownData.results.combined_uncertainty_absolute_base == null
+        ? NaN
+        : Number(breakdownData.results.combined_uncertainty_absolute_base);
+    const groupCombined = finalBudgetGroup?.results?.combined == null
+        ? NaN
+        : Number(finalBudgetGroup.results.combined);
+    const combinedUncertaintyInDerivedUnit = Number.isFinite(resultCombinedBase)
+        ? unitSystem.fromBaseUnit(resultCombinedBase, derivedUnit)
+        : Number.isFinite(groupCombined)
+          ? groupCombined
+          : independentCombinedUncertainty;
+    const equationCombinedUncertainty = equationBudgetGroup?.results?.combined == null
+        ? NaN
+        : Number(equationBudgetGroup.results.combined);
+    const hasCorrelationAdjustment = equationBudgetGroup?.correlationApplied === true;
 
     return ReactDOM.createPortal(
         <div 
@@ -165,8 +241,53 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                     <div style={{ fontSize: '1.1em', textAlign: 'center' }}> <Latex>{`$$ ${equationTex} $$`}</Latex> </div>
                 </div>
 
+                {usesMonteCarlo && (
+                    <>
+                        <div className="breakdown-step">
+                            <h5>Monte Carlo Input Model ({Number(monteCarlo.trials || 0).toLocaleString()} trials)</h5>
+                            <p>
+                                Each trial draws independent standard-normal values, applies the configured
+                                input correlations, samples each input, and evaluates the full equation. These
+                                are the exact matrices saved with this calculation.
+                            </p>
+                            <table className="uncertainty-table" style={{ width: '100%' }}>
+                                <thead><tr><th>Input</th><th>Mean (base unit)</th><th>Standard uncertainty (base unit)</th><th>MC influence</th></tr></thead>
+                                <tbody>{(monteCarlo.inputs || []).map((input, index) => (
+                                    <tr key={input.componentId || input.symbol || index}>
+                                        <td>{input.symbol || `x${index + 1}`}</td>
+                                        <td>{formatNumberForLatex(Number(input.meanBase), 7)}</td>
+                                        <td>{formatNumberForLatex(Number(input.standardUncertaintyBase), 7)}</td>
+                                        <td>{formatNumberForLatex(100 * Number(monteCarlo.influenceFractions?.[index] || 0), 5)}%</td>
+                                    </tr>
+                                ))}</tbody>
+                            </table>
+                            <MonteCarloMatrix title="Correlation matrix (R)" symbols={(monteCarlo.inputs || []).map((input, index) => input.symbol || `x${index + 1}`)} values={monteCarlo.correlationMatrix} />
+                            <MonteCarloMatrix title="Lower Cholesky matrix (L), where R = LLᵀ" symbols={(monteCarlo.inputs || []).map((input, index) => input.symbol || `x${index + 1}`)} values={monteCarlo.choleskyMatrix} />
+                        </div>
+                        <div className="breakdown-step">
+                            <h5>Monte Carlo Propagation Walkthrough</h5>
+                            <ol>
+                                <li><Latex>{'$\\mathbf{z}^{(k)} \\sim N(\\mathbf{0}, I)$'}</Latex> generates independent standard-normal draws.</li>
+                                <li><Latex>{'$\\mathbf{q}^{(k)} = L\\mathbf{z}^{(k)}$'}</Latex> applies the input correlations.</li>
+                                <li><Latex>{'$x_i^{(k)} = \\bar{x}_i + u(x_i)q_i^{(k)}$'}</Latex> forms a physical input sample.</li>
+                                <li><Latex>{'$y_k = f(x_1^{(k)}, \\ldots, x_n^{(k)})$'}</Latex> evaluates the equation.</li>
+                            </ol>
+                            <Latex>{`$$ \\bar{y} = \\frac{1}{N}\\sum_{k=1}^{N} y_k = ${formatNumberForLatex(Number(monteCarlo.meanBase), 7)} $$`}</Latex>
+                            <Latex>{`$$ u_{MC} = \\sqrt{\\frac{\\sum_{k=1}^{N}(y_k-\\bar{y})^2}{N-1}} = ${formatNumberForLatex(Number(monteCarlo.standardUncertaintyBase), 7)} \\text{ (base unit)} $$`}</Latex>
+                            <Latex>{`$$ f(\\bar{\\mathbf{x}}) = ${formatNumberForLatex(Number(monteCarlo.nominalResultBase), 7)} \\text{ (base unit)} $$`}</Latex>
+                            <p>The <Latex>{'$N-1$'}</Latex> denominator matches the Risk 8.0 workbook. The MC result enters the final budget once; its input rows are not counted again.</p>
+                        </div>
+                        <div className="breakdown-step">
+                            <h5>Final Budget Combination</h5>
+                            <p>The Monte Carlo approximation is combined by RSS with UUT resolution and any manual final-budget components.</p>
+                            <Latex>{`$$ u_y = \\mathbf{${formatNumberForLatex(combinedUncertaintyInDerivedUnit, 6)}} \\text{ ${derivedUnit}} $$`}</Latex>
+                            <strong>Final Combined Uncertainty: {Number.isFinite(combinedUncertaintyInDerivedUnit) ? `${combinedUncertaintyInDerivedUnit.toPrecision(6)} ${derivedUnit}` : 'N/A'}</strong>
+                        </div>
+                    </>
+                )}
+
                 {/* Component Breakdown Loop */}
-                {formulaTerms.map((term, index) => {
+                {!usesMonteCarlo && formulaTerms.map((term, index) => {
                      const formattedValueUi = formatNumberForLatex(term.ui_native);
                      const displayValueUnitUi = term.ui_unit_native;
                      const formattedCi = formatNumberForLatex(term.ci);
@@ -175,7 +296,8 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                     let derivativeDisplay = '';
                     let derivativeTex = '';
                     // Find the original budget component to get the derivative string
-                    const budgetComp = breakdownData.results.calculatedBudgetComponents.find(c => c.name.includes(`(${term.varSymbol})`));
+                    const budgetComp = term.component ||
+                        breakdownData.results.calculatedBudgetComponents.find(c => String(c.name || '').includes(`(${term.varSymbol})`));
                     if (budgetComp) {
                         derivativeDisplay = budgetComp.derivativeString;
                         if(derivativeDisplay){ try { derivativeTex = math.parse(derivativeDisplay).toTex(); } catch (e) { derivativeTex = derivativeDisplay; } }
@@ -194,10 +316,10 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                         <div className="breakdown-step" key={term.name || index}>
                             <h5>{term.name} {term.quantity > 1 ? `(x${term.quantity})` : ''}</h5>
                             <ul>
-                                <li><strong>Std. Uncertainty (<Latex>{`$u_{${symbol}}$`}</Latex>):</strong> {formattedValueUi} {displayValueUnitUi} (per instance)</li>
+                                <li><strong>Standard Uncertainty (<Latex>{`$u_{${symbol}}$`}</Latex>):</strong> {formattedValueUi} {displayValueUnitUi} {term.isInput ? "(aggregated input)" : ""}</li>
                                 
                                 <li>
-                                    <strong>Sensitivity Coeffcient (<Latex>{`$c_{${symbol}}$`}</Latex>):</strong>
+                                    <strong>Sensitivity Coefficient (<Latex>{`$c_{${symbol}}$`}</Latex>):</strong>
                                     <ul style={{ listStyleType: 'none', paddingLeft: '10px' }}>
                                         {expressionTex && term.varSymbol !== 'res' && ( <li><Latex>{`$$ \\text{Calculate } c_{${symbol}} = \\frac{\\partial}{\\partial ${symbol}} \\left( ${expressionTex} \\right) $$`}</Latex></li> )}
                                         {derivativeTex && term.varSymbol !== 'res' && ( <li><Latex>{`$$ \\rightarrow c_{${symbol}} = ${derivativeTex} $$`}</Latex></li> )}
@@ -205,9 +327,9 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                                     </ul>
                                 </li>
 
-                                <li><strong>Contribution (<Latex>{`$|c_{${symbol}} \\times u_{${symbol}}|$`}</Latex>):</strong> {formattedContribution} {derivedUnit} (per instance)</li>
+                                <li><strong>Contribution (<Latex>{term.isInput ? `$|c_{${symbol}} \\times u_{${symbol}}|$` : `$u_{${symbol}}$`}</Latex>):</strong> {formattedContribution} {derivedUnit}</li>
                                 {term.quantity > 1 && (
-                                    <li><strong>Total Variance Term (<Latex>{`$${term.quantity} \\cdot (c_{${symbol}} u_{${symbol}})^2$`}</Latex>):</strong> {formatNumberForLatex(term.varianceDerivedSq, 5)}</li>
+                                    <li><strong>Quantity-adjusted Variance Term (<Latex>{`$${term.quantity} \\cdot u_{${symbol}}^2$`}</Latex>):</strong> {formatNumberForLatex(term.varianceDerivedSq, 5)}</li>
                                 )}
 
                                 {/* 2nd-order Taylor term (nonlinear equations): ½·f″·u². */}
@@ -234,25 +356,31 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                     );
                 })}
 
-                <div className="breakdown-step">
+                {!usesMonteCarlo && <div className="breakdown-step">
                     <h5>Combined Uncertainty Calculation (<Latex>{`$u_y$`}</Latex> in {derivedUnit})</h5>
-                    <p>Using the formula:</p>
-                    <Latex>{`$$ u_y = \\sqrt{\\sum_{i} (c_i u_i)^2 + \\sum_{j} u_j^2} $$`}</Latex>
-                    <Latex>{`$$ u_y = \\sqrt{${formulaTerms.map(t => t.symbolLatex).join(" + ")}} $$`}</Latex>
-
-                    <p>Plugging in values (showing total variance for each term):</p>
-                    <Latex>{`$$ u_y = \\sqrt{${formulaTerms.map(t => isNaN(t.varianceDerivedSq) ? 'NaN' : formatNumberForLatex(t.varianceDerivedSq, 5)).join(" + ")}} $$`}</Latex>
-                    <Latex>{`$$ u_y = \\sqrt{${formatNumberForLatex(sumOfVariancesDerivedUnits, 5)}} = \\mathbf{${formatNumberForLatex(combinedUncertaintyInDerivedUnit, 5)}} \\text{ (${derivedUnit})} $$`}</Latex>
+                    <p>
+                        The independent first-order terms provide an RSS reference. The final value below
+                        is read from the live derived budget, so configured correlations, manual components,
+                        and UUT resolution are included exactly once.
+                    </p>
+                    <Latex>{`$$ u_{RSS} = \\sqrt{${formulaTerms.map(t => t.symbolLatex).join(" + ")}} = \\sqrt{${formatNumberForLatex(sumOfVariancesDerivedUnits, 5)}} = \\mathbf{${formatNumberForLatex(independentCombinedUncertainty, 5)}} \\text{ ${derivedUnit}} $$`}</Latex>
+                    {formulaTerms.some((term) => term.isInput) && (
+                        <Latex>{`$$ u_{RSS, equation} = \\sqrt{${formulaTerms.filter(t => t.isInput).map(t => t.symbolLatex).join(" + ")}} = \\mathbf{${formatNumberForLatex(independentEquationCombinedUncertainty, 5)}} \\text{ ${derivedUnit}} $$`}</Latex>
+                    )}
+                    {Number.isFinite(equationCombinedUncertainty) && (
+                        <Latex>{`$$ u_{equation} = \\mathbf{${formatNumberForLatex(equationCombinedUncertainty, 5)}} \\text{ ${derivedUnit}}${hasCorrelationAdjustment ? "\\quad (correlations applied)" : ""} $$`}</Latex>
+                    )}
+                    <Latex>{`$$ u_y = \\mathbf{${formatNumberForLatex(combinedUncertaintyInDerivedUnit, 5)}} \\text{ ${derivedUnit}} $$`}</Latex>
 
                     <hr style={{margin: '15px 0'}}/>
-                     <strong>Final Combined Uncertainty (<Latex>$u_y$</Latex>): {isNaN(combinedUncertaintyInDerivedUnit) ? 'N/A' : `${combinedUncertaintyInDerivedUnit.toPrecision(5)} ${derivedUnit}`}</strong>
-                </div>
+                    <strong>Final Combined Uncertainty (<Latex>$u_y$</Latex>): {isNaN(combinedUncertaintyInDerivedUnit) ? 'N/A' : `${combinedUncertaintyInDerivedUnit.toPrecision(5)} ${derivedUnit}`}</strong>
+                </div>}
 
                 {/* 2nd-order Taylor series summary — only for nonlinear equations
                     (at least one input with a non-zero ½f″u² term). Computed from
                     the same per-term values rendered above so the arithmetic shown
                     here ties out exactly. */}
-                {(() => {
+                {!usesMonteCarlo && (() => {
                     const components = breakdownData.results.calculatedBudgetComponents || [];
                     const secondOrderComps = components.filter(
                         (c) => Number.isFinite(c.secondOrderContribution) && c.secondOrderContribution !== 0
@@ -271,7 +399,7 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                         (sum, c) => sum + (Number.isFinite(c.secondOrderShift) ? c.secondOrderShift : 0), 0
                     );
                     const uSecondOrder = Math.sqrt(
-                        (isNaN(sumOfVariancesDerivedUnits) ? 0 : sumOfVariancesDerivedUnits) +
+                        (isNaN(sumOfEquationVariancesDerivedUnits) ? 0 : sumOfEquationVariancesDerivedUnits) +
                         sumSecondOrderSquares
                     );
                     const linearMean = parseFloat(breakdownData.results.calculatedNominalValue);
@@ -283,11 +411,12 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                             <h5>2nd-Order Taylor Series (Nonlinearity Correction)</h5>
                             <p>
                                 The equation is nonlinear at this operating point, so the first-order
-                                (GUM) budget above is incomplete. Including the diagonal second-order
-                                Taylor terms:
+                                (GUM) budget above is incomplete. This diagnostic adds the diagonal
+                                second-order Taylor terms to the independent first-order RSS baseline.
+                                It does not replace the authoritative correlated/final-budget result above:
                             </p>
                             <Latex>{`$$ u_y^{(2)} = \\sqrt{\\sum_i (c_i u_i)^2 + \\sum_i \\left( \\tfrac{1}{2} c''_i u_i^2 \\right)^2} $$`}</Latex>
-                            <Latex>{`$$ u_y^{(2)} = \\sqrt{${formatNumberForLatex(sumOfVariancesDerivedUnits, 5)} + ${valuesTex}} = \\mathbf{${formatNumberForLatex(uSecondOrder, 5)}} \\text{ (${derivedUnit})} $$`}</Latex>
+                            <Latex>{`$$ u_y^{(2)} = \\sqrt{${formatNumberForLatex(sumOfEquationVariancesDerivedUnits, 5)} + ${valuesTex}} = \\mathbf{${formatNumberForLatex(uSecondOrder, 5)}} \\text{ (${derivedUnit})} $$`}</Latex>
                             <p>
                                 The second-order terms also shift the expected result away from{' '}
                                 <Latex>{`$f(\\bar{x})$`}</Latex> (the corrected mean):
@@ -297,8 +426,9 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                                 <Latex>{`$$ E[y] \\approx f(\\bar{x}) + \\Delta y = ${formatNumberForLatex(linearMean, 6)} + ${formatNumberForLatex(meanShift, 5)} = \\mathbf{${formatNumberForLatex(correctedMean, 6)}} \\text{ (${derivedUnit})} $$`}</Latex>
                             )}
                             <p style={{ color: 'var(--text-color-muted)', fontSize: '0.9em' }}>
-                                These second-order values are diagnostic (diagonal terms only,
-                                symmetric input distributions assumed). For the authoritative
+                                These second-order values are diagnostic only (diagonal terms only;
+                                correlations, manual components, and UUT resolution are not included;
+                                symmetric input distributions are assumed. For the authoritative
                                 result at a nonlinear or stationary operating point, switch the
                                 point to Monte Carlo propagation — its mean and uncertainty include
                                 all higher-order effects and feed the risk analysis directly.

@@ -5,6 +5,9 @@ import {
   functionLabelOf,
   instrumentFunctions,
   instrumentHasFunction,
+  rankInstrumentsForFunction,
+  getFunctionDependencies,
+  getFunctionDependencyMessage,
   rangesForFunction,
   functionsForLibrary,
   resolveSessionFunctions,
@@ -21,8 +24,8 @@ describe("makeFunctionKey", () => {
       makeFunctionKey("  dc voltage ", "V"),
     );
   });
-  it("keeps unit distinct", () => {
-    expect(makeFunctionKey("Voltage", "V")).not.toBe(
+  it("keeps the function name stable across units", () => {
+    expect(makeFunctionKey("Voltage", "V")).toBe(
       makeFunctionKey("Voltage", "mV"),
     );
   });
@@ -42,6 +45,7 @@ describe("functionKeyOf / functionLabelOf", () => {
       key: makeFunctionKey("AC Current", "A"),
       name: "AC Current",
       unit: "A",
+      units: ["A"],
     });
   });
   it("handles a missing parameter", () => {
@@ -49,6 +53,7 @@ describe("functionKeyOf / functionLabelOf", () => {
       key: makeFunctionKey("Measurement", ""),
       name: "Measurement",
       unit: "",
+      units: [],
     });
   });
 });
@@ -67,6 +72,33 @@ describe("instrumentFunctions", () => {
     expect(fns.map((f) => f.name)).toEqual(["DC Voltage", "AC Voltage"]);
     expect(fns[0].key).toBe(makeFunctionKey("DC Voltage", "V"));
     expect(fns[0].ranges).toHaveLength(1);
+  });
+
+  it("merges same-name function declarations and collects range units", () => {
+    const fns = instrumentFunctions({
+      functions: [
+        { name: "Weight", unit: "kg", ranges: [{ id: "kg-1", unit: "kg" }] },
+        { name: "Weight", unit: "lb", ranges: [{ id: "lb-1", unit: "lb" }] },
+      ],
+    });
+    expect(fns).toHaveLength(1);
+    expect(fns[0].key).toBe(makeFunctionKey("Weight"));
+    expect(fns[0].units).toEqual(["kg", "lb"]);
+    expect(fns[0].ranges.map((range) => range.id)).toEqual(["kg-1", "lb-1"]);
+  });
+
+  it("uses range units as the source of truth over a stale function default", () => {
+    const [fn] = instrumentFunctions({
+      functions: [
+        {
+          name: "Weight",
+          unit: "kg",
+          ranges: [{ id: "lb-1", unit: "lb" }],
+        },
+      ],
+    });
+    expect(fn.units).toEqual(["lb"]);
+    expect(fn.unit).toBe("lb");
   });
 
   it("falls back to a single synthetic function for legacy flat ranges", () => {
@@ -95,6 +127,7 @@ describe("instrumentHasFunction / rangesForFunction", () => {
 
   it("detects declared functions", () => {
     expect(instrumentHasFunction(inst, dcv)).toBe(true);
+    expect(instrumentHasFunction(inst, "DC Voltage|V")).toBe(true);
     expect(instrumentHasFunction(inst, makeFunctionKey("AC Voltage", "V"))).toBe(
       false,
     );
@@ -104,9 +137,167 @@ describe("instrumentHasFunction / rangesForFunction", () => {
     expect(rangesForFunction(inst, res).map((r) => r.id)).toEqual(["b", "c"]);
     expect(rangesForFunction(inst, makeFunctionKey("Nope", "x"))).toEqual([]);
   });
+
+  it("scopes all units of one function together", () => {
+    const inst = {
+      functions: [
+        { name: "Weight", unit: "kg", ranges: [{ id: "kg-1", unit: "kg" }] },
+        { name: "Weight", unit: "lb", ranges: [{ id: "lb-1", unit: "lb" }] },
+      ],
+    };
+    expect(rangesForFunction(inst, makeFunctionKey("Weight"))).toEqual([
+      { id: "kg-1", unit: "kg" },
+      { id: "lb-1", unit: "lb" },
+    ]);
+  });
+});
+
+describe("function deletion dependencies", () => {
+  const voltageFunction = {
+    key: makeFunctionKey("Voltage"),
+    name: "Voltage",
+  };
+
+  it("identifies an orphaned measurement point without reporting a deleted UUT", () => {
+    const dependencies = getFunctionDependencies(
+      {
+        uuts: [],
+        tmdes: [],
+        testPoints: [point("Voltage", "V")],
+      },
+      voltageFunction,
+    );
+
+    expect(dependencies.uuts).toEqual([]);
+    expect(dependencies.tmdes).toEqual([]);
+    expect(dependencies.measurementPoints).toHaveLength(1);
+    expect(getFunctionDependencyMessage(dependencies)).toBe(
+      "This function still has 1 measurement point. Delete it before deleting the function.",
+    );
+  });
+
+  it("reports each real dependency when instruments and points remain", () => {
+    const dependencies = getFunctionDependencies(
+      {
+        uuts: [
+          {
+            instrument: {
+              functions: [{ name: "Voltage", unit: "V", ranges: [] }],
+            },
+          },
+        ],
+        tmdes: [
+          {
+            instrument: {
+              functions: [{ name: "Voltage", unit: "V", ranges: [] }],
+            },
+          },
+        ],
+        testPoints: [point("Voltage", "V"), point("Voltage", "mV")],
+      },
+      voltageFunction,
+    );
+
+    expect(getFunctionDependencyMessage(dependencies)).toBe(
+      "This function still has 1 UUT, 1 TMDE, and 2 measurement points. Delete them before deleting the function.",
+    );
+  });
+});
+
+describe("rankInstrumentsForFunction", () => {
+  it("suggests every matching function before non-matching instruments", () => {
+    const instruments = [
+      {
+        id: "shared-current",
+        scope: "validated",
+        functions: [{ name: "Current", unit: "A", ranges: [] }],
+      },
+      {
+        id: "local-voltage",
+        scope: "local",
+        functions: [{ name: "Voltage", unit: "mV", ranges: [] }],
+      },
+      {
+        id: "shared-voltage",
+        scope: "validated",
+        functions: [{ name: "Voltage", unit: "V", ranges: [] }],
+      },
+      {
+        id: "local-resistance",
+        scope: "local",
+        functions: [{ name: "Resistance", unit: "ohm", ranges: [] }],
+      },
+    ];
+
+    expect(
+      rankInstrumentsForFunction(instruments, makeFunctionKey("Voltage")).map(
+        (instrument) => instrument.id,
+      ),
+    ).toEqual([
+      "shared-voltage",
+      "local-voltage",
+      "shared-current",
+      "local-resistance",
+    ]);
+  });
+
+  it("matches wrapped shared-library definitions and preserves the input", () => {
+    const instruments = [
+      {
+        id: "other",
+        scope: "validated",
+        instrument: { functions: [{ name: "Temperature", ranges: [] }] },
+      },
+      {
+        id: "wrapped",
+        scope: "validated",
+        instrument: { functions: [{ name: "Torque", ranges: [] }] },
+      },
+    ];
+
+    const ranked = rankInstrumentsForFunction(instruments, "Torque|in-ozf");
+    expect(ranked.map((instrument) => instrument.id)).toEqual([
+      "wrapped",
+      "other",
+    ]);
+    expect(instruments.map((instrument) => instrument.id)).toEqual([
+      "other",
+      "wrapped",
+    ]);
+  });
+
+  it("leaves library order unchanged when there is no active function", () => {
+    const instruments = [{ id: "local" }, { id: "shared", scope: "validated" }];
+    expect(rankInstrumentsForFunction(instruments, null)).toEqual(instruments);
+  });
 });
 
 describe("resolveSessionFunctions", () => {
+  it("exposes all range units under one session function", () => {
+    const fns = resolveSessionFunctions({
+      functionGroups: [],
+      uuts: [
+        {
+          instrument: {
+            functions: [
+              { name: "Weight", unit: "kg", ranges: [{ unit: "kg" }] },
+              { name: "Weight", unit: "lb", ranges: [{ unit: "lb" }] },
+            ],
+          },
+        },
+      ],
+      tmdes: [],
+      testPoints: [],
+    });
+
+    expect(fns).toHaveLength(1);
+    expect(fns[0]).toMatchObject({
+      name: "Weight",
+      unit: "kg",
+      units: ["kg", "lb"],
+    });
+  });
+
   it("merges explicit groups, instrument functions, and point parameters", () => {
     const session = {
       functionGroups: [
@@ -208,9 +399,18 @@ describe("functionsForLibrary", () => {
       { functions: [{ name: "Current", unit: "A" }] },
     ];
     expect(functionsForLibrary(instruments)).toEqual([
-      { key: makeFunctionKey("Current", "A"), name: "Current", unit: "A" },
-      { key: makeFunctionKey("Voltage", "mV"), name: "Voltage", unit: "mV" },
-      { key: makeFunctionKey("Voltage", "V"), name: "Voltage", unit: "V" },
+      {
+        key: makeFunctionKey("Current", "A"),
+        name: "Current",
+        unit: "A",
+        units: ["A"],
+      },
+      {
+        key: makeFunctionKey("Voltage", "mV"),
+        name: "Voltage",
+        unit: "V",
+        units: ["V", "mV"],
+      },
     ]);
   });
 });

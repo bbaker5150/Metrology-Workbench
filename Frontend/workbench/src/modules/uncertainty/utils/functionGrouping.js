@@ -1,16 +1,8 @@
 // Function-first grouping helpers.
 //
-// "Function" is the primary organizing axis across the measurement-point sidebar
-// and the instrument tables: a point belongs to the function named on the point
-// itself (testPointInfo.parameter), and an instrument exposes one or more
-// functions (instrument.functions[]). These helpers give every surface a single,
-// consistent function identity so a point and the instruments that can measure it
-// collapse under the same node.
-//
-// The key format is intentionally derived from a human-facing (name, unit) pair —
-// NOT from any functionId on a range — so instruments that share a function name
-// group together even when their internal range ids differ. The legacy
-// range.functionId/functionName annotations are deliberately ignored here.
+// Function identity is name-based. Units belong to the ranges under a
+// function, not to the function itself; one function can therefore expose
+// multiple units (for example Weight in kg, lb, and oz).
 
 import { getInstrumentDefinition } from "./instrumentFunctionSelection";
 
@@ -19,74 +11,207 @@ const clean = (value) =>
 
 const DEFAULT_FUNCTION_NAME = "Measurement";
 
-// Stable identity for a (name, unit) function pair. Name comparison is
-// case-insensitive so "DC Voltage" and "dc voltage" don't fork into two nodes;
-// unit is compared as-typed (units are already canonical tokens elsewhere).
-export const makeFunctionKey = (name, unit) =>
-  `${clean(name).toLowerCase() || DEFAULT_FUNCTION_NAME.toLowerCase()}|${clean(unit)}`;
+// The optional unit argument remains accepted for source compatibility with
+// older callers and persisted data, but it deliberately does not participate
+// in the function identity.
+export const makeFunctionKey = (name, _unit) =>
+  clean(name).toLowerCase() || DEFAULT_FUNCTION_NAME.toLowerCase();
+
+const canonicalKey = (value) => {
+  const raw = clean(value);
+  // Accept persisted pre-refactor keys ("name|unit") while returning the
+  // new name-only identity for all comparisons.
+  return makeFunctionKey(raw.includes("|") ? raw.split("|")[0] : raw);
+};
+
+const uniqueUnits = (...sources) =>
+  Array.from(
+    new Set(
+      sources
+        .flatMap((source) => (Array.isArray(source) ? source : [source]))
+        .map(clean)
+        .filter(Boolean),
+    ),
+  );
+
+const functionUnits = (fn = {}, ranges = []) =>
+  (() => {
+    const rangeUnits = uniqueUnits(
+      ranges.flatMap((range) => [range?.unit, range?.functionUnit]),
+    );
+    // Once ranges exist, they are the source of truth. The function-level
+    // unit is only a legacy/default fallback for ranges that have no unit.
+    return rangeUnits.length ? rangeUnits : uniqueUnits(fn.units, fn.unit);
+  })();
 
 // The function a measurement point belongs to, taken from the point's own
-// parameter (the "Function Name" + base unit set in the Add Point modal).
+// parameter. Its unit is a point/range choice, not a function identity.
 export const functionKeyOf = (point) => {
   const parameter = point?.testPointInfo?.parameter || {};
-  return makeFunctionKey(parameter.name, parameter.unit);
+  return makeFunctionKey(parameter.name);
 };
 
 export const functionLabelOf = (point) => {
   const parameter = point?.testPointInfo?.parameter || {};
+  const units = uniqueUnits(parameter.unit);
   return {
-    key: makeFunctionKey(parameter.name, parameter.unit),
+    key: makeFunctionKey(parameter.name),
     name: clean(parameter.name) || DEFAULT_FUNCTION_NAME,
-    unit: clean(parameter.unit),
+    unit: units[0] || "",
+    units,
   };
 };
 
-// Normalize an instrument's declared functions to [{ key, name, unit, ranges }].
-// Falls back to a single synthetic function for legacy instruments that only
-// carry a flat `ranges` array (or nothing) so they still participate in grouping.
+// Normalize an instrument's declared functions to
+// [{ key, name, unit, units, ranges }]. Legacy flat ranges are grouped by the
+// range-level functionName when present.
 export const instrumentFunctions = (source = {}) => {
   const instrument = getInstrumentDefinition(source);
   const fns = Array.isArray(instrument.functions) ? instrument.functions : [];
 
   if (fns.length > 0) {
-    return fns.map((fn) => ({
-      key: makeFunctionKey(fn.name, fn.unit),
-      name: clean(fn.name) || DEFAULT_FUNCTION_NAME,
-      unit: clean(fn.unit),
-      ranges: Array.isArray(fn.ranges) ? fn.ranges : [],
-    }));
+    const byKey = new Map();
+    fns.forEach((fn) => {
+      const ranges = Array.isArray(fn.ranges) ? fn.ranges : [];
+      const key = makeFunctionKey(fn.name);
+      const units = functionUnits(fn, ranges);
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.ranges = [...existing.ranges, ...ranges];
+        existing.units = uniqueUnits(existing.units, units);
+        existing.unit = existing.units[0] || "";
+        return;
+      }
+      byKey.set(key, {
+        key,
+        name: clean(fn.name) || DEFAULT_FUNCTION_NAME,
+        unit: units[0] || "",
+        units,
+        ranges,
+      });
+    });
+    return Array.from(byKey.values());
   }
 
   const legacyRanges = Array.isArray(instrument.ranges) ? instrument.ranges : [];
-  const name = clean(instrument.functionName) || DEFAULT_FUNCTION_NAME;
-  const unit = clean(instrument.functionUnit) || clean(instrument.unit);
+  const fallbackName = clean(instrument.functionName) || DEFAULT_FUNCTION_NAME;
+  const legacyGroups = new Map();
+  legacyRanges.forEach((range) => {
+    const name = clean(range?.functionName) || fallbackName;
+    const key = makeFunctionKey(name);
+    const existing = legacyGroups.get(key);
+    if (existing) {
+      existing.ranges.push(range);
+      existing.units = uniqueUnits(existing.units, range?.unit, range?.functionUnit);
+      existing.unit = existing.units[0] || "";
+      return;
+    }
+    const units = uniqueUnits(range?.unit, range?.functionUnit).length
+      ? uniqueUnits(range?.unit, range?.functionUnit)
+      : uniqueUnits(instrument.functionUnit, instrument.unit);
+    legacyGroups.set(key, {
+      key,
+      name,
+      unit: units[0] || "",
+      units,
+      ranges: [range],
+    });
+  });
+  if (legacyGroups.size > 0) return Array.from(legacyGroups.values());
+
+  const units = uniqueUnits(instrument.functionUnit, instrument.unit);
   return [
     {
-      key: makeFunctionKey(name, unit),
-      name,
-      unit,
-      ranges: legacyRanges,
+      key: makeFunctionKey(fallbackName),
+      name: fallbackName,
+      unit: units[0] || "",
+      units,
+      ranges: [],
     },
   ];
 };
 
-// True when an instrument declares (can measure) the given function key.
-export const instrumentHasFunction = (source, functionKey) =>
-  instrumentFunctions(source).some((fn) => fn.key === functionKey);
-
-// The ranges an instrument exposes for a single function key. Returns [] when the
-// instrument doesn't have that function. Used to scope a row's range/tolerance
-// display to the subsection it's rendered under.
-export const rangesForFunction = (source, functionKey) => {
-  const match = instrumentFunctions(source).find(
-    (fn) => fn.key === functionKey,
-  );
-  return match ? match.ranges : [];
+export const instrumentHasFunction = (source, functionKey) => {
+  if (!clean(functionKey)) return false;
+  const key = canonicalKey(functionKey);
+  return instrumentFunctions(source).some((fn) => fn.key === key);
 };
 
-// Default subsection colors, mirroring the old measurement-area palette so the
-// look is familiar. A function keeps a stable color once the user picks one
-// (stored in session.functionGroups); until then it gets a palette default.
+// Report each kind of dependency separately when a user tries to remove a
+// function. A measurement point can outlive its deleted UUT, so treating all
+// usage as one boolean produces the misleading impression that a UUT remains.
+export const getFunctionDependencies = (sessionData = {}, fn = {}) => {
+  const key = canonicalKey(fn.key || fn.name);
+  const appliesToUut = !fn.kind || fn.kind === "uut";
+  const appliesToTmde = !fn.kind || fn.kind === "tmde";
+
+  return {
+    uuts: appliesToUut
+      ? (sessionData.uuts || []).filter((uut) => instrumentHasFunction(uut, key))
+      : [],
+    tmdes: appliesToTmde
+      ? (sessionData.tmdes || []).filter((tmde) => instrumentHasFunction(tmde, key))
+      : [],
+    measurementPoints: appliesToUut
+      ? (sessionData.testPoints || []).filter((point) => functionKeyOf(point) === key)
+      : [],
+  };
+};
+
+export const getFunctionDependencyMessage = (dependencies = {}) => {
+  const counts = [
+    [dependencies.uuts?.length || 0, "UUT"],
+    [dependencies.tmdes?.length || 0, "TMDE"],
+    [dependencies.measurementPoints?.length || 0, "measurement point"],
+  ].filter(([count]) => count > 0);
+  if (counts.length === 0) return "";
+
+  const labels = counts.map(
+    ([count, label]) => `${count} ${label}${count === 1 ? "" : "s"}`,
+  );
+  const dependencyList =
+    labels.length === 1
+      ? labels[0]
+      : `${labels.slice(0, -1).join(", ")}${labels.length > 2 ? "," : ""} and ${labels.at(-1)}`;
+  return `This function still has ${dependencyList}. Delete ${
+    counts.reduce((total, [count]) => total + count, 0) === 1 ? "it" : "them"
+  } before deleting the function.`;
+};
+
+// Put instruments that can perform the active table function at the top of a
+// library picker without hiding the rest of the library. Shared definitions
+// lead local variants within each group, matching the picker convention used
+// elsewhere in the workbench. The explicit index tie-breaker makes the result
+// stable even in runtimes where Array#sort stability is not guaranteed.
+export const rankInstrumentsForFunction = (instruments = [], functionKey) => {
+  if (!clean(functionKey)) return [...(instruments || [])];
+
+  return (instruments || [])
+    .map((instrument, index) => ({
+      instrument,
+      index,
+      matchesFunction: instrumentHasFunction(instrument, functionKey),
+      isShared: instrument?.scope === "validated",
+    }))
+    .sort((a, b) => {
+      if (a.matchesFunction !== b.matchesFunction) {
+        return a.matchesFunction ? -1 : 1;
+      }
+      if (a.isShared !== b.isShared) return a.isShared ? -1 : 1;
+      return a.index - b.index;
+    })
+    .map(({ instrument }) => instrument);
+};
+
+// Ranges are aggregated when legacy or builder data contains multiple function
+// entries with the same name but different unit defaults.
+export const rangesForFunction = (source, functionKey) =>
+  clean(functionKey)
+    ? instrumentFunctions(source)
+        .filter((fn) => fn.key === canonicalKey(functionKey))
+        .flatMap((fn) => fn.ranges || [])
+    : [];
+
 export const FUNCTION_COLOR_PALETTE = [
   "#3498db",
   "#2ecc71",
@@ -98,53 +223,48 @@ export const FUNCTION_COLOR_PALETTE = [
   "#34495e",
 ];
 
-// The single source of truth for the function set shown in BOTH the sidebar and
-// the instrument tables, so a rename/recolor in one surface is reflected in the
-// other. Merges:
-//   - explicit session.functionGroups (user-added/empty functions + saved colors)
-//   - functions declared by every UUT/TMDE instrument
-//   - functions named by every test point's parameter
-// Returns ordered [{ key, name, unit, color }] (explicit entries first, then the
-// rest alphabetically), with a palette color filled in where none is stored.
+// Resolve the shared function list used by the sidebar and instrument tables.
+// Each result includes a compatibility `unit` (the first unit) and the full
+// deduplicated `units` list for measurement-point creation.
 export const resolveSessionFunctions = (sessionData = {}, { kind = null } = {}) => {
   const explicit = Array.isArray(sessionData.functionGroups)
     ? sessionData.functionGroups
     : [];
 
-  // Build the ordered function list for a given kind filter (null = every kind).
-  // Color resolution is handled separately (below) so it can be made consistent
-  // across the per-kind UUT and TMDE views.
   const buildFunctions = (kindFilter) => {
     const uuts = kindFilter === "tmde" ? [] : sessionData.uuts || [];
     const tmdes = kindFilter === "uut" ? [] : sessionData.tmdes || [];
     const points = kindFilter === "tmde" ? [] : sessionData.testPoints || [];
-
-    // key -> { key, name, unit, color, explicitOrder }
     const map = new Map();
-    const add = (name, unit, color, explicitOrder) => {
-      const key = makeFunctionKey(name, unit);
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          name: clean(name) || DEFAULT_FUNCTION_NAME,
-          unit: clean(unit),
-          color: color || null,
-          explicitOrder,
-        });
-      } else if (color && !map.get(key).color) {
-        map.get(key).color = color;
+    const add = (name, unitOrUnits, color, explicitOrder) => {
+      const key = makeFunctionKey(name);
+      const units = uniqueUnits(unitOrUnits);
+      const existing = map.get(key);
+      if (existing) {
+        existing.units = uniqueUnits(existing.units, units);
+        existing.unit = existing.units[0] || "";
+        if (color && !existing.color) existing.color = color;
+        return;
       }
+      map.set(key, {
+        key,
+        name: clean(name) || DEFAULT_FUNCTION_NAME,
+        unit: units[0] || "",
+        units,
+        color: color || null,
+        explicitOrder,
+      });
     };
 
     explicit
       .filter((fn) => !kindFilter || !fn.kind || fn.kind === kindFilter)
-      .forEach((fn, index) => add(fn.name, fn.unit, fn.color, index));
+      .forEach((fn, index) => add(fn.name, [fn.unit, fn.units], fn.color, index));
     [...uuts, ...tmdes].forEach((inst) =>
-      instrumentFunctions(inst).forEach((fn) => add(fn.name, fn.unit)),
+      instrumentFunctions(inst).forEach((fn) => add(fn.name, fn.units || fn.unit)),
     );
     points.forEach((point) => {
       const label = functionLabelOf(point);
-      add(label.name, label.unit);
+      add(label.name, label.units || label.unit);
     });
 
     return Array.from(map.values()).sort((a, b) => {
@@ -155,11 +275,6 @@ export const resolveSessionFunctions = (sessionData = {}, { kind = null } = {}) 
     });
   };
 
-  // Resolve colors from the GLOBAL (kind-agnostic) function set so a function
-  // shared by a TMDE and a UUT renders in the SAME color on both surfaces. A
-  // stored color (functionGroups) wins; otherwise a palette default is assigned
-  // by the function's position in the global ordering, which stays stable
-  // across the per-kind views (so the color never forks between UUT and TMDE).
   const globalColorByKey = new Map();
   buildFunctions(null).forEach((fn, index) => {
     globalColorByKey.set(
@@ -174,22 +289,30 @@ export const resolveSessionFunctions = (sessionData = {}, { kind = null } = {}) 
       globalColorByKey.get(fn.key) || fn.color || FUNCTION_COLOR_PALETTE[0];
     delete fn.explicitOrder;
   });
-
   return result;
 };
 
-// Quick lookup of a function's resolved color by key.
 export const colorForFunction = (sessionData, functionKey) =>
-  resolveSessionFunctions(sessionData).find((fn) => fn.key === functionKey)
-    ?.color || null;
+  resolveSessionFunctions(sessionData).find(
+    (fn) => fn.key === canonicalKey(functionKey),
+  )?.color || null;
 
-// Distinct functions across a set of instruments (e.g. the shared library),
-// ordered by name then unit. Feeds the "Add Function" picker.
 export const functionsForLibrary = (instruments = []) => {
   const byKey = new Map();
   (instruments || []).forEach((instrument) => {
-    instrumentFunctions(instrument).forEach(({ key, name, unit }) => {
-      if (!byKey.has(key)) byKey.set(key, { key, name, unit });
+    instrumentFunctions(instrument).forEach(({ key, name, unit, units }) => {
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.units = uniqueUnits(existing.units, units, unit);
+        existing.unit = existing.units[0] || "";
+      } else {
+        byKey.set(key, {
+          key,
+          name,
+          unit: unit || "",
+          units: uniqueUnits(units, unit),
+        });
+      }
     });
   });
   return Array.from(byKey.values()).sort(
