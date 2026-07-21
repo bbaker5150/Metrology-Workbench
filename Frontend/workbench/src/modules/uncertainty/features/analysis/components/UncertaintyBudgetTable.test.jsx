@@ -456,6 +456,49 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(plotData[0].hovertemplate).toContain("Variance contribution");
   });
 
+  it("updates an open contribution graph when the calculated budget changes", async () => {
+    Plotly.react.mockClear();
+    const baseProps = {
+      components: [],
+      showContribution: true,
+      setShowContribution: vi.fn(),
+      measurementType: "direct",
+      referencePoint: { name: "Voltage", unit: "V" },
+    };
+    const makeResults = (accuracy) => ({
+      combined_uncertainty: 1,
+      effective_dof: Infinity,
+      k_value: 2,
+      expanded_uncertainty: 2,
+      calculatedBudgetComponents: [
+        {
+          id: "accuracy",
+          name: "DMM Accuracy",
+          value_native: accuracy,
+        },
+        {
+          id: "resolution",
+          name: "UUT Resolution",
+          value_native: 0.02,
+        },
+      ],
+    });
+
+    const view = render(
+      <UncertaintyBudgetTable {...baseProps} calcResults={makeResults(0.01)} />,
+    );
+    await waitFor(() => expect(Plotly.react).toHaveBeenCalled());
+    expect(Plotly.react.mock.calls.at(-1)[1][0].x).toEqual([20, 80]);
+
+    view.rerender(
+      <UncertaintyBudgetTable {...baseProps} calcResults={makeResults(0.02)} />,
+    );
+
+    await waitFor(() => {
+      expect(Plotly.react.mock.calls.at(-1)[1][0].x).toEqual([50, 50]);
+    });
+  });
+
   it("charts each Taylor Series input instead of the derived summary row", async () => {
     Plotly.react.mockClear();
     renderDirectBudget({

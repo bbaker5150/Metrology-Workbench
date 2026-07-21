@@ -8,9 +8,12 @@ const PercentageBarGraph = ({
   valueMode = "magnitude",
   title = "Uncertainty contribution",
   valueLabel,
+  revision,
 }) => {
   const isDarkMode = useTheme();
   const plotContainer = useRef(null);
+  const dataSignature = JSON.stringify(data || {});
+  const dataRevision = revision || dataSignature;
 
   // 1. Data Processing
   const processedData = useMemo(() => {
@@ -36,7 +39,7 @@ const PercentageBarGraph = ({
     const percentages = total === 0 ? values.map(() => 0) : values.map((val) => (val / total) * 100);
 
     return { labels, percentages, values };
-  }, [data]);
+  }, [data, dataSignature]);
 
   // Resolve the same design tokens used by the surrounding app. Plotly needs
   // concrete colors (CSS variables are not interpreted inside its SVG canvas),
@@ -161,6 +164,10 @@ const PercentageBarGraph = ({
         },
         paper_bgcolor: themeColors.bg,
         plot_bgcolor: themeColors.bg,
+        // Plotly may otherwise retain arrays when callers structurally share a
+        // nested budget object. A changing datarevision guarantees Plotly.react
+        // redraws the open graph after every material budget update.
+        datarevision: dataRevision,
         showlegend: false,
         hoverlabel: {
           bgcolor: isDarkMode ? "#172033" : "#ffffff",
@@ -169,7 +176,7 @@ const PercentageBarGraph = ({
         },
         transition: { duration: 260, easing: "cubic-in-out" },
     };
-  }, [isDarkMode, themeColors, title]);
+  }, [dataRevision, isDarkMode, themeColors, title]);
 
   // The contribution plot is informational and fixed-range, so a mode bar only
   // adds visual noise. In particular, do not expose Plotly's snapshot action.

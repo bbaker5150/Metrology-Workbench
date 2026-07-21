@@ -67,6 +67,20 @@ describe("ContributionPlot", () => {
     expect(Plotly.purge).toHaveBeenCalledTimes(1);
   });
 
+  it("redraws when contribution values change while the chart stays open", () => {
+    const data = { Accuracy: 1, Resolution: 1 };
+    const view = render(<PercentageBarGraph data={data} unit="V" />);
+    const firstRevision = Plotly.react.mock.calls.at(-1)[2].datarevision;
+
+    data.Resolution = 3;
+    view.rerender(<PercentageBarGraph data={data} unit="V" />);
+
+    expect(Plotly.react).toHaveBeenCalledTimes(2);
+    const [, plotData, layout] = Plotly.react.mock.calls.at(-1);
+    expect(plotData[0].x).toEqual([25, 75]);
+    expect(layout.datarevision).not.toBe(firstRevision);
+  });
+
   it("renders Monte Carlo influence as percentages without physical units", () => {
     render(
       <PercentageBarGraph

@@ -751,6 +751,18 @@ const UncertaintyBudgetTable = ({
     ];
   }, [calcResults, components, derivedName, derivedUnit]);
 
+  // Budget rows can be updated through several paths (inline manual edits,
+  // instrument-linked specifications, resolution inclusion, and propagation
+  // controls). Some of those paths preserve nested object identities. Use a
+  // content signature so the open chart always follows the displayed budget,
+  // even when React receives a structurally shared calculation result.
+  const contributionRevision = JSON.stringify({
+    components: calcResults?.calculatedBudgetComponents || components || [],
+    groups: calcResults?.calculatedBudgetGroups || groups,
+    monteCarloInfluence: calcResults?.monteCarlo?.influenceFractions || [],
+    budgetPropagationMethod,
+  });
+
   const renderDistributionCell = (component) => {
     if (component.isPropagationSummary) {
       return <span>{component.distribution}</span>;
@@ -1121,7 +1133,9 @@ const UncertaintyBudgetTable = ({
       return data;
     };
     const asChart = (data, options = {}) =>
-      Object.keys(data).length > 0 ? { data, ...options } : null;
+      Object.keys(data).length > 0
+        ? { data, revision: contributionRevision, ...options }
+        : null;
 
     if (measurementType === "derived") {
       const equationGroup = groups.find((group) => group.kind === "equation");
@@ -1262,6 +1276,7 @@ const UncertaintyBudgetTable = ({
     budgetPropagationMethod,
     calcResults?.calculatedBudgetComponents,
     calcResults?.monteCarlo?.influenceFractions,
+    contributionRevision,
     derivedUnit,
     groups,
     measurementType,
@@ -1362,6 +1377,7 @@ const UncertaintyBudgetTable = ({
                     >
                       <PercentageBarGraph
                         data={contributionChart.data}
+                        revision={contributionChart.revision}
                         unit={contributionChart.unit}
                         valueMode={contributionChart.valueMode}
                         valueLabel={contributionChart.valueLabel}
