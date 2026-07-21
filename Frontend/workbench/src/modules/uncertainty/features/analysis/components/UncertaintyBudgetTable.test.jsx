@@ -512,7 +512,17 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       expect.arrayContaining(["Length (l)", "Weight (w)", "UUT Resolution"]),
     );
     expect(plotData[0].y).not.toContain("Taylor Series Approximation");
-    expect(layout.title.text).toBe("Taylor series variable contribution");
+    const shares = Object.fromEntries(
+      plotData[0].y.map((label, index) => [label, plotData[0].x[index]]),
+    );
+    expect(shares["Length (l)"]).toBeCloseTo((0.002 ** 2 / 0.00000417) * 100, 8);
+    expect(shares["Weight (w)"]).toBeCloseTo((0.0004 ** 2 / 0.00000417) * 100, 8);
+    expect(shares["UUT Resolution"]).toBeCloseTo(
+      (0.0001 ** 2 / 0.00000417) * 100,
+      8,
+    );
+    expect(plotData[0].hovertemplate).toContain("Variance contribution");
+    expect(layout.title.text).toBe("Taylor series uncertainty contribution");
   });
 
   it("charts Monte Carlo variable influence percentages", async () => {
@@ -595,7 +605,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       "60.00%",
     ]);
     expect(plotData[0].y).not.toContain("Monte Carlo Approximation");
-    expect(plotData[0].hovertemplate).toContain("Contribution");
+    expect(plotData[0].hovertemplate).toContain("Variance contribution");
     expect(layout.title.text).toBe("Monte Carlo uncertainty contribution");
   });
 

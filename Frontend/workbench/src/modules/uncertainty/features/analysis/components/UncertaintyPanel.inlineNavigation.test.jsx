@@ -16,7 +16,10 @@ describe("inline instrument column navigation", () => {
           className="inline-tolerance-summary"
           onClick={() => {
             openRange();
-            setIsOpen(true);
+            // Initial range creation is persisted before the editor mounts in
+            // the real table. Reproduce that delay so the test protects the
+            // focus handoff rather than only the already-mounted case.
+            window.setTimeout(() => setIsOpen(true), 30);
           }}
         >
           Not Set

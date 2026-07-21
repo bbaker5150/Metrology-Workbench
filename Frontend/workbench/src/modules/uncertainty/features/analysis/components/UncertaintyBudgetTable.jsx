@@ -1176,29 +1176,42 @@ const UncertaintyBudgetTable = ({
           {
             unit: "",
             valueMode: "share",
-            valueLabel: "Contribution",
+            valueLabel: "Variance contribution",
             title: "Monte Carlo uncertainty contribution",
           },
         );
       }
 
       // Taylor propagation rows contain c_i * u_i in the derived point's
-      // native unit. Do not chart the final Taylor summary as well: doing so
-      // would double-count the same variables. Standalone final-budget sources
-      // (such as UUT resolution) remain useful contributors and are retained.
+      // native unit. A contribution percentage is a share of total variance,
+      // so square each standard-uncertainty contribution before normalizing.
+      // This gives the Taylor and Monte Carlo views the same denominator and
+      // prevents standalone sources such as resolution from appearing ten
+      // times larger merely because one chart used magnitudes and the other
+      // used variances. Do not chart the final Taylor summary as well: that
+      // would double-count the same equation variables.
       return asChart(
         {
-          ...toChartData(equationRows, (row) => row.contribution),
-          ...toChartData(standaloneComponents, (component) =>
-            component.contribution ??
-            component.value_native ??
-            component.value,
-          ),
+          ...toChartData(equationRows, (row) => {
+            const contribution = Math.abs(Number(row.contribution) || 0);
+            return contribution ** 2;
+          }),
+          ...toChartData(standaloneComponents, (component) => {
+            const contribution = Math.abs(
+              Number(
+                component.contribution ??
+                  component.value_native ??
+                  component.value,
+              ) || 0,
+            );
+            return contribution ** 2;
+          }),
         },
         {
-          unit: derivedUnit,
-          valueMode: "magnitude",
-          title: "Taylor series variable contribution",
+          unit: "",
+          valueMode: "share",
+          valueLabel: "Variance contribution",
+          title: "Taylor series uncertainty contribution",
         },
       );
     }

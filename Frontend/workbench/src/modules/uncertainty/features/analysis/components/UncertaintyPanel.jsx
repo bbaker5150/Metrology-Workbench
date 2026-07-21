@@ -2083,6 +2083,58 @@ export const EditableDescriptionCell = ({
 // standard assumption for a least-significant-digit / quantization error.
 const RESOLUTION_DIST_DEFAULT = "1.732";
 
+const INLINE_COLUMN_CONTROL_SELECTOR =
+  'input:not([disabled]):not([type="hidden"]), select:not([disabled]), button.inline-unit-combobox:not([disabled]), button.inline-menu-select-trigger:not([disabled])';
+
+// Opening a previously unset range creates its first range record
+// asynchronously. Waiting a single animation frame is therefore racy: the
+// cell can be expanded while its first input still does not exist. Resolve the
+// live cell on every frame and focus only after the control has actually
+// mounted. The bounded retry also avoids leaving an observer/timer behind.
+const focusFirstInlineColumnControl = ({
+  table,
+  rowIndex,
+  cellIndex,
+  fallbackCell,
+  origin,
+}) => {
+  let attempts = 0;
+  const maxAttempts = 90;
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+
+  const attemptFocus = () => {
+    const activeElement = document.activeElement;
+    if (
+      activeElement &&
+      activeElement !== document.body &&
+      activeElement !== origin &&
+      table &&
+      !table.contains(activeElement)
+    ) {
+      return;
+    }
+
+    const liveCell =
+      table?.rows?.[rowIndex]?.cells?.[cellIndex] ||
+      (fallbackCell?.isConnected ? fallbackCell : null);
+    const firstControl = liveCell?.querySelector?.(
+      INLINE_COLUMN_CONTROL_SELECTOR,
+    );
+    if (firstControl) {
+      firstControl.focus();
+      return;
+    }
+
+    attempts += 1;
+    if (attempts < maxAttempts) schedule(attemptFocus);
+  };
+
+  schedule(attemptFocus);
+};
+
 const moveToNextInlineTableColumn = (event) => {
   const cell = event.target?.closest?.("td");
   if (!cell) return false;
@@ -2098,12 +2150,16 @@ const moveToNextInlineTableColumn = (event) => {
     if (openButton || existingControl) {
       event.preventDefault();
       event.stopPropagation();
+      const table = cell.closest?.("table");
+      const rowIndex = cell.parentElement?.rowIndex;
+      const cellIndex = nextCell.cellIndex;
       if (openButton) openButton.click();
-      window.requestAnimationFrame(() => {
-        const firstControl = nextCell.querySelector?.(
-          "input:not([disabled]), select:not([disabled]), button.inline-unit-combobox:not([disabled]), button.inline-menu-select-trigger:not([disabled])",
-        );
-        firstControl?.focus();
+      focusFirstInlineColumnControl({
+        table,
+        rowIndex,
+        cellIndex,
+        fallbackCell: nextCell,
+        origin: event.target,
       });
       return true;
     }
