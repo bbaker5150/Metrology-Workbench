@@ -67,6 +67,25 @@ describe("ContributionPlot", () => {
     expect(Plotly.purge).toHaveBeenCalledTimes(1);
   });
 
+  it("renders Monte Carlo influence as percentages without physical units", () => {
+    render(
+      <PercentageBarGraph
+        data={{ Weight: 0.6, Length: 0.4 }}
+        unit="in-oz"
+        valueMode="share"
+        title="Monte Carlo variable influence"
+      />,
+    );
+
+    const [, plotData, layout] = Plotly.react.mock.calls[0];
+    expect(plotData[0].y).toEqual(["Length", "Weight"]);
+    expect(plotData[0].x).toEqual([40, 60]);
+    expect(plotData[0].customdata).toEqual(["40.00%", "60.00%"]);
+    expect(plotData[0].hovertemplate).toContain("Variable influence");
+    expect(plotData[0].customdata.join(" ")).not.toContain("in-oz");
+    expect(layout.title.text).toBe("Monte Carlo variable influence");
+  });
+
   it("shows a placeholder and does not draw when there are no contributors", () => {
     const { getByText } = render(<PercentageBarGraph data={{}} unit="V" />);
     expect(getByText(/No significant error sources/i)).toBeInTheDocument();

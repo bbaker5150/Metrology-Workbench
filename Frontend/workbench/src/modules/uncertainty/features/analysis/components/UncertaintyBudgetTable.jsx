@@ -1103,28 +1103,96 @@ const UncertaintyBudgetTable = ({
     </>
   );
 
-  const contributionData = useMemo(() => {
-    const finalGroupComponents = groups.find((group) => group.kind === "final")?.components;
-    const sourceComponents =
-      measurementType === "derived" && finalGroupComponents?.length
-        ? finalGroupComponents
-        : calcResults?.calculatedBudgetComponents || [];
-    if (!showContribution || sourceComponents.length === 0) return null;
-    return Object.fromEntries(
-      sourceComponents.map((item) => {
-        const value =
-          item.isPropagationSummary
-            ? item.value_native || item.value || 0
-            : measurementType === "derived"
-            ? item.contribution || 0
-            : item.value_native || item.value || 0;
-        const label = item.name?.startsWith("Input: ")
-          ? item.name.substring(7)
-          : item.name;
-        return [label || "Uncertainty component", Math.abs(Number(value) || 0)];
-      }),
+  const contributionChart = useMemo(() => {
+    if (!showContribution) return null;
+
+    // Object keys drive the Plotly category labels. Preserve repeated source
+    // names instead of silently replacing an earlier contributor.
+    const toChartData = (items, getValue) => {
+      const data = {};
+      const labelCounts = new Map();
+      items.forEach((item, index) => {
+        const rawLabel = String(
+          item?.name || item?.label || "Uncertainty component",
+        ).replace(/^Input:\s*/, "");
+        const count = (labelCounts.get(rawLabel) || 0) + 1;
+        labelCounts.set(rawLabel, count);
+        const label = count === 1 ? rawLabel : `${rawLabel} (${count})`;
+        const value = Math.abs(Number(getValue(item, index)) || 0);
+        if (value > 0) data[label] = value;
+      });
+      return data;
+    };
+    const asChart = (data, options = {}) =>
+      Object.keys(data).length > 0 ? { data, ...options } : null;
+
+    if (measurementType === "derived") {
+      const equationGroup = groups.find((group) => group.kind === "equation");
+      const equationRows = equationGroup?.rows || [];
+      const method = equationGroup?.method || budgetPropagationMethod;
+
+      if (method === "montecarlo") {
+        const fallbackInfluences = calcResults?.monteCarlo?.influenceFractions || [];
+        return asChart(
+          toChartData(
+            equationRows,
+            (row, index) => row.influence ?? fallbackInfluences[index],
+          ),
+          {
+            unit: "",
+            valueMode: "share",
+            title: "Monte Carlo variable influence",
+          },
+        );
+      }
+
+      // Taylor propagation rows contain c_i * u_i in the derived point's
+      // native unit. Do not chart the final Taylor summary as well: doing so
+      // would double-count the same variables. Standalone final-budget sources
+      // (such as UUT resolution) remain useful contributors and are retained.
+      const finalComponents =
+        groups.find((group) => group.kind === "final")?.components || [];
+      const standaloneComponents = finalComponents.filter(
+        (component) => !component.isPropagationSummary,
+      );
+      return asChart(
+        {
+          ...toChartData(equationRows, (row) => row.contribution),
+          ...toChartData(standaloneComponents, (component) =>
+            component.contribution ??
+            component.value_native ??
+            component.value,
+          ),
+        },
+        {
+          unit: derivedUnit,
+          valueMode: "magnitude",
+          title: "Taylor series variable contribution",
+        },
+      );
+    }
+
+    const sourceComponents = calcResults?.calculatedBudgetComponents || [];
+    return asChart(
+      toChartData(
+        sourceComponents,
+        (item) => item.value_native ?? item.value,
+      ),
+      {
+        unit: derivedUnit,
+        valueMode: "magnitude",
+        title: "Uncertainty contribution",
+      },
     );
-  }, [calcResults?.calculatedBudgetComponents, groups, measurementType, showContribution]);
+  }, [
+    budgetPropagationMethod,
+    calcResults?.calculatedBudgetComponents,
+    calcResults?.monteCarlo?.influenceFractions,
+    derivedUnit,
+    groups,
+    measurementType,
+    showContribution,
+  ]);
   const isMonteCarlo = budgetPropagationMethod === "montecarlo";
   const setMonteCarloEnabled = (enabled) =>
     onPropagationMethodChange?.(enabled ? "montecarlo" : "equation");
@@ -1218,7 +1286,7 @@ const UncertaintyBudgetTable = ({
               </div>
               {group.kind === "final" && calcResults && (
                 <div className="budget-final-support">
-                  {contributionData && (
+                  {contributionChart && (
                     <Suspense
                       fallback={
                         <div className="budget-contribution-loading" role="status">
@@ -1227,8 +1295,10 @@ const UncertaintyBudgetTable = ({
                       }
                     >
                       <PercentageBarGraph
-                        data={contributionData}
-                        unit={derivedUnit}
+                        data={contributionChart.data}
+                        unit={contributionChart.unit}
+                        valueMode={contributionChart.valueMode}
+                        title={contributionChart.title}
                       />
                     </Suspense>
                   )}

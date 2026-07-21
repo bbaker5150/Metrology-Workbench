@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import Plotly from "plotly.js-dist";
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
 
 // ContributionPlot draws with the real Plotly bundle; stub it so the budget
@@ -441,6 +442,144 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(
       screen.getByRole("button", { name: "Hide contribution chart" }),
     ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("charts each Taylor Series input instead of the derived summary row", async () => {
+    Plotly.react.mockClear();
+    renderDirectBudget({
+      measurementType: "derived",
+      budgetPropagationMethod: "equation",
+      showContribution: true,
+      setShowContribution: vi.fn(),
+      referencePoint: { name: "Torque", unit: "in-oz" },
+      calcResults: {
+        calculatedBudgetGroups: [
+          {
+            id: "measurement_equation",
+            kind: "equation",
+            label: "Taylor Series Approximation",
+            method: "equation",
+            unit: "in-oz",
+            rows: [
+              {
+                id: "length",
+                name: "Length (l)",
+                standardUncertainty: 0.001,
+                unit: "in",
+                sensitivityCoefficient: 2,
+                contribution: 0.002,
+              },
+              {
+                id: "weight",
+                name: "Weight (w)",
+                standardUncertainty: 0.0004,
+                unit: "ozf",
+                sensitivityCoefficient: 1,
+                contribution: 0.0004,
+              },
+            ],
+            results: {},
+          },
+          {
+            id: "final_budget",
+            kind: "final",
+            label: "Torque Uncertainty Budget",
+            unit: "in-oz",
+            components: [
+              {
+                id: "taylor-summary",
+                name: "Taylor Series Approximation",
+                value_native: 0.00204,
+                isPropagationSummary: true,
+                distribution: "Standard uncertainty (k=1)",
+              },
+              {
+                id: "uut-resolution",
+                name: "UUT Resolution",
+                contribution: 0.0001,
+                distribution: "Rectangular (resolution)",
+              },
+            ],
+            results: {},
+          },
+        ],
+      },
+    });
+
+    await waitFor(() => expect(Plotly.react).toHaveBeenCalled());
+    const [, plotData, layout] = Plotly.react.mock.calls.at(-1);
+    expect(plotData[0].y).toEqual(
+      expect.arrayContaining(["Length (l)", "Weight (w)", "UUT Resolution"]),
+    );
+    expect(plotData[0].y).not.toContain("Taylor Series Approximation");
+    expect(layout.title.text).toBe("Taylor series variable contribution");
+  });
+
+  it("charts Monte Carlo variable influence percentages", async () => {
+    Plotly.react.mockClear();
+    renderDirectBudget({
+      measurementType: "derived",
+      budgetPropagationMethod: "montecarlo",
+      showContribution: true,
+      setShowContribution: vi.fn(),
+      referencePoint: { name: "Torque", unit: "in-oz" },
+      calcResults: {
+        calculatedBudgetGroups: [
+          {
+            id: "measurement_equation",
+            kind: "equation",
+            label: "Monte Carlo Approximation",
+            method: "montecarlo",
+            unit: "in-oz",
+            rows: [
+              {
+                id: "length",
+                name: "Length (l)",
+                standardUncertainty: 0.001,
+                unit: "in",
+                sensitivityCoefficient: 2,
+                contribution: 0.002,
+                influence: 0.25,
+              },
+              {
+                id: "weight",
+                name: "Weight (w)",
+                standardUncertainty: 0.0004,
+                unit: "ozf",
+                sensitivityCoefficient: 1,
+                contribution: 0.0004,
+                influence: 0.75,
+              },
+            ],
+            results: {},
+          },
+          {
+            id: "final_budget",
+            kind: "final",
+            label: "Torque Uncertainty Budget",
+            unit: "in-oz",
+            components: [
+              {
+                id: "mc-summary",
+                name: "Monte Carlo Approximation",
+                value_native: 0.0021,
+                isPropagationSummary: true,
+                distribution: "Standard uncertainty (k=1)",
+              },
+            ],
+            results: {},
+          },
+        ],
+      },
+    });
+
+    await waitFor(() => expect(Plotly.react).toHaveBeenCalled());
+    const [, plotData, layout] = Plotly.react.mock.calls.at(-1);
+    expect(plotData[0].y).toEqual(["Length (l)", "Weight (w)"]);
+    expect(plotData[0].x).toEqual([25, 75]);
+    expect(plotData[0].customdata).toEqual(["25.00%", "75.00%"]);
+    expect(plotData[0].y).not.toContain("Monte Carlo Approximation");
+    expect(layout.title.text).toBe("Monte Carlo variable influence");
   });
 
   it("uses a compact chart control beside Add for contribution display", () => {

@@ -2,7 +2,12 @@ import { useMemo, useEffect, useRef } from "react";
 import Plotly from "plotly.js-dist";
 import { useTheme } from "../../../context/ThemeContext";
 
-const PercentageBarGraph = ({ data, unit = "" }) => {
+const PercentageBarGraph = ({
+  data,
+  unit = "",
+  valueMode = "magnitude",
+  title = "Uncertainty contribution",
+}) => {
   const isDarkMode = useTheme();
   const plotContainer = useRef(null);
 
@@ -66,13 +71,20 @@ const PercentageBarGraph = ({ data, unit = "" }) => {
         return Number(val).toPrecision(4);
     };
 
-    const formattedValuesWithUnit = processedData.values.map(val => `${formatValue(val)} ${unit}`);
+    const formattedValues =
+      valueMode === "share"
+        ? processedData.percentages.map((value) => `${value.toFixed(2)}%`)
+        : processedData.values.map((value) =>
+            [formatValue(value), unit].filter(Boolean).join(" "),
+          );
+    const contributionLabel =
+      valueMode === "share" ? "Variable influence" : "Contribution";
 
     return [
       {
         x: processedData.percentages,
         y: processedData.labels,
-        customdata: formattedValuesWithUnit, 
+        customdata: formattedValues,
         orientation: "h",
         type: "bar",
         width: barThickness,
@@ -87,7 +99,7 @@ const PercentageBarGraph = ({ data, unit = "" }) => {
         },
         hovertemplate: 
           `<b>%{y}</b><br>` +
-          `Contribution: <b>%{customdata}</b><br>` + 
+          `${contributionLabel}: <b>%{customdata}</b><br>` +
           `Share: %{x:.2f}%<br>` +
           `<extra></extra>`,
         text: processedData.percentages.map((p) => `${p.toFixed(1)}%`),
@@ -100,13 +112,13 @@ const PercentageBarGraph = ({ data, unit = "" }) => {
         }
       },
     ];
-  }, [processedData, themeColors, unit]);
+  }, [processedData, themeColors, unit, valueMode]);
 
   // 4. Construct Layout
   const plotLayout = useMemo(() => {
     return {
         title: {
-            text: "Uncertainty contribution",
+            text: title,
             font: {
                 family: "'Inter', sans-serif",
                 size: 14,
@@ -155,7 +167,7 @@ const PercentageBarGraph = ({ data, unit = "" }) => {
         },
         transition: { duration: 260, easing: "cubic-in-out" },
     };
-  }, [isDarkMode, themeColors]);
+  }, [isDarkMode, themeColors, title]);
 
   // The contribution plot is informational and fixed-range, so a mode bar only
   // adds visual noise. In particular, do not expose Plotly's snapshot action.
