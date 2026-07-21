@@ -1128,18 +1128,56 @@ const UncertaintyBudgetTable = ({
       const equationGroup = groups.find((group) => group.kind === "equation");
       const equationRows = equationGroup?.rows || [];
       const method = equationGroup?.method || budgetPropagationMethod;
+      const finalComponents =
+        groups.find((group) => group.kind === "final")?.components || [];
+      const standaloneComponents = finalComponents.filter(
+        (component) => !component.isPropagationSummary,
+      );
 
       if (method === "montecarlo") {
         const fallbackInfluences = calcResults?.monteCarlo?.influenceFractions || [];
+        const propagationSummary = finalComponents.find(
+          (component) => component.isPropagationSummary,
+        );
+        const nativeEquationStandardUncertainty = [
+          equationGroup?.results?.combined,
+          propagationSummary?.contribution,
+          propagationSummary?.value_native,
+          propagationSummary?.value,
+        ]
+          .map(Number)
+          .find((value) => Number.isFinite(value) && value > 0);
+        const equationVariance = nativeEquationStandardUncertainty ** 2;
+        const chartRows = [
+          ...equationRows.map((row, index) => ({
+            ...row,
+            chartVariance:
+              Math.max(
+                0,
+                Number(row.influence ?? fallbackInfluences[index]) || 0,
+              ) * equationVariance,
+          })),
+          ...standaloneComponents.map((component) => {
+            const standardUncertainty = Math.abs(
+              Number(
+                component.contribution ??
+                  component.value_native ??
+                  component.value,
+              ) || 0,
+            );
+            return {
+              ...component,
+              chartVariance: standardUncertainty ** 2,
+            };
+          }),
+        ];
         return asChart(
-          toChartData(
-            equationRows,
-            (row, index) => row.influence ?? fallbackInfluences[index],
-          ),
+          toChartData(chartRows, (row) => row.chartVariance),
           {
             unit: "",
             valueMode: "share",
-            title: "Monte Carlo variable influence",
+            valueLabel: "Contribution",
+            title: "Monte Carlo uncertainty contribution",
           },
         );
       }
@@ -1148,11 +1186,6 @@ const UncertaintyBudgetTable = ({
       // native unit. Do not chart the final Taylor summary as well: doing so
       // would double-count the same variables. Standalone final-budget sources
       // (such as UUT resolution) remain useful contributors and are retained.
-      const finalComponents =
-        groups.find((group) => group.kind === "final")?.components || [];
-      const standaloneComponents = finalComponents.filter(
-        (component) => !component.isPropagationSummary,
-      );
       return asChart(
         {
           ...toChartData(equationRows, (row) => row.contribution),
@@ -1288,6 +1321,7 @@ const UncertaintyBudgetTable = ({
                         data={contributionChart.data}
                         unit={contributionChart.unit}
                         valueMode={contributionChart.valueMode}
+                        valueLabel={contributionChart.valueLabel}
                         title={contributionChart.title}
                       />
                     </Suspense>

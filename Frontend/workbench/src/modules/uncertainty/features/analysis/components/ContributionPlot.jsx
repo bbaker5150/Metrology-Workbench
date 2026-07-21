@@ -7,6 +7,7 @@ const PercentageBarGraph = ({
   unit = "",
   valueMode = "magnitude",
   title = "Uncertainty contribution",
+  valueLabel,
 }) => {
   const isDarkMode = useTheme();
   const plotContainer = useRef(null);
@@ -78,7 +79,8 @@ const PercentageBarGraph = ({
             [formatValue(value), unit].filter(Boolean).join(" "),
           );
     const contributionLabel =
-      valueMode === "share" ? "Variable influence" : "Contribution";
+      valueLabel ||
+      (valueMode === "share" ? "Variable influence" : "Contribution");
 
     return [
       {
@@ -112,7 +114,7 @@ const PercentageBarGraph = ({
         }
       },
     ];
-  }, [processedData, themeColors, unit, valueMode]);
+  }, [processedData, themeColors, unit, valueLabel, valueMode]);
 
   // 4. Construct Layout
   const plotLayout = useMemo(() => {

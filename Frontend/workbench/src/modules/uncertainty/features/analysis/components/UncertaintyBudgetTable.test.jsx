@@ -478,7 +478,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
                 contribution: 0.0004,
               },
             ],
-            results: {},
+            results: { combined: 0.002 },
           },
           {
             id: "final_budget",
@@ -562,9 +562,15 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
               {
                 id: "mc-summary",
                 name: "Monte Carlo Approximation",
-                value_native: 0.0021,
+                value_native: 0.002,
                 isPropagationSummary: true,
                 distribution: "Standard uncertainty (k=1)",
+              },
+              {
+                id: "uut-resolution",
+                name: "UUT Resolution",
+                contribution: 0.001,
+                distribution: "Rectangular (resolution)",
               },
             ],
             results: {},
@@ -575,11 +581,22 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
 
     await waitFor(() => expect(Plotly.react).toHaveBeenCalled());
     const [, plotData, layout] = Plotly.react.mock.calls.at(-1);
-    expect(plotData[0].y).toEqual(["Length (l)", "Weight (w)"]);
-    expect(plotData[0].x).toEqual([25, 75]);
-    expect(plotData[0].customdata).toEqual(["25.00%", "75.00%"]);
+    expect(plotData[0].y).toEqual([
+      "Length (l)",
+      "UUT Resolution",
+      "Weight (w)",
+    ]);
+    expect(plotData[0].x[0]).toBeCloseTo(20, 10);
+    expect(plotData[0].x[1]).toBeCloseTo(20, 10);
+    expect(plotData[0].x[2]).toBeCloseTo(60, 10);
+    expect(plotData[0].customdata).toEqual([
+      "20.00%",
+      "20.00%",
+      "60.00%",
+    ]);
     expect(plotData[0].y).not.toContain("Monte Carlo Approximation");
-    expect(layout.title.text).toBe("Monte Carlo variable influence");
+    expect(plotData[0].hovertemplate).toContain("Contribution");
+    expect(layout.title.text).toBe("Monte Carlo uncertainty contribution");
   });
 
   it("uses a compact chart control beside Add for contribution display", () => {
