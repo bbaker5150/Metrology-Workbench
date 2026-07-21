@@ -12059,13 +12059,33 @@ input.inline-function-input:focus {
   border-radius: 2px;
 }
 
-.detail-workspace-section-toggle--instruments { order: 10; }
-.detail-workspace-content--uut { order: 11; }
-.detail-workspace-content--tmde { order: 12; margin-bottom: 8px; }
-.detail-workspace-section-toggle--equation { order: 20; }
-.detail-workspace-content--equation { order: 21; margin-bottom: 8px; }
-.detail-workspace-section-toggle--budget { order: 30; }
-.detail-workspace-content--budget { order: 31; }
+.detail-workspace-section-toggle.is-reorderable {
+  cursor: grab;
+}
+
+.detail-workspace-section-toggle.is-reorderable:active,
+.detail-workspace-section-toggle.is-dragging {
+  cursor: grabbing;
+}
+
+.detail-workspace-section-toggle.is-dragging {
+  opacity: 0.42;
+}
+
+.detail-workspace-section-toggle.is-drop-target {
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 5%, transparent);
+}
+
+.detail-workspace-section-toggle.is-drop-target .detail-workspace-section-rule {
+  height: 2px;
+  background: color-mix(in srgb, var(--primary-color) 70%, var(--border-color));
+}
+
+.detail-workspace-content--tmde,
+.detail-workspace-content--equation {
+  margin-bottom: 8px;
+}
 
 .detail-workspace-content.is-collapsed {
   display: none !important;

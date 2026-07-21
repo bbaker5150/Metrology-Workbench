@@ -22,6 +22,7 @@ SAMPLE_SESSION = {
     "notes": "hello",
     "uutDescription": "legacy",
     "uutTolerance": {"reading": {"high": "0.05", "unit": "%"}},
+    "detailSectionOrder": ["budget", "instruments", "equation"],
     "uncReq": {
         "uncertaintyConfidence": 95, "reliability": 90, "calInt": 6,
         "measRelCalcAssumed": 85, "neededTUR": 4, "reqPFA": 2,
@@ -120,6 +121,10 @@ class WholeSessionRoundTripTests(APITestCase):
         # Top-level + nested shape preserved with original id types.
         self.assertEqual(data["id"], SAMPLE_SESSION["id"])
         self.assertEqual(data["name"], "Round Trip Session")
+        self.assertEqual(
+            data["detailSectionOrder"],
+            ["budget", "instruments", "equation"],
+        )
         self.assertEqual(data["uncReq"]["reliability"], 90)
         self.assertEqual(data["measurementAreas"][0]["id"], "area-uuid-1")
         self.assertEqual(data["uuts"][0]["instrument"], {"model": "8588A"})

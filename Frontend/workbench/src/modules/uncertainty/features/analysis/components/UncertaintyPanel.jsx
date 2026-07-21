@@ -57,6 +57,11 @@ import {
   getFunctionDeletionConfirmationMessage,
   deleteFunctionCascade,
 } from "../../../utils/functionGrouping";
+import {
+  detailSectionOrderValue,
+  moveDetailSection,
+  normalizeDetailSectionOrder,
+} from "../../../utils/detailSectionOrder";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
 import {
@@ -8299,14 +8304,38 @@ const DetailWorkspaceSectionToggle = ({
   label,
   collapsed,
   onToggle,
+  sectionId,
+  canReorder = false,
+  isDragging = false,
+  isDropTarget = false,
+  onDragStart,
+  onDragEnter,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  style,
   className = "",
 }) => (
   <button
     type="button"
-    className={`detail-workspace-section-toggle ${className}`.trim()}
+    className={`detail-workspace-section-toggle${
+      canReorder ? " is-reorderable" : ""
+    }${isDragging ? " is-dragging" : ""}${
+      isDropTarget ? " is-drop-target" : ""
+    } ${className}`.trim()}
     onClick={onToggle}
+    draggable={canReorder}
+    data-detail-section={sectionId}
+    onDragStart={onDragStart}
+    onDragEnter={onDragEnter}
+    onDragOver={onDragOver}
+    onDrop={onDrop}
+    onDragEnd={onDragEnd}
+    style={style}
+    title={canReorder ? `Drag to reorder ${label}; click to expand or collapse` : undefined}
     aria-expanded={!collapsed}
     aria-label={`${collapsed ? "Expand" : "Collapse"} ${label} section`}
+    aria-grabbed={canReorder ? isDragging : undefined}
   >
     <span className="detail-workspace-section-label">{label}</span>
     <span className="detail-workspace-section-rule" aria-hidden="true" />
@@ -8386,7 +8415,16 @@ function DetailedView({
   const [collapsedDetailSections, setCollapsedDetailSections] = useState(
     () => new Set(),
   );
+  const detailSectionOrder = useMemo(
+    () => normalizeDetailSectionOrder(sessionData.detailSectionOrder),
+    [sessionData.detailSectionOrder],
+  );
+  const [draggingDetailSection, setDraggingDetailSection] = useState(null);
+  const [detailSectionDropTarget, setDetailSectionDropTarget] = useState(null);
+  const draggingDetailSectionRef = useRef(null);
+  const suppressDetailSectionToggleRef = useRef(false);
   const toggleDetailSection = (section) => {
+    if (suppressDetailSectionToggleRef.current) return;
     setCollapsedDetailSections((previous) => {
       const next = new Set(previous);
       if (next.has(section)) next.delete(section);
@@ -8394,6 +8432,69 @@ function DetailedView({
       return next;
     });
   };
+  const detailSectionStyle = (sectionId, offset = 0) => ({
+    order: detailSectionOrderValue(detailSectionOrder, sectionId, offset),
+  });
+  const handleDetailSectionDragStart = (sectionId) => (event) => {
+    if (!onSessionSave) {
+      event.preventDefault();
+      return;
+    }
+    suppressDetailSectionToggleRef.current = true;
+    draggingDetailSectionRef.current = sectionId;
+    setDraggingDetailSection(sectionId);
+    setDetailSectionDropTarget(sectionId);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", sectionId);
+  };
+  const handleDetailSectionDragEnter = (sectionId) => (event) => {
+    if (!draggingDetailSectionRef.current) return;
+    event.preventDefault();
+    setDetailSectionDropTarget(sectionId);
+  };
+  const handleDetailSectionDragOver = (event) => {
+    if (!draggingDetailSectionRef.current) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  };
+  const finishDetailSectionDrag = () => {
+    draggingDetailSectionRef.current = null;
+    setDraggingDetailSection(null);
+    setDetailSectionDropTarget(null);
+    window.setTimeout(() => {
+      suppressDetailSectionToggleRef.current = false;
+    }, 0);
+  };
+  const handleDetailSectionDrop = (targetId) => (event) => {
+    event.preventDefault();
+    const activeId =
+      draggingDetailSectionRef.current || event.dataTransfer.getData("text/plain");
+    if (activeId && activeId !== targetId && onSessionSave) {
+      onSessionSave({
+        ...sessionData,
+        detailSectionOrder: moveDetailSection(
+          detailSectionOrder,
+          activeId,
+          targetId,
+        ),
+      });
+    }
+    finishDetailSectionDrag();
+  };
+  const handleDetailSectionDragEnd = finishDetailSectionDrag;
+  const detailSectionDragProps = (sectionId) => ({
+    sectionId,
+    canReorder: Boolean(onSessionSave),
+    isDragging: draggingDetailSection === sectionId,
+    isDropTarget:
+      detailSectionDropTarget === sectionId &&
+      draggingDetailSection !== sectionId,
+    onDragStart: handleDetailSectionDragStart(sectionId),
+    onDragEnter: handleDetailSectionDragEnter(sectionId),
+    onDragOver: handleDetailSectionDragOver,
+    onDrop: handleDetailSectionDrop(sectionId),
+    onDragEnd: handleDetailSectionDragEnd,
+  });
 
   const handleDetailInstrumentDragStart =
     (kind, item, sourceFunctionKey = null) => (event) => {
@@ -12770,12 +12871,15 @@ function DetailedView({
         label="Instrument Tables"
         collapsed={collapsedDetailSections.has("instruments")}
         onToggle={() => toggleDetailSection("instruments")}
+        style={detailSectionStyle("instruments")}
+        {...detailSectionDragProps("instruments")}
         className="detail-workspace-section-toggle--instruments"
       />
       <div
         className={`uut-measurement-grid detail-workspace-content detail-workspace-content--uut${
           collapsedDetailSections.has("instruments") ? " is-collapsed" : ""
         }`}
+        style={detailSectionStyle("instruments", 1)}
       >
         {/* 1. UUT INFORMATION */}
         <div className="panel-card uut-detail-card">
@@ -13237,6 +13341,8 @@ function DetailedView({
           label={formatEquationSectionLabel(testPointData.equationName)}
           collapsed={collapsedDetailSections.has("equation")}
           onToggle={() => toggleDetailSection("equation")}
+          style={detailSectionStyle("equation")}
+          {...detailSectionDragProps("equation")}
           className="detail-workspace-section-toggle--equation"
         />
       )}
@@ -13244,6 +13350,7 @@ function DetailedView({
         className={`measurement-equation-section detail-workspace-content detail-workspace-content--equation${
           collapsedDetailSections.has("equation") ? " is-collapsed" : ""
         }${!isDerived ? " is-not-applicable" : ""}`}
+        style={detailSectionStyle("equation", 1)}
       >
         {isDerived && equationDisplayData && (
           <div className="measurement-equation-layout">
@@ -13476,6 +13583,7 @@ function DetailedView({
         className={`measurement-tmde-section detail-workspace-content detail-workspace-content--tmde${
           collapsedDetailSections.has("instruments") ? " is-collapsed" : ""
         }`}
+        style={detailSectionStyle("instruments", 2)}
       >
         <div className="panel-card">
           <div className="panel-card-header">
@@ -14065,12 +14173,15 @@ function DetailedView({
         label="Budget Tables"
         collapsed={collapsedDetailSections.has("budget")}
         onToggle={() => toggleDetailSection("budget")}
+        style={detailSectionStyle("budget")}
+        {...detailSectionDragProps("budget")}
         className="detail-workspace-section-toggle--budget"
       />
       <div
         className={`measurement-budget-section detail-workspace-content detail-workspace-content--budget${
           collapsedDetailSections.has("budget") ? " is-collapsed" : ""
         }`}
+        style={detailSectionStyle("budget", 1)}
       >
       {hasMeasurementPoint ? (
         hasUnassignedVariables || isBackendMappingError ? (

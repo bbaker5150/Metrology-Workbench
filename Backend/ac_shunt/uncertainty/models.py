@@ -47,6 +47,8 @@ class Session(models.Model):
     # Instrument- and point-derived functions are recomputed client-side; this
     # only holds the empty scaffolding + saved colors, so a JSON blob suffices.
     function_groups = models.JSONField(default=list, blank=True)
+    # User-defined ordering for the draggable detailed-workspace sections.
+    detail_section_order = models.JSONField(default=list, blank=True)
 
     # uncReq — risk/uncertainty requirements (small fixed shape -> columns).
     uncertainty_confidence = models.FloatField(default=95)

@@ -127,6 +127,7 @@ const useSessionManager = () => {
       // Legacy/Fallback fields (kept for backward compatibility or simple sessions)
       uutDescription: "",
       uutTolerance: {},
+      detailSectionOrder: ["instruments", "equation", "budget"],
       testPoints: [],
 
       uncReq: {
