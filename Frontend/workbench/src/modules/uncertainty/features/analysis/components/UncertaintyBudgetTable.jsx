@@ -1133,43 +1133,57 @@ const UncertaintyBudgetTable = ({
       const standaloneComponents = finalComponents.filter(
         (component) => !component.isPropagationSummary,
       );
+      const propagationSummary = finalComponents.find(
+        (component) => component.isPropagationSummary,
+      );
+      const nativeEquationStandardUncertainty = [
+        propagationSummary?.contribution,
+        propagationSummary?.value_native,
+        propagationSummary?.value,
+        equationGroup?.results?.combined,
+      ]
+        .map(Number)
+        .find((value) => Number.isFinite(value) && value > 0);
+      const equationVariance = Number.isFinite(
+        nativeEquationStandardUncertainty,
+      )
+        ? nativeEquationStandardUncertainty ** 2
+        : 0;
+      const standaloneVarianceRows = standaloneComponents.map((component) => {
+        const standardUncertainty = Math.abs(
+          Number(
+            component.contribution ??
+              component.value_native ??
+              component.value,
+          ) || 0,
+        );
+        return {
+          ...component,
+          chartVariance: standardUncertainty ** 2,
+        };
+      });
 
       if (method === "montecarlo") {
         const fallbackInfluences = calcResults?.monteCarlo?.influenceFractions || [];
-        const propagationSummary = finalComponents.find(
-          (component) => component.isPropagationSummary,
+        const rawInfluences = equationRows.map((row, index) =>
+          Math.max(
+            0,
+            Number(row.influence ?? fallbackInfluences[index]) || 0,
+          ),
         );
-        const nativeEquationStandardUncertainty = [
-          equationGroup?.results?.combined,
-          propagationSummary?.contribution,
-          propagationSummary?.value_native,
-          propagationSummary?.value,
-        ]
-          .map(Number)
-          .find((value) => Number.isFinite(value) && value > 0);
-        const equationVariance = nativeEquationStandardUncertainty ** 2;
+        const influenceTotal = rawInfluences.reduce(
+          (sum, influence) => sum + influence,
+          0,
+        );
         const chartRows = [
           ...equationRows.map((row, index) => ({
             ...row,
             chartVariance:
-              Math.max(
-                0,
-                Number(row.influence ?? fallbackInfluences[index]) || 0,
-              ) * equationVariance,
+              (influenceTotal > 0
+                ? rawInfluences[index] / influenceTotal
+                : 0) * equationVariance,
           })),
-          ...standaloneComponents.map((component) => {
-            const standardUncertainty = Math.abs(
-              Number(
-                component.contribution ??
-                  component.value_native ??
-                  component.value,
-              ) || 0,
-            );
-            return {
-              ...component,
-              chartVariance: standardUncertainty ** 2,
-            };
-          }),
+          ...standaloneVarianceRows,
         ];
         return asChart(
           toChartData(chartRows, (row) => row.chartVariance),
@@ -1183,30 +1197,35 @@ const UncertaintyBudgetTable = ({
       }
 
       // Taylor propagation rows contain c_i * u_i in the derived point's
-      // native unit. A contribution percentage is a share of total variance,
-      // so square each standard-uncertainty contribution before normalizing.
-      // This gives the Taylor and Monte Carlo views the same denominator and
-      // prevents standalone sources such as resolution from appearing ten
-      // times larger merely because one chart used magnitudes and the other
-      // used variances. Do not chart the final Taylor summary as well: that
-      // would double-count the same equation variables.
+      // native unit. First find each row's relative share of the equation
+      // variance, then allocate the ACTUAL equation variance back across those
+      // rows. The reconciliation matters when correlation or nonlinear terms
+      // make the equation result differ from the plain RSS of its displayed
+      // first-order rows. Standalone final-budget sources then join the exact
+      // same variance pool used by Monte Carlo.
+      const taylorRows = equationRows.map((row) => {
+        const contribution = Math.abs(Number(row.contribution) || 0);
+        return { ...row, rawVariance: contribution ** 2 };
+      });
+      const taylorRowVariance = taylorRows.reduce(
+        (sum, row) => sum + row.rawVariance,
+        0,
+      );
+      const reconciledEquationVariance =
+        equationVariance > 0 ? equationVariance : taylorRowVariance;
+      const chartRows = [
+        ...taylorRows.map((row) => ({
+          ...row,
+          chartVariance:
+            taylorRowVariance > 0
+              ? (row.rawVariance / taylorRowVariance) *
+                reconciledEquationVariance
+              : 0,
+        })),
+        ...standaloneVarianceRows,
+      ];
       return asChart(
-        {
-          ...toChartData(equationRows, (row) => {
-            const contribution = Math.abs(Number(row.contribution) || 0);
-            return contribution ** 2;
-          }),
-          ...toChartData(standaloneComponents, (component) => {
-            const contribution = Math.abs(
-              Number(
-                component.contribution ??
-                  component.value_native ??
-                  component.value,
-              ) || 0,
-            );
-            return contribution ** 2;
-          }),
-        },
+        toChartData(chartRows, (row) => row.chartVariance),
         {
           unit: "",
           valueMode: "share",
@@ -1217,14 +1236,26 @@ const UncertaintyBudgetTable = ({
     }
 
     const sourceComponents = calcResults?.calculatedBudgetComponents || [];
+    const sourceRows = sourceComponents.map((component) => {
+      const standardUncertainty = Math.abs(
+        Number(
+          component.contribution ??
+            component.value_native ??
+            component.value,
+        ) || 0,
+      );
+      const quantity = Math.max(1, Number(component.quantity) || 1);
+      return {
+        ...component,
+        chartVariance: standardUncertainty ** 2 * quantity,
+      };
+    });
     return asChart(
-      toChartData(
-        sourceComponents,
-        (item) => item.value_native ?? item.value,
-      ),
+      toChartData(sourceRows, (item) => item.chartVariance),
       {
-        unit: derivedUnit,
-        valueMode: "magnitude",
+        unit: "",
+        valueMode: "share",
+        valueLabel: "Variance contribution",
         title: "Uncertainty contribution",
       },
     );

@@ -404,6 +404,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
   });
 
   it("shows contribution graph from the bottom display setting", async () => {
+    Plotly.react.mockClear();
     const view = renderDirectBudget({
       showContribution: true,
       setShowContribution: vi.fn(),
@@ -431,6 +432,12 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
             value: 10,
             value_native: 0.01,
           },
+          {
+            id: "resolution",
+            name: "UUT Resolution",
+            value: 20,
+            value_native: 0.02,
+          },
         ],
       },
       referencePoint: { name: "Voltage", unit: "V" },
@@ -442,6 +449,11 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(
       screen.getByRole("button", { name: "Hide contribution chart" }),
     ).toHaveAttribute("aria-pressed", "true");
+    const [, plotData] = Plotly.react.mock.calls.at(-1);
+    expect(plotData[0].y).toEqual(["DMM Accuracy", "UUT Resolution"]);
+    expect(plotData[0].x).toEqual([20, 80]);
+    expect(plotData[0].customdata).toEqual(["20.00%", "80.00%"]);
+    expect(plotData[0].hovertemplate).toContain("Variance contribution");
   });
 
   it("charts each Taylor Series input instead of the derived summary row", async () => {
@@ -515,10 +527,24 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     const shares = Object.fromEntries(
       plotData[0].y.map((label, index) => [label, plotData[0].x[index]]),
     );
-    expect(shares["Length (l)"]).toBeCloseTo((0.002 ** 2 / 0.00000417) * 100, 8);
-    expect(shares["Weight (w)"]).toBeCloseTo((0.0004 ** 2 / 0.00000417) * 100, 8);
+    const rawEquationVariance = 0.002 ** 2 + 0.0004 ** 2;
+    const displayedEquationVariance = 0.00204 ** 2;
+    const resolutionVariance = 0.0001 ** 2;
+    const totalVariance = displayedEquationVariance + resolutionVariance;
+    expect(shares["Length (l)"]).toBeCloseTo(
+      ((0.002 ** 2 / rawEquationVariance) * displayedEquationVariance /
+        totalVariance) *
+        100,
+      8,
+    );
+    expect(shares["Weight (w)"]).toBeCloseTo(
+      ((0.0004 ** 2 / rawEquationVariance) * displayedEquationVariance /
+        totalVariance) *
+        100,
+      8,
+    );
     expect(shares["UUT Resolution"]).toBeCloseTo(
-      (0.0001 ** 2 / 0.00000417) * 100,
+      (resolutionVariance / totalVariance) * 100,
       8,
     );
     expect(plotData[0].hovertemplate).toContain("Variance contribution");
