@@ -1448,7 +1448,7 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 }
 
 .sidebar-column-menu {
-  position: static;
+  position: relative;
   display: flex;
   align-items: center;
 }
@@ -1607,7 +1607,8 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 .sidebar-filter-dropdown {
   position: absolute;
   top: calc(100% + 2px);
-  left: 0;
+  right: 0;
+  left: auto;
   display: grid;
   grid-template-columns:
     minmax(150px, 0.9fr)
@@ -1715,7 +1716,7 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 @container (max-width: 760px) {
   .sidebar-filter-dropdown {
     grid-template-columns: repeat(2, minmax(180px, 1fr));
-    width: calc(100% - 20px);
+    width: min(470px, calc(100vw - 20px));
   }
 
   .filter-option-group:nth-child(3) {
@@ -11405,6 +11406,14 @@ input.inline-desc-subinput {
   box-sizing: border-box;
 }
 
+input.inline-desc-subinput:hover,
+input.inline-desc-subinput:focus,
+input.inline-desc-subinput:focus-visible {
+  border-color: var(--primary-color);
+  outline: none;
+  box-shadow: none;
+}
+
 .inline-sync-badge {
   width: 24px;
   height: 24px;
@@ -11950,15 +11959,91 @@ input.inline-function-input:focus {
    in that function header. Keyboard focus reveals the action as well. */
 .function-header-row .function-header-action-btn.range-header-action-btn--delete {
   opacity: 0;
-  pointer-events: none;
+  /* Keep the button's own hit target active while it is visually quiet. This
+     lets hovering the icon's actual location reveal it instead of requiring a
+     detour over the function label first. */
+  pointer-events: auto;
   transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
 }
 
 .function-header-row:hover .function-header-action-btn.range-header-action-btn--delete,
 .function-header-row:focus-within .function-header-action-btn.range-header-action-btn--delete,
+.function-header-row .function-header-action-btn.range-header-action-btn--delete:hover,
 .function-header-row .function-header-action-btn.range-header-action-btn--delete:focus-visible {
   opacity: 1;
   pointer-events: auto;
+}
+
+.instrument-area-section-row.is-function-drop-target > td {
+  background: color-mix(in srgb, var(--primary-color) 12%, var(--component-bg));
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+.instrument-area-section-row.is-function-drop-target .function-header-row {
+  color: var(--primary-color);
+}
+
+/* Detailed workspace section controls keep the large analysis surface
+   scannable without wrapping each table in another heavy card. */
+.detailed-view-section-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.detail-workspace-section-toggle {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--component-bg) 88%, transparent);
+  color: var(--text-color);
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.detail-workspace-section-toggle:hover,
+.detail-workspace-section-toggle:focus-visible {
+  border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 6%, var(--component-bg));
+  outline: none;
+}
+
+.detail-workspace-section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.detail-workspace-section-label svg {
+  color: var(--primary-color);
+  opacity: 0.82;
+}
+
+.detail-workspace-section-toggle--instruments { order: 10; }
+.detail-workspace-content--uut { order: 11; }
+.detail-workspace-content--tmde { order: 12; margin-bottom: 8px; }
+.detail-workspace-section-toggle--equation { order: 20; }
+.detail-workspace-content--equation { order: 21; margin-bottom: 8px; }
+.detail-workspace-section-toggle--budget { order: 30; }
+.detail-workspace-content--budget { order: 31; }
+
+.detail-workspace-content.is-collapsed {
+  display: none !important;
+}
+
+.detail-workspace-content.is-not-applicable {
+  display: none !important;
 }
 
 .function-header-collapse-btn {

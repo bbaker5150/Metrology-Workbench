@@ -4,8 +4,9 @@ import { FaBolt, FaCalculator, FaFileAlt, FaArrowRight } from "react-icons/fa";
 import { MODULES } from "./moduleRegistry";
 import "./HomeLauncher.css";
 
-// The 3D medallion pulls in three.js, so load it lazily and fall back to
-// the flat seal PNG for an instant first paint and graceful degradation.
+// The 3D medallion pulls in three.js, so load it lazily. A neutral animated
+// loader avoids flashing a flat approximation that does not match the final
+// rendered object.
 const LauncherEmblem = lazy(() => import("./LauncherEmblem"));
 
 // Icon per module id. Kept here (presentation concern) rather than in the
@@ -42,18 +43,19 @@ export default function HomeLauncher() {
     <div className="workbench-home">
       <header className="workbench-home-header">
         <div className="workbench-home-emblem">
-          <img
-            src="/navair-seal-384.webp"
-            alt=""
-            width="384"
-            height="384"
-            fetchPriority="high"
-            className={`workbench-home-seal${emblemReady ? " is-ready" : ""}`}
-            aria-hidden
-          />
-          <Suspense fallback={null}>
-            <LauncherEmblem onReady={() => setEmblemReady(true)} />
-          </Suspense>
+          <div
+            className={`workbench-home-emblem-loader${emblemReady ? " is-ready" : ""}`}
+            aria-hidden="true"
+          >
+            <span className="workbench-home-emblem-loader-core" />
+          </div>
+          <div
+            className={`workbench-home-emblem-canvas${emblemReady ? " is-ready" : ""}`}
+          >
+            <Suspense fallback={null}>
+              <LauncherEmblem onReady={() => setEmblemReady(true)} />
+            </Suspense>
+          </div>
         </div>
         <div className="workbench-home-heading">
           <span className="workbench-home-eyebrow">Navy Primary Standard Lab</span>

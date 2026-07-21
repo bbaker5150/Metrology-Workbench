@@ -2621,6 +2621,23 @@ function App() {
     });
   };
 
+  const expandFunctionBranch = (event, fnGroup) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setExpandedFunctions((previous) => {
+      const next = new Set(previous);
+      next.add(fnGroup.id);
+      return next;
+    });
+    setExpandedUuts((previous) => {
+      const next = new Set(previous);
+      (fnGroup.uutGroups || []).forEach((group) => {
+        next.add(`${fnGroup.id}::${group.id}`);
+      });
+      return next;
+    });
+  };
+
   // Pick the point to focus when a function/UUT node is clicked: keep the current
   // point if it still belongs to the clicked scope, otherwise fall back to the
   // first matching point.
@@ -4484,10 +4501,7 @@ function App() {
                       </button>
 
                       {isColumnMenuOpen && (
-                        <div
-                          className="sidebar-filter-dropdown"
-                          style={{ top: "100%", right: "auto", left: 0 }}
-                        >
+                        <div className="sidebar-filter-dropdown">
                           {[
                             {
                               group: "Measurement",
@@ -4639,6 +4653,10 @@ function App() {
                           <div
                             className={`area-header-sticky ${isFnActive ? "active" : ""}`}
                             onClick={() => handleSelectFunction(fnGroup.id)}
+                            onDoubleClick={(event) =>
+                              expandFunctionBranch(event, fnGroup)
+                            }
+                            title="Double-click to expand all instruments and points"
                           >
                             <FontAwesomeIcon
                               icon={
@@ -4683,6 +4701,10 @@ function App() {
                         <div
                           className={`area-header-sticky ${isFnActive ? "active" : ""}`}
                           onClick={() => handleSelectFunction(fnGroup.id)}
+                          onDoubleClick={(event) =>
+                            expandFunctionBranch(event, fnGroup)
+                          }
+                          title="Double-click to expand all instruments and points"
                         >
                           <FontAwesomeIcon
                             icon={isFnExpanded ? faChevronDown : faChevronRight}

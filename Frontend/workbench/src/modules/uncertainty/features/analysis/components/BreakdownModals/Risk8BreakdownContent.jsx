@@ -107,7 +107,7 @@ const TwoSidedCalculationChain = ({ modalType, results }) => {
     return (
       <MathStep
         title="Two-sided asymmetric TUR calculation"
-        description="The workbook uses the full UUT tolerance width divided by the full expanded-uncertainty width."
+        description="The calculation divides the full UUT tolerance width by the full expanded-uncertainty width."
         equations={[
           `W_{UUT}=U-L=${latexNumber(upper)}-${latexNumber(lower)}=${latexNumber(span)}`,
           `TUR=\\frac{W_{UUT}}{2U}=\\frac{${latexNumber(span)}}{2(${latexNumber(results.expandedUncertainty)})}=\\mathbf{${latexNumber(results.tur)}}`,
@@ -144,7 +144,7 @@ const TwoSidedCalculationChain = ({ modalType, results }) => {
       <>
         <MathStep
           title="Risk 8.0 mitigation solve"
-          description="The workbook searches the largest acceptance region that meets both the required PFA and required reliability."
+          description="The solver searches for the largest acceptance region that meets both the required PFA and required reliability."
           equations={[
             `g^*=\\max\\{g:PFA(g)\\le ${latexNumber(Number(input.pfaTarget))},\\;R_{obs}(g)\\ge ${latexNumber(Number(input.reopTarget))}\\}`,
             `g^*=\\mathbf{${latexNumber(out.gbMult)}}`,

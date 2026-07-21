@@ -34,6 +34,7 @@ import {
   faPaste,
   faScissors,
   faFlask,
+  faCalculator,
   faTimes,
   faRedo,
 } from "@fortawesome/free-solid-svg-icons";
@@ -222,6 +223,59 @@ export const scopeLibraryInstrumentToFunction = (
     ...instrument,
     functions: [scopedFunction],
   };
+};
+
+// Add a destination function to an existing session instrument without moving
+// or copying any of the source function's specifications. This is deliberately
+// additive: a DMM dragged from Voltage to Resistance remains configured for
+// Voltage and gains a blank Resistance definition ready for its own ranges,
+// non-range tolerance, distribution, and resolution.
+export const addBlankFunctionToInstrument = (item = {}, targetFunction = {}) => {
+  const name = String(targetFunction.name || "").trim();
+  if (!name) return item;
+
+  const definition = item.instrument || item;
+  const functions = Array.isArray(definition.functions)
+    ? definition.functions
+    : [];
+  const targetKey = makeFunctionKey(name);
+  if (functions.some((fn) => makeFunctionKey(fn?.name) === targetKey)) {
+    return item;
+  }
+
+  const unit = String(
+    targetFunction.unit || targetFunction.units?.[0] || "",
+  ).trim();
+  const newFunction = {
+    id: uuidv4(),
+    name,
+    unit,
+    units: Array.from(
+      new Set([...(targetFunction.units || []), unit].filter(Boolean)),
+    ),
+    ranges: [],
+  };
+  const wasShared =
+    definition.scope === "validated" || computeSyncState(definition) === "green";
+  const nextDefinition = {
+    ...definition,
+    functions: [...functions, newFunction],
+    ...(wasShared
+      ? {
+          scope: "local",
+          sourceId:
+            definition.sourceId ||
+            (definition.scope === "validated" ? definition.id : undefined),
+          validatedSnapshot:
+            definition.validatedSnapshot || buildValidatedSnapshot(definition),
+          localOverride: true,
+        }
+      : {}),
+  };
+
+  return item.instrument
+    ? { ...item, instrument: nextDefinition }
+    : nextDefinition;
 };
 
 // Library-search dropdown shown under the description make/model fields.
@@ -1973,6 +2027,35 @@ const EditableDescriptionCell = ({
 // standard assumption for a least-significant-digit / quantization error.
 const RESOLUTION_DIST_DEFAULT = "1.732";
 
+const moveToNextInlineTableColumn = (event) => {
+  const cell = event.target?.closest?.("td");
+  if (!cell) return false;
+
+  let nextCell = cell.nextElementSibling;
+  while (nextCell) {
+    const openButton = nextCell.querySelector?.(
+      "button.inline-tolerance-summary:not([disabled])",
+    );
+    const existingControl = nextCell.querySelector?.(
+      "input:not([disabled]), select:not([disabled]), button.inline-unit-combobox:not([disabled])",
+    );
+    if (openButton || existingControl) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (openButton) openButton.click();
+      window.requestAnimationFrame(() => {
+        const firstControl = nextCell.querySelector?.(
+          "input:not([disabled]), select:not([disabled]), button.inline-unit-combobox:not([disabled]), button.inline-menu-select-trigger:not([disabled])",
+        );
+        firstControl?.focus();
+      });
+      return true;
+    }
+    nextCell = nextCell.nextElementSibling;
+  }
+  return false;
+};
+
 // Clean read-view label for a resolution: "0.01 V" (with its distribution as a
 // tooltip), or an empty string when no resolution has been entered yet.
 const formatResolutionSummaryText = (value, unit, fallbackUnit) => {
@@ -2199,6 +2282,7 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
           onChange(value);
           setIsEditing(false);
         }}
+        onTab={moveToNextInlineTableColumn}
         width="118px"
         menuWidth={240}
         className="inline-distribution-select"
@@ -3187,6 +3271,17 @@ export const InlineToleranceCell = ({
     <div
       ref={containerRef}
       className="inline-tolerance-editor inline-tolerance-editor--all"
+      onKeyDownCapture={(event) => {
+        if (event.key !== "Tab" || event.shiftKey) return;
+        const controls = Array.from(
+          containerRef.current?.querySelectorAll(
+            "input:not([disabled]), select:not([disabled]), button:not([disabled])",
+          ) || [],
+        ).filter((control) => control.tabIndex !== -1);
+        if (controls.length > 0 && event.target === controls[controls.length - 1]) {
+          moveToNextInlineTableColumn(event);
+        }
+      }}
       onMouseDown={(event) => {
         event.stopPropagation();
         if (!event.target.closest?.("input, button, select, label")) {
@@ -3651,16 +3746,16 @@ export const GhostRangeRow = ({
           title="Set this new range's tolerance"
           onMouseDown={openTolerance}
         >
-        <span className="range-ghost-hint">—</span>
+        <span className="range-ghost-hint">Not Set</span>
         </button>
       </td>
       {includeDistribution && (
         <td className="cell-distribution">
-          <span className="range-ghost-hint">—</span>
+          <span className="range-ghost-hint">Not Set</span>
         </td>
       )}
       <td className="cell-value">
-        <span className="range-ghost-hint">—</span>
+        <span className="range-ghost-hint">Not Set</span>
       </td>
     </tr>
   );
@@ -5269,12 +5364,13 @@ const SummaryDashboard = ({
     onSessionSave({ ...sessionData, tmdes: updatedTmdes });
   };
 
-  // --- Drag a UUT/TMDE row from one measurement-area subsection to another ---
-  // Dragging carries { id, kind } via the dataTransfer; dropping onto an area
-  // header (or any row in that area) reassigns the instrument's area. Dragging a
-  // shared instrument also flips it out of sync (markLocal).
+  // --- Drag a UUT/TMDE row between table groupings ---
+  // Area drops continue to move the session row. Function drops are additive:
+  // they append a blank destination function without touching the source
+  // function's ranges or tolerances.
   const [draggingInstrumentId, setDraggingInstrumentId] = useState(null);
-  const handleInstrumentDragStart = (kind, item) => (e) => {
+  const [dragOverFunctionTarget, setDragOverFunctionTarget] = useState(null);
+  const handleInstrumentDragStart = (kind, item, sourceFunctionKey = null) => (e) => {
     // Don't hijack text selection / clicks inside the row's editable controls.
     if (
       e.target.closest(
@@ -5285,10 +5381,16 @@ const SummaryDashboard = ({
       return;
     }
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", JSON.stringify({ id: item.id, kind }));
+    e.dataTransfer.setData(
+      "text/plain",
+      JSON.stringify({ id: item.id, kind, sourceFunctionKey }),
+    );
     setDraggingInstrumentId(item.id);
   };
-  const handleInstrumentDragEnd = () => setDraggingInstrumentId(null);
+  const handleInstrumentDragEnd = () => {
+    setDraggingInstrumentId(null);
+    setDragOverFunctionTarget(null);
+  };
   const allowInstrumentDrop = (e) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
@@ -5315,6 +5417,45 @@ const SummaryDashboard = ({
     if (!payload || payload.kind !== kind) return;
     if (kind === "uut") handleChangeUutArea(payload.id, targetAreaId, { markLocal: true });
     else handleChangeTmdeArea(payload.id, targetAreaId, { markLocal: true });
+  };
+
+  const handleInstrumentDragOverFunction = (kind, fn) => (event) => {
+    allowInstrumentDrop(event);
+    setDragOverFunctionTarget(`${kind}:${fn.key}`);
+  };
+
+  const handleInstrumentDropOnFunction = (kind, targetFunction) => (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    let payload = null;
+    try {
+      payload = JSON.parse(event.dataTransfer.getData("text/plain"));
+    } catch {
+      payload = null;
+    }
+    setDraggingInstrumentId(null);
+    setDragOverFunctionTarget(null);
+    if (!onSessionSave || !payload || payload.kind !== kind) return;
+    if (makeFunctionKey(payload.sourceFunctionKey) === makeFunctionKey(targetFunction.key)) {
+      return;
+    }
+
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    let changed = false;
+    const nextRows = (sessionData[listKey] || []).map((row) => {
+      if (!sameId(row.id, payload.id)) return row;
+      const next = addBlankFunctionToInstrument(row, targetFunction);
+      if (next !== row) changed = true;
+      return next;
+    });
+    if (changed) {
+      setCollapsedFunctionKeys((previous) => {
+        const next = new Set(previous);
+        next.delete(functionCollapseStateKey(kind, targetFunction));
+        return next;
+      });
+      onSessionSave({ ...sessionData, [listKey]: nextRows });
+    }
   };
 
   // Create a new measurement area inline from the area control and assign it,
@@ -5968,7 +6109,17 @@ const SummaryDashboard = ({
   };
 
   const renderFunctionHeaderRow = (kind, fn, colSpan) => (
-    <tr key={`${kind}-fn-${fn.key}`} className="instrument-area-section-row">
+    <tr
+      key={`${kind}-fn-${fn.key}`}
+      className={`instrument-area-section-row${
+        dragOverFunctionTarget === `${kind}:${fn.key}`
+          ? " is-function-drop-target"
+          : ""
+      }`}
+      onDragOver={handleInstrumentDragOverFunction(kind, fn)}
+      onDragLeave={() => setDragOverFunctionTarget(null)}
+      onDrop={handleInstrumentDropOnFunction(kind, fn)}
+    >
       <td colSpan={colSpan}>
         <div className="function-header-row">
           {renderFunctionColorSwatch(fn)}
@@ -6453,7 +6604,7 @@ const SummaryDashboard = ({
     let points = sessionData.testPoints || [];
     let tmdes = sessionData.tmdes || [];
     let displayTitle = "Session Overview";
-    let displaySubtitle = "All Measurement Areas";
+    let displaySubtitle = "";
 
     const isSessionView = viewMode === "session";
 
@@ -7037,15 +7188,17 @@ const SummaryDashboard = ({
           )}
           {title}
         </h2>
-        <div
-          style={{
-            color: "var(--text-color-muted)",
-            fontSize: "0.85rem",
-            marginTop: "4px",
-          }}
-        >
-          {subtitle}
-        </div>
+        {subtitle && (
+          <div
+            style={{
+              color: "var(--text-color-muted)",
+              fontSize: "0.85rem",
+              marginTop: "4px",
+            }}
+          >
+            {subtitle}
+          </div>
+        )}
       </div>
 
       {/* UUT TABLE */}
@@ -7211,6 +7364,13 @@ const SummaryDashboard = ({
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "uut", uut, index, rangeIdOf(range), uutRowKey)
                               }
+                              draggable={i === 0 && !!onSessionSave}
+                              onDragStart={
+                                i === 0
+                                  ? handleInstrumentDragStart("uut", uut, uutFnKey)
+                                  : undefined
+                              }
+                              onDragEnd={i === 0 ? handleInstrumentDragEnd : undefined}
                               style={{ cursor: "pointer" }}
                             >
                               {i === 0 && (
@@ -7268,11 +7428,15 @@ const SummaryDashboard = ({
                         className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleUutClick(e, uut.id)}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
-                        draggable={!!onSessionSave && showAreaColumn}
-                        onDragStart={handleInstrumentDragStart("uut", uut)}
+                        draggable={!!onSessionSave}
+                        onDragStart={handleInstrumentDragStart("uut", uut, uutFnKey)}
                         onDragEnd={handleInstrumentDragEnd}
-                        onDragOver={allowInstrumentDrop}
-                        onDrop={handleInstrumentDropOnArea("uut", resolveItemAreaId("uut", uut))}
+                        onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
+                        onDrop={
+                          showAreaColumn
+                            ? handleInstrumentDropOnArea("uut", resolveItemAreaId("uut", uut))
+                            : undefined
+                        }
                         style={{
                           cursor: "pointer",
                           opacity: draggingInstrumentId === uut.id ? 0.4 : undefined,
@@ -7613,6 +7777,13 @@ const SummaryDashboard = ({
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "tmde", tmde, index, rangeIdOf(range), tmdeRowKey)
                               }
+                              draggable={i === 0 && !!onSessionSave}
+                              onDragStart={
+                                i === 0
+                                  ? handleInstrumentDragStart("tmde", tmde, tmdeFnKey)
+                                  : undefined
+                              }
+                              onDragEnd={i === 0 ? handleInstrumentDragEnd : undefined}
                               style={{ cursor: "pointer" }}
                             >
                               {i === 0 && (
@@ -7670,11 +7841,15 @@ const SummaryDashboard = ({
                         className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleTmdeClick(e, tmde.id)}
                         onMouseEnter={() => setHoveredRowId(tmde.id)}
-                        draggable={!!onSessionSave && showAreaColumn}
-                        onDragStart={handleInstrumentDragStart("tmde", tmde)}
+                        draggable={!!onSessionSave}
+                        onDragStart={handleInstrumentDragStart("tmde", tmde, tmdeFnKey)}
                         onDragEnd={handleInstrumentDragEnd}
-                        onDragOver={allowInstrumentDrop}
-                        onDrop={handleInstrumentDropOnArea("tmde", resolveItemAreaId("tmde", tmde))}
+                        onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
+                        onDrop={
+                          showAreaColumn
+                            ? handleInstrumentDropOnArea("tmde", resolveItemAreaId("tmde", tmde))
+                            : undefined
+                        }
                         style={{
                           cursor: "pointer",
                           opacity: draggingInstrumentId === tmde.id ? 0.4 : undefined,
@@ -7995,6 +8170,28 @@ const SummaryDashboard = ({
                               );
 };
 
+const DetailWorkspaceSectionToggle = ({
+  icon,
+  label,
+  collapsed,
+  onToggle,
+  className = "",
+}) => (
+  <button
+    type="button"
+    className={`detail-workspace-section-toggle ${className}`.trim()}
+    onClick={onToggle}
+    aria-expanded={!collapsed}
+    aria-label={`${collapsed ? "Expand" : "Collapse"} ${label} section`}
+  >
+    <span className="detail-workspace-section-label">
+      <FontAwesomeIcon icon={icon} />
+      <span>{label}</span>
+    </span>
+    <FontAwesomeIcon icon={collapsed ? faChevronRight : faChevronDown} size="xs" />
+  </button>
+);
+
 function DetailedView({
   testPointData,
   sessionData,
@@ -8058,6 +8255,75 @@ function DetailedView({
   const [selectedRangeIds, setSelectedRangeIds] = useState({});
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
+  const [detailDraggingInstrumentId, setDetailDraggingInstrumentId] = useState(null);
+  const [detailDragOverFunctionTarget, setDetailDragOverFunctionTarget] = useState(null);
+  const [collapsedDetailSections, setCollapsedDetailSections] = useState(
+    () => new Set(),
+  );
+  const toggleDetailSection = (section) => {
+    setCollapsedDetailSections((previous) => {
+      const next = new Set(previous);
+      if (next.has(section)) next.delete(section);
+      else next.add(section);
+      return next;
+    });
+  };
+
+  const handleDetailInstrumentDragStart =
+    (kind, item, sourceFunctionKey = null) => (event) => {
+      if (
+        event.target.closest(
+          "input, select, textarea, button, a, .inline-desc-fields",
+        )
+      ) {
+        event.preventDefault();
+        return;
+      }
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(
+        "text/plain",
+        JSON.stringify({ id: item.id, kind, sourceFunctionKey }),
+      );
+      setDetailDraggingInstrumentId(item.id);
+    };
+
+  const handleDetailInstrumentDragEnd = () => {
+    setDetailDraggingInstrumentId(null);
+    setDetailDragOverFunctionTarget(null);
+  };
+
+  const handleDetailInstrumentDropOnFunction = (kind, targetFunction) => (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    let payload = null;
+    try {
+      payload = JSON.parse(event.dataTransfer.getData("text/plain"));
+    } catch {
+      payload = null;
+    }
+    setDetailDraggingInstrumentId(null);
+    setDetailDragOverFunctionTarget(null);
+    if (!onSessionSave || !payload || payload.kind !== kind) return;
+    if (makeFunctionKey(payload.sourceFunctionKey) === makeFunctionKey(targetFunction.key)) {
+      return;
+    }
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    let changed = false;
+    const nextRows = (sessionData[listKey] || []).map((row) => {
+      if (!sameId(row.id, payload.id)) return row;
+      const next = addBlankFunctionToInstrument(row, targetFunction);
+      if (next !== row) changed = true;
+      return next;
+    });
+    if (changed) {
+      setCollapsedFunctionKeys((previous) => {
+        const next = new Set(previous);
+        next.delete(functionCollapseStateKey(kind, targetFunction));
+        return next;
+      });
+      onSessionSave({ ...sessionData, [listKey]: nextRows });
+    }
+  };
 
   // --- Cut / copy / paste of instrument rows (shared module clipboard) ---
   const [rowMenu, setRowMenu] = useState(null);
@@ -9922,7 +10188,21 @@ function DetailedView({
   };
 
   const renderFunctionHeaderRow = (kind, fn, colSpan) => (
-    <tr key={`${kind}-fn-${fn.key}`} className="instrument-area-section-row">
+    <tr
+      key={`${kind}-fn-${fn.key}`}
+      className={`instrument-area-section-row${
+        detailDragOverFunctionTarget === `${kind}:${fn.key}`
+          ? " is-function-drop-target"
+          : ""
+      }`}
+      onDragOver={(event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        setDetailDragOverFunctionTarget(`${kind}:${fn.key}`);
+      }}
+      onDragLeave={() => setDetailDragOverFunctionTarget(null)}
+      onDrop={handleDetailInstrumentDropOnFunction(kind, fn)}
+    >
       <td colSpan={colSpan}>
         <div className="function-header-row">
           {renderFunctionColorSwatch(fn)}
@@ -12365,7 +12645,19 @@ function DetailedView({
 
   return (
     <div className="configuration-panel">
-      <div className="uut-measurement-grid">
+      <div className="detailed-view-section-layout">
+      <DetailWorkspaceSectionToggle
+        icon={faTools}
+        label="Instrument Tables"
+        collapsed={collapsedDetailSections.has("instruments")}
+        onToggle={() => toggleDetailSection("instruments")}
+        className="detail-workspace-section-toggle--instruments"
+      />
+      <div
+        className={`uut-measurement-grid detail-workspace-content detail-workspace-content--uut${
+          collapsedDetailSections.has("instruments") ? " is-collapsed" : ""
+        }`}
+      >
         {/* 1. UUT INFORMATION */}
         <div className="panel-card uut-detail-card">
         <div className="panel-card-header">
@@ -12487,6 +12779,19 @@ function DetailedView({
                                   handleRangeChange(uut.id, index, ranges, isActivePointUut);
                                 }
                               }}
+                              draggable={i === 0 && !!onSessionSave}
+                              onDragStart={
+                                i === 0
+                                  ? handleDetailInstrumentDragStart(
+                                      "uut",
+                                      uut,
+                                      uutFnKey,
+                                    )
+                                  : undefined
+                              }
+                              onDragEnd={
+                                i === 0 ? handleDetailInstrumentDragEnd : undefined
+                              }
                               style={{ cursor: "pointer" }}
                             >
                               {i === 0 && (
@@ -12558,8 +12863,17 @@ function DetailedView({
                         onMouseEnter={() => setHoveredRowId(uut.id)}
                         style={{
                           cursor: "pointer",
+                          opacity:
+                            detailDraggingInstrumentId === uut.id ? 0.4 : undefined,
                         }}
                         onClick={(e) => handleUutClick(e, uut.id)}
+                        draggable={!!onSessionSave}
+                        onDragStart={handleDetailInstrumentDragStart(
+                          "uut",
+                          uut,
+                          uutFnKey,
+                        )}
+                        onDragEnd={handleDetailInstrumentDragEnd}
                         title="Click to select"
                       >
                         <td
@@ -12799,7 +13113,23 @@ function DetailedView({
       </div>
 
       {/* --- MIDDLE ROW: EQUATION --- */}
-      <div className="measurement-equation-section">
+      {isDerived && (
+        <DetailWorkspaceSectionToggle
+          icon={faFlask}
+          label={
+            String(testPointData.equationName || "").trim() ||
+            "Measurement Equation"
+          }
+          collapsed={collapsedDetailSections.has("equation")}
+          onToggle={() => toggleDetailSection("equation")}
+          className="detail-workspace-section-toggle--equation"
+        />
+      )}
+      <div
+        className={`measurement-equation-section detail-workspace-content detail-workspace-content--equation${
+          collapsedDetailSections.has("equation") ? " is-collapsed" : ""
+        }${!isDerived ? " is-not-applicable" : ""}`}
+      >
         {isDerived && equationDisplayData && (
           <div className="measurement-equation-layout">
             <div className="measurement-equation-block">
@@ -13032,7 +13362,11 @@ function DetailedView({
       </div>
 
       {/* --- BOTTOM ROW: TMDEs (Kept as is) --- */}
-      <div className="measurement-tmde-section" style={{ marginBottom: "30px" }}>
+      <div
+        className={`measurement-tmde-section detail-workspace-content detail-workspace-content--tmde${
+          collapsedDetailSections.has("instruments") ? " is-collapsed" : ""
+        }`}
+      >
         <div className="panel-card">
           <div className="panel-card-header">
             <div className="panel-card-title">
@@ -13198,6 +13532,21 @@ function DetailedView({
                                       );
                                     }
                                   }}
+                                  draggable={i === 0 && !!onSessionSave}
+                                  onDragStart={
+                                    i === 0
+                                      ? handleDetailInstrumentDragStart(
+                                          "tmde",
+                                          masterTmde,
+                                          tmdeFnKey,
+                                        )
+                                      : undefined
+                                  }
+                                  onDragEnd={
+                                    i === 0
+                                      ? handleDetailInstrumentDragEnd
+                                      : undefined
+                                  }
                                   style={{
                                     opacity: isSelectedRow ? 1 : 0.85,
                                     cursor: "pointer",
@@ -13266,6 +13615,13 @@ function DetailedView({
                               cursor: "pointer",
                             }}
                             onClick={(e) => handleTmdeClick(e, masterTmde.id)}
+                            draggable={!!onSessionSave}
+                            onDragStart={handleDetailInstrumentDragStart(
+                              "tmde",
+                              masterTmde,
+                              tmdeFnKey,
+                            )}
+                            onDragEnd={handleDetailInstrumentDragEnd}
                             title="Click to select"
                           >
                             <td
@@ -13595,7 +13951,18 @@ function DetailedView({
         </div>
       </div>
 
-      <div className="measurement-budget-section">
+      <DetailWorkspaceSectionToggle
+        icon={faCalculator}
+        label="Uncertainty Budget"
+        collapsed={collapsedDetailSections.has("budget")}
+        onToggle={() => toggleDetailSection("budget")}
+        className="detail-workspace-section-toggle--budget"
+      />
+      <div
+        className={`measurement-budget-section detail-workspace-content detail-workspace-content--budget${
+          collapsedDetailSections.has("budget") ? " is-collapsed" : ""
+        }`}
+      >
       {hasMeasurementPoint ? (
         hasUnassignedVariables || isBackendMappingError ? (
           <div
@@ -13680,6 +14047,7 @@ function DetailedView({
           </p>
         </div>
       )}
+      </div>
       </div>
       {renderBudgetTmdePicker()}
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />

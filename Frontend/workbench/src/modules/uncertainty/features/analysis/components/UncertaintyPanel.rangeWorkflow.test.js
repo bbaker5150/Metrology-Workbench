@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { makeFunctionKey } from "../../../utils/functionGrouping";
 import {
+  addBlankFunctionToInstrument,
   getDeleteSelectionTarget,
   rangeIsBlank,
   removeRangeFromItem,
@@ -9,6 +10,66 @@ import {
   sortRangesAscending,
   sortRangesInItem,
 } from "./UncertaintyPanel";
+
+describe("addBlankFunctionToInstrument", () => {
+  it("adds a blank destination function without carrying source specifications", () => {
+    const source = {
+      id: "uut-1",
+      instrument: {
+        id: "dmm-1",
+        scope: "local",
+        functions: [
+          {
+            id: "voltage",
+            name: "Voltage",
+            unit: "V",
+            ranges: [
+              {
+                id: "v-range",
+                min: "0",
+                max: "10",
+                unit: "V",
+                tolerances: { reading: { value: "1" } },
+                resolution: "0.001",
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const updated = addBlankFunctionToInstrument(source, {
+      key: "resistance",
+      name: "Resistance",
+      unit: "Ohm",
+    });
+
+    expect(updated.instrument.functions).toHaveLength(2);
+    expect(updated.instrument.functions[0]).toEqual(source.instrument.functions[0]);
+    expect(updated.instrument.functions[1]).toEqual(
+      expect.objectContaining({
+        name: "Resistance",
+        unit: "Ohm",
+        ranges: [],
+      }),
+    );
+  });
+
+  it("does not duplicate a function the instrument already supports", () => {
+    const source = {
+      instrument: {
+        functions: [{ name: "Resistance", unit: "Ohm", ranges: [] }],
+      },
+    };
+
+    expect(
+      addBlankFunctionToInstrument(source, {
+        name: "Resistance",
+        unit: "kOhm",
+      }),
+    ).toBe(source);
+  });
+});
 
 // rangeIsBlank backs clear-to-delete: a range is removed only once BOTH bounds
 // are cleared (a half-filled range stays put).
