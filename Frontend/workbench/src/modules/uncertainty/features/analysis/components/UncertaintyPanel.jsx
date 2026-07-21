@@ -230,7 +230,11 @@ export const scopeLibraryInstrumentToFunction = (
 // additive: a DMM dragged from Voltage to Resistance remains configured for
 // Voltage and gains a blank Resistance definition ready for its own ranges,
 // non-range tolerance, distribution, and resolution.
-export const addBlankFunctionToInstrument = (item = {}, targetFunction = {}) => {
+export const addBlankFunctionToInstrument = (
+  item = {},
+  targetFunction = {},
+  sourceFunctionKey = null,
+) => {
   const name = String(targetFunction.name || "").trim();
   if (!name) return item;
 
@@ -246,14 +250,59 @@ export const addBlankFunctionToInstrument = (item = {}, targetFunction = {}) => 
   const unit = String(
     targetFunction.unit || targetFunction.units?.[0] || "",
   ).trim();
+  const newFunctionId = uuidv4();
+  const blankRangeId = uuidv4();
+  const blankRange = {
+    id: blankRangeId,
+    min: "",
+    max: "",
+    unit,
+    resolution: "",
+    tolerances: {},
+    functionId: newFunctionId,
+    functionName: name,
+    functionUnit: unit,
+  };
+  const hasInstanceRanges =
+    item.instrument &&
+    Array.isArray(item.ranges) &&
+    item.ranges.length > 0;
+  const sourceKey = makeFunctionKey(sourceFunctionKey);
+  const sourceFunction =
+    functions.find((fn) => makeFunctionKey(fn?.name) === sourceKey) ||
+    functions[0] ||
+    null;
+  const scopedInstanceRanges = hasInstanceRanges
+    ? [
+        ...item.ranges.map((range) =>
+          range.functionName || !sourceFunction
+            ? range
+            : {
+                ...range,
+                functionId: range.functionId || sourceFunction.id,
+                functionName: sourceFunction.name,
+                functionUnit:
+                  range.functionUnit ||
+                  range.unit ||
+                  sourceFunction.unit ||
+                  sourceFunction.units?.[0] ||
+                  "",
+              },
+        ),
+        blankRange,
+      ]
+    : null;
   const newFunction = {
-    id: uuidv4(),
+    id: newFunctionId,
     name,
     unit,
     units: Array.from(
       new Set([...(targetFunction.units || []), unit].filter(Boolean)),
     ),
-    ranges: [],
+    // Session rows with instance-level ranges keep the new blank row beside
+    // those ranges. Otherwise the function owns it directly. In both schemas
+    // the destination starts with a real, independently editable blank range.
+    ranges: hasInstanceRanges ? [] : [blankRange],
   };
   const wasShared =
     definition.scope === "validated" || computeSyncState(definition) === "green";
@@ -274,7 +323,11 @@ export const addBlankFunctionToInstrument = (item = {}, targetFunction = {}) => 
   };
 
   return item.instrument
-    ? { ...item, instrument: nextDefinition }
+    ? {
+        ...item,
+        ...(scopedInstanceRanges ? { ranges: scopedInstanceRanges } : {}),
+        instrument: nextDefinition,
+      }
     : nextDefinition;
 };
 
@@ -1748,7 +1801,7 @@ const inlineDescInputStyle = {
   font: "inherit",
   width: "100%",
 };
-const EditableDescriptionCell = ({
+export const EditableDescriptionCell = ({
   make = "",
   model = "",
   name = "",
@@ -1841,6 +1894,10 @@ const EditableDescriptionCell = ({
     onKeyDown: (e) => {
       if (e.key === "Enter") e.currentTarget.blur();
       if (e.key === "Escape") setOpen(false);
+      if (field === "name" && e.key === "Tab" && !e.shiftKey) {
+        setOpen(false);
+        moveToNextInlineTableColumn(e);
+      }
     },
     onMouseDown: (e) => e.stopPropagation(),
     className: "inline-desc-input",
@@ -4042,14 +4099,27 @@ export const resolveUutRangeHelper = (
     (r, i) => ({ ...r, _index: r._index ?? i }),
   );
 
-  // Optional: scope to a single function so a multi-function instrument shown
-  // under a function subsection only exposes that function's ranges. Falls back
-  // to all ranges if the filter would empty the list (legacy/loose metadata).
+  // Scope a multi-function instrument to the current subsection. A destination
+  // function created by drag-and-drop may intentionally have no specifications;
+  // in that case an empty result is authoritative and must not fall back to a
+  // different function's ranges/tolerances.
   if (functionKey) {
+    const declaredFunctions = instrumentFunctions(uut);
+    const selectedFunction = declaredFunctions.find(
+      (fn) => makeFunctionKey(fn.key || fn.name) === makeFunctionKey(functionKey),
+    );
     const scoped = allRanges.filter(
       (r) => functionPartsMatch(r.functionName, r.functionUnit || r.unit, functionKey),
     );
-    if (scoped.length > 0) allRanges = scoped;
+    if (scoped.length > 0) {
+      allRanges = scoped;
+    } else if (selectedFunction && declaredFunctions.length > 1) {
+      // Legacy single-function instance ranges can be unlabelled, so retain
+      // the old fallback for a single declared function. Once the instrument
+      // is explicitly multi-function, leaking another function's rows is less
+      // safe than showing the intended blank specification.
+      allRanges = [];
+    }
   }
 
   // 2. Determine Active Index in the complete range list.
@@ -5444,7 +5514,11 @@ const SummaryDashboard = ({
     let changed = false;
     const nextRows = (sessionData[listKey] || []).map((row) => {
       if (!sameId(row.id, payload.id)) return row;
-      const next = addBlankFunctionToInstrument(row, targetFunction);
+      const next = addBlankFunctionToInstrument(
+        row,
+        targetFunction,
+        payload.sourceFunctionKey,
+      );
       if (next !== row) changed = true;
       return next;
     });
@@ -8311,7 +8385,11 @@ function DetailedView({
     let changed = false;
     const nextRows = (sessionData[listKey] || []).map((row) => {
       if (!sameId(row.id, payload.id)) return row;
-      const next = addBlankFunctionToInstrument(row, targetFunction);
+      const next = addBlankFunctionToInstrument(
+        row,
+        targetFunction,
+        payload.sourceFunctionKey,
+      );
       if (next !== row) changed = true;
       return next;
     });
@@ -13133,9 +13211,6 @@ function DetailedView({
         {isDerived && equationDisplayData && (
           <div className="measurement-equation-layout">
             <div className="measurement-equation-block">
-              <h3 className="panel-section-title">
-                {String(testPointData.equationName || "").trim() || "Measurement Equation"}
-              </h3>
               <div
                 ref={equationEditorSurfaceRef}
                 className={`measurement-equation-card measurement-equation-zoom-surface ${

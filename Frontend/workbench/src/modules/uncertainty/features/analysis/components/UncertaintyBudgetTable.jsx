@@ -715,8 +715,6 @@ const UncertaintyBudgetTable = ({
   // at a fixed precision. Kept as a helper so existing call sites are untouched.
   const getGroupSigFigs = () => uiSigFigs;
 
-  const budgetTitle = "Uncertainty Budget";
-
   const groups = useMemo(() => {
     if (calcResults?.calculatedBudgetGroups?.length) {
       return calcResults.calculatedBudgetGroups;
@@ -1230,14 +1228,6 @@ const UncertaintyBudgetTable = ({
   // effective DOF (which raises k via the Student-t quantile).
   return (
     <div className="budget-stack">
-      <div className="budget-stack-header">
-        <div>
-          <h3 className="panel-section-title">
-            {budgetTitle}
-          </h3>
-        </div>
-      </div>
-
       {groups.map((group) => (
         <React.Fragment key={group.id}>
           <section className="budget-section-row">

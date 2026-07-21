@@ -362,8 +362,8 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     });
 
     expect(
-      screen.getByRole("heading", { name: "Uncertainty Budget", level: 3 }),
-    ).toBeInTheDocument();
+      screen.queryByRole("heading", { name: "Uncertainty Budget", level: 3 }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Length Uncertainty Budget", level: 4 }),
     ).toBeInTheDocument();
