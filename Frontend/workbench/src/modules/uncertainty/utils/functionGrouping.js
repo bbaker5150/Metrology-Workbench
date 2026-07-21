@@ -158,24 +158,129 @@ export const getFunctionDependencies = (sessionData = {}, fn = {}) => {
   };
 };
 
-export const getFunctionDependencyMessage = (dependencies = {}) => {
-  const counts = [
+const formatFunctionDependencyList = (dependencies = {}) => {
+  const labels = [
     [dependencies.uuts?.length || 0, "UUT"],
     [dependencies.tmdes?.length || 0, "TMDE"],
     [dependencies.measurementPoints?.length || 0, "measurement point"],
-  ].filter(([count]) => count > 0);
-  if (counts.length === 0) return "";
+  ]
+    .filter(([count]) => count > 0)
+    .map(([count, label]) => `${count} ${label}${count === 1 ? "" : "s"}`);
 
-  const labels = counts.map(
-    ([count, label]) => `${count} ${label}${count === 1 ? "" : "s"}`,
-  );
-  const dependencyList =
-    labels.length === 1
-      ? labels[0]
-      : `${labels.slice(0, -1).join(", ")}${labels.length > 2 ? "," : ""} and ${labels.at(-1)}`;
-  return `This function still has ${dependencyList}. Delete ${
-    counts.reduce((total, [count]) => total + count, 0) === 1 ? "it" : "them"
-  } before deleting the function.`;
+  if (labels.length === 0) return "";
+  if (labels.length === 1) return labels[0];
+  return `${labels.slice(0, -1).join(", ")}${labels.length > 2 ? "," : ""} and ${labels.at(-1)}`;
+};
+
+export const getFunctionDeletionConfirmationMessage = (
+  dependencies = {},
+  fn = {},
+) => {
+  const dependencyList = formatFunctionDependencyList(dependencies);
+  const functionName = clean(fn.name) || "selected";
+  const dependencyText = dependencyList ? ` and its ${dependencyList}` : "";
+  return `Delete the ${functionName} function${dependencyText}? All ranges and specifications belonging to this function will also be removed. This cannot be undone.`;
+};
+
+const removeFunctionFromInstrument = (source, functionKey) => {
+  const key = canonicalKey(functionKey);
+  const instrument = getInstrumentDefinition(source);
+  const functions = Array.isArray(instrument.functions)
+    ? instrument.functions
+    : null;
+
+  if (functions?.length) {
+    const removedFunctions = functions.filter(
+      (candidate) => makeFunctionKey(candidate?.name) === key,
+    );
+    const remainingFunctions = functions.filter(
+      (candidate) => makeFunctionKey(candidate?.name) !== key,
+    );
+    if (remainingFunctions.length === functions.length) return source;
+    if (remainingFunctions.length === 0) return null;
+
+    const nextInstrument = { ...instrument, functions: remainingFunctions };
+    if (!source?.instrument) return nextInstrument;
+
+    const removedRangeIds = new Set(
+      removedFunctions
+        .flatMap((candidate) => candidate?.ranges || [])
+        .map((range) => clean(range?.rangeId ?? range?.id))
+        .filter(Boolean),
+    );
+    const nextInstanceRanges = Array.isArray(source.ranges)
+      ? source.ranges.filter((range) => {
+          const rangeFunctionName = clean(range?.functionName);
+          if (rangeFunctionName) {
+            return makeFunctionKey(rangeFunctionName) !== key;
+          }
+          const rangeId = clean(range?.rangeId ?? range?.id);
+          return !rangeId || !removedRangeIds.has(rangeId);
+        })
+      : null;
+
+    return {
+      ...source,
+      ...(nextInstanceRanges ? { ranges: nextInstanceRanges } : {}),
+      instrument: nextInstrument,
+    };
+  }
+
+  const legacyRanges = Array.isArray(instrument.ranges)
+    ? instrument.ranges
+    : [];
+  if (legacyRanges.length) {
+    const fallbackName = clean(instrument.functionName) || DEFAULT_FUNCTION_NAME;
+    const remainingRanges = legacyRanges.filter((range) => {
+      const rangeName = clean(range?.functionName) || fallbackName;
+      return makeFunctionKey(rangeName) !== key;
+    });
+    if (remainingRanges.length === legacyRanges.length) return source;
+    if (remainingRanges.length === 0) return null;
+
+    const nextInstrument = { ...instrument, ranges: remainingRanges };
+    return source?.instrument
+      ? { ...source, instrument: nextInstrument }
+      : nextInstrument;
+  }
+
+  return instrumentHasFunction(source, key) ? null : source;
+};
+
+const removeFunctionFromSources = (sources = [], functionKey) =>
+  sources.reduce((remaining, source) => {
+    const updated = removeFunctionFromInstrument(source, functionKey);
+    if (updated) remaining.push(updated);
+    return remaining;
+  }, []);
+
+// Delete one table-scoped function as a single transaction. Multi-function
+// instruments keep their other definitions; instruments that only declare the
+// deleted function are removed with that function's measurement points.
+export const deleteFunctionCascade = (sessionData = {}, fn = {}) => {
+  const key = canonicalKey(fn.key || fn.name);
+  const appliesToUut = !fn.kind || fn.kind === "uut";
+  const appliesToTmde = !fn.kind || fn.kind === "tmde";
+
+  return {
+    ...sessionData,
+    functionGroups: (sessionData.functionGroups || []).filter(
+      (group) =>
+        makeFunctionKey(group.name, group.unit) !== key ||
+        (group.kind && fn.kind && group.kind !== fn.kind),
+    ),
+    ...(appliesToUut
+      ? {
+          uuts: removeFunctionFromSources(sessionData.uuts || [], key),
+          testPoints: (sessionData.testPoints || []).filter(
+            (point) => functionKeyOf(point) !== key,
+          ),
+        }
+      : {}),
+    ...(appliesToTmde
+      ? { tmdes: removeFunctionFromSources(sessionData.tmdes || [], key) }
+      : {}),
+  };
 };
 
 // Put instruments that can perform the active table function at the top of a

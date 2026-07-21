@@ -54,7 +54,8 @@ import {
   resolveSessionFunctions,
   functionsForLibrary,
   getFunctionDependencies,
-  getFunctionDependencyMessage,
+  getFunctionDeletionConfirmationMessage,
+  deleteFunctionCascade,
 } from "../../../utils/functionGrouping";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
@@ -5758,28 +5759,16 @@ const SummaryDashboard = ({
     }
   };
 
-  // Remove a function subsection. Only an empty function (no instrument declares
-  // it and no test point uses it) can be deleted — it's just a functionGroups
-  // metadata entry at that point. A function still in use must have its
-  // instruments/points removed first (matches the old measurement-area guard).
+  // Remove the function and its scoped instruments/points after one explicit
+  // confirmation; multi-function instruments retain their other definitions.
   const handleDeleteFunction = (fn) => {
     if (!onSessionSave) return;
     const dependencies = getFunctionDependencies(sessionData, fn);
-    const dependencyMessage = getFunctionDependencyMessage(dependencies);
-    if (dependencyMessage) {
-      setNotification?.({
-        title: "Function In Use",
-        message: dependencyMessage,
-      });
-      return;
-    }
-    onSessionSave({
-      ...sessionData,
-      functionGroups: (sessionData.functionGroups || []).filter(
-        (fg) =>
-          makeFunctionKey(fg.name, fg.unit) !== fn.key ||
-          (fg.kind && fn.kind && fg.kind !== fn.kind),
-      ),
+    confirmViaNotification(setNotification, {
+      title: `Delete ${fn.name || "Function"}`,
+      message: getFunctionDeletionConfirmationMessage(dependencies, fn),
+      confirmText: "Delete",
+      onConfirm: () => onSessionSave(deleteFunctionCascade(sessionData, fn)),
     });
   };
 
@@ -10156,21 +10145,11 @@ function DetailedView({
   const handleDeleteFunction = (fn) => {
     if (!onSessionSave) return;
     const dependencies = getFunctionDependencies(sessionData, fn);
-    const dependencyMessage = getFunctionDependencyMessage(dependencies);
-    if (dependencyMessage) {
-      setNotification?.({
-        title: "Function In Use",
-        message: dependencyMessage,
-      });
-      return;
-    }
-    onSessionSave({
-      ...sessionData,
-      functionGroups: (sessionData.functionGroups || []).filter(
-        (fg) =>
-          makeFunctionKey(fg.name, fg.unit) !== fn.key ||
-          (fg.kind && fn.kind && fg.kind !== fn.kind),
-      ),
+    confirmViaNotification(setNotification, {
+      title: `Delete ${fn.name || "Function"}`,
+      message: getFunctionDeletionConfirmationMessage(dependencies, fn),
+      confirmText: "Delete",
+      onConfirm: () => onSessionSave(deleteFunctionCascade(sessionData, fn)),
     });
   };
 
