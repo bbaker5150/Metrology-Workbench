@@ -4958,6 +4958,12 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
   box-shadow: inset 2px 0 0 var(--primary-color);
 }
 
+.budget-inline-manual-row.is-editing > td {
+  vertical-align: top;
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+
 .budget-inline-manual-row.has-warning {
   box-shadow: inset 2px 0 0 var(--status-warning, #e0a106);
 }
@@ -4984,6 +4990,34 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
 
 .budget-inline-name {
   min-width: 110px;
+}
+
+/* The manual tolerance is authored with the exact same multi-term editor as
+   UUT/TMDE rows. Give that editor a deliberate workspace inside the budget
+   table; the table wrapper can scroll on genuinely narrow panels instead of
+   crushing controls into the neighboring distribution/type columns. */
+.budget-inline-tolerance-cell {
+  min-width: 315px;
+}
+
+.budget-inline-tolerance-cell .inline-tolerance-editor--all {
+  width: 100%;
+  min-width: 285px;
+  max-width: 390px;
+  gap: 2px;
+}
+
+.budget-inline-tolerance-cell .inline-tolerance-term-group {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.budget-inline-distribution-summary {
+  display: inline-block;
+  max-width: 150px;
+  padding-top: 4px;
+  color: var(--text-color-muted);
+  line-height: 1.3;
 }
 
 .budget-inline-magnitude {

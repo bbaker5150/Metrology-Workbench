@@ -14203,6 +14203,9 @@ function DetailedView({
               components={calcResults?.calculatedBudgetComponents || []}
               onRemove={onRemoveComponent}
               onComponentUpdate={handleComponentUpdate}
+              ToleranceEditorComponent={InlineToleranceCell}
+              applyToleranceChange={applyToleranceCaseChange}
+              formatToleranceSummary={getSpecRows}
               calcResults={calcResults}
               referencePoint={uutNominal}
               uncertaintyConfidence={sessionData.uncReq.uncertaintyConfidence}

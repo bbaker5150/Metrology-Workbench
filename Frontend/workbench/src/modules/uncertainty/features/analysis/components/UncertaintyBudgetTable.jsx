@@ -290,6 +290,9 @@ const InlineManualComponentRow = ({
   referencePoint,
   showDof,
   sigFigs,
+  ToleranceEditorComponent,
+  applyToleranceChange,
+  formatToleranceSummary,
   onCommit,
   onRemove,
 }) => {
@@ -317,6 +320,13 @@ const InlineManualComponentRow = ({
   useEffect(() => {
     if (!editing) return undefined;
     const handleOutsidePointer = (event) => {
+      if (
+        event.target?.closest?.(
+          ".inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-unit-menu",
+        )
+      ) {
+        return;
+      }
       if (!rowRef.current?.contains(event.target)) finish();
     };
     document.addEventListener("pointerdown", handleOutsidePointer, true);
@@ -354,13 +364,16 @@ const InlineManualComponentRow = ({
         distributionDivisorValue("1.732");
       if (nextMode === "standard") {
         const tolerance = Number(current.toleranceLimit);
+        const calculatedTolerance = Number(preview?.value_native);
         return {
           ...current,
           inputMode: "standard",
           standardUncertainty:
             current.standardUncertainty ||
-            (Number.isFinite(tolerance) && tolerance > 0
-              ? String(tolerance / divisor)
+            (Number.isFinite(calculatedTolerance) && calculatedTolerance > 0
+              ? String(calculatedTolerance)
+              : Number.isFinite(tolerance) && tolerance > 0
+                ? String(tolerance / divisor)
               : ""),
         };
       }
@@ -384,14 +397,17 @@ const InlineManualComponentRow = ({
         distributionDivisorValue(current.errorDistributionDivisor) ||
         distributionDivisorValue("1.732");
       const tolerance = Number(current.toleranceLimit);
+      const calculatedTolerance = Number(preview?.value_native);
       return {
         ...current,
         type: "A",
         inputMode: "standard",
         standardUncertainty:
           current.standardUncertainty ||
-          (Number.isFinite(tolerance) && tolerance > 0
-            ? String(tolerance / divisor)
+          (Number.isFinite(calculatedTolerance) && calculatedTolerance > 0
+            ? String(calculatedTolerance)
+            : Number.isFinite(tolerance) && tolerance > 0
+              ? String(tolerance / divisor)
             : ""),
       };
     });
@@ -402,9 +418,6 @@ const InlineManualComponentRow = ({
       event.preventDefault();
       setDraft(getInlineManualDraft(component));
       setEditing(false);
-    } else if (event.key === "Enter" && event.target.tagName !== "SELECT") {
-      event.preventDefault();
-      finish();
     }
   };
 
@@ -428,10 +441,14 @@ const InlineManualComponentRow = ({
     const isStandard =
       component.type === "A" || original.inputMode === "standard";
     const tolerance = Number(original.toleranceLimit);
+    const structuredTolerance = original.tolerance || component.tolerance || {};
+    const structuredSummary = formatToleranceSummary?.(structuredTolerance)?.[0];
     const toleranceText =
-      !isStandard && Number.isFinite(tolerance) && tolerance > 0
-        ? `${tolerance} ${getUnitDisplayLabel(original.unit || component.manualUnit)}`
-        : "—";
+      !isStandard && structuredSummary && structuredSummary !== "-"
+        ? structuredSummary
+        : !isStandard && Number.isFinite(tolerance) && tolerance > 0
+          ? `${tolerance} ${getUnitDisplayLabel(original.unit || component.manualUnit)}`
+          : "Not Set";
     return (
       <tr
         ref={rowRef}
@@ -506,13 +523,45 @@ const InlineManualComponentRow = ({
           onChange={(event) =>
             setDraft((current) => ({ ...current, name: event.target.value }))
           }
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              finish();
+            }
+          }}
         />
       </td>
-      <td>
+      <td className="budget-inline-tolerance-cell">
         {draft.type === "A" ? (
           <span className="budget-inline-empty">—</span>
         ) : inputMode === "tolerance" ? (
-          magnitudeInput("toleranceLimit", "Tolerance limit")
+          ToleranceEditorComponent ? (
+            <ToleranceEditorComponent
+              tolerance={draft.tolerance || {}}
+              activeRange={{
+                id: component.id,
+                max: referencePoint?.value,
+                unit: referencePoint?.unit || draft.unit || "",
+              }}
+              editable
+              openRequested
+              onCommit={(typeKey, nextTerm) =>
+                setDraft((current) => ({
+                  ...current,
+                  tolerance: applyToleranceChange
+                    ? applyToleranceChange(
+                        current.tolerance || {},
+                        typeKey,
+                        nextTerm,
+                      )
+                    : { ...(current.tolerance || {}), [typeKey]: nextTerm },
+                  toleranceLimit: "",
+                }))
+              }
+            />
+          ) : (
+            magnitudeInput("toleranceLimit", "Tolerance limit")
+          )
         ) : (
           <button
             type="button"
@@ -528,6 +577,10 @@ const InlineManualComponentRow = ({
           <span>Normal</span>
         ) : inputMode === "standard" ? (
           <span>Standard uncertainty (k=1)</span>
+        ) : ToleranceEditorComponent ? (
+          <span className="budget-inline-distribution-summary">
+            {preview.distribution || "Not Set"}
+          </span>
         ) : (
           <select
             className="mini-select budget-inline-distribution"
@@ -686,6 +739,9 @@ const UncertaintyBudgetTable = ({
   onOpenRepeatability,
   setNotification,
   onComponentUpdate,
+  ToleranceEditorComponent,
+  applyToleranceChange,
+  formatToleranceSummary,
   onOpenCorrelation,
   onBudgetSettingsChange,
   useEffectiveDofByGroup = {},
@@ -925,6 +981,9 @@ const UncertaintyBudgetTable = ({
                 }
                 showDof={showDof}
                 sigFigs={getGroupSigFigs(group)}
+                ToleranceEditorComponent={ToleranceEditorComponent}
+                applyToleranceChange={applyToleranceChange}
+                formatToleranceSummary={formatToleranceSummary}
                 onCommit={(inlineManualDraft) =>
                   onComponentUpdate?.(
                     component.id,

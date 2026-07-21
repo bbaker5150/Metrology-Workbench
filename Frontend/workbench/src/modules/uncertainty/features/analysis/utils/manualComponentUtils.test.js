@@ -59,6 +59,111 @@ describe("inline manual budget components", () => {
     expect(normalized.inlineDraft).toBe(false);
   });
 
+  it("normalizes the same multi-term tolerance shape used by UUT and TMDE rows", () => {
+    const component = createInlineManualComponent({
+      id: "manual-shaped",
+      referencePoint: { value: 10, unit: "V" },
+    });
+    const tolerance = {
+      reading: {
+        high: "1",
+        low: "-1",
+        unit: "%",
+        distribution: "1.732",
+        symmetric: true,
+      },
+      range: {
+        value: "20",
+        high: "0.5",
+        low: "-0.5",
+        unit: "%",
+        distribution: "1.732",
+        symmetric: true,
+      },
+      floor: {
+        high: "0.02",
+        low: "-0.02",
+        unit: "V",
+        distribution: "1.732",
+        symmetric: true,
+      },
+    };
+    const normalized = normalizeInlineManualComponent({
+      component,
+      referencePoint: { value: 10, unit: "V" },
+      draft: {
+        ...getInlineManualDraft(component),
+        name: "Composite specification",
+        tolerance,
+      },
+    });
+
+    const expectedPpm = Math.sqrt(
+      (10000 / Math.sqrt(3)) ** 2 +
+        (10000 / Math.sqrt(3)) ** 2 +
+        (2000 / Math.sqrt(3)) ** 2,
+    );
+    expect(normalized.value).toBeCloseTo(expectedPpm, 5);
+    expect(normalized.value_native).toBeCloseTo(
+      (expectedPpm / 1e6) * 10,
+      10,
+    );
+    expect(normalized.distribution).toBe("Rectangular");
+    expect(normalized.originalInput.tolerance).toEqual(tolerance);
+    expect(normalized.inlineValidation).toBeNull();
+  });
+
+  it("promotes a legacy scalar tolerance into the canonical inline shape", () => {
+    const draft = getInlineManualDraft({
+      id: "legacy-manual",
+      type: "B",
+      manualInputMode: "tolerance",
+      originalInput: {
+        inputMode: "tolerance",
+        toleranceLimit: "0.25",
+        unit: "V",
+        errorDistributionDivisor: "2.000",
+        tolerance: {},
+      },
+    });
+
+    expect(draft.tolerance).toEqual({
+      floor: {
+        high: "0.25",
+        low: "-0.25",
+        unit: "V",
+        distribution: "2.000",
+        symmetric: true,
+      },
+    });
+  });
+
+  it("keeps an unsupported single-sided error source harmless and explicit", () => {
+    const component = createInlineManualComponent({
+      id: "manual-single-sided",
+      referencePoint: { value: 10, unit: "V" },
+    });
+    const normalized = normalizeInlineManualComponent({
+      component,
+      referencePoint: { value: 10, unit: "V" },
+      draft: {
+        ...getInlineManualDraft(component),
+        tolerance: {
+          singleSided: {
+            direction: "high",
+            measurement: "known",
+            limit: "11",
+            unit: "V",
+          },
+        },
+      },
+    });
+
+    expect(normalized.value).toBe(0);
+    expect(normalized.value_native).toBe(0);
+    expect(normalized.inlineValidation).toMatch(/does not define/i);
+  });
+
   it("accepts a standard uncertainty directly with k=1", () => {
     const component = createInlineManualComponent({
       id: "manual-3",

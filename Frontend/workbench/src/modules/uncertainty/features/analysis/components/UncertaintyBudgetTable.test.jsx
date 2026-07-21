@@ -771,8 +771,32 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
 
   it("authors a new manual component directly in an expanded budget row", () => {
     const onComponentUpdate = vi.fn();
+    const ToleranceEditorComponent = ({ onCommit, openRequested }) => (
+      <button
+        type="button"
+        aria-label="Author IV tolerance"
+        data-open={String(openRequested)}
+        onClick={() =>
+          onCommit("reading", {
+            high: "0.5",
+            low: "-0.5",
+            unit: "%",
+            distribution: "2.000",
+            symmetric: true,
+          })
+        }
+      >
+        Tolerance editor
+      </button>
+    );
     renderDirectBudget({
       onComponentUpdate,
+      ToleranceEditorComponent,
+      applyToleranceChange: (tolerance, key, term) => ({
+        ...tolerance,
+        [key]: term,
+      }),
+      formatToleranceSummary: () => ["Not Set"],
       components: [
         {
           id: "manual-inline",
@@ -805,12 +829,11 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     fireEvent.change(screen.getByLabelText("Error source name"), {
       target: { value: "Thermal drift" },
     });
-    fireEvent.change(screen.getByLabelText("Tolerance limit"), {
-      target: { value: "0.5" },
-    });
-    fireEvent.change(screen.getByLabelText("Error limit distribution"), {
-      target: { value: "2.000" },
-    });
+    expect(screen.getByLabelText("Author IV tolerance")).toHaveAttribute(
+      "data-open",
+      "true",
+    );
+    fireEvent.click(screen.getByLabelText("Author IV tolerance"));
     fireEvent.pointerDown(document.body);
 
     expect(onComponentUpdate).toHaveBeenCalledOnce();
@@ -820,8 +843,16 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
         name: "Thermal drift",
         type: "B",
         inputMode: "tolerance",
-        toleranceLimit: "0.5",
-        errorDistributionDivisor: "2.000",
+        toleranceLimit: "",
+        tolerance: {
+          reading: {
+            high: "0.5",
+            low: "-0.5",
+            unit: "%",
+            distribution: "2.000",
+            symmetric: true,
+          },
+        },
         unit: "V",
       },
       referencePoint: { value: 10, unit: "V" },
@@ -903,5 +934,47 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.getByLabelText("Error source name")).toHaveValue(
       "Operator influence",
     );
+  });
+
+  it("uses the instrument tolerance formatter in a collapsed manual row", () => {
+    renderDirectBudget({
+      onComponentUpdate: vi.fn(),
+      formatToleranceSummary: (tolerance) =>
+        tolerance.reading ? ["± 0.5% IV"] : ["Not Set"],
+      components: [
+        {
+          id: "manual-shaped-saved",
+          name: "Display effect",
+          type: "B",
+          value: 2500,
+          value_native: 0.025,
+          unit_native: "V",
+          distribution: "Normal (95.45%)",
+          isManual: true,
+          isInlineManual: true,
+          inlineDraft: false,
+          originalInput: {
+            inputMode: "tolerance",
+            tolerance: {
+              reading: {
+                high: "0.5",
+                low: "-0.5",
+                unit: "%",
+                distribution: "2.000",
+                symmetric: true,
+              },
+            },
+            toleranceLimit: "",
+            standardUncertainty: "",
+            errorDistributionDivisor: "2.000",
+            unit: "V",
+          },
+        },
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    expect(screen.getByText("± 0.5% IV")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Error source name")).not.toBeInTheDocument();
   });
 });
