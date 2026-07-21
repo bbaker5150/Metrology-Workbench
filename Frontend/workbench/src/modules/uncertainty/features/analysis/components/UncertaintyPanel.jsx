@@ -34,7 +34,6 @@ import {
   faPaste,
   faScissors,
   faFlask,
-  faCalculator,
   faTimes,
   faRedo,
 } from "@fortawesome/free-solid-svg-icons";
@@ -8244,8 +8243,14 @@ const SummaryDashboard = ({
                               );
 };
 
+export const formatEquationSectionLabel = (name) =>
+  `${
+    String(name || "")
+      .trim()
+      .replace(/\s+Equation$/i, "") || "Measurement"
+  } Equation`;
+
 const DetailWorkspaceSectionToggle = ({
-  icon,
   label,
   collapsed,
   onToggle,
@@ -8258,11 +8263,13 @@ const DetailWorkspaceSectionToggle = ({
     aria-expanded={!collapsed}
     aria-label={`${collapsed ? "Expand" : "Collapse"} ${label} section`}
   >
-    <span className="detail-workspace-section-label">
-      <FontAwesomeIcon icon={icon} />
-      <span>{label}</span>
-    </span>
-    <FontAwesomeIcon icon={collapsed ? faChevronRight : faChevronDown} size="xs" />
+    <span className="detail-workspace-section-label">{label}</span>
+    <span className="detail-workspace-section-rule" aria-hidden="true" />
+    <FontAwesomeIcon
+      className="detail-workspace-section-chevron"
+      icon={collapsed ? faChevronRight : faChevronDown}
+      size="xs"
+    />
   </button>
 );
 
@@ -12725,7 +12732,6 @@ function DetailedView({
     <div className="configuration-panel">
       <div className="detailed-view-section-layout">
       <DetailWorkspaceSectionToggle
-        icon={faTools}
         label="Instrument Tables"
         collapsed={collapsedDetailSections.has("instruments")}
         onToggle={() => toggleDetailSection("instruments")}
@@ -13193,11 +13199,7 @@ function DetailedView({
       {/* --- MIDDLE ROW: EQUATION --- */}
       {isDerived && (
         <DetailWorkspaceSectionToggle
-          icon={faFlask}
-          label={
-            String(testPointData.equationName || "").trim() ||
-            "Measurement Equation"
-          }
+          label={formatEquationSectionLabel(testPointData.equationName)}
           collapsed={collapsedDetailSections.has("equation")}
           onToggle={() => toggleDetailSection("equation")}
           className="detail-workspace-section-toggle--equation"
@@ -14027,8 +14029,7 @@ function DetailedView({
       </div>
 
       <DetailWorkspaceSectionToggle
-        icon={faCalculator}
-        label="Uncertainty Budget"
+        label="Budget Tables"
         collapsed={collapsedDetailSections.has("budget")}
         onToggle={() => toggleDetailSection("budget")}
         className="detail-workspace-section-toggle--budget"

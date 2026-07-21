@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { makeFunctionKey } from "../../../utils/functionGrouping";
 import {
   addBlankFunctionToInstrument,
+  formatEquationSectionLabel,
   getDeleteSelectionTarget,
   rangeIsBlank,
   removeRangeFromItem,
@@ -10,6 +11,14 @@ import {
   sortRangesAscending,
   sortRangesInItem,
 } from "./UncertaintyPanel";
+
+describe("detailed equation section label", () => {
+  it("appends Equation once to user names and keeps a useful default", () => {
+    expect(formatEquationSectionLabel("Torque")).toBe("Torque Equation");
+    expect(formatEquationSectionLabel("Torque Equation")).toBe("Torque Equation");
+    expect(formatEquationSectionLabel("")).toBe("Measurement Equation");
+  });
+});
 
 describe("addBlankFunctionToInstrument", () => {
   it("adds a blank destination function without carrying source specifications", () => {

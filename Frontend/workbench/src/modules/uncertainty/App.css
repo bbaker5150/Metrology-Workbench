@@ -11983,8 +11983,9 @@ input.inline-function-input:focus {
   color: var(--primary-color);
 }
 
-/* Detailed workspace section controls keep the large analysis surface
-   scannable without wrapping each table in another heavy card. */
+/* Detailed workspace section controls are intentionally quiet: a label, a
+   hairline rule, and the accordion chevron. They divide the analysis surface
+   without adding another card-shaped layer around the existing tables. */
 .detailed-view-section-layout {
   display: flex;
   flex-direction: column;
@@ -11994,40 +11995,68 @@ input.inline-function-input:focus {
 
 .detail-workspace-section-toggle {
   width: 100%;
-  min-height: 34px;
-  display: flex;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(20px, 1fr) 20px;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 7px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--component-bg) 88%, transparent);
-  color: var(--text-color);
+  gap: 10px;
+  padding: 6px 2px 5px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-color-muted);
   cursor: pointer;
-  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+  appearance: none;
+  box-shadow: none;
+  transform: none;
+  transition: color 140ms ease;
 }
 
 .detail-workspace-section-toggle:hover,
 .detail-workspace-section-toggle:focus-visible {
-  border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
-  background: color-mix(in srgb, var(--primary-color) 6%, var(--component-bg));
+  color: var(--text-color);
+  background: transparent;
   outline: none;
 }
 
 .detail-workspace-section-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  display: inline-block;
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.055em;
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.detail-workspace-section-label svg {
+.detail-workspace-section-rule {
+  width: 100%;
+  height: 1px;
+  background: color-mix(in srgb, var(--border-color) 88%, transparent);
+  transition: background-color 140ms ease;
+}
+
+.detail-workspace-section-chevron {
+  justify-self: end;
+  color: var(--text-color-muted);
+  transition: color 140ms ease, transform 140ms ease;
+}
+
+.detail-workspace-section-toggle:hover .detail-workspace-section-rule,
+.detail-workspace-section-toggle:focus-visible .detail-workspace-section-rule {
+  background: color-mix(in srgb, var(--primary-color) 38%, var(--border-color));
+}
+
+.detail-workspace-section-toggle:hover .detail-workspace-section-chevron,
+.detail-workspace-section-toggle:focus-visible .detail-workspace-section-chevron {
   color: var(--primary-color);
-  opacity: 0.82;
+}
+
+.detail-workspace-section-toggle:focus-visible .detail-workspace-section-label {
+  outline: 2px solid color-mix(in srgb, var(--primary-color) 55%, transparent);
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 
 .detail-workspace-section-toggle--instruments { order: 10; }
