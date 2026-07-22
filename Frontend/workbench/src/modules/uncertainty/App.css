@@ -16207,7 +16207,7 @@ body:not(.dark-mode)
   overflow: hidden;
   border: 1px solid var(--border-color);
   border-radius: 9px;
-  background: var(--card-background, var(--panel-background));
+  background: var(--content-background, var(--input-background, #fff));
   box-shadow: 0 10px 30px rgba(10, 24, 46, 0.07);
 }
 
@@ -16275,11 +16275,18 @@ body:not(.dark-mode)
   --doc-border: var(--border-color);
   --doc-border-light: var(--border-color);
   --doc-bg: color-mix(in srgb, var(--content-background) 90%, var(--primary-color) 2%);
-  --doc-bg-subtle: var(--card-background, var(--panel-background));
-  --doc-bg-hover: color-mix(in srgb, var(--primary-color) 8%, var(--card-background, #fff));
+  --doc-bg-subtle: color-mix(in srgb, var(--content-background) 96%, var(--primary-color) 2%);
+  --doc-bg-hover: color-mix(
+    in srgb,
+    var(--primary-color) 9%,
+    var(--input-background, var(--content-background, #fff))
+  );
   --doc-bg-input: var(--input-background);
-  --doc-surface: var(--card-background, var(--panel-background));
-  --doc-card: var(--card-background, var(--panel-background));
+  /* These surfaces back dropdowns and modal cards. They must resolve to an
+     opaque color; the former card/panel tokens are not defined by every app
+     theme and caused the editor to fall back to transparent backgrounds. */
+  --doc-surface: var(--content-background, var(--input-background, #fff));
+  --doc-card: var(--input-background, var(--content-background, #fff));
   --doc-text: var(--text-color);
   --doc-text-muted: var(--text-color-muted);
   --doc-border-input: var(--border-color-strong, var(--border-color));
@@ -16337,7 +16344,11 @@ body:not(.dark-mode)
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--danger-color, #d84d5c) 36%, var(--border-color));
   border-radius: 7px;
-  background: color-mix(in srgb, var(--danger-color, #d84d5c) 8%, var(--card-background, #fff));
+  background: color-mix(
+    in srgb,
+    var(--danger-color, #d84d5c) 8%,
+    var(--input-background, var(--content-background, #fff))
+  );
   color: var(--danger-color, #d84d5c);
   font-size: 0.76rem;
 }
