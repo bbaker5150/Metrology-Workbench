@@ -75,6 +75,7 @@ body.uncertainty-active {
   --content-background: #ffffff;
   --input-background: #ffffff;
   --sidebar-background: transparent;
+  --sidebar-sticky-surface: #ffffff;
   --component-bg: #ffffff;
   --component-header-bg: #f1f5f9;
 
@@ -163,6 +164,7 @@ body.dark-mode.uncertainty-active {
   --content-background: #111a2e;
   --input-background: #1a2640;
   --sidebar-background: transparent;
+  --sidebar-sticky-surface: var(--background-color);
   --component-bg: #111a2e;
   --component-header-bg: #1f2a40;
 
@@ -1628,31 +1630,29 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 
 .sidebar-column-headers .sidebar-value-sticky {
   z-index: 8;
-  background: var(--sidebar-background, var(--content-background));
+  background-color: var(--sidebar-sticky-surface);
   box-shadow: 7px 0 8px -9px rgba(0, 0, 0, 0.5);
 }
 
 .point-grid-item > .sidebar-value-sticky {
   z-index: 6;
-  /* A sticky cell must be opaque; inherited row tints are translucent and
-     otherwise allow horizontally scrolled metrics to show through it. */
-  background: var(--sidebar-background, var(--content-background));
+  background-color: var(--sidebar-sticky-surface);
   box-shadow: 7px 0 8px -9px rgba(0, 0, 0, 0.5);
 }
 
 .point-grid-item:hover > .sidebar-value-sticky {
-  background: color-mix(
+  background-color: color-mix(
     in srgb,
     var(--text-color) 3.5%,
-    var(--sidebar-background, var(--content-background))
+    var(--sidebar-sticky-surface)
   );
 }
 
 .point-grid-item.active-point > .sidebar-value-sticky {
-  background: color-mix(
+  background-color: color-mix(
     in srgb,
     var(--primary-color) 11%,
-    var(--sidebar-background, var(--content-background))
+    var(--sidebar-sticky-surface)
   ) !important;
 }
 
@@ -16429,6 +16429,45 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
     in srgb,
     var(--primary-color) 17%,
     transparent
+  ) !important;
+}
+
+/* Final sticky-value geometry. The point row uses 5px vertical padding and an
+   8px grid gap; extending the opaque value surface across both prevents the
+   next metric from painting beneath the frozen value while horizontally
+   scrolling. It also makes the selected value visually continuous with its
+   row instead of resembling a second highlighted input. */
+.uncertainty-module .point-grid-item > .sidebar-value-sticky {
+  align-self: stretch;
+  width: auto;
+  min-width: 0;
+  margin-block: -5px;
+  margin-right: -8px;
+  padding: 5px 10px 5px 2px;
+  border-radius: 0;
+}
+
+.uncertainty-module .point-grid-item.active > .sidebar-value-sticky,
+.uncertainty-module .point-grid-item.active > .sidebar-value-sticky:hover {
+  border-color: transparent;
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color) 8%,
+    var(--sidebar-sticky-surface)
+  ) !important;
+  box-shadow: 7px 0 8px -9px rgba(0, 0, 0, 0.5);
+}
+
+.uncertainty-module
+  .point-grid-item.active-point
+  > .sidebar-value-sticky,
+.uncertainty-module
+  .point-grid-item.active-point
+  > .sidebar-value-sticky:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color) 11%,
+    var(--sidebar-sticky-surface)
   ) !important;
 }
 
