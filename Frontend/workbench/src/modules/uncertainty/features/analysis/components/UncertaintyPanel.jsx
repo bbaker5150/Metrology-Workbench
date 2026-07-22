@@ -4670,6 +4670,19 @@ const pointUsesUut = (point = {}, uutId) =>
   String(point.activeUutId || "") === String(uutId) ||
   (point.associatedUutIds || []).some((id) => String(id) === String(uutId));
 
+export const countTmdeBudgetUses = (components = [], tmde = {}) => {
+  const ids = new Set(
+    [tmde?.id, tmde?.sourceId]
+      .filter((id) => id !== undefined && id !== null && String(id) !== "")
+      .map(String),
+  );
+  if (ids.size === 0) return 0;
+  return (components || []).reduce((count, component) => {
+    const sourceId = component?.sourceTmdeId;
+    return ids.has(String(sourceId ?? "")) ? count + 1 : count;
+  }, 0);
+};
+
 const findUpdatedUutToleranceForPoint = (previousUut, updatedUut, point) => {
   if (!point?.uutTolerance) return null;
   const previousResolution = resolveUutRangeHelper(
@@ -6956,7 +6969,7 @@ const SummaryDashboard = ({
     let uuts = sessionData.uuts || [];
     let points = sessionData.testPoints || [];
     let tmdes = sessionData.tmdes || [];
-    let displayTitle = "Session Overview";
+    let displayTitle = "Instrument Overview";
     let displaySubtitle = "";
 
     const isSessionView = viewMode === "session";
@@ -10290,6 +10303,36 @@ function DetailedView({
       pointFunctionMatchesRow(functionKey),
     [activePointUutId, pointFunctionMatchesRow],
   );
+  const detailFunctionColorByKey = useMemo(
+    () =>
+      new Map(
+        resolveSessionFunctions(sessionData).map((fn) => [fn.key, fn.color]),
+      ),
+    [sessionData],
+  );
+  const functionBadgeStyle = useCallback(
+    (functionKey) => ({
+      "--instrument-function-color":
+        detailFunctionColorByKey.get(functionKey) || "var(--primary-color)",
+    }),
+    [detailFunctionColorByKey],
+  );
+  const getTmdeBudgetUsageCount = useCallback(
+    (masterTmde) => {
+      const calculatedCount = countTmdeBudgetUses(
+        calcResults?.calculatedBudgetComponents || [],
+        masterTmde,
+      );
+      const assignedCount = (tmdeTolerancesData || [])
+        .filter((instance) => tmdeInstanceMatchesMaster(instance, masterTmde))
+        .reduce((count, instance) => {
+          const quantity = Number(instance?.quantity);
+          return count + (Number.isFinite(quantity) && quantity > 0 ? quantity : 1);
+        }, 0);
+      return Math.max(calculatedCount, assignedCount);
+    },
+    [calcResults?.calculatedBudgetComponents, tmdeTolerancesData],
+  );
 
   const resolveUutRange = useCallback(
     (uut, functionKey = null, rangeIndexOverride) => {
@@ -12274,8 +12317,8 @@ function DetailedView({
         setNotification?.({
           title: "Nothing to Add",
           message: resolutionDetail
-            ? "The UUT resolution is already in this budget. Add a TMDE in Session Overview to add more sources."
-            : "Add a TMDE in Session Overview (or enter a UUT resolution) before adding to this budget.",
+            ? "The UUT resolution is already in this budget. Add a TMDE in Instrument Overview to add more sources."
+            : "Add a TMDE in Instrument Overview (or enter a UUT resolution) before adding to this budget.",
         });
         return;
       }
@@ -13297,11 +13340,9 @@ function DetailedView({
                                     setHoveredCell({ tableId: "uut_det", colIndex: 0 })
                                   }
                                   style={{
-                                    color: isActivePointUut
+                                    color: isLinked
                                       ? "var(--primary-color)"
-                                      : isLinked
-                                        ? "var(--primary-color)"
-                                        : undefined,
+                                      : undefined,
                                   }}
                                 >
                                   <div className="uut-description-content">
@@ -13319,7 +13360,12 @@ function DetailedView({
                                       }
                                     />
                                     {isActivePointUut && (
-                                      <span className="active-uut-badge">Active UUT</span>
+                                      <span
+                                        className="active-uut-badge instrument-usage-badge"
+                                        style={functionBadgeStyle(uutFnKey)}
+                                      >
+                                        Active UUT
+                                      </span>
                                     )}
                                   </div>
                                 </td>
@@ -13378,11 +13424,9 @@ function DetailedView({
                             setHoveredCell({ tableId: "uut_det", colIndex: 0 })
                           }
                           style={{
-                            color: isActivePointUut
+                            color: isLinked
                               ? "var(--primary-color)"
-                              : isLinked
-                                ? "var(--primary-color)"
-                                : undefined,
+                              : undefined,
                           }}
                         >
                           <div className="uut-description-content">
@@ -13404,7 +13448,10 @@ function DetailedView({
                               <span>{uut.description}</span>
                             )}
                             {isActivePointUut && (
-                              <span className="active-uut-badge">
+                              <span
+                                className="active-uut-badge instrument-usage-badge"
+                                style={functionBadgeStyle(uutFnKey)}
+                              >
                                 Active UUT
                               </span>
                             )}
@@ -13944,6 +13991,7 @@ function DetailedView({
                     const activeInstances = tmdeTolerancesData.filter(
                       (t) => tmdeInstanceMatchesMaster(t, masterTmde),
                     );
+                    const budgetUsageCount = getTmdeBudgetUsageCount(masterTmde);
                     const displayInstance = activeInstances[0] || masterTmde;
                     const rowsToRender =
                       activeInstances.length > 0 ? [displayInstance] : [masterTmde];
@@ -14053,19 +14101,29 @@ function DetailedView({
                                         setHoveredCell({ tableId: "tmde_det", colIndex: 0 })
                                       }
                                     >
-                                      <EditableDescriptionCell
-                                        name={masterTmde.name}
-                                        make={masterTmde.instrument?.manufacturer}
-                                        model={masterTmde.instrument?.model}
-                                        functionKey={tmdeFnKey}
-                                        instruments={instruments}
-                                        onPickLibrary={(inst) =>
-                                          promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
-                                        }
-                                        onCommit={(field, value) =>
-                                          handleDetailTmdeDescEdit(masterTmde.id, field, value)
-                                        }
-                                      />
+                                      <div className="uut-description-content">
+                                        <EditableDescriptionCell
+                                          name={masterTmde.name}
+                                          make={masterTmde.instrument?.manufacturer}
+                                          model={masterTmde.instrument?.model}
+                                          functionKey={tmdeFnKey}
+                                          instruments={instruments}
+                                          onPickLibrary={(inst) =>
+                                            promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
+                                          }
+                                          onCommit={(field, value) =>
+                                            handleDetailTmdeDescEdit(masterTmde.id, field, value)
+                                          }
+                                        />
+                                        {budgetUsageCount > 0 && (
+                                          <span
+                                            className="instrument-usage-badge"
+                                            style={functionBadgeStyle(tmdeFnKey)}
+                                          >
+                                            In Budget{budgetUsageCount > 1 ? ` ×${budgetUsageCount}` : ""}
+                                          </span>
+                                        )}
+                                      </div>
                                     </td>
                                   )}
                                   {renderRangeRowCellsDetail("tmde", masterTmde, range, {
@@ -14127,36 +14185,39 @@ function DetailedView({
                                 })
                               }
                             >
-                              {onSessionSave ? (
-                                <EditableDescriptionCell
-                                  name={masterTmde.name}
-                                  make={masterTmde.instrument?.manufacturer}
-                                  model={masterTmde.instrument?.model}
-                                  functionKey={tmdeFnKey}
-                                  instruments={instruments}
-                                  onPickLibrary={(inst) =>
-                                    promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
-                                  }
-                                  onCommit={(field, value) =>
-                                    handleDetailTmdeDescEdit(
-                                      masterTmde.id,
-                                      field,
-                                      value,
-                                    )
-                                  }
-                                />
-                              ) : (
-                                <div
-                                  style={{
-                                    fontWeight: 600,
-                                    color: isChecked
-                                      ? "var(--primary-color)"
-                                      : "var(--text-color)",
-                                  }}
-                                >
-                                  {safeDescription}
-                                </div>
-                              )}
+                              <div className="uut-description-content">
+                                {onSessionSave ? (
+                                  <EditableDescriptionCell
+                                    name={masterTmde.name}
+                                    make={masterTmde.instrument?.manufacturer}
+                                    model={masterTmde.instrument?.model}
+                                    functionKey={tmdeFnKey}
+                                    instruments={instruments}
+                                    onPickLibrary={(inst) =>
+                                      promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
+                                    }
+                                    onCommit={(field, value) =>
+                                      handleDetailTmdeDescEdit(
+                                        masterTmde.id,
+                                        field,
+                                        value,
+                                      )
+                                    }
+                                  />
+                                ) : (
+                                  <div style={{ fontWeight: 600, color: "var(--text-color)" }}>
+                                    {safeDescription}
+                                  </div>
+                                )}
+                                {budgetUsageCount > 0 && (
+                                  <span
+                                    className="instrument-usage-badge"
+                                    style={functionBadgeStyle(tmdeFnKey)}
+                                  >
+                                    In Budget{budgetUsageCount > 1 ? ` ×${budgetUsageCount}` : ""}
+                                  </span>
+                                )}
+                              </div>
                             </td>
 
                             <td

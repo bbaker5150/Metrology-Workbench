@@ -1283,7 +1283,7 @@ const SidebarSessionHeader = ({
   return (
     <div
       className={`sidebar-session-header-organic ${isActive ? "active" : ""}`}
-      title="Click to select Session Overview"
+      title="Click to select Instrument Overview"
       onClick={onSelect}
     >
       <button
@@ -1295,7 +1295,7 @@ const SidebarSessionHeader = ({
         }}
         aria-current={isActive ? "page" : undefined}
       >
-        <span>Session Overview</span>
+        <span>Instrument Overview</span>
       </button>
 
       <div className="session-collapsible-block session-info-block">
@@ -1343,64 +1343,72 @@ const SidebarSessionHeader = ({
               {renderEditableField("organization", sessionData.organization, "Organization")}
               {renderEditableField("analyst", sessionData.analyst, "Analyst")}
               {renderEditableField("document", sessionData.document, "Doc ID")}
-              {renderEditableField("documentDate", sessionData.documentDate, "Date", "date")}
+              {renderEditableField(
+                "documentDate",
+                sessionData.documentDate,
+                "Document Date",
+                "date",
+              )}
             </div>
-          </div>
-        )}
-      </div>
+            <div className="session-collapsible-block session-subsection-block">
+              <button
+                type="button"
+                className="session-section-toggle session-subsection-toggle"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRiskInputsOpenChange(!isRiskInputsOpen);
+                }}
+                aria-expanded={isRiskInputsOpen}
+              >
+                <span>Risk Inputs</span>
+                <FontAwesomeIcon
+                  icon={isRiskInputsOpen ? faChevronDown : faChevronRight}
+                />
+              </button>
+              {isRiskInputsOpen && (
+                <div className="session-requirements-grid">
+                  {RISK_INPUT_FIELDS.map((field) =>
+                    renderEditableField(
+                      `uncReq.${field.name}`,
+                      requirements[field.name],
+                      field.sidebarLabel,
+                      "number",
+                      field.tooltip,
+                    ),
+                  )}
+                </div>
+              )}
+            </div>
 
-      <div className="session-collapsible-block session-requirements-block">
-        <button
-          type="button"
-          className="session-section-toggle"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRiskInputsOpenChange(!isRiskInputsOpen);
-          }}
-          aria-expanded={isRiskInputsOpen}
-        >
-          <span>Risk Inputs</span>
-          <FontAwesomeIcon icon={isRiskInputsOpen ? faChevronDown : faChevronRight} />
-        </button>
-        {isRiskInputsOpen && (
-          <div className="session-requirements-grid">
-            {RISK_INPUT_FIELDS.map((field) =>
-              renderEditableField(
-                `uncReq.${field.name}`,
-                requirements[field.name],
-                field.sidebarLabel,
-                "number",
-                field.tooltip,
-              ),
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="session-collapsible-block session-requirements-block">
-        <button
-          type="button"
-          className="session-section-toggle"
-          onClick={(e) => {
-            e.stopPropagation();
-            onMitigationInputsOpenChange(!isMitigationInputsOpen);
-          }}
-          aria-expanded={isMitigationInputsOpen}
-        >
-          <span>Mitigation Inputs</span>
-          <FontAwesomeIcon icon={isMitigationInputsOpen ? faChevronDown : faChevronRight} />
-        </button>
-        {isMitigationInputsOpen && (
-          <div className="session-requirements-grid">
-            {MITIGATION_INPUT_FIELDS.map((field) =>
-              renderEditableField(
-                `uncReq.${field.name}`,
-                requirements[field.name],
-                field.sidebarLabel,
-                "number",
-                field.tooltip,
-              ),
-            )}
+            <div className="session-collapsible-block session-subsection-block">
+              <button
+                type="button"
+                className="session-section-toggle session-subsection-toggle"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMitigationInputsOpenChange(!isMitigationInputsOpen);
+                }}
+                aria-expanded={isMitigationInputsOpen}
+              >
+                <span>Mitigation Inputs</span>
+                <FontAwesomeIcon
+                  icon={isMitigationInputsOpen ? faChevronDown : faChevronRight}
+                />
+              </button>
+              {isMitigationInputsOpen && (
+                <div className="session-requirements-grid">
+                  {MITIGATION_INPUT_FIELDS.map((field) =>
+                    renderEditableField(
+                      `uncReq.${field.name}`,
+                      requirements[field.name],
+                      field.sidebarLabel,
+                      "number",
+                      field.tooltip,
+                    ),
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -4434,7 +4442,7 @@ function App() {
               {/* === SIDEBAR LIST === */}
               <div className="measurement-point-list">
                 <div className="scoped-zoom-content">
-                {/* 1. DASHBOARD HOME BUTTON */}
+                {/* 1. INSTRUMENT OVERVIEW + 2. SESSION INFO */}
                 <SidebarSessionHeader
                   sessionData={currentSessionData}
                   onUpdate={updateSession}
@@ -4453,11 +4461,11 @@ function App() {
                   onSelect={() => handleSelectSession(selectedSessionId)}
                 />
 
-                {/* 2. GLOBAL ACTIONS ROW (Refined & Organic) */}
+                {/* 3. MEASUREMENT POINTS */}
                 <div className="sidebar-global-actions">
                   <button
                     type="button"
-                    className="sidebar-section-toggle"
+                    className="sidebar-section-toggle sidebar-measurement-title-toggle"
                     onClick={() =>
                       setIsMeasurementPointsOpen((open) => !open)
                     }
@@ -4466,13 +4474,6 @@ function App() {
                     <span className="sidebar-section-title">
                       Measurement Points
                     </span>
-                    <FontAwesomeIcon
-                      icon={
-                        isMeasurementPointsOpen
-                          ? faChevronDown
-                          : faChevronRight
-                      }
-                    />
                   </button>
 
                   <div className="sidebar-actions-group">
@@ -4632,8 +4633,49 @@ function App() {
                         </div>
                       )}
                     </div>
+
+                    <button
+                      type="button"
+                      className="sidebar-action-btn-organic sidebar-measurement-accordion"
+                      onClick={() =>
+                        setIsMeasurementPointsOpen((open) => !open)
+                      }
+                      title={
+                        isMeasurementPointsOpen
+                          ? "Collapse Measurement Points"
+                          : "Expand Measurement Points"
+                      }
+                      aria-label={
+                        isMeasurementPointsOpen
+                          ? "Collapse Measurement Points"
+                          : "Expand Measurement Points"
+                      }
+                      aria-expanded={isMeasurementPointsOpen}
+                    >
+                      <FontAwesomeIcon
+                        icon={
+                          isMeasurementPointsOpen
+                            ? faChevronDown
+                            : faChevronRight
+                        }
+                      />
+                    </button>
                   </div>
                 </div>
+
+                {isMeasurementPointsOpen && currentTestPoints.length === 0 && (
+                  <div className="measurement-points-empty-state" role="status">
+                    <FontAwesomeIcon icon={faMicroscope} aria-hidden="true" />
+                    <div>
+                      <strong>Ready for your first measurement point</strong>
+                      <span>
+                        {(currentSessionData?.uuts || []).length === 0
+                          ? "Create a function in Instrument Overview, then add a UUT to that function."
+                          : "Use the + beside a UUT below to add a direct or derived measurement point."}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 {isMeasurementPointsOpen &&
                   sidebarData.map((fnGroup) => {
@@ -4749,7 +4791,11 @@ function App() {
                                 selectedFunctionId === fnGroup.id &&
                                 !selectedTestPointId;
                               const uutHasPoints = group.points.length > 0;
-                              if (!uutHasPoints && !isGlobalExpanded)
+                              if (
+                                !uutHasPoints &&
+                                !isGlobalExpanded &&
+                                currentTestPoints.length > 0
+                              )
                                 return null;
                               const isDragOver = dragOverTargetId === uutKey;
                               const sortedPoints = sortSidebarPoints(

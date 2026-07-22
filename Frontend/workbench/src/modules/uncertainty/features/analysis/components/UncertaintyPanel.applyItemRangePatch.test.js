@@ -3,6 +3,7 @@ import {
   applyItemRangeFunction,
   applyItemRangePatch,
   applyRangeUnitChange,
+  countTmdeBudgetUses,
   getTmdeAccuracyReadiness,
   getItemRangeTolerance,
   rangeIdOf,
@@ -312,6 +313,29 @@ describe("getTmdeAccuracyReadiness", () => {
         },
       }),
     ).toEqual({ ready: true, reason: null });
+  });
+});
+
+describe("countTmdeBudgetUses", () => {
+  it("counts repeated budget rows linked to the same TMDE master", () => {
+    const components = [
+      { id: "accuracy-1", sourceTmdeId: "tmde-weight" },
+      { id: "accuracy-2", sourceTmdeId: "tmde-weight" },
+      { id: "resolution", isResolution: true },
+      { id: "other", sourceTmdeId: "tmde-length" },
+    ];
+
+    expect(
+      countTmdeBudgetUses(components, {
+        id: "tmde-weight",
+      }),
+    ).toBe(2);
+    expect(
+      countTmdeBudgetUses(components, {
+        id: "instance-id",
+        sourceId: "tmde-length",
+      }),
+    ).toBe(1);
   });
 });
 

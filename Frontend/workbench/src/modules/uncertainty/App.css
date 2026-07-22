@@ -1284,10 +1284,10 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 }
 
 .sidebar-section-title {
-  font-size: 0.65rem;
-  font-weight: 700;
+  font-size: 0.68rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   color: var(--text-color-muted);
   user-select: none;
   pointer-events: none; /* Clarifies it's just a label */
@@ -1340,6 +1340,56 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   align-items: center;
   gap: 2px;
   margin-left: 10px;
+}
+
+.sidebar-measurement-title-toggle {
+  align-self: stretch;
+}
+
+.sidebar-measurement-accordion {
+  margin-left: 1px;
+}
+
+.sidebar-measurement-accordion svg {
+  width: 10px;
+  font-size: 0.72rem;
+  opacity: 0.7;
+}
+
+.measurement-points-empty-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px 14px 10px;
+  padding: 12px 13px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 18%, var(--border-color));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary-color) 4%, transparent);
+  color: var(--text-color-muted);
+}
+
+.measurement-points-empty-state > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--primary-color);
+  opacity: 0.8;
+}
+
+.measurement-points-empty-state > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.measurement-points-empty-state strong {
+  color: var(--text-color);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.measurement-points-empty-state span {
+  font-size: 0.7rem;
+  line-height: 1.45;
 }
 
 /* Ensure the buttons feel organic/subtle */
@@ -2367,6 +2417,13 @@ body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
 .analysis-container > .analysis-tabs {
   padding-inline: 20px;
   box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  flex: 0 0 auto;
+  background: color-mix(in srgb, var(--content-background) 96%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
 }
 
 .analysis-tabs button {
@@ -10094,46 +10151,19 @@ body.theme-cyberpunk .notification-window .window-header {
   min-width: 0;
 }
 
+.instrument-usage-badge,
 .active-uut-badge {
+  --instrument-function-color: var(--primary-color);
   flex-shrink: 0;
   padding: 2px 6px;
-  border: 1px solid color-mix(in srgb, var(--primary-color) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--instrument-function-color) 58%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
-  color: var(--primary-color);
+  background: color-mix(in srgb, var(--instrument-function-color) 13%, transparent);
+  color: var(--instrument-function-color);
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-}
-
-.industry-table tbody tr.active-point-uut-row:not(.selected-row),
-.industry-table tbody tr.active-point-uut-spec-row:not(.selected-spec-row),
-.industry-table tbody tr.active-point-tmde-row:not(.selected-row),
-.industry-table tbody tr.active-point-tmde-spec-row:not(.selected-spec-row) {
-  background-color: color-mix(
-    in srgb,
-    var(--primary-color) 9%,
-    transparent
-  ) !important;
-  box-shadow: inset 3px 0 0 var(--primary-color) !important;
-}
-
-.industry-table tbody tr.active-point-uut-row:not(.selected-row):hover,
-.industry-table tbody tr.active-point-uut-row.row-hovered:not(.selected-row),
-.industry-table tbody tr.active-point-uut-spec-row.hovered-spec-row:not(
-    .selected-spec-row
-  ),
-.industry-table tbody tr.active-point-tmde-row:not(.selected-row):hover,
-.industry-table tbody tr.active-point-tmde-row.row-hovered:not(.selected-row),
-.industry-table tbody tr.active-point-tmde-spec-row.hovered-spec-row:not(
-    .selected-spec-row
-  ) {
-  background-color: color-mix(
-    in srgb,
-    var(--primary-color) 14%,
-    transparent
-  ) !important;
 }
 
 /* Rows highlight ONLY when the user has clicked (selected) them — see
@@ -12164,6 +12194,11 @@ input.inline-function-input:focus {
   color: var(--text-color-muted);
   cursor: pointer;
   pointer-events: auto;
+  position: sticky;
+  right: 8px;
+  z-index: 5;
+  background: color-mix(in srgb, var(--table-header-bg) 92%, transparent);
+  box-shadow: -10px 0 14px -13px rgba(0, 0, 0, 0.65);
 }
 
 .function-header-collapse-btn:hover {
@@ -15503,6 +15538,16 @@ body.theme-cyberpunk .theme-selector-minimal {
 
 .session-info-content {
   margin-top: 8px;
+}
+
+.session-subsection-block {
+  margin-top: 10px;
+  padding-top: 9px;
+}
+
+.session-subsection-toggle {
+  font-size: 0.63rem;
+  letter-spacing: 0.055em;
 }
 
 .session-section-toggle,

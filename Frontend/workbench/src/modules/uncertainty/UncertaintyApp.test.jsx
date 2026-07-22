@@ -147,7 +147,7 @@ describe("UncertaintyApp", () => {
     ).not.toBeInTheDocument();
   });
 
-  test("splits workbook risk and mitigation inputs into independent sidebar sections", async () => {
+  test("nests expanded risk and mitigation inputs inside Session Info", async () => {
     apiMock.state.sessions = [
       {
         id: 101,
@@ -181,8 +181,27 @@ describe("UncertaintyApp", () => {
       </ThemeProvider>,
     );
 
+    expect(
+      await screen.findByRole("button", { name: "Instrument Overview" }),
+    ).toBeInTheDocument();
+    const sessionInfoToggle = screen.getByRole("button", { name: /Session Info/i });
+    expect(sessionInfoToggle).toHaveAttribute("aria-expanded", "true");
     expect(await screen.findByText("Risk Inputs")).toBeInTheDocument();
     expect(screen.getByText("Mitigation Inputs")).toBeInTheDocument();
+    expect(document.querySelector(".session-info-content")).toContainElement(
+      screen.getByText("Risk Inputs"),
+    );
+    expect(document.querySelector(".session-info-content")).toContainElement(
+      screen.getByText("Mitigation Inputs"),
+    );
+    expect(screen.getByRole("button", { name: /Risk Inputs/i })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: /Mitigation Inputs/i }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Document Date")).toBeInTheDocument();
     expect(screen.getByText("Confidence (%)")).toBeInTheDocument();
     expect(screen.getByText("Assumed R_REOP")).toBeInTheDocument();
     expect(screen.getByText("TUR Needed")).toBeInTheDocument();
@@ -195,6 +214,16 @@ describe("UncertaintyApp", () => {
     expect(assumedReliabilityHelp.title).toMatch(/probability/i);
     expect(assumedReliabilityHelp.title).not.toMatch(/workbook/i);
     expect(screen.queryByText("Uncertainty Requirements")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Ready for your first measurement point"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Create a function in Instrument Overview/i),
+    ).toBeInTheDocument();
+
+    fireEvent.click(sessionInfoToggle);
+    expect(screen.queryByText("Risk Inputs")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mitigation Inputs")).not.toBeInTheDocument();
   });
 
   test("replaces floating notes, images, and help with the session Notes tab", async () => {
@@ -725,7 +754,7 @@ describe("UncertaintyApp", () => {
       await screen.findByRole("button", { name: "Expand function instruments" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Session Overview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Instrument Overview" }));
     expect(
       await screen.findByRole("button", { name: "Expand function instruments" }),
     ).toBeInTheDocument();
