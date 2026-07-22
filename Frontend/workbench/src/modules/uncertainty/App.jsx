@@ -1304,7 +1304,14 @@ const SidebarSessionHeader = ({
           className="session-section-toggle"
           onClick={(e) => {
             e.stopPropagation();
-            onSessionInfoOpenChange(!isSessionInfoOpen);
+            const nextOpen = !isSessionInfoOpen;
+            if (nextOpen) {
+              // Session Info is the parent workspace for both requirement
+              // groups. Reopening it should reveal the complete input set.
+              onRiskInputsOpenChange(true);
+              onMitigationInputsOpenChange(true);
+            }
+            onSessionInfoOpenChange(nextOpen);
           }}
           aria-expanded={isSessionInfoOpen}
         >

@@ -221,9 +221,22 @@ describe("UncertaintyApp", () => {
       screen.getByText(/Create a function in Instrument Overview/i),
     ).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: /Risk Inputs/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Mitigation Inputs/i }));
     fireEvent.click(sessionInfoToggle);
     expect(screen.queryByText("Risk Inputs")).not.toBeInTheDocument();
     expect(screen.queryByText("Mitigation Inputs")).not.toBeInTheDocument();
+
+    fireEvent.click(sessionInfoToggle);
+    expect(screen.getByRole("button", { name: /Risk Inputs/i })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: /Mitigation Inputs/i }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Confidence (%)")).toBeInTheDocument();
+    expect(screen.getByText("PFA Required")).toBeInTheDocument();
   });
 
   test("replaces floating notes, images, and help with the session Notes tab", async () => {

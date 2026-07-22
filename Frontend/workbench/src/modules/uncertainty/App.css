@@ -1510,12 +1510,10 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 /* Risk/guardband cells open a breakdown on click. */
 .point-risk-metric-clickable {
   cursor: pointer;
-  border-radius: 3px;
-  transition: background-color 0.1s ease;
+  transition: color 0.1s ease;
 }
 
 .point-risk-metric-clickable:hover {
-  background: var(--primary-color-light);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -1636,8 +1634,26 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 
 .point-grid-item > .sidebar-value-sticky {
   z-index: 6;
-  background-color: inherit;
+  /* A sticky cell must be opaque; inherited row tints are translucent and
+     otherwise allow horizontally scrolled metrics to show through it. */
+  background: var(--sidebar-background, var(--content-background));
   box-shadow: 7px 0 8px -9px rgba(0, 0, 0, 0.5);
+}
+
+.point-grid-item:hover > .sidebar-value-sticky {
+  background: color-mix(
+    in srgb,
+    var(--text-color) 3.5%,
+    var(--sidebar-background, var(--content-background))
+  );
+}
+
+.point-grid-item.active-point > .sidebar-value-sticky {
+  background: color-mix(
+    in srgb,
+    var(--primary-color) 11%,
+    var(--sidebar-background, var(--content-background))
+  ) !important;
 }
 
 /* Sidebar Column Toggle Button Enhancement */
@@ -14379,9 +14395,8 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
 .point-grid-item.active .point-section:hover,
 .point-grid-item.active .point-value:hover {
   cursor: text;
-  background-color: var(--input-background);
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.1);
+  border-color: transparent;
+  box-shadow: none;
   color: var(--text-color);
   opacity: 1;
 }
@@ -15374,6 +15389,7 @@ body.theme-cyberpunk .theme-selector-minimal {
 }
 
 .session-overview-button {
+  position: relative;
   width: 100%;
   display: flex;
   align-items: center;
@@ -15406,6 +15422,17 @@ body.theme-cyberpunk .theme-selector-minimal {
   transform: none;
 }
 
+.session-overview-button.active::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: -17px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--primary-color);
+}
+
 .session-overview-button:focus-visible {
   outline: 2px solid rgba(var(--primary-rgb), 0.28);
   outline-offset: 2px;
@@ -15425,13 +15452,7 @@ body.theme-cyberpunk .theme-selector-minimal {
 /* ACTIVE STATE */
 .sidebar-session-header-organic.active {
   background-color: transparent;
-  border-left-color: var(--primary-color);
-  color: var(--primary-color);
-}
-
-/* Ensure inner text inherits the active color */
-.sidebar-session-header-organic.active .session-header-value {
-  color: inherit;
+  border-left-color: transparent;
 }
 
 .sidebar-session-header-organic .session-header-value:hover {
