@@ -5,26 +5,44 @@ import {
   faAlignCenter,
   faAlignLeft,
   faAlignRight,
-  faBold,
   faCheckCircle,
-  faHeading,
   faImage,
-  faItalic,
-  faLink,
-  faListOl,
-  faListUl,
-  faQuoteRight,
-  faRedo,
-  faRemoveFormat,
   faTrashAlt,
-  faUnderline,
-  faUndo,
 } from "@fortawesome/free-solid-svg-icons";
+import {
+  AutoFormat,
+  CodeBlock,
+  Count,
+  EmojiPicker,
+  FormatPainter,
+  HtmlEditor,
+  Image,
+  Inject,
+  Link,
+  PasteCleanup,
+  QuickToolbar,
+  Resize,
+  RichTextEditorComponent,
+  SlashMenu,
+  Table,
+  Toolbar,
+} from "@syncfusion/ej2-react-richtexteditor";
+import "@syncfusion/ej2-base/styles/fluent2.css";
+import "@syncfusion/ej2-buttons/styles/fluent2.css";
+import "@syncfusion/ej2-inputs/styles/fluent2.css";
+import "@syncfusion/ej2-popups/styles/fluent2.css";
+import "@syncfusion/ej2-splitbuttons/styles/fluent2.css";
+import "@syncfusion/ej2-navigations/styles/fluent2.css";
+import "@syncfusion/ej2-dropdowns/styles/fluent2.css";
+import "@syncfusion/ej2-richtexteditor/styles/fluent2.css";
 
 const ALLOWED_TAGS = new Set([
-  "A", "B", "BLOCKQUOTE", "BR", "CODE", "DIV", "EM", "FIGCAPTION",
-  "FIGURE", "H1", "H2", "H3", "HR", "I", "IMG", "LI", "OL", "P",
-  "PRE", "S", "SPAN", "STRONG", "U", "UL",
+  "A", "ADDRESS", "B", "BLOCKQUOTE", "BR", "CAPTION", "CODE", "COL",
+  "COLGROUP", "DD", "DIV", "DL", "DT", "EM", "FIGCAPTION", "FIGURE",
+  "H1", "H2", "H3", "H4", "H5", "H6", "HR", "I", "IMG", "LI",
+  "MARK", "OL", "P", "PRE", "S", "SMALL", "SPAN", "STRONG", "SUB",
+  "SUP", "TABLE", "TBODY", "TD", "TFOOT", "TH", "THEAD", "TR", "U",
+  "UL",
 ]);
 const FIGURE_ATTRIBUTES = new Set([
   "data-note-image-id",
@@ -34,6 +52,66 @@ const FIGURE_ATTRIBUTES = new Set([
 ]);
 const MIN_IMAGE_WIDTH = 15;
 const DEFAULT_IMAGE_WIDTH = 70;
+const SAFE_STYLE_PROPERTIES = new Set([
+  "background", "background-color", "border", "border-bottom", "border-color",
+  "border-left", "border-radius", "border-right", "border-style", "border-top",
+  "border-width", "clear", "color", "direction", "display", "float", "font",
+  "font-family", "font-size", "font-style", "font-weight", "height", "line-height",
+  "list-style-type", "margin", "margin-bottom", "margin-left", "margin-right",
+  "margin-top", "max-height", "max-width", "min-height", "min-width", "overflow",
+  "overflow-wrap", "padding", "padding-bottom", "padding-left", "padding-right",
+  "padding-top", "table-layout", "text-align", "text-decoration", "text-indent",
+  "text-transform", "vertical-align", "white-space", "width", "word-break",
+]);
+const OFFICE_TOOLBAR_ITEMS = [
+  "Undo", "Redo", "|", "Formats", "FontName", "FontSize", "|", "Bold",
+  "Italic", "Underline", "StrikeThrough", "SuperScript", "SubScript", "|",
+  "FontColor", "BackgroundColor", "|", "Alignments", "NumberFormatList",
+  "BulletFormatList", "Outdent", "Indent", "|", "CreateTable", "CreateLink",
+  "Image", "EmojiPicker", "|", "FormatPainter", "ClearFormat", "|", "Print",
+  "SourceCode", "FullScreen",
+];
+const OFFICE_TOOLBAR_SETTINGS = {
+  items: OFFICE_TOOLBAR_ITEMS,
+  type: "MultiRow",
+  enableFloating: true,
+};
+const OFFICE_QUICK_TOOLBAR_SETTINGS = {
+  image: [
+    "Replace", "Align", "WrapText", "Caption", "InsertLink", "Display",
+    "AltText", "Dimension", "Remove",
+  ],
+  link: ["Open", "Edit", "UnLink"],
+  table: [
+    "TableHeader", "TableRows", "TableColumns", "BackgroundColor",
+    "TableRemove", "Alignments", "TableCellVerticalAlign", "Styles",
+  ],
+};
+const OFFICE_PASTE_SETTINGS = {
+  prompt: false,
+  plainText: false,
+  keepFormat: true,
+  deniedTags: ["script", "style", "iframe", "object", "embed", "form"],
+  deniedAttrs: ["onerror", "onload", "onclick", "onmouseover", "onfocus"],
+  allowedStyleProps: [...SAFE_STYLE_PROPERTIES],
+};
+
+const sanitizeInlineStyle = (value = "") => {
+  const probe = document.createElement("span");
+  probe.setAttribute("style", String(value || ""));
+  Array.from({ length: probe.style.length }, (_, index) => probe.style[index])
+    .forEach((property) => {
+      const normalized = property.toLowerCase();
+      const propertyValue = probe.style.getPropertyValue(property);
+      if (
+        !SAFE_STYLE_PROPERTIES.has(normalized) ||
+        /(?:expression\s*\(|javascript:|url\s*\()/i.test(propertyValue)
+      ) {
+        probe.style.removeProperty(property);
+      }
+    });
+  return probe.getAttribute("style") || "";
+};
 
 const clampImageWidth = (value) =>
   Math.min(100, Math.max(MIN_IMAGE_WIDTH, Number(value) || DEFAULT_IMAGE_WIDTH));
@@ -63,11 +141,24 @@ export const sanitizeNoteHtml = (value = "", { stripImageSources = false } = {})
     [...node.attributes].forEach((attribute) => {
       const name = attribute.name.toLowerCase();
       const allowed =
+        ["class", "style", "title", "dir"].includes(name) ||
         (node.tagName === "A" && ["href", "target", "rel"].includes(name)) ||
-        (node.tagName === "IMG" && ["src", "alt", "data-note-image-id"].includes(name)) ||
+        (node.tagName === "IMG" && [
+          "src", "alt", "width", "height", "data-note-image-id",
+        ].includes(name)) ||
+        (["TD", "TH"].includes(node.tagName) && ["colspan", "rowspan", "scope"].includes(name)) ||
+        (["COL", "COLGROUP"].includes(node.tagName) && ["span", "width"].includes(name)) ||
+        (node.tagName === "OL" && ["start", "type"].includes(name)) ||
+        (node.tagName === "LI" && name === "value") ||
         (node.tagName === "FIGURE" && FIGURE_ATTRIBUTES.has(name));
       if (!allowed) node.removeAttribute(attribute.name);
     });
+
+    if (node.hasAttribute("style")) {
+      const safeStyle = sanitizeInlineStyle(node.getAttribute("style"));
+      if (safeStyle) node.setAttribute("style", safeStyle);
+      else node.removeAttribute("style");
+    }
 
     if (node.tagName === "A") {
       const href = node.getAttribute("href") || "";
@@ -77,6 +168,10 @@ export const sanitizeNoteHtml = (value = "", { stripImageSources = false } = {})
     }
 
     if (node.tagName === "FIGURE") {
+      // Figure width/alignment is stored as stable note metadata and re-applied
+      // when hydrating; discard the transient layout style written by either
+      // editor so documents remain portable across themes and viewport sizes.
+      node.removeAttribute("style");
       node.dataset.noteWidth = String(clampImageWidth(node.dataset.noteWidth));
       if (!new Set(["left", "center", "right"]).has(node.dataset.noteAlign)) {
         node.dataset.noteAlign = "center";
@@ -126,12 +221,15 @@ const SessionNotesWorkspace = ({
   onNotesSave,
 }) => {
   const shellRef = useRef(null);
+  const syncfusionRef = useRef(null);
   const editorRef = useRef(null);
   const uploadRef = useRef(null);
   const replaceRef = useRef(null);
   const saveTimerRef = useRef(null);
   const selectionRef = useRef(null);
   const draggedImageIdRef = useRef(null);
+  const reconcileTimerRef = useRef(null);
+  const managedImageMutationRef = useRef(false);
   const lastSavedRef = useRef(sessionData?.notes || "");
   const loadedSessionIdRef = useRef(null);
   const sessionRef = useRef(sessionData);
@@ -139,6 +237,7 @@ const SessionNotesWorkspace = ({
   const [selectedImageId, setSelectedImageId] = useState(null);
   const [selectedLayout, setSelectedLayout] = useState(null);
   const [overlayRect, setOverlayRect] = useState(null);
+  const [editorReady, setEditorReady] = useState(false);
   const sessionId = sessionData?.id;
   const imageRefs = sessionData?.noteImages || [];
   const imageCache = sessionId ? sessionImageCache?.get(sessionId) : null;
@@ -146,6 +245,14 @@ const SessionNotesWorkspace = ({
   useEffect(() => {
     sessionRef.current = sessionData;
   }, [sessionData]);
+
+  const handleEditorCreated = useCallback(() => {
+    editorRef.current =
+      syncfusionRef.current?.contentModule?.getEditPanel?.() ||
+      syncfusionRef.current?.element?.querySelector(".e-content") ||
+      null;
+    setEditorReady(Boolean(editorRef.current));
+  }, []);
 
   const getFigure = useCallback((imageId = selectedImageId) => {
     if (!imageId || !editorRef.current) return null;
@@ -207,7 +314,7 @@ const SessionNotesWorkspace = ({
 
   useEffect(() => {
     const editor = editorRef.current;
-    if (!editor || document.activeElement === editor) return;
+    if (!editor || editor.contains(document.activeElement)) return;
     const isCurrentDocument =
       loadedSessionIdRef.current === sessionId &&
       (sessionData?.notes || "") === lastSavedRef.current;
@@ -219,12 +326,15 @@ const SessionNotesWorkspace = ({
       applyStoredImageLayouts(editor);
       return;
     }
-    if (editor.innerHTML !== hydratedHtml) editor.innerHTML = hydratedHtml;
+    if (editor.innerHTML !== hydratedHtml) {
+      editor.innerHTML = hydratedHtml;
+      if (syncfusionRef.current) syncfusionRef.current.value = hydratedHtml;
+    }
     applyStoredImageLayouts(editor);
     lastSavedRef.current = sessionData?.notes || "";
     loadedSessionIdRef.current = sessionId;
     selectImage(null);
-  }, [hydratedHtml, imageCache, selectImage, sessionData?.notes, sessionId]);
+  }, [editorReady, hydratedHtml, imageCache, selectImage, sessionData?.notes, sessionId]);
 
   useEffect(() => {
     if (!sessionId || !imageRefs.length || imageCache?.size || !onLoadSessionImages) return;
@@ -265,8 +375,130 @@ const SessionNotesWorkspace = ({
     saveTimerRef.current = setTimeout(saveDocument, 500);
   }, [saveDocument]);
 
+  const reconcileEditorImages = useCallback(async () => {
+    const editor = editorRef.current;
+    const currentSession = sessionRef.current;
+    if (!editor || !currentSession || managedImageMutationRef.current) return false;
+
+    const currentRefs = currentSession.noteImages || [];
+    const refsById = new Map(
+      currentRefs.map((image) => [String(image.id), image]),
+    );
+    const presentIds = new Set();
+    const filesToPersist = new Map();
+    const nextRefs = [...currentRefs];
+
+    [...editor.querySelectorAll("img")].forEach((image) => {
+      const source = image.getAttribute("src") || "";
+      let imageId = image.dataset.noteImageId;
+      if (!imageId && /^(?:data:image\/|https?:\/\/)/i.test(source)) {
+        imageId = uuidv4();
+        image.dataset.noteImageId = imageId;
+      }
+      if (!imageId) return;
+
+      let figure = image.closest("figure");
+      if (!figure) {
+        figure = document.createElement("figure");
+        image.replaceWith(figure);
+        figure.appendChild(image);
+        const caption = document.createElement("figcaption");
+        caption.textContent = image.getAttribute("alt") || "Reference image";
+        figure.appendChild(caption);
+      }
+      figure.dataset.noteImageId = imageId;
+      figure.dataset.noteWidth ||= String(DEFAULT_IMAGE_WIDTH);
+      figure.dataset.noteAlign ||= "center";
+      figure.dataset.noteWrap ||= "none";
+      applyStoredImageLayouts(figure.parentElement || editor);
+
+      const key = String(imageId);
+      presentIds.add(key);
+      const fileName =
+        image.getAttribute("alt") || refsById.get(key)?.fileName || "Reference image";
+      if (!refsById.has(key)) {
+        const imageRef = { id: imageId, fileName };
+        refsById.set(key, imageRef);
+        nextRefs.push(imageRef);
+      }
+
+      const cachedSource = imageCache?.get(imageId) || imageCache?.get(key);
+      if (source && source !== cachedSource) {
+        filesToPersist.set(key, {
+          id: imageId,
+          imageId,
+          fileName,
+          fileObject: source,
+        });
+      }
+    });
+
+    // Avoid relying on :has(), because older Electron/Chromium builds can
+    // otherwise leave an empty image frame behind after a quick-toolbar
+    // removal. The explicit descendant check behaves identically everywhere.
+    [...editor.querySelectorAll("figure[data-note-image-id]")]
+      .filter((figure) => !figure.querySelector("img"))
+      .forEach((figure) => figure.remove());
+
+    const retainedRefs = nextRefs.filter((image) =>
+      presentIds.has(String(image.id)),
+    );
+    const referencesChanged =
+      retainedRefs.length !== currentRefs.length ||
+      retainedRefs.some((image, index) =>
+        String(image.id) !== String(currentRefs[index]?.id) ||
+        image.fileName !== currentRefs[index]?.fileName,
+      );
+    if (!referencesChanged && !filesToPersist.size) return false;
+
+    managedImageMutationRef.current = true;
+    const persistedFiles = [...filesToPersist.values()];
+    onSessionImageCacheChange?.((previous) => {
+      const next = new Map(previous);
+      const sessionMap = new Map(next.get(sessionId) || []);
+      currentRefs.forEach((image) => {
+        if (!presentIds.has(String(image.id))) sessionMap.delete(image.id);
+      });
+      persistedFiles.forEach((image) =>
+        sessionMap.set(image.id, image.fileObject),
+      );
+      next.set(sessionId, sessionMap);
+      return next;
+    });
+
+    const notes = serializeNoteDocument(editor);
+    lastSavedRef.current = notes;
+    const updatedSession = {
+      ...currentSession,
+      notes,
+      noteImages: retainedRefs,
+    };
+    sessionRef.current = updatedSession;
+    setSaveState("saving");
+    try {
+      await onSessionSave?.(updatedSession, persistedFiles);
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    } finally {
+      managedImageMutationRef.current = false;
+    }
+    return true;
+  }, [imageCache, onSessionImageCacheChange, onSessionSave, sessionId]);
+
+  const handleEditorInput = useCallback(() => {
+    setSaveState("pending");
+    clearTimeout(reconcileTimerRef.current);
+    reconcileTimerRef.current = setTimeout(async () => {
+      const reconciledImages = await reconcileEditorImages();
+      if (!reconciledImages) queueSave();
+    }, 0);
+    if (selectedImageId) refreshSelectionOverlay();
+  }, [queueSave, reconcileEditorImages, refreshSelectionOverlay, selectedImageId]);
+
   useEffect(() => () => {
     clearTimeout(saveTimerRef.current);
+    clearTimeout(reconcileTimerRef.current);
     if (editorRef.current) saveDocument();
   }, [saveDocument]);
 
@@ -300,15 +532,6 @@ const SessionNotesWorkspace = ({
     selection.addRange(selectionRef.current);
   };
 
-  const runCommand = (command, value = null) => {
-    selectImage(null);
-    editorRef.current?.focus();
-    restoreSelection();
-    document.execCommand(command, false, value);
-    rememberSelection();
-    queueSave();
-  };
-
   const createImageFigure = useCallback((id, fileName, source) => {
     const safeName = document.createElement("span");
     safeName.textContent = fileName || "Reference image";
@@ -327,7 +550,11 @@ const SessionNotesWorkspace = ({
     editorRef.current?.focus();
     restoreSelection();
     const wrapper = createImageFigure(id, fileName, source);
-    document.execCommand("insertHTML", false, wrapper.innerHTML);
+    if (syncfusionRef.current?.executeCommand) {
+      syncfusionRef.current.executeCommand("insertHTML", wrapper.innerHTML);
+    } else {
+      document.execCommand("insertHTML", false, wrapper.innerHTML);
+    }
     applyStoredImageLayouts(editorRef.current);
     selectImage(id);
     rememberSelection();
@@ -336,33 +563,42 @@ const SessionNotesWorkspace = ({
   const addFiles = useCallback(async (files) => {
     const images = [...files].filter((file) => file.type.startsWith("image/"));
     if (!images.length || !sessionRef.current) return;
-    const newFiles = await Promise.all(images.map(async (file) => ({
-      id: uuidv4(),
-      fileName: file.name || "Pasted image",
-      fileObject: await readFile(file),
-    })));
-    const newRefs = newFiles.map(({ id, fileName }) => ({ id, fileName }));
+    managedImageMutationRef.current = true;
+    try {
+      const newFiles = await Promise.all(images.map(async (file) => ({
+        id: uuidv4(),
+        fileName: file.name || "Pasted image",
+        fileObject: await readFile(file),
+      })));
+      const newRefs = newFiles.map(({ id, fileName }) => ({ id, fileName }));
 
-    onSessionImageCacheChange((previous) => {
-      const next = new Map(previous);
-      const sessionMap = new Map(next.get(sessionId) || []);
-      newFiles.forEach((image) => sessionMap.set(image.id, image.fileObject));
-      next.set(sessionId, sessionMap);
-      return next;
-    });
-    newFiles.forEach((image) => insertImageMarkup(image.id, image.fileName, image.fileObject));
+      onSessionImageCacheChange((previous) => {
+        const next = new Map(previous);
+        const sessionMap = new Map(next.get(sessionId) || []);
+        newFiles.forEach((image) => sessionMap.set(image.id, image.fileObject));
+        next.set(sessionId, sessionMap);
+        return next;
+      });
+      newFiles.forEach((image) =>
+        insertImageMarkup(image.id, image.fileName, image.fileObject),
+      );
 
-    const notes = serializeNoteDocument(editorRef.current);
-    lastSavedRef.current = notes;
-    const updatedSession = {
-      ...sessionRef.current,
-      notes,
-      noteImages: [...(sessionRef.current.noteImages || []), ...newRefs],
-    };
-    sessionRef.current = updatedSession;
-    setSaveState("saving");
-    await onSessionSave(updatedSession, newFiles);
-    setSaveState("saved");
+      const notes = serializeNoteDocument(editorRef.current);
+      lastSavedRef.current = notes;
+      const updatedSession = {
+        ...sessionRef.current,
+        notes,
+        noteImages: [...(sessionRef.current.noteImages || []), ...newRefs],
+      };
+      sessionRef.current = updatedSession;
+      setSaveState("saving");
+      await onSessionSave(updatedSession, newFiles);
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    } finally {
+      managedImageMutationRef.current = false;
+    }
   }, [insertImageMarkup, onSessionImageCacheChange, onSessionSave, sessionId]);
 
   const updateSelectedLayout = useCallback((updates, persist = true) => {
@@ -397,58 +633,72 @@ const SessionNotesWorkspace = ({
     const figure = getFigure();
     const imageId = figure?.dataset.noteImageId;
     if (!figure || !imageId) return;
-    figure.remove();
-    selectImage(null);
-    onSessionImageCacheChange((previous) => {
-      const next = new Map(previous);
-      const sessionMap = new Map(next.get(sessionId) || []);
-      sessionMap.delete(imageId);
-      next.set(sessionId, sessionMap);
-      return next;
-    });
-    const notes = serializeNoteDocument(editorRef.current);
-    lastSavedRef.current = notes;
-    const updatedSession = {
-      ...sessionRef.current,
-      notes,
-      noteImages: (sessionRef.current.noteImages || [])
-        .filter((image) => String(image.id) !== String(imageId)),
-    };
-    sessionRef.current = updatedSession;
-    setSaveState("saving");
-    await onSessionSave(updatedSession);
-    setSaveState("saved");
+    managedImageMutationRef.current = true;
+    try {
+      figure.remove();
+      selectImage(null);
+      onSessionImageCacheChange((previous) => {
+        const next = new Map(previous);
+        const sessionMap = new Map(next.get(sessionId) || []);
+        sessionMap.delete(imageId);
+        next.set(sessionId, sessionMap);
+        return next;
+      });
+      const notes = serializeNoteDocument(editorRef.current);
+      lastSavedRef.current = notes;
+      const updatedSession = {
+        ...sessionRef.current,
+        notes,
+        noteImages: (sessionRef.current.noteImages || [])
+          .filter((image) => String(image.id) !== String(imageId)),
+      };
+      sessionRef.current = updatedSession;
+      setSaveState("saving");
+      await onSessionSave(updatedSession);
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    } finally {
+      managedImageMutationRef.current = false;
+    }
   }, [getFigure, onSessionImageCacheChange, onSessionSave, selectImage, sessionId]);
 
   const replaceSelectedImage = useCallback(async (file) => {
     const figure = getFigure();
     const imageId = figure?.dataset.noteImageId;
     if (!file?.type.startsWith("image/") || !figure || !imageId) return;
-    const fileObject = await readFile(file);
-    figure.querySelector("img")?.setAttribute("src", fileObject);
-    figure.querySelector("img")?.setAttribute("alt", file.name || "Reference image");
-    updateSelectedLayout({ caption: file.name || selectedLayout?.caption || "Reference image" }, false);
-    onSessionImageCacheChange((previous) => {
-      const next = new Map(previous);
-      const sessionMap = new Map(next.get(sessionId) || []);
-      sessionMap.set(imageId, fileObject);
-      next.set(sessionId, sessionMap);
-      return next;
-    });
-    const notes = serializeNoteDocument(editorRef.current);
-    lastSavedRef.current = notes;
-    const updatedSession = {
-      ...sessionRef.current,
-      notes,
-      noteImages: (sessionRef.current.noteImages || []).map((image) =>
-        String(image.id) === String(imageId)
-          ? { ...image, fileName: file.name || image.fileName }
-          : image),
-    };
-    sessionRef.current = updatedSession;
-    setSaveState("saving");
-    await onSessionSave(updatedSession, [{ imageId, id: imageId, fileName: file.name, fileObject }]);
-    setSaveState("saved");
+    managedImageMutationRef.current = true;
+    try {
+      const fileObject = await readFile(file);
+      figure.querySelector("img")?.setAttribute("src", fileObject);
+      figure.querySelector("img")?.setAttribute("alt", file.name || "Reference image");
+      updateSelectedLayout({ caption: file.name || selectedLayout?.caption || "Reference image" }, false);
+      onSessionImageCacheChange((previous) => {
+        const next = new Map(previous);
+        const sessionMap = new Map(next.get(sessionId) || []);
+        sessionMap.set(imageId, fileObject);
+        next.set(sessionId, sessionMap);
+        return next;
+      });
+      const notes = serializeNoteDocument(editorRef.current);
+      lastSavedRef.current = notes;
+      const updatedSession = {
+        ...sessionRef.current,
+        notes,
+        noteImages: (sessionRef.current.noteImages || []).map((image) =>
+          String(image.id) === String(imageId)
+            ? { ...image, fileName: file.name || image.fileName }
+            : image),
+      };
+      sessionRef.current = updatedSession;
+      setSaveState("saving");
+      await onSessionSave(updatedSession, [{ imageId, id: imageId, fileName: file.name, fileObject }]);
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    } finally {
+      managedImageMutationRef.current = false;
+    }
   }, [getFigure, onSessionImageCacheChange, onSessionSave, selectedLayout?.caption, sessionId, updateSelectedLayout]);
 
   const startResize = useCallback((event, handle) => {
@@ -511,36 +761,10 @@ const SessionNotesWorkspace = ({
     return true;
   }, [queueSave, selectImage]);
 
-  const promptForLink = () => {
-    const href = window.prompt("Link address (https:// or mailto:)");
-    if (href && /^(https?:|mailto:)/i.test(href)) runCommand("createLink", href);
-  };
-
-  const tools = [
-    [faHeading, "Heading", () => runCommand("formatBlock", "H2")],
-    [faBold, "Bold", () => runCommand("bold")],
-    [faItalic, "Italic", () => runCommand("italic")],
-    [faUnderline, "Underline", () => runCommand("underline")],
-    [faListUl, "Bulleted list", () => runCommand("insertUnorderedList")],
-    [faListOl, "Numbered list", () => runCommand("insertOrderedList")],
-    [faQuoteRight, "Quote", () => runCommand("formatBlock", "BLOCKQUOTE")],
-    [faLink, "Insert link", promptForLink],
-    [faRemoveFormat, "Clear formatting", () => runCommand("removeFormat")],
-    [faUndo, "Undo", () => runCommand("undo")],
-    [faRedo, "Redo", () => runCommand("redo")],
-  ];
-
   return (
     <section className="session-notes-workspace" aria-label="Session notes">
       <div ref={shellRef} className="session-notes-document-shell">
-        <div className="session-notes-toolbar" role="toolbar" aria-label="Note formatting">
-          {tools.map(([icon, label, action]) => (
-            <button key={label} type="button" title={label} aria-label={label}
-              onMouseDown={(event) => event.preventDefault()} onClick={action}>
-              <FontAwesomeIcon icon={icon} />
-            </button>
-          ))}
-          <span className="session-notes-toolbar-spacer" />
+        <div className="session-notes-editor-actions" aria-label="Document status and media">
           <span className={`session-notes-save-state is-${saveState}`}>
             {saveState === "saved" && <FontAwesomeIcon icon={faCheckCircle} />}
             {saveState === "error" ? "Save failed" : saveState === "saved" ? "Saved" : "Saving…"}
@@ -609,14 +833,8 @@ const SessionNotesWorkspace = ({
         )}
 
         <div
-          ref={editorRef}
-          className="session-notes-editor"
-          contentEditable
-          suppressContentEditableWarning
-          onInput={() => {
-            queueSave();
-            if (selectedImageId) refreshSelectionOverlay();
-          }}
+          className="session-notes-editor-frame"
+          onInput={handleEditorInput}
           onClick={(event) => {
             const figure = event.target.closest("figure[data-note-image-id]");
             if (figure) {
@@ -665,7 +883,57 @@ const SessionNotesWorkspace = ({
               addFiles(files);
             }
           }}
-        />
+        >
+          <RichTextEditorComponent
+            id={`session-notes-editor-${sessionId || "empty"}`}
+            ref={syncfusionRef}
+            value={hydratedHtml}
+            created={handleEditorCreated}
+            change={handleEditorInput}
+            blur={saveDocument}
+            toolbarSettings={OFFICE_TOOLBAR_SETTINGS}
+            quickToolbarSettings={OFFICE_QUICK_TOOLBAR_SETTINGS}
+            pasteCleanupSettings={OFFICE_PASTE_SETTINGS}
+            insertImageSettings={{
+              allowedTypes: [".jpeg", ".jpg", ".png", ".gif", ".webp", ".bmp"],
+              display: "Break",
+              saveFormat: "Base64",
+              maxFileSize: 25_000_000,
+            }}
+            tableSettings={{
+              width: "100%",
+              resize: true,
+              minWidth: 0,
+              maxWidth: null,
+            }}
+            slashMenuSettings={{ enable: true }}
+            enableHtmlSanitizer
+            enableTabKey
+            showCharCount
+            saveInterval={300}
+            enterKey="P"
+            cssClass="session-notes-syncfusion"
+          >
+            <Inject
+              services={[
+                AutoFormat,
+                CodeBlock,
+                Count,
+                EmojiPicker,
+                FormatPainter,
+                HtmlEditor,
+                Image,
+                Link,
+                PasteCleanup,
+                QuickToolbar,
+                Resize,
+                SlashMenu,
+                Table,
+                Toolbar,
+              ]}
+            />
+          </RichTextEditorComponent>
+        </div>
 
         {selectedImageId && overlayRect && (
           <div className="session-notes-image-selection" aria-hidden="true" style={overlayRect}>

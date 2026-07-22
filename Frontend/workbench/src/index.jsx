@@ -5,6 +5,7 @@ import './index.css';
 // Side-effect import: configures the global axios singleton (retry/backoff)
 // once at boot for every module.
 import './shared/apiClient';
+import './shared/syncfusionLicense';
 import { ThemeProvider } from './shared/ThemeContext';
 import { NotificationProvider } from './shared/NotificationContext';
 import ZoomToast from './shared/ZoomToast';

@@ -1,6 +1,7 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+
 import SessionNotesWorkspace, {
   applyStoredImageLayouts,
   normalizeNoteHtml,
@@ -36,6 +37,23 @@ describe("SessionNotesWorkspace document safety", () => {
     expect(cleaned).not.toContain("javascript:");
   });
 
+  it("preserves Office-style tables and safe inline presentation", () => {
+    const cleaned = sanitizeNoteHtml(
+      '<table style="width: 100%; border-collapse: collapse" onclick="bad()">' +
+        '<thead><tr><th colspan="2" style="background-color: #ddeeff">Limits</th></tr></thead>' +
+        '<tbody><tr><td style="text-align: right; font-weight: 700">10 V</td>' +
+        '<td><sup>2</sup><iframe src="https://bad.example"></iframe></td></tr></tbody></table>',
+    );
+
+    expect(cleaned).toContain("<table");
+    expect(cleaned).toContain('colspan="2"');
+    expect(cleaned).toContain("background-color");
+    expect(cleaned).toContain("text-align: right");
+    expect(cleaned).toContain("<sup>2</sup>");
+    expect(cleaned).not.toContain("onclick");
+    expect(cleaned).not.toContain("iframe");
+  });
+
   it("stores image references without duplicating base64 data in notes", () => {
     const editor = document.createElement("div");
     editor.innerHTML =
@@ -66,6 +84,36 @@ describe("SessionNotesWorkspace document safety", () => {
 });
 
 describe("SessionNotesWorkspace image interactions", () => {
+  it("adopts images inserted by the rich editor into session persistence", async () => {
+    const onSessionSave = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SessionNotesWorkspace
+        sessionData={{ id: 11, notes: "", noteImages: [] }}
+        sessionImageCache={new Map()}
+        onSessionImageCacheChange={vi.fn()}
+        onLoadSessionImages={vi.fn()}
+        onSessionSave={onSessionSave}
+        onNotesSave={vi.fn()}
+      />,
+    );
+
+    const editor = document.querySelector(".session-notes-editor");
+    editor.insertAdjacentHTML(
+      "beforeend",
+      '<p>Specification</p><img src="data:image/png;base64,abc" alt="OEM chart">',
+    );
+    fireEvent.input(editor);
+
+    await waitFor(() => expect(onSessionSave).toHaveBeenCalledTimes(1));
+    const [savedSession, savedImages] = onSessionSave.mock.calls[0];
+    expect(savedSession.noteImages).toHaveLength(1);
+    expect(savedSession.notes).toContain("<figure");
+    expect(savedSession.notes).toContain('data-note-image-id="');
+    expect(savedSession.notes).not.toContain("base64");
+    expect(savedImages).toHaveLength(1);
+    expect(savedImages[0].fileObject).toBe("data:image/png;base64,abc");
+  });
+
   it("edits and deletes a selected image directly inside the document", async () => {
     const onSessionSave = vi.fn();
     const session = {

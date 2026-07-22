@@ -13,6 +13,7 @@
     "@fortawesome/react-fontawesome": "^3.3.1",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
+    "@syncfusion/ej2-react-richtexteditor": "^34.1.32",
     "axios": "1.17.0",
     "axios-retry": "^4.5.0",
     "bootstrap": "^5.3.7",

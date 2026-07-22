@@ -10,7 +10,15 @@
  * 4. Handles instrument (UUT/TMDE) selection and editing logic.
  */
 
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useMemo,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
 import { v4 as uuidv4 } from "uuid";
 
 // --- Custom Hooks ---
@@ -21,7 +29,13 @@ import { useRiskCalculation } from "./hooks/useRiskCalculation";
 import UncertaintyPanel from "./components/UncertaintyPanel";
 import RiskAnalysisDashboard from "./components/RiskAnalysisDashboard";
 import RiskMitigationDashboard from "./components/RiskMitigationDashboard";
-import SessionNotesWorkspace from "./components/SessionNotesWorkspace";
+
+// Syncfusion's Office-grade editor is intentionally loaded only when Notes is
+// opened. This keeps the calculation workspace fast even though the editor
+// ships a substantial formatting, table, paste, and media toolset.
+const SessionNotesWorkspace = lazy(() =>
+  import("./components/SessionNotesWorkspace"),
+);
 
 // --- Modals ---
 import NotificationModal from "../../components/modals/NotificationModal";
@@ -834,14 +848,23 @@ function Analysis({
   );
 
   const notesWorkspace = (
-    <SessionNotesWorkspace
-      sessionData={sessionData}
-      sessionImageCache={sessionImageCache}
-      onSessionImageCacheChange={onSessionImageCacheChange}
-      onLoadSessionImages={onLoadSessionImages}
-      onSessionSave={onSessionSave}
-      onNotesSave={onNotesSave}
-    />
+    <Suspense
+      fallback={(
+        <div className="session-notes-loading" role="status" aria-live="polite">
+          <span className="session-notes-loading-mark" aria-hidden="true" />
+          <span>Preparing editor</span>
+        </div>
+      )}
+    >
+      <SessionNotesWorkspace
+        sessionData={sessionData}
+        sessionImageCache={sessionImageCache}
+        onSessionImageCacheChange={onSessionImageCacheChange}
+        onLoadSessionImages={onLoadSessionImages}
+        onSessionSave={onSessionSave}
+        onNotesSave={onNotesSave}
+      />
+    </Suspense>
   );
 
   return (
