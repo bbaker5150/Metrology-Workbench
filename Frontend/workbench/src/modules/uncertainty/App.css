@@ -16218,6 +16218,56 @@ body:not(.dark-mode)
   font-family: var(--main-font);
 }
 
+/* The DOCX toolbar ships its component styles without a browser preflight.
+   Keep native button/input chrome and the uncertainty module's broad form
+   rules from leaking into the editor. Package utility classes and inline
+   dialog styles remain more specific and can still opt back into borders,
+   fills, sizing, and focus rings where the control design calls for them. */
+.session-notes-docx-editor :where(button) {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: normal;
+  box-shadow: none;
+}
+
+.session-notes-docx-editor :where(input, select, textarea) {
+  appearance: none;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  box-shadow: none;
+}
+
+/* Keep every formatting feature available when the analysis sidebar leaves
+   the document pane narrow. Controls wrap as intact groups instead of being
+   hidden beyond a horizontal toolbar scroller. */
+.session-notes-docx-editor [role="toolbar"][aria-label="Formatting toolbar"] {
+  flex-wrap: wrap;
+  align-content: center;
+  min-height: 40px;
+  height: auto;
+  overflow-x: visible;
+  overflow-y: visible;
+  row-gap: 4px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  border-radius: 10px;
+}
+
+.session-notes-docx-editor [role="toolbar"][aria-label="Formatting toolbar"] > [role="group"] {
+  flex: 0 0 auto;
+}
+
 .session-notes-docx-editor.ep-root {
   --doc-primary: var(--primary-color);
   --doc-primary-hover: color-mix(in srgb, var(--primary-color) 82%, #000);
