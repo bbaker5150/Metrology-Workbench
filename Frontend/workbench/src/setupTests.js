@@ -1,49 +1,38 @@
+import React from 'react';
 import '@testing-library/jest-dom/vitest';
 import { vi } from 'vitest';
 
-// Jodit measures toolbars and editing geometry that jsdom does not implement.
-// The production build uses the real MIT-licensed editor; DOM tests receive a
-// small imperative surface with the same value/selection APIs used by Notes.
-vi.mock('jodit', () => {
-  const make = (source) => {
-    const container = document.createElement('div');
-    container.className = 'jodit-container';
-    const toolbar = document.createElement('div');
-    toolbar.className = 'jodit-toolbar__box';
-    const workplace = document.createElement('div');
-    workplace.className = 'jodit-workplace';
-    const editor = document.createElement('div');
-    editor.className = 'jodit-wysiwyg';
-    editor.contentEditable = 'true';
-    workplace.appendChild(editor);
-    container.append(toolbar, workplace);
-    source.hidden = true;
-    source.insertAdjacentElement('afterend', container);
-
-    const instance = {
-      container,
-      workplace,
-      editor,
-      events: { on: vi.fn(), off: vi.fn() },
-      s: {
-        insertHTML: (html) => editor.insertAdjacentHTML('beforeend', html),
-      },
-      synchronizeValues: vi.fn(),
-      destruct: () => container.remove(),
-    };
-    Object.defineProperty(instance, 'value', {
-      get: () => editor.innerHTML,
-      set: (value) => { editor.innerHTML = value || ''; },
-    });
-    return instance;
-  };
-  return {
-    Jodit: {
-      make,
-      constants: { INSERT_AS_TEXT: 'insert_as_text' },
-    },
-  };
-});
+// The DOCX editor relies on layout, canvas, and ProseMirror measurements that
+// jsdom does not implement. DOM tests receive a focused facade while component
+// tests exercise our binary persistence and session-isolation behavior.
+vi.mock('@heyirisai/docx-editor-react', () => ({
+  createEmptyDocument: () => ({ kind: 'empty-docx' }),
+  createDocumentWithText: (text) => ({ kind: 'text-docx', text }),
+  DocxEditor: React.forwardRef(function MockDocxEditor(props, ref) {
+    const contentRef = React.useRef(null);
+    React.useImperativeHandle(ref, () => ({
+      save: vi.fn(async () => new TextEncoder().encode(
+        contentRef.current?.textContent || 'mock-docx',
+      ).buffer),
+      focus: vi.fn(),
+    }), []);
+    React.useEffect(() => {
+      props.onEditorViewReady?.({});
+    }, [props]);
+    return (
+      React.createElement('div', { className: 'mock-docx-editor', 'data-testid': 'docx-editor' },
+        props.renderTitleBarRight?.(),
+        React.createElement('div', {
+          ref: contentRef,
+          className: 'mock-docx-content',
+          contentEditable: true,
+          suppressContentEditableWarning: true,
+          onInput: () => props.onChange?.({}),
+        }, props.document?.text || ''),
+      )
+    );
+  }),
+}));
 
 // jsdom does not implement ResizeObserver, while the production UI relies on
 // it through react-use-measure / react-three-fiber. A no-op observer is enough

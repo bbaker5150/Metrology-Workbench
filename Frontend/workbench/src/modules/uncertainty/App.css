@@ -16189,550 +16189,141 @@ body:not(.dark-mode)
   color: var(--danger-color, #d84d5c);
 }
 
-.session-notes-document-shell {
-  position: relative;
-  overflow: visible;
-  border-radius: 10px;
-  background: transparent;
-}
-
-.session-notes-editor-actions {
-  position: absolute;
-  top: 7px;
-  right: 9px;
-  z-index: 18;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 32px;
-  padding-left: 8px;
-  border-left: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--card-background, var(--panel-background)) 94%, transparent);
-}
-
-.session-notes-editor-actions button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 32px;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--input-background);
-  color: var(--text-color-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.74rem;
-}
-
-.session-notes-editor-actions button:hover,
-.session-notes-editor-actions button:focus-visible {
-  border-color: color-mix(in srgb, var(--primary-color) 50%, var(--border-color));
-  background: color-mix(in srgb, var(--primary-color) 9%, var(--input-background));
-  color: var(--primary-color);
-  outline: none;
-}
-
-.session-notes-editor-frame .jodit-container {
-  overflow: visible;
-  border: 1px solid var(--border-color) !important;
-  border-radius: 10px;
-  background: var(--card-background, var(--panel-background));
-  box-shadow: 0 10px 30px rgba(10, 24, 46, 0.07);
-}
-
-.session-notes-editor-frame .jodit-toolbar__box {
-  min-height: 45px;
-  padding: 4px 184px 4px 6px;
-  border: 0 !important;
-  border-bottom: 1px solid var(--border-color) !important;
-  border-radius: 10px 10px 0 0;
-  background: color-mix(in srgb, var(--card-background, var(--panel-background)) 94%, var(--primary-color) 6%) !important;
-}
-
-.session-notes-editor-frame .jodit-toolbar-editor-collection {
-  min-height: 36px;
-  background: transparent !important;
-}
-
-.session-notes-editor-frame .jodit-toolbar-button,
-.session-notes-editor-frame .jodit-toolbar-button__button {
-  border-radius: 5px !important;
-}
-
-.session-notes-editor-frame .jodit-toolbar-button__button:hover,
-.session-notes-editor-frame .jodit-toolbar-button__button:focus-visible,
-.session-notes-editor-frame .jodit-toolbar-button_trigger_true .jodit-toolbar-button__button,
-.session-notes-editor-frame .jodit-toolbar-button_pressed_true .jodit-toolbar-button__button {
-  background: color-mix(in srgb, var(--primary-color) 10%, transparent) !important;
-  color: var(--primary-color) !important;
-}
-
-.session-notes-editor-frame .jodit-workplace {
-  border: 0 !important;
-  border-radius: 0 0 10px 10px;
-  background: color-mix(in srgb, var(--panel-background) 75%, var(--card-background, #fff));
-}
-
-.session-notes-editor-frame .jodit-wysiwyg {
-  min-height: clamp(420px, 56vh, 760px);
-  padding: clamp(30px, 5vw, 68px) clamp(30px, 7vw, 92px) !important;
-  border: 0 !important;
-  border-radius: 0 0 10px 10px;
-  background: var(--content-background) !important;
-  color: var(--text-color) !important;
-  font-family: var(--main-font);
-  font-size: 0.98rem;
-  line-height: 1.72;
-  overflow-wrap: anywhere;
-  outline: none;
-}
-
-.session-notes-editor-frame .jodit-wysiwyg::after {
-  content: "";
-  display: block;
-  clear: both;
-}
-
-.session-notes-editor-frame .jodit-wysiwyg h1,
-.session-notes-editor-frame .jodit-wysiwyg h2,
-.session-notes-editor-frame .jodit-wysiwyg h3,
-.session-notes-editor-frame .jodit-wysiwyg h4,
-.session-notes-editor-frame .jodit-wysiwyg h5,
-.session-notes-editor-frame .jodit-wysiwyg h6 {
-  margin: 1.4em 0 0.55em;
-  color: var(--heading-color, var(--text-color));
-  line-height: 1.25;
-}
-
-.session-notes-editor-frame .jodit-wysiwyg p {
-  margin: 0 0 0.9em;
-}
-
-.session-notes-editor-frame .jodit-wysiwyg blockquote {
-  margin: 1.2em 0;
-  padding: 2px 0 2px 18px;
-  border-left: 3px solid var(--primary-color);
-  color: var(--text-color-muted);
-}
-
-.session-notes-editor-frame .jodit-wysiwyg a {
-  color: var(--primary-color);
-  text-decoration: underline;
-}
-
-.session-notes-editor-frame .jodit-wysiwyg pre,
-.session-notes-editor-frame .jodit-wysiwyg code {
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--content-background) 76%, var(--primary-color) 8%);
-  color: var(--text-color);
-  font-family: var(--readout-font);
-}
-
-.session-notes-editor-frame .jodit-wysiwyg pre {
-  overflow-x: auto;
-  padding: 14px 16px;
-}
-
-.session-notes-editor-frame .jodit-wysiwyg hr {
-  margin: 1.5rem 0;
-  border: 0;
-  border-top: 1px solid var(--border-color-strong, var(--border-color));
-}
-
-.session-notes-editor-frame .jodit-wysiwyg table {
+/* Native DOCX notes workspace. The editor owns the paper/layout surface while
+   these rules blend its application chrome into the uncertainty module. */
+.session-notes-workspace {
   width: 100%;
-  margin: 1.25rem 0;
-  border-collapse: collapse;
-  table-layout: auto;
-  background: var(--content-background);
-}
-
-.session-notes-editor-frame .jodit-wysiwyg th,
-.session-notes-editor-frame .jodit-wysiwyg td {
-  min-width: 54px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color-strong, var(--border-color));
-  color: var(--text-color);
-  vertical-align: top;
-}
-
-.session-notes-editor-frame .jodit-wysiwyg th {
-  background: var(--table-header-bg);
-  color: var(--table-header-text);
-  font-weight: 700;
-}
-
-.session-notes-editor-frame .jodit-status-bar {
-  right: 14px;
-  bottom: 8px;
-  color: var(--text-color-muted);
-  font-size: 0.68rem;
-  opacity: 0.75;
+  max-width: none;
+  min-width: 0;
 }
 
 .session-notes-file-input {
   display: none;
 }
 
-.session-notes-image-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 8;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-height: 46px;
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--card-background, var(--panel-background)) 94%, var(--primary-color) 6%);
-  box-shadow: 0 5px 14px rgba(8, 18, 35, 0.06);
+.session-notes-docx-shell {
+  height: clamp(620px, calc(100vh - 142px), 1040px);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--card-background, var(--panel-background));
+  box-shadow: 0 10px 30px rgba(10, 24, 46, 0.07);
 }
 
-.session-notes-image-toolbar-label {
-  padding: 0 7px 0 2px;
-  color: var(--primary-color);
-  font-size: 0.73rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.session-notes-docx-editor {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  font-family: var(--main-font);
 }
 
-.session-notes-image-tool-group,
-.session-notes-image-wrap-controls {
+.session-notes-docx-editor.ep-root {
+  --doc-primary: var(--primary-color);
+  --doc-primary-hover: color-mix(in srgb, var(--primary-color) 82%, #000);
+  --doc-primary-light: color-mix(in srgb, var(--primary-color) 12%, transparent);
+  --doc-border: var(--border-color);
+  --doc-border-light: var(--border-color);
+  --doc-bg: color-mix(in srgb, var(--content-background) 90%, var(--primary-color) 2%);
+  --doc-bg-subtle: var(--card-background, var(--panel-background));
+  --doc-bg-hover: color-mix(in srgb, var(--primary-color) 8%, var(--card-background, #fff));
+  --doc-bg-input: var(--input-background);
+  --doc-surface: var(--card-background, var(--panel-background));
+  --doc-card: var(--card-background, var(--panel-background));
+  --doc-text: var(--text-color);
+  --doc-text-muted: var(--text-color-muted);
+  --doc-border-input: var(--border-color-strong, var(--border-color));
+  --doc-focus-ring: color-mix(in srgb, var(--primary-color) 40%, transparent);
+  border-radius: 8px;
+}
+
+.session-notes-docx-editor .docx-editor__scroll-container {
+  background: color-mix(in srgb, var(--content-background) 92%, var(--primary-color) 2%);
+}
+
+.session-notes-docx-actions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   padding-right: 6px;
-  border-right: 1px solid var(--border-color);
 }
 
-.session-notes-image-toolbar button {
+.session-notes-docx-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 29px;
+  gap: 6px;
+  min-width: 30px;
   height: 29px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
+  padding: 0 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--input-background);
   color: var(--text-color-muted);
   cursor: pointer;
   font: inherit;
   font-size: 0.72rem;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
-.session-notes-image-toolbar button:hover,
-.session-notes-image-toolbar button:focus-visible,
-.session-notes-image-toolbar button.is-active {
-  border-color: color-mix(in srgb, var(--primary-color) 35%, var(--border-color));
-  background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+.session-notes-docx-actions button:hover,
+.session-notes-docx-actions button:focus-visible {
+  border-color: color-mix(in srgb, var(--primary-color) 52%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 9%, var(--input-background));
   color: var(--primary-color);
   outline: none;
 }
 
-.session-notes-image-width-control,
-.session-notes-image-caption-control {
-  display: inline-flex;
+.session-notes-docx-actions .session-notes-save-state {
+  min-height: 29px;
+  padding: 0 7px;
+}
+
+.session-notes-docx-error {
+  display: flex;
   align-items: center;
-  gap: 7px;
-  height: 31px;
-  color: var(--text-color-muted);
-  font-size: 0.7rem;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger-color, #d84d5c) 36%, var(--border-color));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--danger-color, #d84d5c) 8%, var(--card-background, #fff));
+  color: var(--danger-color, #d84d5c);
+  font-size: 0.76rem;
 }
 
-.session-notes-image-width-control input[type="range"] {
-  width: 88px;
-  accent-color: var(--primary-color);
-}
-
-.session-notes-image-width-control output {
-  min-width: 30px;
-  color: var(--text-color);
-  font-variant-numeric: tabular-nums;
-}
-
-.session-notes-image-caption-control {
-  flex: 1 1 230px;
-  min-width: 190px;
-}
-
-.session-notes-image-caption-control input {
+.session-notes-docx-error span {
   flex: 1 1 auto;
-  min-width: 120px;
-  height: 29px;
-  padding: 0 9px;
-  border: 1px solid var(--border-color);
-  border-radius: 5px;
-  background: var(--input-background);
-  color: var(--text-color);
-  font: inherit;
-  font-size: 0.75rem;
 }
 
-.session-notes-image-caption-control input:focus {
-  border-color: var(--primary-color);
-  outline: none;
-}
-
-.session-notes-image-delete {
-  color: var(--danger-color, #d84d5c) !important;
-}
-
-.session-notes-editor {
-  min-height: clamp(420px, 56vh, 760px);
-  padding: clamp(30px, 5vw, 68px) clamp(30px, 7vw, 92px);
-  background: var(--card-background, var(--panel-background));
-  color: var(--text-color);
-  font-size: 0.98rem;
-  line-height: 1.72;
-  overflow-wrap: anywhere;
-  outline: none;
-}
-
-.session-notes-editor::after {
-  content: "";
-  display: block;
-  clear: both;
-}
-
-.session-notes-editor:empty::before {
-  content: attr(data-placeholder);
-  color: var(--text-color-muted);
-  opacity: 0.68;
-  pointer-events: none;
-}
-
-.session-notes-editor h1,
-.session-notes-editor h2,
-.session-notes-editor h3 {
-  line-height: 1.25;
-  margin: 1.4em 0 0.55em;
-}
-
-.session-notes-editor p {
-  margin: 0 0 0.9em;
-}
-
-.session-notes-editor blockquote {
-  margin: 1.2em 0;
-  padding: 2px 0 2px 18px;
-  border-left: 3px solid var(--primary-color);
-  color: var(--text-color-muted);
-}
-
-.session-notes-editor a {
-  color: var(--primary-color);
-  text-decoration: underline;
-}
-
-.session-notes-editor figure {
-  position: relative;
-  max-width: 100%;
-  margin: 26px auto;
-  text-align: center;
-  cursor: grab;
-  transition: margin 0.15s ease, box-shadow 0.15s ease;
-}
-
-.session-notes-editor figure:active {
-  cursor: grabbing;
-}
-
-.session-notes-editor figure[data-note-align="left"][data-note-wrap="none"] {
-  margin-left: 0;
-  margin-right: auto;
-}
-
-.session-notes-editor figure[data-note-align="center"][data-note-wrap="none"] {
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.session-notes-editor figure[data-note-align="right"][data-note-wrap="none"] {
-  margin-left: auto;
-  margin-right: 0;
-}
-
-.session-notes-editor figure[data-note-wrap="left"] {
-  float: left;
-  margin: 8px 24px 14px 0;
-}
-
-.session-notes-editor figure[data-note-wrap="right"] {
-  float: right;
-  margin: 8px 0 14px 24px;
-}
-
-.session-notes-editor figure img {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  max-height: 680px;
-  margin: 0 auto;
-  border-radius: 6px;
-  object-fit: contain;
-  box-shadow: 0 5px 20px rgba(8, 18, 35, 0.14);
-}
-
-.session-notes-editor figcaption {
-  margin-top: 8px;
-  color: var(--text-color-muted);
-  font-size: 0.78rem;
-  cursor: text;
-}
-
-.session-notes-image-selection {
-  position: absolute;
-  z-index: 12;
-  box-sizing: border-box;
-  border: 2px solid var(--primary-color);
-  border-radius: 6px;
-  pointer-events: none;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--card-background, #fff) 75%, transparent);
-}
-
-.session-notes-image-resize-handle {
-  position: absolute;
-  width: 12px;
-  height: 12px;
+.session-notes-docx-error button {
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border: 2px solid var(--card-background, #fff);
-  border-radius: 2px;
-  background: var(--primary-color);
-  pointer-events: auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1rem;
 }
 
-.session-notes-image-resize-handle.is-nw {
-  top: -7px;
-  left: -7px;
-  cursor: nwse-resize;
-}
-
-.session-notes-image-resize-handle.is-ne {
-  top: -7px;
-  right: -7px;
-  cursor: nesw-resize;
-}
-
-.session-notes-image-resize-handle.is-sw {
-  bottom: -7px;
-  left: -7px;
-  cursor: nesw-resize;
-}
-
-.session-notes-image-resize-handle.is-se {
-  right: -7px;
-  bottom: -7px;
-  cursor: nwse-resize;
+.session-notes-empty-state {
+  display: grid;
+  min-height: 360px;
+  place-items: center;
+  color: var(--text-color-muted);
+  font-size: 0.8rem;
 }
 
 @media (max-width: 760px) {
-  .session-notes-editor {
-    min-height: 360px;
-    padding: 26px 22px;
+  .session-notes-docx-shell {
+    height: calc(100vh - 120px);
+    min-height: 520px;
   }
 
-  .session-notes-editor-actions {
-    position: static;
-    justify-content: flex-end;
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--border-color);
-    border-left: 0;
+  .session-notes-docx-actions button span {
+    display: none;
   }
-
-  .session-notes-editor-frame .jodit-toolbar__box {
-    padding-right: 6px !important;
-  }
-
-  .session-notes-editor-frame .jodit-wysiwyg {
-    min-height: 360px;
-    padding: 26px 22px !important;
-  }
-
-  .session-notes-image-toolbar {
-    align-items: flex-start;
-  }
-
-  .session-notes-image-caption-control {
-    flex-basis: 100%;
-  }
-}
-
-/* Jodit renders menus and dialogs through body-level surfaces. Re-skin them
-   with the uncertainty module's tokens so the free editor remains native to
-   the application in both themes. */
-body.dark-mode .session-notes-editor-frame .jodit-container,
-body.dark-mode .session-notes-editor-frame .jodit-toolbar__box,
-body.dark-mode .session-notes-editor-frame .jodit-workplace,
-body.dark-mode .session-notes-editor-frame .jodit-wysiwyg,
-body.dark-mode .session-notes-editor-frame .jodit-status-bar {
-  border-color: var(--border-color) !important;
-  background: var(--content-background) !important;
-  color: var(--text-color) !important;
-}
-
-body.dark-mode .session-notes-editor-frame .jodit-toolbar-button,
-body.dark-mode .session-notes-editor-frame .jodit-toolbar-button__button,
-body.dark-mode .session-notes-editor-frame .jodit-toolbar-button__icon,
-body.dark-mode .session-notes-editor-frame .jodit-icon {
-  color: var(--text-color-muted) !important;
-  fill: currentColor !important;
-}
-
-body.dark-mode .session-notes-editor-frame .jodit-toolbar-button,
-body.dark-mode .session-notes-editor-frame .jodit-toolbar-button__button {
-  border-color: transparent !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-body.dark-mode .session-notes-editor-frame .jodit-toolbar-button__button:hover:not(:disabled),
-body.dark-mode .session-notes-editor-frame .jodit-toolbar-button__button:focus-visible,
-body.dark-mode .session-notes-editor-frame .jodit-toolbar-button_pressed_true .jodit-toolbar-button__button {
-  background: color-mix(in srgb, var(--primary-color) 14%, transparent) !important;
-  color: var(--primary-color) !important;
-}
-
-body.dark-mode .jodit-popup,
-body.dark-mode .jodit-context-menu,
-body.dark-mode .jodit-dialog,
-body.dark-mode .jodit-dialog__panel,
-body.dark-mode .jodit-ui-group,
-body.dark-mode .jodit-tooltip {
-  border-color: var(--border-color-strong, var(--border-color)) !important;
-  background: var(--content-background) !important;
-  color: var(--text-color) !important;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38) !important;
-}
-
-body.dark-mode .jodit-popup__content,
-body.dark-mode .jodit-dialog__header,
-body.dark-mode .jodit-dialog__content,
-body.dark-mode .jodit-dialog__footer,
-body.dark-mode .jodit-form__group,
-body.dark-mode .jodit-ui-input__wrapper {
-  border-color: var(--border-color) !important;
-  background: var(--content-background) !important;
-  color: var(--text-color) !important;
-}
-
-body.dark-mode .jodit-popup button,
-body.dark-mode .jodit-dialog button,
-body.dark-mode .jodit-dialog label,
-body.dark-mode .jodit-list__item {
-  color: var(--text-color) !important;
-}
-
-body.dark-mode .jodit-list__item:hover,
-body.dark-mode .jodit-list__item_active_true,
-body.dark-mode .jodit-popup button:hover {
-  background: color-mix(in srgb, var(--primary-color) 14%, var(--content-background)) !important;
-  color: var(--primary-color) !important;
 }
 
 .uncertainty-module .session-controls {
