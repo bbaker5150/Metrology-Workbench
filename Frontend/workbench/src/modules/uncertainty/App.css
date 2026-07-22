@@ -1349,7 +1349,9 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 }
 
 .sidebar-measurement-accordion {
-  margin-left: 1px;
+  /* Keep the 26px hit target while lining its chevron up with Session Info. */
+  margin-left: 9px;
+  margin-right: -8px;
 }
 
 .sidebar-measurement-accordion svg {
