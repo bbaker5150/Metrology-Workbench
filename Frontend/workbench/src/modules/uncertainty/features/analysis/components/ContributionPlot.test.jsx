@@ -1,88 +1,49 @@
-import { render } from "@testing-library/react";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import Plotly from "plotly.js-dist";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 import PercentageBarGraph from "./ContributionPlot";
 
-// The component used to draw via `window.Plotly`, which the app never assigns,
-// so the chart silently never rendered. It now imports Plotly directly; assert
-// it actually drives Plotly instead of no-oping.
-vi.mock("plotly.js-dist", () => ({
-  default: {
-    react: vi.fn(),
-    purge: vi.fn(),
-    Plots: { resize: vi.fn() },
-    Icons: { camera: { width: 1000, path: "" } },
-    toImage: vi.fn(),
-  },
-}));
-
-vi.mock("../../../context/ThemeContext", () => ({
-  useTheme: () => false,
-}));
-
-beforeAll(() => {
-  if (!window.ResizeObserver) {
-    window.ResizeObserver = class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    };
-  }
-});
-
-beforeEach(() => {
-  Plotly.react.mockClear();
-  Plotly.purge.mockClear();
-});
+const shares = (container) =>
+  Object.fromEntries(
+    Array.from(container.querySelectorAll("[data-contribution-label]")).map(
+      (row) => [
+        row.dataset.contributionLabel,
+        Number(row.dataset.contributionPercentage),
+      ],
+    ),
+  );
 
 describe("ContributionPlot", () => {
-  it("draws the chart through the imported Plotly, not window.Plotly", () => {
-    render(
+  it("renders accessible native bars with normalized percentages", () => {
+    const { container } = render(
       <PercentageBarGraph
-        data={{ "DMM Accuracy": 0.01, "Reference": 0.004 }}
+        data={{ "DMM Accuracy": 0.01, Reference: 0.04 }}
         unit="V"
       />,
     );
 
-    expect(Plotly.react).toHaveBeenCalledTimes(1);
-    const [, plotData] = Plotly.react.mock.calls[0];
-    // Two non-zero contributors -> two horizontal bars.
-    expect(plotData[0].y).toEqual(
-      expect.arrayContaining(["DMM Accuracy", "Reference"]),
-    );
-    const [, , layout, config] = Plotly.react.mock.calls[0];
-    expect(layout.paper_bgcolor).toBe("rgba(0, 0, 0, 0)");
-    expect(layout.plot_bgcolor).toBe("rgba(0, 0, 0, 0)");
-    expect(layout.xaxis.title.text).toBe("Relative contribution (%)");
-    expect(config.displayModeBar).toBe(false);
-    expect(config.modeBarButtonsToAdd).toBeUndefined();
-    expect(document.querySelector(".contribution-plot")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Uncertainty contribution" }),
+    ).toBeInTheDocument();
+    expect(shares(container)).toEqual({ Reference: 80, "DMM Accuracy": 20 });
+    expect(container.querySelector(".contribution-plot-bar")).toHaveStyle({
+      width: "80%",
+    });
   });
 
-  it("purges the chart on unmount", () => {
-    const { unmount } = render(
-      <PercentageBarGraph data={{ "DMM Accuracy": 0.01 }} unit="V" />,
+  it("updates labels and bars synchronously when values change", () => {
+    const view = render(
+      <PercentageBarGraph data={{ Accuracy: 1, Resolution: 1 }} unit="V" />,
     );
-    unmount();
-    expect(Plotly.purge).toHaveBeenCalledTimes(1);
-  });
+    expect(shares(view.container)).toEqual({ Accuracy: 50, Resolution: 50 });
 
-  it("redraws when contribution values change while the chart stays open", () => {
-    const data = { Accuracy: 1, Resolution: 1 };
-    const view = render(<PercentageBarGraph data={data} unit="V" />);
-    const firstRevision = Plotly.react.mock.calls.at(-1)[2].datarevision;
-
-    data.Resolution = 3;
-    view.rerender(<PercentageBarGraph data={data} unit="V" />);
-
-    expect(Plotly.react).toHaveBeenCalledTimes(2);
-    const [, plotData, layout] = Plotly.react.mock.calls.at(-1);
-    expect(plotData[0].x).toEqual([25, 75]);
-    expect(layout.datarevision).not.toBe(firstRevision);
+    view.rerender(
+      <PercentageBarGraph data={{ Accuracy: 1, Resolution: 3 }} unit="V" />,
+    );
+    expect(shares(view.container)).toEqual({ Resolution: 75, Accuracy: 25 });
   });
 
   it("renders Monte Carlo influence as percentages without physical units", () => {
-    render(
+    const { container } = render(
       <PercentageBarGraph
         data={{ Weight: 0.6, Length: 0.4 }}
         unit="in-oz"
@@ -91,18 +52,14 @@ describe("ContributionPlot", () => {
       />,
     );
 
-    const [, plotData, layout] = Plotly.react.mock.calls[0];
-    expect(plotData[0].y).toEqual(["Length", "Weight"]);
-    expect(plotData[0].x).toEqual([40, 60]);
-    expect(plotData[0].customdata).toEqual(["40.00%", "60.00%"]);
-    expect(plotData[0].hovertemplate).toContain("Variable influence");
-    expect(plotData[0].customdata.join(" ")).not.toContain("in-oz");
-    expect(layout.title.text).toBe("Monte Carlo variable influence");
+    expect(shares(container)).toEqual({ Weight: 60, Length: 40 });
+    expect(container.textContent).not.toContain("in-oz");
   });
 
-  it("shows a placeholder and does not draw when there are no contributors", () => {
-    const { getByText } = render(<PercentageBarGraph data={{}} unit="V" />);
-    expect(getByText(/No significant error sources/i)).toBeInTheDocument();
-    expect(Plotly.react).not.toHaveBeenCalled();
+  it("shows a placeholder when there are no contributors", () => {
+    render(<PercentageBarGraph data={{}} unit="V" />);
+    expect(
+      screen.getByText(/No significant error sources/i),
+    ).toBeInTheDocument();
   });
 });

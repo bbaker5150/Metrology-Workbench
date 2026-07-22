@@ -14,6 +14,7 @@ import {
 } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 import {
+  applyManualToleranceDistribution,
   getInlineManualDraft,
   normalizeInlineManualComponent,
 } from "../utils/manualComponentUtils";
@@ -348,6 +349,16 @@ const InlineManualComponentRow = ({
   const std = getComponentStdUncertainty(preview, referencePoint?.unit);
   const inputMode =
     draft.type === "A" ? "standard" : draft.inputMode || "tolerance";
+  const toleranceDistribution = String(
+    draft.tolerance?.reading?.distribution ||
+      draft.tolerance?.range?.distribution ||
+      draft.tolerance?.floor?.distribution ||
+      draft.tolerance?.readings_iv?.distribution ||
+      draft.tolerance?.db?.distribution ||
+      draft.tolerance?.bandDistribution ||
+      draft.errorDistributionDivisor ||
+      "1.732",
+  );
   const unitOptions = useMemo(() => {
     const relevant = referencePoint?.unit
       ? unitSystem.getRelevantUnits(referencePoint.unit)
@@ -546,17 +557,23 @@ const InlineManualComponentRow = ({
               editable
               openRequested
               onCommit={(typeKey, nextTerm) =>
-                setDraft((current) => ({
-                  ...current,
-                  tolerance: applyToleranceChange
+                setDraft((current) => {
+                  const nextTolerance = applyToleranceChange
                     ? applyToleranceChange(
                         current.tolerance || {},
                         typeKey,
                         nextTerm,
                       )
-                    : { ...(current.tolerance || {}), [typeKey]: nextTerm },
-                  toleranceLimit: "",
-                }))
+                    : { ...(current.tolerance || {}), [typeKey]: nextTerm };
+                  return {
+                    ...current,
+                    tolerance: applyManualToleranceDistribution(
+                      nextTolerance,
+                      current.errorDistributionDivisor || "1.732",
+                    ),
+                    toleranceLimit: "",
+                  };
+                })
               }
             />
           ) : (
@@ -577,19 +594,19 @@ const InlineManualComponentRow = ({
           <span>Normal</span>
         ) : inputMode === "standard" ? (
           <span>Standard uncertainty (k=1)</span>
-        ) : ToleranceEditorComponent ? (
-          <span className="budget-inline-distribution-summary">
-            {preview.distribution || "Not Set"}
-          </span>
         ) : (
           <select
             className="mini-select budget-inline-distribution"
             aria-label="Error limit distribution"
-            value={draft.errorDistributionDivisor}
+            value={toleranceDistribution}
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
                 errorDistributionDivisor: event.target.value,
+                tolerance: applyManualToleranceDistribution(
+                  current.tolerance,
+                  event.target.value,
+                ),
               }))
             }
           >
@@ -622,7 +639,7 @@ const InlineManualComponentRow = ({
             className="budget-inline-mode-button"
             onClick={() => setEntryMode("standard")}
           >
-            Enter standard uncertainty
+            Not Set
           </button>
         )}
       </td>
@@ -953,6 +970,16 @@ const UncertaintyBudgetTable = ({
 
   const renderComponentTable = (group) => {
     const showDof = shouldShowDofColumn(group.components || []);
+    // %IV on a final-budget manual component is defined by the selected UUT
+    // measurement point. Input-variable subbudgets instead use that variable's
+    // nominal. Do not let a calculated group summary replace either reference.
+    const manualReferencePoint =
+      group.kind === "input"
+        ? group.nominalPoint || {
+            value: group.nominalValue,
+            unit: group.unit,
+          }
+        : referencePoint;
     // Manual rows are authored in the order they were added, but generated
     // rows (such as UUT resolution) can be rebuilt after them. Keep all manual
     // additions at the bottom without disturbing either group's stable order.
@@ -982,12 +1009,7 @@ const UncertaintyBudgetTable = ({
               <InlineManualComponentRow
                 key={component.id}
                 component={component}
-                referencePoint={
-                  group.nominalPoint || {
-                    value: group.nominalValue ?? referencePoint?.value,
-                    unit: group.unit || referencePoint?.unit,
-                  }
-                }
+                referencePoint={manualReferencePoint}
                 showDof={showDof}
                 sigFigs={getGroupSigFigs(group)}
                 ToleranceEditorComponent={ToleranceEditorComponent}
@@ -998,11 +1020,7 @@ const UncertaintyBudgetTable = ({
                     component.id,
                     {
                       inlineManualDraft,
-                      referencePoint:
-                        group.nominalPoint || {
-                          value: group.nominalValue ?? referencePoint?.value,
-                          unit: group.unit || referencePoint?.unit,
-                        },
+                      referencePoint: manualReferencePoint,
                     },
                     component,
                   )

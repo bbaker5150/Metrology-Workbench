@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyManualToleranceDistribution,
   createInlineManualComponent,
   getInlineManualDraft,
   normalizeInlineManualComponent,
@@ -110,6 +111,37 @@ describe("inline manual budget components", () => {
     );
     expect(normalized.distribution).toBe("Rectangular");
     expect(normalized.originalInput.tolerance).toEqual(tolerance);
+    expect(normalized.inlineValidation).toBeNull();
+  });
+
+  it("uses the selected measurement-point value for a manual %IV tolerance", () => {
+    const component = createInlineManualComponent({
+      id: "manual-iv",
+      referencePoint: { value: 20, unit: "V" },
+    });
+    const tolerance = applyManualToleranceDistribution(
+      {
+        reading: {
+          high: "1",
+          low: "-1",
+          value: "1",
+          unit: "%",
+          symmetric: true,
+        },
+      },
+      "1.732",
+    );
+    const normalized = normalizeInlineManualComponent({
+      component,
+      referencePoint: { value: 20, unit: "V" },
+      draft: {
+        ...getInlineManualDraft(component),
+        tolerance,
+      },
+    });
+
+    expect(normalized.value_native).toBeCloseTo(0.2 / Math.sqrt(3), 8);
+    expect(normalized.distribution).toBe("Rectangular");
     expect(normalized.inlineValidation).toBeNull();
   });
 

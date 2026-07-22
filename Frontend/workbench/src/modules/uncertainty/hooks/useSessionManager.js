@@ -128,6 +128,7 @@ const useSessionManager = () => {
       uutDescription: "",
       uutTolerance: {},
       detailSectionOrder: ["instruments", "equation", "budget"],
+      detailCollapsedSections: [],
       testPoints: [],
 
       uncReq: {

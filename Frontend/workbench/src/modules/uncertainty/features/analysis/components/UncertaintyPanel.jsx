@@ -94,6 +94,7 @@ import {
   convertPpmToUnit,
   getUnitDisplayLabel,
   getUniqueUnitDisplayLabels,
+  getUniqueUnits,
   unitSystem,
   unitCategories,
   errorDistributions,
@@ -364,12 +365,14 @@ const descSearchItemStyle = {
 };
 
 const buildGroupedUnitOptions = () => {
-  const allSupportedUnits = Object.keys(unitSystem.units);
+  const allSupportedUnits = getUniqueUnits(Object.keys(unitSystem.units));
   const options = [];
   const usedUnits = new Set();
 
   Object.entries(unitCategories).forEach(([category, units]) => {
-    const validUnits = units.filter((unit) => allSupportedUnits.includes(unit));
+    const validUnits = getUniqueUnits(units).filter((unit) =>
+      allSupportedUnits.includes(unit),
+    );
     if (validUnits.length > 0) {
       options.push({
         label: category,
@@ -8730,7 +8733,7 @@ function DetailedView({
   const [detailDraggingInstrumentId, setDetailDraggingInstrumentId] = useState(null);
   const [detailDragOverFunctionTarget, setDetailDragOverFunctionTarget] = useState(null);
   const [collapsedDetailSections, setCollapsedDetailSections] = useState(
-    () => new Set(),
+    () => new Set(sessionData.detailCollapsedSections || []),
   );
   const detailSectionOrder = useMemo(
     () => normalizeDetailSectionOrder(sessionData.detailSectionOrder),
@@ -8740,13 +8743,20 @@ function DetailedView({
   const [detailSectionDropTarget, setDetailSectionDropTarget] = useState(null);
   const draggingDetailSectionRef = useRef(null);
   const suppressDetailSectionToggleRef = useRef(false);
+  useEffect(() => {
+    setCollapsedDetailSections(
+      new Set(sessionData.detailCollapsedSections || []),
+    );
+  }, [sessionData.detailCollapsedSections]);
   const toggleDetailSection = (section) => {
     if (suppressDetailSectionToggleRef.current) return;
-    setCollapsedDetailSections((previous) => {
-      const next = new Set(previous);
-      if (next.has(section)) next.delete(section);
-      else next.add(section);
-      return next;
+    const next = new Set(collapsedDetailSections);
+    if (next.has(section)) next.delete(section);
+    else next.add(section);
+    setCollapsedDetailSections(next);
+    onSessionSave?.({
+      ...sessionData,
+      detailCollapsedSections: Array.from(next),
     });
   };
   const detailSectionStyle = (sectionId, offset = 0) => ({
@@ -10933,12 +10943,14 @@ function DetailedView({
   };
 
   const groupedUnitOptions = useMemo(() => {
-    const allSupportedUnits = Object.keys(unitSystem.units);
+    const allSupportedUnits = getUniqueUnits(Object.keys(unitSystem.units));
     const options = [];
     const usedUnits = new Set();
 
     Object.entries(unitCategories).forEach(([category, units]) => {
-      const validUnits = units.filter((u) => allSupportedUnits.includes(u));
+      const validUnits = getUniqueUnits(units).filter((u) =>
+        allSupportedUnits.includes(u),
+      );
       if (validUnits.length > 0) {
         options.push({
           label: category,

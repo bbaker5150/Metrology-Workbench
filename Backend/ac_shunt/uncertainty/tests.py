@@ -23,6 +23,7 @@ SAMPLE_SESSION = {
     "uutDescription": "legacy",
     "uutTolerance": {"reading": {"high": "0.05", "unit": "%"}},
     "detailSectionOrder": ["budget", "instruments", "equation"],
+    "detailCollapsedSections": ["equation", "budget"],
     "uncReq": {
         "uncertaintyConfidence": 95, "reliability": 90, "calInt": 6,
         "measRelCalcAssumed": 85, "neededTUR": 4, "reqPFA": 2,
@@ -125,6 +126,7 @@ class WholeSessionRoundTripTests(APITestCase):
             data["detailSectionOrder"],
             ["budget", "instruments", "equation"],
         )
+        self.assertEqual(data["detailCollapsedSections"], ["equation", "budget"])
         self.assertEqual(data["uncReq"]["reliability"], 90)
         self.assertEqual(data["measurementAreas"][0]["id"], "area-uuid-1")
         self.assertEqual(data["uuts"][0]["instrument"], {"model": "8588A"})

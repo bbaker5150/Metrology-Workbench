@@ -10,6 +10,14 @@ import * as math from "mathjs";
 const UNIT_ALIASES = Object.freeze({
   ohm: "Ohm",
   "Ω": "Ohm",
+  // Keep legacy spellings/conventions readable by the conversion engine, but
+  // expose one canonical choice in selectors. These aliases previously had
+  // identical display labels and were the source of visually duplicated unit
+  // options.
+  inch: "in",
+  "in.": "in",
+  "in-oz": "in-ozf",
+  "ozf-in": "in-ozf",
 });
 const canonicalUnit = (unit) => UNIT_ALIASES[unit] || unit;
 
@@ -256,8 +264,10 @@ export const unitSystem = {
     const quantity = unitSystem.getQuantity(baseUnit);
     if (!quantity) return ["ppm", "%"];
 
-    return Object.keys(unitSystem.units).filter(
-      (u) => unitSystem.units[u].quantity === quantity
+    return getUniqueUnits(
+      Object.keys(unitSystem.units).filter(
+        (u) => unitSystem.units[u].quantity === quantity,
+      ),
     );
   },
 
@@ -396,6 +406,23 @@ export const getUniqueUnitDisplayLabels = (units = []) => {
   }, []);
 };
 
+// Return one canonical unit key for every displayed unit. Unit selectors must
+// use keys (not labels) as their values, so this companion to
+// getUniqueUnitDisplayLabels retains the first canonical key while removing
+// legacy aliases that render identically (for example in/inch and the three
+// historical inch-ounce spellings).
+export const getUniqueUnits = (units = []) => {
+  const seen = new Set();
+  return (Array.isArray(units) ? units : [units]).reduce((result, unit) => {
+    const canonical = canonicalUnit(String(unit ?? "").trim());
+    const label = String(getUnitDisplayLabel(canonical) || "").trim();
+    if (!canonical || !label || seen.has(label)) return result;
+    seen.add(label);
+    result.push(canonical);
+    return result;
+  }, []);
+};
+
 export const unitCategories = {
   Voltage: ["V", "mV", "uV", "kV", "nV", "TV"],
   Current: ["A", "mA", "uA", "nA", "pA", "kA"],
@@ -415,7 +442,7 @@ export const unitCategories = {
   Volume: ["m^3", "L", "mL", "gal", "fl-oz"],
   Velocity: ["m/s", "km/h", "mph", "ft/s", "kn"],
   Force: ["N", "kN", "lbf", "ozf", "kgf"],
-  Torque: ["N-m", "N-cm", "lb-in", "lb-ft", "ozf-in", "in-oz", "in-ozf", "kgf-m", "kgf-cm"],
+  Torque: ["N-m", "N-cm", "lb-in", "lb-ft", "in-ozf", "kgf-m", "kgf-cm"],
   Flow: [
     "m^3/s",
     "L/min",

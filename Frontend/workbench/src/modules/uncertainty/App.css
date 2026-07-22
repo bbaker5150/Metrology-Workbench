@@ -7447,8 +7447,8 @@ body.dark-mode .plot-floating-control input {
    budget instead of an embedded third-party widget. */
 .bargraph-container.contribution-plot,
 .bargraph-container.contribution-plot-empty {
-  height: var(--contribution-plot-height, 320px);
-  min-height: 300px;
+  height: auto;
+  min-height: 0;
   margin-top: 12px;
   border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
   border-radius: 10px;
@@ -7462,19 +7462,86 @@ body.dark-mode .plot-floating-control input {
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
 }
 
-.bargraph-container.contribution-plot .modebar {
-  top: 8px !important;
-  right: 8px !important;
+.contribution-plot-native {
+  padding: 18px 20px 14px;
+  overflow: visible;
 }
 
-.bargraph-container.contribution-plot .modebar-btn {
-  color: var(--text-color-muted) !important;
-  opacity: 0.62;
+.contribution-plot-title {
+  margin: 0 0 16px;
+  color: var(--text-color);
+  font-size: 0.84rem;
+  font-weight: 750;
 }
 
-.bargraph-container.contribution-plot .modebar-btn:hover {
-  color: var(--primary-color) !important;
-  opacity: 1;
+.contribution-plot-list {
+  display: grid;
+  gap: 11px;
+}
+
+.contribution-plot-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 22%) minmax(140px, 1fr) 52px;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.contribution-plot-label {
+  overflow: hidden;
+  color: var(--text-color);
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contribution-plot-track {
+  position: relative;
+  display: block;
+  height: 16px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-color) 52%, transparent);
+}
+
+.contribution-plot-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 2px;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--primary-color) 82%, white),
+    var(--primary-color)
+  );
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--primary-color) 28%, transparent);
+  transition: width 180ms ease-out;
+}
+
+.contribution-plot-value {
+  color: var(--text-color);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.74rem;
+  font-weight: 750;
+  text-align: right;
+}
+
+.contribution-plot-axis {
+  display: flex;
+  justify-content: space-between;
+  margin: 10px 64px 0 calc(22% + 12px);
+  color: var(--text-color-muted);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.contribution-plot-axis-title {
+  margin: 5px 52px 0 calc(22% + 12px);
+  color: var(--text-color-muted);
+  font-size: 0.65rem;
+  text-align: center;
 }
 
 .bargraph-container.contribution-plot-empty {
@@ -7486,6 +7553,22 @@ body.dark-mode .plot-floating-control input {
 body.dark-mode .bargraph-container.contribution-plot,
 body.dark-mode .bargraph-container.contribution-plot-empty {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+@media (max-width: 760px) {
+  .contribution-plot-native {
+    padding-inline: 14px;
+  }
+
+  .contribution-plot-row {
+    grid-template-columns: minmax(88px, 30%) minmax(90px, 1fr) 48px;
+    gap: 8px;
+  }
+
+  .contribution-plot-axis,
+  .contribution-plot-axis-title {
+    margin-left: calc(30% + 8px);
+  }
 }
 
 /* --- Edit Session Modal - Overview Text Row --- */

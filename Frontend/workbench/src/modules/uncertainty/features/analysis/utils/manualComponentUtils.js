@@ -27,6 +27,44 @@ const TOLERANCE_TERM_KEYS = [
   "singleSided",
 ];
 
+// Manual rows use the same structured tolerance editor as instruments, while
+// their distribution is authored in the adjacent budget column. Keep both
+// surfaces backed by one divisor so selecting a distribution immediately
+// updates every entered term (including terms temporarily hidden by the
+// symmetry/sidedness toggles).
+export const applyManualToleranceDistribution = (
+  tolerance = {},
+  divisor = "1.732",
+) => {
+  const next = { ...(tolerance || {}), bandDistribution: String(divisor) };
+  const applyToTerms = (terms = {}) =>
+    Object.fromEntries(
+      Object.entries(terms).map(([key, term]) => [
+        key,
+        term && typeof term === "object"
+          ? { ...term, distribution: String(divisor) }
+          : term,
+      ]),
+    );
+
+  TOLERANCE_TERM_KEYS.forEach((key) => {
+    if (key === "singleSided") return;
+    if (next[key] && typeof next[key] === "object") {
+      next[key] = { ...next[key], distribution: String(divisor) };
+    }
+  });
+  if (next.readings_iv && typeof next.readings_iv === "object") {
+    next.readings_iv = {
+      ...next.readings_iv,
+      distribution: String(divisor),
+    };
+  }
+  if (next._doubleSidedTerms && typeof next._doubleSidedTerms === "object") {
+    next._doubleSidedTerms = applyToTerms(next._doubleSidedTerms);
+  }
+  return next;
+};
+
 const toleranceHasMagnitude = (tolerance = {}) =>
   TOLERANCE_TERM_KEYS.some((key) => {
     const term = tolerance?.[key];
@@ -121,7 +159,7 @@ export const createInlineManualComponent = ({
     originalInput: {
       inputMode: "tolerance",
       toleranceLimit: "",
-      tolerance: {},
+      tolerance: { bandDistribution: "1.732" },
       standardUncertainty: "",
       errorDistributionDivisor: "1.732",
       unit,

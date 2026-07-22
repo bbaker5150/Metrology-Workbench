@@ -1,29 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
-import Plotly from "plotly.js-dist";
+import { describe, expect, it, vi } from "vitest";
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
 
-// ContributionPlot draws with the real Plotly bundle; stub it so the budget
-// table tests stay fast and deterministic (they only assert the graph mounts).
-vi.mock("plotly.js-dist", () => ({
-  default: {
-    react: vi.fn(),
-    purge: vi.fn(),
-    Plots: { resize: vi.fn() },
-    Icons: { camera: { width: 1000, path: "" } },
-    toImage: vi.fn(),
-  },
-}));
-
-beforeAll(() => {
-  if (!window.ResizeObserver) {
-    window.ResizeObserver = class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    };
-  }
-});
+const contributionShares = (container) =>
+  Object.fromEntries(
+    Array.from(container.querySelectorAll("[data-contribution-label]")).map(
+      (row) => [
+        row.dataset.contributionLabel,
+        Number(row.dataset.contributionPercentage),
+      ],
+    ),
+  );
 
 const renderDirectBudget = (overrides = {}) => {
   const props = {
@@ -447,7 +434,6 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
   });
 
   it("shows contribution graph from the bottom display setting", async () => {
-    Plotly.react.mockClear();
     const view = renderDirectBudget({
       showContribution: true,
       setShowContribution: vi.fn(),
@@ -492,15 +478,16 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(
       screen.getByRole("button", { name: "Hide contribution chart" }),
     ).toHaveAttribute("aria-pressed", "true");
-    const [, plotData] = Plotly.react.mock.calls.at(-1);
-    expect(plotData[0].y).toEqual(["DMM Accuracy", "UUT Resolution"]);
-    expect(plotData[0].x).toEqual([20, 80]);
-    expect(plotData[0].customdata).toEqual(["20.00%", "80.00%"]);
-    expect(plotData[0].hovertemplate).toContain("Variance contribution");
+    expect(contributionShares(view.container)).toEqual({
+      "UUT Resolution": 80,
+      "DMM Accuracy": 20,
+    });
+    expect(
+      view.container.querySelector('[data-contribution-label="DMM Accuracy"]'),
+    ).toHaveAttribute("title", expect.stringContaining("Variance contribution"));
   });
 
   it("updates an open contribution graph when the calculated budget changes", async () => {
-    Plotly.react.mockClear();
     const baseProps = {
       components: [],
       showContribution: true,
@@ -530,21 +517,27 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     const view = render(
       <UncertaintyBudgetTable {...baseProps} calcResults={makeResults(0.01)} />,
     );
-    await waitFor(() => expect(Plotly.react).toHaveBeenCalled());
-    expect(Plotly.react.mock.calls.at(-1)[1][0].x).toEqual([20, 80]);
+    await waitFor(() =>
+      expect(contributionShares(view.container)).toEqual({
+        "UUT Resolution": 80,
+        "DMM Accuracy": 20,
+      }),
+    );
 
     view.rerender(
       <UncertaintyBudgetTable {...baseProps} calcResults={makeResults(0.02)} />,
     );
 
-    await waitFor(() => {
-      expect(Plotly.react.mock.calls.at(-1)[1][0].x).toEqual([50, 50]);
-    });
+    await waitFor(() =>
+      expect(contributionShares(view.container)).toEqual({
+        "DMM Accuracy": 50,
+        "UUT Resolution": 50,
+      }),
+    );
   });
 
   it("charts each Taylor Series input instead of the derived summary row", async () => {
-    Plotly.react.mockClear();
-    renderDirectBudget({
+    const view = renderDirectBudget({
       measurementType: "derived",
       budgetPropagationMethod: "equation",
       showContribution: true,
@@ -604,15 +597,14 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       },
     });
 
-    await waitFor(() => expect(Plotly.react).toHaveBeenCalled());
-    const [, plotData, layout] = Plotly.react.mock.calls.at(-1);
-    expect(plotData[0].y).toEqual(
+    await waitFor(() =>
+      expect(view.container.querySelector(".contribution-plot-native")).toBeInTheDocument(),
+    );
+    const shares = contributionShares(view.container);
+    expect(Object.keys(shares)).toEqual(
       expect.arrayContaining(["Length (l)", "Weight (w)", "UUT Resolution"]),
     );
-    expect(plotData[0].y).not.toContain("Taylor Series Approximation");
-    const shares = Object.fromEntries(
-      plotData[0].y.map((label, index) => [label, plotData[0].x[index]]),
-    );
+    expect(shares).not.toHaveProperty("Taylor Series Approximation");
     const rawEquationVariance = 0.002 ** 2 + 0.0004 ** 2;
     const displayedEquationVariance = 0.00204 ** 2;
     const resolutionVariance = 0.0001 ** 2;
@@ -633,13 +625,15 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       (resolutionVariance / totalVariance) * 100,
       8,
     );
-    expect(plotData[0].hovertemplate).toContain("Variance contribution");
-    expect(layout.title.text).toBe("Taylor series uncertainty contribution");
+    expect(
+      screen.getByRole("region", {
+        name: "Taylor series uncertainty contribution",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("charts Monte Carlo variable influence percentages", async () => {
-    Plotly.react.mockClear();
-    renderDirectBudget({
+    const view = renderDirectBudget({
       measurementType: "derived",
       budgetPropagationMethod: "montecarlo",
       showContribution: true,
@@ -701,24 +695,19 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       },
     });
 
-    await waitFor(() => expect(Plotly.react).toHaveBeenCalled());
-    const [, plotData, layout] = Plotly.react.mock.calls.at(-1);
-    expect(plotData[0].y).toEqual([
-      "Length (l)",
-      "UUT Resolution",
-      "Weight (w)",
-    ]);
-    expect(plotData[0].x[0]).toBeCloseTo(20, 10);
-    expect(plotData[0].x[1]).toBeCloseTo(20, 10);
-    expect(plotData[0].x[2]).toBeCloseTo(60, 10);
-    expect(plotData[0].customdata).toEqual([
-      "20.00%",
-      "20.00%",
-      "60.00%",
-    ]);
-    expect(plotData[0].y).not.toContain("Monte Carlo Approximation");
-    expect(plotData[0].hovertemplate).toContain("Variance contribution");
-    expect(layout.title.text).toBe("Monte Carlo uncertainty contribution");
+    await waitFor(() =>
+      expect(view.container.querySelector(".contribution-plot-native")).toBeInTheDocument(),
+    );
+    const shares = contributionShares(view.container);
+    expect(shares["Length (l)"]).toBeCloseTo(20, 10);
+    expect(shares["UUT Resolution"]).toBeCloseTo(20, 10);
+    expect(shares["Weight (w)"]).toBeCloseTo(60, 10);
+    expect(shares).not.toHaveProperty("Monte Carlo Approximation");
+    expect(
+      screen.getByRole("region", {
+        name: "Monte Carlo uncertainty contribution",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("uses a compact chart control beside Add for contribution display", () => {
@@ -824,7 +813,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
             high: "0.5",
             low: "-0.5",
             unit: "%",
-            distribution: "2.000",
+            distribution: "1.732",
             symmetric: true,
           })
         }
@@ -892,13 +881,103 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
             high: "0.5",
             low: "-0.5",
             unit: "%",
-            distribution: "2.000",
+            distribution: "1.732",
             symmetric: true,
           },
         },
         unit: "V",
       },
       referencePoint: { value: 10, unit: "V" },
+    });
+  });
+
+  it("edits a derived final-budget manual tolerance against the measurement point", () => {
+    const onComponentUpdate = vi.fn();
+    const ToleranceEditorComponent = ({ onCommit }) => (
+      <button
+        type="button"
+        aria-label="Set final IV tolerance"
+        onClick={() =>
+          onCommit("reading", {
+            high: "1",
+            low: "-1",
+            value: "1",
+            unit: "%",
+            symmetric: true,
+          })
+        }
+      >
+        Tolerance editor
+      </button>
+    );
+    const manual = {
+      id: "derived-final-manual",
+      name: "Fixture effect",
+      type: "B",
+      value: 0,
+      value_native: 0,
+      unit_native: "V",
+      distribution: "Rectangular",
+      distributionDivisor: "1.732",
+      isManual: true,
+      isInlineManual: true,
+      inlineDraft: true,
+      originalInput: {
+        inputMode: "tolerance",
+        toleranceLimit: "",
+        tolerance: { bandDistribution: "1.732" },
+        standardUncertainty: "",
+        errorDistributionDivisor: "1.732",
+        unit: "V",
+      },
+    };
+
+    renderDirectBudget({
+      measurementType: "derived",
+      onComponentUpdate,
+      ToleranceEditorComponent,
+      applyToleranceChange: (tolerance, key, term) => ({
+        ...tolerance,
+        [key]: term,
+      }),
+      formatToleranceSummary: () => ["Not Set"],
+      referencePoint: { name: "Voltage", value: 20, unit: "V" },
+      calcResults: {
+        calculatedBudgetGroups: [
+          {
+            id: "final_budget",
+            kind: "final",
+            label: "Voltage Uncertainty Budget",
+            unit: "V",
+            // This summary nominal must never replace the actual point nominal.
+            nominalPoint: { value: 999, unit: "A" },
+            components: [manual],
+            results: {},
+          },
+        ],
+      },
+    });
+
+    fireEvent.change(screen.getByLabelText("Error limit distribution"), {
+      target: { value: "1.960" },
+    });
+    fireEvent.click(screen.getByLabelText("Set final IV tolerance"));
+    fireEvent.pointerDown(document.body);
+
+    expect(onComponentUpdate).toHaveBeenCalledOnce();
+    expect(onComponentUpdate.mock.calls[0][1]).toMatchObject({
+      inlineManualDraft: {
+        tolerance: {
+          bandDistribution: "1.960",
+          reading: {
+            high: "1",
+            low: "-1",
+            unit: "%",
+            distribution: "1.960",
+          },
+        },
+      },
+      referencePoint: { name: "Voltage", value: 20, unit: "V" },
     });
   });
 
@@ -930,9 +1009,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       referencePoint: { name: "Voltage", value: 10, unit: "V" },
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Enter standard uncertainty" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Not Set" }));
     const standardInput = screen.getByLabelText("Standard uncertainty");
     expect(standardInput).toHaveValue(0.3);
     fireEvent.change(standardInput, { target: { value: "0.2" } });
