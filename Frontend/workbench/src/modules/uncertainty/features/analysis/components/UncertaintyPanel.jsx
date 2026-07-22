@@ -2115,7 +2115,7 @@ export const EditableDescriptionCell = ({
 
 // Default divisor for a resolution's rounding distribution — rectangular, the
 // standard assumption for a least-significant-digit / quantization error.
-const RESOLUTION_DIST_DEFAULT = "1.732";
+const RESOLUTION_DIST_DEFAULT = "3.464";
 
 const INLINE_COLUMN_CONTROL_SELECTOR =
   'input:not([disabled]):not([type="hidden"]), select:not([disabled]), button.inline-unit-combobox:not([disabled]), button.inline-menu-select-trigger:not([disabled])';
@@ -4670,16 +4670,102 @@ const pointUsesUut = (point = {}, uutId) =>
   String(point.activeUutId || "") === String(uutId) ||
   (point.associatedUutIds || []).some((id) => String(id) === String(uutId));
 
+const localInstrumentIdentityKeys = (item = {}) => {
+  const definition = item?.instrument || {};
+  if (definition.scope === "validated") return new Set();
+  return new Set(
+    [
+      definition.libraryInstrumentId,
+      item.libraryInstrumentId,
+      definition.id,
+    ]
+      .filter((id) => id !== undefined && id !== null && String(id) !== "")
+      .map(String),
+  );
+};
+
+// UUT and TMDE rows are two roles for one local library instrument, not two
+// independent copies. Keep their embedded definitions identical while
+// preserving row-only fields (selection, area placement, quantity, etc.).
+export const synchronizeLocalInstrumentDefinitions = (
+  session = {},
+  updatedItem = {},
+  updatedKind = "",
+) => {
+  const sourceDefinition = updatedItem?.instrument || {};
+  const sourceKeys = localInstrumentIdentityKeys(updatedItem);
+  if (sourceDefinition.scope === "validated" || sourceKeys.size === 0) {
+    return {
+      uuts: session.uuts || [],
+      tmdes: session.tmdes || [],
+    };
+  }
+
+  const matchesSource = (item) => {
+    const keys = localInstrumentIdentityKeys(item);
+    return [...keys].some((key) => sourceKeys.has(key));
+  };
+  const mergeDefinition = (item, kind) => {
+    if (!matchesSource(item)) return item;
+    if (kind === updatedKind && String(item.id) === String(updatedItem.id)) {
+      return updatedItem;
+    }
+    const currentDefinition = item.instrument || {};
+    const roleFields =
+      kind === "tmde"
+        ? {
+            measurementArea: currentDefinition.measurementArea || "",
+            measurementAreaColor: currentDefinition.measurementAreaColor || "",
+          }
+        : {};
+    return {
+      ...item,
+      ...(kind === "uut"
+        ? { description: sourceDefinition.description || item.description || "" }
+        : { name: sourceDefinition.description || item.name || "" }),
+      libraryInstrumentId:
+        updatedItem.libraryInstrumentId ||
+        sourceDefinition.libraryInstrumentId ||
+        sourceDefinition.id ||
+        item.libraryInstrumentId,
+      instrument: {
+        ...sourceDefinition,
+        ...roleFields,
+      },
+    };
+  };
+
+  return {
+    uuts: (session.uuts || []).map((item) => mergeDefinition(item, "uut")),
+    tmdes: (session.tmdes || []).map((item) => mergeDefinition(item, "tmde")),
+  };
+};
+
 export const countTmdeBudgetUses = (components = [], tmde = {}) => {
   const ids = new Set(
-    [tmde?.id, tmde?.sourceId]
+    [
+      tmde?.id,
+      tmde?.sourceId,
+      tmde?.definitionId,
+      tmde?.libraryInstrumentId,
+      tmde?.instrument?.id,
+      tmde?.instrument?.libraryInstrumentId,
+      tmde?.instrument?.sourceId,
+    ]
       .filter((id) => id !== undefined && id !== null && String(id) !== "")
       .map(String),
   );
   if (ids.size === 0) return 0;
   return (components || []).reduce((count, component) => {
-    const sourceId = component?.sourceTmdeId;
-    return ids.has(String(sourceId ?? "")) ? count + 1 : count;
+    const componentIds = [
+      component?.sourceTmdeId,
+      component?.tmdeBudgetSourceId,
+      component?.typeBSourceTmdeId,
+      component?.sourceInstrumentId,
+    ];
+    return componentIds.some((id) => ids.has(String(id ?? "")))
+      ? count + 1
+      : count;
   }, 0);
 };
 
@@ -5371,9 +5457,13 @@ const SummaryDashboard = ({
     saveItemInstrumentToLocalLibrary(kind, item);
   };
 
-  const refreshSessionPointsForUut = (previousItem, updatedItem) => {
-    if (!previousItem || !updatedItem) return sessionData.testPoints || [];
-    return (sessionData.testPoints || []).map((point) => {
+  const refreshSessionPointsForUut = (
+    previousItem,
+    updatedItem,
+    points = sessionData.testPoints || [],
+  ) => {
+    if (!previousItem || !updatedItem) return points;
+    return points.map((point) => {
       if (!pointUsesUut(point, updatedItem.id)) return point;
       const nextTolerance = findUpdatedUutToleranceForPoint(
         previousItem,
@@ -5393,9 +5483,12 @@ const SummaryDashboard = ({
   // waiting for the instance to be rebuilt in the Detailed View. The instance's
   // per-point config (range index, quantity, asset id, variable, reading) is
   // preserved; only the spec carried from the master is refreshed.
-  const refreshSessionPointsForTmde = (updatedItem) => {
-    if (!updatedItem) return sessionData.testPoints || [];
-    return (sessionData.testPoints || []).map((point) => {
+  const refreshSessionPointsForTmde = (
+    updatedItem,
+    points = sessionData.testPoints || [],
+  ) => {
+    if (!updatedItem) return points;
+    return points.map((point) => {
       const instances = point.tmdeTolerances;
       if (!Array.isArray(instances) || instances.length === 0) return point;
       const refreshed = refreshTmdeInstancesFromMasters(instances, [updatedItem]);
@@ -5426,24 +5519,39 @@ const SummaryDashboard = ({
   };
 
   const persistInlineItem = (kind, updatedItem, { maybePromptLocal = false } = {}) => {
-    const listKey = kind === "uut" ? "uuts" : "tmdes";
-    const previousItem = (sessionData[listKey] || []).find(
-      (item) => item.id === updatedItem.id,
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      sessionData,
+      updatedItem,
+      kind,
     );
+    let nextTestPoints = sessionData.testPoints || [];
+    synchronized.uuts.forEach((nextItem) => {
+      const previousItem = (sessionData.uuts || []).find(
+        (item) => String(item.id) === String(nextItem.id),
+      );
+      if (previousItem && previousItem !== nextItem) {
+        nextTestPoints = refreshSessionPointsForUut(
+          previousItem,
+          nextItem,
+          nextTestPoints,
+        );
+      }
+    });
+    synchronized.tmdes.forEach((nextItem) => {
+      const previousItem = (sessionData.tmdes || []).find(
+        (item) => String(item.id) === String(nextItem.id),
+      );
+      if (previousItem && previousItem !== nextItem) {
+        nextTestPoints = refreshSessionPointsForTmde(nextItem, nextTestPoints);
+      }
+    });
     const nextSession = {
       ...sessionData,
-      [listKey]: (sessionData[listKey] || []).map((it) =>
-        it.id === updatedItem.id ? updatedItem : it,
-      ),
+      uuts: synchronized.uuts,
+      tmdes: synchronized.tmdes,
+      testPoints: nextTestPoints,
     };
-    if (kind === "uut") {
-      nextSession.testPoints = refreshSessionPointsForUut(previousItem, updatedItem);
-    } else {
-      nextSession.testPoints = refreshSessionPointsForTmde(updatedItem);
-    }
-    onSessionSave({
-      ...nextSession,
-    });
+    onSessionSave(nextSession);
     if (
       onSaveInstrument &&
       (updatedItem.instrument?.sourceId ||
@@ -5459,8 +5567,8 @@ const SummaryDashboard = ({
   const handleUutDescriptionEdit = (uutId, field, value) => {
     if (!onSessionSave) return;
     let updatedItem = null;
-    const updatedUuts = (sessionData.uuts || []).map((u) => {
-      if (u.id !== uutId) return u;
+    (sessionData.uuts || []).forEach((u) => {
+      if (u.id !== uutId) return;
       updatedItem =
         field === "name"
           ? {
@@ -5473,28 +5581,17 @@ const SummaryDashboard = ({
               instrument: { ...(u.instrument || {}), description: value },
             }
           : { ...u, instrument: applyDescriptionPatch(u, field, value) };
-      return updatedItem;
     });
-    onSessionSave({ ...sessionData, uuts: updatedUuts });
     if (updatedItem) {
-      if (
-        onSaveInstrument &&
-        (updatedItem.instrument?.sourceId ||
-          updatedItem.instrument?.scope === "local" ||
-          localLibraryChoices[`uut:${updatedItem.id}`] === "local")
-      ) {
-        saveItemInstrumentToLocalLibrary("uut", updatedItem);
-      } else {
-        promptLocalLibrarySave("uut", updatedItem);
-      }
+      persistInlineItem("uut", updatedItem, { maybePromptLocal: true });
     }
   };
 
   const handleTmdeDescriptionEdit = (tmdeId, field, value) => {
     if (!onSessionSave) return;
     let updatedItem = null;
-    const updatedTmdes = (sessionData.tmdes || []).map((t) => {
-      if (t.id !== tmdeId) return t;
+    (sessionData.tmdes || []).forEach((t) => {
+      if (t.id !== tmdeId) return;
       updatedItem =
         field === "name"
           ? {
@@ -5505,27 +5602,13 @@ const SummaryDashboard = ({
               instrument: { ...(t.instrument || {}), description: value },
             }
           : { ...t, instrument: applyDescriptionPatch(t, field, value) };
-      return updatedItem;
     });
     // Propagate the master edit into every point's TMDE instance snapshot (parity
     // with handleDetailTmdeDescEdit / persistInlineItem), so an assigned TMDE's
     // name/spec updates wherever it's used — including the measurement-equation
     // variable field — instead of showing the stale pre-rename value.
-    const nextTestPoints = updatedItem
-      ? refreshSessionPointsForTmde(updatedItem)
-      : sessionData.testPoints;
-    onSessionSave({ ...sessionData, tmdes: updatedTmdes, testPoints: nextTestPoints });
     if (updatedItem) {
-      if (
-        onSaveInstrument &&
-        (updatedItem.instrument?.sourceId ||
-          updatedItem.instrument?.scope === "local" ||
-          localLibraryChoices[`tmde:${updatedItem.id}`] === "local")
-      ) {
-        saveItemInstrumentToLocalLibrary("tmde", updatedItem);
-      } else {
-        promptLocalLibrarySave("tmde", updatedItem);
-      }
+      persistInlineItem("tmde", updatedItem, { maybePromptLocal: true });
     }
   };
 
@@ -6571,9 +6654,6 @@ const SummaryDashboard = ({
                 }
               >
                 {fn.name}
-                {fn.unit ? (
-                  <span style={{ opacity: 0.6 }}> · {getUnitDisplayLabel(fn.unit)}</span>
-                ) : null}
               </button>
             ))}
           </div>
@@ -6612,12 +6692,6 @@ const SummaryDashboard = ({
               padding: "4px 6px",
               fontSize: "0.82em",
             }}
-          />
-          <UnitSelect
-            value={newFunctionDraft.unit}
-            ariaLabel="New function unit"
-            onChange={(unit) => setNewFunctionDraft((d) => ({ ...d, unit }))}
-            width="9ch"
           />
           <button
             type="button"
@@ -8542,13 +8616,6 @@ const SummaryDashboard = ({
                               );
 };
 
-export const formatEquationSectionLabel = (name) =>
-  `${
-    String(name || "")
-      .trim()
-      .replace(/\s+Equation$/i, "") || "Measurement"
-  } Equation`;
-
 const DetailWorkspaceSectionToggle = ({
   label,
   collapsed,
@@ -9244,12 +9311,15 @@ function DetailedView({
     { maybePromptLocal = false } = {},
   ) => {
     if (!onSessionSave) return;
-    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      sessionData,
+      updatedItem,
+      kind,
+    );
     onSessionSave({
       ...sessionData,
-      [listKey]: (sessionData[listKey] || []).map((it) =>
-        it.id === updatedItem.id ? updatedItem : it,
-      ),
+      uuts: synchronized.uuts,
+      tmdes: synchronized.tmdes,
     });
     if (
       onSaveInstrument &&
@@ -9261,9 +9331,14 @@ function DetailedView({
     } else if (maybePromptLocal) {
       promptLocalLibrarySave(kind, updatedItem);
     }
-    if (kind === "tmde") {
-      refreshPointTmdeInstance(updatedItem);
-    }
+    synchronized.tmdes.forEach((nextItem) => {
+      const previousItem = (sessionData.tmdes || []).find(
+        (item) => String(item.id) === String(nextItem.id),
+      );
+      if (previousItem && previousItem !== nextItem) {
+        refreshPointTmdeInstance(nextItem);
+      }
+    });
   };
 
   const sortAndPersistRangeGroupDetail = (key) => {
@@ -9281,8 +9356,8 @@ function DetailedView({
   const handleDetailUutDescEdit = (uutId, field, value) => {
     if (!onSessionSave) return;
     let updatedItem = null;
-    const updatedUuts = (sessionData.uuts || []).map((u) => {
-      if (u.id !== uutId) return u;
+    (sessionData.uuts || []).forEach((u) => {
+      if (u.id !== uutId) return;
       updatedItem =
         field === "name"
           ? {
@@ -9299,27 +9374,16 @@ function DetailedView({
                 [field === "make" ? "manufacturer" : "model"]: value,
               },
             };
-      return updatedItem;
     });
-    onSessionSave({ ...sessionData, uuts: updatedUuts });
     if (updatedItem) {
-      if (
-        onSaveInstrument &&
-        (updatedItem.instrument?.sourceId ||
-          updatedItem.instrument?.scope === "local" ||
-          localLibraryChoices[`uut:${updatedItem.id}`] === "local")
-      ) {
-        saveItemInstrumentToLocalLibrary("uut", updatedItem);
-      } else {
-        promptLocalLibrarySave("uut", updatedItem);
-      }
+      persistInlineItemDetail("uut", updatedItem, { maybePromptLocal: true });
     }
   };
   const handleDetailTmdeDescEdit = (tmdeId, field, value) => {
     if (!onSessionSave) return;
     let updatedItem = null;
-    const updatedTmdes = (sessionData.tmdes || []).map((t) => {
-      if (t.id !== tmdeId) return t;
+    (sessionData.tmdes || []).forEach((t) => {
+      if (t.id !== tmdeId) return;
       updatedItem =
         field === "name"
           ? {
@@ -9336,23 +9400,9 @@ function DetailedView({
                 [field === "make" ? "manufacturer" : "model"]: value,
               },
             };
-      return updatedItem;
     });
-    onSessionSave({ ...sessionData, tmdes: updatedTmdes });
     if (updatedItem) {
-      if (
-        onSaveInstrument &&
-        (updatedItem.instrument?.sourceId ||
-          updatedItem.instrument?.scope === "local" ||
-          localLibraryChoices[`tmde:${updatedItem.id}`] === "local")
-      ) {
-        saveItemInstrumentToLocalLibrary("tmde", updatedItem);
-      } else {
-        promptLocalLibrarySave("tmde", updatedItem);
-      }
-      // Keep this point's TMDE instance in sync with the edited master (parity
-      // with persistInlineItemDetail), so an assigned TMDE's row/risk update.
-      refreshPointTmdeInstance(updatedItem);
+      persistInlineItemDetail("tmde", updatedItem, { maybePromptLocal: true });
     }
   };
 
@@ -10116,10 +10166,18 @@ function DetailedView({
     if (!isEquationEditorOpen) return undefined;
     const handleEquationEditorClickAway = (event) => {
       const target = event.target;
-      const insideEditor = equationEditorSurfaceRef.current?.contains(target);
+      const insideInput = equationInputRef.current?.contains(target);
+      const insideSymbolButton = symbolButtonRef.current?.contains(target);
+      const insideLibraryButton = libraryButtonRef.current?.contains(target);
       const insideSymbolMenu = symbolMenuRef.current?.contains(target);
       const insideLibraryMenu = libraryMenuRef.current?.contains(target);
-      if (insideEditor || insideSymbolMenu || insideLibraryMenu) return;
+      if (
+        insideInput ||
+        insideSymbolButton ||
+        insideLibraryButton ||
+        insideSymbolMenu ||
+        insideLibraryMenu
+      ) return;
       setIsEquationEditorOpen(false);
       setIsSymbolMenuOpen(false);
       setIsLibraryOpen(false);
@@ -10323,15 +10381,23 @@ function DetailedView({
         calcResults?.calculatedBudgetComponents || [],
         masterTmde,
       );
+      const savedComponentCount = countTmdeBudgetUses(
+        testPointData.components || [],
+        masterTmde,
+      );
       const assignedCount = (tmdeTolerancesData || [])
         .filter((instance) => tmdeInstanceMatchesMaster(instance, masterTmde))
         .reduce((count, instance) => {
           const quantity = Number(instance?.quantity);
           return count + (Number.isFinite(quantity) && quantity > 0 ? quantity : 1);
         }, 0);
-      return Math.max(calculatedCount, assignedCount);
+      return Math.max(calculatedCount, savedComponentCount, assignedCount);
     },
-    [calcResults?.calculatedBudgetComponents, tmdeTolerancesData],
+    [
+      calcResults?.calculatedBudgetComponents,
+      testPointData.components,
+      tmdeTolerancesData,
+    ],
   );
 
   const resolveUutRange = useCallback(
@@ -10812,9 +10878,6 @@ function DetailedView({
                   }
                 >
                   {fn.name}
-                  {fn.unit ? (
-                    <span style={{ opacity: 0.6 }}> · {getUnitDisplayLabel(fn.unit)}</span>
-                  ) : null}
                 </button>
               ))}
             </div>
@@ -10844,12 +10907,6 @@ function DetailedView({
                 if (e.key === "Escape") setAddFunctionMenu(null);
               }}
               style={inputStyle}
-            />
-            <UnitSelect
-              value={newFunctionDraft.unit}
-              ariaLabel="New function unit"
-              onChange={(unit) => setNewFunctionDraft((d) => ({ ...d, unit }))}
-              width="9ch"
             />
             <button
               type="button"
@@ -11050,10 +11107,6 @@ function DetailedView({
     if (onUpdateTestPoint) {
       onUpdateTestPoint(patch);
     }
-  };
-
-  const handleEquationNameChange = (newName) => {
-    onUpdateTestPoint?.({ equationName: newName });
   };
 
   const handleSymbolMenuToggle = () => {
@@ -12943,15 +12996,13 @@ function DetailedView({
       isDerived ? validateEquation(testPointData.equationString || "") : null,
     [isDerived, testPointData.equationString],
   );
+  const hasEquationText = Boolean(
+    stripEquationPrefix(testPointData.equationString || "").trim(),
+  );
+  const hasUsableEquation =
+    isDerived && hasEquationText && equationValidation?.status === "ok";
 
-  // Save the editor's current equation to the persistent (global) library.
-  // The measurement area defaults to the point's own area so the entry lands
-  // in the right group.
-  const handleSaveCurrentEquation = () => {
-    if (!onSaveCustomEquation || !equationValidation) return;
-    if (equationValidation.status !== "ok") return;
-
-    const pointArea = (sessionData.measurementAreas || []).find(
+  const pointEquationArea = (sessionData.measurementAreas || []).find(
       (area) =>
         area.id ===
         resolvePointAreaId(
@@ -12960,37 +13011,37 @@ function DetailedView({
           sessionData.measurementAreas || [],
         ),
     );
+
+  // Save from the library popover itself so the equation name and measurement
+  // area are explicit library metadata, not fields attached to the point.
+  const handleSaveCurrentEquation = ({ name, measurementArea } = {}) => {
+    if (!onSaveCustomEquation || equationValidation?.status !== "ok") return false;
+    const cleanName = String(name || "").trim();
+    const cleanArea = String(measurementArea || "").trim();
+    if (!cleanName || !cleanArea) return false;
+
     const mappings = testPointData.variableMappings || {};
     const variables = {};
     equationValidation.variables.forEach((symbol) => {
       variables[symbol] = mappings[symbol] || symbol;
     });
-
-    setIsLibraryOpen(false);
-    setNotification({
-      title: "Save Library Equation",
-      message: "Name this equation before adding it to your library.",
-      confirmText: "Save Equation",
-      inputLabel: "Equation name",
-      inputPlaceholder: "e.g. Capacitive reactance",
-      validateInput: (rawName) =>
-        String(rawName || "").trim() ? "" : "Enter an equation name.",
-      onConfirm: (name) => {
-        onSaveCustomEquation({
-          id:
-            typeof crypto !== "undefined" && crypto.randomUUID
-              ? crypto.randomUUID()
-              : `eq-${Date.now()}`,
-          name,
-          expression: stripEquationPrefix(testPointData.equationString),
-          description: `Saved from the equation editor${pointArea?.name ? ` (${pointArea.name})` : ""}.`,
-          measurementArea: pointArea?.name || "",
-          measurementAreaColor: pointArea?.color || "",
-          variables,
-        });
-        setNotification(null);
-      },
+    const selectedArea = (sessionData.measurementAreas || []).find(
+      (area) =>
+        String(area.name || "").trim().toLowerCase() === cleanArea.toLowerCase(),
+    );
+    onSaveCustomEquation({
+      id:
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `eq-${Date.now()}`,
+      name: cleanName,
+      expression: stripEquationPrefix(testPointData.equationString),
+      description: `Saved from the measurement equation editor (${cleanArea}).`,
+      measurementArea: cleanArea,
+      measurementAreaColor: selectedArea?.color || pointEquationArea?.color || "",
+      variables,
     });
+    return true;
   };
 
   const handleDeleteCustomEquation = (equation) => {
@@ -13660,7 +13711,7 @@ function DetailedView({
       {/* --- MIDDLE ROW: EQUATION --- */}
       {isDerived && (
         <DetailWorkspaceSectionToggle
-          label={formatEquationSectionLabel(testPointData.equationName)}
+          label="Measurement Equation"
           collapsed={collapsedDetailSections.has("equation")}
           onToggle={() => toggleDetailSection("equation")}
           style={detailSectionStyle("equation")}
@@ -13687,16 +13738,6 @@ function DetailedView({
               {isEquationEditorOpen ? (
                 <>
                 <div className="measurement-equation-editor-stack">
-                  <label className="measurement-equation-name-field" htmlFor={`measurement-equation-name-${testPointData.id || "active"}`}>
-                    <span className="measurement-equation-name-label">Equation name</span>
-                    <input
-                      id={`measurement-equation-name-${testPointData.id || "active"}`}
-                      type="text"
-                      value={testPointData.equationName || ""}
-                      onChange={(e) => handleEquationNameChange(e.target.value)}
-                      maxLength={120}
-                    />
-                  </label>
                   <div className="add-point-equation-input measurement-equation-input-row">
                     <div className="measurement-equation-editor">
                       <input
@@ -13705,6 +13746,14 @@ function DetailedView({
                         className="measurement-equation-input"
                         value={equationDisplayData.equation}
                         onChange={(e) => handleEquationChange(e.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            setIsEquationEditorOpen(false);
+                            setIsSymbolMenuOpen(false);
+                            setIsLibraryOpen(false);
+                          }
+                        }}
                       />
                       <div className="measurement-equation-actions">
                         <button
@@ -13788,6 +13837,8 @@ function DetailedView({
                           ? "Enter an equation in the editor first"
                           : equationValidation?.error || ""
                       }
+                      measurementAreas={sessionData.measurementAreas || []}
+                      defaultMeasurementArea={pointEquationArea?.name || ""}
                     />
                   </div>,
                   document.body,
@@ -13864,7 +13915,14 @@ function DetailedView({
               )}
               </div>
             </div>
+            {!hasEquationText && (
+              <div className="equation-workflow-notice" role="status">
+                Enter a measurement equation to create its input variables and
+                budget tables.
+              </div>
+            )}
           </div>
+          {hasUsableEquation && equationDisplayData.variables.length > 0 && (
           <div className="measurement-equation-input-panel panel-card">
             <div className="panel-card-header">
               <div className="panel-card-title">
@@ -13874,6 +13932,12 @@ function DetailedView({
             </div>
             <div className="measurement-equation-inputs-card">
                 {equationVariableInputs}
+                {hasUnassignedVariables && (
+                  <div className="equation-workflow-notice is-incomplete" role="status">
+                    Name every variable and enter its nominal value and unit to
+                    populate the budget tables.
+                  </div>
+                )}
                 {calcStatus !== "neutral" && (
                   <div
                     className="measurement-equation-status"
@@ -13895,6 +13959,7 @@ function DetailedView({
                 )}
             </div>
           </div>
+          )}
         </div>
         )}
 
@@ -14512,6 +14577,8 @@ function DetailedView({
         </div>
       </div>
 
+      {(!isDerived || hasUsableEquation) && (
+      <>
       <DetailWorkspaceSectionToggle
         label="Budget Tables"
         collapsed={collapsedDetailSections.has("budget")}
@@ -14614,6 +14681,8 @@ function DetailedView({
         </div>
       )}
       </div>
+      </>
+      )}
       </div>
       {renderBudgetTmdePicker()}
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />

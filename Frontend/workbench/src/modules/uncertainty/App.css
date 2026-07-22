@@ -10467,6 +10467,25 @@ body.theme-cyberpunk .notification-window .window-header {
   line-height: 1.45;
 }
 
+.equation-workflow-notice {
+  width: min(100%, 620px);
+  margin: 10px auto 0;
+  padding: 10px 12px;
+  border-left: 2px solid var(--primary-color);
+  border-radius: 0 6px 6px 0;
+  background: rgba(var(--primary-rgb), 0.045);
+  color: var(--text-color-muted);
+  font-size: 0.79rem;
+  line-height: 1.45;
+}
+
+.equation-workflow-notice.is-incomplete {
+  width: auto;
+  margin: 8px 12px 12px;
+  border-left-color: var(--status-warning);
+  background: color-mix(in srgb, var(--status-warning) 7%, transparent);
+}
+
 .measurement-inputs-table-wrap {
   width: 100%;
   max-height: 460px;
@@ -10841,6 +10860,83 @@ body.theme-cyberpunk .notification-window .window-header {
   color: var(--text-color-muted);
   cursor: not-allowed;
   opacity: 0.7;
+}
+
+.equation-library-save-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 24%, var(--border-color));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--primary-color) 4%, var(--content-background));
+}
+
+.equation-library-save-heading {
+  grid-column: 1 / -1;
+  color: var(--text-color);
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.equation-library-save-form label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--text-color-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.equation-library-save-form input {
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  outline: none;
+  background: var(--input-background);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.equation-library-save-form input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.1);
+}
+
+.equation-library-save-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.equation-library-save-actions button {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.equation-library-save-actions button.is-primary {
+  border-color: var(--primary-color);
+  background: var(--primary-color);
+  color: #fff;
+}
+
+.equation-library-save-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .equation-library-entry {

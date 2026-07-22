@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { makeFunctionKey } from "../../../utils/functionGrouping";
 import {
   addBlankFunctionToInstrument,
-  formatEquationSectionLabel,
+  countTmdeBudgetUses,
   getDeleteSelectionTarget,
   rangeIsBlank,
   removeRangeFromItem,
@@ -10,13 +10,89 @@ import {
   resolveUutRangeHelper,
   sortRangesAscending,
   sortRangesInItem,
+  synchronizeLocalInstrumentDefinitions,
 } from "./UncertaintyPanel";
 
-describe("detailed equation section label", () => {
-  it("appends Equation once to user names and keeps a useful default", () => {
-    expect(formatEquationSectionLabel("Torque")).toBe("Torque Equation");
-    expect(formatEquationSectionLabel("Torque Equation")).toBe("Torque Equation");
-    expect(formatEquationSectionLabel("")).toBe("Measurement Equation");
+describe("local instrument role synchronization", () => {
+  it("uses one edited definition for matching local UUT and TMDE rows", () => {
+    const originalDefinition = {
+      id: "local-dmm",
+      scope: "local",
+      manufacturer: "Acme",
+      model: "DMM-1",
+      description: "Bench DMM",
+      functions: [
+        {
+          id: "voltage",
+          name: "Voltage",
+          ranges: [{ id: "v1", min: 0, max: 10, tolerances: {} }],
+        },
+      ],
+    };
+    const session = {
+      uuts: [
+        {
+          id: "uut-row",
+          description: "Bench DMM",
+          instrument: originalDefinition,
+        },
+      ],
+      tmdes: [
+        {
+          id: "tmde-row",
+          name: "Bench DMM",
+          instrument: {
+            ...originalDefinition,
+            measurementArea: "Electrical",
+            measurementAreaColor: "#123456",
+          },
+        },
+      ],
+    };
+    const updatedTmde = {
+      ...session.tmdes[0],
+      instrument: {
+        ...session.tmdes[0].instrument,
+        functions: [
+          {
+            ...session.tmdes[0].instrument.functions[0],
+            ranges: [
+              {
+                id: "v1",
+                min: 0,
+                max: 10,
+                tolerances: { floor: { high: "0.1", low: "-0.1" } },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      session,
+      updatedTmde,
+      "tmde",
+    );
+
+    expect(synchronized.tmdes[0]).toBe(updatedTmde);
+    expect(
+      synchronized.uuts[0].instrument.functions[0].ranges[0].tolerances.floor.high,
+    ).toBe("0.1");
+    expect(synchronized.tmdes[0].instrument.measurementArea).toBe("Electrical");
+  });
+
+  it("recognizes derived/manual budget source identities for TMDE badges", () => {
+    const tmde = { id: "tmde-row", instrument: { id: "local-weight" } };
+    expect(
+      countTmdeBudgetUses(
+        [
+          { tmdeBudgetSourceId: "tmde-row" },
+          { typeBSourceTmdeId: "local-weight" },
+        ],
+        tmde,
+      ),
+    ).toBe(2);
   });
 });
 

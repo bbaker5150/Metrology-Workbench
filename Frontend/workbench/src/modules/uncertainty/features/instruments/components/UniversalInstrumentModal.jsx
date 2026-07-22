@@ -78,7 +78,8 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
   return options;
 };
 
-const RESOLUTION_DIST_DEFAULT = "1.732";
+const TOLERANCE_DIST_DEFAULT = "1.732";
+const RESOLUTION_DIST_DEFAULT = "3.464";
 const MAX_BUILDER_UNDO_STEPS = 50;
 const BAND_KEYS = ["reading", "readings_iv", "range", "floor"];
 
@@ -93,7 +94,7 @@ const formatToleranceSummary = (tolerances) => {
 
 const getBandDistribution = (tolerances = {}) => {
     const key = BAND_KEYS.find((k) => tolerances?.[k]);
-    if (key) return tolerances[key].distribution || RESOLUTION_DIST_DEFAULT;
+    if (key) return tolerances[key].distribution || TOLERANCE_DIST_DEFAULT;
     return tolerances?.bandDistribution || null;
 };
 
@@ -317,7 +318,7 @@ const effectiveFloorTerm = (tolerance = {}) => {
 const getBuilderBandDivisor = (tolerance = {}) => {
     if (!tolerance || typeof tolerance !== "object") return null;
     const key = BAND_KEYS.find((k) => tolerance[k]);
-    if (key) return tolerance[key].distribution || RESOLUTION_DIST_DEFAULT;
+    if (key) return tolerance[key].distribution || TOLERANCE_DIST_DEFAULT;
     return tolerance.bandDistribution || null;
 };
 

@@ -25,8 +25,28 @@ const EquationLibraryMenu = ({
   onSaveCurrent,
   canSaveCurrent = false,
   saveDisabledReason = "",
+  measurementAreas = [],
+  defaultMeasurementArea = "",
 }) => {
   const [filter, setFilter] = useState("");
+  const [isSaveFormOpen, setIsSaveFormOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveArea, setSaveArea] = useState(defaultMeasurementArea);
+
+  const cancelSave = () => {
+    setIsSaveFormOpen(false);
+    setSaveName("");
+    setSaveArea(defaultMeasurementArea);
+  };
+
+  const submitSave = (event) => {
+    event.preventDefault();
+    const name = saveName.trim();
+    const measurementArea = saveArea.trim();
+    if (!name || !measurementArea || !onSaveCurrent) return;
+    const saved = onSaveCurrent({ name, measurementArea });
+    if (saved !== false) cancelSave();
+  };
 
   const customGroups = useMemo(() => {
     const byArea = new Map();
@@ -115,12 +135,57 @@ const EquationLibraryMenu = ({
                 : saveDisabledReason ||
                   "Enter a valid equation in the editor to save it"
             }
-            onClick={onSaveCurrent}
+            onClick={() => setIsSaveFormOpen((open) => !open)}
           >
             <FontAwesomeIcon icon={faPlus} size="xs" /> Save current
           </button>
         )}
       </div>
+
+      {isSaveFormOpen && (
+        <form className="equation-library-save-form" onSubmit={submitSave}>
+          <div className="equation-library-save-heading">
+            Save current equation
+          </div>
+          <label>
+            <span>Equation name</span>
+            <input
+              type="text"
+              value={saveName}
+              onChange={(event) => setSaveName(event.target.value)}
+              placeholder="e.g. Capacitive reactance"
+              autoFocus
+              required
+            />
+          </label>
+          <label>
+            <span>Measurement area</span>
+            <input
+              type="text"
+              list="equation-library-measurement-areas"
+              value={saveArea}
+              onChange={(event) => setSaveArea(event.target.value)}
+              placeholder="e.g. Electrical"
+              required
+            />
+          </label>
+          <datalist id="equation-library-measurement-areas">
+            {measurementAreas.map((area) => (
+              <option key={area.id || area.name || area} value={area.name || area} />
+            ))}
+          </datalist>
+          <div className="equation-library-save-actions">
+            <button type="button" onClick={cancelSave}>Cancel</button>
+            <button
+              type="submit"
+              className="is-primary"
+              disabled={!saveName.trim() || !saveArea.trim()}
+            >
+              Save equation
+            </button>
+          </div>
+        </form>
+      )}
 
       {customSections.map(({ area, equations }) => (
         <div key={`custom-${area}`} className="add-point-symbol-category">

@@ -270,6 +270,21 @@ describe("getBudgetComponentsFromTolerance - instrument-associated Type B", () =
     expect(resolution.distribution).toBe("Rectangular (resolution)");
     expect(resolution.value_native).toBeCloseTo(0.01 / Math.sqrt(12), 12);
   });
+
+  test("resolution defaults to the rectangular full-LSD distribution", () => {
+    const resolution = getUutResolutionComponent(
+      {
+        includeResolutionInBudget: true,
+        measuringResolution: "0.01",
+        measuringResolutionUnit: "psig",
+      },
+      ref,
+    );
+
+    expect(resolution.distribution).toBe("Rectangular (resolution)");
+    expect(resolution.distributionDivisor).toBe("3.464");
+    expect(resolution.value_native).toBeCloseTo(0.01 / Math.sqrt(12), 12);
+  });
 });
 
 describe("refreshLinkedTypeBComponents", () => {

@@ -634,6 +634,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     const distributionSelect = within(row).getByRole("button", {
       name: /Resolution distribution/i,
     });
+    expect(distributionSelect).toHaveTextContent("Rectangular (resolution)");
     fireEvent.click(distributionSelect);
     expect(screen.getByRole("option", { name: /Triangular\s+2\.449/ })).toBeInTheDocument();
     expect(
