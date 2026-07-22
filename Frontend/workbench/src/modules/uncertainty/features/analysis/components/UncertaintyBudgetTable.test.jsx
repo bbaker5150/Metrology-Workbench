@@ -59,6 +59,49 @@ const renderDirectBudget = (overrides = {}) => {
 };
 
 describe("UncertaintyBudgetTable direct budget actions", () => {
+  it("keeps manually added components at the bottom of the budget", () => {
+    const { container } = renderDirectBudget({
+      components: [
+        {
+          id: "manual-saved",
+          name: "Operator influence",
+          type: "B",
+          value: 0.1,
+          value_native: 0.1,
+          unit_native: "V",
+          distribution: "Rectangular",
+          distributionDivisor: "1.732",
+          isManual: true,
+          isInlineManual: true,
+          inlineDraft: false,
+          originalInput: {
+            inputMode: "standard",
+            standardUncertainty: "0.1",
+            unit: "V",
+          },
+        },
+        {
+          id: "uut-resolution",
+          name: "UUT Resolution",
+          type: "B",
+          value: 0.02,
+          value_native: 0.02,
+          unit_native: "V",
+          distribution: "Rectangular (resolution)",
+          isResolution: true,
+        },
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    const rows = Array.from(
+      container.querySelectorAll(".uncertainty-budget-table tbody > tr"),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("UUT Resolution");
+    expect(rows[1]).toHaveTextContent("Operator influence");
+  });
+
   it("explains distribution deviations with spec and current values", () => {
     renderDirectBudget({
       components: [

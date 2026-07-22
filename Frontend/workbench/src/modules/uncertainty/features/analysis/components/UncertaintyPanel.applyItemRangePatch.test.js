@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyItemRangeFunction,
   applyItemRangePatch,
+  applyRangeUnitChange,
+  getTmdeAccuracyReadiness,
   getItemRangeTolerance,
   rangeIdOf,
 } from "./UncertaintyPanel";
@@ -56,6 +58,59 @@ describe("applyItemRangePatch on a new instrument with no ranges", () => {
     expect(patched.instrument.functions[0].ranges[0].unit).toBe("mV");
     // No extra range was created.
     expect(patched.instrument.functions[0].ranges).toHaveLength(1);
+  });
+
+  it("keeps absolute tolerance terms synchronized with a changed range unit", () => {
+    const item = {
+      id: "uut-length",
+      instrument: {
+        functions: [
+          {
+            id: "fn-length",
+            unit: "in",
+            ranges: [
+              {
+                id: "r-length",
+                unit: "in",
+                tolerances: {
+                  reading: { high: "1", low: "-1", unit: "%" },
+                  range: { high: "0.5", low: "-0.5", unit: "%" },
+                  floor: { high: "0.01", low: "-0.01", unit: "in" },
+                  singleSided: { limit: "10", unit: "in" },
+                  db: { high: "1", low: "-1" },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const patched = applyRangeUnitChange(item, "r-length", "ft");
+    const [range] = patched.instrument.functions[0].ranges;
+    expect(range.unit).toBe("ft");
+    expect(range.tolerances.floor.unit).toBe("ft");
+    expect(range.tolerances.singleSided.unit).toBe("ft");
+    expect(range.tolerances.reading.unit).toBe("%");
+    expect(range.tolerances.range.unit).toBe("%");
+    expect(range.tolerances.db).not.toHaveProperty("unit");
+  });
+
+  it("materializes a unit-only unbounded range while synchronizing its flat tolerance", () => {
+    const item = {
+      id: "uut-unbounded-length",
+      tolerance: {
+        floor: { high: "0.01", low: "-0.01", unit: "in" },
+      },
+      instrument: {
+        functions: [{ id: "fn-length", name: "Length", unit: "in", ranges: [] }],
+      },
+    };
+
+    const patched = applyRangeUnitChange(item, "default", "ft");
+    const [range] = patched.instrument.functions[0].ranges;
+    expect(range).toMatchObject({ min: "", max: "", unit: "ft" });
+    expect(range.tolerances.floor.unit).toBe("ft");
   });
 
   it("stores a function tolerance on an unbounded range for all values", () => {
@@ -218,6 +273,45 @@ describe("applyItemRangePatch on a new instrument with no ranges", () => {
     expect(refreshed.reading.distribution).toBe("1.960");
     expect(component.distributionDivisor).toBe("1.960");
     expect(component.value_native).toBeCloseTo(0.0002 / 1.96, 10);
+  });
+});
+
+describe("getTmdeAccuracyReadiness", () => {
+  it("identifies a missing tolerance", () => {
+    expect(getTmdeAccuracyReadiness({ tolerances: {} })).toEqual({
+      ready: false,
+      reason: "tolerance",
+    });
+  });
+
+  it("identifies a tolerance whose distribution is not set", () => {
+    expect(
+      getTmdeAccuracyReadiness({
+        tolerances: { reading: { high: "1", low: "-1", unit: "%" } },
+      }),
+    ).toEqual({ ready: false, reason: "distribution" });
+  });
+
+  it("accepts a populated tolerance with a band distribution", () => {
+    expect(
+      getTmdeAccuracyReadiness({
+        tolerances: {
+          reading: { high: "1", low: "-1", unit: "%" },
+          bandDistribution: "1.960",
+        },
+      }),
+    ).toEqual({ ready: true, reason: null });
+  });
+
+  it("recognizes a single-sided limit and still requires its distribution", () => {
+    expect(
+      getTmdeAccuracyReadiness({
+        tolerances: {
+          singleSided: { limit: "10", unit: "V" },
+          bandDistribution: "1.732",
+        },
+      }),
+    ).toEqual({ ready: true, reason: null });
   });
 });
 

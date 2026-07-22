@@ -79,6 +79,10 @@ import {
   validateEquation,
   stripEquationPrefix,
 } from "../../../utils/equationValidation";
+import {
+  equationTexOptions,
+  formatEquationVariableSymbol,
+} from "../../../utils/equationPresentation";
 
 // Utils
 import {
@@ -1157,6 +1161,30 @@ export const applyItemRangePatch = (item, rangeId, rangePatch) => {
 };
 const applyItemRangeTolerance = (item, rangeId, tolerance) =>
   applyItemRangePatch(item, rangeId, { tolerances: tolerance });
+
+// Absolute tolerance terms describe the same physical quantity as their range.
+// Keep those units synchronized when a range changes from, for example, in to
+// ft. Relative IV/FS terms and dB deliberately retain their own unit systems.
+export const syncTolerancePhysicalUnits = (tolerance = {}, unit = "") => {
+  const next = { ...(tolerance || {}) };
+  ["floor", "readings_iv", "singleSided"].forEach((key) => {
+    if (next[key] && typeof next[key] === "object") {
+      next[key] = { ...next[key], unit };
+    }
+  });
+  return next;
+};
+
+export const applyRangeUnitChange = (item, rangeId, unit) => {
+  const tolerance = syncTolerancePhysicalUnits(
+    getItemRangeTolerance(item, rangeId),
+    unit,
+  );
+  // Apply both values in one patch. This is important for the synthetic first
+  // range: it materializes exactly once and carries the synchronized tolerance
+  // with it instead of generating a range id between two separate writes.
+  return applyItemRangePatch(item, rangeId, { unit, tolerances: tolerance });
+};
 
 // Copy a tolerance's TERM STRUCTURE but blank the numbers, so a freshly-added
 // range inherits the same tolerance components (e.g. %IV + %FS + Floor) as the
@@ -2335,16 +2363,6 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
   if (!editable) {
     return <>{label}</>;
   }
-  if (!divisor) {
-    return (
-      <span className="inline-tolerance-readview">
-        <span className="inline-tolerance-summary is-empty is-static">
-          {label}
-        </span>
-      </span>
-    );
-  }
-
   if (!isEditing) {
     const open = (e) => {
       e.stopPropagation();
@@ -2392,7 +2410,7 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
       onBlur={handleBlur}
     >
       <InlineMenuSelect
-        value={String(divisor)}
+        value={String(divisor || DISTRIBUTION_NOT_SET)}
         options={errorDistributions}
         ariaLabel="Spec band distribution"
         title="Distribution used for this tolerance band"
@@ -2419,7 +2437,7 @@ const TOLERANCE_TYPE_OPTIONS = [
   {
     key: "singleSided",
     label: "Single Sided",
-    title: "One workbook-style acceptance limit",
+    title: "One-sided acceptance limit",
   },
 ];
 
@@ -2486,6 +2504,9 @@ const pruneBlankToleranceTerms = (tolerance = {}) => {
 // an accuracy term to be combined with IV/FS/Floor/dB. Once it has a limit, it
 // is therefore the sole authored tolerance case for the range.
 export const applyToleranceCaseChange = (tolerance, typeKey, component) => {
+  if (typeKey === "__replace__") {
+    return pruneBlankToleranceTerms(component || {});
+  }
   const next = { ...tolerance, [typeKey]: component };
   if (!toleranceComponentHasNumericValue(typeKey, component)) {
     return pruneBlankToleranceTerms(next);
@@ -2497,6 +2518,116 @@ export const applyToleranceCaseChange = (tolerance, typeKey, component) => {
   } else {
     delete next.singleSided;
   }
+  return pruneBlankToleranceTerms(next);
+};
+
+const DOUBLE_SIDED_TOLERANCE_KEYS = ["reading", "range", "floor", "db"];
+
+export const inferToleranceEditorMode = (tolerance = {}) => {
+  if (tolerance?._editorMode?.sidedness === "single") {
+    return { shape: "asymmetric", sidedness: "single" };
+  }
+  if (tolerance?._editorMode?.shape) {
+    return {
+      shape: tolerance._editorMode.shape === "asymmetric" ? "asymmetric" : "symmetric",
+      sidedness: "double",
+    };
+  }
+  if (toleranceComponentHasNumericValue("singleSided", tolerance.singleSided)) {
+    return { shape: "asymmetric", sidedness: "single" };
+  }
+  const hasAsymmetricTerm = DOUBLE_SIDED_TOLERANCE_KEYS.some(
+    (key) =>
+      toleranceComponentHasNumericValue(key, tolerance[key]) &&
+      toleranceTermMode(tolerance[key]) !== "symmetric",
+  );
+  return {
+    shape: hasAsymmetricTerm ? "asymmetric" : "symmetric",
+    sidedness: "double",
+  };
+};
+
+export const getTmdeAccuracyReadiness = (range = {}) => {
+  const tolerance = range?.tolerances || range?.tolerance || range || {};
+  const enteredKeys = [
+    "reading",
+    "range",
+    "floor",
+    "readings_iv",
+    "db",
+    "singleSided",
+  ].filter((key) => {
+    const normalizedKey = key === "readings_iv" ? "floor" : key;
+    return toleranceComponentHasNumericValue(normalizedKey, tolerance[key]);
+  });
+  if (enteredKeys.length === 0) {
+    return { ready: false, reason: "tolerance" };
+  }
+  const missingDistribution = enteredKeys.some((key) => {
+    const component = tolerance[key] || {};
+    const raw = component.distribution ?? tolerance.bandDistribution;
+    return !raw || String(raw) === String(DISTRIBUTION_NOT_SET);
+  });
+  return missingDistribution
+    ? { ready: false, reason: "distribution" }
+    : { ready: true, reason: null };
+};
+
+const reshapeDoubleSidedComponent = (typeKey, component, shape) => {
+  if (!component || typeof component !== "object") return component;
+  const magnitude = componentLimitMagnitude(component, "high", typeKey);
+  const parsed = parseFloat(magnitude);
+  const high = Number.isFinite(parsed) ? String(Math.abs(parsed)) : "";
+  if (shape === "symmetric") {
+    return {
+      ...component,
+      high,
+      low: high ? String(-Math.abs(parsed)) : "",
+      ...(typeKey === "reading" ? { value: high } : {}),
+      symmetric: true,
+      thresholdSide: undefined,
+    };
+  }
+  const existingLow = componentLimitMagnitude(component, "low", typeKey);
+  const lowMagnitude = existingLow || high;
+  const lowParsed = parseFloat(lowMagnitude);
+  return {
+    ...component,
+    high,
+    low: Number.isFinite(lowParsed) ? String(-Math.abs(lowParsed)) : "",
+    ...(typeKey === "reading" ? { value: "" } : {}),
+    symmetric: false,
+    thresholdSide: undefined,
+  };
+};
+
+export const applyToleranceEditorMode = (
+  tolerance = {},
+  { shape = "symmetric", sidedness = "double" } = {},
+) => {
+  const nextShape = shape === "asymmetric" ? "asymmetric" : "symmetric";
+  const nextSidedness =
+    nextShape === "asymmetric" && sidedness === "single" ? "single" : "double";
+  const next = { ...(tolerance || {}) };
+
+  if (nextSidedness === "single") {
+    const saved = {};
+    DOUBLE_SIDED_TOLERANCE_KEYS.forEach((key) => {
+      if (next[key]) saved[key] = next[key];
+      delete next[key];
+    });
+    if (Object.keys(saved).length > 0) next._doubleSidedTerms = saved;
+  } else {
+    delete next.singleSided;
+    const restored = next._doubleSidedTerms || {};
+    DOUBLE_SIDED_TOLERANCE_KEYS.forEach((key) => {
+      const component = next[key] || restored[key];
+      if (component) next[key] = reshapeDoubleSidedComponent(key, component, nextShape);
+    });
+    delete next._doubleSidedTerms;
+  }
+
+  next._editorMode = { shape: nextShape, sidedness: nextSidedness };
   return pruneBlankToleranceTerms(next);
 };
 const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) => {
@@ -2678,6 +2809,8 @@ const ToleranceTermEditor = ({
   activeRange = {},
   typeKey,
   showHighSign = true,
+  forcedMode = null,
+  showShapeControl = true,
   onCommit,
 }) => {
   const component =
@@ -2725,7 +2858,7 @@ const ToleranceTermEditor = ({
     setFullScale(toPlainNumber(component.value ?? activeRange?.max ?? ""));
   }, [typeKey, component.high, component.low, component.value, activeRange?.max]);
 
-  const termMode = mode;
+  const termMode = forcedMode || mode;
   const currentShape = toleranceShapeOption(termMode);
   // The single-sided magnitude input binds to whichever side is non-zero.
   const singleValue = singleNeg ? lowValue : highValue;
@@ -3054,7 +3187,7 @@ const ToleranceTermEditor = ({
             />
           </>
         )}
-        {termMode !== "single" && (
+        {showShapeControl && termMode !== "single" && (
           <>
             <button
               ref={shapeButtonRef}
@@ -3318,6 +3451,15 @@ export const InlineToleranceCell = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const containerRef = useRef(null);
+  const inferredMode = inferToleranceEditorMode(tolerance);
+  const [shapeMode, setShapeMode] = useState(inferredMode.shape);
+  const [sidedness, setSidedness] = useState(inferredMode.sidedness);
+
+  useEffect(() => {
+    const next = inferToleranceEditorMode(tolerance);
+    setShapeMode(next.shape);
+    setSidedness(next.sidedness);
+  }, [rangeIdOf(activeRange), tolerance?._editorMode?.shape, tolerance?._editorMode?.sidedness]);
 
   useEffect(() => {
     if (!openRequested) return;
@@ -3385,6 +3527,22 @@ export const InlineToleranceCell = ({
     );
   }
 
+  const commitEditorMode = (nextShape, nextSidedness) => {
+    const normalizedSidedness =
+      nextShape === "asymmetric" && nextSidedness === "single"
+        ? "single"
+        : "double";
+    setShapeMode(nextShape);
+    setSidedness(normalizedSidedness);
+    onCommit(
+      "__replace__",
+      applyToleranceEditorMode(tolerance, {
+        shape: nextShape,
+        sidedness: normalizedSidedness,
+      }),
+    );
+  };
+
   return (
     <div
       ref={containerRef}
@@ -3407,7 +3565,57 @@ export const InlineToleranceCell = ({
         }
       }}
     >
-      {TOLERANCE_TYPE_OPTIONS.map((opt) => (
+      <div className="inline-tolerance-modebar" aria-label="Tolerance mode">
+        <div className="inline-tolerance-mini-toggle" role="group" aria-label="Tolerance symmetry">
+          <button
+            type="button"
+            className={shapeMode === "symmetric" ? "is-active" : ""}
+            aria-pressed={shapeMode === "symmetric"}
+            title="Symmetric tolerance"
+            onClick={() => commitEditorMode("symmetric", "double")}
+          >
+            ±
+          </button>
+          <button
+            type="button"
+            className={shapeMode === "asymmetric" ? "is-active" : ""}
+            aria-pressed={shapeMode === "asymmetric"}
+            title="Asymmetric tolerance"
+            onClick={() => commitEditorMode("asymmetric", sidedness)}
+          >
+            +/−
+          </button>
+        </div>
+        <div className="inline-tolerance-mini-toggle" role="group" aria-label="Tolerance sidedness">
+          <button
+            type="button"
+            className={sidedness === "double" ? "is-active" : ""}
+            aria-pressed={sidedness === "double"}
+            title="Double-sided tolerance"
+            onClick={() => commitEditorMode(shapeMode, "double")}
+          >
+            DS
+          </button>
+          <button
+            type="button"
+            className={sidedness === "single" ? "is-active" : ""}
+            aria-pressed={sidedness === "single"}
+            title={
+              shapeMode === "asymmetric"
+                ? "Single-sided tolerance"
+                : "Single-sided tolerances are asymmetric"
+            }
+            disabled={shapeMode !== "asymmetric"}
+            onClick={() => commitEditorMode("asymmetric", "single")}
+          >
+            SS
+          </button>
+        </div>
+      </div>
+      {(sidedness === "single"
+        ? TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key === "singleSided")
+        : TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key !== "singleSided")
+      ).map((opt) => (
         <span
           key={opt.key}
           className="inline-tolerance-term-group"
@@ -3424,6 +3632,8 @@ export const InlineToleranceCell = ({
               activeRange={activeRange}
               typeKey={opt.key}
               showHighSign={true}
+              forcedMode={shapeMode}
+              showShapeControl={false}
               onCommit={onCommit}
             />
           )}
@@ -3479,6 +3689,9 @@ export const RangeCell = ({
   onExpandAll,
   onEnsureInitialRange,
   onOpenTolerance,
+  openRequested = false,
+  onOpenRequestHandled,
+  onRequestEditAfterExpand,
   allowSingleToggle = false,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -3493,6 +3706,12 @@ export const RangeCell = ({
     openAfterInitialRangeRef.current = false;
     setIsEditing(true);
   }, [rangeIdOf(activeRange)]);
+
+  useEffect(() => {
+    if (!openRequested) return;
+    setIsEditing(true);
+    onOpenRequestHandled?.();
+  }, [openRequested, onOpenRequestHandled]);
 
   // Focus the first field on open so a click-away always produces a focusout
   // (which commits the in-progress value before the editor closes).
@@ -3550,6 +3769,7 @@ export const RangeCell = ({
       // A blank initial range should open its own inputs immediately. Only an
       // established range opens the complete range list.
       if (onExpandAll && rangeSummary) {
+        onRequestEditAfterExpand?.();
         onExpandAll();
         return;
       }
@@ -5801,7 +6021,7 @@ const SummaryDashboard = ({
   };
   const setRangeUnit = (kind, item, rangeId, value) => {
     if (!onSessionSave) return;
-    const updatedItem = applyItemRangePatch(item, rangeId, { unit: value });
+    const updatedItem = applyRangeUnitChange(item, rangeId, value);
     persistInlineItem(kind, updatedItem);
   };
   // --- Inline range editing: edit bounds, add, remove ---
@@ -6424,6 +6644,7 @@ const SummaryDashboard = ({
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
+  const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
   const rangeClickGroupRef = useRef(null);
   // Click-away collapse: while any range list is expanded, a click that
   // lands outside that instrument's row group (tagged data-range-group) snaps it
@@ -6557,6 +6778,11 @@ const SummaryDashboard = ({
       `${itemStateKey(kind, item.id)}:${rangeKey}`,
     );
   };
+  const requestRangeEditAfterExpand = (kind, item, range) => {
+    const rangeKey = rangeIdOf(range);
+    if (!rangeKey) return;
+    setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${rangeKey}`);
+  };
 
   // Per-range <td> cells for the expanded "view all ranges" rows. In expanded
   // mode each range is its OWN real table row (see the showAllRanges branches
@@ -6606,6 +6832,10 @@ const SummaryDashboard = ({
               onPatchRange={(patch) => patchRange(kind, item, rangeKey, patch)}
               onClearRange={() => handleRemoveRange(kind, item, rangeKey)}
               onOpenTolerance={() => openRangeTolerance(kind, item, range)}
+              openRequested={
+                pendingRangeEditKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
+              }
+              onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
             <button
               type="button"
@@ -7650,6 +7880,9 @@ const SummaryDashboard = ({
                                   onOpenTolerance={() =>
                                     openRangeTolerance("uut", uut, range)
                                   }
+                                  onRequestEditAfterExpand={() =>
+                                    requestRangeEditAfterExpand("uut", uut, range)
+                                  }
                                   onExpandAll={() => toggleShowAllRanges("uut", uut.id)}
                                 />
                                 </div>
@@ -8074,6 +8307,9 @@ const SummaryDashboard = ({
                                   onOpenTolerance={() =>
                                     openRangeTolerance("tmde", tmde, range)
                                   }
+                                  onRequestEditAfterExpand={() =>
+                                    requestRangeEditAfterExpand("tmde", tmde, range)
+                                  }
                                   onExpandAll={() => toggleShowAllRanges("tmde", tmde.id)}
                                 />
                                 </div>
@@ -8403,6 +8639,7 @@ function DetailedView({
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
+  const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
   const rangeClickGroupRef = useRef(null);
   // --- NEW: Local Selection State ---
   const [selectedUutIds, setSelectedUutIds] = useState([]);
@@ -9410,7 +9647,7 @@ function DetailedView({
     persistInlineItemDetail(kind, patched);
   };
   const setRangeUnitDetail = (kind, item, rangeId, value) =>
-    persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, { unit: value }));
+    persistInlineItemDetail(kind, applyRangeUnitChange(item, rangeId, value));
   const patchRangeDetail = (kind, item, rangeId, patch) =>
     persistInlineItemDetail(kind, applyItemRangePatch(item, rangeId, patch));
   const ensureInitialRangeDetail = (kind, item) => {
@@ -9668,6 +9905,11 @@ function DetailedView({
       `${itemStateKey(kind, item.id)}:${rangeKey}`,
     );
   };
+  const requestRangeEditAfterExpandDetail = (kind, item, range) => {
+    const rangeKey = rangeIdOf(range);
+    if (!rangeKey) return;
+    setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${rangeKey}`);
+  };
 
   const renderRangeRowCellsDetail = (
     kind,
@@ -9710,6 +9952,10 @@ function DetailedView({
               onPatchRange={(patch) => patchRangeDetail(kind, item, rangeKey, patch)}
               onClearRange={() => handleRemoveRangeDetail(kind, item, rangeKey)}
               onOpenTolerance={() => openRangeToleranceDetail(kind, item, range)}
+              openRequested={
+                pendingRangeEditKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
+              }
+              onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
             <button
               type="button"
@@ -11646,6 +11892,22 @@ function DetailedView({
     onUpdateTestPoint({ tmdeTolerances: nextTolerances });
   };
 
+  const warnIfTmdeAccuracyIncomplete = (activeRange) => {
+    const readiness = getTmdeAccuracyReadiness(activeRange);
+    if (readiness.ready) return false;
+    setNotification?.({
+      title:
+        readiness.reason === "distribution"
+          ? "Distribution Not Set"
+          : "Tolerance Not Set",
+      message:
+        readiness.reason === "distribution"
+          ? "Set a distribution for this TMDE accuracy before adding it to the budget. The distribution is required to convert the tolerance limit into standard uncertainty."
+          : "Set a tolerance for this TMDE range before adding its accuracy to the budget. Without a tolerance, uncertainty and risk cannot be calculated.",
+    });
+    return true;
+  };
+
   const handleToggleTmdeUsage = (tmdeId, isChecked, functionKey = null) => {
     if (isChecked) {
       if (
@@ -11668,6 +11930,7 @@ function DetailedView({
           functionKey,
         );
         const activeRange = resolution.activeRange || {};
+        if (warnIfTmdeAccuracyIncomplete(activeRange)) return;
         const compatibility = assessTmdeCompatibility(
           activeRange,
           uutNominal,
@@ -11789,7 +12052,7 @@ function DetailedView({
     if (!source) return { status: "empty", tex: "" };
 
     try {
-      const tex = math.parse(source).toTex({ parenthesis: "keep" });
+      const tex = math.parse(source).toTex(equationTexOptions);
       const markup = katex.renderToString(tex, {
         displayMode: true,
         throwOnError: false,
@@ -12065,6 +12328,10 @@ function DetailedView({
           : null) ||
         findRangeForFunction(tmde, budgetTmdePicker.functionKey) ||
         {};
+      if (warnIfTmdeAccuracyIncomplete(activeRange)) {
+        setBudgetTmdePicker(null);
+        return;
+      }
       const resolvedComponents = getBudgetComponentsFromTolerance(
         activeRange,
         nominalPoint,
@@ -12818,7 +13085,12 @@ function DetailedView({
             {equationDisplayData.variables.map((variable) => (
               <tr key={variable.symbol}>
                 <td>
-                  <span className="measurement-input-symbol">{variable.symbol}</span>
+              <span
+                className="measurement-input-symbol"
+                title={variable.symbol}
+              >
+                {formatEquationVariableSymbol(variable.symbol)}
+              </span>
                 </td>
                 <td>
                   <MeasurementInputNameCell
@@ -13199,6 +13471,9 @@ function DetailedView({
                                   }
                                   onOpenTolerance={() =>
                                     openRangeToleranceDetail("uut", uut, range)
+                                  }
+                                  onRequestEditAfterExpand={() =>
+                                    requestRangeEditAfterExpandDetail("uut", uut, range)
                                   }
                                   onExpandAll={() =>
                                     toggleShowAllRangesDetail("uut", uut.id)
@@ -13965,6 +14240,13 @@ function DetailedView({
                                       }
                                       onOpenTolerance={() =>
                                         openRangeToleranceDetail("tmde", masterTmde, range)
+                                      }
+                                      onRequestEditAfterExpand={() =>
+                                        requestRangeEditAfterExpandDetail(
+                                          "tmde",
+                                          masterTmde,
+                                          range,
+                                        )
                                       }
                                       onExpandAll={() =>
                                         toggleShowAllRangesDetail("tmde", masterTmde.id)

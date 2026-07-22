@@ -774,7 +774,7 @@ export const SidebarPointItem = ({
       {/* Col 2: Value */}
       {visibleColumns.value &&
         (editingField === "value" ? (
-          <div className="sidebar-inline-input-wrapper">
+          <div className="sidebar-inline-input-wrapper sidebar-value-sticky">
             <input
               autoFocus
               className="sidebar-inline-input value"
@@ -792,7 +792,7 @@ export const SidebarPointItem = ({
           </div>
         ) : (
           <span
-            className="point-value point-value-with-unit"
+            className="point-value point-value-with-unit sidebar-value-sticky"
             onClick={(e) => handleSingleClickEdit(e, "value", displayValue)}
             title="Click to edit Value"
           >
@@ -1669,13 +1669,13 @@ function App() {
   );
 
   const renderSidebarSortHeader = useCallback(
-    (key, label, { align = "left", title = label } = {}) => {
+    (key, label, { align = "left", title = label, className = "" } = {}) => {
       const isActive = sidebarSort.key === key;
       const directionLabel = sidebarSort.direction === "asc" ? "ascending" : "descending";
       return (
         <button
           type="button"
-          className={`sidebar-sort-header sidebar-sort-header--${key} ${isActive ? "active" : ""}`}
+          className={`sidebar-sort-header sidebar-sort-header--${key} ${className} ${isActive ? "active" : ""}`}
           onClick={(e) => {
             e.stopPropagation();
             handleSidebarSort(key);
@@ -4037,7 +4037,10 @@ function App() {
         >
       {visibleSidebarColumns.section &&
         renderSidebarSortHeader("section", "Sect.", { align: "right" })}
-      {visibleSidebarColumns.value && renderSidebarSortHeader("value", "Value")}
+      {visibleSidebarColumns.value &&
+        renderSidebarSortHeader("value", "Value", {
+          className: "sidebar-value-sticky",
+        })}
       {visibleSidebarColumns.qualifier &&
         renderSidebarSortHeader("qualifier", "Qual.")}
       {visibleSidebarColumns.tolerance &&

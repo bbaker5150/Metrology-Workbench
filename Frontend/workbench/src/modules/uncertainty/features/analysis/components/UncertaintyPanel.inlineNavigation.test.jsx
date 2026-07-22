@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { EditableDescriptionCell } from "./UncertaintyPanel";
+import { EditableDescriptionCell, RangeCell } from "./UncertaintyPanel";
 
 describe("inline instrument column navigation", () => {
   it("moves Tab from the final description input to the range column", async () => {
@@ -56,6 +56,35 @@ describe("inline instrument column navigation", () => {
     expect(openRange).toHaveBeenCalledOnce();
     await waitFor(() => {
       expect(screen.getByLabelText("Range minimum")).toHaveFocus();
+    });
+  });
+
+  it("opens all ranges and focuses the clicked range on the first click", async () => {
+    const RangeHarness = () => {
+      const [expanded, setExpanded] = useState(false);
+      const [pending, setPending] = useState(false);
+      const range = { id: "r1", min: "0", max: "10", unit: "V" };
+      return (
+        <RangeCell
+          ranges={[range]}
+          activeIndex={0}
+          activeRange={range}
+          editable
+          onEditBound={vi.fn()}
+          onEditUnit={vi.fn()}
+          onExpandAll={expanded ? undefined : () => setExpanded(true)}
+          onRequestEditAfterExpand={() => setPending(true)}
+          openRequested={expanded && pending}
+          onOpenRequestHandled={() => setPending(false)}
+        />
+      );
+    };
+
+    render(<RangeHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Show all ranges" }));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("min")).toHaveFocus();
     });
   });
 });

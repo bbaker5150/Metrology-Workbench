@@ -1569,6 +1569,27 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   justify-content: flex-end;
 }
 
+/* Keep the measurement value visible while the wide risk/mitigation result
+   set scrolls horizontally. The sticky cell is a grid item, so it preserves
+   the exact same column geometry as its header and neighboring rows. */
+.sidebar-column-headers .sidebar-value-sticky,
+.point-grid-item > .sidebar-value-sticky {
+  position: sticky;
+  left: 0;
+}
+
+.sidebar-column-headers .sidebar-value-sticky {
+  z-index: 8;
+  background: var(--sidebar-background, var(--content-background));
+  box-shadow: 7px 0 8px -9px rgba(0, 0, 0, 0.5);
+}
+
+.point-grid-item > .sidebar-value-sticky {
+  z-index: 6;
+  background-color: inherit;
+  box-shadow: 7px 0 8px -9px rgba(0, 0, 0, 0.5);
+}
+
 /* Sidebar Column Toggle Button Enhancement */
 /* --- Sidebar Toolbar (Filter + Quick Add) --- */
 .sidebar-toolbar {
@@ -12387,6 +12408,53 @@ input.inline-function-input:focus {
   flex-wrap: nowrap;
   gap: 4px;
   white-space: normal;
+}
+
+.inline-tolerance-modebar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 5px 3px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+
+.inline-tolerance-mini-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 2px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--input-background) 74%, transparent);
+}
+
+.inline-tolerance-mini-toggle button {
+  min-width: 27px;
+  height: 16px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.62rem;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.inline-tolerance-mini-toggle button:hover:not(:disabled) {
+  color: var(--text-color);
+}
+
+.inline-tolerance-mini-toggle button.is-active {
+  background: color-mix(in srgb, var(--primary-color) 15%, var(--component-bg));
+  color: var(--primary-color);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 28%, transparent);
+}
+
+.inline-tolerance-mini-toggle button:disabled {
+  cursor: not-allowed;
+  opacity: 0.32;
 }
 
 .inline-tol-empty {

@@ -231,8 +231,8 @@ describe("inline resolution distribution", () => {
     expect(screen.getByText("Not Set")).toHaveClass(
       "inline-tolerance-summary",
       "is-empty",
-      "is-static",
     );
+    expect(screen.getByRole("button", { name: "Not Set" })).toBeEnabled();
   });
 
   it("keeps a portaled distribution menu open while focus moves into its options", () => {
@@ -601,6 +601,8 @@ describe("inline range editing", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
+    fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
+    fireEvent.click(screen.getByTitle("Single-sided tolerance"));
     fireEvent.click(screen.getByRole("radio", { name: "Measurement unknown" }));
     fireEvent.change(screen.getByLabelText("Measurement unknown Upper limit"), {
       target: { value: "600" },
@@ -630,6 +632,8 @@ describe("inline range editing", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
+    fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
+    fireEvent.click(screen.getByTitle("Single-sided tolerance"));
     fireEvent.click(screen.getByRole("button", { name: "Single-sided direction" }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Low" }));
 
@@ -642,7 +646,7 @@ describe("inline range editing", () => {
     );
   });
 
-  it("offers IV only the double-sided shapes", () => {
+  it("keeps single-sided disabled until the global mode is asymmetric", () => {
     render(
       <InlineToleranceCell
         tolerance={{}}
@@ -653,12 +657,10 @@ describe("inline range editing", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
-    fireEvent.click(screen.getAllByTitle("Tolerance shape: Symmetric")[0]);
-
-    expect(screen.getByRole("menuitemradio", { name: /Asymmetric/ })).toBeInTheDocument();
-    expect(
-      screen.queryByRole("menuitemradio", { name: /Single-sided/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByTitle("Single-sided tolerances are asymmetric")).toBeDisabled();
+    fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
+    expect(screen.getByTitle("Single-sided tolerance")).toBeEnabled();
+    expect(screen.queryByTitle(/Tolerance shape:/)).not.toBeInTheDocument();
   });
 
   it("offers percent, ppm, and ppb units for IV tolerance", () => {

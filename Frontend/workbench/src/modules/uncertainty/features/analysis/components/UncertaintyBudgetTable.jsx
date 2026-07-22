@@ -953,6 +953,15 @@ const UncertaintyBudgetTable = ({
 
   const renderComponentTable = (group) => {
     const showDof = shouldShowDofColumn(group.components || []);
+    // Manual rows are authored in the order they were added, but generated
+    // rows (such as UUT resolution) can be rebuilt after them. Keep all manual
+    // additions at the bottom without disturbing either group's stable order.
+    const orderedComponents = [
+      ...(group.components || []).filter(
+        (component) => !isStandaloneManualComponent(component),
+      ),
+      ...(group.components || []).filter(isStandaloneManualComponent),
+    ];
     return (
     <table className="uncertainty-budget-table">
       <thead>
@@ -967,7 +976,7 @@ const UncertaintyBudgetTable = ({
         </tr>
       </thead>
       <tbody className="component-group-tbody">
-        {(group.components || []).map((component) => {
+        {orderedComponents.map((component) => {
           if (isStandaloneManualComponent(component)) {
             return (
               <InlineManualComponentRow

@@ -97,15 +97,13 @@ describe("TypeBComponentsEditor", () => {
     );
 
     fireEvent.click(screen.getByTitle("Click to edit tolerance"));
-    const shapeButtons = screen.getAllByTitle(/Tolerance shape:/);
-    fireEvent.pointerDown(shapeButtons[2]);
-    fireEvent.click(shapeButtons[2]);
-    const asymmetricOption = await screen.findByRole("menuitemradio", { name: /Asymmetric/ });
-    fireEvent.pointerDown(asymmetricOption);
-    fireEvent.click(asymmetricOption);
+    fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
 
     await waitFor(() =>
-      expect(screen.getAllByTitle("Tolerance shape: Asymmetric").length).toBeGreaterThan(0),
+      expect(screen.getByTitle("Asymmetric tolerance")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
     );
     const latest = onChange.mock.lastCall?.[0]?.[0];
     expect(latest?.tolerance?.floor?.symmetric).toBe(false);
