@@ -1349,15 +1349,23 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 }
 
 .sidebar-measurement-accordion {
-  /* Keep the 26px hit target while lining its chevron up with Session Info. */
+  /* Keep the 26px hit target while matching Session Info's chevron exactly. */
   margin-left: 9px;
   margin-right: -8px;
+  color: var(--text-color-muted);
+  font-size: 0.68rem;
 }
 
 .sidebar-measurement-accordion svg {
   width: 10px;
-  font-size: 0.72rem;
-  opacity: 0.7;
+  font-size: inherit;
+  opacity: 1;
+}
+
+.sidebar-measurement-accordion:hover,
+.sidebar-measurement-accordion:active {
+  background: transparent;
+  color: var(--primary-color);
 }
 
 .measurement-points-empty-state {

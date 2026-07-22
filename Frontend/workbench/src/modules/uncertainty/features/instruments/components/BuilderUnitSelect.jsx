@@ -3,6 +3,7 @@ import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
+import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
 
 const normalizeUnitSearch = (value) =>
   String(value || "").toLowerCase().replace(/[^a-z0-9%]+/g, "");
@@ -64,11 +65,15 @@ const BuilderUnitSelect = ({
   const openMenu = () => {
     const rect = rootRef.current?.getBoundingClientRect();
     if (rect) {
-      setMenuRect({
-        top: rect.bottom + 4,
-        left: rect.left,
-        width: Math.max(rect.width, 240),
-      });
+      const visualViewport = window.visualViewport;
+      setMenuRect(getAnchoredMenuPlacement({
+        anchorRect: rect,
+        viewportWidth: visualViewport?.width || window.innerWidth,
+        viewportHeight: visualViewport?.height || window.innerHeight,
+        preferredWidth: Math.max(rect.width, 240),
+        preferredMaxHeight: 320,
+        gap: 4,
+      }));
     }
     setQuery("");
     setActiveValue(value || flatOptions[0]?.value || "");
@@ -150,8 +155,10 @@ const BuilderUnitSelect = ({
             className="inline-unit-menu"
             style={{
               top: menuRect.top,
+              bottom: menuRect.bottom,
               left: menuRect.left,
               width: menuRect.width,
+              maxHeight: menuRect.maxHeight,
             }}
             onMouseDown={(event) => event.stopPropagation()}
           >
@@ -195,6 +202,7 @@ const BuilderUnitSelect = ({
               className="inline-unit-options"
               role="listbox"
               aria-label={ariaLabel}
+              style={{ maxHeight: Math.max(1, menuRect.maxHeight - 50) }}
             >
               {visibleGroups.length === 0 ? (
                 <div className="inline-unit-empty">No matching units</div>

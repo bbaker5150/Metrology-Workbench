@@ -6598,15 +6598,14 @@ const SummaryDashboard = ({
     };
     // Portal to <body> with fixed positioning so the menu is never clipped by a
     // short table / overflow container (lesson from the inline library dropdown).
-    const MENU_WIDTH = 250;
-    const left = rect
-      ? Math.max(8, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8))
-      : 8;
-    // Open below the button, but clamp so the menu never starts off-screen on a
-    // short viewport (it scrolls internally via maxHeight).
-    const top = rect
-      ? Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 80))
-      : 60;
+    const visualViewport = window.visualViewport;
+    const placement = getAnchoredMenuPlacement({
+      anchorRect: rect,
+      viewportWidth: visualViewport?.width || window.innerWidth,
+      viewportHeight: visualViewport?.height || window.innerHeight,
+      preferredWidth: 250,
+      preferredMaxHeight: 420,
+    });
     return ReactDOM.createPortal(
       <>
         <div
@@ -6617,10 +6616,11 @@ const SummaryDashboard = ({
           onClick={(e) => e.stopPropagation()}
           style={{
             position: "fixed",
-            top,
-            left,
-            width: `${MENU_WIDTH}px`,
-            maxHeight: "min(360px, 70vh)",
+            top: placement.top,
+            bottom: placement.bottom,
+            left: placement.left,
+            width: `${placement.width}px`,
+            maxHeight: `${placement.maxHeight}px`,
             overflowY: "auto",
             background: "var(--component-bg)",
             border: "1px solid var(--border-color)",
@@ -6700,18 +6700,11 @@ const SummaryDashboard = ({
             type="button"
             disabled={!newFunctionDraft.name.trim()}
             onClick={() => handleAddFunction(newFunctionDraft)}
-            style={{
-              background: "var(--primary-color)",
-              border: "none",
-              borderRadius: "4px",
-              color: "#fff",
-              padding: "4px 10px",
-              cursor: newFunctionDraft.name.trim() ? "pointer" : "not-allowed",
-              opacity: newFunctionDraft.name.trim() ? 1 : 0.5,
-              fontSize: "0.82em",
-            }}
+            className="range-header-action-btn range-header-action-btn--add"
+            title="Add function"
+            aria-label="Add function"
           >
-            Add
+            <FontAwesomeIcon icon={faPlus} size="xs" />
           </button>
         </div>
         </div>
@@ -10821,13 +10814,14 @@ function DetailedView({
       cursor: "pointer",
       fontSize: "0.85em",
     };
-    const MENU_WIDTH = 250;
-    const left = rect
-      ? Math.max(8, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8))
-      : 8;
-    const top = rect
-      ? Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 80))
-      : 60;
+    const visualViewport = window.visualViewport;
+    const placement = getAnchoredMenuPlacement({
+      anchorRect: rect,
+      viewportWidth: visualViewport?.width || window.innerWidth,
+      viewportHeight: visualViewport?.height || window.innerHeight,
+      preferredWidth: 250,
+      preferredMaxHeight: 420,
+    });
     const inputStyle = {
       flex: 1,
       minWidth: 0,
@@ -10848,10 +10842,11 @@ function DetailedView({
           onClick={(e) => e.stopPropagation()}
           style={{
             position: "fixed",
-            top,
-            left,
-            width: `${MENU_WIDTH}px`,
-            maxHeight: "min(360px, 70vh)",
+            top: placement.top,
+            bottom: placement.bottom,
+            left: placement.left,
+            width: `${placement.width}px`,
+            maxHeight: `${placement.maxHeight}px`,
             overflowY: "auto",
             background: "var(--component-bg)",
             border: "1px solid var(--border-color)",
@@ -10922,18 +10917,11 @@ function DetailedView({
               type="button"
               disabled={!newFunctionDraft.name.trim()}
               onClick={() => handleAddFunction(newFunctionDraft)}
-              style={{
-                background: "var(--primary-color)",
-                border: "none",
-                borderRadius: "4px",
-                color: "#fff",
-                padding: "4px 10px",
-                cursor: newFunctionDraft.name.trim() ? "pointer" : "not-allowed",
-                opacity: newFunctionDraft.name.trim() ? 1 : 0.5,
-                fontSize: "0.82em",
-              }}
+              className="range-header-action-btn range-header-action-btn--add"
+              title="Add function"
+              aria-label="Add function"
             >
-              Add
+              <FontAwesomeIcon icon={faPlus} size="xs" />
             </button>
           </div>
         </div>
@@ -12627,8 +12615,9 @@ function DetailedView({
     // narrow Electron/browser viewport.  The previous fixed width could be
     // clipped by the viewport, which made the add-to-budget controls look
     // truncated and pushed the scrollbar into the option text.
-    const viewportWidth = window.innerWidth || 1024;
-    const viewportHeight = window.innerHeight || 768;
+    const visualViewport = window.visualViewport;
+    const viewportWidth = visualViewport?.width || window.innerWidth || 1024;
+    const viewportHeight = visualViewport?.height || window.innerHeight || 768;
     const rect = budgetTmdePicker.rect;
     const placement = getAnchoredMenuPlacement({
       anchorRect: rect,
@@ -13088,6 +13077,12 @@ function DetailedView({
     (calculationError.includes("Variable mappings are missing") ||
       calculationError.includes("Input data missing") ||
       calculationError.includes("Internal error"));
+  // The equation area already explains incomplete variables/nominals. Keep the
+  // budget workspace out of view until that configuration can produce real
+  // tables instead of repeating the same warning in a second section.
+  const canShowBudgetSection =
+    !isDerived ||
+    (hasUsableEquation && !hasUnassignedVariables && !isBackendMappingError);
 
   // --- Monte Carlo (GUM-S1) propagation mode ---
   // Linear stays the default (workbook parity); the MC path is offered when
@@ -14589,7 +14584,7 @@ function DetailedView({
         </div>
       </div>
 
-      {(!isDerived || hasUsableEquation) && (
+      {canShowBudgetSection && (
       <>
       <DetailWorkspaceSectionToggle
         label="Budget Tables"
@@ -14606,16 +14601,7 @@ function DetailedView({
         style={detailSectionStyle("budget", 1)}
       >
       {hasMeasurementPoint ? (
-        hasUnassignedVariables || isBackendMappingError ? (
-          <div
-            className="placeholder-content"
-            style={{ padding: "20px", color: "var(--text-color-muted)" }}
-          >
-            {hasUnassignedVariables
-              ? "Name each equation variable and enter its nominal value to calculate budget."
-              : "Complete the equation configuration to calculate budget."}
-          </div>
-        ) : calculationError ? (
+        calculationError ? (
           <div className="form-section-warning">
             <p>Calculation Error: {calculationError}</p>
           </div>

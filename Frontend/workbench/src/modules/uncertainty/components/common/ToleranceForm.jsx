@@ -1,6 +1,7 @@
 import React, { useMemo, useEffect, useState, useRef } from "react";
 import ReactDOM from "react-dom";
 import Select from "react-select";
+import { getAnchoredMenuPlacement } from "../../utils/anchoredMenuPosition";
 import {
   unitSystem,
   unitCategories,
@@ -228,15 +229,20 @@ const ToleranceForm = ({
       setAddComponentVisible(false);
     };
 
+    const handleViewportChange = () => setAddComponentVisible(false);
+
     if (isAddComponentVisible) {
         document.addEventListener("mousedown", handleClickOutside);
-        // Recalculate position on scroll to ensure it stays attached (simple version)
-        window.addEventListener("scroll", () => setAddComponentVisible(false), true);
+        // Close on viewport movement so a fixed portal never becomes detached
+        // from its trigger or stranded beyond the visible app surface.
+        window.addEventListener("scroll", handleViewportChange, true);
+        window.addEventListener("resize", handleViewportChange);
     }
     
     return () => {
         document.removeEventListener("mousedown", handleClickOutside);
-        window.removeEventListener("scroll", () => setAddComponentVisible(false), true);
+        window.removeEventListener("scroll", handleViewportChange, true);
+        window.removeEventListener("resize", handleViewportChange);
     };
   }, [isAddComponentVisible]);
 
@@ -343,15 +349,15 @@ const ToleranceForm = ({
   const handleToggleMenu = () => {
       if (!isAddComponentVisible && buttonRef.current) {
           const rect = buttonRef.current.getBoundingClientRect();
-          // Open upwards if near bottom of screen
-          const spaceBelow = window.innerHeight - rect.bottom;
-          const openUp = spaceBelow < 250; 
-          
-          setDropdownPosition({
-              left: rect.left,
-              top: openUp ? (rect.top - 8) : (rect.bottom + 8),
-              transform: openUp ? 'translateY(-100%)' : 'none'
-          });
+          const visualViewport = window.visualViewport;
+          setDropdownPosition(getAnchoredMenuPlacement({
+              anchorRect: rect,
+              viewportWidth: visualViewport?.width || window.innerWidth,
+              viewportHeight: visualViewport?.height || window.innerHeight,
+              preferredWidth: 240,
+              preferredMaxHeight: 360,
+              gap: 8,
+          }));
       }
       setAddComponentVisible(!isAddComponentVisible);
   };
@@ -694,8 +700,11 @@ const ToleranceForm = ({
             style={{
                 position: 'fixed',
                 top: dropdownPosition.top,
+                bottom: dropdownPosition.bottom,
                 left: dropdownPosition.left,
-                transform: dropdownPosition.transform,
+                width: dropdownPosition.width,
+                maxHeight: dropdownPosition.maxHeight,
+                overflowY: 'auto',
                 zIndex: 999999, // Ensure it's on top of everything
                 // Width can be auto, or match the button if you prefer
             }}

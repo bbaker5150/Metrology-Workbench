@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
+import { getAnchoredMenuPlacement } from "../../utils/anchoredMenuPosition";
 
 // Compact, portaled selector used by inline instrument editors. It intentionally
 // shares the UnitSelect menu classes so unit prefixes and resolution
@@ -31,17 +32,15 @@ const InlineMenuSelect = ({
   const openMenu = () => {
     const rect = rootRef.current?.getBoundingClientRect();
     if (rect) {
-      const desiredWidth = Math.max(rect.width, menuWidth);
-      const estimatedHeight = Math.min(320, Math.max(48, options.length * 34 + 12));
-      const roomBelow = window.innerHeight - rect.bottom - 8;
-      const openAbove = roomBelow < estimatedHeight && rect.top > roomBelow;
-      setMenuRect({
-        top: openAbove
-          ? Math.max(8, rect.top - Math.min(estimatedHeight, rect.top - 8) - 4)
-          : rect.bottom + 4,
-        left: Math.max(8, Math.min(rect.left, window.innerWidth - desiredWidth - 8)),
-        width: desiredWidth,
-      });
+      const visualViewport = window.visualViewport;
+      setMenuRect(getAnchoredMenuPlacement({
+        anchorRect: rect,
+        viewportWidth: visualViewport?.width || window.innerWidth,
+        viewportHeight: visualViewport?.height || window.innerHeight,
+        preferredWidth: Math.max(rect.width, menuWidth),
+        preferredMaxHeight: Math.min(320, Math.max(48, options.length * 34 + 12)),
+        gap: 4,
+      }));
     }
     setIsOpen(true);
   };
@@ -112,13 +111,20 @@ const InlineMenuSelect = ({
             className="inline-unit-menu inline-menu-select-menu"
             style={{
               top: menuRect.top,
+              bottom: menuRect.bottom,
               left: menuRect.left,
               width: menuRect.width,
+              maxHeight: menuRect.maxHeight,
             }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
-            <div role="listbox" aria-label={ariaLabel} className="inline-unit-options">
+            <div
+              role="listbox"
+              aria-label={ariaLabel}
+              className="inline-unit-options"
+              style={{ maxHeight: Math.max(1, menuRect.maxHeight - 12) }}
+            >
               {options.map((option) => {
                 const isSelected = String(option.value) === String(value);
                 return (
