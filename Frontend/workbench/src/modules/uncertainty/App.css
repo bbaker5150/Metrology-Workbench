@@ -10559,9 +10559,11 @@ body.theme-cyberpunk .notification-window .window-header {
 }
 
 .equation-workflow-notice {
-  width: min(100%, 620px);
-  margin: 10px auto 0;
+  align-self: flex-start;
+  width: calc(100% - 24px);
+  margin: 8px 12px 12px;
   padding: 10px 12px;
+  box-sizing: border-box;
   border-left: 2px solid var(--primary-color);
   border-radius: 0 6px 6px 0;
   background: rgba(var(--primary-rgb), 0.045);
@@ -10571,10 +10573,8 @@ body.theme-cyberpunk .notification-window .window-header {
 }
 
 .equation-workflow-notice.is-incomplete {
-  width: auto;
-  margin: 8px 12px 12px;
-  border-left-color: var(--status-warning);
-  background: color-mix(in srgb, var(--status-warning) 7%, transparent);
+  border-left-color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.045);
 }
 
 .measurement-inputs-table-wrap {

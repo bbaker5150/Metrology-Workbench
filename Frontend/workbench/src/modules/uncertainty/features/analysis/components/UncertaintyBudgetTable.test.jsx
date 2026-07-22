@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
@@ -801,7 +802,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 
-  it("authors a new manual component directly in an expanded budget row", () => {
+  it("authors a new manual component directly in an expanded budget row", async () => {
     const onComponentUpdate = vi.fn();
     const ToleranceEditorComponent = ({ onCommit, openRequested }) => (
       <button
@@ -868,7 +869,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     fireEvent.click(screen.getByLabelText("Author IV tolerance"));
     fireEvent.pointerDown(document.body);
 
-    expect(onComponentUpdate).toHaveBeenCalledOnce();
+    await waitFor(() => expect(onComponentUpdate).toHaveBeenCalledOnce());
     expect(onComponentUpdate.mock.calls[0][0]).toBe("manual-inline");
     expect(onComponentUpdate.mock.calls[0][1]).toMatchObject({
       inlineManualDraft: {
@@ -891,7 +892,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     });
   });
 
-  it("edits a derived final-budget manual tolerance against the measurement point", () => {
+  it("edits a derived final-budget manual tolerance against the measurement point", async () => {
     const onComponentUpdate = vi.fn();
     const ToleranceEditorComponent = ({ onCommit }) => (
       <button
@@ -964,7 +965,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     fireEvent.click(screen.getByLabelText("Set final IV tolerance"));
     fireEvent.pointerDown(document.body);
 
-    expect(onComponentUpdate).toHaveBeenCalledOnce();
+    await waitFor(() => expect(onComponentUpdate).toHaveBeenCalledOnce());
     expect(onComponentUpdate.mock.calls[0][1]).toMatchObject({
       inlineManualDraft: {
         tolerance: {
@@ -981,7 +982,83 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     });
   });
 
-  it("switches a manual row to direct standard-uncertainty entry inline", () => {
+  it("persists a tolerance committed by blur before an outside click closes the row", async () => {
+    const onComponentUpdate = vi.fn();
+    const ToleranceEditorComponent = ({ onCommit }) => {
+      const [value, setValue] = useState("");
+      return (
+        <input
+          aria-label="Manual IV term"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onBlur={() =>
+            onCommit("reading", {
+              high: value,
+              low: `-${value}`,
+              value,
+              unit: "%",
+              symmetric: true,
+            })
+          }
+        />
+      );
+    };
+
+    renderDirectBudget({
+      onComponentUpdate,
+      ToleranceEditorComponent,
+      applyToleranceChange: (tolerance, key, term) => ({
+        ...tolerance,
+        [key]: term,
+      }),
+      formatToleranceSummary: () => ["Not Set"],
+      components: [
+        {
+          id: "manual-blur-order",
+          name: "Thermal drift",
+          type: "B",
+          value: 0,
+          value_native: 0,
+          unit_native: "V",
+          distribution: "Rectangular",
+          distributionDivisor: "1.732",
+          isManual: true,
+          isInlineManual: true,
+          inlineDraft: true,
+          originalInput: {
+            inputMode: "tolerance",
+            toleranceLimit: "",
+            standardUncertainty: "",
+            errorDistributionDivisor: "1.732",
+            unit: "V",
+          },
+        },
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    const input = screen.getByLabelText("Manual IV term");
+    fireEvent.change(input, { target: { value: "0.5" } });
+    // Browsers dispatch pointerdown outside before the focused input blurs.
+    fireEvent.pointerDown(document.body);
+    fireEvent.blur(input);
+
+    await waitFor(() => expect(onComponentUpdate).toHaveBeenCalledOnce());
+    expect(onComponentUpdate.mock.calls[0][1]).toMatchObject({
+      inlineManualDraft: {
+        tolerance: {
+          reading: {
+            high: "0.5",
+            low: "-0.5",
+            value: "0.5",
+            unit: "%",
+          },
+        },
+      },
+    });
+  });
+
+  it("switches a manual row to direct standard-uncertainty entry inline", async () => {
     const onComponentUpdate = vi.fn();
     renderDirectBudget({
       onComponentUpdate,
@@ -1015,6 +1092,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     fireEvent.change(standardInput, { target: { value: "0.2" } });
     fireEvent.pointerDown(document.body);
 
+    await waitFor(() => expect(onComponentUpdate).toHaveBeenCalledOnce());
     expect(onComponentUpdate.mock.calls[0][1].inlineManualDraft).toMatchObject({
       inputMode: "standard",
       standardUncertainty: "0.2",

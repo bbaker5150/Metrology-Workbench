@@ -4,6 +4,7 @@ import {
   applyItemRangePatch,
   applyRangeUnitChange,
   countTmdeBudgetUses,
+  incrementDirectTmdeBudgetQuantity,
   getTmdeAccuracyReadiness,
   getItemRangeTolerance,
   rangeIdOf,
@@ -336,6 +337,43 @@ describe("countTmdeBudgetUses", () => {
         sourceId: "tmde-length",
       }),
     ).toBe(1);
+  });
+});
+
+describe("incrementDirectTmdeBudgetQuantity", () => {
+  it("increments an existing direct-budget TMDE instead of suppressing a repeat", () => {
+    const instances = [
+      { id: "tmde-weight", name: "F-Class Weight", quantity: 1 },
+      { id: "tmde-length", name: "Calibration Beam" },
+    ];
+
+    const updated = incrementDirectTmdeBudgetQuantity(instances, "tmde-weight");
+
+    expect(updated).toEqual([
+      { id: "tmde-weight", name: "F-Class Weight", quantity: 2 },
+      { id: "tmde-length", name: "Calibration Beam" },
+    ]);
+    expect(instances[0].quantity).toBe(1);
+  });
+
+  it("treats a legacy instance without quantity as one existing use", () => {
+    expect(
+      incrementDirectTmdeBudgetQuantity(
+        [{ id: "tmde-instance", sourceId: "tmde-master" }],
+        "tmde-master",
+      ),
+    ).toEqual([
+      { id: "tmde-instance", sourceId: "tmde-master", quantity: 2 },
+    ]);
+  });
+
+  it("returns null when the TMDE has not been added yet", () => {
+    expect(
+      incrementDirectTmdeBudgetQuantity(
+        [{ id: "tmde-length" }],
+        "tmde-weight",
+      ),
+    ).toBeNull();
   });
 });
 

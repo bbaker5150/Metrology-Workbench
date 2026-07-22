@@ -4772,6 +4772,29 @@ export const countTmdeBudgetUses = (components = [], tmde = {}) => {
   }, 0);
 };
 
+export const incrementDirectTmdeBudgetQuantity = (
+  instances = [],
+  tmdeId,
+) => {
+  const matchIndex = (instances || []).findIndex(
+    (instance) =>
+      String(instance?.id) === String(tmdeId) ||
+      String(instance?.sourceId) === String(tmdeId),
+  );
+  if (matchIndex < 0) return null;
+  return instances.map((instance, index) => {
+    if (index !== matchIndex) return instance;
+    const currentQuantity = Number(instance?.quantity);
+    return {
+      ...instance,
+      quantity:
+        (Number.isFinite(currentQuantity) && currentQuantity > 0
+          ? currentQuantity
+          : 1) + 1,
+    };
+  });
+};
+
 const findUpdatedUutToleranceForPoint = (previousUut, updatedUut, point) => {
   if (!point?.uutTolerance) return null;
   const previousResolution = resolveUutRangeHelper(
@@ -12006,11 +12029,12 @@ function DetailedView({
 
   const handleToggleTmdeUsage = (tmdeId, isChecked, functionKey = null) => {
     if (isChecked) {
-      if (
-        tmdeTolerancesData.some(
-          (t) => String(t.id) === String(tmdeId) || String(t.sourceId) === String(tmdeId),
-        )
-      ) {
+      const incremented = incrementDirectTmdeBudgetQuantity(
+        tmdeTolerancesData,
+        tmdeId,
+      );
+      if (incremented) {
+        onUpdateTestPoint({ tmdeTolerances: incremented });
         return;
       }
       const sourceTmde = sessionData.tmdes.find((t) => t.id === tmdeId);
@@ -13924,8 +13948,9 @@ function DetailedView({
             </div>
             {!hasEquationText && (
               <div className="equation-workflow-notice" role="status">
-                Enter a measurement equation to create its input variables and
-                budget tables.
+                {testPointData?.id
+                  ? "Enter a measurement equation to create its input variables and budget tables."
+                  : "Create or select a measurement point, then enter its measurement equation to create input variables and budget tables."}
               </div>
             )}
           </div>

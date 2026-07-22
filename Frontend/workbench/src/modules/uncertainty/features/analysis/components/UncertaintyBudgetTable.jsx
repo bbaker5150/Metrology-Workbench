@@ -301,9 +301,23 @@ const InlineManualComponentRow = ({
   const nameInputRef = useRef(null);
   const [editing, setEditing] = useState(Boolean(component.inlineDraft));
   const [draft, setDraft] = useState(() => getInlineManualDraft(component));
+  const draftRef = useRef(draft);
+  const pendingFinishRef = useRef(null);
+
+  const updateDraft = (updater) => {
+    setDraft((current) => {
+      const next = typeof updater === "function" ? updater(current) : updater;
+      draftRef.current = next;
+      return next;
+    });
+  };
 
   useEffect(() => {
-    if (!editing) setDraft(getInlineManualDraft(component));
+    if (!editing) {
+      const next = getInlineManualDraft(component);
+      draftRef.current = next;
+      setDraft(next);
+    }
   }, [component, editing]);
 
   useEffect(() => {
@@ -313,8 +327,21 @@ const InlineManualComponentRow = ({
     return () => window.cancelAnimationFrame(frame);
   }, [component.inlineDraft]);
 
+  useEffect(
+    () => () => {
+      if (pendingFinishRef.current) {
+        window.clearTimeout(pendingFinishRef.current);
+      }
+    },
+    [],
+  );
+
   const finish = () => {
-    onCommit?.(draft);
+    if (pendingFinishRef.current) {
+      window.clearTimeout(pendingFinishRef.current);
+      pendingFinishRef.current = null;
+    }
+    onCommit?.(draftRef.current);
     setEditing(false);
   };
 
@@ -328,7 +355,16 @@ const InlineManualComponentRow = ({
       ) {
         return;
       }
-      if (!rowRef.current?.contains(event.target)) finish();
+      if (!rowRef.current?.contains(event.target)) {
+        // Pointer-down happens before the focused tolerance input's blur. Give
+        // that blur one event turn to commit its final term into draftRef, then
+        // persist the exact draft the user can see rather than the prior empty
+        // value (which used to make the row snap back to "Not Set").
+        if (pendingFinishRef.current) {
+          window.clearTimeout(pendingFinishRef.current);
+        }
+        pendingFinishRef.current = window.setTimeout(finish, 0);
+      }
     };
     document.addEventListener("pointerdown", handleOutsidePointer, true);
     return () =>
@@ -369,7 +405,7 @@ const InlineManualComponentRow = ({
   }, [draft.unit, referencePoint?.unit]);
 
   const setEntryMode = (nextMode) => {
-    setDraft((current) => {
+    updateDraft((current) => {
       const divisor =
         distributionDivisorValue(current.errorDistributionDivisor) ||
         distributionDivisorValue("1.732");
@@ -402,7 +438,7 @@ const InlineManualComponentRow = ({
   };
 
   const handleTypeChange = (type) => {
-    setDraft((current) => {
+    updateDraft((current) => {
       if (type !== "A") return { ...current, type: "B" };
       const divisor =
         distributionDivisorValue(current.errorDistributionDivisor) ||
@@ -427,7 +463,7 @@ const InlineManualComponentRow = ({
   const handleRowKeyDown = (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      setDraft(getInlineManualDraft(component));
+      updateDraft(getInlineManualDraft(component));
       setEditing(false);
     }
   };
@@ -495,7 +531,7 @@ const InlineManualComponentRow = ({
         aria-label={label}
         value={draft[field]}
         onChange={(event) =>
-          setDraft((current) => ({
+          updateDraft((current) => ({
             ...current,
             [field]: event.target.value,
           }))
@@ -506,7 +542,7 @@ const InlineManualComponentRow = ({
         aria-label={`${label} unit`}
         value={draft.unit}
         onChange={(event) =>
-          setDraft((current) => ({ ...current, unit: event.target.value }))
+          updateDraft((current) => ({ ...current, unit: event.target.value }))
         }
       >
         {unitOptions.map((unit) => (
@@ -532,7 +568,7 @@ const InlineManualComponentRow = ({
           aria-label="Error source name"
           value={draft.name}
           onChange={(event) =>
-            setDraft((current) => ({ ...current, name: event.target.value }))
+            updateDraft((current) => ({ ...current, name: event.target.value }))
           }
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -557,7 +593,7 @@ const InlineManualComponentRow = ({
               editable
               openRequested
               onCommit={(typeKey, nextTerm) =>
-                setDraft((current) => {
+                updateDraft((current) => {
                   const nextTolerance = applyToleranceChange
                     ? applyToleranceChange(
                         current.tolerance || {},
@@ -600,7 +636,7 @@ const InlineManualComponentRow = ({
             aria-label="Error limit distribution"
             value={toleranceDistribution}
             onChange={(event) =>
-              setDraft((current) => ({
+              updateDraft((current) => ({
                 ...current,
                 errorDistributionDivisor: event.target.value,
                 tolerance: applyManualToleranceDistribution(

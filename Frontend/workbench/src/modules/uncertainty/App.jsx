@@ -500,7 +500,7 @@ export const SidebarPointItem = ({
     noGbMeasRel: false,
   },
 }) => {
-  // 'section' | 'value' | 'qualifier' | null. A freshly quick-added direct point
+  // 'section' | 'value' | 'qualifier' | null. A freshly quick-added point
   // mounts straight into value-edit (autoEditValue) so the user can just type.
   const [editingField, setEditingField] = useState(
     autoEditValue ? "value" : null,
@@ -2882,11 +2882,11 @@ function App() {
       }
     }
 
-    // Create the point directly (no modal). Direct points drop into inline
-    // value-edit; derived points open in the Detailed View equation editor.
+    // Create the point directly (no modal) and drop either measurement type
+    // into inline value-edit so its first required value is immediately ready.
     const mode = initialData.measurementType || "direct";
     const newId = handleSaveTestPoint({ ...initialData, measurementType: mode });
-    if (newId != null && mode === "direct") {
+    if (newId != null) {
       setPendingValueEditPointId(newId);
     }
   };
@@ -3495,7 +3495,7 @@ function App() {
     );
     setSelectedTestPointContextUutId(uutId);
     setPendingPointUnitChoice(null);
-    if (newId != null && mode === "direct") {
+    if (newId != null) {
       setPendingValueEditPointId(newId);
     }
   };

@@ -593,11 +593,21 @@ function Analysis({
 
     if (component?.sourceTmdeId) {
       const sourceId = String(component.sourceTmdeId);
-      const updatedTolerances = tmdeTolerancesData.filter(
+      const matchIndex = tmdeTolerancesData.findIndex(
         (tmde) =>
-          String(tmde.id) !== sourceId && String(tmde.sourceId) !== sourceId,
+          String(tmde.id) === sourceId || String(tmde.sourceId) === sourceId,
       );
-      if (updatedTolerances.length < tmdeTolerancesData.length) {
+      if (matchIndex >= 0) {
+        const matched = tmdeTolerancesData[matchIndex];
+        const quantity = Number(matched?.quantity);
+        const updatedTolerances =
+          Number.isFinite(quantity) && quantity > 1
+            ? tmdeTolerancesData.map((tmde, index) =>
+                index === matchIndex
+                  ? { ...tmde, quantity: quantity - 1 }
+                  : tmde,
+              )
+            : tmdeTolerancesData.filter((_, index) => index !== matchIndex);
         onDataSave({ tmdeTolerances: updatedTolerances });
         return;
       }
