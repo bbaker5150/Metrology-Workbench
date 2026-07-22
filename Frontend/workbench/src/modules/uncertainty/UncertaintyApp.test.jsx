@@ -239,6 +239,38 @@ describe("UncertaintyApp", () => {
     expect(screen.getByText("PFA Required")).toBeInTheDocument();
   });
 
+  test("hides measurement-point actions while the section is collapsed", async () => {
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    await screen.findByText(/No Session Available/i);
+    expect(screen.getByTitle("Expand All")).toBeInTheDocument();
+    expect(screen.getByTitle("Filter visible columns")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Collapse Measurement Points" }),
+    );
+
+    expect(screen.queryByTitle("Expand All")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Filter visible columns")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Expand Measurement Points" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Expand Measurement Points" }),
+    );
+    expect(screen.getByTitle("Expand All")).toBeInTheDocument();
+    expect(screen.getByTitle("Filter visible columns")).toBeInTheDocument();
+  });
+
   test("replaces floating notes, images, and help with the session Notes tab", async () => {
     apiMock.state.sessions = [
       {

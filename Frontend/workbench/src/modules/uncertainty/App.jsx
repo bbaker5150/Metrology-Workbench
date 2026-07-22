@@ -1817,6 +1817,12 @@ function App() {
   const columnMenuRef = useRef(null);
 
   useEffect(() => {
+    if (!isMeasurementPointsOpen) {
+      setIsColumnMenuOpen(false);
+    }
+  }, [isMeasurementPointsOpen]);
+
+  useEffect(() => {
     const handleClickOutside = (event) => {
       if (
         columnMenuRef.current &&
@@ -4491,33 +4497,35 @@ function App() {
                   <div className="sidebar-actions-group">
                     {/* Eyeball Button Removed - Moved to HeaderToolbox */}
 
-                    {/* Expand/Collapse All */}
-                    <button
-                      onClick={handleToggleExpandAll}
-                      title={isGlobalExpanded ? "Collapse All" : "Expand All"}
-                      className="sidebar-action-btn-organic"
-                    >
-                      <FontAwesomeIcon
-                        icon={
-                          isGlobalExpanded
-                            ? faCompressArrowsAlt
-                            : faExpandArrowsAlt
-                        }
-                      />
-                    </button>
+                    {isMeasurementPointsOpen && (
+                      <>
+                        {/* Expand/Collapse All */}
+                        <button
+                          onClick={handleToggleExpandAll}
+                          title={isGlobalExpanded ? "Collapse All" : "Expand All"}
+                          className="sidebar-action-btn-organic"
+                        >
+                          <FontAwesomeIcon
+                            icon={
+                              isGlobalExpanded
+                                ? faCompressArrowsAlt
+                                : faExpandArrowsAlt
+                            }
+                          />
+                        </button>
 
-                    {/* Column Filter Menu */}
-                    <div className="sidebar-column-menu" ref={columnMenuRef}>
-                      <button
-                        onClick={() => setIsColumnMenuOpen(!isColumnMenuOpen)}
-                        title="Filter visible columns"
-                        className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
-                      >
-                        <FontAwesomeIcon icon={faSlidersH} />
-                      </button>
+                        {/* Column Filter Menu */}
+                        <div className="sidebar-column-menu" ref={columnMenuRef}>
+                          <button
+                            onClick={() => setIsColumnMenuOpen(!isColumnMenuOpen)}
+                            title="Filter visible columns"
+                            className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
+                          >
+                            <FontAwesomeIcon icon={faSlidersH} />
+                          </button>
 
-                      {isColumnMenuOpen && (
-                        <div className="sidebar-filter-dropdown">
+                          {isColumnMenuOpen && (
+                            <div className="sidebar-filter-dropdown">
                           {[
                             {
                               group: "Measurement",
@@ -4642,9 +4650,11 @@ function App() {
                               </div>
                             );
                           })}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
+                      </>
+                    )}
 
                     <button
                       type="button"
