@@ -57,6 +57,14 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(process.cwd(), 'src'),
+        // The DOCX editor's transitive SAX parser expects Node's legacy
+        // `stream.Stream` constructor. In browser/Electron builds Vite would
+        // otherwise externalize `stream` as an empty compatibility module,
+        // causing the Notes route to fail during module initialization.
+        stream: 'stream-browserify',
+        // The same XML dependency relies on util.debuglog/inspect. Use the
+        // browser implementation rather than Vite's empty Node shim.
+        util: 'util',
       },
     },
     test: {
