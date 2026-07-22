@@ -16301,7 +16301,7 @@ body:not(.dark-mode)
 .session-notes-docx-actions {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   padding-right: 6px;
 }
 
@@ -16309,26 +16309,30 @@ body:not(.dark-mode)
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-width: 30px;
-  height: 29px;
-  padding: 0 9px;
-  border: 1px solid var(--border-color);
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
   border-radius: 6px;
-  background: var(--input-background);
+  background: transparent;
   color: var(--text-color-muted);
   cursor: pointer;
   font: inherit;
-  font-size: 0.72rem;
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  font-size: 0.78rem;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .session-notes-docx-actions button:hover,
 .session-notes-docx-actions button:focus-visible {
-  border-color: color-mix(in srgb, var(--primary-color) 52%, var(--border-color));
-  background: color-mix(in srgb, var(--primary-color) 9%, var(--input-background));
+  background: var(--doc-bg-hover);
   color: var(--primary-color);
   outline: none;
+}
+
+.session-notes-docx-actions button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .session-notes-docx-actions .session-notes-save-state {
@@ -16382,9 +16386,6 @@ body:not(.dark-mode)
     min-height: 520px;
   }
 
-  .session-notes-docx-actions button span {
-    display: none;
-  }
 }
 
 .uncertainty-module .session-controls {

@@ -60,7 +60,7 @@ describe("SessionNotesWorkspace DOCX persistence", () => {
     expect(sessionId).toBe(11);
     expect(isDocxNotePayload(payload)).toBe(true);
     expect(new TextDecoder().decode(decodeDocxNotePayload(payload))).toBe("Part ABC-123");
-    expect(screen.getByText("Saved")).toBeInTheDocument();
+    expect(screen.queryByText("Saved")).not.toBeInTheDocument();
   });
 
   it("offers native DOCX import and download actions without a separate image tray", () => {
@@ -71,8 +71,8 @@ describe("SessionNotesWorkspace DOCX persistence", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /import/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /download/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load DOCX" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save DOCX" })).toBeInTheDocument();
     expect(screen.queryByText("Session images")).not.toBeInTheDocument();
   });
 });

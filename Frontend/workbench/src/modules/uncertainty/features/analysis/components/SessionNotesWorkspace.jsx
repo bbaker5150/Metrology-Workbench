@@ -7,10 +7,9 @@ import React, {
 } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faCheckCircle,
-  faDownload,
   faExclamationCircle,
-  faFileImport,
+  faFolderOpen,
+  faSave,
   faSpinner,
 } from "@fortawesome/free-solid-svg-icons";
 import {
@@ -145,12 +144,13 @@ const useApplicationColorMode = () => {
 };
 
 const SaveState = ({ state }) => {
+  if (state === "saved") return null;
+
   const configuration = {
     pending: [faSpinner, "Saving", "is-saving"],
     saving: [faSpinner, "Saving", "is-saving"],
-    saved: [faCheckCircle, "Saved", "is-saved"],
     error: [faExclamationCircle, "Save failed", "is-error"],
-  }[state] || [faCheckCircle, "Saved", "is-saved"];
+  }[state] || [faSpinner, "Saving", "is-saving"];
 
   return (
     <span className={`session-notes-save-state ${configuration[2]}`} role="status" aria-live="polite">
@@ -349,13 +349,21 @@ const SessionDocxEditor = ({
   const titleActions = useCallback(() => (
     <div className="session-notes-docx-actions">
       <SaveState state={saveState} />
-      <button type="button" onClick={() => importInputRef.current?.click()} title="Import a DOCX document">
-        <FontAwesomeIcon icon={faFileImport} />
-        <span>Import</span>
+      <button
+        type="button"
+        onClick={() => importInputRef.current?.click()}
+        title="Load DOCX"
+        aria-label="Load DOCX"
+      >
+        <FontAwesomeIcon icon={faFolderOpen} />
       </button>
-      <button type="button" onClick={downloadDocument} title="Download this session's notes as DOCX">
-        <FontAwesomeIcon icon={faDownload} />
-        <span>Download</span>
+      <button
+        type="button"
+        onClick={downloadDocument}
+        title="Save DOCX"
+        aria-label="Save DOCX"
+      >
+        <FontAwesomeIcon icon={faSave} />
       </button>
     </div>
   ), [downloadDocument, saveState]);
