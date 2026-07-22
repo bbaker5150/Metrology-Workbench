@@ -525,7 +525,12 @@ export const SidebarPointItem = ({
   };
 
   const handleSingleClickEdit = (e, field, currentVal) => {
-    if (isSelected) {
+    const isPlainValueClick =
+      field === "value" && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+    if (!isSelected && isPlainValueClick) {
+      onSelect?.(e, point);
+    }
+    if (isSelected || isPlainValueClick) {
       startEdit(e, field, currentVal);
     }
   };

@@ -5,6 +5,48 @@ import { SidebarPointItem } from "./App";
 
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
+describe("measurement-point value editing", () => {
+  test("selects an unselected point and focuses its value input with one click", () => {
+    const onSelect = vi.fn();
+    render(
+      <SidebarPointItem
+        point={{
+          id: "point-inline-value",
+          testPointInfo: { parameter: { value: 25, unit: "psi" } },
+        }}
+        isSelected={false}
+        isActivePoint={false}
+        isTableSelected={false}
+        onSelect={onSelect}
+        onSave={vi.fn()}
+        visibleColumns={{
+          section: false,
+          value: true,
+          qualifier: false,
+          tolerance: false,
+          lowLimit: false,
+          highLimit: false,
+          standardUncertainty: false,
+          measurementUncertainty: false,
+          tmdeLow: false,
+          tmdeHigh: false,
+          pfa: false,
+          pfr: false,
+          tur: false,
+          tar: false,
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle("Click to edit Value"));
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    const input = document.querySelector(".sidebar-inline-input.value");
+    expect(input).toHaveValue("25");
+    expect(input).toHaveFocus();
+  });
+});
+
 describe("measurement-point Risk 8 metric interactions", () => {
   test("re-evaluates metric colors against the live risk requirements", () => {
     const common = {
