@@ -9,32 +9,8 @@ import {
   faImage,
   faTrashAlt,
 } from "@fortawesome/free-solid-svg-icons";
-import {
-  AutoFormat,
-  CodeBlock,
-  Count,
-  EmojiPicker,
-  FormatPainter,
-  HtmlEditor,
-  Image,
-  Inject,
-  Link,
-  PasteCleanup,
-  QuickToolbar,
-  Resize,
-  RichTextEditorComponent,
-  SlashMenu,
-  Table,
-  Toolbar,
-} from "@syncfusion/ej2-react-richtexteditor";
-import "@syncfusion/ej2-base/styles/fluent2.css";
-import "@syncfusion/ej2-buttons/styles/fluent2.css";
-import "@syncfusion/ej2-inputs/styles/fluent2.css";
-import "@syncfusion/ej2-popups/styles/fluent2.css";
-import "@syncfusion/ej2-splitbuttons/styles/fluent2.css";
-import "@syncfusion/ej2-navigations/styles/fluent2.css";
-import "@syncfusion/ej2-dropdowns/styles/fluent2.css";
-import "@syncfusion/ej2-richtexteditor/styles/fluent2.css";
+import { Jodit } from "jodit";
+import "jodit/es2021/jodit.min.css";
 
 const ALLOWED_TAGS = new Set([
   "A", "ADDRESS", "B", "BLOCKQUOTE", "BR", "CAPTION", "CODE", "COL",
@@ -64,37 +40,12 @@ const SAFE_STYLE_PROPERTIES = new Set([
   "text-transform", "vertical-align", "white-space", "width", "word-break",
 ]);
 const OFFICE_TOOLBAR_ITEMS = [
-  "Undo", "Redo", "|", "Formats", "FontName", "FontSize", "|", "Bold",
-  "Italic", "Underline", "StrikeThrough", "SuperScript", "SubScript", "|",
-  "FontColor", "BackgroundColor", "|", "Alignments", "NumberFormatList",
-  "BulletFormatList", "Outdent", "Indent", "|", "CreateTable", "CreateLink",
-  "Image", "EmojiPicker", "|", "FormatPainter", "ClearFormat", "|", "Print",
-  "SourceCode", "FullScreen",
+  "undo", "redo", "|", "paragraph", "font", "fontsize", "|", "bold",
+  "italic", "underline", "strikethrough", "superscript", "subscript", "|",
+  "brush", "|", "left", "center", "right", "justify", "|", "ul", "ol",
+  "outdent", "indent", "|", "table", "link", "image", "hr", "symbols",
+  "|", "copyformat", "eraser", "|", "print", "source", "fullsize",
 ];
-const OFFICE_TOOLBAR_SETTINGS = {
-  items: OFFICE_TOOLBAR_ITEMS,
-  type: "MultiRow",
-  enableFloating: true,
-};
-const OFFICE_QUICK_TOOLBAR_SETTINGS = {
-  image: [
-    "Replace", "Align", "WrapText", "Caption", "InsertLink", "Display",
-    "AltText", "Dimension", "Remove",
-  ],
-  link: ["Open", "Edit", "UnLink"],
-  table: [
-    "TableHeader", "TableRows", "TableColumns", "BackgroundColor",
-    "TableRemove", "Alignments", "TableCellVerticalAlign", "Styles",
-  ],
-};
-const OFFICE_PASTE_SETTINGS = {
-  prompt: false,
-  plainText: false,
-  keepFormat: true,
-  deniedTags: ["script", "style", "iframe", "object", "embed", "form"],
-  deniedAttrs: ["onerror", "onload", "onclick", "onmouseover", "onfocus"],
-  allowedStyleProps: [...SAFE_STYLE_PROPERTIES],
-};
 
 const sanitizeInlineStyle = (value = "") => {
   const probe = document.createElement("span");
@@ -221,7 +172,8 @@ const SessionNotesWorkspace = ({
   onNotesSave,
 }) => {
   const shellRef = useRef(null);
-  const syncfusionRef = useRef(null);
+  const editorHostRef = useRef(null);
+  const joditRef = useRef(null);
   const editorRef = useRef(null);
   const uploadRef = useRef(null);
   const replaceRef = useRef(null);
@@ -245,14 +197,6 @@ const SessionNotesWorkspace = ({
   useEffect(() => {
     sessionRef.current = sessionData;
   }, [sessionData]);
-
-  const handleEditorCreated = useCallback(() => {
-    editorRef.current =
-      syncfusionRef.current?.contentModule?.getEditPanel?.() ||
-      syncfusionRef.current?.element?.querySelector(".e-content") ||
-      null;
-    setEditorReady(Boolean(editorRef.current));
-  }, []);
 
   const getFigure = useCallback((imageId = selectedImageId) => {
     if (!imageId || !editorRef.current) return null;
@@ -328,7 +272,7 @@ const SessionNotesWorkspace = ({
     }
     if (editor.innerHTML !== hydratedHtml) {
       editor.innerHTML = hydratedHtml;
-      if (syncfusionRef.current) syncfusionRef.current.value = hydratedHtml;
+      if (joditRef.current) joditRef.current.value = hydratedHtml;
     }
     applyStoredImageLayouts(editor);
     lastSavedRef.current = sessionData?.notes || "";
@@ -496,6 +440,66 @@ const SessionNotesWorkspace = ({
     if (selectedImageId) refreshSelectionOverlay();
   }, [queueSave, reconcileEditorImages, refreshSelectionOverlay, selectedImageId]);
 
+  const editorInputHandlerRef = useRef(handleEditorInput);
+  const editorBlurHandlerRef = useRef(saveDocument);
+  useEffect(() => {
+    editorInputHandlerRef.current = handleEditorInput;
+    editorBlurHandlerRef.current = saveDocument;
+  }, [handleEditorInput, saveDocument]);
+
+  useEffect(() => {
+    const host = editorHostRef.current;
+    if (!host || joditRef.current) return undefined;
+
+    const instance = Jodit.make(host, {
+      buttons: OFFICE_TOOLBAR_ITEMS,
+      buttonsMD: OFFICE_TOOLBAR_ITEMS,
+      buttonsSM: OFFICE_TOOLBAR_ITEMS,
+      buttonsXS: [
+        "undo", "redo", "|", "bold", "italic", "underline", "|", "ul",
+        "ol", "|", "table", "link", "image", "|", "source", "fullsize",
+      ],
+      toolbarAdaptive: false,
+      toolbarSticky: true,
+      toolbarStickyOffset: 0,
+      showCharsCounter: true,
+      showWordsCounter: true,
+      showXPathInStatusbar: false,
+      hidePoweredByJodit: true,
+      minHeight: 520,
+      height: "auto",
+      enter: "p",
+      useSearch: true,
+      tableAllowCellResize: true,
+      imageDefaultWidth: 640,
+      uploader: { insertImageAsBase64URI: true },
+      askBeforePasteHTML: false,
+      processPasteHTML: true,
+      askBeforePasteFromWord: true,
+      processPasteFromWord: true,
+      defaultActionOnPasteFromWord: Jodit.constants.INSERT_AS_TEXT,
+      placeholder: "",
+    });
+
+    joditRef.current = instance;
+    editorRef.current = instance.editor;
+    instance.editor?.classList.add("session-notes-editor");
+    instance.value = hydratedHtml;
+    applyStoredImageLayouts(instance.editor);
+    lastSavedRef.current = sessionData?.notes || "";
+    loadedSessionIdRef.current = sessionId;
+    instance.events.on("change.sessionNotes", () => editorInputHandlerRef.current?.());
+    instance.events.on("blur.sessionNotes", () => editorBlurHandlerRef.current?.());
+    setEditorReady(Boolean(instance.editor));
+
+    return () => {
+      instance.events.off(".sessionNotes");
+      instance.destruct();
+      joditRef.current = null;
+      editorRef.current = null;
+    };
+  }, []); // Mount once; subsequent session/document updates use the hydration effect above.
+
   useEffect(() => () => {
     clearTimeout(saveTimerRef.current);
     clearTimeout(reconcileTimerRef.current);
@@ -550,8 +554,9 @@ const SessionNotesWorkspace = ({
     editorRef.current?.focus();
     restoreSelection();
     const wrapper = createImageFigure(id, fileName, source);
-    if (syncfusionRef.current?.executeCommand) {
-      syncfusionRef.current.executeCommand("insertHTML", wrapper.innerHTML);
+    if (joditRef.current?.s?.insertHTML) {
+      joditRef.current.s.insertHTML(wrapper.innerHTML);
+      joditRef.current.synchronizeValues?.();
     } else {
       document.execCommand("insertHTML", false, wrapper.innerHTML);
     }
@@ -884,55 +889,12 @@ const SessionNotesWorkspace = ({
             }
           }}
         >
-          <RichTextEditorComponent
+          <textarea
             id={`session-notes-editor-${sessionId || "empty"}`}
-            ref={syncfusionRef}
-            value={hydratedHtml}
-            created={handleEditorCreated}
-            change={handleEditorInput}
-            blur={saveDocument}
-            toolbarSettings={OFFICE_TOOLBAR_SETTINGS}
-            quickToolbarSettings={OFFICE_QUICK_TOOLBAR_SETTINGS}
-            pasteCleanupSettings={OFFICE_PASTE_SETTINGS}
-            insertImageSettings={{
-              allowedTypes: [".jpeg", ".jpg", ".png", ".gif", ".webp", ".bmp"],
-              display: "Break",
-              saveFormat: "Base64",
-              maxFileSize: 25_000_000,
-            }}
-            tableSettings={{
-              width: "100%",
-              resize: true,
-              minWidth: 0,
-              maxWidth: null,
-            }}
-            slashMenuSettings={{ enable: true }}
-            enableHtmlSanitizer
-            enableTabKey
-            showCharCount
-            saveInterval={300}
-            enterKey="P"
-            cssClass="session-notes-syncfusion"
-          >
-            <Inject
-              services={[
-                AutoFormat,
-                CodeBlock,
-                Count,
-                EmojiPicker,
-                FormatPainter,
-                HtmlEditor,
-                Image,
-                Link,
-                PasteCleanup,
-                QuickToolbar,
-                Resize,
-                SlashMenu,
-                Table,
-                Toolbar,
-              ]}
-            />
-          </RichTextEditorComponent>
+            ref={editorHostRef}
+            defaultValue=""
+            aria-label="Session notes document editor"
+          />
         </div>
 
         {selectedImageId && overlayRect && (

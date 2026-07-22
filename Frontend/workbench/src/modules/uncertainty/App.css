@@ -16235,7 +16235,7 @@ body:not(.dark-mode)
   outline: none;
 }
 
-.session-notes-editor-frame .e-richtexteditor {
+.session-notes-editor-frame .jodit-container {
   overflow: visible;
   border: 1px solid var(--border-color) !important;
   border-radius: 10px;
@@ -16243,42 +16243,40 @@ body:not(.dark-mode)
   box-shadow: 0 10px 30px rgba(10, 24, 46, 0.07);
 }
 
-.session-notes-editor-frame .e-rte-toolbar {
+.session-notes-editor-frame .jodit-toolbar__box {
   min-height: 45px;
-  padding: 4px 184px 4px 6px !important;
+  padding: 4px 184px 4px 6px;
   border: 0 !important;
   border-bottom: 1px solid var(--border-color) !important;
   border-radius: 10px 10px 0 0;
   background: color-mix(in srgb, var(--card-background, var(--panel-background)) 94%, var(--primary-color) 6%) !important;
 }
 
-.session-notes-editor-frame .e-rte-toolbar .e-toolbar-items {
+.session-notes-editor-frame .jodit-toolbar-editor-collection {
   min-height: 36px;
   background: transparent !important;
 }
 
-.session-notes-editor-frame .e-toolbar .e-tbar-btn,
-.session-notes-editor-frame .e-toolbar .e-dropdown-btn,
-.session-notes-editor-frame .e-toolbar .e-split-btn {
+.session-notes-editor-frame .jodit-toolbar-button,
+.session-notes-editor-frame .jodit-toolbar-button__button {
   border-radius: 5px !important;
 }
 
-.session-notes-editor-frame .e-toolbar .e-tbar-btn:hover,
-.session-notes-editor-frame .e-toolbar .e-tbar-btn:focus,
-.session-notes-editor-frame .e-toolbar .e-tbar-btn.e-active,
-.session-notes-editor-frame .e-toolbar .e-dropdown-btn:hover,
-.session-notes-editor-frame .e-toolbar .e-split-btn:hover {
+.session-notes-editor-frame .jodit-toolbar-button__button:hover,
+.session-notes-editor-frame .jodit-toolbar-button__button:focus-visible,
+.session-notes-editor-frame .jodit-toolbar-button_trigger_true .jodit-toolbar-button__button,
+.session-notes-editor-frame .jodit-toolbar-button_pressed_true .jodit-toolbar-button__button {
   background: color-mix(in srgb, var(--primary-color) 10%, transparent) !important;
   color: var(--primary-color) !important;
 }
 
-.session-notes-editor-frame .e-rte-content {
+.session-notes-editor-frame .jodit-workplace {
   border: 0 !important;
   border-radius: 0 0 10px 10px;
   background: color-mix(in srgb, var(--panel-background) 75%, var(--card-background, #fff));
 }
 
-.session-notes-editor-frame .e-rte-content .e-content {
+.session-notes-editor-frame .jodit-wysiwyg {
   min-height: clamp(420px, 56vh, 760px);
   padding: clamp(30px, 5vw, 68px) clamp(30px, 7vw, 92px) !important;
   border: 0 !important;
@@ -16292,59 +16290,59 @@ body:not(.dark-mode)
   outline: none;
 }
 
-.session-notes-editor-frame .e-rte-content .e-content::after {
+.session-notes-editor-frame .jodit-wysiwyg::after {
   content: "";
   display: block;
   clear: both;
 }
 
-.session-notes-editor-frame .e-rte-content .e-content h1,
-.session-notes-editor-frame .e-rte-content .e-content h2,
-.session-notes-editor-frame .e-rte-content .e-content h3,
-.session-notes-editor-frame .e-rte-content .e-content h4,
-.session-notes-editor-frame .e-rte-content .e-content h5,
-.session-notes-editor-frame .e-rte-content .e-content h6 {
+.session-notes-editor-frame .jodit-wysiwyg h1,
+.session-notes-editor-frame .jodit-wysiwyg h2,
+.session-notes-editor-frame .jodit-wysiwyg h3,
+.session-notes-editor-frame .jodit-wysiwyg h4,
+.session-notes-editor-frame .jodit-wysiwyg h5,
+.session-notes-editor-frame .jodit-wysiwyg h6 {
   margin: 1.4em 0 0.55em;
   color: var(--heading-color, var(--text-color));
   line-height: 1.25;
 }
 
-.session-notes-editor-frame .e-rte-content .e-content p {
+.session-notes-editor-frame .jodit-wysiwyg p {
   margin: 0 0 0.9em;
 }
 
-.session-notes-editor-frame .e-rte-content .e-content blockquote {
+.session-notes-editor-frame .jodit-wysiwyg blockquote {
   margin: 1.2em 0;
   padding: 2px 0 2px 18px;
   border-left: 3px solid var(--primary-color);
   color: var(--text-color-muted);
 }
 
-.session-notes-editor-frame .e-rte-content .e-content a {
+.session-notes-editor-frame .jodit-wysiwyg a {
   color: var(--primary-color);
   text-decoration: underline;
 }
 
-.session-notes-editor-frame .e-rte-content .e-content pre,
-.session-notes-editor-frame .e-rte-content .e-content code {
+.session-notes-editor-frame .jodit-wysiwyg pre,
+.session-notes-editor-frame .jodit-wysiwyg code {
   border-radius: 5px;
   background: color-mix(in srgb, var(--content-background) 76%, var(--primary-color) 8%);
   color: var(--text-color);
   font-family: var(--readout-font);
 }
 
-.session-notes-editor-frame .e-rte-content .e-content pre {
+.session-notes-editor-frame .jodit-wysiwyg pre {
   overflow-x: auto;
   padding: 14px 16px;
 }
 
-.session-notes-editor-frame .e-rte-content .e-content hr {
+.session-notes-editor-frame .jodit-wysiwyg hr {
   margin: 1.5rem 0;
   border: 0;
   border-top: 1px solid var(--border-color-strong, var(--border-color));
 }
 
-.session-notes-editor-frame .e-rte-content .e-content table {
+.session-notes-editor-frame .jodit-wysiwyg table {
   width: 100%;
   margin: 1.25rem 0;
   border-collapse: collapse;
@@ -16352,8 +16350,8 @@ body:not(.dark-mode)
   background: var(--content-background);
 }
 
-.session-notes-editor-frame .e-rte-content .e-content th,
-.session-notes-editor-frame .e-rte-content .e-content td {
+.session-notes-editor-frame .jodit-wysiwyg th,
+.session-notes-editor-frame .jodit-wysiwyg td {
   min-width: 54px;
   padding: 8px 10px;
   border: 1px solid var(--border-color-strong, var(--border-color));
@@ -16361,13 +16359,13 @@ body:not(.dark-mode)
   vertical-align: top;
 }
 
-.session-notes-editor-frame .e-rte-content .e-content th {
+.session-notes-editor-frame .jodit-wysiwyg th {
   background: var(--table-header-bg);
   color: var(--table-header-text);
   font-weight: 700;
 }
 
-.session-notes-editor-frame .e-rte-character-count {
+.session-notes-editor-frame .jodit-status-bar {
   right: 14px;
   bottom: 8px;
   color: var(--text-color-muted);
@@ -16588,62 +16586,6 @@ body:not(.dark-mode)
   cursor: text;
 }
 
-.session-notes-editor-frame .e-rte-content .e-content figure {
-  position: relative;
-  max-width: 100%;
-  margin: 26px auto;
-  text-align: center;
-  cursor: grab;
-  transition: margin 0.15s ease, box-shadow 0.15s ease;
-}
-
-.session-notes-editor-frame .e-rte-content .e-content figure:active {
-  cursor: grabbing;
-}
-
-.session-notes-editor-frame .e-rte-content .e-content figure[data-note-align="left"][data-note-wrap="none"] {
-  margin-left: 0;
-  margin-right: auto;
-}
-
-.session-notes-editor-frame .e-rte-content .e-content figure[data-note-align="center"][data-note-wrap="none"] {
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.session-notes-editor-frame .e-rte-content .e-content figure[data-note-align="right"][data-note-wrap="none"] {
-  margin-left: auto;
-  margin-right: 0;
-}
-
-.session-notes-editor-frame .e-rte-content .e-content figure[data-note-wrap="left"] {
-  float: left;
-  margin: 8px 24px 14px 0;
-}
-
-.session-notes-editor-frame .e-rte-content .e-content figure[data-note-wrap="right"] {
-  float: right;
-  margin: 8px 0 14px 24px;
-}
-
-.session-notes-editor-frame .e-rte-content .e-content figure img {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  max-height: 680px;
-  margin: 0 auto;
-  border-radius: 6px;
-  object-fit: contain;
-  box-shadow: 0 5px 20px rgba(8, 18, 35, 0.14);
-}
-
-.session-notes-editor-frame .e-rte-content .e-content figcaption {
-  margin-top: 8px;
-  color: var(--text-color-muted);
-  font-size: 0.78rem;
-  cursor: text;
-}
-
 .session-notes-image-selection {
   position: absolute;
   z-index: 12;
@@ -16703,11 +16645,11 @@ body:not(.dark-mode)
     border-left: 0;
   }
 
-  .session-notes-editor-frame .e-rte-toolbar {
+  .session-notes-editor-frame .jodit-toolbar__box {
     padding-right: 6px !important;
   }
 
-  .session-notes-editor-frame .e-rte-content .e-content {
+  .session-notes-editor-frame .jodit-wysiwyg {
     min-height: 360px;
     padding: 26px 22px !important;
   }
@@ -16721,77 +16663,74 @@ body:not(.dark-mode)
   }
 }
 
-/* Syncfusion renders menus, quick toolbars, and dialogs through body-level
-   portals. Re-skin those surfaces with the uncertainty module's native tokens
-   so Office-grade controls still feel like one application in dark mode. */
-body.dark-mode .session-notes-editor-frame .e-richtexteditor,
-body.dark-mode .session-notes-editor-frame .e-rte-toolbar,
-body.dark-mode .session-notes-editor-frame .e-rte-content,
-body.dark-mode .session-notes-editor-frame .e-rte-content .e-content {
+/* Jodit renders menus and dialogs through body-level surfaces. Re-skin them
+   with the uncertainty module's tokens so the free editor remains native to
+   the application in both themes. */
+body.dark-mode .session-notes-editor-frame .jodit-container,
+body.dark-mode .session-notes-editor-frame .jodit-toolbar__box,
+body.dark-mode .session-notes-editor-frame .jodit-workplace,
+body.dark-mode .session-notes-editor-frame .jodit-wysiwyg,
+body.dark-mode .session-notes-editor-frame .jodit-status-bar {
   border-color: var(--border-color) !important;
   background: var(--content-background) !important;
   color: var(--text-color) !important;
 }
 
-body.dark-mode .session-notes-editor-frame .e-toolbar .e-tbar-btn,
-body.dark-mode .session-notes-editor-frame .e-toolbar .e-dropdown-btn,
-body.dark-mode .session-notes-editor-frame .e-toolbar .e-split-btn,
-body.dark-mode .session-notes-editor-frame .e-toolbar .e-icons {
+body.dark-mode .session-notes-editor-frame .jodit-toolbar-button,
+body.dark-mode .session-notes-editor-frame .jodit-toolbar-button__button,
+body.dark-mode .session-notes-editor-frame .jodit-toolbar-button__icon,
+body.dark-mode .session-notes-editor-frame .jodit-icon {
   color: var(--text-color-muted) !important;
+  fill: currentColor !important;
 }
 
-body.dark-mode .session-notes-editor-frame .e-toolbar .e-toolbar-item,
-body.dark-mode .session-notes-editor-frame .e-toolbar .e-tbar-btn {
+body.dark-mode .session-notes-editor-frame .jodit-toolbar-button,
+body.dark-mode .session-notes-editor-frame .jodit-toolbar-button__button {
   border-color: transparent !important;
   background: transparent !important;
   box-shadow: none !important;
 }
 
-body.dark-mode .session-notes-editor-frame .e-toolbar .e-tbar-btn:hover:not(:disabled),
-body.dark-mode .session-notes-editor-frame .e-toolbar .e-tbar-btn:focus-visible,
-body.dark-mode .session-notes-editor-frame .e-toolbar .e-tbar-btn.e-active {
+body.dark-mode .session-notes-editor-frame .jodit-toolbar-button__button:hover:not(:disabled),
+body.dark-mode .session-notes-editor-frame .jodit-toolbar-button__button:focus-visible,
+body.dark-mode .session-notes-editor-frame .jodit-toolbar-button_pressed_true .jodit-toolbar-button__button {
   background: color-mix(in srgb, var(--primary-color) 14%, transparent) !important;
   color: var(--primary-color) !important;
 }
 
-body.dark-mode .e-rte-quick-popup,
-body.dark-mode .e-rte-elements,
-body.dark-mode .e-dropdown-popup,
-body.dark-mode .e-colorpicker-popup,
-body.dark-mode .e-emoji-picker,
-body.dark-mode .e-dialog.e-rte-dialog,
-body.dark-mode .e-rte-link-dialog,
-body.dark-mode .e-rte-img-dialog,
-body.dark-mode .e-tooltip-wrap {
+body.dark-mode .jodit-popup,
+body.dark-mode .jodit-context-menu,
+body.dark-mode .jodit-dialog,
+body.dark-mode .jodit-dialog__panel,
+body.dark-mode .jodit-ui-group,
+body.dark-mode .jodit-tooltip {
   border-color: var(--border-color-strong, var(--border-color)) !important;
   background: var(--content-background) !important;
   color: var(--text-color) !important;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38) !important;
 }
 
-body.dark-mode .e-rte-quick-popup .e-toolbar,
-body.dark-mode .e-rte-elements .e-list-parent,
-body.dark-mode .e-dropdown-popup .e-dropdownbase,
-body.dark-mode .e-dialog.e-rte-dialog .e-dlg-header-content,
-body.dark-mode .e-dialog.e-rte-dialog .e-dlg-content,
-body.dark-mode .e-dialog.e-rte-dialog .e-footer-content {
+body.dark-mode .jodit-popup__content,
+body.dark-mode .jodit-dialog__header,
+body.dark-mode .jodit-dialog__content,
+body.dark-mode .jodit-dialog__footer,
+body.dark-mode .jodit-form__group,
+body.dark-mode .jodit-ui-input__wrapper {
   border-color: var(--border-color) !important;
   background: var(--content-background) !important;
   color: var(--text-color) !important;
 }
 
-body.dark-mode .e-rte-elements .e-item,
-body.dark-mode .e-dropdown-popup .e-list-item,
-body.dark-mode .e-emoji-picker .e-emoji-item,
-body.dark-mode .e-dialog.e-rte-dialog label,
-body.dark-mode .e-dialog.e-rte-dialog .e-dlg-header {
+body.dark-mode .jodit-popup button,
+body.dark-mode .jodit-dialog button,
+body.dark-mode .jodit-dialog label,
+body.dark-mode .jodit-list__item {
   color: var(--text-color) !important;
 }
 
-body.dark-mode .e-rte-elements .e-item:hover,
-body.dark-mode .e-dropdown-popup .e-list-item:hover,
-body.dark-mode .e-dropdown-popup .e-list-item.e-active,
-body.dark-mode .e-emoji-picker .e-emoji-item:hover {
+body.dark-mode .jodit-list__item:hover,
+body.dark-mode .jodit-list__item_active_true,
+body.dark-mode .jodit-popup button:hover {
   background: color-mix(in srgb, var(--primary-color) 14%, var(--content-background)) !important;
   color: var(--primary-color) !important;
 }

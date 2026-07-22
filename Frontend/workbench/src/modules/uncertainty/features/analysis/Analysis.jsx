@@ -30,9 +30,9 @@ import UncertaintyPanel from "./components/UncertaintyPanel";
 import RiskAnalysisDashboard from "./components/RiskAnalysisDashboard";
 import RiskMitigationDashboard from "./components/RiskMitigationDashboard";
 
-// Syncfusion's Office-grade editor is intentionally loaded only when Notes is
-// opened. This keeps the calculation workspace fast even though the editor
-// ships a substantial formatting, table, paste, and media toolset.
+// The document editor is intentionally loaded only when Notes is opened. This
+// keeps the calculation workspace fast while Notes retains its full formatting,
+// table, Office-paste, and media toolset.
 const SessionNotesWorkspace = lazy(() =>
   import("./components/SessionNotesWorkspace"),
 );

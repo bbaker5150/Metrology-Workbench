@@ -1,17 +1,10 @@
 # Getting Started with Create React App
 
-## Syncfusion license configuration
+## Notes editor
 
-The uncertainty Notes workspace uses the Syncfusion Rich Text Editor. Set a
-valid Syncfusion JavaScript license key before starting or building the app:
-
-```text
-VITE_SYNCFUSION_LICENSE_KEY=your-version-matched-license-key
-```
-
-Keep the value in a local `.env` file or the build environment; never commit a
-license key to source control. Syncfusion license validation is performed
-locally, so packaged Electron builds continue to work offline.
+The uncertainty Notes workspace uses the open-source Jodit editor under the
+MIT license. It runs locally in the packaged application and requires no
+license key, account, hosted service, or runtime network connection.
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 

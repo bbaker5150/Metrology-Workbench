@@ -1,65 +1,47 @@
 import '@testing-library/jest-dom/vitest';
-import React from 'react';
 import { vi } from 'vitest';
 
-// Syncfusion's browser editor measures toolbar and character-count geometry
-// that jsdom deliberately does not implement. Use a faithful, lightweight
-// content surface for DOM tests while production builds exercise the real
-// editor. The imperative API mirrors the methods used by the notes workspace.
-vi.mock('@syncfusion/ej2-react-richtexteditor', () => {
-  const RichTextEditorComponent = React.forwardRef(
-    ({ value = '', created, change, blur }, forwardedRef) => {
-      const panelRef = React.useRef(null);
-      const loadedValueRef = React.useRef(null);
-      React.useImperativeHandle(forwardedRef, () => ({
-        element: panelRef.current?.parentElement,
-        value,
-        contentModule: { getEditPanel: () => panelRef.current },
-        executeCommand: (command, html) => {
-          if (command === 'insertHTML') {
-            panelRef.current?.insertAdjacentHTML('beforeend', html);
-          }
-        },
-      }));
-      React.useLayoutEffect(() => {
-        if (panelRef.current && loadedValueRef.current !== value) {
-          panelRef.current.innerHTML = value;
-          loadedValueRef.current = value;
-        }
-      }, [value]);
-      React.useEffect(() => created?.(), [created]);
-      return React.createElement(
-        'div',
-        { className: 'e-richtexteditor' },
-        React.createElement('div', {
-          ref: panelRef,
-          className: 'e-content session-notes-editor',
-          contentEditable: true,
-          suppressContentEditableWarning: true,
-          onInput: (event) => change?.({ value: event.currentTarget.innerHTML }),
-          onBlur: blur,
-        }),
-      );
-    },
-  );
-  const Service = class {};
+// Jodit measures toolbars and editing geometry that jsdom does not implement.
+// The production build uses the real MIT-licensed editor; DOM tests receive a
+// small imperative surface with the same value/selection APIs used by Notes.
+vi.mock('jodit', () => {
+  const make = (source) => {
+    const container = document.createElement('div');
+    container.className = 'jodit-container';
+    const toolbar = document.createElement('div');
+    toolbar.className = 'jodit-toolbar__box';
+    const workplace = document.createElement('div');
+    workplace.className = 'jodit-workplace';
+    const editor = document.createElement('div');
+    editor.className = 'jodit-wysiwyg';
+    editor.contentEditable = 'true';
+    workplace.appendChild(editor);
+    container.append(toolbar, workplace);
+    source.hidden = true;
+    source.insertAdjacentElement('afterend', container);
+
+    const instance = {
+      container,
+      workplace,
+      editor,
+      events: { on: vi.fn(), off: vi.fn() },
+      s: {
+        insertHTML: (html) => editor.insertAdjacentHTML('beforeend', html),
+      },
+      synchronizeValues: vi.fn(),
+      destruct: () => container.remove(),
+    };
+    Object.defineProperty(instance, 'value', {
+      get: () => editor.innerHTML,
+      set: (value) => { editor.innerHTML = value || ''; },
+    });
+    return instance;
+  };
   return {
-    RichTextEditorComponent,
-    Inject: () => null,
-    AutoFormat: Service,
-    CodeBlock: Service,
-    Count: Service,
-    EmojiPicker: Service,
-    FormatPainter: Service,
-    HtmlEditor: Service,
-    Image: Service,
-    Link: Service,
-    PasteCleanup: Service,
-    QuickToolbar: Service,
-    Resize: Service,
-    SlashMenu: Service,
-    Table: Service,
-    Toolbar: Service,
+    Jodit: {
+      make,
+      constants: { INSERT_AS_TEXT: 'insert_as_text' },
+    },
   };
 });
 
