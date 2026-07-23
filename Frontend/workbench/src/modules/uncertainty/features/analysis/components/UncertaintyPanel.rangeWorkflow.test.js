@@ -82,6 +82,242 @@ describe("local instrument role synchronization", () => {
     expect(synchronized.tmdes[0].instrument.measurementArea).toBe("Electrical");
   });
 
+  it("preserves the TMDE distribution when tolerance is edited from the UUT table", () => {
+    const uutDefinition = {
+      id: "local-voltmeter",
+      scope: "local",
+      description: "Local Voltmeter",
+      functions: [
+        {
+          id: "voltage",
+          name: "Voltage",
+          ranges: [
+            {
+              id: "v1",
+              min: 0,
+              max: 10,
+              tolerances: {
+                reading: {
+                  high: "0.1",
+                  low: "-0.1",
+                  distribution: "not_set",
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const tmdeDefinition = {
+      ...uutDefinition,
+      functions: [
+        {
+          ...uutDefinition.functions[0],
+          ranges: [
+            {
+              ...uutDefinition.functions[0].ranges[0],
+              tolerances: {
+                reading: {
+                  high: "0.1",
+                  low: "-0.1",
+                  distribution: "2.449",
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const session = {
+      uuts: [
+        {
+          id: "uut-row",
+          description: "Local Voltmeter",
+          instrument: uutDefinition,
+        },
+      ],
+      tmdes: [
+        {
+          id: "tmde-row",
+          name: "Local Voltmeter",
+          instrument: tmdeDefinition,
+        },
+      ],
+    };
+    const updatedUut = {
+      ...session.uuts[0],
+      instrument: {
+        ...uutDefinition,
+        functions: [
+          {
+            ...uutDefinition.functions[0],
+            ranges: [
+              {
+                ...uutDefinition.functions[0].ranges[0],
+                tolerances: {
+                  reading: {
+                    high: "0.2",
+                    low: "-0.2",
+                    distribution: "not_set",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      session,
+      updatedUut,
+      "uut",
+    );
+
+    const uutReading =
+      synchronized.uuts[0].instrument.functions[0].ranges[0].tolerances.reading;
+    const tmdeReading =
+      synchronized.tmdes[0].instrument.functions[0].ranges[0].tolerances.reading;
+    expect(uutReading).toMatchObject({
+      high: "0.2",
+      low: "-0.2",
+      distribution: "2.449",
+    });
+    expect(tmdeReading).toEqual(uutReading);
+  });
+
+  it("keeps a TMDE distribution edit authoritative for both local roles", () => {
+    const definition = {
+      id: "local-meter",
+      scope: "local",
+      functions: [
+        {
+          id: "voltage",
+          name: "Voltage",
+          ranges: [
+            {
+              id: "v1",
+              tolerances: {
+                reading: {
+                  high: "0.1",
+                  low: "-0.1",
+                  distribution: "1.732",
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const session = {
+      uuts: [{ id: "uut-row", instrument: definition }],
+      tmdes: [{ id: "tmde-row", instrument: definition }],
+    };
+    const updatedTmde = {
+      ...session.tmdes[0],
+      instrument: {
+        ...definition,
+        functions: [
+          {
+            ...definition.functions[0],
+            ranges: [
+              {
+                ...definition.functions[0].ranges[0],
+                tolerances: {
+                  reading: {
+                    high: "0.1",
+                    low: "-0.1",
+                    distribution: "2.449",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      session,
+      updatedTmde,
+      "tmde",
+    );
+
+    expect(
+      synchronized.uuts[0].instrument.functions[0].ranges[0].tolerances.reading
+        .distribution,
+    ).toBe("2.449");
+    expect(
+      synchronized.tmdes[0].instrument.functions[0].ranges[0].tolerances.reading
+        .distribution,
+    ).toBe("2.449");
+  });
+
+  it("does not copy a distribution onto a newly added unmatched range", () => {
+    const existingRange = {
+      id: "existing-range",
+      tolerances: {
+        reading: {
+          high: "0.1",
+          low: "-0.1",
+          distribution: "2.449",
+        },
+      },
+    };
+    const definition = {
+      id: "local-meter",
+      scope: "local",
+      functions: [
+        {
+          id: "voltage",
+          name: "Voltage",
+          ranges: [existingRange],
+        },
+      ],
+    };
+    const session = {
+      uuts: [{ id: "uut-row", instrument: definition }],
+      tmdes: [{ id: "tmde-row", instrument: definition }],
+    };
+    const newRange = {
+      id: "new-range",
+      tolerances: {
+        reading: {
+          high: "0.2",
+          low: "-0.2",
+          distribution: "not_set",
+        },
+      },
+    };
+    const updatedUut = {
+      ...session.uuts[0],
+      instrument: {
+        ...definition,
+        functions: [
+          {
+            ...definition.functions[0],
+            ranges: [newRange, existingRange],
+          },
+        ],
+      },
+    };
+
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      session,
+      updatedUut,
+      "uut",
+    );
+
+    expect(
+      synchronized.tmdes[0].instrument.functions[0].ranges[0].tolerances.reading
+        .distribution,
+    ).toBe("not_set");
+    expect(
+      synchronized.tmdes[0].instrument.functions[0].ranges[1].tolerances.reading
+        .distribution,
+    ).toBe("2.449");
+  });
+
   it("recognizes derived/manual budget source identities for TMDE badges", () => {
     const tmde = { id: "tmde-row", instrument: { id: "local-weight" } };
     expect(

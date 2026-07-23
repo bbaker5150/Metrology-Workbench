@@ -4689,6 +4689,120 @@ const localInstrumentIdentityKeys = (item = {}) => {
   );
 };
 
+const hasSetDistribution = (value) =>
+  value !== undefined &&
+  value !== null &&
+  String(value).trim() !== "" &&
+  String(value) !== String(DISTRIBUTION_NOT_SET);
+
+// The UUT table authors tolerance magnitudes but does not expose the TMDE
+// accuracy-distribution column. When the same local instrument occupies both
+// roles, a UUT tolerance edit must therefore preserve the distribution already
+// authored on its TMDE definition. Fold those distribution-only fields into
+// the edited tolerance without restoring terms the UUT intentionally removed.
+const mergeToleranceBandDistributions = (
+  sourceTolerance = {},
+  tmdeTolerance = {},
+) => {
+  const next = { ...(sourceTolerance || {}) };
+  BAND_DIST_KEYS.forEach((key) => {
+    const sourceComponent = sourceTolerance?.[key];
+    const tmdeDistribution = tmdeTolerance?.[key]?.distribution;
+    if (sourceComponent && hasSetDistribution(tmdeDistribution)) {
+      next[key] = {
+        ...sourceComponent,
+        distribution: tmdeDistribution,
+      };
+    }
+  });
+  if (hasSetDistribution(tmdeTolerance?.bandDistribution)) {
+    next.bandDistribution = tmdeTolerance.bandDistribution;
+  }
+  return next;
+};
+
+const mergeDefinitionBandDistributions = (
+  sourceDefinition = {},
+  tmdeDefinition = {},
+) => {
+  const tmdeFunctions = Array.isArray(tmdeDefinition.functions)
+    ? tmdeDefinition.functions
+    : [];
+  const mergeRanges = (sourceRanges = [], tmdeRanges = []) =>
+    sourceRanges.map((sourceRange, index) => {
+      const sourceRangeIds = [sourceRange?.id, sourceRange?.rangeId].filter(
+        (id) => id !== undefined && id !== null && String(id) !== "",
+      );
+      const tmdeRange = sourceRangeIds.length
+        ? tmdeRanges.find((candidate) =>
+            sourceRangeIds.some((id) => rangeMatches(candidate, id)),
+          )
+        : tmdeRanges[index];
+      if (!tmdeRange) return sourceRange;
+      const sourceTolerance =
+        sourceRange?.tolerances || sourceRange?.tolerance || null;
+      const tmdeTolerance =
+        tmdeRange?.tolerances || tmdeRange?.tolerance || null;
+      if (!sourceTolerance || !tmdeTolerance) return sourceRange;
+      const toleranceKey = Object.prototype.hasOwnProperty.call(
+        sourceRange,
+        "tolerances",
+      )
+        ? "tolerances"
+        : "tolerance";
+      return {
+        ...sourceRange,
+        [toleranceKey]: mergeToleranceBandDistributions(
+          sourceTolerance,
+          tmdeTolerance,
+        ),
+      };
+    });
+
+  const next = { ...sourceDefinition };
+  if (Array.isArray(sourceDefinition.functions)) {
+    next.functions = sourceDefinition.functions.map((sourceFunction, index) => {
+      const sourceFunctionId =
+        sourceFunction?.id !== undefined &&
+        sourceFunction?.id !== null &&
+        String(sourceFunction.id) !== ""
+          ? sourceFunction.id
+          : null;
+      const sourceFunctionName = cleanFunctionName(sourceFunction?.name);
+      const hasFunctionIdentity =
+        sourceFunctionId !== null || Boolean(sourceFunctionName);
+      const matchedFunction = tmdeFunctions.find(
+        (candidate) =>
+          (sourceFunctionId !== null &&
+            sameId(candidate?.id, sourceFunctionId)) ||
+          (sourceFunctionName &&
+            functionNameMatches(candidate?.name, sourceFunctionName) &&
+            functionUnitsMatch(
+              candidate?.unit || candidate?.units?.[0] || "",
+              sourceFunction?.unit || sourceFunction?.units?.[0] || "",
+            )),
+      );
+      const tmdeFunction =
+        matchedFunction || (!hasFunctionIdentity ? tmdeFunctions[index] : null);
+      return tmdeFunction
+        ? {
+            ...sourceFunction,
+            ranges: mergeRanges(
+              sourceFunction.ranges || [],
+              tmdeFunction.ranges || [],
+            ),
+          }
+        : sourceFunction;
+    });
+  } else if (Array.isArray(sourceDefinition.ranges)) {
+    next.ranges = mergeRanges(
+      sourceDefinition.ranges,
+      tmdeDefinition.ranges || [],
+    );
+  }
+  return next;
+};
+
 // UUT and TMDE rows are two roles for one local library instrument, not two
 // independent copies. Keep their embedded definitions identical while
 // preserving row-only fields (selection, area placement, quantity, etc.).
@@ -4710,10 +4824,22 @@ export const synchronizeLocalInstrumentDefinitions = (
     const keys = localInstrumentIdentityKeys(item);
     return [...keys].some((key) => sourceKeys.has(key));
   };
+  const matchingTmde =
+    updatedKind === "uut"
+      ? (session.tmdes || []).find(matchesSource)
+      : null;
+  const canonicalDefinition = matchingTmde
+    ? mergeDefinitionBandDistributions(
+        sourceDefinition,
+        matchingTmde.instrument || {},
+      )
+    : sourceDefinition;
   const mergeDefinition = (item, kind) => {
     if (!matchesSource(item)) return item;
     if (kind === updatedKind && String(item.id) === String(updatedItem.id)) {
-      return updatedItem;
+      return canonicalDefinition === sourceDefinition
+        ? updatedItem
+        : { ...updatedItem, instrument: canonicalDefinition };
     }
     const currentDefinition = item.instrument || {};
     const roleFields =
@@ -4726,15 +4852,15 @@ export const synchronizeLocalInstrumentDefinitions = (
     return {
       ...item,
       ...(kind === "uut"
-        ? { description: sourceDefinition.description || item.description || "" }
-        : { name: sourceDefinition.description || item.name || "" }),
+        ? { description: canonicalDefinition.description || item.description || "" }
+        : { name: canonicalDefinition.description || item.name || "" }),
       libraryInstrumentId:
         updatedItem.libraryInstrumentId ||
-        sourceDefinition.libraryInstrumentId ||
-        sourceDefinition.id ||
+        canonicalDefinition.libraryInstrumentId ||
+        canonicalDefinition.id ||
         item.libraryInstrumentId,
       instrument: {
-        ...sourceDefinition,
+        ...canonicalDefinition,
         ...roleFields,
       },
     };
@@ -5556,16 +5682,19 @@ const SummaryDashboard = ({
       tmdes: synchronized.tmdes,
       testPoints: nextTestPoints,
     };
+    const synchronizedItem = (
+      kind === "uut" ? synchronized.uuts : synchronized.tmdes
+    ).find((item) => String(item.id) === String(updatedItem.id)) || updatedItem;
     onSessionSave(nextSession);
     if (
       onSaveInstrument &&
-      (updatedItem.instrument?.sourceId ||
-        updatedItem.instrument?.scope === "local" ||
+      (synchronizedItem.instrument?.sourceId ||
+        synchronizedItem.instrument?.scope === "local" ||
         localLibraryChoices[`${kind}:${updatedItem.id}`] === "local")
     ) {
-      saveItemInstrumentToLocalLibrary(kind, updatedItem);
+      saveItemInstrumentToLocalLibrary(kind, synchronizedItem);
     } else if (maybePromptLocal) {
-      promptLocalLibrarySave(kind, updatedItem);
+      promptLocalLibrarySave(kind, synchronizedItem);
     }
   };
 
@@ -9321,6 +9450,9 @@ function DetailedView({
       updatedItem,
       kind,
     );
+    const synchronizedItem = (
+      kind === "uut" ? synchronized.uuts : synchronized.tmdes
+    ).find((item) => String(item.id) === String(updatedItem.id)) || updatedItem;
     onSessionSave({
       ...sessionData,
       uuts: synchronized.uuts,
@@ -9328,13 +9460,13 @@ function DetailedView({
     });
     if (
       onSaveInstrument &&
-      (updatedItem.instrument?.sourceId ||
-        updatedItem.instrument?.scope === "local" ||
+      (synchronizedItem.instrument?.sourceId ||
+        synchronizedItem.instrument?.scope === "local" ||
         localLibraryChoices[`${kind}:${updatedItem.id}`] === "local")
     ) {
-      saveItemInstrumentToLocalLibrary(kind, updatedItem);
+      saveItemInstrumentToLocalLibrary(kind, synchronizedItem);
     } else if (maybePromptLocal) {
-      promptLocalLibrarySave(kind, updatedItem);
+      promptLocalLibrarySave(kind, synchronizedItem);
     }
     synchronized.tmdes.forEach((nextItem) => {
       const previousItem = (sessionData.tmdes || []).find(
