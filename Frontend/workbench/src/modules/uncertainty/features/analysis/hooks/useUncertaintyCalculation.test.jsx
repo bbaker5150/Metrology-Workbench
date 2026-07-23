@@ -101,6 +101,86 @@ describe("useUncertaintyCalculation direct budgets", () => {
     expect(accuracyRows.every((component) => component.quantity === 1)).toBe(true);
   });
 
+  it("keeps repeated saved accuracy and resolution uses as independent rows", async () => {
+    const repeatedComponents = [
+      {
+        id: "accuracy-use-1",
+        componentId: "accuracy-use-1",
+        name: "Reference DMM - Accuracy",
+        value: 100,
+        value_native: 0.001,
+        unit_native: "V",
+        tmdeBudgetSourceId: "tmde-1",
+        sourceTmdeId: "tmde-1",
+        isBudgetInstance: true,
+        quantity: 1,
+      },
+      {
+        id: "accuracy-use-2",
+        componentId: "accuracy-use-2",
+        name: "Reference DMM - Accuracy",
+        value: 100,
+        value_native: 0.001,
+        unit_native: "V",
+        tmdeBudgetSourceId: "tmde-1",
+        sourceTmdeId: "tmde-1",
+        isBudgetInstance: true,
+        quantity: 1,
+      },
+      {
+        id: "resolution-use-1",
+        componentId: "resolution-use-1",
+        name: "UUT Resolution",
+        value: 50,
+        value_native: 0.0005,
+        unit_native: "V",
+        isResolution: true,
+        uutResolutionBudgetSource: true,
+        isBudgetInstance: true,
+        quantity: 1,
+      },
+      {
+        id: "resolution-use-2",
+        componentId: "resolution-use-2",
+        name: "UUT Resolution",
+        value: 50,
+        value_native: 0.0005,
+        unit_native: "V",
+        isResolution: true,
+        uutResolutionBudgetSource: true,
+        isBudgetInstance: true,
+        quantity: 1,
+      },
+    ];
+    const { result } = renderDirectCalculation(
+      {},
+      {
+        tmdeTolerances: [],
+        uutTolerance: {},
+        manualComponents: repeatedComponents,
+      },
+    );
+
+    await waitFor(() => expect(result.current.calcResults).not.toBeNull());
+    const finalBudget = result.current.calcResults.calculatedBudgetGroups.find(
+      (group) => group.kind === "final",
+    );
+
+    expect(finalBudget.components.map((component) => component.id)).toEqual(
+      repeatedComponents.map((component) => component.id),
+    );
+    expect(
+      finalBudget.components.filter(
+        (component) => component.name === "Reference DMM - Accuracy",
+      ),
+    ).toHaveLength(2);
+    expect(
+      finalBudget.components.filter(
+        (component) => component.name === "UUT Resolution",
+      ),
+    ).toHaveLength(2);
+  });
+
   it("ignores and clears a legacy direct Monte Carlo selection", async () => {
     const { result, onDataSave } = renderDirectCalculation({
       budgetPropagationMethod: "montecarlo",

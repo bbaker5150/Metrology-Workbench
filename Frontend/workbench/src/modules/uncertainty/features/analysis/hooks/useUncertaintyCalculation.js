@@ -537,10 +537,6 @@ export const useUncertaintyCalculation = (
                 results: inputBudgetResults,
             });
 
-            const totalQuantity = allContributingTmdes.length > 0 
-                ? allContributingTmdes.reduce((sum, tmde) => sum + (tmde.quantity || 1), 0)
-                : 1;
-
             componentsForBudgetTable.push({
                 id: `derived_${item.variable}_${index}`,
                 componentId: item.componentId, // correlation-map identity
@@ -569,7 +565,9 @@ export const useUncertaintyCalculation = (
                 // the budget table recalculates this derived input row too (#6).
                 sourceTmdeId: contributingTmde?.id,
                 sourcePointLabel: `${item.nominal} ${item.unit || ""}`,
-                quantity: totalQuantity,
+                // This is one propagation summary. Repeated physical sources
+                // are already materialized as individual input-budget rows.
+                quantity: 1,
             });
         });
 

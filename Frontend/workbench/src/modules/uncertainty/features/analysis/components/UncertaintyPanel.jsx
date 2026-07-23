@@ -12305,11 +12305,28 @@ function DetailedView({
             (t) => t.variableType === scopeVariableType,
           )
         : tmdeTolerancesData;
-      const tmdeResolutionOptions = contributingTmdeInstances
+      const resolutionSourceTmdes = isDerivedFinalScope
+        ? []
+        : relevantTmdes;
+      const resolutionNominal = isDerived
+        ? scope?.nominalPoint || null
+        : uutNominal;
+      const tmdeResolutionOptions = resolutionSourceTmdes
         .map((tmde) => {
-          const detail = getTmdeResolutionDetail(tmde);
+          const resolvedRange = resolveUutRangeHelper(
+            tmde,
+            tmdeRangeIndices,
+            null,
+            resolutionNominal,
+            functionKey,
+          ).activeRange;
+          const resolutionSource =
+            resolvedRange && Object.keys(resolvedRange).length > 0
+              ? resolvedRange
+              : tmde;
+          const detail = getTmdeResolutionDetail(resolutionSource);
           if (!detail) return null;
-          return { tmde, ...detail };
+          return { tmde, resolutionSource, ...detail };
         })
         .filter(Boolean);
 
@@ -12413,7 +12430,9 @@ function DetailedView({
       tmdeSupportsFunction,
       isDerived,
       uutToleranceData,
+      uutNominal,
       tmdeTolerancesData,
+      tmdeRangeIndices,
       instruments,
       sessionData,
     ],
@@ -12421,30 +12440,15 @@ function DetailedView({
 
   const addBudgetTmde = (tmde) => {
     if (!budgetTmdePicker) return;
-    const existingDirectInstance = !isDerived
-      ? tmdeTolerancesData.find(
-          (instance) =>
-            String(instance.id) === String(tmde.id) ||
-            String(instance.sourceId) === String(tmde.id) ||
-            String(instance.id) === String(tmde.sourceId) ||
-            String(instance.sourceId) === String(tmde.sourceId),
-        )
-      : null;
-
-    // The first direct-budget use establishes the TMDE point instance. Every
-    // later use is an explicit component copy so it has its own id, row,
-    // delete action, and contribution-chart bar.
-    if (!isDerived && !existingDirectInstance) {
-      handleToggleTmdeUsage(tmde.id, true, budgetTmdePicker.functionKey);
-      setBudgetTmdePicker(null);
-      return;
-    }
 
     {
       const scope = budgetTmdePicker.scope || {};
       const variableType = scope.variableType || scope.label || "";
       const nominalPoint = isDerived ? scope.nominalPoint || null : uutNominal;
-      const sourceTmde = existingDirectInstance || tmde;
+      // Budget usage is independent from an instrument assignment. Every click
+      // creates a uniquely-addressable component instead of incrementing a
+      // quantity on an earlier row.
+      const sourceTmde = tmde;
       const resolution = resolveUutRangeHelper(
         sourceTmde,
         tmdeRangeIndices,
@@ -12453,10 +12457,6 @@ function DetailedView({
         budgetTmdePicker.functionKey,
       );
       const activeRange =
-        (existingDirectInstance?.tolerance &&
-        Object.keys(existingDirectInstance.tolerance).length > 0
-          ? existingDirectInstance.tolerance
-          : null) ||
         (resolution.activeRange && Object.keys(resolution.activeRange).length > 0
           ? resolution.activeRange
           : null) ||
@@ -12537,30 +12537,24 @@ function DetailedView({
   // the point's tolerance — getUutResolutionComponent then folds it into the math.
   const addBudgetResolution = () => {
     if (!budgetTmdePicker) return;
-    if (!budgetTmdePicker.resolutionOption?.included) {
+    const source = enableResolutionBudgetSource(uutToleranceData);
+    const resolved = getUutResolutionComponent(source, uutNominal);
+    if (resolved) {
+      const id = `uut_resolution_${Date.now()}_${uuidv4()}`;
       onUpdateTestPoint?.({
-        uutTolerance: enableResolutionBudgetSource(uutToleranceData),
+        components: [
+          ...(testPointData.components || []),
+          {
+            ...resolved,
+            id,
+            componentId: id,
+            isCore: false,
+            isBudgetInstance: true,
+            uutResolutionBudgetSource: true,
+            quantity: 1,
+          },
+        ],
       });
-    } else {
-      const source = enableResolutionBudgetSource(uutToleranceData);
-      const resolved = getUutResolutionComponent(source, uutNominal);
-      if (resolved) {
-        const id = `uut_resolution_${Date.now()}_${uuidv4()}`;
-        onUpdateTestPoint?.({
-          components: [
-            ...(testPointData.components || []),
-            {
-              ...resolved,
-              id,
-              componentId: id,
-              isCore: false,
-              isBudgetInstance: true,
-              uutResolutionBudgetSource: true,
-              quantity: 1,
-            },
-          ],
-        });
-      }
     }
     setBudgetTmdePicker(null);
   };
@@ -12570,75 +12564,76 @@ function DetailedView({
   // Resolution" component into the same budget table the TMDE's accuracy feeds
   // (the point's budget for a direct measurement; the variable's budget for a
   // derived one, since the instance is scoped to that variable).
-  const addBudgetTmdeResolution = (tmde) => {
+  const addBudgetTmdeResolution = (option) => {
+    const tmde = option?.tmde || option;
     if (!budgetTmdePicker || !tmde) return;
-    const detail = getTmdeResolutionDetail(tmde);
-    if (detail?.included) {
-      const scope = budgetTmdePicker.scope || {};
-      const nominalPoint = isDerived ? scope.nominalPoint || null : uutNominal;
-      const source = {
-        ...tmde,
-        includeResolutionInBudget: true,
-        ...(tmde.tolerance && typeof tmde.tolerance === "object"
-          ? {
-              tolerance: {
-                ...tmde.tolerance,
-                includeResolutionInBudget: true,
-              },
-            }
-          : {}),
-      };
-      const resolutionComponent = getBudgetComponentsFromTolerance(
-        source,
+    const scope = budgetTmdePicker.scope || {};
+    const nominalPoint = isDerived ? scope.nominalPoint || null : uutNominal;
+    const selectedRange =
+      option?.resolutionSource ||
+      resolveUutRangeHelper(
+        tmde,
+        tmdeRangeIndices,
+        null,
         nominalPoint,
-      ).find((component) => component.isResolution);
-      if (resolutionComponent) {
-        const sourceName = getEquationTmdeLabel(tmde);
-        const id = `tmde_resolution_${tmde.id ?? tmde.sourceId}_${Date.now()}_${uuidv4()}`;
-        onUpdateTestPoint?.({
-          components: [
-            ...(testPointData.components || []),
-            {
-              ...resolutionComponent,
-              id,
-              componentId: id,
-              name: `${sourceName} - Resolution`,
-              sourceTmdeId: tmde.id ?? tmde.sourceId,
-              tmdeBudgetSourceId: tmde.sourceId ?? tmde.id,
-              tmdeBudgetRangeId: tmde.rangeId ?? tmde.tolerance?.rangeId ?? "",
-              tmdeBudgetFunctionId:
-                tmde.functionId ?? tmde.tolerance?.functionId ?? "",
-              tmdeBudgetFunctionName:
-                tmde.functionName ?? tmde.tolerance?.functionName ?? "",
-              tmdeBudgetComponentKind: "Resolution",
-              tmdeIdentity: sourceName,
-              isCore: false,
-              isBudgetInstance: true,
-              quantity: 1,
-              ...(isDerived && scope.variableType
-                ? { variableType: scope.variableType }
-                : {}),
+        budgetTmdePicker.functionKey,
+      ).activeRange ||
+      tmde;
+    const source = {
+      ...selectedRange,
+      includeResolutionInBudget: true,
+      ...(selectedRange?.tolerance &&
+      typeof selectedRange.tolerance === "object"
+        ? {
+            tolerance: {
+              ...selectedRange.tolerance,
+              includeResolutionInBudget: true,
             },
-          ],
-        });
-      }
-      setBudgetTmdePicker(null);
-      return;
+          }
+        : {}),
+      ...(selectedRange?.tolerances &&
+      typeof selectedRange.tolerances === "object"
+        ? {
+            tolerances: {
+              ...selectedRange.tolerances,
+              includeResolutionInBudget: true,
+            },
+          }
+        : {}),
+    };
+    const resolutionComponent = getBudgetComponentsFromTolerance(
+      source,
+      nominalPoint,
+    ).find((component) => component.isResolution);
+    if (resolutionComponent) {
+      const sourceName = getEquationTmdeLabel(tmde);
+      const id = `tmde_resolution_${tmde.id ?? tmde.sourceId}_${Date.now()}_${uuidv4()}`;
+      onUpdateTestPoint?.({
+        components: [
+          ...(testPointData.components || []),
+          {
+            ...resolutionComponent,
+            id,
+            componentId: id,
+            name: `${sourceName} - Resolution`,
+            sourceTmdeId: tmde.id ?? tmde.sourceId,
+            tmdeBudgetSourceId: tmde.sourceId ?? tmde.id,
+            tmdeBudgetRangeId:
+              selectedRange.rangeId ?? selectedRange.id ?? "",
+            tmdeBudgetFunctionId: selectedRange.functionId ?? "",
+            tmdeBudgetFunctionName: selectedRange.functionName ?? "",
+            tmdeBudgetComponentKind: "Resolution",
+            tmdeIdentity: sourceName,
+            isCore: false,
+            isBudgetInstance: true,
+            quantity: 1,
+            ...(isDerived && scope.variableType
+              ? { variableType: scope.variableType }
+              : {}),
+          },
+        ],
+      });
     }
-    applyTmdeInstanceChange(
-      tmde.id ?? tmde.sourceId,
-      (t) => ({
-        ...t,
-        // Set the flag on both the instance and its `.tolerance` snapshot: the
-        // direct-measurement path reads `tmde.tolerance || tmde`, the derived
-        // path reads the instance directly, so cover both.
-        includeResolutionInBudget: true,
-        ...(t.tolerance && typeof t.tolerance === "object"
-          ? { tolerance: { ...t.tolerance, includeResolutionInBudget: true } }
-          : {}),
-      }),
-      "point",
-    );
     setBudgetTmdePicker(null);
   };
 
@@ -12995,7 +12990,7 @@ function DetailedView({
                     key={`tmde-res-${option.tmde.id ?? option.tmde.sourceId}`}
                     type="button"
                     style={itemStyle}
-                    onClick={() => addBudgetTmdeResolution(option.tmde)}
+                    onClick={() => addBudgetTmdeResolution(option)}
                     onMouseEnter={(e) =>
                       (e.currentTarget.style.background = "var(--input-background)")
                     }
