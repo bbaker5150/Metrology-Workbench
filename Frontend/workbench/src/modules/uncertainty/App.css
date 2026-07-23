@@ -12046,31 +12046,6 @@ input.inline-function-input:focus {
   border-color: var(--primary-color);
 }
 
-/* Clear only the bounds while preserving the range-owned all-values
-   tolerance. This is deliberately quieter than the destructive row delete. */
-.inline-range-clear {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 22px;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-color-muted);
-  cursor: pointer;
-  font-size: 0.7rem;
-}
-
-.inline-range-clear:hover,
-.inline-range-clear:focus-visible {
-  color: var(--primary-color);
-  background: var(--input-background);
-  outline: none;
-}
-
 /* "Use this resolution in the budget" toggle, sits right of the unit dropdown. */
 .inline-resolution-use {
   display: inline-flex;

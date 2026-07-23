@@ -3829,30 +3829,17 @@ export const RangeCell = ({
     onPatchRange?.({ isSingleValue: true, value: v, min: v, max: v });
   };
   const switchToRange = () => onPatchRange?.({ isSingleValue: false });
-  const commitSingle = (raw) =>
+  const commitSingle = (raw) => {
+    if (raw === "" && onClearRange) {
+      onClearRange();
+      return;
+    }
     onPatchRange?.({ isSingleValue: true, value: raw, min: raw, max: raw });
+  };
   const openToleranceFromUnit = () => {
     if (!onOpenTolerance) return;
     setIsEditing(false);
     onOpenTolerance();
-  };
-  const clearRange = (event) => {
-    // Prevent the focused bound from committing its DOM value on blur before
-    // the clear patch is applied. A blank persisted range is the intentional
-    // storage location for an all-values tolerance.
-    event.preventDefault();
-    event.stopPropagation();
-    if (ranges.length > 1 && onClearRange) {
-      onClearRange();
-    } else {
-      onPatchRange?.({
-        min: "",
-        max: "",
-        value: "",
-        isSingleValue: false,
-      });
-    }
-    setIsEditing(false);
   };
   return (
     <div
@@ -3926,16 +3913,6 @@ export const RangeCell = ({
           onTab={openToleranceFromUnit}
           width="72px"
         />
-        <button
-          type="button"
-          className="inline-range-clear"
-          title="Clear range and use this tolerance for all values"
-          aria-label="Clear range"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={clearRange}
-        >
-          <FontAwesomeIcon icon={faTimes} />
-        </button>
       </div>
     </div>
   );

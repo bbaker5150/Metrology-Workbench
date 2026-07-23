@@ -346,65 +346,58 @@ describe("inline range editing", () => {
     expect(screen.getByPlaceholderText("max")).toBeInTheDocument();
   });
 
-  it("can clear range bounds and return to the all-values Not Set state", () => {
-    const onPatchRange = vi.fn();
-    const props = {
-      editable: true,
-      onEditBound: vi.fn(),
-      onEditUnit: vi.fn(),
-      onPatchRange,
-    };
-    const { rerender } = render(
+  it("does not render a clear/delete control beside the unit while editing", () => {
+    render(
       <RangeCell
         ranges={[{ id: "range-1", min: 0, max: 10, unit: "V" }]}
         activeRange={{ id: "range-1", min: 0, max: 10, unit: "V" }}
-        {...props}
+        editable
+        onEditBound={vi.fn()}
+        onEditUnit={vi.fn()}
+        onPatchRange={vi.fn()}
       />,
     );
 
     fireEvent.click(screen.getByTitle("Click to edit range"));
-    fireEvent.click(screen.getByRole("button", { name: "Clear range" }));
-
-    expect(onPatchRange).toHaveBeenCalledWith({
-      min: "",
-      max: "",
-      value: "",
-      isSingleValue: false,
-    });
-    rerender(
-      <RangeCell
-        ranges={[{ id: "range-1", min: "", max: "", unit: "V" }]}
-        activeRange={{ id: "range-1", min: "", max: "", unit: "V" }}
-        {...props}
-      />,
-    );
-    expect(screen.getByRole("button", { name: "Not Set" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear range" })).not.toBeInTheDocument();
   });
 
-  it("removes only the active range when clearing one of several ranges", () => {
-    const onPatchRange = vi.fn();
+  it("clears a blanked single-value range through the row removal path", () => {
     const onClearRange = vi.fn();
-    const ranges = [
-      { id: "all-values", min: "", max: "", unit: "V" },
-      { id: "range-2", min: 0, max: 10, unit: "V" },
-    ];
     render(
       <RangeCell
-        ranges={ranges}
-        activeRange={ranges[1]}
+        ranges={[
+          {
+            id: "range-2",
+            isSingleValue: true,
+            value: 10,
+            min: 10,
+            max: 10,
+            unit: "V",
+          },
+        ]}
+        activeRange={{
+          id: "range-2",
+          isSingleValue: true,
+          value: 10,
+          min: 10,
+          max: 10,
+          unit: "V",
+        }}
         editable
         onEditBound={vi.fn()}
         onEditUnit={vi.fn()}
-        onPatchRange={onPatchRange}
+        onPatchRange={vi.fn()}
         onClearRange={onClearRange}
       />,
     );
 
     fireEvent.click(screen.getByTitle("Click to edit range"));
-    fireEvent.click(screen.getByRole("button", { name: "Clear range" }));
+    const value = screen.getByPlaceholderText("value");
+    fireEvent.change(value, { target: { value: "" } });
+    fireEvent.blur(value);
 
     expect(onClearRange).toHaveBeenCalledOnce();
-    expect(onPatchRange).not.toHaveBeenCalled();
   });
 
   it("dismisses blank range inputs with Escape without committing a bound", () => {
