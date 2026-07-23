@@ -119,6 +119,21 @@ const getComponentDisplayName = (component) => {
   return quantity > 1 ? `${name} (Qty: ${quantity})` : name;
 };
 
+const enumerateComponentDisplayNames = (
+  components = [],
+  getLabel = getComponentDisplayName,
+) => {
+  const counts = new Map();
+  return components.map((component, index) => {
+    const baseLabel = String(
+      getLabel(component, index) || "Uncertainty component",
+    ).trim();
+    const occurrence = (counts.get(baseLabel) || 0) + 1;
+    counts.set(baseLabel, occurrence);
+    return occurrence === 1 ? baseLabel : `${baseLabel} (${occurrence})`;
+  });
+};
+
 const isInstrumentLinkedTypeB = (component = {}) =>
   Boolean(
     component.typeBSourceId ||
@@ -1036,6 +1051,7 @@ const UncertaintyBudgetTable = ({
       ),
       ...(group.components || []).filter(isStandaloneManualComponent),
     ];
+    const displayNames = enumerateComponentDisplayNames(orderedComponents);
     return (
     <table className="uncertainty-budget-table">
       <thead>
@@ -1050,7 +1066,7 @@ const UncertaintyBudgetTable = ({
         </tr>
       </thead>
       <tbody className="component-group-tbody">
-        {orderedComponents.map((component) => {
+        {orderedComponents.map((component, componentIndex) => {
           if (isStandaloneManualComponent(component)) {
             return (
               <InlineManualComponentRow
@@ -1078,7 +1094,7 @@ const UncertaintyBudgetTable = ({
           }
           const std = getComponentStdUncertainty(component, group.unit);
           const tolLimit = getComponentToleranceLimit(component, std);
-          const displayName = getComponentDisplayName(component);
+          const displayName = displayNames[componentIndex];
           const isStdEntry = isStandardUncertaintyEntry(component);
           // The entered magnitude of a manual Type-B is editable inline. A
           // tolerance-mode entry edits the Tolerance Limit cell; a directly-
@@ -1252,16 +1268,16 @@ const UncertaintyBudgetTable = ({
     // names instead of silently replacing an earlier contributor.
     const toChartData = (items, getValue) => {
       const data = {};
-      const labelCounts = new Map();
+      const labels = enumerateComponentDisplayNames(
+        items,
+        (item) =>
+          String(
+            item?.name || item?.label || "Uncertainty component",
+          ).replace(/^Input:\s*/, ""),
+      );
       items.forEach((item, index) => {
-        const rawLabel = String(
-          item?.name || item?.label || "Uncertainty component",
-        ).replace(/^Input:\s*/, "");
-        const count = (labelCounts.get(rawLabel) || 0) + 1;
-        labelCounts.set(rawLabel, count);
-        const label = count === 1 ? rawLabel : `${rawLabel} (${count})`;
         const value = Math.abs(Number(getValue(item, index)) || 0);
-        if (value > 0) data[label] = value;
+        if (value > 0) data[labels[index]] = value;
       });
       return data;
     };

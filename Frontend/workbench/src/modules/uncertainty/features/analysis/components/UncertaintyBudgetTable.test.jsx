@@ -90,6 +90,46 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(rows[1]).toHaveTextContent("Operator influence");
   });
 
+  it("numbers repeated resolution rows immediately without another source type", () => {
+    const makeComponent = (id, name) => ({
+      id,
+      componentId: id,
+      name,
+      type: "B",
+      value: 0.01,
+      value_native: 0.01,
+      unit_native: "V",
+      distribution: "Rectangular (resolution)",
+      isResolution: name === "UUT Resolution",
+      isBudgetInstance: true,
+      quantity: 1,
+    });
+    const { container } = renderDirectBudget({
+      components: [
+        makeComponent("resolution-1", "UUT Resolution"),
+        makeComponent("resolution-2", "UUT Resolution"),
+        makeComponent("resolution-3", "UUT Resolution"),
+        makeComponent("accuracy-1", "Reference DMM - Accuracy"),
+        makeComponent("accuracy-2", "Reference DMM - Accuracy"),
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    const labels = Array.from(
+      container.querySelectorAll(
+        ".uncertainty-budget-table tbody > tr > td:first-child",
+      ),
+      (cell) => cell.textContent.trim(),
+    );
+    expect(labels).toEqual([
+      "UUT Resolution",
+      "UUT Resolution (2)",
+      "UUT Resolution (3)",
+      "Reference DMM - Accuracy",
+      "Reference DMM - Accuracy (2)",
+    ]);
+  });
+
   it("explains distribution deviations with spec and current values", () => {
     renderDirectBudget({
       components: [
