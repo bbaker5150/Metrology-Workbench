@@ -111,6 +111,7 @@ const shouldShowDofColumn = (items = []) =>
 const getComponentDisplayName = (component) => {
   const quantity = component.quantity || 1;
   const name =
+    (component.isBudgetInstance ? component.name : null) ||
     component.sourceDisplayName ||
     component.tmdeIdentity ||
     component.name ||
@@ -1297,6 +1298,44 @@ const UncertaintyBudgetTable = ({
           chartVariance: standardUncertainty ** 2,
         };
       });
+      const inputGroups = groups.filter((group) => group.kind === "input");
+      const expandEquationSourceRows = (row) => {
+        const inputGroup = inputGroups.find(
+          (group) =>
+            (row.variable && group.variable === row.variable) ||
+            (row.variableType && group.variableType === row.variableType),
+        );
+        const sourceRows = (inputGroup?.components || [])
+          .map((component) => {
+            const standardUncertainty = Math.abs(
+              Number(
+                getComponentStdUncertainty(component, inputGroup?.unit).value,
+              ) || 0,
+            );
+            const quantity = Math.max(1, Number(component.quantity) || 1);
+            return {
+              ...component,
+              name:
+                component.name ||
+                component.sourceDisplayName ||
+                component.tmdeIdentity ||
+                row.name,
+              sourceVariance: standardUncertainty ** 2 * quantity,
+            };
+          })
+          .filter((component) => component.sourceVariance > 0);
+        const sourceVarianceTotal = sourceRows.reduce(
+          (sum, component) => sum + component.sourceVariance,
+          0,
+        );
+        if (sourceVarianceTotal <= 0 || sourceRows.length === 0) return [row];
+        return sourceRows.map((component) => ({
+          ...component,
+          chartVariance:
+            (component.sourceVariance / sourceVarianceTotal) *
+            Math.max(0, Number(row.chartVariance) || 0),
+        }));
+      };
 
       if (method === "montecarlo") {
         const fallbackInfluences = calcResults?.monteCarlo?.influenceFractions || [];
@@ -1310,14 +1349,15 @@ const UncertaintyBudgetTable = ({
           (sum, influence) => sum + influence,
           0,
         );
-        const chartRows = [
-          ...equationRows.map((row, index) => ({
+        const allocatedEquationRows = equationRows.map((row, index) => ({
             ...row,
             chartVariance:
               (influenceTotal > 0
                 ? rawInfluences[index] / influenceTotal
                 : 0) * equationVariance,
-          })),
+          }));
+        const chartRows = [
+          ...allocatedEquationRows.flatMap(expandEquationSourceRows),
           ...standaloneVarianceRows,
         ];
         return asChart(
@@ -1348,15 +1388,16 @@ const UncertaintyBudgetTable = ({
       );
       const reconciledEquationVariance =
         equationVariance > 0 ? equationVariance : taylorRowVariance;
-      const chartRows = [
-        ...taylorRows.map((row) => ({
+      const allocatedTaylorRows = taylorRows.map((row) => ({
           ...row,
           chartVariance:
             taylorRowVariance > 0
               ? (row.rawVariance / taylorRowVariance) *
                 reconciledEquationVariance
               : 0,
-        })),
+        }));
+      const chartRows = [
+        ...allocatedTaylorRows.flatMap(expandEquationSourceRows),
         ...standaloneVarianceRows,
       ];
       return asChart(

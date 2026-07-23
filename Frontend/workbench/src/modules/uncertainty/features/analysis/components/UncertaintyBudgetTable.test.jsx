@@ -488,6 +488,50 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     ).toHaveAttribute("title", expect.stringContaining("Variance contribution"));
   });
 
+  it("keeps repeated sources as separate contribution rows", async () => {
+    const view = renderDirectBudget({
+      showContribution: true,
+      setShowContribution: vi.fn(),
+      calcResults: {
+        combined_uncertainty: 1,
+        effective_dof: Infinity,
+        k_value: 2,
+        expanded_uncertainty: 2,
+        calculatedBudgetComponents: [
+          {
+            id: "resolution-1",
+            name: "UUT Resolution",
+            value_native: 0.01,
+          },
+          {
+            id: "resolution-2",
+            name: "UUT Resolution",
+            value_native: 0.01,
+          },
+          {
+            id: "accuracy-1",
+            name: "DMM Accuracy",
+            value_native: 0.02,
+          },
+        ],
+      },
+    });
+
+    await waitFor(() =>
+      expect(Object.keys(contributionShares(view.container))).toEqual(
+        expect.arrayContaining([
+          "DMM Accuracy",
+          "UUT Resolution",
+          "UUT Resolution (2)",
+        ]),
+      ),
+    );
+    const shares = contributionShares(view.container);
+    expect(shares["DMM Accuracy"]).toBeCloseTo(66.6666666667, 8);
+    expect(shares["UUT Resolution"]).toBeCloseTo(16.6666666667, 8);
+    expect(shares["UUT Resolution (2)"]).toBeCloseTo(16.6666666667, 8);
+  });
+
   it("updates an open contribution graph when the calculated budget changes", async () => {
     const baseProps = {
       components: [],
@@ -631,6 +675,75 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
         name: "Taylor series uncertainty contribution",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("allocates a derived input's contribution across each budget component", async () => {
+    const view = renderDirectBudget({
+      measurementType: "derived",
+      budgetPropagationMethod: "equation",
+      showContribution: true,
+      setShowContribution: vi.fn(),
+      referencePoint: { name: "Torque", unit: "in-oz" },
+      calcResults: {
+        calculatedBudgetGroups: [
+          {
+            id: "input_weight",
+            kind: "input",
+            variable: "w",
+            variableType: "Weight",
+            unit: "ozf",
+            components: [
+              {
+                id: "weight-accuracy-1",
+                name: "F-Class Weight - Accuracy",
+                value_native: 0.002,
+                unit_native: "ozf",
+              },
+              {
+                id: "weight-accuracy-2",
+                name: "F-Class Weight - Accuracy",
+                value_native: 0.001,
+                unit_native: "ozf",
+              },
+            ],
+          },
+          {
+            id: "measurement_equation",
+            kind: "equation",
+            method: "equation",
+            rows: [
+              {
+                id: "weight",
+                variable: "w",
+                variableType: "Weight",
+                name: "Weight (w)",
+                contribution: 0.01,
+              },
+            ],
+            results: { combined: 0.01 },
+          },
+          {
+            id: "final_budget",
+            kind: "final",
+            components: [
+              {
+                id: "taylor-summary",
+                name: "Taylor Series Approximation",
+                value_native: 0.01,
+                isPropagationSummary: true,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    await waitFor(() =>
+      expect(contributionShares(view.container)).toEqual({
+        "F-Class Weight - Accuracy": 80,
+        "F-Class Weight - Accuracy (2)": 20,
+      }),
+    );
   });
 
   it("charts Monte Carlo variable influence percentages", async () => {

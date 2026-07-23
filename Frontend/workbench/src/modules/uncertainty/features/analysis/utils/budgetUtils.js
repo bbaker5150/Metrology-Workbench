@@ -962,3 +962,17 @@ export const getUutResolutionComponent = (
     sourcePointLabel: `${resVal} ${resUnit} LSD`,
   };
 };
+
+export const removeSavedBudgetComponent = (components = [], componentId) => {
+  const savedComponents = Array.isArray(components) ? components : [];
+  const id = String(componentId);
+  const hasMatch = savedComponents.some(
+    (component) => String(component?.id) === id,
+  );
+  return {
+    removed: hasMatch,
+    components: hasMatch
+      ? savedComponents.filter((component) => String(component?.id) !== id)
+      : savedComponents,
+  };
+};

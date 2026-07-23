@@ -36,18 +36,23 @@ const uutResolution = {
   resolutionDistribution: "3.464",
 };
 
-const renderDirectCalculation = (pointOverrides = {}) => {
+const renderDirectCalculation = (
+  pointOverrides = {},
+  {
+    tmdeTolerances = [tmdeAccuracy],
+    uutTolerance = uutResolution,
+    manualComponents = [],
+  } = {},
+) => {
   const onDataSave = vi.fn();
   const pointData = directPoint(pointOverrides);
-  const tmdeTolerances = [tmdeAccuracy];
   const nominal = { value: "10", unit: "V", name: "Voltage" };
-  const manualComponents = [];
   const hook = renderHook(() =>
     useUncertaintyCalculation(
       pointData,
       sessionData,
       tmdeTolerances,
-      uutResolution,
+      uutTolerance,
       nominal,
       manualComponents,
       onDataSave,
@@ -72,6 +77,28 @@ describe("useUncertaintyCalculation direct budgets", () => {
     expect(finalBudget.components.some((component) => component.isPropagationSummary)).toBe(
       false,
     );
+  });
+
+  it("materializes legacy repeated TMDE uses as independent budget rows", async () => {
+    const { result } = renderDirectCalculation(
+      {},
+      {
+        tmdeTolerances: [{ ...tmdeAccuracy, quantity: 2 }],
+        uutTolerance: {},
+      },
+    );
+
+    await waitFor(() => expect(result.current.calcResults).not.toBeNull());
+    const finalBudget = result.current.calcResults.calculatedBudgetGroups.find(
+      (group) => group.kind === "final",
+    );
+    const accuracyRows = finalBudget.components.filter(
+      (component) => component.name === "Reference DMM - Accuracy",
+    );
+
+    expect(accuracyRows).toHaveLength(2);
+    expect(new Set(accuracyRows.map((component) => component.id)).size).toBe(2);
+    expect(accuracyRows.every((component) => component.quantity === 1)).toBe(true);
   });
 
   it("ignores and clears a legacy direct Monte Carlo selection", async () => {

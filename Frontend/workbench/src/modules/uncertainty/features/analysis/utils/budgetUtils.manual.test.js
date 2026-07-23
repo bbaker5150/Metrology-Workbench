@@ -2,6 +2,7 @@ import { describe, test, expect } from "vitest";
 import {
   getBudgetComponentsFromTolerance,
   getUutResolutionComponent,
+  removeSavedBudgetComponent,
   refreshLinkedTypeBComponents,
 } from "./budgetUtils";
 import { DISTRIBUTION_NOT_SET } from "../../../utils/uncertaintyMath";
@@ -284,6 +285,30 @@ describe("getBudgetComponentsFromTolerance - instrument-associated Type B", () =
     expect(resolution.distribution).toBe("Rectangular (resolution)");
     expect(resolution.distributionDivisor).toBe("3.464");
     expect(resolution.value_native).toBeCloseTo(0.01 / Math.sqrt(12), 12);
+  });
+});
+
+describe("removeSavedBudgetComponent", () => {
+  test("removes only the selected repeated budget instance", () => {
+    const first = { id: "resolution-1", name: "UUT Resolution" };
+    const second = { id: "resolution-2", name: "UUT Resolution" };
+    const accuracy = { id: "accuracy-1", name: "TMDE Accuracy" };
+
+    const result = removeSavedBudgetComponent(
+      [first, second, accuracy],
+      second.id,
+    );
+
+    expect(result.removed).toBe(true);
+    expect(result.components).toEqual([first, accuracy]);
+  });
+
+  test("does not alter the collection when the id is source-derived", () => {
+    const components = [{ id: "manual-1" }];
+    const result = removeSavedBudgetComponent(components, "uut_resolution");
+
+    expect(result.removed).toBe(false);
+    expect(result.components).toBe(components);
   });
 });
 

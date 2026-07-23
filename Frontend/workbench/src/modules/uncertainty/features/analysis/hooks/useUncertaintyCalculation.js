@@ -480,21 +480,30 @@ export const useUncertaintyCalculation = (
                         tmde,
                         tmde.measurementPoint
                     );
-                    if (components.length === 0) {
-                        return [
+                    const baseComponents = components.length === 0
+                        ? [
                             createMissingTmdeComponent(
                                 tmde,
                                 tmdeIndex,
                                 item.variable,
                             ),
-                        ];
-                    }
-                    return components.map((component, compIndex) => ({
-                        ...qualifyTmdeComponent(component, tmde, tmdeIndex),
-                        id: `${component.id}_${item.variable}_${tmdeIndex}_${compIndex}`,
-                        sourceTmdeId: tmde.id,
-                        quantity: tmde.quantity || 1,
-                    }));
+                        ]
+                        : components.map((component) =>
+                            qualifyTmdeComponent(component, tmde, tmdeIndex)
+                        );
+                    const quantity = Math.max(
+                        1,
+                        Math.floor(Number(tmde.quantity) || 1),
+                    );
+                    return Array.from({ length: quantity }, (_, useIndex) =>
+                        baseComponents.map((component, compIndex) => ({
+                            ...component,
+                            id: `${component.id}_${item.variable}_${tmdeIndex}_${compIndex}_${useIndex}`,
+                            sourceTmdeId: tmde.id,
+                            quantity: 1,
+                            budgetUseIndex: useIndex,
+                        }))
+                    ).flat();
                 }
             );
             const mappedManualComponents = (manualComponents || [])
@@ -535,6 +544,8 @@ export const useUncertaintyCalculation = (
             componentsForBudgetTable.push({
                 id: `derived_${item.variable}_${index}`,
                 componentId: item.componentId, // correlation-map identity
+                variable: item.variable,
+                variableType: item.type,
                 name: `Input: ${item.type} (${item.variable})`,
                 type: "B",
                 value: item.ui_absolute_base,
@@ -652,6 +663,8 @@ export const useUncertaintyCalculation = (
           .filter((component) => component.name.startsWith("Input:"))
           .map((component) => ({
             id: component.id,
+            variable: component.variable,
+            variableType: component.variableType,
             name: component.name.replace(/^Input:\s*/, ""),
             nominalValue: component.sourcePointLabel,
             dof: component.dof,
@@ -873,12 +886,15 @@ export const useUncertaintyCalculation = (
 
         tmdeTolerancesData.forEach((tmde, tmdeIndex) => {
           if (uutNominal && uutNominal.value) {
-            const quantity = tmde.quantity || 1;
+            const quantity = Math.max(
+              1,
+              Math.floor(Number(tmde.quantity) || 1),
+            );
             const components = getBudgetComponentsFromTolerance(
               tmde,
               uutNominal
             );
-            const qualifiedComponents =
+            const baseQualifiedComponents =
               components.length === 0
                 ? [createMissingTmdeComponent(tmde, tmdeIndex, "direct")]
                 : components.map((c, compIndex) => ({
@@ -894,15 +910,28 @@ export const useUncertaintyCalculation = (
                     ]
                       .filter(Boolean)
                       .join(" - "),
-                    quantity: quantity,
+                    quantity: 1,
                   }));
+            // Legacy sessions represented repeated uses as `quantity` on one
+            // TMDE instance. Materialize those uses as individual calculated
+            // rows so they remain independently visible in the table/chart.
+            const qualifiedComponents = Array.from(
+              { length: quantity },
+              (_, useIndex) =>
+                baseQualifiedComponents.map((component, compIndex) => ({
+                  ...component,
+                  id: `${component.id}_${compIndex}_${useIndex}`,
+                  quantity: 1,
+                  budgetUseIndex: useIndex,
+                })),
+            ).flat();
 
             componentsForBudgetTable.push(...qualifiedComponents);
 
             qualifiedComponents.forEach((comp) => {
               const compValue = Number(comp.value);
               if (Number.isFinite(compValue)) {
-                totalVariancePPM += compValue ** 2 * quantity;
+                totalVariancePPM += compValue ** 2;
               }
             });
           }

@@ -58,6 +58,8 @@ import {
 } from "../../utils/tmdeReconcile";
 import {
   getBudgetComponentsFromTolerance,
+  getUutResolutionComponent,
+  removeSavedBudgetComponent,
   refreshLinkedTypeBComponents,
 } from "./utils/budgetUtils";
 import { getInstrumentRangeRows } from "../../utils/instrumentFunctionSelection";
@@ -226,6 +228,51 @@ function Analysis({
     // already-added budget row without reintroducing equation-variable assignment.
     const refreshedTmdeComponents = rawComponents
       .map((component) => {
+        if (component?.uutResolutionBudgetSource) {
+          const source = Array.isArray(uutToleranceData)
+            ? uutToleranceData.map((tolerance, index) =>
+                index === 0
+                  ? {
+                      ...tolerance,
+                      includeResolutionInBudget: true,
+                      ...(tolerance?.tolerances &&
+                      typeof tolerance.tolerances === "object"
+                        ? {
+                            tolerances: {
+                              ...tolerance.tolerances,
+                              includeResolutionInBudget: true,
+                            },
+                          }
+                        : {}),
+                    }
+                  : tolerance,
+              )
+            : {
+                ...uutToleranceData,
+                includeResolutionInBudget: true,
+                ...(uutToleranceData?.tolerances &&
+                typeof uutToleranceData.tolerances === "object"
+                  ? {
+                      tolerances: {
+                        ...uutToleranceData.tolerances,
+                        includeResolutionInBudget: true,
+                      },
+                    }
+                  : {}),
+              };
+          const replacement = getUutResolutionComponent(source, uutNominal);
+          return replacement
+            ? {
+                ...component,
+                ...replacement,
+                id: component.id,
+                componentId: component.componentId || component.id,
+                isCore: false,
+                isBudgetInstance: true,
+                uutResolutionBudgetSource: true,
+              }
+            : null;
+        }
         if (!component?.tmdeBudgetSourceId) return component;
         const sourceId = component.tmdeBudgetSourceId;
         const master = (sessionData.tmdes || []).find(
@@ -254,8 +301,35 @@ function Analysis({
           ranges[0];
         if (!selectedRange) return null;
         const referencePoint = getReferencePoint(component);
+        const resolutionLinked =
+          String(component.tmdeBudgetComponentKind || "").toLowerCase() ===
+          "resolution";
+        const selectedSource = resolutionLinked
+          ? {
+              ...selectedRange,
+              includeResolutionInBudget: true,
+              ...(selectedRange?.tolerance &&
+              typeof selectedRange.tolerance === "object"
+                ? {
+                    tolerance: {
+                      ...selectedRange.tolerance,
+                      includeResolutionInBudget: true,
+                    },
+                  }
+                : {}),
+              ...(selectedRange?.tolerances &&
+              typeof selectedRange.tolerances === "object"
+                ? {
+                    tolerances: {
+                      ...selectedRange.tolerances,
+                      includeResolutionInBudget: true,
+                    },
+                  }
+                : {}),
+            }
+          : selectedRange;
         const resolved = getBudgetComponentsFromTolerance(
-          selectedRange,
+          selectedSource,
           referencePoint,
         );
         const replacement = resolved.find(
@@ -306,6 +380,7 @@ function Analysis({
     sessionData.tmdes,
     instruments,
     uutNominal,
+    uutToleranceData,
   ]);
 
   // =========================================================================
@@ -585,6 +660,48 @@ function Analysis({
   };
 
   const handleRemoveComponent = (id, component = null) => {
+    // Every repeated budget selection is persisted as its own component row.
+    // Resolve this against the saved collection rather than trusting the
+    // calculated table copy to retain every metadata flag. Remove only that
+    // exact instance, regardless of the instrument/source it was copied from.
+    const savedRemoval = removeSavedBudgetComponent(
+      testPointData.components,
+      id,
+    );
+    if (savedRemoval.removed) {
+      onDataSave({ components: savedRemoval.components });
+      return;
+    }
+
+    // A TMDE resolution is opted in on its own point instance. Clearing that
+    // flag must leave the TMDE accuracy row—and the instrument assignment—intact.
+    if (component?.isResolution && component?.sourceTmdeId) {
+      const sourceId = String(component.sourceTmdeId);
+      onDataSave({
+        tmdeTolerances: tmdeTolerancesData.map((tmde) => {
+          if (
+            String(tmde.id) !== sourceId &&
+            String(tmde.sourceId) !== sourceId
+          ) {
+            return tmde;
+          }
+          return {
+            ...tmde,
+            includeResolutionInBudget: false,
+            ...(tmde.tolerance && typeof tmde.tolerance === "object"
+              ? {
+                  tolerance: {
+                    ...tmde.tolerance,
+                    includeResolutionInBudget: false,
+                  },
+                }
+              : {}),
+          };
+        }),
+      });
+      return;
+    }
+
     // The UUT resolution is opted into the budget from the add menu, so removing
     // it here simply opts it back out on the point's tolerance.
     if (component?.isResolution || id === "uut_resolution") {
@@ -662,7 +779,7 @@ function Analysis({
       editingComponent.id.toString().includes("repeatability");
     const newId = isEditing
       ? editingComponent.id
-      : `repeatability_${Date.now()}`;
+      : `repeatability_${Date.now()}_${uuidv4()}`;
     // Route into the right subbudget: explicit scope on add, else preserve the
     // existing component's variable on edit.
     const variableType = scope?.variableType ?? editingComponent?.variableType;
