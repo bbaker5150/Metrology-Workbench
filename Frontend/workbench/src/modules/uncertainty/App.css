@@ -2480,6 +2480,12 @@ body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
   border-bottom-color: var(--primary-color);
 }
 
+body.dark-mode .uncertainty-module .analysis-container > .analysis-tabs {
+  background: var(--background-color);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .form-section {
   margin-bottom: 20px;
   padding-bottom: 15px;
@@ -5166,6 +5172,24 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
 
 .budget-inline-empty {
   color: var(--text-color-muted);
+}
+
+.budget-inline-not-set,
+.budget-inline-not-set-action {
+  width: max-content;
+  min-width: 0 !important;
+  max-width: 100%;
+  margin: 0;
+  padding-inline: 0;
+}
+
+.budget-inline-not-set {
+  cursor: inherit;
+  pointer-events: none;
+}
+
+.budget-inline-not-set-action {
+  padding-inline: 5px;
 }
 
 @media (max-width: 980px) {
@@ -12547,6 +12571,13 @@ input.inline-function-input:focus {
 .range-row-delete:disabled {
   cursor: not-allowed;
   opacity: 0;
+}
+
+/* A range can be removed from the one-level-up range list. While its bound,
+   unit, or prefix editor is open, remove the redundant action entirely so it
+   cannot collide with the trailing prefix control. */
+.range-row-cell:has(.inline-range-editor.is-editing) > .range-row-delete {
+  display: none;
 }
 
 /* --- Collapsed range cell: clicking the active range opens the full editable

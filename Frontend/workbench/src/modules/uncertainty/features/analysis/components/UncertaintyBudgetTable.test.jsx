@@ -1247,6 +1247,42 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     );
   });
 
+  it("presents an incomplete collapsed manual component with table-style Not Set labels", () => {
+    const { container } = renderDirectBudget({
+      onComponentUpdate: vi.fn(),
+      components: [
+        {
+          id: "manual-incomplete",
+          name: "",
+          type: "B",
+          value: 0,
+          value_native: 0,
+          unit_native: "V",
+          distribution: "Not Set",
+          isManual: true,
+          isInlineManual: true,
+          inlineDraft: false,
+          originalInput: {
+            inputMode: "tolerance",
+            toleranceLimit: "",
+            standardUncertainty: "",
+            errorDistributionDivisor: "1.732",
+            unit: "V",
+          },
+        },
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    const row = container.querySelector(".budget-inline-manual-row");
+    expect(row).not.toBeNull();
+    expect(row.querySelectorAll(".budget-inline-not-set")).toHaveLength(2);
+    expect(row.textContent).not.toContain("Manual component");
+
+    fireEvent.click(row.querySelector(".budget-inline-not-set"));
+    expect(screen.getByLabelText("Error source name")).toHaveValue("");
+  });
+
   it("uses the instrument tolerance formatter in a collapsed manual row", () => {
     renderDirectBudget({
       onComponentUpdate: vi.fn(),

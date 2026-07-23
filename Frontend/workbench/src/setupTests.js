@@ -20,7 +20,12 @@ vi.mock('@heyirisai/docx-editor-react', () => ({
       props.onEditorViewReady?.({});
     }, [props]);
     return (
-      React.createElement('div', { className: 'mock-docx-editor', 'data-testid': 'docx-editor' },
+      React.createElement('div', {
+        className: 'mock-docx-editor',
+        'data-testid': 'docx-editor',
+        'data-show-file-open': String(Boolean(props.showFileOpen)),
+        'data-has-open-handler': String(typeof props.onOpen === 'function'),
+      },
         props.renderTitleBarRight?.(),
         React.createElement('div', {
           ref: contentRef,

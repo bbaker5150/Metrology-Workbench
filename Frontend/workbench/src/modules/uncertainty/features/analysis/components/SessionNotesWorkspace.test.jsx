@@ -63,7 +63,7 @@ describe("SessionNotesWorkspace DOCX persistence", () => {
     expect(screen.queryByText("Saved")).not.toBeInTheDocument();
   });
 
-  it("offers native DOCX import and download actions without a separate image tray", () => {
+  it("routes DOCX loading through the editor File menu without duplicate title actions", () => {
     render(
       <SessionNotesWorkspace
         sessionData={{ id: 12, name: "Torque", notes: "", noteImages: [] }}
@@ -71,8 +71,16 @@ describe("SessionNotesWorkspace DOCX persistence", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Load DOCX" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save DOCX" })).toBeInTheDocument();
+    expect(screen.getByTestId("docx-editor")).toHaveAttribute(
+      "data-show-file-open",
+      "true",
+    );
+    expect(screen.getByTestId("docx-editor")).toHaveAttribute(
+      "data-has-open-handler",
+      "true",
+    );
+    expect(screen.queryByRole("button", { name: "Load DOCX" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save DOCX" })).not.toBeInTheDocument();
     expect(screen.queryByText("Session images")).not.toBeInTheDocument();
   });
 });

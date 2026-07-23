@@ -211,48 +211,6 @@ const getSidebarGridTemplate = (visibleColumns, valueColumnWidth = "80px") => {
   return parts.join(" ");
 };
 
-// Helper to calculate minimum sidebar width based on visible columns
-const getMinSidebarWidth = (visibleColumns) => {
-  // Base width for padding, indentation, tree structure, etc.
-  let width = 80; // Base padding/margin
-
-  // Add width for each visible column (use minimum values from grid template)
-  if (visibleColumns.section) width += 55;
-  if (visibleColumns.value) width += 85;
-  if (visibleColumns.qualifier) width += 85;
-  if (visibleColumns.tolerance) width += 90;
-  if (visibleColumns.lowLimit) width += 70;
-  if (visibleColumns.highLimit) width += 70;
-  if (visibleColumns.tmdeLow) width += 100;
-  if (visibleColumns.tmdeHigh) width += 100;
-  if (visibleColumns.standardUncertainty) width += 130;
-  if (visibleColumns.measurementUncertainty) width += 130;
-  if (visibleColumns.pfa) width += 60;
-  if (visibleColumns.pfr) width += 60;
-  if (visibleColumns.tur) width += 60;
-  if (visibleColumns.tar) width += 60;
-  if (visibleColumns.observedReop) width += 84;
-  if (visibleColumns.maxReop) width += 76;
-  if (visibleColumns.trueReop) width += 76;
-  if (visibleColumns.gbPfa) width += 65;
-  if (visibleColumns.gbPfr) width += 65;
-  if (visibleColumns.gbMult) width += 65;
-  if (visibleColumns.gbLow) width += 70;
-  if (visibleColumns.gbHigh) width += 70;
-  if (visibleColumns.gbCalInt) width += 70;
-  if (visibleColumns.gbMeasRel) width += 104;
-  if (visibleColumns.noGbPfa) width += 70;
-  if (visibleColumns.noGbPfr) width += 70;
-  if (visibleColumns.noGbCalInt) width += 76;
-  if (visibleColumns.noGbMeasRel) width += 108;
-
-  // Add extra buffer for gaps (4px per column gap)
-  const columnCount = Object.values(visibleColumns).filter(Boolean).length;
-  width += columnCount * 4;
-
-  return width;
-};
-
 const formatInstrumentIdentity = (item = {}) => {
   const inst = item.instrument || item;
   const make = String(inst.manufacturer || item.manufacturer || "").trim();
@@ -1804,12 +1762,6 @@ function App() {
       setExpandedFunctions(allFunctionIds);
       setExpandedUuts(allUutKeys);
       setIsGlobalExpanded(true);
-
-      // Auto-resize sidebar to fit expanded columns if too narrow
-      const minRequiredWidth = getMinSidebarWidth(visibleSidebarColumns);
-      if (sidebarWidth < minRequiredWidth) {
-        setSidebarWidth(minRequiredWidth);
-      }
     }
   };
 

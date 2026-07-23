@@ -3857,7 +3857,7 @@ export const RangeCell = ({
   return (
     <div
       ref={containerRef}
-      className="inline-range-editor"
+      className="inline-range-editor is-editing"
       onMouseDown={(e) => e.stopPropagation()}
       onBlur={handleBlur}
       onKeyDownCapture={(event) => {

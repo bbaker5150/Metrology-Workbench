@@ -8,9 +8,6 @@ import React, {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faExclamationCircle,
-  faFolderOpen,
-  faSave,
-  faSpinner,
 } from "@fortawesome/free-solid-svg-icons";
 import {
   DocxEditor,
@@ -22,8 +19,6 @@ import "@heyirisai/docx-editor-react/styles.css";
 
 export const DOCX_NOTE_PREFIX = "uncertainty-docx:v1;base64,";
 
-const DOCX_MIME =
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const BLOCK_TAGS = new Set([
   "ADDRESS",
   "BLOCKQUOTE",
@@ -143,23 +138,6 @@ const useApplicationColorMode = () => {
   return mode;
 };
 
-const SaveState = ({ state }) => {
-  if (state === "saved") return null;
-
-  const configuration = {
-    pending: [faSpinner, "Saving", "is-saving"],
-    saving: [faSpinner, "Saving", "is-saving"],
-    error: [faExclamationCircle, "Save failed", "is-error"],
-  }[state] || [faSpinner, "Saving", "is-saving"];
-
-  return (
-    <span className={`session-notes-save-state ${configuration[2]}`} role="status" aria-live="polite">
-      <FontAwesomeIcon icon={configuration[0]} spin={configuration[2] === "is-saving"} />
-      {configuration[1]}
-    </span>
-  );
-};
-
 const SessionDocxEditor = ({
   sessionData,
   sessionImageCache,
@@ -167,7 +145,6 @@ const SessionDocxEditor = ({
   onNotesSave,
 }) => {
   const editorRef = useRef(null);
-  const importInputRef = useRef(null);
   const saveTimerRef = useRef(null);
   const savingRef = useRef(null);
   const editorReadyRef = useRef(false);
@@ -176,7 +153,7 @@ const SessionDocxEditor = ({
   const legacyImagesMigratedRef = useRef(false);
   const isLegacyDocumentRef = useRef(!isDocxNotePayload(sessionData?.notes));
   const lastSavedPayloadRef = useRef(sessionData?.notes || "");
-  const [saveState, setSaveState] = useState("saved");
+  const [, setSaveState] = useState("saved");
   const [documentRevision, setDocumentRevision] = useState(0);
   const [documentSource, setDocumentSource] = useState(() => {
     try {
@@ -334,57 +311,12 @@ const SessionDocxEditor = ({
     }
   }, [persistBuffer]);
 
-  const downloadDocument = useCallback(async () => {
-    const buffer = await saveNow({ force: true });
-    if (!buffer) return;
-    const blob = new Blob([buffer], { type: DOCX_MIME });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${documentName}.docx`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }, [documentName, saveNow]);
-
-  const titleActions = useCallback(() => (
-    <div className="session-notes-docx-actions">
-      <SaveState state={saveState} />
-      <button
-        type="button"
-        onClick={() => importInputRef.current?.click()}
-        title="Load DOCX"
-        aria-label="Load DOCX"
-      >
-        <FontAwesomeIcon icon={faFolderOpen} />
-      </button>
-      <button
-        type="button"
-        onClick={downloadDocument}
-        title="Save DOCX"
-        aria-label="Save DOCX"
-      >
-        <FontAwesomeIcon icon={faSave} />
-      </button>
-    </div>
-  ), [downloadDocument, saveState]);
-
   const sourceProps = documentSource.type === "buffer"
     ? { documentBuffer: documentSource.value }
     : { document: documentSource.value };
 
   return (
     <section className="session-notes-workspace" aria-label="Session notes">
-      <input
-        ref={importInputRef}
-        className="session-notes-file-input"
-        type="file"
-        accept={`.docx,${DOCX_MIME}`}
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          event.target.value = "";
-          void openDocument(file);
-        }}
-      />
       {editorError && (
         <div className="session-notes-docx-error" role="alert">
           <FontAwesomeIcon icon={faExclamationCircle} />
@@ -404,14 +336,14 @@ const SessionDocxEditor = ({
           documentName={documentName}
           documentNameEditable={false}
           showToolbar
-          showFileOpen={false}
+          showFileOpen
           showHelpMenu={false}
           showRuler
           showOutline={false}
           showOutlineButton
           showZoomControl
           initialZoom={0.9}
-          renderTitleBarRight={titleActions}
+          onOpen={openDocument}
           onChange={queueSave}
           onEditorViewReady={() => {
             editorReadyRef.current = true;

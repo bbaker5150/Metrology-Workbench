@@ -42,11 +42,11 @@ const renderDirectCalculation = (
     tmdeTolerances = [tmdeAccuracy],
     uutTolerance = uutResolution,
     manualComponents = [],
+    nominal = { value: "10", unit: "V", name: "Voltage" },
   } = {},
 ) => {
   const onDataSave = vi.fn();
   const pointData = directPoint(pointOverrides);
-  const nominal = { value: "10", unit: "V", name: "Voltage" };
   const hook = renderHook(() =>
     useUncertaintyCalculation(
       pointData,
@@ -128,6 +128,45 @@ describe("useUncertaintyCalculation direct budgets", () => {
           risk8MonteCarloResult: null,
         }),
       ),
+    );
+  });
+
+  it("converts compatible source units before combining a direct budget", async () => {
+    const oneInchTolerance = {
+      id: "length-reference",
+      name: "Length reference",
+      measurementPoint: { value: "10", unit: "ft" },
+      floor: {
+        high: "1",
+        low: "-1",
+        unit: "in",
+        distribution: "1.732",
+        symmetric: true,
+      },
+    };
+    const { result } = renderDirectCalculation(
+      {},
+      {
+        tmdeTolerances: [oneInchTolerance],
+        uutTolerance: {},
+        nominal: { value: "10", unit: "ft", name: "Length" },
+      },
+    );
+
+    await waitFor(() => expect(result.current.calcResults).not.toBeNull());
+    const finalBudget = result.current.calcResults.calculatedBudgetGroups.find(
+      (group) => group.kind === "final",
+    );
+
+    // A ±1 in rectangular tolerance has u = 1/sqrt(3) in. The final result
+    // is displayed in the point's feet, so the expected value is divided by 12.
+    expect(finalBudget.results.combined).toBeCloseTo(
+      1 / (12 * Math.sqrt(3)),
+      10,
+    );
+    expect(result.current.calcResults.combined_uncertainty_absolute_base).toBeCloseTo(
+      0.0254 / Math.sqrt(3),
+      10,
     );
   });
 });

@@ -507,15 +507,25 @@ const InlineManualComponentRow = ({
         }
         onClick={() => setEditing(true)}
       >
-        <td>{component.name || "Manual component"}</td>
+        <td>
+          {component.name || (
+            <span className="inline-tolerance-summary is-empty budget-inline-not-set">
+              Not Set
+            </span>
+          )}
+        </td>
         <td>{toleranceText}</td>
         <td>{component.distribution || "Not Set"}</td>
         <td>{component.type || "B"}</td>
         {showDof && <td>{formatDof(component.dof)}</td>}
         <td>
-          {Number(std.value) > 0
-            ? `${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}`
-            : "—"}
+          {Number(std.value) > 0 ? (
+            `${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}`
+          ) : (
+            <span className="inline-tolerance-summary is-empty budget-inline-not-set">
+              Not Set
+            </span>
+          )}
         </td>
         <td className="action-cell">{removeAction}</td>
       </tr>
@@ -673,7 +683,7 @@ const InlineManualComponentRow = ({
         ) : (
           <button
             type="button"
-            className="budget-inline-mode-button"
+            className="inline-tolerance-summary is-empty budget-inline-not-set-action"
             onClick={() => setEntryMode("standard")}
           >
             Not Set
