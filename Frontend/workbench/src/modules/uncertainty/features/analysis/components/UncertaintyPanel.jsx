@@ -543,6 +543,7 @@ const UnitSelect = ({
   onTab,
   ariaLabel = "Unit",
   width = null,
+  compact = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -612,7 +613,10 @@ const UnitSelect = ({
         .map((prefix) => SI_PREFIX_OPTIONS.find((option) => option.key === prefix))
         .filter(Boolean)
     : [];
-  const prefixSelectWidth = selectedModel ? "74px" : "58px";
+  // Range rows have to share a fixed table cell with one or two numeric
+  // bounds. Keep that context deliberately compact while preserving the full
+  // "Base" label and chevron; other unit selectors retain their roomier size.
+  const prefixSelectWidth = selectedModel ? (compact ? "52px" : "74px") : "58px";
   const openMenu = (initialQuery = "") => {
     const rect = rootRef.current?.getBoundingClientRect();
     if (rect) {
@@ -712,7 +716,7 @@ const UnitSelect = ({
   return (
     <div
       ref={rootRef}
-      className={`inline-unit-select${selectedModel ? " inline-unit-split-select" : ""}`}
+      className={`inline-unit-select${selectedModel ? " inline-unit-split-select" : ""}${compact ? " inline-unit-select--compact" : ""}`}
       onMouseDown={(e) => e.stopPropagation()}
       aria-label={ariaLabel}
       style={{
@@ -3912,6 +3916,7 @@ export const RangeCell = ({
           onChange={(value) => onEditUnit(value)}
           onTab={openToleranceFromUnit}
           width="72px"
+          compact
         />
       </div>
     </div>
@@ -4052,6 +4057,7 @@ export const GhostRangeRow = ({
                 onChange={setRangeUnit}
                 onTab={openTolerance}
                 width="72px"
+                compact
               />
             </div>
           </div>

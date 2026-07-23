@@ -11866,6 +11866,24 @@ input.inline-function-input:focus {
   flex-basis: max(var(--inline-unit-width, 124px), 124px);
 }
 
+/* Range rows share one fixed-width table cell with their numeric bounds.
+   Their unit picker uses the same controls as every other unit field, but in
+   a purpose-built two-part footprint that stays entirely inside the Range
+   column. "Base" remains fully readable rather than being clipped. */
+.inline-unit-split-select.inline-unit-select--compact {
+  grid-template-columns: minmax(38px, 1fr) var(--inline-prefix-width, 52px);
+  gap: 3px;
+  width: 96px;
+  min-width: 96px;
+  flex: 0 0 96px;
+}
+
+.inline-unit-select--compact .inline-unit-combobox,
+.inline-unit-select--compact .inline-menu-select-trigger {
+  padding-right: 4px;
+  padding-left: 4px;
+}
+
 .inline-unit-combobox {
   display: inline-flex;
   align-items: center;
@@ -12442,18 +12460,17 @@ input.inline-function-input:focus {
   border-bottom: 1px dashed var(--border-color);
 }
 
-/* The range editor contains two bounds plus a unit control. Keep that editor
-   above the adjacent tolerance cell so its unit selector's border and label
-   are never painted over at the column boundary. */
+/* Range controls are deliberately contained by their table cell. This keeps
+   the prefix selector from painting over the adjacent Tolerance column. */
 .industry-table tbody tr.inline-range-row > td.cell-value:has(.inline-range-editor) {
   position: relative;
-  z-index: 2;
-  overflow: visible;
+  z-index: 1;
+  overflow: hidden;
 }
 
 .industry-table tbody tr.inline-range-row > td.cell-tolerance {
   position: relative;
-  z-index: 1;
+  z-index: 0;
 }
 
 /* Separate one instrument's range block from the next with a solid rule. */
@@ -13279,6 +13296,15 @@ input.inline-tolerance-input--fs {
 input.inline-range-bound-input {
   width: 62px;
   flex-basis: 62px;
+}
+
+/* Let range bounds yield a little space to a scalable unit/prefix pair while
+   retaining a comfortable, predictable typing target. */
+.inline-range-main > input.inline-range-bound-input {
+  width: 48px;
+  min-width: 38px;
+  max-width: 62px;
+  flex: 1 1 48px;
 }
 
 input.inline-resolution-input {

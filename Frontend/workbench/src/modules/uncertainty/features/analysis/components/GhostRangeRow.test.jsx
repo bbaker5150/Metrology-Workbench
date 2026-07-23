@@ -92,6 +92,9 @@ describe("GhostRangeRow", () => {
     fireEvent.keyDown(max, { key: "Tab" });
 
     expect(onMaterialize).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("New range unit")).toHaveClass(
+      "inline-unit-select--compact",
+    );
     const unitBase = screen.getByRole("button", { name: "New range unit base unit" });
     const unitPrefix = screen.getByLabelText("New range unit prefix");
     fireEvent.keyDown(unitBase, { key: "Tab" });
@@ -505,6 +508,9 @@ describe("inline range editing", () => {
     fireEvent.keyDown(max, { key: "Tab" });
 
     expect(onOpenTolerance).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Range unit")).toHaveClass(
+      "inline-unit-select--compact",
+    );
     const unitBase = screen.getByRole("button", { name: "Range unit base unit" });
     const unitPrefix = screen.getByLabelText("Range unit prefix");
     fireEvent.blur(max, { relatedTarget: unitBase });
