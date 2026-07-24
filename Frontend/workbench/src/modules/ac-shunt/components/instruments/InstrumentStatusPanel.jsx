@@ -8,7 +8,7 @@ import { useInstruments } from '../../contexts/InstrumentContext';
 import { FaSave, FaUndo, FaTimes, FaSearch, FaSync, FaEdit, FaCreativeCommonsZero } from 'react-icons/fa';
 import { API_BASE_URL } from '../../constants/constants';
 
-const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B'];
+const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B', '8508A'];
 const ACDC_ASSIGNABLE_MODELS = ['5730A'];
 const AMPLIFIER_MODELS = ['8100'];
 const SUPPORTED_STATUS_MODELS = ['5730', '5790'];
@@ -27,7 +27,9 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         runZeroCal,
         discoveredInstruments, setDiscoveredInstruments,
         stdInstrumentAddress, setStdInstrumentAddress, stdReaderModel, setStdReaderModel, stdReaderSN, setStdReaderSN,
+        stdReaderInput, setStdReaderInput,
         tiInstrumentAddress, setTiInstrumentAddress, tiReaderModel, setTiReaderModel, tiReaderSN, setTiReaderSN,
+        tiReaderInput, setTiReaderInput,
         acSourceAddress, setAcSourceAddress, acSourceSN, setAcSourceSN, dcSourceAddress, setDcSourceAddress, dcSourceSN, setDcSourceSN,
         switchDriverAddress, setSwitchDriverAddress, switchDriverModel, setSwitchDriverModel, switchDriverSN, setSwitchDriverSN,
         amplifierAddress, setAmplifierAddress, amplifierSN, setAmplifierSN, isCollecting,
@@ -146,9 +148,11 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         setStdInstrumentAddress(null);
         setStdReaderModel(null);
         setStdReaderSN(null);
+        setStdReaderInput("FRONT");
         setTiInstrumentAddress(null);
         setTiReaderModel(null);
         setTiReaderSN(null);
+        setTiReaderInput("REAR");
         setAcSourceSN(null);
         setAcSourceAddress(null);
         setDcSourceSN(null);
@@ -163,6 +167,8 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
             standard_reader_model: null,
             standard_reader_serial: null,
             standard_reader_address: null,
+            standard_reader_input: null,
+            test_reader_input: null,
             ac_source_serial: null,
             ac_source_address: null,
             dc_source_serial: null,
@@ -287,7 +293,10 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
     const getModelFromIdentity = (identity) => {
         if (!identity) return null;
         const parts = identity.split(',');
-        if (parts.length > 1 && parts[1]) return parts[1].trim();
+        if (parts.length > 1 && parts[1]) {
+            const model = parts[1].trim();
+            return model.startsWith('8508A') ? '8508A' : model;
+        }
         const allKnownModels = [...ASSIGNABLE_MODELS, ...ACDC_ASSIGNABLE_MODELS, ...AMPLIFIER_MODELS];
         for (const model of allKnownModels) if (identity.includes(model)) return model;
         return identity.trim();
@@ -324,15 +333,48 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         const newModel = isChecked ? getModelFromIdentity(instrument.identity) : null;
         const newSN = isChecked ? getSNFromIdentity(instrument.identity) : null;
         if (role === 'standard') {
+            const input = newModel === '8508A' ? (stdReaderInput || 'FRONT') : null;
             setStdInstrumentAddress(newAddress);
             setStdReaderModel(newModel);
             setStdReaderSN(newSN);
-            handleRoleAssignment({ standard_reader_address: newAddress, standard_reader_model: newModel, standard_reader_serial: newSN });
+            handleRoleAssignment({
+                standard_reader_address: newAddress,
+                standard_reader_model: newModel,
+                standard_reader_serial: newSN,
+                standard_reader_input: isChecked ? input : null,
+            });
         } else if (role === 'test') {
+            const input = newModel === '8508A' ? (tiReaderInput || 'REAR') : null;
             setTiInstrumentAddress(newAddress);
             setTiReaderModel(newModel);
             setTiReaderSN(newSN);
-            handleRoleAssignment({ test_reader_address: newAddress, test_reader_model: newModel, test_reader_serial: newSN });
+            handleRoleAssignment({
+                test_reader_address: newAddress,
+                test_reader_model: newModel,
+                test_reader_serial: newSN,
+                test_reader_input: isChecked ? input : null,
+            });
+        }
+    };
+
+    const handle8508InputChange = (role, input) => {
+        const opposite = input === 'FRONT' ? 'REAR' : 'FRONT';
+        if (role === 'standard') {
+            setStdReaderInput(input);
+            const payload = { standard_reader_input: input };
+            if (stdInstrumentAddress && stdInstrumentAddress === tiInstrumentAddress && tiReaderInput === input) {
+                setTiReaderInput(opposite);
+                payload.test_reader_input = opposite;
+            }
+            handleRoleAssignment(payload);
+        } else {
+            setTiReaderInput(input);
+            const payload = { test_reader_input: input };
+            if (tiInstrumentAddress && tiInstrumentAddress === stdInstrumentAddress && stdReaderInput === input) {
+                setStdReaderInput(opposite);
+                payload.standard_reader_input = opposite;
+            }
+            handleRoleAssignment(payload);
         }
     };
 
@@ -500,8 +542,9 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                             let model = '';
                             if (parts.length > 1 && parts[1]) {
                                 model = parts[1].trim();
+                                if (model.startsWith('8508A')) model = '8508A';
                             }
-                            if (model === "34420A" || model === "8100" || model === "11713C") {
+                            if (model === "34420A" || model === "8508A" || model === "8100" || model === "11713C") {
                                 isConnected = true;
                             }
 
@@ -549,10 +592,34 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                     <div className="checkbox-group">
                                                         <input type="checkbox" id={`std-role-${inst.address}`} checked={stdInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || !isConnected || (stdInstrumentAddress && stdInstrumentAddress !== inst.address) || isRemoteViewer} />
                                                         <label htmlFor={`std-role-${inst.address}`}>Standard</label>
+                                                        {model === '8508A' && stdInstrumentAddress === inst.address && (
+                                                            <select
+                                                                className="reader-input-select"
+                                                                value={stdReaderInput || 'FRONT'}
+                                                                onChange={(event) => handle8508InputChange('standard', event.target.value)}
+                                                                disabled={isRemoteViewer || isCollecting}
+                                                                aria-label="8508A Standard input"
+                                                            >
+                                                                <option value="FRONT">Front input</option>
+                                                                <option value="REAR">Rear input</option>
+                                                            </select>
+                                                        )}
                                                     </div>
                                                     <div className="checkbox-group">
                                                         <input type="checkbox" id={`test-role-${inst.address}`} checked={tiInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'test', e.target.checked)} disabled={!selectedSessionId || !isConnected || (tiInstrumentAddress && tiInstrumentAddress !== inst.address)} />
                                                         <label htmlFor={`test-role-${inst.address}`}>Test Instrument</label>
+                                                        {model === '8508A' && tiInstrumentAddress === inst.address && (
+                                                            <select
+                                                                className="reader-input-select"
+                                                                value={tiReaderInput || 'REAR'}
+                                                                onChange={(event) => handle8508InputChange('test', event.target.value)}
+                                                                disabled={isRemoteViewer || isCollecting}
+                                                                aria-label="8508A Test Instrument input"
+                                                            >
+                                                                <option value="FRONT">Front input</option>
+                                                                <option value="REAR">Rear input</option>
+                                                            </select>
+                                                        )}
                                                     </div>
                                                 </div>
                                             )}

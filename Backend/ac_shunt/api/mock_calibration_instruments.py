@@ -37,6 +37,7 @@ from npsl_tools.instruments import (
     Instrument5730A,
     Instrument5790B,
     Instrument34420A,
+    Instrument8508A,
     Instrument8100,
 )
 
@@ -223,6 +224,38 @@ class Mock34420A(Instrument34420A):
         return None
 
 
+class Mock8508A(Instrument8508A):
+    """Mock dual-input 8508A used as two logical readers."""
+
+    def __init__(
+        self,
+        gpib: Optional[str] = None,
+        input_terminal: str = "FRONT",
+        timeout: int = 120000,
+        reset_on_connect: bool = True,
+    ):
+        _install_mock_attrs(self, model="8508A", gpib=gpib, timeout=timeout)
+        self.input_terminal = str(input_terminal).upper()
+
+    def initialize_ac_shunt_mode(self) -> None:  # type: ignore[override]
+        return None
+
+    def set_input(self, terminal: str) -> None:  # type: ignore[override]
+        self.input_terminal = str(terminal).upper()
+
+    def read_instrument(self) -> float:  # type: ignore[override]
+        # Offset the two logical inputs just enough for mock runs to prove that
+        # Standard and TI routing did not accidentally read the same channel.
+        base = _synthetic_reading(getattr(self, "gpib", None), inject_lf_ripple=True)
+        return base if self.input_terminal == "FRONT" else base * 1.000001
+
+    def read_pair(self, other, reverse_order: bool = False):  # type: ignore[override]
+        return self.read_instrument(), other.read_instrument()
+
+    def close(self) -> None:  # type: ignore[override]
+        return None
+
+
 # --- Amplifier & switch ------------------------------------------------------
 class Mock8100(Instrument8100):
     """Mock Clarke-Hess 8100 transconductance amp."""
@@ -271,6 +304,7 @@ MOCK_CLASS_MAP = {
     Instrument3458A: Mock3458A,
     Instrument5790B: Mock5790B,
     Instrument34420A: Mock34420A,
+    Instrument8508A: Mock8508A,
     Instrument8100: Mock8100,
     Instrument11713C: Mock11713C,
 }

@@ -31,9 +31,11 @@ export const InstrumentContextProvider = ({ children }) => {
   const [stdInstrumentAddress, setStdInstrumentAddress] = useState(null);
   const [stdReaderModel, setStdReaderModel] = useState(null);
   const [stdReaderSN, setStdReaderSN] = useState(null);
+  const [stdReaderInput, setStdReaderInput] = useState("FRONT");
   const [tiInstrumentAddress, setTiInstrumentAddress] = useState(null);
   const [tiReaderModel, setTiReaderModel] = useState(null);
   const [tiReaderSN, setTiReaderSN] = useState(null);
+  const [tiReaderInput, setTiReaderInput] = useState("REAR");
   const [acSourceAddress, setAcSourceAddress] = useState(null);
   const [acSourceSN, setAcSourceSN] = useState(null);
   const [dcSourceAddress, setDcSourceAddress] = useState(null);
@@ -353,9 +355,11 @@ export const InstrumentContextProvider = ({ children }) => {
     setStdInstrumentAddress(null);
     setStdReaderModel(null);
     setStdReaderSN(null);
+    setStdReaderInput("FRONT");
     setTiInstrumentAddress(null);
     setTiReaderModel(null);
     setTiReaderSN(null);
+    setTiReaderInput("REAR");
     setAcSourceAddress(null);
     setAcSourceSN(null);
     setDcSourceAddress(null);
@@ -1198,12 +1202,16 @@ export const InstrumentContextProvider = ({ children }) => {
     setStdReaderModel,
     stdReaderSN,
     setStdReaderSN,
+    stdReaderInput,
+    setStdReaderInput,
     tiInstrumentAddress,
     setTiInstrumentAddress,
     tiReaderModel,
     setTiReaderModel,
     tiReaderSN,
     setTiReaderSN,
+    tiReaderInput,
+    setTiReaderInput,
     acSourceAddress,
     setAcSourceAddress,
     acSourceSN,

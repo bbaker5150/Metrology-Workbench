@@ -59,7 +59,15 @@ CALIBRATION_HOST_ONLY_COMMANDS = frozenset({
     'operation_cancelled',
 })
 
-from npsl_tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A, Instrument8100
+from npsl_tools.instruments import (
+    Instrument11713C,
+    Instrument3458A,
+    Instrument5730A,
+    Instrument5790B,
+    Instrument34420A,
+    Instrument8508A,
+    Instrument8100,
+)
 from .models import (
     CalibrationReadings,
     CalibrationResults,
@@ -116,9 +124,24 @@ INSTRUMENT_CLASS_MAP = {
     '5790B': Instrument5790B,
     '3458A': Instrument3458A,
     '34420A': Instrument34420A,
+    '8508A': Instrument8508A,
     '11713C': Instrument11713C,
     '8100': Instrument8100
 }
+
+
+def _open_reader(reader_class, model, address, input_terminal=None):
+    """Construct a reader using its model-specific connection contract."""
+
+    if reader_class == Instrument34420A:
+        return _inst(reader_class, gpib=address)
+    if reader_class == Instrument8508A:
+        return _inst(
+            reader_class,
+            gpib=address,
+            input_terminal=input_terminal or "FRONT",
+        )
+    return _inst(reader_class, model=model, gpib=address)
 
 class InstrumentStatusConsumer(AsyncWebsocketConsumer):
     instrument_instance = None
@@ -231,6 +254,8 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
         try:
             if self.instrument_class in [Instrument34420A, Instrument11713C]:
                 instance = self.instrument_class(gpib=self.gpib_address)
+            elif self.instrument_class == Instrument8508A:
+                instance = self.instrument_class(gpib=self.gpib_address)
             else: # Classes that do take a 'model' argument
                 instance = self.instrument_class(model=self.instrument_model, gpib=self.gpib_address)
             return instance
@@ -241,9 +266,13 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
     @sync_to_async(thread_sensitive=True)
     def close_instrument_sync(self):
         if self.instrument_instance:
-            connection = getattr(self.instrument_instance, 'resource', None) or getattr(self.instrument_instance, 'device', None)
-            if connection and hasattr(connection, 'close'):
-                connection.close()
+            close = getattr(self.instrument_instance, "close", None)
+            if callable(close):
+                close()
+            else:
+                connection = getattr(self.instrument_instance, 'resource', None) or getattr(self.instrument_instance, 'device', None)
+                if connection and hasattr(connection, 'close'):
+                    connection.close()
 
     @sync_to_async(thread_sensitive=True)
     def get_status_sync(self):
@@ -654,6 +683,40 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     def _take_one_reading(self, instrument):
         return instrument.read_instrument()
 
+    async def _take_reader_pair(
+        self,
+        std_reader,
+        ti_reader,
+        target_tvc="BOTH",
+        *,
+        reverse_order=False,
+    ):
+        """Read Standard/TI channels, serializing a shared 8508A correctly."""
+
+        take_std = target_tvc in ("STD", "BOTH") and std_reader is not None
+        take_ti = target_tvc in ("TI", "BOTH") and ti_reader is not None
+        if (
+            take_std
+            and take_ti
+            and isinstance(std_reader, Instrument8508A)
+            and isinstance(ti_reader, Instrument8508A)
+            and std_reader.gpib == ti_reader.gpib
+        ):
+            return await sync_to_async(std_reader.read_pair, thread_sensitive=False)(
+                ti_reader,
+                reverse_order=reverse_order,
+            )
+
+        tasks = [
+            self._take_one_reading(std_reader) if take_std else asyncio.sleep(0),
+            self._take_one_reading(ti_reader) if take_ti else asyncio.sleep(0),
+        ]
+        results = await asyncio.gather(*tasks)
+        return (
+            results[0] if take_std else None,
+            results[1] if take_ti else None,
+        )
+
     @staticmethod
     def _project_dc_from_ripple(samples, frequency, harmonics=2):
         """Recover the DC component from a noisy time-series that contains a
@@ -875,8 +938,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 'dc_source_address': _addr(session.dc_source_address),
                 'std_reader_address': _addr(session.standard_reader_address),
                 'std_reader_model': session.standard_reader_model,
+                'std_reader_input': session.standard_reader_input,
                 'ti_reader_address': _addr(session.test_reader_address),
                 'ti_reader_model': session.test_reader_model,
+                'ti_reader_input': session.test_reader_input,
                 'amplifier_address': _addr(session.amplifier_address),
                 'switch_driver_address': _addr(session.switch_driver_address),
             }
@@ -1009,8 +1074,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+            std_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input")
+            )
+            ti_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
+            )
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
@@ -1521,12 +1590,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             sample_count = 0
 
             while (time.time() - start_time) < duration and not self.stop_event.is_set():
-                tasks = []
-                tasks.append(self._take_one_reading(std_reader_instrument) if target_tvc in ['STD', 'BOTH'] and std_reader_instrument else asyncio.sleep(0))
-                tasks.append(self._take_one_reading(ti_reader_instrument) if target_tvc in ['TI', 'BOTH'] and ti_reader_instrument else asyncio.sleep(0))
-
-                results = await asyncio.gather(*tasks)
-                std_reading_val, ti_reading_val = results[0], results[1]
+                std_reading_val, ti_reading_val = await self._take_reader_pair(
+                    std_reader_instrument,
+                    ti_reader_instrument,
+                    target_tvc,
+                    reverse_order=bool(sample_count % 2),
+                )
                 # Approximate the integration midpoint: the gather completes at
                 # end-of-integration, so subtract half the integration window.
                 # This matters for the drift term, which evaluates at a specific
@@ -1660,6 +1729,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': "Monitoring stability..."}))
 
             # Replaces raw final_std_readings length with the dynamic targeted check
+            pair_index = 0
             while get_target_length() < num_samples and not self.stop_event.is_set():
                 # 1. Global Abort Check (Applies to both Search and Collection phases)
                 if instability_events >= max_retries:
@@ -1674,21 +1744,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     return False
 
                 # 2. Take Readings (Targeted Instrument Querying)
-                tasks = []
-                if target_tvc in ['STD', 'BOTH'] and std_reader_instrument:
-                    tasks.append(self._take_one_reading(std_reader_instrument))
-                else:
-                    tasks.append(asyncio.sleep(0)) # Dummy task
-
-                if target_tvc in ['TI', 'BOTH'] and ti_reader_instrument:
-                    tasks.append(self._take_one_reading(ti_reader_instrument))
-                else:
-                    tasks.append(asyncio.sleep(0)) # Dummy task
-
-                results = await asyncio.gather(*tasks)
-                
-                std_reading_val = results[0] if target_tvc in ['STD', 'BOTH'] else None
-                ti_reading_val = results[1] if target_tvc in ['TI', 'BOTH'] else None
+                std_reading_val, ti_reading_val = await self._take_reader_pair(
+                    std_reader_instrument,
+                    ti_reader_instrument,
+                    target_tvc,
+                    reverse_order=bool(pair_index % 2),
+                )
+                pair_index += 1
                 
                 timestamp = time.time()
                 
@@ -1898,8 +1960,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader_instrument = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
-            ti_reader_instrument = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+            std_reader_instrument = await sync_to_async(_open_reader, thread_sensitive=True)(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input")
+            )
+            ti_reader_instrument = await sync_to_async(_open_reader, thread_sensitive=True)(
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
+            )
             
             await self._configure_sources(
                 data.get('test_point'), 
@@ -2007,8 +2073,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+            std_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input")
+            )
+            ti_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
+            )
 
             await self._configure_sources(
                 data.get('test_point'), 
@@ -2154,8 +2224,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
             
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+            std_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input")
+            )
+            ti_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
+            )
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
@@ -2477,8 +2551,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+            std_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input")
+            )
+            ti_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
+            )
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
@@ -2664,8 +2742,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+            std_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input")
+            )
+            ti_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
+            )
 
             await self._configure_sources(
                 test_points_to_run,

@@ -10418,6 +10418,30 @@ body.dark-mode .isp-zero-cal-btn--compact:hover:not(:disabled) svg {
   cursor: not-allowed;
 }
 
+.reader-input-select {
+  min-width: 7.25rem;
+  height: 1.875rem;
+  padding: 0 1.75rem 0 0.625rem;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--input-background);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.reader-input-select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary-color) 42%, transparent);
+  outline-offset: 1px;
+  border-color: var(--primary-color);
+}
+
+.reader-input-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 /* --- Status flags body --- */
 .status-card-body {
   padding: 14px 18px;

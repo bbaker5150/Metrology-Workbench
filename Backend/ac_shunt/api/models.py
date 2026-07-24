@@ -78,6 +78,7 @@ class CalibrationSession(models.Model):
     standard_reader_model = models.CharField(max_length=100, blank=True, null=True)
     standard_reader_serial = models.CharField(max_length=100, blank=True, null=True)
     standard_reader_address = models.CharField(max_length=100, blank=True, null=True)
+    standard_reader_input = models.CharField(max_length=5, blank=True, null=True)
 
     # Test Instrument (The Unit Under Test, e.g., another A40B Shunt)
     test_instrument_model = models.CharField(max_length=100, blank=True, null=True)
@@ -87,6 +88,7 @@ class CalibrationSession(models.Model):
     test_reader_model = models.CharField(max_length=100, blank=True, null=True)
     test_reader_serial = models.CharField(max_length=100, blank=True, null=True)
     test_reader_address = models.CharField(max_length=100, blank=True, null=True)
+    test_reader_input = models.CharField(max_length=5, blank=True, null=True)
     
     # AC/DC Source Addresses
     ac_source_serial = models.CharField(max_length=100, blank=True, null=True)

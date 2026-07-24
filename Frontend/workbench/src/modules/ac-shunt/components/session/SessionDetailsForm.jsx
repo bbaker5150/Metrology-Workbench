@@ -246,12 +246,16 @@ function SessionDetailsForm({
     setStdReaderModel,
     stdReaderSN,
     setStdReaderSN,
+    stdReaderInput,
+    setStdReaderInput,
     tiInstrumentAddress,
     setTiInstrumentAddress,
     tiReaderModel,
     setTiReaderModel,
     tiReaderSN,
     setTiReaderSN,
+    tiReaderInput,
+    setTiReaderInput,
     acSourceAddress,
     setAcSourceAddress,
     acSourceSN,
@@ -437,9 +441,11 @@ function SessionDetailsForm({
       standard_reader_address: stdInstrumentAddress,
       standard_reader_model: stdReaderModel,
       standard_reader_serial: stdReaderSN,
+      standard_reader_input: stdReaderModel === "8508A" ? stdReaderInput : null,
       test_reader_address: tiInstrumentAddress,
       test_reader_model: tiReaderModel,
       test_reader_serial: tiReaderSN,
+      test_reader_input: tiReaderModel === "8508A" ? tiReaderInput : null,
       ac_source_address: acSourceAddress,
       dc_source_address: dcSourceAddress,
       ac_source_serial: acSourceSN,
@@ -469,9 +475,11 @@ function SessionDetailsForm({
       setStdInstrumentAddress(savedSession.standard_reader_address || null);
       setStdReaderModel(savedSession.standard_reader_model || null);
       setStdReaderSN(savedSession.standard_reader_serial || null);
+      setStdReaderInput(savedSession.standard_reader_input || "FRONT");
       setTiInstrumentAddress(savedSession.test_reader_address || null);
       setTiReaderModel(savedSession.test_reader_model || null);
       setTiReaderSN(savedSession.test_reader_serial || null);
+      setTiReaderInput(savedSession.test_reader_input || "REAR");
       setAcSourceAddress(savedSession.ac_source_address || null);
       setAcSourceSN(savedSession.ac_source_serial || null);
       setDcSourceAddress(savedSession.dc_source_address || null);

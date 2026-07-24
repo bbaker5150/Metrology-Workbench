@@ -326,12 +326,55 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'session_name', 'test_instrument_model', 'test_instrument_serial',
             'test_reader_model', 'test_reader_serial', 'test_reader_address', 'standard_instrument_model',
-            'standard_instrument_serial', 'standard_reader_model', 'standard_reader_serial', 'standard_reader_address',
+            'test_reader_input', 'standard_instrument_serial', 'standard_reader_model', 'standard_reader_serial',
+            'standard_reader_address', 'standard_reader_input',
             'ac_source_address', 'dc_source_address', 'ac_source_serial', 'dc_source_serial', 'switch_driver_address',
             'switch_driver_model', 'switch_driver_serial', 'amplifier_address', 'amplifier_serial', 'temperature', 'humidity',
             'created_at', 'notes', 'standard_tvc_serial', 'test_tvc_serial',
             'workstation', 'workstation_id',
         ]
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        instance = self.instance
+
+        def value(name):
+            if name in attrs:
+                return attrs[name]
+            return getattr(instance, name, None) if instance is not None else None
+
+        std_model = value("standard_reader_model")
+        ti_model = value("test_reader_model")
+        std_address = value("standard_reader_address")
+        ti_address = value("test_reader_address")
+        std_input = (value("standard_reader_input") or "FRONT").upper()
+        ti_input = (value("test_reader_input") or "REAR").upper()
+
+        for field, model, terminal in (
+            ("standard_reader_input", std_model, std_input),
+            ("test_reader_input", ti_model, ti_input),
+        ):
+            if model == "8508A":
+                if terminal not in {"FRONT", "REAR"}:
+                    raise serializers.ValidationError({field: "Select FRONT or REAR."})
+                attrs.setdefault(field, terminal)
+
+        if (
+            std_model == "8508A"
+            and ti_model == "8508A"
+            and std_address
+            and std_address == ti_address
+            and std_input == ti_input
+        ):
+            raise serializers.ValidationError(
+                {
+                    "test_reader_input": (
+                        "A single 8508A must use different terminals for the "
+                        "Standard and Test Instrument roles."
+                    )
+                }
+            )
+        return attrs
 
 class CalibrationTVCCorrectionsSerializer(serializers.ModelSerializer):
     Standard = serializers.DictField(required=False)

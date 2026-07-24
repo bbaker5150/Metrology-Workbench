@@ -34,7 +34,7 @@ from .serializers import (
 
 from npsl_tools.instruments import (
     Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, 
-    Instrument34420A, Instrument8100
+    Instrument34420A, Instrument8508A, Instrument8100
 )
 
 
@@ -66,6 +66,7 @@ INSTRUMENT_CLASS_MAP = {
     '5790B': Instrument5790B,
     '3458A': Instrument3458A,
     '34420A': Instrument34420A,
+    '8508A': Instrument8508A,
     '11713C': Instrument11713C,
     '8100': Instrument8100
 }
@@ -351,18 +352,18 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         
         assigned_instruments = [
-            ("Standard Reader", session.standard_reader_model, session.standard_reader_address),
-            ("Test Reader", session.test_reader_model, session.test_reader_address),
-            ("AC Source", "5730A", session.ac_source_address),
-            ("DC Source", "5730A", session.dc_source_address),
-            ("Switch Driver", session.switch_driver_model, session.switch_driver_address),
-            ("Amplifier", "8100", session.amplifier_address),
+            ("Standard Reader", session.standard_reader_model, session.standard_reader_address, session.standard_reader_input),
+            ("Test Reader", session.test_reader_model, session.test_reader_address, session.test_reader_input),
+            ("AC Source", "5730A", session.ac_source_address, None),
+            ("DC Source", "5730A", session.dc_source_address, None),
+            ("Switch Driver", session.switch_driver_model, session.switch_driver_address, None),
+            ("Amplifier", "8100", session.amplifier_address, None),
         ]
 
         initialized = []
         errors = []
 
-        for role, model, address in assigned_instruments:
+        for role, model, address, input_terminal in assigned_instruments:
             if not model or not address:
                 continue
 
@@ -376,6 +377,11 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
                 # Instantiating the class runs its __init__ method, which performs the initialization
                 if instrument_class in [Instrument34420A, Instrument11713C]:
                      instrument = instrument_class(gpib=address)
+                elif instrument_class == Instrument8508A:
+                     instrument = instrument_class(
+                         gpib=address,
+                         input_terminal=input_terminal or "FRONT",
+                     )
                 else:
                      instrument = instrument_class(model=model, gpib=address)
                 
@@ -386,9 +392,13 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
             finally:
                 # Ensure the VISA resource is closed after initialization
                 if instrument:
-                    connection = getattr(instrument, 'resource', None) or getattr(instrument, 'device', None)
-                    if connection and hasattr(connection, 'close'):
-                        connection.close()
+                    close = getattr(instrument, "close", None)
+                    if callable(close):
+                        close()
+                    else:
+                        connection = getattr(instrument, 'resource', None) or getattr(instrument, 'device', None)
+                        if connection and hasattr(connection, 'close'):
+                            connection.close()
         
         if errors:
             return Response(
