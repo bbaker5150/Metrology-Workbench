@@ -173,7 +173,13 @@ def get_instrument_identity(rm, address):
 
 
 def _identify_resources(rm, addresses):
-    """Identify independent VISA resources concurrently, preserving order."""
+    """Identify independent VISA resources concurrently, preserving order.
+
+    VISA aliases that open but do not answer either identity dialect are
+    logged for diagnosis and omitted from the user-facing inventory. The UI
+    therefore reports instruments, not every serial/network resource NI-VISA
+    happens to enumerate.
+    """
     if not addresses:
         return []
 
@@ -197,10 +203,24 @@ def _identify_resources(rm, addresses):
                 # one unexpected driver exception cannot abort the full scan.
                 identities[address] = f"N/A - General Error: {exc}"
 
-    return [
+    discovered = [
         {"address": address, "identity": identities[address]}
         for address in addresses
     ]
+    identified = [
+        instrument
+        for instrument in discovered
+        if instrument["identity"]
+        and not str(instrument["identity"]).lstrip().upper().startswith("N/A")
+    ]
+    unidentified = [
+        instrument
+        for instrument in discovered
+        if instrument not in identified
+    ]
+    if unidentified:
+        print(f"Ignoring unidentified VISA resources: {unidentified}")
+    return identified
 
 
 @api_view(['GET'])

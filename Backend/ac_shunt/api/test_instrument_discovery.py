@@ -75,3 +75,31 @@ class InstrumentDiscoveryTests(SimpleTestCase):
                 for address in addresses
             ],
         )
+
+    def test_unidentified_local_and_remote_resources_are_not_returned(self):
+        addresses = [
+            "GPIB0::4::INSTR",
+            "GPIB0::8::INSTR",
+            "visa://10.206.104.160:3637/ASRL3::INSTR",
+        ]
+        identities = {
+            addresses[0]: "FLUKE,5730A,1234,1.0",
+            addresses[1]: "N/A - VISA I/O Error (Check connection or if in use).",
+            addresses[2]: "N/A - Instrument connected but did not identify.",
+        }
+
+        with patch(
+            "api.views.get_instrument_identity",
+            side_effect=lambda _rm, address: identities[address],
+        ):
+            results = _identify_resources(Mock(), addresses)
+
+        self.assertEqual(
+            results,
+            [
+                {
+                    "address": "GPIB0::4::INSTR",
+                    "identity": "FLUKE,5730A,1234,1.0",
+                }
+            ],
+        )
