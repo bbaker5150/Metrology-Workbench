@@ -1,6 +1,8 @@
 # api/views.py
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import pyvisa
 import socket
+import time
 from django.http import JsonResponse
 from rest_framework.decorators import api_view
 from rest_framework import viewsets, status
@@ -71,8 +73,9 @@ INSTRUMENT_CLASS_MAP = {
 }
 
 
-IDENTITY_OPEN_TIMEOUT_MS = 5_000
-IDENTITY_QUERY_TIMEOUT_MS = 5_000
+IDENTITY_OPEN_TIMEOUT_MS = 3_000
+IDENTITY_QUERY_BUDGET_MS = 5_000
+IDENTITY_MAX_WORKERS = 8
 
 
 def _ordered_unique_resources(resources):
@@ -115,26 +118,27 @@ def get_instrument_identity(rm, address):
     """
     Attempts to identify an instrument by trying a series of common commands.
 
-    Five seconds is intentionally more forgiving than the former 500 ms
-    window.  Real 5730A and 8508A hardware can take longer than half a second
-    to complete a remote open/query even though NI MAX has already enumerated
-    the resource.
+    The two identity dialects share one five-second query budget. This remains
+    much more forgiving than the former 500 ms window without making a
+    nonresponsive resource block for five seconds per command.
     """
     identity_commands = ['*IDN?', 'ID?']
     
     try:
         instrument = rm.open_resource(address, open_timeout=IDENTITY_OPEN_TIMEOUT_MS)
-        instrument.timeout = IDENTITY_QUERY_TIMEOUT_MS
-
-        # A VISA interface clear is useful when a prior client left unread
-        # bytes, but some gateways do not implement it.  Discovery must still
-        # attempt *IDN? when clear is unsupported.
-        try:
-            instrument.clear()
-        except (pyvisa.errors.VisaIOError, AttributeError):
-            pass
+        query_deadline = time.monotonic() + (IDENTITY_QUERY_BUDGET_MS / 1_000)
 
         for command in identity_commands:
+            remaining_ms = int((query_deadline - time.monotonic()) * 1_000)
+            if remaining_ms <= 0:
+                break
+
+            # Reserve roughly half the total budget for the legacy ID? dialect
+            # used by instruments such as the 3458A.
+            instrument.timeout = max(
+                250,
+                min(remaining_ms, IDENTITY_QUERY_BUDGET_MS // 2),
+            )
             try:
                 if command == 'ID?':
                     instrument.read_termination = "\r\n"
@@ -166,6 +170,37 @@ def get_instrument_identity(rm, address):
     finally:
         if 'instrument' in locals() and hasattr(instrument, 'close'):
             instrument.close()
+
+
+def _identify_resources(rm, addresses):
+    """Identify independent VISA resources concurrently, preserving order."""
+    if not addresses:
+        return []
+
+    identities = {}
+    worker_count = min(IDENTITY_MAX_WORKERS, len(addresses))
+    with ThreadPoolExecutor(
+        max_workers=worker_count,
+        thread_name_prefix="visa-discovery",
+    ) as executor:
+        futures = {
+            executor.submit(get_instrument_identity, rm, address): address
+            for address in addresses
+        }
+        for future in as_completed(futures):
+            address = futures[future]
+            try:
+                identities[address] = future.result()
+            except Exception as exc:
+                # get_instrument_identity already converts expected VISA
+                # failures into a diagnostic string. Keep this final guard so
+                # one unexpected driver exception cannot abort the full scan.
+                identities[address] = f"N/A - General Error: {exc}"
+
+    return [
+        {"address": address, "identity": identities[address]}
+        for address in addresses
+    ]
 
 
 @api_view(['GET'])
@@ -210,13 +245,7 @@ def discover_instruments(request):
 
     print(f"De-duplicated instrument addresses: {final_addresses}")
 
-    instrument_list = []
-    for address in final_addresses:
-        identity = get_instrument_identity(rm, address)
-        instrument_list.append({
-            'address': address,
-            'identity': identity
-        })
+    instrument_list = _identify_resources(rm, final_addresses)
 
     response_data = {
         "instruments": instrument_list,

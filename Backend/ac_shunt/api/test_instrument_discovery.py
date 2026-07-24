@@ -1,10 +1,12 @@
-from unittest.mock import Mock
+import threading
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 
 from .views import (
     IDENTITY_OPEN_TIMEOUT_MS,
-    IDENTITY_QUERY_TIMEOUT_MS,
+    IDENTITY_QUERY_BUDGET_MS,
+    _identify_resources,
     _ordered_unique_resources,
     get_instrument_identity,
 )
@@ -41,8 +43,35 @@ class InstrumentDiscoveryTests(SimpleTestCase):
             "GPIB0::4::INSTR",
             open_timeout=IDENTITY_OPEN_TIMEOUT_MS,
         )
-        self.assertEqual(instrument.timeout, IDENTITY_QUERY_TIMEOUT_MS)
+        self.assertGreater(instrument.timeout, 0)
+        self.assertLessEqual(
+            instrument.timeout,
+            IDENTITY_QUERY_BUDGET_MS // 2,
+        )
         self.assertEqual(instrument.read_termination, "\n")
         self.assertEqual(instrument.write_termination, "\n")
         instrument.query.assert_called_once_with("*IDN?")
         instrument.close.assert_called_once()
+
+    def test_resources_are_identified_concurrently_but_returned_in_order(self):
+        addresses = [
+            "GPIB0::4::INSTR",
+            "GPIB0::5::INSTR",
+            "GPIB0::6::INSTR",
+        ]
+        all_workers_started = threading.Barrier(len(addresses))
+
+        def identify(_rm, address):
+            all_workers_started.wait(timeout=1)
+            return f"IDENTITY:{address}"
+
+        with patch("api.views.get_instrument_identity", side_effect=identify):
+            results = _identify_resources(Mock(), addresses)
+
+        self.assertEqual(
+            results,
+            [
+                {"address": address, "identity": f"IDENTITY:{address}"}
+                for address in addresses
+            ],
+        )
