@@ -52,6 +52,8 @@ class _SharedConnection:
     selected_input: InputTerminal | None = None
     measurement_command: str | None = None
     reading_invalidated: bool = True
+    input_switch_pending: bool = False
+    input_switch_delay_s: float = 0.0
 
 
 class Instrument8508A:
@@ -140,6 +142,8 @@ class Instrument8508A:
         self._shared.selected_input = InputTerminal.FRONT
         self._shared.measurement_command = measurement_command
         self._shared.reading_invalidated = True
+        self._shared.input_switch_pending = False
+        self._shared.input_switch_delay_s = 3.25
 
     def initialize_ac_shunt_mode(self) -> None:
         with self._shared.io_lock:
@@ -196,6 +200,7 @@ class Instrument8508A:
             self._shared.device.write("INPUT OFF")
             self._shared.selected_input = None
             self._shared.reading_invalidated = True
+            self._shared.input_switch_pending = False
 
     def set_scan_mode(self, mode: str | ScanMode) -> None:
         selected = mode if isinstance(mode, ScanMode) else ScanMode(str(mode).upper())
@@ -203,6 +208,7 @@ class Instrument8508A:
             self._shared.device.write(f"INPUT {selected.value}")
             self._shared.selected_input = None
             self._shared.reading_invalidated = True
+            self._shared.input_switch_pending = False
 
     def set_trigger_source(self, source: str | TriggerSource) -> None:
         selected = source if isinstance(source, TriggerSource) else TriggerSource(str(source).upper())
@@ -244,6 +250,15 @@ class Instrument8508A:
         ]
         command = f"ACV {','.join(commands)}"
         with self._shared.io_lock:
+            # Table 4-2 distinguishes normal ACV delay from the longer
+            # front/rear scan delay. Because this driver exposes the two
+            # terminals as logical readers, it must reproduce the scan delay
+            # whenever INPUT FRONT/REAR changes.
+            scan_delays = {
+                5: {100: 0.5, 40: 1.25, 10: 5.0, 1: 50.0},
+                6: {100: 1.25, 40: 3.25, 10: 12.5, 1: 125.0},
+            }
+            self._shared.input_switch_delay_s = scan_delays[resolution][filter_hz]
             self._set_measurement_command_unlocked(command)
 
     def configure_dc_voltage(
@@ -267,6 +282,16 @@ class Instrument8508A:
         ]
         command = f"DCV {','.join(commands)}"
         with self._shared.io_lock:
+            # The manual does not publish a separate parenthesized scan delay
+            # for DCV. Use its normal external-trigger delay after a terminal
+            # change (Table 4-2).
+            normal_delays = {
+                5: 0.8 if filter_enabled else 0.08,
+                6: 1.0 if filter_enabled else 0.1,
+                7: 5.0 if filter_enabled else 1.0,
+                8: 10.0 if filter_enabled else 5.0,
+            }
+            self._shared.input_switch_delay_s = normal_delays[resolution]
             self._set_measurement_command_unlocked(command)
 
     def trigger(self) -> None:
@@ -330,6 +355,7 @@ class Instrument8508A:
         self._shared.device.write(f"INPUT {terminal.value}")
         self._shared.selected_input = terminal
         self._shared.reading_invalidated = True
+        self._shared.input_switch_pending = True
 
     def _take_settled_reading_unlocked(self) -> float:
         """Return a fresh reading, purging one conversion after a state change.
@@ -339,6 +365,21 @@ class Instrument8508A:
         8508A input path, autorange, RMS converter, and transfer cycle settle
         before a value can enter the calibration arrays.
         """
+
+        if self._shared.input_switch_pending:
+            # INPUT FRONT/REAR is a physical path change. DELAY DFLT applies
+            # the normal-function delay, not the longer ACV scan delay shown
+            # in Table 4-2. Program the documented scan-equivalent delay for
+            # this one trigger, then restore function defaults.
+            delay = max(0.0, float(self._shared.input_switch_delay_s or 0.0))
+            self._shared.device.write(f"DELAY {delay:g}")
+            try:
+                response = self._shared.device.query("X?").strip()
+            finally:
+                self._shared.device.write("DELAY DFLT")
+            self._shared.input_switch_pending = False
+            self._shared.reading_invalidated = False
+            return self._parse_reading(response)
 
         if self._shared.reading_invalidated:
             # The purge may legitimately be an overload or a value belonging
@@ -357,6 +398,17 @@ class Instrument8508A:
 
     def get_execution_error(self) -> int:
         return int(float(self.query_command("EXQ?")))
+
+    def get_acquisition_profile(self) -> dict[str, object]:
+        """Return the programmed state needed for an auditable lab run."""
+
+        with self._shared.io_lock:
+            return {
+                "measurement_command": self._shared.measurement_command,
+                "trigger_source": TriggerSource.EXTERNAL.value,
+                "input_switch_delay_s": self._shared.input_switch_delay_s,
+                "input_terminal": self.input_terminal.value,
+            }
 
     def close(self) -> None:
         if self._closed:

@@ -16,6 +16,7 @@ class FakeDevice:
         self.current_input = "FRONT"
         self.previous_input = "FRONT"
         self.stale_after_switch = False
+        self.programmed_delay = None
         self.closed = False
         self._guard = threading.Lock()
 
@@ -28,6 +29,9 @@ class FakeDevice:
                     self.previous_input = self.current_input
                     self.current_input = selected
                     self.stale_after_switch = True
+            elif command.startswith("DELAY "):
+                token = command.split()[-1]
+                self.programmed_delay = None if token == "DFLT" else float(token)
 
     def query(self, command):
         with self._guard:
@@ -37,13 +41,14 @@ class FakeDevice:
             if command == "*IDN?":
                 return "FLUKE,8508A,1234,1.0\n"
             if command == "X?":
-                # The first conversion after a relay transition represents
-                # stale data from the prior input. The driver must discard it.
+                # A scan-equivalent delay lets the physical path settle before
+                # the fresh conversion. Without it, emulate stale prior-input
+                # data so the test detects an undersettled switch.
                 time.sleep(0.002)
                 selected = self.current_input
-                if self.stale_after_switch:
+                if self.stale_after_switch and self.programmed_delay is None:
                     selected = self.previous_input
-                    self.stale_after_switch = False
+                self.stale_after_switch = False
                 return "1.0\n" if selected == "FRONT" else "2.0\n"
             return "0\n"
 
@@ -132,9 +137,19 @@ class Instrument8508ATests(unittest.TestCase):
             for kind, command in self.device.commands
             if kind == "query" and command == "X?"
         ]
-        # First FRONT reading is purged after initialization; every physical
-        # FRONT/REAR transition also receives one unsaved purge conversion.
-        self.assertEqual(len(x_queries), 7)
+        # The initial function-state invalidation receives one purge. Each
+        # physical transition then gets one fresh conversion after the
+        # scan-equivalent delay rather than an undersettled purge/save pair.
+        self.assertEqual(len(x_queries), 5)
+        delay_writes = [
+            command
+            for kind, command in self.device.commands
+            if kind == "write" and command.startswith("DELAY ")
+        ]
+        self.assertEqual(
+            delay_writes,
+            ["DELAY 3.25", "DELAY DFLT", "DELAY 3.25", "DELAY DFLT"],
+        )
         front.close()
         rear.close()
 

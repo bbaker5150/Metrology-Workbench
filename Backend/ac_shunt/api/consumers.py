@@ -157,12 +157,33 @@ def _8508_ac_filter_for_frequency(frequency):
     return 100
 
 
-def _configure_8508_for_stage(instrument, is_ac_reading, frequency):
+def _configure_8508_for_stage(
+    instrument,
+    is_ac_reading,
+    frequency,
+    expected_voltage=None,
+):
     """Program the 8508A for the source waveform used by this stage."""
+
+    # A numeric 8508A range argument is the expected signal, not a literal
+    # full-scale range selection. This detail is important at nominal range
+    # boundaries: the manual explicitly states that Nrf=2 selects the 20 V
+    # range because the 2 V range ends at 1.99990000 V.
+    range_setting = (
+        "AUTO"
+        if expected_voltage is None
+        else abs(float(expected_voltage))
+    )
+
+    # Reassert the trigger contract at every stage. X? is documented as
+    # *TRG;RDG?, and controller *TRG is enabled by TRG_SRCE EXT. DELAY DFLT
+    # restores the function/range/filter-specific delay before collection.
+    instrument.set_trigger_source("EXT")
+    instrument.set_settling_delay(None)
 
     if is_ac_reading:
         instrument.configure_ac_voltage(
-            range_setting="AUTO",
+            range_setting=range_setting,
             filter_hz=_8508_ac_filter_for_frequency(frequency),
             resolution=6,
             transfer=True,
@@ -173,7 +194,7 @@ def _configure_8508_for_stage(instrument, is_ac_reading, frequency):
         )
     else:
         instrument.configure_dc_voltage(
-            range_setting="AUTO",
+            range_setting=range_setting,
             resolution=6,
             filter_enabled=True,
             fast=False,
@@ -1024,6 +1045,30 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         if dc_source:
             await sync_to_async(dc_source.set_output, thread_sensitive=True)(voltage=voltage, frequency=0)
 
+    async def _report_source_routing_state(self, session_details):
+        """Make an un-routed dual-source setup visible before acquisition."""
+
+        ac_address = session_details.get("ac_source_address")
+        dc_address = session_details.get("dc_source_address")
+        if (
+            ac_address
+            and dc_address
+            and ac_address != dc_address
+            and not session_details.get("switch_driver_address")
+        ):
+            message = (
+                "Source routing warning: separate AC and DC calibrators are "
+                "assigned, but no switch driver is assigned. Both sources are "
+                "placed in OPERATE and the app cannot reroute them between "
+                "AC/DC stages; verify an independent hardware routing method "
+                "before accepting these readings."
+            )
+            print(f"[SOURCE ROUTING] {message}", flush=True)
+            await self.broadcast(text_data=json.dumps({
+                "type": "status_update",
+                "message": message,
+            }))
+
     async def _activate_sources(self, ac_source=None, dc_source=None):
         if ac_source:
             await sync_to_async(ac_source.set_operate, thread_sensitive=True)()
@@ -1573,7 +1618,35 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await sync_to_async(
                     _configure_8508_for_stage,
                     thread_sensitive=True,
-                )(instrument, is_ac_reading, frequency)
+                )(instrument, is_ac_reading, frequency, abs_source_drive)
+
+        configured_8508 = next(
+            (
+                instrument
+                for instrument in instruments_to_config
+                if isinstance(instrument, Instrument8508A)
+            ),
+            None,
+        )
+        if configured_8508 is not None:
+            profile = await sync_to_async(
+                configured_8508.get_acquisition_profile,
+                thread_sensitive=True,
+            )()
+            std_terminal = getattr(std_reader_instrument, "input_terminal", None)
+            ti_terminal = getattr(ti_reader_instrument, "input_terminal", None)
+            message = (
+                f"8508A profile: {profile['measurement_command']}; "
+                f"trigger {profile['trigger_source']}; "
+                f"terminal-switch settle {profile['input_switch_delay_s']:g}s; "
+                f"Standard={getattr(std_terminal, 'value', std_terminal) or 'N/A'}, "
+                f"TI={getattr(ti_terminal, 'value', ti_terminal) or 'N/A'}."
+            )
+            print(f"[8508A] {reading_type_base}: {message}", flush=True)
+            await self.broadcast(text_data=json.dumps({
+                "type": "status_update",
+                "message": message,
+            }))
 
         # Tell the SOURCE to output the drive voltage
         await sync_to_async(source_instrument.set_output, thread_sensitive=True)(voltage=source_drive_voltage, frequency=frequency)
@@ -1971,6 +2044,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
+            await self._report_source_routing_state(session_details)
             
             std_addr = session_details.get('std_reader_address')
             ti_addr = session_details.get('ti_reader_address')
@@ -2106,6 +2180,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
+            await self._report_source_routing_state(session_details)
 
             std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
             std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')

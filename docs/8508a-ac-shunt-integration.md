@@ -20,6 +20,13 @@ The implementation is based on the supplied Fluke 8508A Users Manual
   `*TRG;RDG?` (page 112).
 - `TRG_SRCE EXT` plus `DELAY DFLT` applies the meter's default settling delay
   to controller-generated readings (pages 111-113).
+- The nominal 2 V ranges end at 1.99990000 V. A numeric expected-signal
+  command of `2` therefore selects the 20 V range rather than the 2 V range
+  (Users Manual pages 89-90 and specification note 15 on page 144).
+- Table 4-2 gives longer ACV delays for front/rear scanning than for normal
+  readings. For example, 10 Hz/RESL6 is 2.5 s normally and 12.5 s while
+  scanning. The driver applies the scan-equivalent delay to each physical
+  FRONT/REAR transition before saving its triggered reading.
 
 ## Acquisition design
 
@@ -32,9 +39,9 @@ one 8508A/01 as:
 3. A TI logical reader bound to the opposite terminal.
 4. One atomic, serialized pair operation:
    - select the first terminal;
-   - issue `X?`;
+   - apply the documented scan-equivalent settling delay and issue `X?`;
    - select the second terminal;
-   - issue `X?`.
+   - apply the documented scan-equivalent settling delay and issue `X?`.
 5. Alternating pair order on successive samples:
    Standard-TI, then TI-Standard.
 
@@ -54,4 +61,3 @@ existing collection and stability pipeline.
   programming-command surface from the manual, while typed helpers cover the
   AC Shunt initialization, function, input, scan, trigger, delay, and reading
   operations.
-
