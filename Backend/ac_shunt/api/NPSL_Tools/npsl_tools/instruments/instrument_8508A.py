@@ -49,6 +49,9 @@ class _SharedConnection:
     ref_count: int = 0
     initialized: bool = False
     has_rear_input: bool | None = None
+    selected_input: InputTerminal | None = None
+    measurement_command: str | None = None
+    reading_invalidated: bool = True
 
 
 class Instrument8508A:
@@ -127,9 +130,16 @@ class Instrument8508A:
         # Explicitly program every required state even though these happen to
         # match the ACV reset defaults. This makes initialization auditable and
         # immune to retained front-panel settings.
-        self._shared.device.write("ACV AUTO,FILT40HZ,RESL6,TFER_ON,TWO_WR")
+        measurement_command = "ACV AUTO,FILT40HZ,RESL6,TFER_ON,TWO_WR"
+        self._shared.device.write(measurement_command)
         self._shared.device.write("TRG_SRCE EXT")
         self._shared.device.write("DELAY DFLT")
+        # *RST selects FRONT. The first conversion is deliberately discarded
+        # because a reset/function change invalidates any previously completed
+        # conversion in the meter's reading store.
+        self._shared.selected_input = InputTerminal.FRONT
+        self._shared.measurement_command = measurement_command
+        self._shared.reading_invalidated = True
 
     def initialize_ac_shunt_mode(self) -> None:
         with self._shared.io_lock:
@@ -178,15 +188,21 @@ class Instrument8508A:
         selected = self._coerce_terminal(terminal)
         with self._shared.io_lock:
             self._validate_terminal_unlocked(selected)
-            self._shared.device.write(f"INPUT {selected.value}")
+            self._select_input_unlocked(selected)
             self.input_terminal = selected
 
     def input_off(self) -> None:
-        self.write_command("INPUT OFF")
+        with self._shared.io_lock:
+            self._shared.device.write("INPUT OFF")
+            self._shared.selected_input = None
+            self._shared.reading_invalidated = True
 
     def set_scan_mode(self, mode: str | ScanMode) -> None:
         selected = mode if isinstance(mode, ScanMode) else ScanMode(str(mode).upper())
-        self.write_command(f"INPUT {selected.value}")
+        with self._shared.io_lock:
+            self._shared.device.write(f"INPUT {selected.value}")
+            self._shared.selected_input = None
+            self._shared.reading_invalidated = True
 
     def set_trigger_source(self, source: str | TriggerSource) -> None:
         selected = source if isinstance(source, TriggerSource) else TriggerSource(str(source).upper())
@@ -226,7 +242,9 @@ class Instrument8508A:
             "DCCP" if dc_coupled else "ACCP",
             "SPOT_ON" if spot_correction else "SPOT_OFF",
         ]
-        self.write_command(f"ACV {','.join(commands)}")
+        command = f"ACV {','.join(commands)}"
+        with self._shared.io_lock:
+            self._set_measurement_command_unlocked(command)
 
     def configure_dc_voltage(
         self,
@@ -247,7 +265,9 @@ class Instrument8508A:
             "FAST_ON" if fast else "FAST_OFF",
             "TWO_WR" if two_wire else "FOUR_WR",
         ]
-        self.write_command(f"DCV {','.join(commands)}")
+        command = f"DCV {','.join(commands)}"
+        with self._shared.io_lock:
+            self._set_measurement_command_unlocked(command)
 
     def trigger(self) -> None:
         self.write_command("*TRG")
@@ -265,9 +285,8 @@ class Instrument8508A:
 
         with self._shared.io_lock:
             self._validate_terminal_unlocked(self.input_terminal)
-            self._shared.device.write(f"INPUT {self.input_terminal.value}")
-            response = self._shared.device.query("X?").strip()
-            return self._parse_reading(response)
+            self._select_input_unlocked(self.input_terminal)
+            return self._take_settled_reading_unlocked()
 
     def read_pair(
         self,
@@ -290,10 +309,44 @@ class Instrument8508A:
         with self._shared.io_lock:
             for reader in ordered:
                 self._validate_terminal_unlocked(reader.input_terminal)
-                self._shared.device.write(f"INPUT {reader.input_terminal.value}")
-                response = self._shared.device.query("X?").strip()
-                values[id(reader)] = self._parse_reading(response)
+                self._select_input_unlocked(reader.input_terminal)
+                values[id(reader)] = self._take_settled_reading_unlocked()
         return values[id(self)], values[id(other)]
+
+    def _set_measurement_command_unlocked(self, command: str) -> None:
+        """Apply a function/profile only when it actually changed."""
+
+        if self._shared.measurement_command == command:
+            return
+        self._shared.device.write(command)
+        self._shared.measurement_command = command
+        self._shared.reading_invalidated = True
+
+    def _select_input_unlocked(self, terminal: InputTerminal) -> None:
+        """Select a terminal once and invalidate the first conversion."""
+
+        if self._shared.selected_input is terminal:
+            return
+        self._shared.device.write(f"INPUT {terminal.value}")
+        self._shared.selected_input = terminal
+        self._shared.reading_invalidated = True
+
+    def _take_settled_reading_unlocked(self) -> float:
+        """Return a fresh reading, purging one conversion after a state change.
+
+        ``X?`` performs ``*TRG;RDG?`` and honors the programmed/default delay.
+        The unsaved conversion after a relay or function transition lets the
+        8508A input path, autorange, RMS converter, and transfer cycle settle
+        before a value can enter the calibration arrays.
+        """
+
+        if self._shared.reading_invalidated:
+            # The purge may legitimately be an overload or a value belonging
+            # to the previously selected input, so only require successful
+            # bus completion here. Validation applies to the saved conversion.
+            self._shared.device.query("X?")
+            self._shared.reading_invalidated = False
+        return self._parse_reading(self._shared.device.query("X?").strip())
 
     @classmethod
     def _parse_reading(cls, response: str) -> float:

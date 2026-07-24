@@ -14,6 +14,8 @@ class FakeDevice:
         self.write_termination = None
         self.commands = []
         self.current_input = "FRONT"
+        self.previous_input = "FRONT"
+        self.stale_after_switch = False
         self.closed = False
         self._guard = threading.Lock()
 
@@ -21,7 +23,11 @@ class FakeDevice:
         with self._guard:
             self.commands.append(("write", command))
             if command.startswith("INPUT "):
-                self.current_input = command.split()[-1]
+                selected = command.split()[-1]
+                if selected in ("FRONT", "REAR") and selected != self.current_input:
+                    self.previous_input = self.current_input
+                    self.current_input = selected
+                    self.stale_after_switch = True
 
     def query(self, command):
         with self._guard:
@@ -31,10 +37,14 @@ class FakeDevice:
             if command == "*IDN?":
                 return "FLUKE,8508A,1234,1.0\n"
             if command == "X?":
-                # Increase the chance that an unlocked implementation switches
-                # the terminal between INPUT and X?.
+                # The first conversion after a relay transition represents
+                # stale data from the prior input. The driver must discard it.
                 time.sleep(0.002)
-                return "1.0\n" if self.current_input == "FRONT" else "2.0\n"
+                selected = self.current_input
+                if self.stale_after_switch:
+                    selected = self.previous_input
+                    self.stale_after_switch = False
+                return "1.0\n" if selected == "FRONT" else "2.0\n"
             return "0\n"
 
     def close(self):
@@ -115,10 +125,33 @@ class Instrument8508ATests(unittest.TestCase):
         ]
         self.assertEqual(
             input_writes,
-            ["INPUT FRONT", "INPUT REAR", "INPUT REAR", "INPUT FRONT"],
+            ["INPUT REAR", "INPUT FRONT"],
         )
+        x_queries = [
+            command
+            for kind, command in self.device.commands
+            if kind == "query" and command == "X?"
+        ]
+        # First FRONT reading is purged after initialization; every physical
+        # FRONT/REAR transition also receives one unsaved purge conversion.
+        self.assertEqual(len(x_queries), 7)
         front.close()
         rear.close()
+
+    def test_function_change_purges_before_returning_a_saved_reading(self):
+        front = Instrument8508A("GPIB0::8::INSTR", "FRONT")
+        self.device.commands.clear()
+
+        front.configure_dc_voltage()
+        self.assertEqual(front.read_instrument(), 1.0)
+
+        commands = self.device.commands
+        self.assertEqual(commands[0], ("write", "DCV AUTO,FILT_ON,RESL6,FAST_OFF,TWO_WR"))
+        self.assertEqual(
+            [entry for entry in commands if entry == ("query", "X?")],
+            [("query", "X?"), ("query", "X?")],
+        )
+        front.close()
 
     def test_rear_input_requires_8508a_01_option(self):
         original_query = self.device.query

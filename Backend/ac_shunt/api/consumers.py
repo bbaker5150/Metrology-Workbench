@@ -143,6 +143,44 @@ def _open_reader(reader_class, model, address, input_terminal=None):
         )
     return _inst(reader_class, model=model, gpib=address)
 
+
+def _8508_ac_filter_for_frequency(frequency):
+    """Choose the highest 8508A RMS filter that supports the test frequency."""
+
+    frequency = abs(float(frequency or 0))
+    if frequency <= 1:
+        return 1
+    if frequency <= 10:
+        return 10
+    if frequency < 100:
+        return 40
+    return 100
+
+
+def _configure_8508_for_stage(instrument, is_ac_reading, frequency):
+    """Program the 8508A for the source waveform used by this stage."""
+
+    if is_ac_reading:
+        instrument.configure_ac_voltage(
+            range_setting="AUTO",
+            filter_hz=_8508_ac_filter_for_frequency(frequency),
+            resolution=6,
+            transfer=True,
+            two_wire=True,
+            # The 8508A manual requires DC coupling below 40 Hz.
+            dc_coupled=0 < float(frequency or 0) < 40,
+            spot_correction=False,
+        )
+    else:
+        instrument.configure_dc_voltage(
+            range_setting="AUTO",
+            resolution=6,
+            filter_enabled=True,
+            fast=False,
+            two_wire=True,
+        )
+
+
 class InstrumentStatusConsumer(AsyncWebsocketConsumer):
     instrument_instance = None
     instrument_class = None
@@ -1527,6 +1565,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await sync_to_async(instrument.configure_measurement, thread_sensitive=True)(
                     **{'function': 'ACV' if is_ac_reading else 'DCV', 'expected_value': abs_source_drive, 'frequency': frequency}
                 )
+
+            elif isinstance(instrument, Instrument8508A):
+                # One physical 8508A may appear here as two logical readers.
+                # The shared driver suppresses the duplicate configuration
+                # command while preserving the Standard/TI terminal bindings.
+                await sync_to_async(
+                    _configure_8508_for_stage,
+                    thread_sensitive=True,
+                )(instrument, is_ac_reading, frequency)
 
         # Tell the SOURCE to output the drive voltage
         await sync_to_async(source_instrument.set_output, thread_sensitive=True)(voltage=source_drive_voltage, frequency=frequency)
