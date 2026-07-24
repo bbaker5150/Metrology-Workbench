@@ -1,6 +1,5 @@
 # api/views.py
 import pyvisa
-import re
 import socket
 from django.http import JsonResponse
 from rest_framework.decorators import api_view
@@ -71,16 +70,69 @@ INSTRUMENT_CLASS_MAP = {
     '8100': Instrument8100
 }
 
+
+IDENTITY_OPEN_TIMEOUT_MS = 5_000
+IDENTITY_QUERY_TIMEOUT_MS = 5_000
+
+
+def _ordered_unique_resources(resources):
+    """Return every VISA resource once without hiding local instruments.
+
+    NI-VISA may expose a mixture of local resources (for example
+    ``GPIB0::4::INSTR``) and remote-server resources
+    (``visa://host/GPIB0::4::INSTR``).  The previous discovery code treated
+    those groups as mutually exclusive: the presence of any remote resource
+    caused every local resource to be discarded.  That made instruments
+    visible in NI MAX disappear from the workbench scan.
+
+    Exact duplicate strings are removed case-insensitively.  Local and remote
+    addresses are otherwise retained because the same GPIB bus/address on two
+    workstations represents two different physical instruments.
+    """
+    seen = set()
+    unique = []
+    for resource in resources or ():
+        address = str(resource).strip()
+        if not address:
+            continue
+        key = address.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(address)
+
+    # Keep the result deterministic while presenting local resources first.
+    return sorted(
+        unique,
+        key=lambda address: (
+            address.casefold().startswith("visa://"),
+            address.casefold(),
+        ),
+    )
+
+
 def get_instrument_identity(rm, address):
     """
     Attempts to identify an instrument by trying a series of common commands.
+
+    Five seconds is intentionally more forgiving than the former 500 ms
+    window.  Real 5730A and 8508A hardware can take longer than half a second
+    to complete a remote open/query even though NI MAX has already enumerated
+    the resource.
     """
     identity_commands = ['*IDN?', 'ID?']
     
     try:
-        instrument = rm.open_resource(address, open_timeout=500)
-        instrument.timeout = 500
-        instrument.clear() # Clear buffer before sending commands
+        instrument = rm.open_resource(address, open_timeout=IDENTITY_OPEN_TIMEOUT_MS)
+        instrument.timeout = IDENTITY_QUERY_TIMEOUT_MS
+
+        # A VISA interface clear is useful when a prior client left unread
+        # bytes, but some gateways do not implement it.  Discovery must still
+        # attempt *IDN? when clear is unsupported.
+        try:
+            instrument.clear()
+        except (pyvisa.errors.VisaIOError, AttributeError):
+            pass
 
         for command in identity_commands:
             try:
@@ -88,6 +140,7 @@ def get_instrument_identity(rm, address):
                     instrument.read_termination = "\r\n"
                 else:
                     instrument.read_termination = "\n"
+                instrument.write_termination = "\n"
 
                 identity = instrument.query(command).strip()
 
@@ -150,41 +203,12 @@ def discover_instruments(request):
         print(f"Error initializing VISA resource manager: {e}")
         return JsonResponse({'error': 'Could not initialize VISA resource manager.', 'details': str(e)}, status=500)
 
-    # --- Robust De-duplication Logic ---
-    visa_network_resources = []
-    local_resources = []
+    # Keep both local and remote VISA resources. They are not interchangeable:
+    # a remote resource on one workstation and a local resource with the same
+    # GPIB address may be two different instruments.
+    final_addresses = _ordered_unique_resources(resources)
 
-    for address in resources:
-        if 'visa://' in address.lower():
-            visa_network_resources.append(address)
-        else:
-            local_resources.append(address)
-
-    final_addresses = []
-    instrument_map = {}
-
-    if visa_network_resources:
-        print("Network instruments found. Prioritizing VISA network addresses.")
-        for address in visa_network_resources:
-            ip_match = re.search(r'visa:\/\/([0-9.]+)(:[0-9]+)?', address)
-            core_match = re.search(r'GPIB\d*::\d+::INSTR', address)
-            
-            if ip_match and core_match:
-                ip = ip_match.group(1)
-                core_address = core_match.group(0)
-                unique_key = f"{ip}-{core_address}"
-                instrument_map[unique_key] = address
-
-        final_addresses = sorted(list(instrument_map.values()))
-    else:
-        print("No network instruments found. Falling back to local addresses.")
-        local_map = {}
-        for address in local_resources:
-            core_match = re.search(r'GPIB\d*::\d+::INSTR', address)
-            local_map[core_match] = address
-        final_addresses = sorted(list(local_map.values()))
-
-    print(f"De-duplicated, prioritized instrument addresses: {final_addresses}")
+    print(f"De-duplicated instrument addresses: {final_addresses}")
 
     instrument_list = []
     for address in final_addresses:
