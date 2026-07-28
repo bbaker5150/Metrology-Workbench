@@ -435,7 +435,9 @@ function AppContent() {
     roleDowngradeNotice,
     clearRoleDowngradeNotice,
     pairedRun,
-    timerState
+    timerState,
+    stdReaderModel,
+    tiReaderModel,
   } = useInstruments();
 
   const isBulkRunning = bulkRunProgress && bulkRunProgress.total > 0;
@@ -821,6 +823,7 @@ function AppContent() {
     if (!isCollecting || !activeCollectionDetails) return null;
 
     let tpSettings = {};
+    let activeFrequency = activeCollectionDetails.frequency ?? null;
     if (activeCollectionDetails.tpId && uniqueTestPoints) {
       const tp = uniqueTestPoints.find(p =>
         String(p.forward?.id) === String(activeCollectionDetails.tpId) ||
@@ -828,7 +831,9 @@ function AppContent() {
       );
       if (tp) {
         const isReverse = String(tp.reverse?.id) === String(activeCollectionDetails.tpId);
-        tpSettings = (isReverse ? tp.reverse?.settings : tp.forward?.settings) || {};
+        const activePoint = isReverse ? tp.reverse : tp.forward;
+        tpSettings = activePoint?.settings || {};
+        activeFrequency = activePoint?.frequency ?? activeFrequency;
       }
     }
 
@@ -840,6 +845,7 @@ function AppContent() {
       initial_warm_up_time: activeCollectionDetails.initial_warm_up_time ?? tpSettings.initial_warm_up_time ?? calibrationConfigs?.initial_warm_up_time ?? 0,
       settling_time: activeCollectionDetails.settling_time ?? tpSettings.settling_time ?? calibrationConfigs?.settling_time ?? 120,
       n_cycles: activeCollectionDetails.n_cycles ?? tpSettings.n_cycles ?? calibrationConfigs?.n_cycles ?? 3,
+      frequency: activeFrequency,
       use_char_minus_readings: activeCollectionDetails.use_char_minus_readings ?? tpSettings.use_char_minus_readings ?? calibrationConfigs?.use_char_minus_readings ?? false,
       use_char_plus2_readings: activeCollectionDetails.use_char_plus2_readings ?? tpSettings.use_char_plus2_readings ?? calibrationConfigs?.use_char_plus2_readings ?? false
     };
@@ -852,7 +858,8 @@ function AppContent() {
     bulkRunProgress,
     calibrationSettings: activeSettings,
     selectedTPCount: selectedTPs.size,
-    pairedRun
+    pairedRun,
+    readerModels: [stdReaderModel, tiReaderModel],
   });
 
   const handleDragEnd = (event) => {

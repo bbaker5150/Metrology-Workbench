@@ -5,19 +5,33 @@ export default function useCalibrationETA({
   isBulkRunning,
   bulkRunProgress,
   calibrationSettings,
-  selectedTPCount
+  selectedTPCount,
+  readerModels = [],
 }) {
   return useMemo(() => {
     if (!isCollecting || !calibrationSettings) return null;
 
+    const normalizedModels = readerModels
+      .filter(Boolean)
+      .map((model) => String(model).toUpperCase());
+    const has8508 = normalizedModels.some((model) => model.includes('8508'));
+    const has34420 = normalizedModels.some((model) => model.includes('34420'));
     const nplc = parseFloat(calibrationSettings.nplc) || 10;
     const numSamples = parseInt(calibrationSettings.num_samples, 10) || 10;
     let warmup = parseFloat(calibrationSettings.initial_warm_up_time) || 0;
     const settling = parseFloat(calibrationSettings.settling_time) || 0;
     const nCycles = parseInt(calibrationSettings.n_cycles, 10) || 1;
 
-    // Assuming 60Hz power line. 
-    const timePerSample = (nplc / 60) + 0.12; 
+    // 34420A integration is specified in power-line cycles. The 8508A has no
+    // NPLC control in this workflow. It remains in filtered RESL6 DCV while
+    // reading both TVC outputs, so its conversion and terminal-switch timing
+    // are independent of the upstream source frequency.
+    let timePerSample = (nplc / 60) + 0.12;
+    if (has8508 && !has34420) {
+      const terminalCount = 2;
+      const dcTerminalDelay = 1.0;
+      timePerSample = (terminalCount * dcTerminalDelay) + 0.24;
+    }
     const samplingTimePerStage = timePerSample * numSamples;
     const timePerStage = settling + samplingTimePerStage;
 
@@ -71,5 +85,5 @@ export default function useCalibrationETA({
       targetDate: completionDate
     };
 
-  }, [isCollecting, isBulkRunning, bulkRunProgress, calibrationSettings, selectedTPCount]);
+  }, [isCollecting, isBulkRunning, bulkRunProgress, calibrationSettings, selectedTPCount, readerModels]);
 }

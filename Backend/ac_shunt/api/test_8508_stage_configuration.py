@@ -2,47 +2,48 @@ from unittest.mock import Mock
 
 from django.test import SimpleTestCase
 
-from .consumers import (
-    _8508_ac_filter_for_frequency,
-    _configure_8508_for_stage,
-)
+from .consumers import _configure_8508_for_tvc_output
 
 
 class Instrument8508AStageConfigurationTests(SimpleTestCase):
-    def test_filter_tracks_low_frequency_test_point(self):
-        self.assertEqual(_8508_ac_filter_for_frequency(0.5), 1)
-        self.assertEqual(_8508_ac_filter_for_frequency(10), 10)
-        self.assertEqual(_8508_ac_filter_for_frequency(40), 40)
-        self.assertEqual(_8508_ac_filter_for_frequency(60), 40)
-        self.assertEqual(_8508_ac_filter_for_frequency(1000), 100)
+    def test_standard_current_and_amplifier_ranges_never_exceed_two_volts(self):
+        currents = (
+            0.001, 0.002, 0.0033, 0.005, 0.01, 0.02, 0.033, 0.05,
+            0.1, 0.2, 0.33, 0.5, 1.0, 1.09, 2.0, 3.0, 5.0, 6.9,
+            10.0, 18.0, 20.0, 50.0, 100.0,
+        )
+        amplifier_ranges = (0.002, 0.02, 0.2, 2.0, 20.0, 100.0)
 
-    def test_ac_stage_uses_transfer_mode_and_dc_coupling_below_40_hz(self):
+        for current in currents:
+            amplifier_range = next(value for value in amplifier_ranges if current <= value)
+            source_drive = (current / amplifier_range) * 2.0
+            with self.subTest(current=current, amplifier_range=amplifier_range):
+                self.assertGreater(source_drive, 0.0)
+                self.assertLessEqual(source_drive, 2.0)
+
+    def test_default_profile_reads_low_level_tvc_output_in_dcv(self):
         instrument = Mock()
 
-        _configure_8508_for_stage(instrument, True, 10, 2.0)
+        _configure_8508_for_tvc_output(instrument)
 
-        instrument.configure_ac_voltage.assert_called_once_with(
-            # Per the manual, Nrf=2 selects the 20 V range because 2.000 V
-            # exceeds the 2 V range's 1.99990000 V maximum.
-            range_setting=2.0,
-            filter_hz=10,
+        instrument.configure_dc_voltage.assert_called_once_with(
+            range_setting=0.01,
             resolution=6,
-            transfer=True,
+            filter_enabled=True,
+            fast=False,
             two_wire=True,
-            dc_coupled=True,
-            spot_correction=False,
         )
         instrument.set_trigger_source.assert_called_once_with("EXT")
         instrument.set_settling_delay.assert_called_once_with(None)
-        instrument.configure_dc_voltage.assert_not_called()
+        instrument.configure_ac_voltage.assert_not_called()
 
-    def test_dc_stage_changes_meter_to_dcv(self):
+    def test_expected_tvc_output_selects_the_fixed_dcv_range(self):
         instrument = Mock()
 
-        _configure_8508_for_stage(instrument, False, 0)
+        _configure_8508_for_tvc_output(instrument, 0.025)
 
         instrument.configure_dc_voltage.assert_called_once_with(
-            range_setting="AUTO",
+            range_setting=0.025,
             resolution=6,
             filter_enabled=True,
             fast=False,
@@ -50,13 +51,13 @@ class Instrument8508AStageConfigurationTests(SimpleTestCase):
         )
         instrument.configure_ac_voltage.assert_not_called()
 
-    def test_dc_stage_uses_fixed_expected_signal_range_when_available(self):
+    def test_none_expected_output_is_the_only_autorange_request(self):
         instrument = Mock()
 
-        _configure_8508_for_stage(instrument, False, 0, 2.0)
+        _configure_8508_for_tvc_output(instrument, None)
 
         instrument.configure_dc_voltage.assert_called_once_with(
-            range_setting=2.0,
+            range_setting="AUTO",
             resolution=6,
             filter_enabled=True,
             fast=False,

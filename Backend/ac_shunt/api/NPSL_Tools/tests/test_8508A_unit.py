@@ -85,7 +85,7 @@ class Instrument8508ATests(unittest.TestCase):
         self.patch.stop()
         Instrument8508A._connections.clear()
 
-    def test_initialization_explicitly_sets_required_acv_configuration(self):
+    def test_initialization_explicitly_sets_tvc_output_dcv_configuration(self):
         instrument = Instrument8508A("GPIB0::8::INSTR")
         writes = [command for kind, command in self.device.commands if kind == "write"]
         self.assertEqual(
@@ -93,7 +93,7 @@ class Instrument8508ATests(unittest.TestCase):
             [
                 "*RST",
                 "*CLS",
-                "ACV AUTO,FILT40HZ,RESL6,TFER_ON,TWO_WR",
+                "DCV 0.01,FILT_ON,RESL6,FAST_OFF,TWO_WR",
                 "TRG_SRCE EXT",
                 "DELAY DFLT",
             ],
@@ -148,7 +148,7 @@ class Instrument8508ATests(unittest.TestCase):
         ]
         self.assertEqual(
             delay_writes,
-            ["DELAY 3.25", "DELAY DFLT", "DELAY 3.25", "DELAY DFLT"],
+            ["DELAY 1", "DELAY DFLT", "DELAY 1", "DELAY DFLT"],
         )
         front.close()
         rear.close()

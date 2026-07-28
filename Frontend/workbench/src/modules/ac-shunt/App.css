@@ -6349,6 +6349,19 @@ body.dark-mode .corrections-card-select:focus-visible {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.settings-readonly-value {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--input-background) 78%, transparent);
+  color: var(--text-color-muted);
+  font-size: 0.84rem;
+  line-height: 1.3;
+}
+
 .session-details-form .form-section textarea {
   min-height: 110px;
   resize: vertical;

@@ -65,6 +65,7 @@ class Instrument8508A:
     """
 
     DEFAULT_TIMEOUT_MS = 120_000
+    DEFAULT_TVC_OUTPUT_V = 0.01
     OVERLOAD_SENTINEL = 200.0e33
 
     _connections: ClassVar[dict[str, _SharedConnection]] = {}
@@ -129,10 +130,13 @@ class Instrument8508A:
         return self._shared.device
 
     def _initialize_ac_shunt_mode_unlocked(self) -> None:
-        # Explicitly program every required state even though these happen to
-        # match the ACV reset defaults. This makes initialization auditable and
-        # immune to retained front-panel settings.
-        measurement_command = "ACV AUTO,FILT40HZ,RESL6,TFER_ON,TWO_WR"
+        # The 8508A is connected after the thermal converters, so every
+        # AC-open/DC+/DC-/AC-close stage is observed as a low-level DC voltage.
+        # Program the anticipated 10 mV signal explicitly; Nrf=0.01 selects the
+        # fixed 200 mV DCV range and avoids autorange movement within a cycle.
+        measurement_command = (
+            f"DCV {self.DEFAULT_TVC_OUTPUT_V:g},FILT_ON,RESL6,FAST_OFF,TWO_WR"
+        )
         self._shared.device.write(measurement_command)
         self._shared.device.write("TRG_SRCE EXT")
         self._shared.device.write("DELAY DFLT")
@@ -143,7 +147,7 @@ class Instrument8508A:
         self._shared.measurement_command = measurement_command
         self._shared.reading_invalidated = True
         self._shared.input_switch_pending = False
-        self._shared.input_switch_delay_s = 3.25
+        self._shared.input_switch_delay_s = 1.0
 
     def initialize_ac_shunt_mode(self) -> None:
         with self._shared.io_lock:
@@ -362,8 +366,8 @@ class Instrument8508A:
 
         ``X?`` performs ``*TRG;RDG?`` and honors the programmed/default delay.
         The unsaved conversion after a relay or function transition lets the
-        8508A input path, autorange, RMS converter, and transfer cycle settle
-        before a value can enter the calibration arrays.
+        8508A input path, DC filter, and converter settle before a value can
+        enter the calibration arrays.
         """
 
         if self._shared.input_switch_pending:

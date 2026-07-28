@@ -144,31 +144,22 @@ def _open_reader(reader_class, model, address, input_terminal=None):
     return _inst(reader_class, model=model, gpib=address)
 
 
-def _8508_ac_filter_for_frequency(frequency):
-    """Choose the highest 8508A RMS filter that supports the test frequency."""
-
-    frequency = abs(float(frequency or 0))
-    if frequency <= 1:
-        return 1
-    if frequency <= 10:
-        return 10
-    if frequency < 100:
-        return 40
-    return 100
-
-
-def _configure_8508_for_stage(
+def _configure_8508_for_tvc_output(
     instrument,
-    is_ac_reading,
-    frequency,
-    expected_voltage=None,
+    expected_voltage=0.01,
 ):
-    """Program the 8508A for the source waveform used by this stage."""
+    """Program the 8508A to read a thermal converter's DC output.
 
-    # A numeric 8508A range argument is the expected signal, not a literal
-    # full-scale range selection. This detail is important at nominal range
-    # boundaries: the manual explicitly states that Nrf=2 selects the 20 V
-    # range because the 2 V range ends at 1.99990000 V.
+    AC-open, DC+, DC-, and AC-close describe the waveform applied upstream
+    through the switch/8100/shunt chain.  A TVC produces a low-level DC output
+    for every one of those stages, so the reader must remain in DCV throughout
+    the sequence.  ``expected_voltage`` is the anticipated TVC output (10 mV
+    by default), not the 5730/8100 drive voltage.
+    """
+
+    # A numeric 8508A Nrf argument is the expected signal and selects the
+    # corresponding fixed range.  A nominal 10 mV TVC output therefore selects
+    # the 200 mV DCV range and avoids autorange transitions during a cycle.
     range_setting = (
         "AUTO"
         if expected_voltage is None
@@ -181,25 +172,13 @@ def _configure_8508_for_stage(
     instrument.set_trigger_source("EXT")
     instrument.set_settling_delay(None)
 
-    if is_ac_reading:
-        instrument.configure_ac_voltage(
-            range_setting=range_setting,
-            filter_hz=_8508_ac_filter_for_frequency(frequency),
-            resolution=6,
-            transfer=True,
-            two_wire=True,
-            # The 8508A manual requires DC coupling below 40 Hz.
-            dc_coupled=0 < float(frequency or 0) < 40,
-            spot_correction=False,
-        )
-    else:
-        instrument.configure_dc_voltage(
-            range_setting=range_setting,
-            resolution=6,
-            filter_enabled=True,
-            fast=False,
-            two_wire=True,
-        )
+    instrument.configure_dc_voltage(
+        range_setting=range_setting,
+        resolution=6,
+        filter_enabled=True,
+        fast=False,
+        two_wire=True,
+    )
 
 
 class InstrumentStatusConsumer(AsyncWebsocketConsumer):
@@ -1559,23 +1538,33 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         frequency = float(test_point_data.get('frequency', 0)) if is_ac_reading else 0
         ignore_after_lock = measurement_params.get('ignore_instability_after_lock', False)
 
-        # --- Low Frequency AC Detection ---
-        is_lf_ac = self._is_low_frequency_ac(reading_type_base, test_point_data)
-        lf_settings_enabled = bool(measurement_params.get('enable_low_frequency_settings', False))
-        effective_lf_ac = is_lf_ac and lf_settings_enabled
-        enable_11hz_filter = effective_lf_ac and bool(measurement_params.get('enable_11hz_filter', False))
-        hp_enabled = effective_lf_ac and bool(measurement_params.get('lf_harmonic_projection', False))
-
-        # --- 2. Determine Expected TVC Output Voltage ---
-        # Used strictly for the 34420A on the real workbench to safely engage the analog filter
-        expected_tvc_output_v = float(test_point_data.get('expected_tvc_output_mv', 10.0)) / 1000.0
-
         # Instrument Configuration (Standard and TI) - Targeted Isolation
         instruments_to_config = []
         if target_tvc in ['STD', 'BOTH'] and std_reader_instrument:
             instruments_to_config.append(std_reader_instrument)
         if target_tvc in ['TI', 'BOTH'] and ti_reader_instrument:
             instruments_to_config.append(ti_reader_instrument)
+
+        # --- Low Frequency AC Detection ---
+        # The harmonic-projection implementation currently timestamps samples
+        # using the operator-selected 34420A NPLC aperture.  The 8508A also
+        # observes the TVC's DC output, but its RESL/FAST integration contract
+        # is different; keep it on the normal collection path until that model
+        # has a dedicated timestamp aperture rather than silently applying the
+        # wrong 34420A timing.
+        uses_only_34420_readers = bool(instruments_to_config) and all(
+            isinstance(instrument, Instrument34420A)
+            for instrument in instruments_to_config
+        )
+        is_lf_ac = self._is_low_frequency_ac(reading_type_base, test_point_data)
+        lf_settings_enabled = bool(measurement_params.get('enable_low_frequency_settings', False))
+        effective_lf_ac = is_lf_ac and lf_settings_enabled and uses_only_34420_readers
+        enable_11hz_filter = effective_lf_ac and bool(measurement_params.get('enable_11hz_filter', False))
+        hp_enabled = effective_lf_ac and bool(measurement_params.get('lf_harmonic_projection', False))
+
+        # --- 2. Determine Expected TVC Output Voltage ---
+        # Used strictly for the 34420A on the real workbench to safely engage the analog filter
+        expected_tvc_output_v = float(test_point_data.get('expected_tvc_output_mv', 10.0)) / 1000.0
 
         for instrument in instruments_to_config:
             if isinstance(instrument, Instrument34420A) and nplc_setting is not None:
@@ -1612,13 +1601,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 )
 
             elif isinstance(instrument, Instrument8508A):
-                # One physical 8508A may appear here as two logical readers.
-                # The shared driver suppresses the duplicate configuration
-                # command while preserving the Standard/TI terminal bindings.
+                # One physical 8508A replaces the two 34420As at the TVC
+                # outputs. Both logical readers share this DCV configuration;
+                # only their FRONT/REAR terminal bindings differ.
                 await sync_to_async(
-                    _configure_8508_for_stage,
+                    _configure_8508_for_tvc_output,
                     thread_sensitive=True,
-                )(instrument, is_ac_reading, frequency, abs_source_drive)
+                )(instrument, expected_tvc_output_v)
 
         configured_8508 = next(
             (

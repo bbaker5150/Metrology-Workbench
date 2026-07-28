@@ -409,6 +409,15 @@ function Calibration({
     hostSessionKnown,
   } = useInstruments();
   const { theme } = useTheme();
+  const normalizedReaderModels = [stdReaderModel, tiReaderModel]
+    .filter(Boolean)
+    .map((model) => String(model).toUpperCase());
+  const has34420Reader = normalizedReaderModels.some((model) =>
+    model.includes("34420")
+  );
+  const has8508Reader = normalizedReaderModels.some((model) =>
+    model.includes("8508")
+  );
 
   const [activeTab, setActiveTabState] = useState(rememberedCalSubTab);
   const setActiveTab = useCallback((value) => {
@@ -962,6 +971,11 @@ function Calibration({
   }, []);
 
   const samplingAdvisor = useMemo(() => {
+    // This advisor describes coherent TVC-output sampling in units of NPLC.
+    // The 8508A direct-reading path is timed by RESL/filter/terminal switching
+    // instead, so presenting this guidance there would be misleading.
+    if (!has34420Reader) return null;
+
     const frequency = parseFloat(focusedTP?.frequency);
     const nplc = parseFloat(calibrationSettings.nplc);
     const samples = parseInt(calibrationSettings.num_samples, 10);
@@ -1040,7 +1054,7 @@ function Calibration({
       recommended: bestNearby || null,
       nearbyCleanCounts,
     };
-  }, [focusedTP?.frequency, calibrationSettings.nplc, calibrationSettings.num_samples]);
+  }, [focusedTP?.frequency, calibrationSettings.nplc, calibrationSettings.num_samples, has34420Reader]);
 
   const applyRecommendedSampleCount = useCallback((count) => {
     setCalibrationSettings((prev) => ({
@@ -2991,29 +3005,42 @@ function Calibration({
                                   disabled={isRemoteViewer}
                                 />
                               </div>
-                              <div className="form-section">
-                                <label htmlFor="nplc">
-                                  Reader integration (NPLC)
-                                </label>
-                                <select
-                                  id="nplc"
-                                  name="nplc"
-                                  value={calibrationSettings.nplc || 20}
-                                  onChange={(e) =>
-                                    setCalibrationSettings((prev) => ({
-                                      ...prev,
-                                      nplc: parseFloat(e.target.value),
-                                    }))
-                                  }
-                                  disabled={isRemoteViewer}
+                              {has34420Reader && (
+                                <div className="form-section">
+                                  <label htmlFor="nplc">
+                                    34420A integration (NPLC)
+                                  </label>
+                                  <select
+                                    id="nplc"
+                                    name="nplc"
+                                    value={calibrationSettings.nplc || 20}
+                                    onChange={(e) =>
+                                      setCalibrationSettings((prev) => ({
+                                        ...prev,
+                                        nplc: parseFloat(e.target.value),
+                                      }))
+                                    }
+                                    disabled={isRemoteViewer}
+                                  >
+                                    {NPLC_OPTIONS.map((val) => (
+                                      <option key={val} value={val}>
+                                        {val} PLC
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+                              {has8508Reader && !has34420Reader && (
+                                <div
+                                  className="form-section"
+                                  title="The 8508A acquisition profile is selected automatically for each AC/DC stage and test frequency."
                                 >
-                                  {NPLC_OPTIONS.map((val) => (
-                                    <option key={val} value={val}>
-                                      {val} PLC
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
+                                  <label>8508A reader profile</label>
+                                  <div className="settings-readonly-value">
+                                    TVC-output DCV · RESL6 · filtered
+                                  </div>
+                                </div>
+                              )}
                               <div className="form-section form-section--samples">
                                 <label htmlFor="num_samples"># of samples</label>
                                 <input
