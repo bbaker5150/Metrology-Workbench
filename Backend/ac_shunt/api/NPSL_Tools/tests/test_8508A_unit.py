@@ -168,6 +168,23 @@ class Instrument8508ATests(unittest.TestCase):
         )
         front.close()
 
+    def test_input_switch_delay_can_be_set_independently(self):
+        front = Instrument8508A("GPIB0::8::INSTR", "FRONT")
+        rear = Instrument8508A("GPIB0::8::INSTR", "REAR")
+        front.set_input_switch_delay(2.5)
+        self.device.commands.clear()
+
+        self.assertEqual(front.read_pair(rear), (1.0, 2.0))
+
+        delay_writes = [
+            command
+            for kind, command in self.device.commands
+            if kind == "write" and command.startswith("DELAY ")
+        ]
+        self.assertEqual(delay_writes, ["DELAY 2.5", "DELAY DFLT"])
+        front.close()
+        rear.close()
+
     def test_rear_input_requires_8508a_01_option(self):
         original_query = self.device.query
 

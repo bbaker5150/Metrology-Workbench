@@ -298,6 +298,7 @@ const DEFAULT_CALIBRATION_SETTINGS = {
   initial_warm_up_time: 0,
   num_samples: 6,
   settling_time: 45,
+  input_switch_settling_time: 1,
   nplc: 100,
   stability_check_method: 'sliding_window',
   stability_window: 6,
@@ -326,6 +327,7 @@ const SETTINGS_FIELD_BOUNDS = {
   initial_warm_up_time: { min: 0, int: true, fallback: 0 },
   num_samples: { min: 2, int: true, fallback: 2 },
   settling_time: { min: 0, int: false, fallback: 0 },
+  input_switch_settling_time: { min: 0, max: 65_000, int: false, fallback: 1 },
   n_cycles: { min: 2, int: true, fallback: 2 },
   stability_window: { min: 2, int: true, fallback: 2 }, // upper bound (num_samples) passed in per-call
   stability_threshold_ppm: { min: 0, minExclusive: true, int: false, fallback: 10 },
@@ -431,6 +433,7 @@ function Calibration({
     initial_warm_up_time: 0,
     num_samples: 35,
     settling_time: 120,
+    input_switch_settling_time: 1,
     nplc: 20,
     stability_check_method: 'sliding_window',
     stability_window: 30,
@@ -1349,6 +1352,10 @@ function Calibration({
       threshold_ppm: parseFloat(settings.stability_threshold_ppm) || DEFAULT_CALIBRATION_SETTINGS.stability_threshold_ppm,
       max_attempts: parseInt(settings.stability_max_attempts, 10) || DEFAULT_CALIBRATION_SETTINGS.stability_max_attempts,
       ppm_threshold: parseFloat(settings.iqr_filter_ppm_threshold) || DEFAULT_CALIBRATION_SETTINGS.iqr_filter_ppm_threshold,
+      input_switch_settling_time: clampSettingField(
+        "input_switch_settling_time",
+        settings.input_switch_settling_time ?? DEFAULT_CALIBRATION_SETTINGS.input_switch_settling_time
+      ),
       ignore_instability_after_lock: settings.ignore_instability_after_lock ?? DEFAULT_CALIBRATION_SETTINGS.ignore_instability_after_lock,
       enable_low_frequency_settings: lowFrequencyEnabled,
       enable_11hz_filter: lowFrequencyEnabled && (settings.enable_11hz_filter ?? DEFAULT_CALIBRATION_SETTINGS.enable_11hz_filter),
@@ -1367,6 +1374,10 @@ function Calibration({
       initial_warm_up_time: parseFloat(settings.initial_warm_up_time) || DEFAULT_CALIBRATION_SETTINGS.initial_warm_up_time,
       num_samples: parseInt(settings.num_samples, 10) || DEFAULT_CALIBRATION_SETTINGS.num_samples,
       settling_time: parseFloat(settings.settling_time) || DEFAULT_CALIBRATION_SETTINGS.settling_time,
+      input_switch_settling_time: clampSettingField(
+        "input_switch_settling_time",
+        settings.input_switch_settling_time ?? DEFAULT_CALIBRATION_SETTINGS.input_switch_settling_time
+      ),
       nplc: parseFloat(settings.nplc) || DEFAULT_CALIBRATION_SETTINGS.nplc,
       stability_check_method: settings.stability_check_method || DEFAULT_CALIBRATION_SETTINGS.stability_check_method,
       stability_window: parseInt(settings.stability_window, 10) || DEFAULT_CALIBRATION_SETTINGS.stability_window,
@@ -3030,15 +3041,31 @@ function Calibration({
                                   </select>
                                 </div>
                               )}
-                              {has8508Reader && !has34420Reader && (
+                              {has8508Reader && (
                                 <div
                                   className="form-section"
-                                  title="The 8508A acquisition profile is selected automatically for each AC/DC stage and test frequency."
+                                  title="Delay applied after the 8508A changes between FRONT and REAR inputs. This is separate from the source/system settling time."
                                 >
-                                  <label>8508A reader profile</label>
-                                  <div className="settings-readonly-value">
-                                    TVC-output DCV · RESL6 · filtered
-                                  </div>
+                                  <label htmlFor="input_switch_settling_time">
+                                    Front/rear settling (sec)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    id="input_switch_settling_time"
+                                    name="input_switch_settling_time"
+                                    min="0"
+                                    max="65000"
+                                    step="0.1"
+                                    value={calibrationSettings.input_switch_settling_time ?? 1}
+                                    onChange={(e) =>
+                                      setCalibrationSettings((prev) => ({
+                                        ...prev,
+                                        input_switch_settling_time: e.target.value,
+                                      }))
+                                    }
+                                    onBlur={handleSettingBlur("input_switch_settling_time")}
+                                    disabled={isRemoteViewer}
+                                  />
                                 </div>
                               )}
                               <div className="form-section form-section--samples">

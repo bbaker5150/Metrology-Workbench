@@ -35,7 +35,15 @@ class Instrument8508AStageConfigurationTests(SimpleTestCase):
         )
         instrument.set_trigger_source.assert_called_once_with("EXT")
         instrument.set_settling_delay.assert_called_once_with(None)
+        instrument.set_input_switch_delay.assert_called_once_with(1.0)
         instrument.configure_ac_voltage.assert_not_called()
+
+    def test_operator_can_override_front_rear_settling_time(self):
+        instrument = Mock()
+
+        _configure_8508_for_tvc_output(instrument, 0.01, 2.5)
+
+        instrument.set_input_switch_delay.assert_called_once_with(2.5)
 
     def test_expected_tvc_output_selects_the_fixed_dcv_range(self):
         instrument = Mock()

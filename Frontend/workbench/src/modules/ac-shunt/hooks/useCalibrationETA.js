@@ -29,7 +29,10 @@ export default function useCalibrationETA({
     let timePerSample = (nplc / 60) + 0.12;
     if (has8508 && !has34420) {
       const terminalCount = 2;
-      const dcTerminalDelay = 1.0;
+      const configuredDelay = parseFloat(calibrationSettings.input_switch_settling_time);
+      const dcTerminalDelay = Number.isFinite(configuredDelay)
+        ? Math.max(0, configuredDelay)
+        : 1.0;
       timePerSample = (terminalCount * dcTerminalDelay) + 0.24;
     }
     const samplingTimePerStage = timePerSample * numSamples;

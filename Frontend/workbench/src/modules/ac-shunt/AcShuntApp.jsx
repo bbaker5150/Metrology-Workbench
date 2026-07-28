@@ -844,6 +844,11 @@ function AppContent() {
       num_samples: activeCollectionDetails.num_samples ?? tpSettings.num_samples ?? calibrationConfigs?.num_samples ?? 35,
       initial_warm_up_time: activeCollectionDetails.initial_warm_up_time ?? tpSettings.initial_warm_up_time ?? calibrationConfigs?.initial_warm_up_time ?? 0,
       settling_time: activeCollectionDetails.settling_time ?? tpSettings.settling_time ?? calibrationConfigs?.settling_time ?? 120,
+      input_switch_settling_time: activeCollectionDetails.measurement_params?.input_switch_settling_time
+        ?? activeCollectionDetails.input_switch_settling_time
+        ?? tpSettings.input_switch_settling_time
+        ?? calibrationConfigs?.input_switch_settling_time
+        ?? 1,
       n_cycles: activeCollectionDetails.n_cycles ?? tpSettings.n_cycles ?? calibrationConfigs?.n_cycles ?? 3,
       frequency: activeFrequency,
       use_char_minus_readings: activeCollectionDetails.use_char_minus_readings ?? tpSettings.use_char_minus_readings ?? calibrationConfigs?.use_char_minus_readings ?? false,

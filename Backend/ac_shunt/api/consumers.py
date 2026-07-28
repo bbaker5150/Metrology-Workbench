@@ -147,6 +147,7 @@ def _open_reader(reader_class, model, address, input_terminal=None):
 def _configure_8508_for_tvc_output(
     instrument,
     expected_voltage=0.01,
+    input_switch_settling_time=1.0,
 ):
     """Program the 8508A to read a thermal converter's DC output.
 
@@ -179,6 +180,10 @@ def _configure_8508_for_tvc_output(
         fast=False,
         two_wire=True,
     )
+    # ``configure_dc_voltage`` restores the manual-derived profile default.
+    # Apply the operator's FRONT/REAR relay-settling override afterwards so it
+    # affects terminal changes without changing the normal trigger delay.
+    instrument.set_input_switch_delay(input_switch_settling_time)
 
 
 class InstrumentStatusConsumer(AsyncWebsocketConsumer):
@@ -1565,6 +1570,18 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         # --- 2. Determine Expected TVC Output Voltage ---
         # Used strictly for the 34420A on the real workbench to safely engage the analog filter
         expected_tvc_output_v = float(test_point_data.get('expected_tvc_output_mv', 10.0)) / 1000.0
+        try:
+            input_switch_settling_time = float(
+                measurement_params.get('input_switch_settling_time', 1.0)
+            )
+            if not math.isfinite(input_switch_settling_time):
+                raise ValueError("non-finite input-switch settling time")
+            input_switch_settling_time = min(
+                65_000.0,
+                max(0.0, input_switch_settling_time),
+            )
+        except (TypeError, ValueError):
+            input_switch_settling_time = 1.0
 
         for instrument in instruments_to_config:
             if isinstance(instrument, Instrument34420A) and nplc_setting is not None:
@@ -1607,7 +1624,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await sync_to_async(
                     _configure_8508_for_tvc_output,
                     thread_sensitive=True,
-                )(instrument, expected_tvc_output_v)
+                )(
+                    instrument,
+                    expected_tvc_output_v,
+                    input_switch_settling_time,
+                )
 
         configured_8508 = next(
             (

@@ -227,6 +227,17 @@ class Instrument8508A:
             raise ValueError("8508A settling delay must be between 0 and 65000 seconds")
         self.write_command(f"DELAY {value:g}")
 
+    def set_input_switch_delay(self, seconds: float) -> None:
+        """Set the delay used only after changing FRONT/REAR terminals."""
+
+        value = float(seconds)
+        if not math.isfinite(value) or not 0 <= value <= 65_000:
+            raise ValueError(
+                "8508A input-switch settling time must be between 0 and 65000 seconds"
+            )
+        with self._shared.io_lock:
+            self._shared.input_switch_delay_s = value
+
     def configure_ac_voltage(
         self,
         range_setting: float | str = "AUTO",
