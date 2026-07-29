@@ -6533,6 +6533,13 @@ body.dark-mode .corrections-card-select:focus-visible {
   grid-column: 1 / -1;
 }
 
+.reader-profile-switch-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .reader-profile-switch {
   display: inline-flex;
   align-items: center;
@@ -6567,69 +6574,71 @@ body.dark-mode .corrections-card-select:focus-visible {
 }
 
 .reader-profile-delay {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(220px, 320px));
-  align-items: end;
-  justify-content: start;
-  gap: 14px;
-  max-width: 654px;
+  width: min(100%, 320px);
 }
 
-.reader-profile-recommendation {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.reader-profile-recommendation-label {
-  color: var(--text-color-muted);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.055em;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
-.reader-profile-recommendation-control {
-  display: flex;
+.settings-form .form-section label.reader-setting-label {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  height: 38px;
-  padding: 0 10px 0 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 7px;
-  background: var(--input-background);
-  color: var(--text-color-muted);
+  gap: 6px;
+  width: fit-content;
 }
 
-.reader-profile-recommendation-control strong {
-  color: var(--text-color);
-  font-size: 0.78rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.reader-profile-recommendation-control button {
+.reader-setting-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
-  margin: 0;
-  padding: 5px 9px;
-  border: 1px solid var(--primary-color);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--primary-color);
-  font-size: 0.68rem;
-  font-weight: 700;
-  cursor: pointer;
+  width: 14px;
+  height: 14px;
+  color: var(--text-color-muted);
+  cursor: help;
+  outline: none;
 }
 
-.reader-profile-recommendation-control button:hover:not(:disabled) {
-  background: var(--primary-color);
-  color: #fff;
+.reader-setting-help > svg {
+  width: 12px;
+  height: 12px;
+}
+
+.reader-setting-help:hover,
+.reader-setting-help:focus-visible {
+  color: var(--primary-color);
+}
+
+.reader-setting-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 1200;
+  display: none;
+  width: max-content;
+  max-width: min(280px, 72vw);
+  padding: 8px 10px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--content-background);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.18);
+  color: var(--text-color);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 1.45;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  pointer-events: none;
+}
+
+.reader-setting-help:hover .reader-setting-tooltip,
+.reader-setting-help:focus-visible .reader-setting-tooltip {
+  display: block;
 }
 
 @media (max-width: 860px) {
-  .reader-profile-grid,
-  .reader-profile-delay {
+  .reader-profile-grid {
     grid-template-columns: 1fr;
   }
 }
