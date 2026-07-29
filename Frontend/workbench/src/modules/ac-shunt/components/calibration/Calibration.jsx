@@ -49,16 +49,9 @@ const overviewCardClass = (isEmpty, accent = false) =>
     .filter(Boolean)
     .join(" ");
 
-const ReaderSettingHelp = ({ label, children }) => (
-  <span
-    className="reader-setting-help"
-    tabIndex={0}
-    aria-label={`${label}: ${children}`}
-  >
-    <FaInfoCircle aria-hidden />
-    <span className="reader-setting-tooltip" role="tooltip">
-      {children}
-    </span>
+const ReaderSettingTooltip = ({ children }) => (
+  <span className="reader-setting-tooltip" role="tooltip">
+    {children}
   </span>
 );
 
@@ -3407,12 +3400,12 @@ function Calibration({
                                     <strong id="reader-profile-dc-title">DC Stages</strong>
                                   </div>
                                   <div className="form-section-group">
-                                    <div className="form-section">
-                                      <label htmlFor="f8508_dc_resolution" className="reader-setting-label">
-                                        <span>Resolution</span>
-                                        <ReaderSettingHelp label="DC resolution">
+                                    <div className="form-section reader-setting-tooltip-trigger">
+                                      <label htmlFor="f8508_dc_resolution">
+                                        Resolution
+                                        <ReaderSettingTooltip>
                                           Selects DC measurement resolution. Higher RESL values provide finer readings but require more acquisition and settling time.
-                                        </ReaderSettingHelp>
+                                        </ReaderSettingTooltip>
                                       </label>
                                       <select
                                         id="f8508_dc_resolution"
@@ -3429,7 +3422,7 @@ function Calibration({
                                       </select>
                                     </div>
                                     <div className="reader-profile-switches full-width">
-                                      <div className="reader-profile-switch-field">
+                                      <div className="reader-profile-switch-field reader-setting-tooltip-trigger">
                                         <label className="reader-profile-switch">
                                           <input
                                             type="checkbox"
@@ -3442,11 +3435,11 @@ function Calibration({
                                           />
                                           <span>Filter</span>
                                         </label>
-                                        <ReaderSettingHelp label="DC filter">
+                                        <ReaderSettingTooltip>
                                           Enables the DC input filter to reduce measurement noise. Filtering improves stability but increases response and settling time.
-                                        </ReaderSettingHelp>
+                                        </ReaderSettingTooltip>
                                       </div>
-                                      <div className="reader-profile-switch-field">
+                                      <div className="reader-profile-switch-field reader-setting-tooltip-trigger">
                                         <label className="reader-profile-switch">
                                           <input
                                             type="checkbox"
@@ -3459,9 +3452,9 @@ function Calibration({
                                           />
                                           <span>Fast</span>
                                         </label>
-                                        <ReaderSettingHelp label="DC fast mode">
+                                        <ReaderSettingTooltip>
                                           Enables faster DC conversions at the expense of noise rejection and reading stability. Leave off for the default precision workflow.
-                                        </ReaderSettingHelp>
+                                        </ReaderSettingTooltip>
                                       </div>
                                     </div>
                                   </div>
@@ -3472,12 +3465,12 @@ function Calibration({
                                     <strong id="reader-profile-ac-title">AC Stages</strong>
                                   </div>
                                   <div className="form-section-group">
-                                    <div className="form-section">
-                                      <label htmlFor="f8508_ac_filter_hz" className="reader-setting-label">
-                                        <span>RMS filter</span>
-                                        <ReaderSettingHelp label="AC RMS filter">
+                                    <div className="form-section reader-setting-tooltip-trigger">
+                                      <label htmlFor="f8508_ac_filter_hz">
+                                        RMS filter
+                                        <ReaderSettingTooltip>
                                           Selects the AC RMS filter profile. Use the filter appropriate for the test frequency; lower-frequency profiles require longer settling.
-                                        </ReaderSettingHelp>
+                                        </ReaderSettingTooltip>
                                       </label>
                                       <select
                                         id="f8508_ac_filter_hz"
@@ -3493,12 +3486,12 @@ function Calibration({
                                         ))}
                                       </select>
                                     </div>
-                                    <div className="form-section">
-                                      <label htmlFor="f8508_ac_resolution" className="reader-setting-label">
-                                        <span>Resolution</span>
-                                        <ReaderSettingHelp label="AC resolution">
+                                    <div className="form-section reader-setting-tooltip-trigger">
+                                      <label htmlFor="f8508_ac_resolution">
+                                        Resolution
+                                        <ReaderSettingTooltip>
                                           Selects AC measurement resolution. RESL6 provides finer readings than RESL5, with a corresponding increase in acquisition time.
-                                        </ReaderSettingHelp>
+                                        </ReaderSettingTooltip>
                                       </label>
                                       <select
                                         id="f8508_ac_resolution"
@@ -3515,7 +3508,7 @@ function Calibration({
                                       </select>
                                     </div>
                                     <div className="reader-profile-switches full-width">
-                                      <div className="reader-profile-switch-field">
+                                      <div className="reader-profile-switch-field reader-setting-tooltip-trigger">
                                         <label className="reader-profile-switch">
                                           <input
                                             type="checkbox"
@@ -3528,11 +3521,11 @@ function Calibration({
                                           />
                                           <span>Transfer</span>
                                         </label>
-                                        <ReaderSettingHelp label="AC transfer mode">
+                                        <ReaderSettingTooltip>
                                           Enables the 8508A transfer mode used for closely spaced AC and DC comparisons, helping reduce drift between stages.
-                                        </ReaderSettingHelp>
+                                        </ReaderSettingTooltip>
                                       </div>
-                                      <div className="reader-profile-switch-field">
+                                      <div className="reader-profile-switch-field reader-setting-tooltip-trigger">
                                         <label className="reader-profile-switch">
                                           <input
                                             type="checkbox"
@@ -3545,9 +3538,9 @@ function Calibration({
                                           />
                                           <span>DC coupled</span>
                                         </label>
-                                        <ReaderSettingHelp label="DC-coupled AC mode">
+                                        <ReaderSettingTooltip>
                                           Uses the DC-coupled RMS path so DC content is included in the AC reading. It is recommended for configured points at or below 40 Hz.
-                                        </ReaderSettingHelp>
+                                        </ReaderSettingTooltip>
                                       </div>
                                     </div>
                                   </div>
@@ -3555,12 +3548,12 @@ function Calibration({
                               </div>
 
                               <div className="reader-profile-delay">
-                                <div className="form-section">
-                                  <label htmlFor="input_switch_settling_time" className="reader-setting-label">
-                                    <span>Front / rear switch delay (sec)</span>
-                                    <ReaderSettingHelp label="Front / rear switch delay">
+                                <div className="form-section reader-setting-tooltip-trigger">
+                                  <label htmlFor="input_switch_settling_time">
+                                    Front / rear switch delay (sec)
+                                    <ReaderSettingTooltip>
                                       {`Waits after changing 8508A input terminals before accepting a reading, preventing stale or transient samples. Recommended minimum for the current AC/DC settings: ${Number(recommended8508SwitchDelay.toFixed(2))} s.`}
-                                    </ReaderSettingHelp>
+                                    </ReaderSettingTooltip>
                                   </label>
                                   <input
                                     type="number"

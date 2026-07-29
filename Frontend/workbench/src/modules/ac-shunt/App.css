@@ -6577,46 +6577,19 @@ body.dark-mode .corrections-card-select:focus-visible {
   width: min(100%, 320px);
 }
 
-.settings-form .form-section label.reader-setting-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: fit-content;
-}
-
-.reader-setting-help {
+.reader-setting-tooltip-trigger {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
-  color: var(--text-color-muted);
-  cursor: help;
-  outline: none;
-}
-
-.reader-setting-help > svg {
-  width: 12px;
-  height: 12px;
-}
-
-.reader-setting-help:hover,
-.reader-setting-help:focus-visible {
-  color: var(--primary-color);
 }
 
 .reader-setting-tooltip {
   position: absolute;
-  left: 50%;
+  left: 0;
   bottom: calc(100% + 8px);
   z-index: 1200;
   display: none;
   width: max-content;
   max-width: min(280px, 72vw);
   padding: 8px 10px;
-  transform: translateX(-50%);
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--content-background);
@@ -6632,8 +6605,8 @@ body.dark-mode .corrections-card-select:focus-visible {
   pointer-events: none;
 }
 
-.reader-setting-help:hover .reader-setting-tooltip,
-.reader-setting-help:focus-visible .reader-setting-tooltip {
+.reader-setting-tooltip-trigger:hover .reader-setting-tooltip,
+.reader-setting-tooltip-trigger:focus-within .reader-setting-tooltip {
   display: block;
 }
 
