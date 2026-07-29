@@ -144,6 +144,64 @@ def _open_reader(reader_class, model, address, input_terminal=None):
     return _inst(reader_class, model=model, gpib=address)
 
 
+def _8508_ac_filter_for_frequency(frequency):
+    """Choose the highest 8508A RMS filter that supports the source."""
+
+    frequency = abs(float(frequency or 0))
+    if frequency <= 1:
+        return 1
+    if frequency <= 10:
+        return 10
+    if frequency < 100:
+        return 40
+    return 100
+
+
+def _configure_8508_for_direct_source(
+    instrument,
+    is_ac_reading,
+    frequency,
+    expected_voltage,
+    input_switch_settling_time=1.0,
+):
+    """Program an 8508A connected directly to a 5730A output.
+
+    A numeric range argument is the expected signal rather than the literal
+    full-scale range. This is especially important at 2 V: the 8508A manual
+    defines the 2 V range maximum as 1.99990000 V, so Nrf=2 correctly selects
+    the 20 V range instead of producing an overload at the boundary.
+    """
+
+    range_setting = (
+        "AUTO"
+        if expected_voltage is None
+        else abs(float(expected_voltage))
+    )
+    instrument.set_trigger_source("EXT")
+    instrument.set_settling_delay(None)
+
+    if is_ac_reading:
+        instrument.configure_ac_voltage(
+            range_setting=range_setting,
+            filter_hz=_8508_ac_filter_for_frequency(frequency),
+            resolution=6,
+            transfer=True,
+            two_wire=True,
+            dc_coupled=0 < float(frequency or 0) < 40,
+            spot_correction=False,
+        )
+    else:
+        instrument.configure_dc_voltage(
+            range_setting=range_setting,
+            resolution=6,
+            filter_enabled=True,
+            fast=False,
+            two_wire=True,
+        )
+
+    instrument.set_input_switch_delay(input_switch_settling_time)
+
+
 def _configure_8508_for_tvc_output(
     instrument,
     expected_voltage=0.01,
@@ -1005,7 +1063,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"{instrument_name} pre-check failed. Reading: {reading_abs:.4f}V, Expected: ~{expected_value:.4f}V"}))
             return False
 
-    async def _configure_sources(self, test_point_data, bypass_tvc, amplifier_range, ac_source=None, dc_source=None):
+    async def _configure_sources(
+        self,
+        test_point_data,
+        bypass_tvc,
+        amplifier_range,
+        ac_source=None,
+        dc_source=None,
+        measurement_params=None,
+    ):
         if isinstance(test_point_data, list) and test_point_data:
             config_point = test_point_data[0]
         elif isinstance(test_point_data, dict):
@@ -1014,8 +1080,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             print("[CONFIGURE_SOURCES] Warning: No valid test point data provided. Skipping.")
             return
 
-        input_current = float(config_point.get('current'))
-        voltage = (input_current / float(amplifier_range)) * 2
+        measurement_params = measurement_params or {}
+        if measurement_params.get('direct_source_test_mode', False):
+            voltage = abs(float(measurement_params.get('direct_source_voltage', 2.0)))
+        else:
+            input_current = float(config_point.get('current'))
+            voltage = (input_current / float(amplifier_range)) * 2
 
         if ac_source:
             frequency = float(config_point.get('frequency', 0))
@@ -1029,8 +1099,43 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         if dc_source:
             await sync_to_async(dc_source.set_output, thread_sensitive=True)(voltage=voltage, frequency=0)
 
-    async def _report_source_routing_state(self, session_details):
+    @staticmethod
+    def _direct_source_test_mode(data):
+        return bool((data.get('measurement_params') or {}).get(
+            'direct_source_test_mode', False
+        ))
+
+    @classmethod
+    def _validate_direct_source_test_setup(cls, data, session_details):
+        """Reject a diagnostic topology that could energize lab-only hardware."""
+
+        if not cls._direct_source_test_mode(data):
+            return
+        if session_details.get('amplifier_address'):
+            raise RuntimeError(
+                "Direct 5730A test mode cannot run while an amplifier is assigned. "
+                "Remove the amplifier assignment before starting the diagnostic run."
+            )
+        if session_details.get('switch_driver_address'):
+            raise RuntimeError(
+                "Direct 5730A test mode cannot run while a switch driver is assigned. "
+                "Remove the switch-driver assignment before starting the diagnostic run."
+            )
+        ac_address = session_details.get('ac_source_address')
+        dc_address = session_details.get('dc_source_address')
+        if not ac_address or not dc_address or ac_address == dc_address:
+            raise RuntimeError(
+                "Direct 5730A test mode requires two distinct 5730A source assignments, "
+                "one feeding each 8508A input."
+            )
+
+    async def _report_source_routing_state(
+        self, session_details, direct_source_test_mode=False
+    ):
         """Make an un-routed dual-source setup visible before acquisition."""
+
+        if direct_source_test_mode:
+            return
 
         ac_address = session_details.get("ac_source_address")
         dc_address = session_details.get("dc_source_address")
@@ -1113,6 +1218,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             print("[TVC_CHAR] Fetching session details...", flush=True)
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
+            self._validate_direct_source_test_setup(data, session_details)
+            if self._direct_source_test_mode(data):
+                raise RuntimeError(
+                    "TVC characterization is unavailable in Direct 5730A test mode "
+                    "because that diagnostic topology contains no TVCs."
+                )
 
             std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
             std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
@@ -1257,7 +1368,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 success = await self._perform_single_measurement(
                     stage, num_samples, ppm_shifted_tp, data.get('bypass_tvc'),
                     data.get('amplifier_range'), active_source, std_reader, ti_reader,
-                    amplifier, settling_time, nplc_setting, measurement_params
+                    amplifier, settling_time, nplc_setting, measurement_params,
+                    companion_source_instrument=(
+                        dc_source if active_source is ac_source else ac_source
+                    ),
                 )
                 
                 if not success: 
@@ -1514,7 +1628,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             return max(2, int(override))
         return max(2, int(fallback))
 
-    async def _perform_single_measurement(self, reading_type_base, num_samples, test_point_data, bypass_tvc, amplifier_range, source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument=None, settling_time=0, nplc_setting=None, measurement_params=None, cycle_index=None):
+    async def _perform_single_measurement(self, reading_type_base, num_samples, test_point_data, bypass_tvc, amplifier_range, source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument=None, settling_time=0, nplc_setting=None, measurement_params=None, cycle_index=None, companion_source_instrument=None):
         """
         Refactored measurement logic: 
         1. Phase 1 (Search): Discards samples (slides window) until initial stability is found.
@@ -1522,6 +1636,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         3. Abort: Returns False if max_attempts is reached.
         """
         measurement_params = measurement_params or {}
+        direct_source_test_mode = bool(
+            measurement_params.get('direct_source_test_mode', False)
+        )
 
         # Standard stages are classified purely by their name; characterization
         # stages ("char_*") defer to the caller's chosen source kind.
@@ -1533,9 +1650,52 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         target_tvc = test_point_data.get('target_tvc', 'BOTH')
         
         # --- 1. Calculate Source Drive Voltage ---
-        # This is the command voltage sent to the 5730A to drive the transconductance amplifier
         input_current = float(test_point_data.get('current'))
-        source_drive_voltage = (input_current / float(amplifier_range)) * 2
+        if direct_source_test_mode:
+            if amplifier_instrument is not None:
+                raise RuntimeError(
+                    "Direct 5730A test mode cannot run while an amplifier is assigned."
+                )
+            if not (
+                isinstance(std_reader_instrument, Instrument8508A)
+                and isinstance(ti_reader_instrument, Instrument8508A)
+                and std_reader_instrument.gpib == ti_reader_instrument.gpib
+            ):
+                raise RuntimeError(
+                    "Direct 5730A test mode requires one dual-input 8508A assigned "
+                    "to both Standard and Test reader roles."
+                )
+            std_terminal = getattr(std_reader_instrument, 'input_terminal', None)
+            ti_terminal = getattr(ti_reader_instrument, 'input_terminal', None)
+            std_terminal = str(getattr(std_terminal, 'value', std_terminal)).upper()
+            ti_terminal = str(getattr(ti_terminal, 'value', ti_terminal)).upper()
+            if {std_terminal, ti_terminal} != {'FRONT', 'REAR'}:
+                raise RuntimeError(
+                    "Direct 5730A test mode requires the Standard and Test roles "
+                    "to use opposite 8508A FRONT/REAR inputs."
+                )
+            try:
+                source_drive_voltage = abs(
+                    float(measurement_params.get('direct_source_voltage', 2.0))
+                )
+            except (TypeError, ValueError):
+                source_drive_voltage = 2.0
+            if (
+                not math.isfinite(source_drive_voltage)
+                or source_drive_voltage <= 0
+                or source_drive_voltage > 1000
+            ):
+                raise ValueError(
+                    "Direct-source test voltage must be greater than 0 V and no more than 1000 V."
+                )
+        else:
+            if amplifier_range is None:
+                raise ValueError(
+                    "An amplifier range is required for the normal AC Shunt signal path."
+                )
+            # Normal lab path: command the 5730A input needed for the selected
+            # 8100 transconductance-amplifier current range.
+            source_drive_voltage = (input_current / float(amplifier_range)) * 2
         if 'neg' in reading_type_base: 
             source_drive_voltage = -source_drive_voltage
         
@@ -1618,17 +1778,32 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 )
 
             elif isinstance(instrument, Instrument8508A):
-                # One physical 8508A replaces the two 34420As at the TVC
-                # outputs. Both logical readers share this DCV configuration;
-                # only their FRONT/REAR terminal bindings differ.
-                await sync_to_async(
-                    _configure_8508_for_tvc_output,
-                    thread_sensitive=True,
-                )(
-                    instrument,
-                    expected_tvc_output_v,
-                    input_switch_settling_time,
-                )
+                if direct_source_test_mode:
+                    # Diagnostic topology: each 5730A feeds one 8508A input,
+                    # so the meter follows the actual source waveform and uses
+                    # its expected-signal range selection (including 20 V at
+                    # the exact 2 V boundary).
+                    await sync_to_async(
+                        _configure_8508_for_direct_source,
+                        thread_sensitive=True,
+                    )(
+                        instrument,
+                        is_ac_reading,
+                        frequency,
+                        abs_source_drive,
+                        input_switch_settling_time,
+                    )
+                else:
+                    # Normal lab topology: both inputs observe low-level DC
+                    # outputs from the Standard and Test TVCs.
+                    await sync_to_async(
+                        _configure_8508_for_tvc_output,
+                        thread_sensitive=True,
+                    )(
+                        instrument,
+                        expected_tvc_output_v,
+                        input_switch_settling_time,
+                    )
 
         configured_8508 = next(
             (
@@ -1658,8 +1833,28 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 "message": message,
             }))
 
-        # Tell the SOURCE to output the drive voltage
+        # Tell the source to output the drive voltage. In direct diagnostic
+        # mode both 5730As drive the same waveform into the two 8508A inputs;
+        # no switch or amplifier is part of this path.
         await sync_to_async(source_instrument.set_output, thread_sensitive=True)(voltage=source_drive_voltage, frequency=frequency)
+        if direct_source_test_mode:
+            if companion_source_instrument is None:
+                raise RuntimeError(
+                    "Direct 5730A test mode requires both AC and DC 5730A sources."
+                )
+            if companion_source_instrument is not source_instrument:
+                await sync_to_async(
+                    companion_source_instrument.set_output,
+                    thread_sensitive=True,
+                )(voltage=source_drive_voltage, frequency=frequency)
+            await self.broadcast(text_data=json.dumps({
+                'type': 'status_update',
+                'message': (
+                    f"Direct-source diagnostic: both 5730As set to "
+                    f"{source_drive_voltage:g} V at {frequency:g} Hz; "
+                    f"8508A range selected from {abs_source_drive:g} V expected input."
+                ),
+            }))
         
         try:
             await asyncio.sleep(1.5)
@@ -2054,7 +2249,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
-            await self._report_source_routing_state(session_details)
+            self._validate_direct_source_test_setup(data, session_details)
+            await self._report_source_routing_state(
+                session_details, self._direct_source_test_mode(data)
+            )
             
             std_addr = session_details.get('std_reader_address')
             ti_addr = session_details.get('ti_reader_address')
@@ -2103,7 +2301,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 data.get('bypass_tvc'), 
                 data.get('amplifier_range'), 
                 ac_source=ac_source, 
-                dc_source=dc_source
+                dc_source=dc_source,
+                measurement_params=data.get('measurement_params'),
             )
 
             if session_details.get('amplifier_address'):
@@ -2154,7 +2353,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 amplifier_instrument, 
                 float(data.get('settling_time', 0.0)), 
                 data.get('nplc'), 
-                data.get('measurement_params')
+                data.get('measurement_params'),
+                companion_source_instrument=(
+                    dc_source if source_instrument is ac_source else ac_source
+                ),
             )
             
             if success and not self.stop_event.is_set():
@@ -2190,7 +2392,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
-            await self._report_source_routing_state(session_details)
+            self._validate_direct_source_test_setup(data, session_details)
+            await self._report_source_routing_state(
+                session_details, self._direct_source_test_mode(data)
+            )
 
             std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
             std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
@@ -2217,7 +2422,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 data.get('bypass_tvc'), 
                 data.get('amplifier_range'), 
                 ac_source=ac_source, 
-                dc_source=dc_source
+                dc_source=dc_source,
+                measurement_params=data.get('measurement_params'),
             )
             
             if session_details.get('amplifier_address'):
@@ -2286,6 +2492,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             source_instrument, std_reader, ti_reader, amplifier,
                             settling_time, nplc_setting, measurement_params,
                             cycle_index=cycle_index,
+                            companion_source_instrument=(
+                                dc_source if source_instrument is ac_source else ac_source
+                            ),
                         )
 
                         # Stop sequence if measurement fails due to instability limits
@@ -2340,6 +2549,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
 
+            self._validate_direct_source_test_setup(data, session_details)
             test_points_to_run = data.get('test_points', [])
             if not test_points_to_run:
                 raise Exception("No test points provided for batch run.")
@@ -2371,7 +2581,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 data.get('bypass_tvc'), 
                 data.get('amplifier_range'), 
                 ac_source=ac_source, 
-                dc_source=dc_source
+                dc_source=dc_source,
+                measurement_params=data.get('measurement_params'),
             )
             
             if session_details.get('amplifier_address'):
@@ -2461,6 +2672,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             nplc_setting,
                             measurement_params,
                             cycle_index=cycle_index,
+                            companion_source_instrument=(
+                                dc_source if source_instrument is ac_source else ac_source
+                            ),
                         )
 
                         if not success:
@@ -2618,6 +2832,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         nplc_setting,
                         measurement_params,
                         cycle_index=cycle_index,
+                        companion_source_instrument=(
+                            dc_source if source_instrument is ac_source else ac_source
+                        ),
                     )
                     if not success:
                         cycle_aborted = True
@@ -2660,6 +2877,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if not session_details:
                 raise Exception("Session not found.")
 
+            self._validate_direct_source_test_setup(data, session_details)
             forward_points = data.get('forward_points') or []
             reverse_points = data.get('reverse_points') or []
             if not forward_points or not reverse_points:
@@ -2702,6 +2920,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 data.get('amplifier_range'),
                 ac_source=ac_source,
                 dc_source=dc_source,
+                measurement_params=data.get('measurement_params'),
             )
 
             if session_details.get('amplifier_address'):
@@ -2857,6 +3076,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
 
+            self._validate_direct_source_test_setup(data, session_details)
             stage = data.get('reading_type')
             test_points_to_run = data.get('test_points', [])
             if not stage or not test_points_to_run:
@@ -2886,7 +3106,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 data.get('bypass_tvc'), 
                 data.get('amplifier_range'), 
                 ac_source=ac_source, 
-                dc_source=dc_source
+                dc_source=dc_source,
+                measurement_params=data.get('measurement_params'),
             )
             
             if session_details.get('amplifier_address'):
@@ -2954,7 +3175,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     source_instrument, std_reader, ti_reader, amplifier, 
                     current_settling_time, 
                     nplc_setting, 
-                    measurement_params
+                    measurement_params,
+                    companion_source_instrument=(
+                        dc_source if source_instrument is ac_source else ac_source
+                    ),
                 )
                 
                 if not success: continue
