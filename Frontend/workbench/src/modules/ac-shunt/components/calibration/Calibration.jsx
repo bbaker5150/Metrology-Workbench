@@ -3391,11 +3391,7 @@ function Calibration({
                               <div className="reader-profile-grid">
                                 <section className="reader-profile-card" aria-labelledby="reader-profile-dc-title">
                                   <div className="reader-profile-card-header">
-                                    <div>
-                                      <span className="reader-profile-kicker">DC stages</span>
-                                      <strong id="reader-profile-dc-title">DCV acquisition</strong>
-                                    </div>
-                                    <span className="reader-profile-range">Y5020 range auto-selected</span>
+                                    <strong id="reader-profile-dc-title">DC Stages</strong>
                                   </div>
                                   <div className="form-section-group">
                                     <div className="form-section">
@@ -3414,7 +3410,7 @@ function Calibration({
                                         ))}
                                       </select>
                                     </div>
-                                    <div className="reader-profile-switches">
+                                    <div className="reader-profile-switches full-width">
                                       <label className="reader-profile-switch">
                                         <input
                                           type="checkbox"
@@ -3445,13 +3441,7 @@ function Calibration({
 
                                 <section className="reader-profile-card" aria-labelledby="reader-profile-ac-title">
                                   <div className="reader-profile-card-header">
-                                    <div>
-                                      <span className="reader-profile-kicker">AC stages</span>
-                                      <strong id="reader-profile-ac-title">ACV acquisition</strong>
-                                    </div>
-                                    <span className="reader-profile-range">
-                                      {formatFrequency(focusedTP?.frequency)} point
-                                    </span>
+                                    <strong id="reader-profile-ac-title">AC Stages</strong>
                                   </div>
                                   <div className="form-section-group">
                                     <div className="form-section">
@@ -3538,19 +3528,22 @@ function Calibration({
                                   />
                                 </div>
                                 <div className="reader-profile-recommendation">
-                                  <span>
-                                    Recommended minimum for these AC/DC profiles: <strong>{Number(recommended8508SwitchDelay.toFixed(2))} s</strong>
+                                  <span className="reader-profile-recommendation-label">
+                                    Recommended minimum
                                   </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setCalibrationSettings((prev) => ({
-                                      ...prev,
-                                      input_switch_settling_time: recommended8508SwitchDelay,
-                                    }))}
-                                    disabled={isRemoteViewer}
-                                  >
-                                    Use recommended
-                                  </button>
+                                  <div className="reader-profile-recommendation-control">
+                                    <strong>{Number(recommended8508SwitchDelay.toFixed(2))} s</strong>
+                                    <button
+                                      type="button"
+                                      onClick={() => setCalibrationSettings((prev) => ({
+                                        ...prev,
+                                        input_switch_settling_time: recommended8508SwitchDelay,
+                                      }))}
+                                      disabled={isRemoteViewer}
+                                    >
+                                      Apply
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             </div>
