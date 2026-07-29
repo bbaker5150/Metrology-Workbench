@@ -501,18 +501,14 @@ function Calibration({
     lf_harmonics: 2,
     n_cycles: 3,
   });
-  const recommended8508SwitchDelay = useMemo(
-    () => get8508RecommendedSwitchDelay(
-      calibrationSettings,
-      focusedTP?.frequency
-    ),
-    [
-      calibrationSettings.f8508_ac_filter_hz,
-      calibrationSettings.f8508_ac_resolution,
-      calibrationSettings.f8508_dc_filter_enabled,
-      calibrationSettings.f8508_dc_resolution,
-      focusedTP?.frequency,
-    ]
+  // Keep the advisory value live while the operator experiments with the
+  // 8508A profile. This calculation is intentionally performed on every
+  // settings render so no profile control can leave the tooltip stale.
+  // The operator-entered delay remains untouched; only an unset delay follows
+  // the recommendation automatically.
+  const recommended8508SwitchDelay = get8508RecommendedSwitchDelay(
+    calibrationSettings,
+    focusedTP?.frequency
   );
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
