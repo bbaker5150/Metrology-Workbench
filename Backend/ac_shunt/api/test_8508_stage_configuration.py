@@ -5,6 +5,8 @@ from django.test import SimpleTestCase
 from .consumers import (
     CalibrationConsumer,
     _8508_ac_filter_for_frequency,
+    _8508_ac_scan_delay,
+    _8508_safe_input_switch_delay,
     _configure_8508_for_direct_source,
     _configure_8508_for_tvc_output,
 )
@@ -31,6 +33,14 @@ class Instrument8508AStageConfigurationTests(SimpleTestCase):
         self.assertEqual(_8508_ac_filter_for_frequency(40), 40)
         self.assertEqual(_8508_ac_filter_for_frequency(100), 100)
 
+    def test_direct_mode_uses_manual_scan_delays_as_a_floor(self):
+        self.assertEqual(_8508_ac_scan_delay(100), 1.25)
+        self.assertEqual(_8508_ac_scan_delay(40), 3.25)
+        self.assertEqual(_8508_ac_scan_delay(10), 12.5)
+        self.assertEqual(_8508_ac_scan_delay(1), 125.0)
+        self.assertEqual(_8508_safe_input_switch_delay(1.0, 12.5), 12.5)
+        self.assertEqual(_8508_safe_input_switch_delay(20.0, 12.5), 20.0)
+
     def test_direct_ac_mode_uses_actual_signal_and_exact_two_volts(self):
         instrument = Mock()
 
@@ -53,7 +63,7 @@ class Instrument8508AStageConfigurationTests(SimpleTestCase):
         )
         instrument.set_trigger_source.assert_called_once_with("EXT")
         instrument.set_settling_delay.assert_called_once_with(None)
-        instrument.set_input_switch_delay.assert_called_once_with(2.5)
+        instrument.set_input_switch_delay.assert_called_once_with(12.5)
         instrument.configure_dc_voltage.assert_not_called()
 
     def test_direct_dc_mode_uses_actual_signal_range(self):
@@ -113,6 +123,13 @@ class Instrument8508AStageConfigurationTests(SimpleTestCase):
         _configure_8508_for_tvc_output(instrument, 0.01, 2.5)
 
         instrument.set_input_switch_delay.assert_called_once_with(2.5)
+
+    def test_tvc_profile_does_not_allow_less_than_manual_dcv_delay(self):
+        instrument = Mock()
+
+        _configure_8508_for_tvc_output(instrument, 0.01, 0.1)
+
+        instrument.set_input_switch_delay.assert_called_once_with(1.0)
 
     def test_expected_tvc_output_selects_the_fixed_dcv_range(self):
         instrument = Mock()

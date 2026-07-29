@@ -157,6 +157,28 @@ def _8508_ac_filter_for_frequency(frequency):
     return 100
 
 
+def _8508_ac_scan_delay(filter_hz, resolution=6):
+    """Return the manual Table 4-2 FRONT/REAR scan delay in seconds."""
+
+    scan_delays = {
+        5: {100: 0.5, 40: 1.25, 10: 5.0, 1: 50.0},
+        6: {100: 1.25, 40: 3.25, 10: 12.5, 1: 125.0},
+    }
+    return scan_delays[resolution][filter_hz]
+
+
+def _8508_safe_input_switch_delay(requested_delay, minimum_delay):
+    """Allow an operator to extend, but never shorten, the manual delay."""
+
+    try:
+        requested_delay = float(requested_delay)
+    except (TypeError, ValueError):
+        requested_delay = minimum_delay
+    if not math.isfinite(requested_delay):
+        requested_delay = minimum_delay
+    return min(65_000.0, max(float(minimum_delay), requested_delay))
+
+
 def _configure_8508_for_direct_source(
     instrument,
     is_ac_reading,
@@ -181,15 +203,17 @@ def _configure_8508_for_direct_source(
     instrument.set_settling_delay(None)
 
     if is_ac_reading:
+        filter_hz = _8508_ac_filter_for_frequency(frequency)
         instrument.configure_ac_voltage(
             range_setting=range_setting,
-            filter_hz=_8508_ac_filter_for_frequency(frequency),
+            filter_hz=filter_hz,
             resolution=6,
             transfer=True,
             two_wire=True,
             dc_coupled=0 < float(frequency or 0) < 40,
             spot_correction=False,
         )
+        minimum_switch_delay = _8508_ac_scan_delay(filter_hz, resolution=6)
     else:
         instrument.configure_dc_voltage(
             range_setting=range_setting,
@@ -198,8 +222,12 @@ def _configure_8508_for_direct_source(
             fast=False,
             two_wire=True,
         )
+        minimum_switch_delay = 1.0
 
-    instrument.set_input_switch_delay(input_switch_settling_time)
+    instrument.set_input_switch_delay(_8508_safe_input_switch_delay(
+        input_switch_settling_time,
+        minimum_switch_delay,
+    ))
 
 
 def _configure_8508_for_tvc_output(
@@ -241,7 +269,10 @@ def _configure_8508_for_tvc_output(
     # ``configure_dc_voltage`` restores the manual-derived profile default.
     # Apply the operator's FRONT/REAR relay-settling override afterwards so it
     # affects terminal changes without changing the normal trigger delay.
-    instrument.set_input_switch_delay(input_switch_settling_time)
+    instrument.set_input_switch_delay(_8508_safe_input_switch_delay(
+        input_switch_settling_time,
+        1.0,
+    ))
 
 
 class InstrumentStatusConsumer(AsyncWebsocketConsumer):

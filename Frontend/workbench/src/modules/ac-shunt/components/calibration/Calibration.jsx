@@ -3059,10 +3059,10 @@ function Calibration({
                               {has8508Reader && (
                                 <div
                                   className="form-section"
-                                  title="Delay applied after the 8508A changes between FRONT and REAR inputs. This is separate from the source/system settling time."
+                                  title="Minimum delay applied after the 8508A changes between FRONT and REAR inputs. The app automatically enforces any longer scan delay required by the selected 8508A function, resolution, and filter."
                                 >
                                   <label htmlFor="input_switch_settling_time">
-                                    Front/rear settling (sec)
+                                    Min. front/rear settling (sec)
                                   </label>
                                   <input
                                     type="number"
