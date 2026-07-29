@@ -849,14 +849,6 @@ function AppContent() {
         ?? tpSettings.input_switch_settling_time
         ?? calibrationConfigs?.input_switch_settling_time
         ?? 1,
-      direct_source_test_mode: activeCollectionDetails.measurement_params?.direct_source_test_mode
-        ?? tpSettings.direct_source_test_mode
-        ?? calibrationConfigs?.direct_source_test_mode
-        ?? false,
-      direct_source_voltage: activeCollectionDetails.measurement_params?.direct_source_voltage
-        ?? tpSettings.direct_source_voltage
-        ?? calibrationConfigs?.direct_source_voltage
-        ?? 2,
       n_cycles: activeCollectionDetails.n_cycles ?? tpSettings.n_cycles ?? calibrationConfigs?.n_cycles ?? 3,
       frequency: activeFrequency,
       use_char_minus_readings: activeCollectionDetails.use_char_minus_readings ?? tpSettings.use_char_minus_readings ?? calibrationConfigs?.use_char_minus_readings ?? false,

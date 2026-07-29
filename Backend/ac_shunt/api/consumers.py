@@ -179,6 +179,50 @@ def _8508_safe_input_switch_delay(requested_delay, minimum_delay):
     return min(65_000.0, max(float(minimum_delay), requested_delay))
 
 
+def _direct_source_voltage_for_test_point(test_point_data, amplifier_range=None):
+    """Derive the direct 5730A voltage from the selected current point.
+
+    This reproduces the normal 8100 drive relationship without energizing an
+    amplifier: a point at the selected current range's full scale commands
+    2 V, and lower points scale proportionally. When a saved range is absent,
+    choose the smallest supported 8100 range that contains the point.
+    """
+
+    try:
+        current = abs(float((test_point_data or {}).get('current')))
+    except (TypeError, ValueError):
+        raise ValueError(
+            "The selected test point does not contain a valid direct-source value."
+        )
+    if not math.isfinite(current) or current <= 0:
+        raise ValueError("The selected test-point current must be greater than 0.")
+
+    try:
+        selected_range = float(amplifier_range)
+    except (TypeError, ValueError):
+        selected_range = next(
+            (value for value in (0.002, 0.02, 0.2, 2.0, 20.0, 100.0)
+             if current <= value),
+            None,
+        )
+    if (
+        selected_range is None
+        or not math.isfinite(selected_range)
+        or selected_range <= 0
+        or current > selected_range
+    ):
+        raise ValueError(
+            "The selected test point is outside its available source-current range."
+        )
+
+    voltage = (current / selected_range) * 2.0
+    if not math.isfinite(voltage) or voltage <= 0 or voltage > 1000:
+        raise ValueError(
+            "The direct-source test-point value must be greater than 0 and no more than 1000."
+        )
+    return voltage
+
+
 def _configure_8508_for_direct_source(
     instrument,
     is_ac_reading,
@@ -1113,7 +1157,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
         measurement_params = measurement_params or {}
         if measurement_params.get('direct_source_test_mode', False):
-            voltage = abs(float(measurement_params.get('direct_source_voltage', 2.0)))
+            voltage = _direct_source_voltage_for_test_point(
+                config_point, amplifier_range
+            )
         else:
             input_current = float(config_point.get('current'))
             voltage = (input_current / float(amplifier_range)) * 2
@@ -1136,9 +1182,35 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             'direct_source_test_mode', False
         ))
 
+    @staticmethod
+    def _detect_direct_source_topology(session_details):
+        """Infer the benchless dual-5730A/dual-input-8508A diagnostic path."""
+
+        details = session_details or {}
+        std_model = str(details.get('std_reader_model') or '').upper()
+        ti_model = str(details.get('ti_reader_model') or '').upper()
+        std_input = str(details.get('std_reader_input') or '').upper()
+        ti_input = str(details.get('ti_reader_input') or '').upper()
+        return bool(
+            not details.get('amplifier_address')
+            and not details.get('switch_driver_address')
+            and '8508' in std_model
+            and '8508' in ti_model
+            and details.get('std_reader_address')
+            and details.get('std_reader_address') == details.get('ti_reader_address')
+            and {std_input, ti_input} == {'FRONT', 'REAR'}
+        )
+
     @classmethod
     def _validate_direct_source_test_setup(cls, data, session_details):
-        """Reject a diagnostic topology that could energize lab-only hardware."""
+        """Infer the acquisition path and reject an incomplete direct bench."""
+
+        measurement_params = dict(data.get('measurement_params') or {})
+        measurement_params.pop('direct_source_voltage', None)
+        measurement_params['direct_source_test_mode'] = (
+            cls._detect_direct_source_topology(session_details)
+        )
+        data['measurement_params'] = measurement_params
 
         if not cls._direct_source_test_mode(data):
             return
@@ -1705,20 +1777,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     "Direct 5730A test mode requires the Standard and Test roles "
                     "to use opposite 8508A FRONT/REAR inputs."
                 )
-            try:
-                source_drive_voltage = abs(
-                    float(measurement_params.get('direct_source_voltage', 2.0))
-                )
-            except (TypeError, ValueError):
-                source_drive_voltage = 2.0
-            if (
-                not math.isfinite(source_drive_voltage)
-                or source_drive_voltage <= 0
-                or source_drive_voltage > 1000
-            ):
-                raise ValueError(
-                    "Direct-source test voltage must be greater than 0 V and no more than 1000 V."
-                )
+            source_drive_voltage = _direct_source_voltage_for_test_point(
+                test_point_data, amplifier_range
+            )
         else:
             if amplifier_range is None:
                 raise ValueError(

@@ -9,12 +9,13 @@ from .consumers import (
     _8508_safe_input_switch_delay,
     _configure_8508_for_direct_source,
     _configure_8508_for_tvc_output,
+    _direct_source_voltage_for_test_point,
 )
 
 
 class Instrument8508AStageConfigurationTests(SimpleTestCase):
     def test_direct_mode_requires_two_distinct_sources(self):
-        data = {'measurement_params': {'direct_source_test_mode': True}}
+        data = {'measurement_params': {'direct_source_test_mode': False}}
 
         with self.assertRaisesRegex(RuntimeError, "two distinct 5730A"):
             CalibrationConsumer._validate_direct_source_test_setup(
@@ -22,10 +23,74 @@ class Instrument8508AStageConfigurationTests(SimpleTestCase):
                 {
                     'ac_source_address': 'GPIB0::4::INSTR',
                     'dc_source_address': 'GPIB0::4::INSTR',
+                    'std_reader_address': 'GPIB0::16::INSTR',
+                    'ti_reader_address': 'GPIB0::16::INSTR',
+                    'std_reader_model': '8508A',
+                    'ti_reader_model': 'Fluke 8508A',
+                    'std_reader_input': 'FRONT',
+                    'ti_reader_input': 'REAR',
                     'amplifier_address': None,
                     'switch_driver_address': None,
                 },
             )
+
+    def test_direct_mode_is_inferred_from_instrument_assignments(self):
+        data = {'measurement_params': {'direct_source_test_mode': False}}
+        details = {
+            'ac_source_address': 'GPIB0::11::INSTR',
+            'dc_source_address': 'GPIB0::4::INSTR',
+            'std_reader_address': 'GPIB0::16::INSTR',
+            'ti_reader_address': 'GPIB0::16::INSTR',
+            'std_reader_model': '8508A',
+            'ti_reader_model': '8508A',
+            'std_reader_input': 'FRONT',
+            'ti_reader_input': 'REAR',
+            'amplifier_address': None,
+            'switch_driver_address': None,
+        }
+
+        CalibrationConsumer._validate_direct_source_test_setup(data, details)
+
+        self.assertTrue(data['measurement_params']['direct_source_test_mode'])
+
+    def test_lab_tvc_assignments_override_a_stale_direct_mode_value(self):
+        data = {'measurement_params': {'direct_source_test_mode': True}}
+        details = {
+            'ac_source_address': 'GPIB0::11::INSTR',
+            'dc_source_address': 'GPIB0::4::INSTR',
+            'std_reader_address': 'GPIB0::16::INSTR',
+            'ti_reader_address': 'GPIB0::16::INSTR',
+            'std_reader_model': '8508A',
+            'ti_reader_model': '8508A',
+            'std_reader_input': 'FRONT',
+            'ti_reader_input': 'REAR',
+            'amplifier_address': 'GPIB0::7::INSTR',
+            'switch_driver_address': 'GPIB0::8::INSTR',
+        }
+
+        CalibrationConsumer._validate_direct_source_test_setup(data, details)
+
+        self.assertFalse(data['measurement_params']['direct_source_test_mode'])
+
+    def test_direct_voltage_comes_from_the_selected_measurement_point(self):
+        self.assertEqual(
+            _direct_source_voltage_for_test_point(
+                {'current': 0.002}, amplifier_range=0.002
+            ),
+            2.0,
+        )
+        self.assertEqual(
+            _direct_source_voltage_for_test_point(
+                {'current': 0.001}, amplifier_range=0.002
+            ),
+            1.0,
+        )
+        self.assertEqual(
+            _direct_source_voltage_for_test_point({'current': 0.02}),
+            2.0,
+        )
+        with self.assertRaisesRegex(ValueError, "current must be greater than 0"):
+            _direct_source_voltage_for_test_point({'current': 0})
 
     def test_direct_mode_filter_tracks_the_8508a_frequency_bands(self):
         self.assertEqual(_8508_ac_filter_for_frequency(1), 1)

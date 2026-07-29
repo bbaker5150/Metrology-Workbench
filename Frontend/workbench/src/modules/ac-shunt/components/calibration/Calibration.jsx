@@ -299,8 +299,6 @@ const DEFAULT_CALIBRATION_SETTINGS = {
   num_samples: 6,
   settling_time: 45,
   input_switch_settling_time: 1,
-  direct_source_test_mode: false,
-  direct_source_voltage: 2,
   nplc: 100,
   stability_check_method: 'sliding_window',
   stability_window: 6,
@@ -330,7 +328,6 @@ const SETTINGS_FIELD_BOUNDS = {
   num_samples: { min: 2, int: true, fallback: 2 },
   settling_time: { min: 0, int: false, fallback: 0 },
   input_switch_settling_time: { min: 0, max: 65_000, int: false, fallback: 1 },
-  direct_source_voltage: { min: 0, minExclusive: true, max: 1000, int: false, fallback: 2 },
   n_cycles: { min: 2, int: true, fallback: 2 },
   stability_window: { min: 2, int: true, fallback: 2 }, // upper bound (num_samples) passed in per-call
   stability_threshold_ppm: { min: 0, minExclusive: true, int: false, fallback: 10 },
@@ -437,8 +434,6 @@ function Calibration({
     num_samples: 35,
     settling_time: 120,
     input_switch_settling_time: 1,
-    direct_source_test_mode: false,
-    direct_source_voltage: 2,
     nplc: 20,
     stability_check_method: 'sliding_window',
     stability_window: 30,
@@ -1361,11 +1356,6 @@ function Calibration({
         "input_switch_settling_time",
         settings.input_switch_settling_time ?? DEFAULT_CALIBRATION_SETTINGS.input_switch_settling_time
       ),
-      direct_source_test_mode: Boolean(settings.direct_source_test_mode),
-      direct_source_voltage: clampSettingField(
-        "direct_source_voltage",
-        settings.direct_source_voltage ?? DEFAULT_CALIBRATION_SETTINGS.direct_source_voltage
-      ),
       ignore_instability_after_lock: settings.ignore_instability_after_lock ?? DEFAULT_CALIBRATION_SETTINGS.ignore_instability_after_lock,
       enable_low_frequency_settings: lowFrequencyEnabled,
       enable_11hz_filter: lowFrequencyEnabled && (settings.enable_11hz_filter ?? DEFAULT_CALIBRATION_SETTINGS.enable_11hz_filter),
@@ -1387,11 +1377,6 @@ function Calibration({
       input_switch_settling_time: clampSettingField(
         "input_switch_settling_time",
         settings.input_switch_settling_time ?? DEFAULT_CALIBRATION_SETTINGS.input_switch_settling_time
-      ),
-      direct_source_test_mode: Boolean(settings.direct_source_test_mode),
-      direct_source_voltage: clampSettingField(
-        "direct_source_voltage",
-        settings.direct_source_voltage ?? DEFAULT_CALIBRATION_SETTINGS.direct_source_voltage
       ),
       nplc: parseFloat(settings.nplc) || DEFAULT_CALIBRATION_SETTINGS.nplc,
       stability_check_method: settings.stability_check_method || DEFAULT_CALIBRATION_SETTINGS.stability_check_method,
@@ -3083,65 +3068,6 @@ function Calibration({
                                   />
                                 </div>
                               )}
-                              {has8508Reader && (
-                                <div
-                                  className="form-section form-section--checkbox full-width"
-                                  title="Diagnostic-only topology: connect one 5730A directly to the 8508A FRONT input and the other directly to REAR. No amplifier, switch driver, shunts, or TVCs are used."
-                                >
-                                  <label className="form-section-checkbox-label">
-                                    <input
-                                      type="checkbox"
-                                      className="form-section-checkbox-input"
-                                      checked={Boolean(calibrationSettings.direct_source_test_mode)}
-                                      onChange={(e) => {
-                                        const enabled = e.target.checked;
-                                        if (enabled && (amplifierAddress || switchDriverAddress)) {
-                                          showNotification(
-                                            "Remove the amplifier and switch-driver assignments before enabling Direct 5730A test mode.",
-                                            "warning"
-                                          );
-                                          return;
-                                        }
-                                        setCalibrationSettings((prev) => ({
-                                          ...prev,
-                                          direct_source_test_mode: enabled,
-                                          characterize_test_first: enabled ? false : prev.characterize_test_first,
-                                          characterize_std_first: enabled ? false : prev.characterize_std_first,
-                                        }));
-                                      }}
-                                      disabled={isRemoteViewer}
-                                    />
-                                    <span>Direct 5730A test mode</span>
-                                  </label>
-                                </div>
-                              )}
-                              {has8508Reader && calibrationSettings.direct_source_test_mode && (
-                                <div
-                                  className="form-section"
-                                  title="Both 5730As are commanded to this diagnostic voltage. The 8508A range is selected from this expected signal; exactly 2 V and values above it use the next valid range."
-                                >
-                                  <label htmlFor="direct_source_voltage">
-                                    Direct source voltage (V)
-                                  </label>
-                                  <input
-                                    type="number"
-                                    id="direct_source_voltage"
-                                    name="direct_source_voltage"
-                                    min="0.000001"
-                                    max="1000"
-                                    step="any"
-                                    value={calibrationSettings.direct_source_voltage ?? 2}
-                                    onChange={(e) =>
-                                      setCalibrationSettings((prev) => ({
-                                        ...prev,
-                                        direct_source_voltage: e.target.value,
-                                      }))
-                                    }
-                                    onBlur={handleSettingBlur("direct_source_voltage")}
-                                    disabled={isRemoteViewer}
-                                  />
-                                </div>
-                              )}
                               <div className="form-section form-section--samples">
                                 <label htmlFor="num_samples"># of samples</label>
                                 <input
@@ -3552,7 +3478,7 @@ function Calibration({
                                       characterization_source: e.target.value,
                                     }))
                                   }
-                                  disabled={isRemoteViewer || calibrationSettings.direct_source_test_mode}
+                                  disabled={isRemoteViewer}
                                 >
                                   <option value="DC">DC</option>
                                   <option value="AC">AC</option>
@@ -3574,7 +3500,7 @@ function Calibration({
                                           characterize_std_first: e.target.checked,
                                         }))
                                       }
-                                      disabled={isRemoteViewer || calibrationSettings.direct_source_test_mode}
+                                      disabled={isRemoteViewer}
                                     />
                                     <span>Characterize STD. TVC before run</span>
                                   </label>
@@ -3592,7 +3518,7 @@ function Calibration({
                                           characterize_test_first: e.target.checked,
                                         }))
                                       }
-                                      disabled={isRemoteViewer || calibrationSettings.direct_source_test_mode}
+                                      disabled={isRemoteViewer}
                                     />
                                     <span>Characterize TI. TVC before run</span>
                                   </label>
