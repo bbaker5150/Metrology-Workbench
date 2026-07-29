@@ -417,6 +417,14 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
             'num_samples',
             'settling_time',
             'nplc',
+            'input_switch_settling_time',
+            'f8508_dc_filter_enabled',
+            'f8508_dc_resolution',
+            'f8508_dc_fast_enabled',
+            'f8508_ac_filter_hz',
+            'f8508_ac_resolution',
+            'f8508_ac_transfer_enabled',
+            'f8508_ac_dc_coupled',
             'stability_check_method',
             'stability_window',
             'stability_threshold_ppm',
@@ -444,6 +452,28 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
         double-counts collected cycles. Min value is enforced by the model's
         validator.
         """
+        return value
+
+    def validate_input_switch_settling_time(self, value):
+        if value is not None and not 0 <= value <= 65000:
+            raise serializers.ValidationError(
+                "The 8508A input-switch delay must be between 0 and 65000 seconds."
+            )
+        return value
+
+    def validate_f8508_dc_resolution(self, value):
+        if value not in (5, 6, 7, 8):
+            raise serializers.ValidationError("DC resolution must be 5, 6, 7, or 8.")
+        return value
+
+    def validate_f8508_ac_resolution(self, value):
+        if value not in (5, 6):
+            raise serializers.ValidationError("AC resolution must be 5 or 6.")
+        return value
+
+    def validate_f8508_ac_filter_hz(self, value):
+        if value not in (10, 40, 100):
+            raise serializers.ValidationError("AC filter must be 10, 40, or 100 Hz.")
         return value
 
 class FormattedReadingsField(serializers.Field):

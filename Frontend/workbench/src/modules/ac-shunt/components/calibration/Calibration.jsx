@@ -294,11 +294,54 @@ const formatCycleCount = (value) => {
   return value.toFixed(3);
 };
 
+const get8508AcFilterForFrequency = (frequency) => {
+  const hz = Math.abs(Number(frequency) || 0);
+  if (hz < 40) return 10;
+  if (hz < 100) return 40;
+  return 100;
+};
+
+const get8508RecommendedSwitchDelay = (settings, frequency) => {
+  const acResolution = Number(settings?.f8508_ac_resolution) === 5 ? 5 : 6;
+  const acFilter = [10, 40, 100].includes(Number(settings?.f8508_ac_filter_hz))
+    ? Number(settings.f8508_ac_filter_hz)
+    : get8508AcFilterForFrequency(frequency);
+  const acDelays = {
+    5: { 100: 0.5, 40: 1.25, 10: 5 },
+    6: { 100: 1.25, 40: 3.25, 10: 12.5 },
+  };
+  const dcResolution = [5, 6, 7, 8].includes(Number(settings?.f8508_dc_resolution))
+    ? Number(settings.f8508_dc_resolution)
+    : 7;
+  const dcFilterEnabled = settings?.f8508_dc_filter_enabled !== false;
+  const dcDelays = {
+    5: { on: 0.8, off: 0.08 },
+    6: { on: 1, off: 0.1 },
+    7: { on: 5, off: 1 },
+    8: { on: 10, off: 5 },
+  };
+  return Math.max(
+    acDelays[acResolution][acFilter],
+    dcDelays[dcResolution][dcFilterEnabled ? "on" : "off"]
+  );
+};
+
+const get8508SmartDefaults = (frequency) => ({
+  f8508_dc_filter_enabled: true,
+  f8508_dc_resolution: 7,
+  f8508_dc_fast_enabled: false,
+  f8508_ac_filter_hz: get8508AcFilterForFrequency(frequency),
+  f8508_ac_resolution: 6,
+  f8508_ac_transfer_enabled: true,
+  f8508_ac_dc_coupled: (Number(frequency) || 0) < 40,
+});
+
 const DEFAULT_CALIBRATION_SETTINGS = {
   initial_warm_up_time: 0,
   num_samples: 6,
   settling_time: 45,
-  input_switch_settling_time: 1,
+  input_switch_settling_time: 5,
+  ...get8508SmartDefaults(100),
   nplc: 100,
   stability_check_method: 'sliding_window',
   stability_window: 6,
@@ -327,7 +370,7 @@ const SETTINGS_FIELD_BOUNDS = {
   initial_warm_up_time: { min: 0, int: true, fallback: 0 },
   num_samples: { min: 2, int: true, fallback: 2 },
   settling_time: { min: 0, int: false, fallback: 0 },
-  input_switch_settling_time: { min: 0, max: 65_000, int: false, fallback: 1 },
+  input_switch_settling_time: { min: 0, max: 65_000, int: false, fallback: 5 },
   n_cycles: { min: 2, int: true, fallback: 2 },
   stability_window: { min: 2, int: true, fallback: 2 }, // upper bound (num_samples) passed in per-call
   stability_threshold_ppm: { min: 0, minExclusive: true, int: false, fallback: 10 },
@@ -433,7 +476,8 @@ function Calibration({
     initial_warm_up_time: 0,
     num_samples: 35,
     settling_time: 120,
-    input_switch_settling_time: 1,
+    input_switch_settling_time: 5,
+    ...get8508SmartDefaults(100),
     nplc: 20,
     stability_check_method: 'sliding_window',
     stability_window: 30,
@@ -451,6 +495,19 @@ function Calibration({
     lf_harmonics: 2,
     n_cycles: 3,
   });
+  const recommended8508SwitchDelay = useMemo(
+    () => get8508RecommendedSwitchDelay(
+      calibrationSettings,
+      focusedTP?.frequency
+    ),
+    [
+      calibrationSettings.f8508_ac_filter_hz,
+      calibrationSettings.f8508_ac_resolution,
+      calibrationSettings.f8508_dc_filter_enabled,
+      calibrationSettings.f8508_dc_resolution,
+      focusedTP?.frequency,
+    ]
+  );
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
     eta_ti: "",
@@ -1295,9 +1352,17 @@ function Calibration({
     const isFirstTestPoint =
       orderedTestPoints.length > 0 &&
       currentFocusedTP.key === orderedTestPoints[0].key;
+    const frequency = Number(currentFocusedTP.frequency) || 0;
+    const smart8508Defaults = get8508SmartDefaults(frequency);
+    const recommended8508Delay = get8508RecommendedSwitchDelay(
+      smart8508Defaults,
+      frequency
+    );
 
     const defaultSettings = {
       ...DEFAULT_CALIBRATION_SETTINGS,
+      ...smart8508Defaults,
+      input_switch_settling_time: recommended8508Delay,
       initial_warm_up_time: isFirstTestPoint ? 1800 : 0,
       num_samples: 6,
       settling_time: 45,
@@ -1333,7 +1398,17 @@ function Calibration({
 
     if (pointForDirection?.settings && Object.keys(pointForDirection.settings).length > 0) {
       const loaded = { ...defaultSettings, ...pointForDirection.settings };
+      if (loaded.input_switch_settling_time == null) {
+        loaded.input_switch_settling_time = get8508RecommendedSwitchDelay(
+          loaded,
+          frequency
+        );
+      }
       if (sessionNCycles != null) loaded.n_cycles = sessionNCycles;
+      if (has8508Reader) {
+        loaded.characterize_std_first = false;
+        loaded.characterize_test_first = false;
+      }
       setCalibrationSettings(loaded);
     } else {
       setCalibrationSettings({
@@ -1341,7 +1416,7 @@ function Calibration({
         n_cycles: sessionNCycles != null ? sessionNCycles : defaultSettings.n_cycles,
       });
     }
-  }, [focusedTP, activeDirection, orderedTestPoints]);
+  }, [focusedTP, activeDirection, orderedTestPoints, has8508Reader]);
 
   const buildMeasurementParams = useCallback((settings) => {
     const lowFrequencyEnabled = settings.enable_low_frequency_settings ?? DEFAULT_CALIBRATION_SETTINGS.enable_low_frequency_settings;
@@ -1356,6 +1431,13 @@ function Calibration({
         "input_switch_settling_time",
         settings.input_switch_settling_time ?? DEFAULT_CALIBRATION_SETTINGS.input_switch_settling_time
       ),
+      f8508_dc_filter_enabled: settings.f8508_dc_filter_enabled !== false,
+      f8508_dc_resolution: Number(settings.f8508_dc_resolution) || 7,
+      f8508_dc_fast_enabled: Boolean(settings.f8508_dc_fast_enabled),
+      f8508_ac_filter_hz: Number(settings.f8508_ac_filter_hz) || 100,
+      f8508_ac_resolution: Number(settings.f8508_ac_resolution) || 6,
+      f8508_ac_transfer_enabled: settings.f8508_ac_transfer_enabled !== false,
+      f8508_ac_dc_coupled: Boolean(settings.f8508_ac_dc_coupled),
       ignore_instability_after_lock: settings.ignore_instability_after_lock ?? DEFAULT_CALIBRATION_SETTINGS.ignore_instability_after_lock,
       enable_low_frequency_settings: lowFrequencyEnabled,
       enable_11hz_filter: lowFrequencyEnabled && (settings.enable_11hz_filter ?? DEFAULT_CALIBRATION_SETTINGS.enable_11hz_filter),
@@ -1378,6 +1460,13 @@ function Calibration({
         "input_switch_settling_time",
         settings.input_switch_settling_time ?? DEFAULT_CALIBRATION_SETTINGS.input_switch_settling_time
       ),
+      f8508_dc_filter_enabled: settings.f8508_dc_filter_enabled !== false,
+      f8508_dc_resolution: Number(settings.f8508_dc_resolution) || 7,
+      f8508_dc_fast_enabled: Boolean(settings.f8508_dc_fast_enabled),
+      f8508_ac_filter_hz: Number(settings.f8508_ac_filter_hz) || 100,
+      f8508_ac_resolution: Number(settings.f8508_ac_resolution) || 6,
+      f8508_ac_transfer_enabled: settings.f8508_ac_transfer_enabled !== false,
+      f8508_ac_dc_coupled: Boolean(settings.f8508_ac_dc_coupled),
       nplc: parseFloat(settings.nplc) || DEFAULT_CALIBRATION_SETTINGS.nplc,
       stability_check_method: settings.stability_check_method || DEFAULT_CALIBRATION_SETTINGS.stability_check_method,
       stability_window: parseInt(settings.stability_window, 10) || DEFAULT_CALIBRATION_SETTINGS.stability_window,
@@ -1385,8 +1474,12 @@ function Calibration({
       stability_max_attempts: parseInt(settings.stability_max_attempts, 10) || DEFAULT_CALIBRATION_SETTINGS.stability_max_attempts,
       iqr_filter_ppm_threshold: parseFloat(settings.iqr_filter_ppm_threshold) || DEFAULT_CALIBRATION_SETTINGS.iqr_filter_ppm_threshold,
       ignore_instability_after_lock: settings.ignore_instability_after_lock ?? DEFAULT_CALIBRATION_SETTINGS.ignore_instability_after_lock,
-      characterize_test_first: settings.characterize_test_first ?? DEFAULT_CALIBRATION_SETTINGS.characterize_test_first,
-      characterize_std_first: settings.characterize_std_first ?? DEFAULT_CALIBRATION_SETTINGS.characterize_std_first,
+      characterize_test_first: has8508Reader
+        ? false
+        : settings.characterize_test_first ?? DEFAULT_CALIBRATION_SETTINGS.characterize_test_first,
+      characterize_std_first: has8508Reader
+        ? false
+        : settings.characterize_std_first ?? DEFAULT_CALIBRATION_SETTINGS.characterize_std_first,
       characterization_source: settings.characterization_source === "AC" ? "AC" : "DC",
       enable_low_frequency_settings: lowFrequencyEnabled,
       enable_11hz_filter: lowFrequencyEnabled && (settings.enable_11hz_filter ?? DEFAULT_CALIBRATION_SETTINGS.enable_11hz_filter),
@@ -1397,7 +1490,7 @@ function Calibration({
       lf_harmonics: parseInt(settings.lf_harmonics, 10) || DEFAULT_CALIBRATION_SETTINGS.lf_harmonics,
       n_cycles: Math.max(2, parseInt(settings.n_cycles, 10) || DEFAULT_CALIBRATION_SETTINGS.n_cycles),
     };
-  }, []);
+  }, [has8508Reader]);
 
   const handleCorrectionInputChange = (e) =>
     setCorrectionInputs((prev) => ({
@@ -1594,6 +1687,8 @@ function Calibration({
           // Explicitly pass the individual point settings for the backend
           settling_time: parseFloat(ptSettings.settling_time),
           num_samples: parseInt(ptSettings.num_samples, 10),
+          nplc: parseFloat(ptSettings.nplc),
+          measurement_params: buildMeasurementParams(ptSettings),
         };
       });
       if (pointsToRunData.length === 0) {
@@ -1626,8 +1721,8 @@ function Calibration({
       let characterizationJustRan = false;
 
       // 1. Characterize TVCs (if opted in)
-      const charStd = firstPointSettings.characterize_std_first;
-      const charTi = firstPointSettings.characterize_test_first;
+      const charStd = has34420Reader && firstPointSettings.characterize_std_first;
+      const charTi = has34420Reader && firstPointSettings.characterize_test_first;
 
       if ((charStd || charTi) && firstPointInBatch) {
         let targetTvc = "BOTH";
@@ -1814,6 +1909,8 @@ function Calibration({
         settling_time: parseFloat(ptSettings.settling_time),
         num_samples: parseInt(ptSettings.num_samples, 10),
         n_cycles: Math.max(2, parseInt(ptSettings.n_cycles, 10) || 3),
+        nplc: parseFloat(ptSettings.nplc),
+        measurement_params: buildMeasurementParams(ptSettings),
       };
     };
 
@@ -2078,6 +2175,8 @@ function Calibration({
               direction: activeDirection,
               settling_time: parseFloat(ptSettings.settling_time),
               num_samples: parseInt(ptSettings.num_samples, 10),
+              nplc: parseFloat(ptSettings.nplc),
+              measurement_params: buildMeasurementParams(ptSettings),
             };
           });
 
@@ -2261,8 +2360,15 @@ function Calibration({
           orderedTestPoints.length > 0 &&
           focusedTP.key === orderedTestPoints[0].key;
 
+        const frequency = Number(focusedTP.frequency) || 0;
+        const smart8508Defaults = get8508SmartDefaults(frequency);
         const defaultSettings = {
           ...DEFAULT_CALIBRATION_SETTINGS,
+          ...smart8508Defaults,
+          input_switch_settling_time: get8508RecommendedSwitchDelay(
+            smart8508Defaults,
+            frequency
+          ),
           initial_warm_up_time: isFirstTestPoint ? 1800 : 0,
         };
 
@@ -3041,33 +3147,6 @@ function Calibration({
                                   </select>
                                 </div>
                               )}
-                              {has8508Reader && (
-                                <div
-                                  className="form-section"
-                                  title="Minimum delay applied after the 8508A changes between FRONT and REAR inputs. The app automatically enforces any longer scan delay required by the selected 8508A function, resolution, and filter."
-                                >
-                                  <label htmlFor="input_switch_settling_time">
-                                    Min. front/rear settling (sec)
-                                  </label>
-                                  <input
-                                    type="number"
-                                    id="input_switch_settling_time"
-                                    name="input_switch_settling_time"
-                                    min="0"
-                                    max="65000"
-                                    step="0.1"
-                                    value={calibrationSettings.input_switch_settling_time ?? 1}
-                                    onChange={(e) =>
-                                      setCalibrationSettings((prev) => ({
-                                        ...prev,
-                                        input_switch_settling_time: e.target.value,
-                                      }))
-                                    }
-                                    onBlur={handleSettingBlur("input_switch_settling_time")}
-                                    disabled={isRemoteViewer}
-                                  />
-                                </div>
-                              )}
                               <div className="form-section form-section--samples">
                                 <label htmlFor="num_samples"># of samples</label>
                                 <input
@@ -3304,6 +3383,178 @@ function Calibration({
                                 )}
                             </div>
                           </div>
+                          {has8508Reader && (
+                            <div className="settings-form-group settings-form-group--8508">
+                              <span className="settings-form-group-eyebrow">
+                                8508A Reader Profiles
+                              </span>
+                              <div className="reader-profile-grid">
+                                <section className="reader-profile-card" aria-labelledby="reader-profile-dc-title">
+                                  <div className="reader-profile-card-header">
+                                    <div>
+                                      <span className="reader-profile-kicker">DC stages</span>
+                                      <strong id="reader-profile-dc-title">DCV acquisition</strong>
+                                    </div>
+                                    <span className="reader-profile-range">Y5020 range auto-selected</span>
+                                  </div>
+                                  <div className="form-section-group">
+                                    <div className="form-section">
+                                      <label htmlFor="f8508_dc_resolution">Resolution</label>
+                                      <select
+                                        id="f8508_dc_resolution"
+                                        value={calibrationSettings.f8508_dc_resolution ?? 7}
+                                        onChange={(e) => setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          f8508_dc_resolution: Number(e.target.value),
+                                        }))}
+                                        disabled={isRemoteViewer}
+                                      >
+                                        {[5, 6, 7, 8].map((value) => (
+                                          <option key={value} value={value}>RESL{value}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div className="reader-profile-switches">
+                                      <label className="reader-profile-switch">
+                                        <input
+                                          type="checkbox"
+                                          checked={calibrationSettings.f8508_dc_filter_enabled !== false}
+                                          onChange={(e) => setCalibrationSettings((prev) => ({
+                                            ...prev,
+                                            f8508_dc_filter_enabled: e.target.checked,
+                                          }))}
+                                          disabled={isRemoteViewer}
+                                        />
+                                        <span>Filter</span>
+                                      </label>
+                                      <label className="reader-profile-switch">
+                                        <input
+                                          type="checkbox"
+                                          checked={Boolean(calibrationSettings.f8508_dc_fast_enabled)}
+                                          onChange={(e) => setCalibrationSettings((prev) => ({
+                                            ...prev,
+                                            f8508_dc_fast_enabled: e.target.checked,
+                                          }))}
+                                          disabled={isRemoteViewer}
+                                        />
+                                        <span>Fast</span>
+                                      </label>
+                                    </div>
+                                  </div>
+                                </section>
+
+                                <section className="reader-profile-card" aria-labelledby="reader-profile-ac-title">
+                                  <div className="reader-profile-card-header">
+                                    <div>
+                                      <span className="reader-profile-kicker">AC stages</span>
+                                      <strong id="reader-profile-ac-title">ACV acquisition</strong>
+                                    </div>
+                                    <span className="reader-profile-range">
+                                      {formatFrequency(focusedTP?.frequency)} point
+                                    </span>
+                                  </div>
+                                  <div className="form-section-group">
+                                    <div className="form-section">
+                                      <label htmlFor="f8508_ac_filter_hz">RMS filter</label>
+                                      <select
+                                        id="f8508_ac_filter_hz"
+                                        value={calibrationSettings.f8508_ac_filter_hz ?? get8508AcFilterForFrequency(focusedTP?.frequency)}
+                                        onChange={(e) => setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          f8508_ac_filter_hz: Number(e.target.value),
+                                        }))}
+                                        disabled={isRemoteViewer}
+                                      >
+                                        {[100, 40, 10].map((value) => (
+                                          <option key={value} value={value}>FILT{value}HZ</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div className="form-section">
+                                      <label htmlFor="f8508_ac_resolution">Resolution</label>
+                                      <select
+                                        id="f8508_ac_resolution"
+                                        value={calibrationSettings.f8508_ac_resolution ?? 6}
+                                        onChange={(e) => setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          f8508_ac_resolution: Number(e.target.value),
+                                        }))}
+                                        disabled={isRemoteViewer}
+                                      >
+                                        {[5, 6].map((value) => (
+                                          <option key={value} value={value}>RESL{value}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div className="reader-profile-switches full-width">
+                                      <label className="reader-profile-switch">
+                                        <input
+                                          type="checkbox"
+                                          checked={calibrationSettings.f8508_ac_transfer_enabled !== false}
+                                          onChange={(e) => setCalibrationSettings((prev) => ({
+                                            ...prev,
+                                            f8508_ac_transfer_enabled: e.target.checked,
+                                          }))}
+                                          disabled={isRemoteViewer}
+                                        />
+                                        <span>Transfer</span>
+                                      </label>
+                                      <label className="reader-profile-switch" title="DC-coupled AC mode is recommended below 40 Hz.">
+                                        <input
+                                          type="checkbox"
+                                          checked={Boolean(calibrationSettings.f8508_ac_dc_coupled)}
+                                          onChange={(e) => setCalibrationSettings((prev) => ({
+                                            ...prev,
+                                            f8508_ac_dc_coupled: e.target.checked,
+                                          }))}
+                                          disabled={isRemoteViewer}
+                                        />
+                                        <span>DC coupled</span>
+                                      </label>
+                                    </div>
+                                  </div>
+                                </section>
+                              </div>
+
+                              <div className="reader-profile-delay">
+                                <div className="form-section">
+                                  <label htmlFor="input_switch_settling_time">
+                                    Front / rear switch delay (sec)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    id="input_switch_settling_time"
+                                    name="input_switch_settling_time"
+                                    min="0"
+                                    max="65000"
+                                    step="0.1"
+                                    value={calibrationSettings.input_switch_settling_time ?? recommended8508SwitchDelay}
+                                    onChange={(e) => setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      input_switch_settling_time: e.target.value,
+                                    }))}
+                                    onBlur={handleSettingBlur("input_switch_settling_time")}
+                                    disabled={isRemoteViewer}
+                                  />
+                                </div>
+                                <div className="reader-profile-recommendation">
+                                  <span>
+                                    Recommended minimum for these AC/DC profiles: <strong>{Number(recommended8508SwitchDelay.toFixed(2))} s</strong>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      input_switch_settling_time: recommended8508SwitchDelay,
+                                    }))}
+                                    disabled={isRemoteViewer}
+                                  >
+                                    Use recommended
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                           {/* --- LOW FREQUENCY AC SECTION ---
                               Hidden while LF-specific calibration behavior is parked.
                               Keep the settings/state/payload logic intact so the section can
@@ -3456,6 +3707,7 @@ function Calibration({
                             </div>
                           )}
 
+                          {has34420Reader && (
                           <div className="settings-form-group">
                             <span className="settings-form-group-eyebrow">
                               Characterization
@@ -3527,6 +3779,7 @@ function Calibration({
                               </div>
                             </div>
                           </div>
+                          )}
 
                           <div className="form-section-action-icons">
                             <button

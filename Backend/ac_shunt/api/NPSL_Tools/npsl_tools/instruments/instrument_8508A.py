@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import math
 import threading
+import time
 from typing import ClassVar
 
 import pyvisa
@@ -54,6 +55,8 @@ class _SharedConnection:
     reading_invalidated: bool = True
     input_switch_pending: bool = False
     input_switch_delay_s: float = 0.0
+    conversion_delay_s: float = 1.0
+    trigger_source: TriggerSource = TriggerSource.INTERNAL
 
 
 class Instrument8508A:
@@ -61,11 +64,12 @@ class Instrument8508A:
 
     ``input_terminal`` makes an instance behave like a logical Standard or TI
     reader.  Two instances opened against the same VISA address share one
-    resource and serialize all I/O.
+resource and serialize all I/O. The Y5020 workflow uses the meter's graceful
+internal trigger, waits the configured FRONT/REAR switch interval, and recalls
+the completed conversion with ``RDG?``.
     """
 
     DEFAULT_TIMEOUT_MS = 120_000
-    DEFAULT_TVC_OUTPUT_V = 0.01
     OVERLOAD_SENTINEL = 200.0e33
 
     _connections: ClassVar[dict[str, _SharedConnection]] = {}
@@ -130,16 +134,11 @@ class Instrument8508A:
         return self._shared.device
 
     def _initialize_ac_shunt_mode_unlocked(self) -> None:
-        # The 8508A is connected after the thermal converters, so every
-        # AC-open/DC+/DC-/AC-close stage is observed as a low-level DC voltage.
-        # Program the anticipated 10 mV signal explicitly; Nrf=0.01 selects the
-        # fixed 200 mV DCV range and avoids autorange movement within a cycle.
-        measurement_command = (
-            f"DCV {self.DEFAULT_TVC_OUTPUT_V:g},FILT_ON,RESL6,FAST_OFF,TWO_WR"
-        )
+        # Safe direct-shunt startup profile. Each acquisition stage reasserts
+        # its exact AC or DC profile before readings are collected.
+        measurement_command = "DCV 0.1,FILT_ON,RESL7,FAST_OFF,TWO_WR"
         self._shared.device.write(measurement_command)
-        self._shared.device.write("TRG_SRCE EXT")
-        self._shared.device.write("DELAY DFLT")
+        self._shared.device.write("TRG_SRCE INT")
         # *RST selects FRONT. The first conversion is deliberately discarded
         # because a reset/function change invalidates any previously completed
         # conversion in the meter's reading store.
@@ -147,7 +146,9 @@ class Instrument8508A:
         self._shared.measurement_command = measurement_command
         self._shared.reading_invalidated = True
         self._shared.input_switch_pending = False
-        self._shared.input_switch_delay_s = 1.0
+        self._shared.input_switch_delay_s = 5.0
+        self._shared.conversion_delay_s = 5.0
+        self._shared.trigger_source = TriggerSource.INTERNAL
 
     def initialize_ac_shunt_mode(self) -> None:
         with self._shared.io_lock:
@@ -216,7 +217,12 @@ class Instrument8508A:
 
     def set_trigger_source(self, source: str | TriggerSource) -> None:
         selected = source if isinstance(source, TriggerSource) else TriggerSource(str(source).upper())
-        self.write_command(f"TRG_SRCE {selected.value}")
+        with self._shared.io_lock:
+            if self._shared.trigger_source is selected:
+                return
+            self._shared.device.write(f"TRG_SRCE {selected.value}")
+            self._shared.trigger_source = selected
+            self._shared.reading_invalidated = True
 
     def set_settling_delay(self, seconds: float | None = None) -> None:
         if seconds is None:
@@ -274,6 +280,11 @@ class Instrument8508A:
                 6: {100: 1.25, 40: 3.25, 10: 12.5, 1: 125.0},
             }
             self._shared.input_switch_delay_s = scan_delays[resolution][filter_hz]
+            normal_delays = {
+                5: {100: 0.25, 40: 0.6, 10: 2.0, 1: 20.0},
+                6: {100: 0.3, 40: 0.75, 10: 2.5, 1: 25.0},
+            }
+            self._shared.conversion_delay_s = normal_delays[resolution][filter_hz]
             self._set_measurement_command_unlocked(command)
 
     def configure_dc_voltage(
@@ -307,6 +318,7 @@ class Instrument8508A:
                 8: 10.0 if filter_enabled else 5.0,
             }
             self._shared.input_switch_delay_s = normal_delays[resolution]
+            self._shared.conversion_delay_s = normal_delays[resolution]
             self._set_measurement_command_unlocked(command)
 
     def trigger(self) -> None:
@@ -373,13 +385,36 @@ class Instrument8508A:
         self._shared.input_switch_pending = True
 
     def _take_settled_reading_unlocked(self) -> float:
-        """Return a fresh reading, purging one conversion after a state change.
+        """Return a completed reading under the configured trigger contract."""
 
-        ``X?`` performs ``*TRG;RDG?`` and honors the programmed/default delay.
-        The unsaved conversion after a relay or function transition lets the
-        8508A input path, DC filter, and converter settle before a value can
-        enter the calibration arrays.
-        """
+        if self._shared.trigger_source is TriggerSource.INTERNAL:
+            conversion_delay = max(
+                0.0, float(self._shared.conversion_delay_s or 0.0)
+            )
+            if self._shared.input_switch_pending:
+                # INT triggering runs continuously and DELAY only applies to
+                # EXT. Hold the bus after INPUT FRONT/REAR so the relay, input
+                # path, and at least one conversion settle before RDG?.
+                time.sleep(max(
+                    0.0, float(self._shared.input_switch_delay_s or 0.0)
+                ))
+                self._shared.input_switch_pending = False
+                self._shared.reading_invalidated = False
+                return self._parse_reading(
+                    self._shared.device.query("RDG?").strip()
+                )
+
+            if self._shared.reading_invalidated:
+                # A function/profile change invalidates the conversion that
+                # may have begun under the previous configuration. Discard a
+                # completed new-profile reading, then wait for the next one.
+                time.sleep(conversion_delay)
+                self._shared.device.query("RDG?")
+                self._shared.reading_invalidated = False
+            time.sleep(conversion_delay)
+            return self._parse_reading(
+                self._shared.device.query("RDG?").strip()
+            )
 
         if self._shared.input_switch_pending:
             # INPUT FRONT/REAR is a physical path change. DELAY DFLT applies
@@ -420,8 +455,9 @@ class Instrument8508A:
         with self._shared.io_lock:
             return {
                 "measurement_command": self._shared.measurement_command,
-                "trigger_source": TriggerSource.EXTERNAL.value,
+                "trigger_source": self._shared.trigger_source.value,
                 "input_switch_delay_s": self._shared.input_switch_delay_s,
+                "conversion_delay_s": self._shared.conversion_delay_s,
                 "input_terminal": self.input_terminal.value,
             }
 

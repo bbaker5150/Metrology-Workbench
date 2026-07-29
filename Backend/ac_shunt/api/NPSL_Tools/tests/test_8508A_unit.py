@@ -1,6 +1,5 @@
 import concurrent.futures
 import threading
-import time
 import unittest
 from unittest.mock import patch
 
@@ -14,9 +13,6 @@ class FakeDevice:
         self.write_termination = None
         self.commands = []
         self.current_input = "FRONT"
-        self.previous_input = "FRONT"
-        self.stale_after_switch = False
-        self.programmed_delay = None
         self.closed = False
         self._guard = threading.Lock()
 
@@ -25,13 +21,8 @@ class FakeDevice:
             self.commands.append(("write", command))
             if command.startswith("INPUT "):
                 selected = command.split()[-1]
-                if selected in ("FRONT", "REAR") and selected != self.current_input:
-                    self.previous_input = self.current_input
+                if selected in ("FRONT", "REAR"):
                     self.current_input = selected
-                    self.stale_after_switch = True
-            elif command.startswith("DELAY "):
-                token = command.split()[-1]
-                self.programmed_delay = None if token == "DFLT" else float(token)
 
     def query(self, command):
         with self._guard:
@@ -40,16 +31,8 @@ class FakeDevice:
                 return "8508A/01\n"
             if command == "*IDN?":
                 return "FLUKE,8508A,1234,1.0\n"
-            if command == "X?":
-                # A scan-equivalent delay lets the physical path settle before
-                # the fresh conversion. Without it, emulate stale prior-input
-                # data so the test detects an undersettled switch.
-                time.sleep(0.002)
-                selected = self.current_input
-                if self.stale_after_switch and self.programmed_delay is None:
-                    selected = self.previous_input
-                self.stale_after_switch = False
-                return "1.0\n" if selected == "FRONT" else "2.0\n"
+            if command in ("RDG?", "X?"):
+                return "1.0\n" if self.current_input == "FRONT" else "2.0\n"
             return "0\n"
 
     def close(self):
@@ -75,29 +58,34 @@ class Instrument8508ATests(unittest.TestCase):
         Instrument8508A._connections.clear()
         self.device = FakeDevice()
         self.rm = FakeResourceManager(self.device)
-        self.patch = patch(
+        self.rm_patch = patch(
             "npsl_tools.instruments.instrument_8508A.pyvisa.ResourceManager",
             return_value=self.rm,
         )
-        self.patch.start()
+        self.sleep_patch = patch(
+            "npsl_tools.instruments.instrument_8508A.time.sleep"
+        )
+        self.mock_sleep = self.sleep_patch.start()
+        self.rm_patch.start()
 
     def tearDown(self):
-        self.patch.stop()
+        self.rm_patch.stop()
+        self.sleep_patch.stop()
         Instrument8508A._connections.clear()
 
-    def test_initialization_explicitly_sets_tvc_output_dcv_configuration(self):
+    def test_initialization_sets_safe_y5020_dcv_and_internal_trigger(self):
         instrument = Instrument8508A("GPIB0::8::INSTR")
         writes = [command for kind, command in self.device.commands if kind == "write"]
         self.assertEqual(
-            writes[:5],
+            writes[:4],
             [
                 "*RST",
                 "*CLS",
-                "DCV 0.01,FILT_ON,RESL6,FAST_OFF,TWO_WR",
-                "TRG_SRCE EXT",
-                "DELAY DFLT",
+                "DCV 0.1,FILT_ON,RESL7,FAST_OFF,TWO_WR",
+                "TRG_SRCE INT",
             ],
         )
+        self.assertEqual(instrument.get_acquisition_profile()["trigger_source"], "INT")
         instrument.close()
 
     def test_front_and_rear_readers_share_one_connection_and_serialize(self):
@@ -109,13 +97,12 @@ class Instrument8508ATests(unittest.TestCase):
 
         self.assertEqual(values, [1.0, 2.0])
         self.assertEqual(self.rm.open_count, 1)
-
         front.close()
         self.assertFalse(self.device.closed)
         rear.close()
         self.assertTrue(self.device.closed)
 
-    def test_paired_reads_alternate_order_without_changing_tuple_roles(self):
+    def test_paired_internal_reads_alternate_order_without_changing_roles(self):
         front = Instrument8508A("GPIB0::8::INSTR", "FRONT")
         rear = Instrument8508A("GPIB0::8::INSTR", "REAR")
         self.device.commands.clear()
@@ -128,60 +115,50 @@ class Instrument8508ATests(unittest.TestCase):
             for kind, command in self.device.commands
             if kind == "write" and command.startswith("INPUT ")
         ]
-        self.assertEqual(
-            input_writes,
-            ["INPUT REAR", "INPUT FRONT"],
-        )
-        x_queries = [
+        self.assertEqual(input_writes, ["INPUT REAR", "INPUT FRONT"])
+        rdg_queries = [
             command
             for kind, command in self.device.commands
-            if kind == "query" and command == "X?"
+            if kind == "query" and command == "RDG?"
         ]
-        # The initial function-state invalidation receives one purge. Each
-        # physical transition then gets one fresh conversion after the
-        # scan-equivalent delay rather than an undersettled purge/save pair.
-        self.assertEqual(len(x_queries), 5)
-        delay_writes = [
-            command
+        self.assertEqual(len(rdg_queries), 5)
+        self.assertFalse(any(
+            command.startswith("DELAY ")
             for kind, command in self.device.commands
-            if kind == "write" and command.startswith("DELAY ")
-        ]
-        self.assertEqual(
-            delay_writes,
-            ["DELAY 1", "DELAY DFLT", "DELAY 1", "DELAY DFLT"],
-        )
+            if kind == "write"
+        ))
         front.close()
         rear.close()
 
-    def test_function_change_purges_before_returning_a_saved_reading(self):
+    def test_function_change_discards_one_internal_conversion(self):
         front = Instrument8508A("GPIB0::8::INSTR", "FRONT")
         self.device.commands.clear()
 
         front.configure_dc_voltage()
         self.assertEqual(front.read_instrument(), 1.0)
 
-        commands = self.device.commands
-        self.assertEqual(commands[0], ("write", "DCV AUTO,FILT_ON,RESL6,FAST_OFF,TWO_WR"))
         self.assertEqual(
-            [entry for entry in commands if entry == ("query", "X?")],
-            [("query", "X?"), ("query", "X?")],
+            self.device.commands[0],
+            ("write", "DCV AUTO,FILT_ON,RESL6,FAST_OFF,TWO_WR"),
+        )
+        self.assertEqual(
+            [entry for entry in self.device.commands if entry == ("query", "RDG?")],
+            [("query", "RDG?"), ("query", "RDG?")],
         )
         front.close()
 
-    def test_input_switch_delay_can_be_set_independently(self):
+    def test_operator_switch_delay_is_used_in_both_directions(self):
         front = Instrument8508A("GPIB0::8::INSTR", "FRONT")
         rear = Instrument8508A("GPIB0::8::INSTR", "REAR")
         front.set_input_switch_delay(2.5)
-        self.device.commands.clear()
+        self.mock_sleep.reset_mock()
 
         self.assertEqual(front.read_pair(rear), (1.0, 2.0))
+        self.mock_sleep.assert_any_call(2.5)
 
-        delay_writes = [
-            command
-            for kind, command in self.device.commands
-            if kind == "write" and command.startswith("DELAY ")
-        ]
-        self.assertEqual(delay_writes, ["DELAY 2.5", "DELAY DFLT"])
+        self.mock_sleep.reset_mock()
+        self.assertEqual(front.read_pair(rear, reverse_order=True), (1.0, 2.0))
+        self.mock_sleep.assert_any_call(2.5)
         front.close()
         rear.close()
 

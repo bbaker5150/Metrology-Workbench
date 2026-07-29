@@ -227,6 +227,18 @@ class CalibrationSettings(models.Model):
     num_samples = models.IntegerField(default=35, null=True, blank=True)
     settling_time = models.IntegerField(default=120, null=True, blank=True)
     nplc = models.FloatField(default=20, null=True, blank=True, help_text="Integration time in Power Line Cycles for 34420A")
+    input_switch_settling_time = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Operator-selected 8508A FRONT/REAR switch delay in seconds.",
+    )
+    f8508_dc_filter_enabled = models.BooleanField(default=True)
+    f8508_dc_resolution = models.PositiveSmallIntegerField(default=7)
+    f8508_dc_fast_enabled = models.BooleanField(default=False)
+    f8508_ac_filter_hz = models.PositiveSmallIntegerField(default=100)
+    f8508_ac_resolution = models.PositiveSmallIntegerField(default=6)
+    f8508_ac_transfer_enabled = models.BooleanField(default=True)
+    f8508_ac_dc_coupled = models.BooleanField(default=False)
     stability_window = models.IntegerField(default=30, null=True, blank=True)
     stability_threshold_ppm = models.FloatField(default=10, null=True, blank=True)
     stability_max_attempts = models.IntegerField(default=10, null=True, blank=True)
@@ -703,8 +715,24 @@ class CalibrationResults(models.Model):
                 return None
             return None
 
-        if self.delta_std is None: self.delta_std = get_tvc_corr(session.standard_tvc_serial)
-        if self.delta_ti is None: self.delta_ti = get_tvc_corr(session.test_tvc_serial)
+        # The 8508A reads both Y5020 shunt outputs directly. It retains the
+        # known Standard shunt correction above, but has no intervening TVC
+        # gain or AC-DC correction terms. The 34420A/A40B workflow continues
+        # to use its existing TVC corrections and characterized eta values.
+        uses_8508 = (
+            '8508' in str(session.standard_reader_model or '').upper()
+            and '8508' in str(session.test_reader_model or '').upper()
+        )
+        if uses_8508:
+            self.delta_std = 0.0
+            self.delta_ti = 0.0
+            self.eta_std = 1.0
+            self.eta_ti = 1.0
+        else:
+            if self.delta_std is None:
+                self.delta_std = get_tvc_corr(session.standard_tvc_serial)
+            if self.delta_ti is None:
+                self.delta_ti = get_tvc_corr(session.test_tvc_serial)
 
         # Set defaults so math doesn't crash
         if self.eta_std is None: self.eta_std = 1.0
