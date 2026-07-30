@@ -6518,7 +6518,7 @@ body.dark-mode .corrections-card-select:focus-visible {
 
 .reader-profile-card-header strong {
   color: var(--text-color);
-  font-size: 0.86rem;
+  font-size: 0.7rem;
   line-height: 1.25;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -6590,6 +6590,12 @@ body.dark-mode .corrections-card-select:focus-visible {
   margin-top: 10px;
 }
 
+.reader-profile-point-save-control {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+}
+
 .reader-profile-point-save {
   display: inline-flex;
   align-items: center;
@@ -6641,7 +6647,7 @@ body.dark-mode .corrections-card-select:focus-visible {
   opacity: 0.55;
 }
 
-.reader-profile-point-actions .reader-setting-tooltip {
+.reader-profile-point-save-control .reader-setting-tooltip {
   right: 0;
   left: auto;
 }

@@ -3463,7 +3463,7 @@ function Calibration({
                               <div className="reader-profile-grid">
                                 <section className="reader-profile-card" aria-labelledby="reader-profile-dc-title">
                                   <div className="reader-profile-card-header">
-                                    <strong id="reader-profile-dc-title">DC Stages</strong>
+                                    <strong id="reader-profile-dc-title">DC Readings</strong>
                                   </div>
                                   <div className="form-section-group">
                                     <div className="form-section reader-setting-tooltip-trigger">
@@ -3528,7 +3528,7 @@ function Calibration({
 
                                 <section className="reader-profile-card" aria-labelledby="reader-profile-ac-title">
                                   <div className="reader-profile-card-header">
-                                    <strong id="reader-profile-ac-title">AC Stages</strong>
+                                    <strong id="reader-profile-ac-title">AC Readings</strong>
                                   </div>
                                   <div className="form-section-group">
                                     <div className="form-section reader-setting-tooltip-trigger">
@@ -3638,19 +3638,21 @@ function Calibration({
                                   />
                                 </div>
                               </div>
-                              <div className="reader-profile-point-actions reader-setting-tooltip-trigger">
-                                <button
-                                  type="button"
-                                  className={`reader-profile-point-save${is8508SettingsSaved ? " is-saved" : ""}`}
-                                  onClick={handle8508SettingsSave}
-                                  disabled={isRemoteViewer}
-                                  aria-label="Save 8508A settings for this test point"
-                                >
-                                  <FaCheck aria-hidden="true" />
-                                </button>
-                                <ReaderSettingTooltip>
-                                  Update 8508A settings for this test point only.
-                                </ReaderSettingTooltip>
+                              <div className="reader-profile-point-actions">
+                                <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
+                                  <button
+                                    type="button"
+                                    className={`reader-profile-point-save${is8508SettingsSaved ? " is-saved" : ""}`}
+                                    onClick={handle8508SettingsSave}
+                                    disabled={isRemoteViewer}
+                                    aria-label="Save 8508A settings for this test point"
+                                  >
+                                    <FaCheck aria-hidden="true" />
+                                  </button>
+                                  <ReaderSettingTooltip>
+                                    Update 8508A settings for this test point only.
+                                  </ReaderSettingTooltip>
+                                </span>
                               </div>
                             </div>
                           )}
