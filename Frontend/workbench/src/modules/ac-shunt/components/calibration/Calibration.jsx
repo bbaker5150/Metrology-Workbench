@@ -412,28 +412,6 @@ const clampSettingField = (name, rawValue, max = null) => {
   return n;
 };
 
-const get8508PointSettingsSignature = (
-  settings,
-  direction,
-  current,
-  frequency
-) => JSON.stringify({
-  scope: [direction, String(current ?? ""), String(frequency ?? "")],
-  settings: {
-    input_switch_settling_time: clampSettingField(
-      "input_switch_settling_time",
-      settings.input_switch_settling_time ?? DEFAULT_CALIBRATION_SETTINGS.input_switch_settling_time
-    ),
-    f8508_dc_filter_enabled: settings.f8508_dc_filter_enabled !== false,
-    f8508_dc_resolution: Number(settings.f8508_dc_resolution) || 7,
-    f8508_dc_fast_enabled: Boolean(settings.f8508_dc_fast_enabled),
-    f8508_ac_filter_hz: Number(settings.f8508_ac_filter_hz) || 100,
-    f8508_ac_resolution: Number(settings.f8508_ac_resolution) || 6,
-    f8508_ac_transfer_enabled: settings.f8508_ac_transfer_enabled !== false,
-    f8508_ac_dc_coupled: Boolean(settings.f8508_ac_dc_coupled),
-  },
-});
-
 function Calibration({
   showNotification,
   orderedTestPoints,
@@ -536,15 +514,7 @@ function Calibration({
     calibrationSettings,
     focusedTP?.frequency
   );
-  const current8508SettingsSignature = get8508PointSettingsSignature(
-    calibrationSettings,
-    activeDirection,
-    focusedTP?.current,
-    focusedTP?.frequency
-  );
-  const [saved8508SettingsSignature, setSaved8508SettingsSignature] = useState(null);
-  const is8508SettingsSaved =
-    saved8508SettingsSignature === current8508SettingsSignature;
+  const [is8508SettingsSaved, setIs8508SettingsSaved] = useState(false);
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
     eta_ti: "",
@@ -569,6 +539,13 @@ function Calibration({
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const collectionPromise = useRef(null);
   const lastAutoFocusedKey = useRef(null);
+  const save8508ConfirmationTimeout = useRef(null);
+
+  useEffect(() => () => {
+    if (save8508ConfirmationTimeout.current) {
+      window.clearTimeout(save8508ConfirmationTimeout.current);
+    }
+  }, []);
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   const [isHarmonicInfoOpen, setIsHarmonicInfoOpen] = useState(false);
@@ -2640,14 +2617,21 @@ function Calibration({
         { settings: pointSettings }
       );
 
-      setSaved8508SettingsSignature(current8508SettingsSignature);
+      if (save8508ConfirmationTimeout.current) {
+        window.clearTimeout(save8508ConfirmationTimeout.current);
+      }
+      setIs8508SettingsSaved(true);
+      save8508ConfirmationTimeout.current = window.setTimeout(() => {
+        setIs8508SettingsSaved(false);
+        save8508ConfirmationTimeout.current = null;
+      }, 1600);
       showNotification(
         `8508A settings saved for ${formatCurrent(focusedTP.current)} @ ${formatFrequency(focusedTP.frequency)} (${directionName}).`,
         "success"
       );
       onDataUpdate();
     } catch (error) {
-      setSaved8508SettingsSignature(null);
+      setIs8508SettingsSaved(false);
       showNotification("Error saving 8508A settings for this point.", "error");
     }
   };
@@ -3475,9 +3459,6 @@ function Calibration({
                                 <span className="settings-form-group-eyebrow">
                                   8508A Settings
                                 </span>
-                                <span className="reader-profile-scope-pill">
-                                  Current point only
-                                </span>
                               </div>
                               <div className="reader-profile-grid">
                                 <section className="reader-profile-card" aria-labelledby="reader-profile-dc-title">
@@ -3668,7 +3649,7 @@ function Calibration({
                                   <FaCheck aria-hidden="true" />
                                 </button>
                                 <ReaderSettingTooltip>
-                                  Save only these 8508A settings for the current test point and direction.
+                                  Update 8508A settings for this test point only.
                                 </ReaderSettingTooltip>
                               </div>
                             </div>

@@ -6499,30 +6499,15 @@ body.dark-mode .corrections-card-select:focus-visible {
 .reader-profile-scope-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.reader-profile-scope-pill {
-  flex: 0 0 auto;
-  padding: 3px 8px;
-  border: 1px solid color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--primary-color) 9%, transparent);
-  color: var(--primary-color);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.2;
-  text-transform: uppercase;
+  margin-bottom: 12px;
 }
 
 .reader-profile-card {
   min-width: 0;
-  padding: 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--input-background) 94%, var(--primary-color) 6%);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .reader-profile-card-header {
@@ -6609,15 +6594,15 @@ body.dark-mode .corrections-card-select:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   margin: 0;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--text-color-muted) 55%, var(--border-color));
-  border-radius: 7px;
-  background: var(--input-background);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
   color: var(--text-color-muted);
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   line-height: 1;
   cursor: pointer;
   transition:
@@ -6628,32 +6613,27 @@ body.dark-mode .corrections-card-select:focus-visible {
 }
 
 .reader-profile-point-save:hover:not(:disabled) {
-  border-color: var(--primary-color);
-  background: color-mix(in srgb, var(--primary-color) 10%, var(--input-background));
+  background: transparent;
   color: var(--primary-color);
   transform: none;
 }
 
 .reader-profile-point-save svg {
-  opacity: 0;
-  transition: opacity 150ms ease;
-}
-
-.reader-profile-point-save:hover:not(:disabled) svg {
-  opacity: 0.55;
+  opacity: 1;
+  transition: filter 150ms ease, transform 150ms ease;
 }
 
 .reader-profile-point-save.is-saved {
-  border-color: #22c55e;
-  background: color-mix(in srgb, #22c55e 16%, var(--input-background));
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, #22c55e 18%, transparent),
-    0 0 14px color-mix(in srgb, #22c55e 42%, transparent);
+  background: transparent;
+  box-shadow: none;
   color: #22c55e;
 }
 
 .reader-profile-point-save.is-saved svg {
-  opacity: 1;
+  filter:
+    drop-shadow(0 0 3px color-mix(in srgb, #22c55e 85%, transparent))
+    drop-shadow(0 0 7px color-mix(in srgb, #22c55e 60%, transparent));
+  transform: scale(1.12);
 }
 
 .reader-profile-point-save:disabled {
