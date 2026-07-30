@@ -6496,6 +6496,34 @@ body.dark-mode .corrections-card-select:focus-visible {
   gap: 14px;
 }
 
+.reader-profile-scope-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reader-profile-scope-pill {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-color) 9%, transparent);
+  color: var(--primary-color);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.reader-profile-scope-note {
+  margin: 5px 0 14px;
+  color: var(--text-color-muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
 .reader-profile-card {
   min-width: 0;
   padding: 14px;
@@ -6577,6 +6605,47 @@ body.dark-mode .corrections-card-select:focus-visible {
   width: min(100%, 320px);
 }
 
+.reader-profile-point-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-color-muted);
+  font-size: 0.72rem;
+}
+
+.reader-profile-point-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  margin: 0;
+  padding: 7px 11px;
+  border: 1px solid var(--primary-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--input-background));
+  color: var(--primary-color);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.reader-profile-point-save:hover:not(:disabled) {
+  background: var(--primary-color);
+  color: #fff;
+  transform: none;
+}
+
+.reader-profile-point-save:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .reader-setting-tooltip-trigger {
   position: relative;
 }
@@ -6613,6 +6682,11 @@ body.dark-mode .corrections-card-select:focus-visible {
 @media (max-width: 860px) {
   .reader-profile-grid {
     grid-template-columns: 1fr;
+  }
+
+  .reader-profile-point-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

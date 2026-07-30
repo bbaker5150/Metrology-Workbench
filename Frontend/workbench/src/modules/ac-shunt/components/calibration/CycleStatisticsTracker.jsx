@@ -733,32 +733,21 @@ function CycleStatisticsTracker({
             </div>
             <div className="stat-card">
               <h6>
-                Type A Standard Uncertainty
+                Type A Uncertainty
                 <FormulaInfo
-                  tex={"u_A = \\frac{s}{\\sqrt{N}}"}
-                  label="Type A uncertainty equation"
+                  tex={"u_A = \\frac{s}{\\sqrt{N}}, \\qquad U_A = 2u_A"}
+                  label="Type A standard and expanded uncertainty equations"
                 />
               </h6>
               <div className="stat-details">
                 <div style={{ width: "100%", display: "flex", justifyContent: "space-between" }}>
-                  <strong>Value:</strong>
+                  <strong>Standard (k = 1):</strong>
                   <span style={{ color: "var(--primary-color)", fontWeight: 600 }}>
-                    {stats.uA != null ? `${fmt(stats.uA, 4)} ppm (k = 1)` : "—"}
+                    {stats.uA != null ? `${fmt(stats.uA, 4)} ppm` : "—"}
                   </span>
                 </div>
-              </div>
-            </div>
-            <div className="stat-card">
-              <h6>
-                Expanded Type A Uncertainty
-                <FormulaInfo
-                  tex={"U_A = k u_A, \\quad k = 2"}
-                  label="Expanded Type A uncertainty equation"
-                />
-              </h6>
-              <div className="stat-details">
                 <div style={{ width: "100%", display: "flex", justifyContent: "space-between" }}>
-                  <strong>Approx. 95%:</strong>
+                  <strong>Expanded (k = 2):</strong>
                   <span style={{ color: "var(--primary-color)", fontWeight: 600 }}>
                     {expandedTypeA != null ? `± ${fmt(expandedTypeA, 4)} ppm` : "—"}
                   </span>
