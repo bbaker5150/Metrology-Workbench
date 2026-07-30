@@ -9,7 +9,6 @@ RELAY_CONTROL_CHANNEL = 109
 class Instrument11713C():
     """11713C Switch Driver Instrument class, configured for a single SPDT relay."""
     def __init__(self, gpib: str, timeout: float = 10000):
-        self.gpib = gpib
         self.rm = pyvisa.ResourceManager()
         self.resource = self.rm.open_resource(gpib)
         self.resource.timeout = timeout

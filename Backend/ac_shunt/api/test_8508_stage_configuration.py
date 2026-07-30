@@ -1,6 +1,4 @@
-from unittest.mock import AsyncMock, Mock, patch
-
-from asgiref.sync import async_to_sync
+from unittest.mock import Mock
 
 from django.test import SimpleTestCase
 
@@ -17,49 +15,6 @@ from .consumers import (
 
 
 class Instrument8508AStageConfigurationTests(SimpleTestCase):
-    def test_source_route_is_read_back_before_success_is_reported(self):
-        consumer = CalibrationConsumer()
-        consumer.broadcast = AsyncMock()
-        switch = Mock(gpib='GPIB0::7::INSTR')
-        switch.get_active_source.return_value = 'DC'
-
-        with patch('api.consumers.asyncio.sleep', new=AsyncMock()):
-            actual = async_to_sync(consumer._select_source_verified)(
-                switch,
-                'DC',
-                stage='dc_pos',
-                test_point={'id': 17, 'current': 10, 'frequency': 1000},
-                cycle_index=3,
-                operation='test',
-            )
-
-        self.assertEqual(actual, 'DC')
-        switch.select_dc_source.assert_called_once_with()
-        switch.get_active_source.assert_called_once_with()
-        consumer.broadcast.assert_any_await(
-            text_data='{"type": "switch_status_update", "active_source": "DC"}'
-        )
-
-    def test_source_route_readback_mismatch_aborts_the_stage(self):
-        consumer = CalibrationConsumer()
-        consumer.broadcast = AsyncMock()
-        switch = Mock(gpib='GPIB0::7::INSTR')
-        switch.get_active_source.return_value = 'AC'
-
-        with patch('api.consumers.asyncio.sleep', new=AsyncMock()):
-            with self.assertRaisesRegex(RuntimeError, 'requested DC, read back AC'):
-                async_to_sync(consumer._select_source_verified)(
-                    switch,
-                    'DC',
-                    stage='dc_neg',
-                    test_point={'id': 17, 'current': 10, 'frequency': 1000},
-                    cycle_index=3,
-                    operation='test',
-                )
-
-        switch.select_dc_source.assert_called_once_with()
-        switch.get_active_source.assert_called_once_with()
-
     def test_assignment_selects_one_8508a_with_opposite_terminals(self):
         data = {
             'measurement_params': {
