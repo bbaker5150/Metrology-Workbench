@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import json
 import math
 import threading
 import time
@@ -57,6 +58,20 @@ class _SharedConnection:
     input_switch_delay_s: float = 0.0
     conversion_delay_s: float = 1.0
     trigger_source: TriggerSource = TriggerSource.INTERNAL
+    source_transition_pending: bool = False
+    source_transition_context: dict[str, object] = field(default_factory=dict)
+
+
+def _diagnostic_log(event: str, **fields: object) -> None:
+    payload = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
+        "event": event,
+        **fields,
+    }
+    print(
+        f"[8508A_DIAG] {json.dumps(payload, default=str, sort_keys=True)}",
+        flush=True,
+    )
 
 
 class Instrument8508A:
@@ -149,6 +164,8 @@ the completed conversion with ``RDG?``.
         self._shared.input_switch_delay_s = 5.0
         self._shared.conversion_delay_s = 5.0
         self._shared.trigger_source = TriggerSource.INTERNAL
+        self._shared.source_transition_pending = False
+        self._shared.source_transition_context = {}
 
     def initialize_ac_shunt_mode(self) -> None:
         with self._shared.io_lock:
@@ -243,6 +260,33 @@ the completed conversion with ``RDG?``.
             )
         with self._shared.io_lock:
             self._shared.input_switch_delay_s = value
+
+    def mark_source_transition(self, **context: object) -> None:
+        """Require one completed conversion to be purged before saving data.
+
+        ``RDG?`` recalls the most recently completed internally triggered
+        conversion.  After an external AC/DC source or polarity transition,
+        that store can still contain the preceding stage even though the
+        terminal relay has already moved.  The first logical reader to run
+        after this marker therefore discards one completed conversion and
+        saves only the following conversion.
+        """
+
+        with self._shared.io_lock:
+            self._shared.source_transition_pending = True
+            self._shared.source_transition_context = dict(context)
+            self._shared.reading_invalidated = True
+            _diagnostic_log(
+                "source_transition_marked",
+                gpib=self.gpib,
+                selected_input=(
+                    self._shared.selected_input.value
+                    if self._shared.selected_input is not None
+                    else None
+                ),
+                measurement_command=self._shared.measurement_command,
+                **self._shared.source_transition_context,
+            )
 
     def configure_ac_voltage(
         self,
@@ -391,6 +435,7 @@ the completed conversion with ``RDG?``.
             conversion_delay = max(
                 0.0, float(self._shared.conversion_delay_s or 0.0)
             )
+            waited_for_input = False
             if self._shared.input_switch_pending:
                 # INT triggering runs continuously and DELAY only applies to
                 # EXT. Hold the bus after INPUT FRONT/REAR so the relay, input
@@ -399,6 +444,50 @@ the completed conversion with ``RDG?``.
                     0.0, float(self._shared.input_switch_delay_s or 0.0)
                 ))
                 self._shared.input_switch_pending = False
+                waited_for_input = True
+
+            if self._shared.source_transition_pending:
+                # If no FRONT/REAR switch supplied the wait above, allow one
+                # complete new-profile conversion before purging the reading
+                # store. Then wait for and accept the *next* conversion.
+                if not waited_for_input:
+                    time.sleep(conversion_delay)
+                discarded_response = self._shared.device.query("RDG?").strip()
+                context = dict(self._shared.source_transition_context)
+                _diagnostic_log(
+                    "source_transition_conversion_purged",
+                    gpib=self.gpib,
+                    terminal=(
+                        self._shared.selected_input.value
+                        if self._shared.selected_input is not None
+                        else None
+                    ),
+                    discarded_response=discarded_response,
+                    input_switch_delay_s=self._shared.input_switch_delay_s,
+                    conversion_delay_s=conversion_delay,
+                    **context,
+                )
+                self._shared.source_transition_pending = False
+                self._shared.source_transition_context = {}
+                self._shared.reading_invalidated = False
+                time.sleep(conversion_delay)
+                accepted_response = self._shared.device.query("RDG?").strip()
+                value = self._parse_reading(accepted_response)
+                _diagnostic_log(
+                    "source_transition_conversion_accepted",
+                    gpib=self.gpib,
+                    terminal=(
+                        self._shared.selected_input.value
+                        if self._shared.selected_input is not None
+                        else None
+                    ),
+                    accepted_response=accepted_response,
+                    value=value,
+                    **context,
+                )
+                return value
+
+            if waited_for_input:
                 self._shared.reading_invalidated = False
                 return self._parse_reading(
                     self._shared.device.query("RDG?").strip()

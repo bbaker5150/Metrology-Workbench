@@ -85,6 +85,26 @@ from .mock_calibration_instruments import resolve_calibration_instrument
 from . import outbox as outbox_module
 
 
+def _diagnostic_log(event, **fields):
+    """Emit one machine-readable calibration diagnostic line.
+
+    These messages intentionally go to the backend process output used in the
+    lab.  Keeping each event on one JSON line makes it possible to correlate a
+    relay command, source setpoint, 8508A purge, and accepted sample without
+    relying on interleaved human-readable status messages.
+    """
+
+    payload = {
+        'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime()),
+        'event': event,
+        **fields,
+    }
+    print(
+        f"[AC_SHUNT_DIAG] {json.dumps(payload, default=str, sort_keys=True)}",
+        flush=True,
+    )
+
+
 def _inst(real_cls, **kwargs):
     """Construct ``real_cls`` unless MOCK_INSTRUMENTS is on AND the ``gpib``
     address is in the mock inventory, in which case return the matching mock
@@ -1189,10 +1209,86 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 "before accepting these readings."
             )
             print(f"[SOURCE ROUTING] {message}", flush=True)
+            _diagnostic_log(
+                'source_route_unavailable',
+                ac_source_address=ac_address,
+                dc_source_address=dc_address,
+                switch_address=None,
+            )
             await self.broadcast(text_data=json.dumps({
                 "type": "status_update",
                 "message": message,
             }))
+
+    async def _select_source_verified(
+        self,
+        switch_driver,
+        required_state,
+        *,
+        stage=None,
+        test_point=None,
+        cycle_index=None,
+        operation=None,
+    ):
+        """Route the AC/DC relay and verify channel 109 actually changed.
+
+        Previously the websocket announced the requested state immediately
+        after a write.  A disconnected relay coil, reversed/wrong channel, or
+        rejected command could therefore look successful in the UI.  The
+        readback below turns that silent data-integrity failure into an
+        explicit, stage-correlated error.
+        """
+
+        required_state = str(required_state or '').upper()
+        if required_state not in {'AC', 'DC'}:
+            raise ValueError(f"Unsupported source route: {required_state!r}")
+
+        point = test_point or {}
+        details = {
+            'operation': operation,
+            'stage': stage,
+            'cycle_index': cycle_index,
+            'test_point_id': point.get('id'),
+            'current_a': point.get('current'),
+            'frequency_hz': point.get('frequency'),
+            'requested_state': required_state,
+            'switch_address': getattr(switch_driver, 'gpib', None),
+        }
+        _diagnostic_log('source_route_requested', **details)
+        await self.broadcast(text_data=json.dumps({
+            'type': 'status_update',
+            'message': f"Switching to {required_state} source...",
+        }))
+
+        selector = (
+            switch_driver.select_ac_source
+            if required_state == 'AC'
+            else switch_driver.select_dc_source
+        )
+        await sync_to_async(selector, thread_sensitive=True)()
+        await asyncio.sleep(1)
+        actual_state = await sync_to_async(
+            switch_driver.get_active_source,
+            thread_sensitive=True,
+        )()
+        actual_state = str(actual_state or 'Unknown').upper()
+        _diagnostic_log(
+            'source_route_verified',
+            **details,
+            actual_state=actual_state,
+            matched=(actual_state == required_state),
+        )
+        if actual_state != required_state:
+            raise RuntimeError(
+                "11713C source routing verification failed: "
+                f"requested {required_state}, read back {actual_state}."
+            )
+
+        await self.broadcast(text_data=json.dumps({
+            'type': 'switch_status_update',
+            'active_source': actual_state,
+        }))
+        return actual_state
 
     async def _activate_sources(self, ac_source=None, dc_source=None):
         if ac_source:
@@ -1296,13 +1392,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
-                await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {char_source_kind} source for Characterization..."}))
-                if char_source_kind == 'AC':
-                    await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
-                else:
-                    await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': char_source_kind}))
-                await asyncio.sleep(1)
+                await self._select_source_verified(
+                    switch_driver,
+                    char_source_kind,
+                    stage='characterization',
+                    test_point=data.get('test_point'),
+                    operation='tvc_characterization',
+                )
 
             original_tp = data.get('test_point')
             nominal_current = float(original_tp.get('current'))
@@ -1793,6 +1889,38 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
         # The selected source continues through the existing switch/8100 path.
         await sync_to_async(source_instrument.set_output, thread_sensitive=True)(voltage=source_drive_voltage, frequency=source_frequency)
+        _diagnostic_log(
+            'source_output_programmed',
+            stage=reading_type_base,
+            cycle_index=cycle_index,
+            test_point_id=test_point_data.get('id'),
+            current_a=input_current,
+            point_frequency_hz=point_frequency,
+            source_frequency_hz=source_frequency,
+            source_voltage_v=source_drive_voltage,
+            source_address=getattr(source_instrument, 'gpib', None),
+            source_model=type(source_instrument).__name__,
+            route='AC' if is_ac_reading else 'DC',
+        )
+
+        # RDG? recalls the last completed internally-triggered conversion.
+        # Mark every AC/DC/polarity transition so the first 8508A logical
+        # reader purges one completed conversion before any value is accepted.
+        if configured_8508 is not None:
+            await sync_to_async(
+                configured_8508.mark_source_transition,
+                thread_sensitive=True,
+            )(
+                stage=reading_type_base,
+                cycle_index=cycle_index,
+                test_point_id=test_point_data.get('id'),
+                current_a=input_current,
+                point_frequency_hz=point_frequency,
+                source_frequency_hz=source_frequency,
+                source_voltage_v=source_drive_voltage,
+                source_address=getattr(source_instrument, 'gpib', None),
+                route='AC' if is_ac_reading else 'DC',
+            )
         
         try:
             await asyncio.sleep(1.5)
@@ -2014,6 +2142,27 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     reverse_order=bool(pair_index % 2),
                 )
                 pair_index += 1
+                if configured_8508 is not None:
+                    _diagnostic_log(
+                        '8508a_reader_pair_accepted',
+                        stage=reading_type_base,
+                        cycle_index=cycle_index,
+                        test_point_id=test_point_data.get('id'),
+                        pair_index=pair_index,
+                        read_order=('TI_STD' if pair_index % 2 == 0 else 'STD_TI'),
+                        standard_terminal=getattr(
+                            getattr(std_reader_instrument, 'input_terminal', None),
+                            'value',
+                            getattr(std_reader_instrument, 'input_terminal', None),
+                        ),
+                        test_terminal=getattr(
+                            getattr(ti_reader_instrument, 'input_terminal', None),
+                            'value',
+                            getattr(ti_reader_instrument, 'input_terminal', None),
+                        ),
+                        standard_value=std_reading_val,
+                        test_value=ti_reading_val,
+                    )
                 
                 timestamp = time.time()
                 
@@ -2203,14 +2352,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             if switch_driver:
                 required_state = 'AC' if is_ac_reading else 'DC'
-                await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_state} source..."}))
-                if required_state == 'AC':
-                    await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
-                else:
-                    await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                
-                await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_state}))
-                await asyncio.sleep(1)
+                await self._select_source_verified(
+                    switch_driver,
+                    required_state,
+                    stage=reading_type_base,
+                    test_point=data.get('test_point'),
+                    operation='single_reading_set',
+                )
 
             ac_source_address = session_details.get('ac_source_address')
             dc_source_address = session_details.get('dc_source_address')
@@ -2405,11 +2553,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         if session_details.get('switch_driver_address'):
                             switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
                             required_switch_state = 'AC' if 'ac' in stage else 'DC'
-                            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
-                            if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
-                            else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                            await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
-                            await asyncio.sleep(1)
+                            await self._select_source_verified(
+                                switch_driver,
+                                required_switch_state,
+                                stage=stage,
+                                test_point=data.get('test_point'),
+                                operation='full_calibration_sequence',
+                            )
 
                         source_instrument = ac_source if 'ac' in stage else dc_source
                         if not source_instrument: raise Exception(f"Required {'AC' if 'ac' in stage else 'DC'} Source is not assigned.")
@@ -2478,6 +2628,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if not session_details: raise Exception("Session not found.")
 
             self._validate_reader_assignments(data, session_details)
+            await self._report_source_routing_state(session_details)
             test_points_to_run = data.get('test_points', [])
             if not test_points_to_run:
                 raise Exception("No test points provided for batch run.")
@@ -2575,11 +2726,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
                         required_switch_state = 'AC' if 'ac' in stage else 'DC'
                         if switch_driver:
-                            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
-                            if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
-                            else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                            await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
-                            await asyncio.sleep(1)
+                            await self._select_source_verified(
+                                switch_driver,
+                                required_switch_state,
+                                stage=stage,
+                                test_point=point_data,
+                                cycle_index=cycle_index,
+                                operation='full_calibration_batch',
+                            )
 
                         source_instrument = ac_source if 'ac' in stage else dc_source
                         if not source_instrument: raise Exception(f"Required source for stage '{stage}' is not assigned.")
@@ -2727,19 +2881,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
                     required_switch_state = 'AC' if 'ac' in stage else 'DC'
                     if switch_driver:
-                        await self.broadcast(text_data=json.dumps({
-                            'type': 'status_update',
-                            'message': f"Switching to {required_switch_state} source...",
-                        }))
-                        if required_switch_state == 'AC':
-                            await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
-                        else:
-                            await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                        await self.broadcast(text_data=json.dumps({
-                            'type': 'switch_status_update',
-                            'active_source': required_switch_state,
-                        }))
-                        await asyncio.sleep(1)
+                        await self._select_source_verified(
+                            switch_driver,
+                            required_switch_state,
+                            stage=stage,
+                            test_point=point_data,
+                            cycle_index=cycle_index,
+                            operation=f'paired_{direction.lower()}_pass',
+                        )
 
                     source_instrument = ac_source if 'ac' in stage else dc_source
                     if not source_instrument:
@@ -2808,6 +2957,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 raise Exception("Session not found.")
 
             self._validate_reader_assignments(data, session_details)
+            await self._report_source_routing_state(session_details)
             forward_points = data.get('forward_points') or []
             reverse_points = data.get('reverse_points') or []
             if not forward_points or not reverse_points:
@@ -3007,6 +3157,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if not session_details: raise Exception("Session not found.")
 
             self._validate_reader_assignments(data, session_details)
+            await self._report_source_routing_state(session_details)
             stage = data.get('reading_type')
             test_points_to_run = data.get('test_points', [])
             if not stage or not test_points_to_run:
@@ -3066,11 +3217,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
                 required_switch_state = 'AC' if 'ac' in stage else 'DC'
-                await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source for batch run..."}))
-                if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
-                else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
-                await asyncio.sleep(1)
+                await self._select_source_verified(
+                    switch_driver,
+                    required_switch_state,
+                    stage=stage,
+                    test_point=test_points_to_run[0],
+                    operation='single_stage_batch',
+                )
 
             nplc_setting, measurement_params = data.get('nplc'), data.get('measurement_params')
 

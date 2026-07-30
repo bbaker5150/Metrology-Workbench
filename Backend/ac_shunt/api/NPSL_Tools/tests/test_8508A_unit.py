@@ -147,6 +147,29 @@ class Instrument8508ATests(unittest.TestCase):
         )
         front.close()
 
+    def test_source_transition_discards_one_completed_conversion(self):
+        front = Instrument8508A("GPIB0::8::INSTR", "FRONT")
+        self.device.commands.clear()
+        self.mock_sleep.reset_mock()
+
+        front.mark_source_transition(
+            stage="dc_pos",
+            cycle_index=2,
+            source_voltage_v=0.1,
+        )
+        self.assertEqual(front.read_instrument(), 1.0)
+
+        rdg_queries = [
+            command
+            for kind, command in self.device.commands
+            if kind == "query" and command == "RDG?"
+        ]
+        self.assertEqual(rdg_queries, ["RDG?", "RDG?"])
+        self.assertFalse(front._shared.source_transition_pending)
+        self.assertEqual(front._shared.source_transition_context, {})
+        self.mock_sleep.assert_any_call(front._shared.conversion_delay_s)
+        front.close()
+
     def test_operator_switch_delay_is_used_in_both_directions(self):
         front = Instrument8508A("GPIB0::8::INSTR", "FRONT")
         rear = Instrument8508A("GPIB0::8::INSTR", "REAR")
