@@ -3220,13 +3220,13 @@ body.dark-mode .tmde-test-point-group {
   padding-bottom: 0;
 }
 
-.tp-info-item {
+.uncertainty-module .tp-info-item {
   display: flex;
   align-items: baseline;
   gap: 8px;
 }
 
-.tp-label {
+.uncertainty-module .tp-label {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-color-muted);
@@ -3235,7 +3235,7 @@ body.dark-mode .tmde-test-point-group {
   white-space: nowrap;
 }
 
-.tp-value {
+.uncertainty-module .tp-value {
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-color);
@@ -3250,11 +3250,11 @@ body.dark-mode .tp-header-row.primary-row {
   border-bottom-color: var(--border-color);
 }
 
-body.dark-mode .tp-label {
+body.dark-mode .uncertainty-module .tp-label {
   color: var(--text-color-muted);
 }
 
-body.dark-mode .tp-value {
+body.dark-mode .uncertainty-module .tp-value {
   color: var(--text-color);
 }
 

@@ -7043,6 +7043,10 @@ button.custom-dropdown-trigger:hover {
   align-items: center;
   gap: 8px;
   font-weight: 500;
+  /* Preserve SI symbol casing even when another workbench module defines
+     uppercase label chrome (for example, mA and Hz must never become MA/HZ). */
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 /* --- Context Menu (cohesive with app modal/panel design system) --- */
