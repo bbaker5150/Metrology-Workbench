@@ -22,6 +22,10 @@ import katex from "katex";
 import "katex/dist/katex.min.css";
 import useCycleAnalytics from "../../hooks/useCycleAnalytics";
 import { useTheme } from "../../../../shared/ThemeContext";
+import {
+  TYPE_A_COVERAGE_FACTOR,
+  expandedTypeAUncertainty,
+} from "../../utils/uncertaintyPresentation";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
@@ -183,6 +187,7 @@ function CycleStatisticsTracker({
   // multiply back; null when only one survivor.
   const sampleStd =
     stats.uA != null && stats.n > 1 ? stats.uA * Math.sqrt(stats.n) : null;
+  const expandedTypeA = expandedTypeAUncertainty(stats.uA);
 
   const chartPalette = useMemo(() => {
     const dark = theme === "dark";
@@ -531,10 +536,10 @@ function CycleStatisticsTracker({
 
         <div style={{ flex: 2, textAlign: "center", fontWeight: 600, fontSize: "0.95rem", letterSpacing: "0.3px" }}>
           {stats.mean != null ? fmt(stats.mean, 4) : "—"}
-          {stats.uA != null ? ` ± ${fmt(stats.uA, 4)}` : ""} ppm
+          {expandedTypeA != null ? ` ± ${fmt(expandedTypeA, 4)}` : ""} ppm
           {stats.n > 0 && (
             <span style={{ opacity: 0.7, fontWeight: "normal", marginLeft: "4px" }}>
-              · N = {stats.n}
+              · k = {TYPE_A_COVERAGE_FACTOR} · N = {stats.n}
             </span>
           )}
         </div>
@@ -728,7 +733,7 @@ function CycleStatisticsTracker({
             </div>
             <div className="stat-card">
               <h6>
-                Type A Uncertainty
+                Type A Standard Uncertainty
                 <FormulaInfo
                   tex={"u_A = \\frac{s}{\\sqrt{N}}"}
                   label="Type A uncertainty equation"
@@ -738,7 +743,24 @@ function CycleStatisticsTracker({
                 <div style={{ width: "100%", display: "flex", justifyContent: "space-between" }}>
                   <strong>Value:</strong>
                   <span style={{ color: "var(--primary-color)", fontWeight: 600 }}>
-                    {stats.uA != null ? `± ${fmt(stats.uA, 4)} ppm` : "—"}
+                    {stats.uA != null ? `${fmt(stats.uA, 4)} ppm (k = 1)` : "—"}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="stat-card">
+              <h6>
+                Expanded Type A Uncertainty
+                <FormulaInfo
+                  tex={"U_A = k u_A, \\quad k = 2"}
+                  label="Expanded Type A uncertainty equation"
+                />
+              </h6>
+              <div className="stat-details">
+                <div style={{ width: "100%", display: "flex", justifyContent: "space-between" }}>
+                  <strong>Approx. 95%:</strong>
+                  <span style={{ color: "var(--primary-color)", fontWeight: 600 }}>
+                    {expandedTypeA != null ? `± ${fmt(expandedTypeA, 4)} ppm` : "—"}
                   </span>
                 </div>
               </div>
