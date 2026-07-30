@@ -1,6 +1,7 @@
 from unittest.mock import Mock
 
 from django.test import SimpleTestCase
+from npsl_tools.instruments import Instrument8508A
 
 from .consumers import (
     CalibrationConsumer,
@@ -10,11 +11,24 @@ from .consumers import (
     _8508_expected_y5020_voltage,
     _8508_profile_settings,
     _8508_recommended_switch_delay,
+    _shared_8508_reader_pair,
     _configure_8508_for_y5020,
 )
 
 
 class Instrument8508AStageConfigurationTests(SimpleTestCase):
+    def test_shared_8508_pair_requires_two_roles_on_the_same_resource(self):
+        std_reader = Mock(spec=Instrument8508A)
+        ti_reader = Mock(spec=Instrument8508A)
+        std_reader.gpib = 'GPIB0::16::INSTR'
+        ti_reader.gpib = 'GPIB0::16::INSTR'
+
+        self.assertTrue(_shared_8508_reader_pair(std_reader, ti_reader))
+
+        ti_reader.gpib = 'GPIB0::17::INSTR'
+        self.assertFalse(_shared_8508_reader_pair(std_reader, ti_reader))
+        self.assertFalse(_shared_8508_reader_pair(std_reader, Mock()))
+
     def test_assignment_selects_one_8508a_with_opposite_terminals(self):
         data = {
             'measurement_params': {
