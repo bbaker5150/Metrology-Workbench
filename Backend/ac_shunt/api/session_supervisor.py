@@ -67,25 +67,22 @@ logger = logging.getLogger(__name__)
 # Mutations go through ``_REGISTRY_LOCK`` — two concurrent ``connect()``
 # calls for the same session would otherwise race on ``get_or_create``.
 _SUPERVISORS: dict[int, "SessionSupervisor"] = {}
-_REGISTRY_LOCK = asyncio.Lock()
-
+_REGISTRY_LOCK: Optional[asyncio.Lock] = None
 
 # --- Public accessors --------------------------------------------------------
 
 async def get_or_create_supervisor(session_id: int) -> "SessionSupervisor":
-    """Return the singleton supervisor for ``session_id``, creating on first use.
+    """Return the singleton supervisor for ``session_id``, creating on first use."""
+    global _REGISTRY_LOCK
+    if _REGISTRY_LOCK is None:
+        _REGISTRY_LOCK = asyncio.Lock()
 
-    Safe to call from every consumer ``connect``. The lock serialises the
-    short critical section; everything else (attach/detach, start/stop)
-    happens on the returned instance without holding the registry lock.
-    """
     async with _REGISTRY_LOCK:
         sup = _SUPERVISORS.get(session_id)
         if sup is None:
             sup = SessionSupervisor(session_id)
             _SUPERVISORS[session_id] = sup
         return sup
-
 
 def peek_supervisor(session_id: int) -> Optional["SessionSupervisor"]:
     """Non-blocking peek used for tests and diagnostics.
