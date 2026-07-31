@@ -234,6 +234,21 @@ def _8508_recommended_switch_delay(measurement_params, frequency):
     )
 
 
+def _shared_8508_reader_pair(std_reader, ti_reader):
+    """Return True when both roles address one physical 8508A.
+
+    A paired acquisition must visit both terminals, but an initial stability
+    search only needs one representative signal. Keeping this distinction in
+    one helper prevents the generic two-meter/34420A path from changing.
+    """
+
+    return (
+        isinstance(std_reader, Instrument8508A)
+        and isinstance(ti_reader, Instrument8508A)
+        and std_reader.gpib == ti_reader.gpib
+    )
+
+
 def _configure_8508_for_y5020(
     instrument,
     is_ac_reading,
@@ -833,13 +848,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
         take_std = target_tvc in ("STD", "BOTH") and std_reader is not None
         take_ti = target_tvc in ("TI", "BOTH") and ti_reader is not None
-        if (
-            take_std
-            and take_ti
-            and isinstance(std_reader, Instrument8508A)
-            and isinstance(ti_reader, Instrument8508A)
-            and std_reader.gpib == ti_reader.gpib
-        ):
+        if take_std and take_ti and _shared_8508_reader_pair(std_reader, ti_reader):
             return await sync_to_async(std_reader.read_pair, thread_sensitive=False)(
                 ti_reader,
                 reverse_order=reverse_order,
@@ -1974,6 +1983,17 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             # -------------------------------
 
             initial_stability_achieved = skip_initial_check
+            shared_8508_pair = _shared_8508_reader_pair(
+                std_reader_instrument,
+                ti_reader_instrument,
+            )
+            # When both logical roles share one 8508A, use one assigned input
+            # to establish the initial lock. The complete FRONT/REAR pair is
+            # still collected after lock, preserving the normal AC/DC
+            # difference sequence and equal Standard/TI sample counts.
+            stability_target_tvc = (
+                'TI' if target_tvc == 'TI' else 'STD'
+            ) if shared_8508_pair else target_tvc
 
             def calc_ppm(points):
                 """Welford's Algorithm for high-precision variance calculation."""
@@ -2007,10 +2027,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     return False
 
                 # 2. Take Readings (Targeted Instrument Querying)
+                reader_target = (
+                    stability_target_tvc
+                    if (
+                        shared_8508_pair
+                        and stability_method == 'sliding_window'
+                        and not initial_stability_achieved
+                    )
+                    else target_tvc
+                )
                 std_reading_val, ti_reading_val = await self._take_reader_pair(
                     std_reader_instrument,
                     ti_reader_instrument,
-                    target_tvc,
+                    reader_target,
                     reverse_order=bool(pair_index % 2),
                 )
                 pair_index += 1
@@ -2074,8 +2103,23 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         if not initial_stability_achieved:
                             if is_currently_stable:
                                 initial_stability_achieved = True
-                                if std_point: final_std_readings.extend(stable_candidate_std)
-                                if ti_point: final_ti_readings.extend(stable_candidate_ti)
+                                if shared_8508_pair and target_tvc == 'BOTH':
+                                    # Search samples came from only one terminal
+                                    # and therefore are not a valid pair. Keep
+                                    # the primary rolling window for monitoring,
+                                    # discard any secondary search buffer, and
+                                    # begin paired collection on the next pass.
+                                    if stability_target_tvc == 'STD':
+                                        stable_candidate_ti.clear()
+                                    else:
+                                        stable_candidate_std.clear()
+                                    await self.broadcast(text_data=json.dumps({
+                                        'type': 'status_update',
+                                        'message': "Initial stability achieved; beginning paired 8508A collection."
+                                    }))
+                                else:
+                                    if std_point: final_std_readings.extend(stable_candidate_std)
+                                    if ti_point: final_ti_readings.extend(stable_candidate_ti)
                             else:
                                 # SEARCH PHASE: Unstable. Increment retry count and slide window
                                 instability_events += 1

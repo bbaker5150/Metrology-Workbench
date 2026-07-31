@@ -29,6 +29,10 @@ import CycleStatisticsTracker from "./CycleStatisticsTracker";
 import useCycleAnalytics from "../../hooks/useCycleAnalytics";
 import { listAvailableCycles, resolveEffectiveCycle } from "../../utils/resolveEffectiveCycle";
 import { resolveSessionNCycles } from "../../utils/resolveSessionNCycles";
+import {
+  exclude8508PointSettings,
+  select8508PointSettings,
+} from "../../utils/calibrationSettingsScope";
 import CalibrationStatusBar from "./CalibrationStatusBar";
 import { downloadFullSessionExcel } from "./sessionExcelExport";
 import {
@@ -510,6 +514,7 @@ function Calibration({
     calibrationSettings,
     focusedTP?.frequency
   );
+  const [is8508SettingsSaved, setIs8508SettingsSaved] = useState(false);
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
     eta_ti: "",
@@ -534,6 +539,13 @@ function Calibration({
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const collectionPromise = useRef(null);
   const lastAutoFocusedKey = useRef(null);
+  const save8508ConfirmationTimeout = useRef(null);
+
+  useEffect(() => () => {
+    if (save8508ConfirmationTimeout.current) {
+      window.clearTimeout(save8508ConfirmationTimeout.current);
+    }
+  }, []);
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   const [isHarmonicInfoOpen, setIsHarmonicInfoOpen] = useState(false);
@@ -2505,7 +2517,12 @@ function Calibration({
         return;
       }
 
-      const fullSettingsPayload = buildSettingsPayload(calibrationSettings);
+      // 8508A acquisition behavior is point-specific. Never allow Apply All
+      // to overwrite the filter, resolution, coupling, or terminal-switch
+      // delay selected for another current/frequency point.
+      const commonSettingsPayload = exclude8508PointSettings(
+        buildSettingsPayload(calibrationSettings)
+      );
 
       try {
         let { forward, reverse } = focusedTP;
@@ -2540,7 +2557,7 @@ function Calibration({
         await axios.post(
           `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/actions/apply-settings-to-all/`,
           {
-            settings: fullSettingsPayload,
+            settings: commonSettingsPayload,
             focused_test_point_id: sourcePointId,
           }
         );
@@ -2561,11 +2578,62 @@ function Calibration({
       isOpen: true,
       title: `Apply Settings to All ${activeDirection} Points?`,
       message:
-        `This will apply the common settings (Samples, Settling Time, Stability Threshold, etc.) to ALL test points in the ${activeDirection} direction.\n\nThe 'Initial Warm-up Wait' will only be saved for this specific point and will not affect others. The opposite direction will not be modified.`,
+        `This will apply shared calibration and stability settings to ALL test points in the ${activeDirection} direction.\n\n8508A filter, resolution, coupling, and front/rear switch-delay settings remain specific to each test point and are excluded. The 'Initial Warm-up Wait' also remains specific to this point. The opposite direction will not be modified.`,
       onConfirm: confirmAction,
       onCancel: () =>
         setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
     });
+  };
+
+  const handle8508SettingsSave = async () => {
+    if (isRemoteViewer) return;
+    if (!focusedTP || !selectedSessionId) {
+      return showNotification("No test point selected.", "error");
+    }
+
+    const pointSettings = select8508PointSettings(
+      buildSettingsPayload(calibrationSettings)
+    );
+    const directionName = activeDirection;
+    let pointToUpdate =
+      directionName === "Forward" ? focusedTP.forward : focusedTP.reverse;
+
+    try {
+      if (!pointToUpdate) {
+        pointToUpdate = (
+          await axios.post(
+            `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
+            {
+              current: focusedTP.current,
+              frequency: focusedTP.frequency,
+              direction: directionName,
+            }
+          )
+        ).data;
+      }
+
+      await axios.patch(
+        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${pointToUpdate.id}/`,
+        { settings: pointSettings }
+      );
+
+      if (save8508ConfirmationTimeout.current) {
+        window.clearTimeout(save8508ConfirmationTimeout.current);
+      }
+      setIs8508SettingsSaved(true);
+      save8508ConfirmationTimeout.current = window.setTimeout(() => {
+        setIs8508SettingsSaved(false);
+        save8508ConfirmationTimeout.current = null;
+      }, 1600);
+      showNotification(
+        `8508A settings saved for ${formatCurrent(focusedTP.current)} @ ${formatFrequency(focusedTP.frequency)} (${directionName}).`,
+        "success"
+      );
+      onDataUpdate();
+    } catch (error) {
+      setIs8508SettingsSaved(false);
+      showNotification("Error saving 8508A settings for this point.", "error");
+    }
   };
 
   const pointForDirection = focusedTP
@@ -3387,13 +3455,15 @@ function Calibration({
                           </div>
                           {has8508Reader && (
                             <div className="settings-form-group settings-form-group--8508">
-                              <span className="settings-form-group-eyebrow">
-                                8508A Settings
-                              </span>
+                              <div className="reader-profile-scope-header">
+                                <span className="settings-form-group-eyebrow">
+                                  8508A Settings
+                                </span>
+                              </div>
                               <div className="reader-profile-grid">
                                 <section className="reader-profile-card" aria-labelledby="reader-profile-dc-title">
                                   <div className="reader-profile-card-header">
-                                    <strong id="reader-profile-dc-title">DC Stages</strong>
+                                    <strong id="reader-profile-dc-title">DC Readings</strong>
                                   </div>
                                   <div className="form-section-group">
                                     <div className="form-section reader-setting-tooltip-trigger">
@@ -3458,7 +3528,7 @@ function Calibration({
 
                                 <section className="reader-profile-card" aria-labelledby="reader-profile-ac-title">
                                   <div className="reader-profile-card-header">
-                                    <strong id="reader-profile-ac-title">AC Stages</strong>
+                                    <strong id="reader-profile-ac-title">AC Readings</strong>
                                   </div>
                                   <div className="form-section-group">
                                     <div className="form-section reader-setting-tooltip-trigger">
@@ -3567,6 +3637,22 @@ function Calibration({
                                     disabled={isRemoteViewer}
                                   />
                                 </div>
+                              </div>
+                              <div className="reader-profile-point-actions">
+                                <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
+                                  <button
+                                    type="button"
+                                    className={`reader-profile-point-save${is8508SettingsSaved ? " is-saved" : ""}`}
+                                    onClick={handle8508SettingsSave}
+                                    disabled={isRemoteViewer}
+                                    aria-label="Save 8508A settings for this test point"
+                                  >
+                                    <FaCheck aria-hidden="true" />
+                                  </button>
+                                  <ReaderSettingTooltip>
+                                    Update 8508A settings for this test point only.
+                                  </ReaderSettingTooltip>
+                                </span>
                               </div>
                             </div>
                           )}

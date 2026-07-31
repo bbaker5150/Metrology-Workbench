@@ -6496,12 +6496,18 @@ body.dark-mode .corrections-card-select:focus-visible {
   gap: 14px;
 }
 
+.reader-profile-scope-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
 .reader-profile-card {
   min-width: 0;
-  padding: 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--input-background) 94%, var(--primary-color) 6%);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .reader-profile-card-header {
@@ -6512,7 +6518,7 @@ body.dark-mode .corrections-card-select:focus-visible {
 
 .reader-profile-card-header strong {
   color: var(--text-color);
-  font-size: 0.86rem;
+  font-size: 0.7rem;
   line-height: 1.25;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -6575,6 +6581,75 @@ body.dark-mode .corrections-card-select:focus-visible {
 
 .reader-profile-delay {
   width: min(100%, 320px);
+}
+
+.reader-profile-point-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.reader-profile-point-save-control {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+}
+
+.reader-profile-point-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-color-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.reader-profile-point-save:hover:not(:disabled) {
+  background: transparent;
+  color: var(--primary-color);
+  transform: none;
+}
+
+.reader-profile-point-save svg {
+  opacity: 1;
+  transition: filter 150ms ease, transform 150ms ease;
+}
+
+.reader-profile-point-save.is-saved {
+  background: transparent;
+  box-shadow: none;
+  color: #22c55e;
+}
+
+.reader-profile-point-save.is-saved svg {
+  filter:
+    drop-shadow(0 0 3px color-mix(in srgb, #22c55e 85%, transparent))
+    drop-shadow(0 0 7px color-mix(in srgb, #22c55e 60%, transparent));
+  transform: scale(1.12);
+}
+
+.reader-profile-point-save:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.reader-profile-point-save-control .reader-setting-tooltip {
+  right: 0;
+  left: auto;
 }
 
 .reader-setting-tooltip-trigger {
@@ -7043,6 +7118,10 @@ button.custom-dropdown-trigger:hover {
   align-items: center;
   gap: 8px;
   font-weight: 500;
+  /* Preserve SI symbol casing even when another workbench module defines
+     uppercase label chrome (for example, mA and Hz must never become MA/HZ). */
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 /* --- Context Menu (cohesive with app modal/panel design system) --- */

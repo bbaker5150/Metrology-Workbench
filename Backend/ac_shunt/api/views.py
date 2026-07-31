@@ -1064,6 +1064,25 @@ class TestPointViewSet(viewsets.ModelViewSet):
             # ONLY remove the initial warm up time so it isn't copied to subsequent points
             common_settings_data.pop('initial_warm_up_time', None)
 
+            # 8508A acquisition settings belong to one current/frequency
+            # point and must never be changed through Apply All. Strip them
+            # server-side as a second line of defense so a stale client or
+            # direct API call cannot alter or spread a point-specific reader
+            # setup through this endpoint.
+            point_specific_8508_fields = {
+                'input_switch_settling_time',
+                'f8508_dc_filter_enabled',
+                'f8508_dc_resolution',
+                'f8508_dc_fast_enabled',
+                'f8508_ac_filter_hz',
+                'f8508_ac_resolution',
+                'f8508_ac_transfer_enabled',
+                'f8508_ac_dc_coupled',
+            }
+            for field_name in point_specific_8508_fields:
+                full_warmup_settings.pop(field_name, None)
+                common_settings_data.pop(field_name, None)
+
             # Get all unique (current, frequency) pairs for the session
             unique_points = test_point_set.points.values('current', 'frequency').distinct()
 

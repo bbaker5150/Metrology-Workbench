@@ -7,6 +7,10 @@ import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
 import { FaSave, FaUndo, FaTimes, FaSearch, FaSync, FaEdit, FaCreativeCommonsZero } from 'react-icons/fa';
 import { API_BASE_URL } from '../../constants/constants';
+import {
+    isDiscoveredInstrumentAvailable,
+    isSameInstrumentAddress,
+} from '../../utils/instrumentStatus';
 
 const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B', '8508A'];
 const ACDC_ASSIGNABLE_MODELS = ['5730A'];
@@ -144,46 +148,6 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         }
     }, [workstations, activeWorkstationIp, claimedWorkstations, myClientId]);
 
-    const resetInstrumentAddress = async () => {
-        setStdInstrumentAddress(null);
-        setStdReaderModel(null);
-        setStdReaderSN(null);
-        setStdReaderInput("FRONT");
-        setTiInstrumentAddress(null);
-        setTiReaderModel(null);
-        setTiReaderSN(null);
-        setTiReaderInput("REAR");
-        setAcSourceSN(null);
-        setAcSourceAddress(null);
-        setDcSourceSN(null);
-        setDcSourceAddress(null);
-        setAmplifierSN(null);
-        setAmplifierAddress(null);
-
-        const payload = {
-            test_reader_model: null,
-            test_reader_serial: null,
-            test_reader_address: null,
-            standard_reader_model: null,
-            standard_reader_serial: null,
-            standard_reader_address: null,
-            standard_reader_input: null,
-            test_reader_input: null,
-            ac_source_serial: null,
-            ac_source_address: null,
-            dc_source_serial: null,
-            dc_source_address: null,
-            amplifier_serial: null,
-            amplifier_address: null,
-        };
-
-        try {
-            await axios.patch(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/`, payload);
-        } catch (error) {
-            console.error('Failed to reset instrument addresses:', error);
-        }
-    };
-
     const handleInitializeInstruments = async () => {
         if (!selectedSessionId) {
             showNotification("Please select a session first.", "warning");
@@ -214,35 +178,6 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         try {
             const response = await axios.get(`${API_BASE_URL}/instruments/discover/`);
             const instruments = Array.isArray(response.data.instruments) ? response.data.instruments : [];
-
-            const info = await axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/`);
-
-            const testReaderAddress = info.data.test_reader_address;
-            const standardReaderAddress = info.data.standard_reader_address;
-            const acSourceAddress = info.data.ac_source_address;
-            const dcSourceAddress = info.data.dc_source_address;
-
-            const infoContainsVisa =
-                (testReaderAddress && testReaderAddress.startsWith("visa://")) ||
-                (standardReaderAddress && standardReaderAddress.startsWith("visa://")) ||
-                (acSourceAddress && acSourceAddress.startsWith("visa://")) ||
-                (dcSourceAddress && dcSourceAddress.startsWith("visa://"));
-
-            const instrumentsContainNonVisa = instruments.some(instrument => instrument.address && !instrument.address.startsWith("visa://"));
-
-            const infoContainsNonVisa = (testReaderAddress && !testReaderAddress.startsWith("visa://")) ||
-                (standardReaderAddress && !standardReaderAddress.startsWith("visa://")) ||
-                (acSourceAddress && !acSourceAddress.startsWith("visa://")) ||
-                (dcSourceAddress && !dcSourceAddress.startsWith("visa://"));
-
-            const instrumentsContainVisa = instruments.some(instrument => instrument.address && instrument.address.startsWith("visa://"));
-
-            if (
-                (infoContainsVisa && instrumentsContainNonVisa) ||
-                (infoContainsNonVisa && instrumentsContainVisa)
-            ) {
-                resetInstrumentAddress();
-            }
 
             const serverIp = response.data.server_ip || response.data.local_ip || '';
 
@@ -362,7 +297,7 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         if (role === 'standard') {
             setStdReaderInput(input);
             const payload = { standard_reader_input: input };
-            if (stdInstrumentAddress && stdInstrumentAddress === tiInstrumentAddress && tiReaderInput === input) {
+            if (isSameInstrumentAddress(stdInstrumentAddress, tiInstrumentAddress) && tiReaderInput === input) {
                 setTiReaderInput(opposite);
                 payload.test_reader_input = opposite;
             }
@@ -370,7 +305,7 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         } else {
             setTiReaderInput(input);
             const payload = { test_reader_input: input };
-            if (tiInstrumentAddress && tiInstrumentAddress === stdInstrumentAddress && stdReaderInput === input) {
+            if (isSameInstrumentAddress(tiInstrumentAddress, stdInstrumentAddress) && stdReaderInput === input) {
                 setStdReaderInput(opposite);
                 payload.standard_reader_input = opposite;
             }
@@ -530,7 +465,12 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                         activeInstruments.map(inst => {
                             const status = instrumentStatuses[inst.address];
                             const isFetching = isFetchingStatuses[inst.address];
-                            let isConnected = status && status.wsConnectionState === 'Status Received' && !status.error;
+                            // A successful discovery already opened the VISA resource and
+                            // obtained its identity. ISR/status-register polling is optional
+                            // metadata and must not make a live 5730A (or a reader without
+                            // ISR support, such as the 34420A) look disconnected or lock its
+                            // persisted role assignment after reopening a session.
+                            const isConnected = isDiscoveredInstrumentAvailable(inst);
                             const isAssignable = ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
                             const isAcDcAssignable = ACDC_ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
                             const isAmplifierAssignable = AMPLIFIER_MODELS.some(m => inst.identity.includes(m));
@@ -544,10 +484,6 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                 model = parts[1].trim();
                                 if (model.startsWith('8508A')) model = '8508A';
                             }
-                            if (model === "34420A" || model === "8508A" || model === "8100" || model === "11713C") {
-                                isConnected = true;
-                            }
-
                             const is5730A = model.includes('5730');
 
                             const isZeroing = instrumentStatuses[inst.address]?.wsConnectionState === "Zeroing in Progress..."
@@ -561,7 +497,12 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                             <p className="instrument-address">{inst.address}</p>
                                         </div>
                                         <div className="status-card-actions-pill">
-                                            <div className={`status-badge ${isConnected ? 'connected' : 'disconnected'}${is5730A ? ' has-adjacent-action' : ''}`}>
+                                                <div
+                                                    className={`status-badge ${isConnected ? 'connected' : 'disconnected'}${is5730A ? ' has-adjacent-action' : ''}`}
+                                                    title={status?.error
+                                                        ? `Instrument discovered; status details unavailable: ${status.error}`
+                                                        : (isConnected ? 'Instrument identified during the latest discovery scan.' : 'Instrument was not identified during discovery.')}
+                                                >
                                                 <span className="status-badge-icon">●</span>
                                                 {isConnected ? 'Connected' : 'Disconnected'}
                                             </div>
@@ -590,9 +531,9 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                 <div className="role-assignment">
                                                     <span className="role-assignment-label">Reader Role</span>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`std-role-${inst.address}`} checked={stdInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || !isConnected || (stdInstrumentAddress && stdInstrumentAddress !== inst.address) || isRemoteViewer} />
+                                                        <input type="checkbox" id={`std-role-${inst.address}`} checked={isSameInstrumentAddress(stdInstrumentAddress, inst.address)} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`std-role-${inst.address}`}>Standard</label>
-                                                        {model === '8508A' && stdInstrumentAddress === inst.address && (
+                                                        {model === '8508A' && isSameInstrumentAddress(stdInstrumentAddress, inst.address) && (
                                                             <select
                                                                 className="reader-input-select"
                                                                 value={stdReaderInput || 'FRONT'}
@@ -606,9 +547,9 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                         )}
                                                     </div>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`test-role-${inst.address}`} checked={tiInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'test', e.target.checked)} disabled={!selectedSessionId || !isConnected || (tiInstrumentAddress && tiInstrumentAddress !== inst.address)} />
+                                                        <input type="checkbox" id={`test-role-${inst.address}`} checked={isSameInstrumentAddress(tiInstrumentAddress, inst.address)} onChange={(e) => handleStdTiRoleChange(inst, 'test', e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`test-role-${inst.address}`}>Test Instrument</label>
-                                                        {model === '8508A' && tiInstrumentAddress === inst.address && (
+                                                        {model === '8508A' && isSameInstrumentAddress(tiInstrumentAddress, inst.address) && (
                                                             <select
                                                                 className="reader-input-select"
                                                                 value={tiReaderInput || 'REAR'}
@@ -627,11 +568,11 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                 <div className="role-assignment">
                                                     <span className="role-assignment-label">Source Function</span>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`ac-role-${inst.address}`} checked={acSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'ac', e.target.checked)} disabled={!selectedSessionId || !isConnected || (acSourceAddress && acSourceAddress !== inst.address)} />
+                                                        <input type="checkbox" id={`ac-role-${inst.address}`} checked={isSameInstrumentAddress(acSourceAddress, inst.address)} onChange={(e) => handleAcDcCheckboxChange(inst, 'ac', e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`ac-role-${inst.address}`}>AC Source</label>
                                                     </div>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`dc-role-${inst.address}`} checked={dcSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'dc', e.target.checked)} disabled={!selectedSessionId || !isConnected || (dcSourceAddress && dcSourceAddress !== inst.address)} />
+                                                        <input type="checkbox" id={`dc-role-${inst.address}`} checked={isSameInstrumentAddress(dcSourceAddress, inst.address)} onChange={(e) => handleAcDcCheckboxChange(inst, 'dc', e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`dc-role-${inst.address}`}>DC Source</label>
                                                     </div>
                                                 </div>
@@ -640,7 +581,7 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                 <div className="role-assignment">
                                                     <span className="role-assignment-label">Amplifier Role</span>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`amp-role-${inst.address}`} checked={amplifierAddress === inst.address} onChange={(e) => handleAmplifierRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || (amplifierAddress && amplifierAddress !== inst.address)} />
+                                                        <input type="checkbox" id={`amp-role-${inst.address}`} checked={isSameInstrumentAddress(amplifierAddress, inst.address)} onChange={(e) => handleAmplifierRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`amp-role-${inst.address}`}>Amplifier</label>
                                                     </div>
                                                 </div>
@@ -649,7 +590,7 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                 <div className="role-assignment">
                                                     <span className="role-assignment-label">Utility Role</span>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`switch-driver-role-${inst.address}`} checked={switchDriverAddress === inst.address} onChange={(e) => handleSwitchDriverRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || (switchDriverAddress && switchDriverAddress !== inst.address)} />
+                                                        <input type="checkbox" id={`switch-driver-role-${inst.address}`} checked={isSameInstrumentAddress(switchDriverAddress, inst.address)} onChange={(e) => handleSwitchDriverRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`switch-driver-role-${inst.address}`}>Switch Driver</label>
                                                     </div>
                                                 </div>
