@@ -350,8 +350,13 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
         ti_model = value("test_reader_model")
         std_address = value("standard_reader_address")
         ti_address = value("test_reader_address")
-        std_input = (value("standard_reader_input") or "FRONT").upper()
-        ti_input = (value("test_reader_input") or "REAR").upper()
+        def is_5790(model):
+            return str(model or "").upper() in {"5790A", "5790B"}
+
+        std_default = "INPUT2" if is_5790(std_model) else "FRONT"
+        ti_default = "INPUT2" if is_5790(ti_model) else "REAR"
+        std_input = (value("standard_reader_input") or std_default).upper()
+        ti_input = (value("test_reader_input") or ti_default).upper()
 
         reader_route = (value("reader_switch_standard_route") or "OPEN").upper()
         if reader_route not in {"OPEN", "CLOSED"}:
@@ -373,7 +378,11 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
             if model == "8508A":
                 if terminal not in {"FRONT", "REAR"}:
                     raise serializers.ValidationError({field: "Select FRONT or REAR."})
-                attrs.setdefault(field, terminal)
+                attrs[field] = terminal
+            elif is_5790(model):
+                if terminal not in {"INPUT1", "INPUT2"}:
+                    raise serializers.ValidationError({field: "Select Input 1 or Input 2."})
+                attrs[field] = terminal
 
         if (
             std_model == "8508A"
@@ -386,6 +395,21 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
                 {
                     "test_reader_input": (
                         "A single 8508A must use different terminals for the "
+                        "Standard and Test Instrument roles."
+                    )
+                }
+            )
+        if (
+            is_5790(std_model)
+            and is_5790(ti_model)
+            and std_address
+            and std_address == ti_address
+            and std_input == ti_input
+        ):
+            raise serializers.ValidationError(
+                {
+                    "test_reader_input": (
+                        "A single 5790A/B must use different inputs for the "
                         "Standard and Test Instrument roles."
                     )
                 }
@@ -441,6 +465,11 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
             'f8508_ac_resolution',
             'f8508_ac_transfer_enabled',
             'f8508_ac_dc_coupled',
+            'f5790_filter_mode',
+            'f5790_filter_restart',
+            'f5790_hires_enabled',
+            'f5790_range_mode',
+            'f5790_input_switch_settling_time',
             'stability_check_method',
             'stability_window',
             'stability_threshold_ppm',
@@ -490,6 +519,29 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
     def validate_f8508_ac_filter_hz(self, value):
         if value not in (10, 40, 100):
             raise serializers.ValidationError("AC filter must be 10, 40, or 100 Hz.")
+        return value
+
+    def validate_f5790_filter_mode(self, value):
+        value = str(value).upper()
+        if value not in {"OFF", "FAST", "MEDIUM", "SLOW"}:
+            raise serializers.ValidationError("5790 filter must be Off, Fast, Medium, or Slow.")
+        return value
+
+    def validate_f5790_filter_restart(self, value):
+        value = str(value).upper()
+        if value not in {"FINE", "MEDIUM", "COARSE"}:
+            raise serializers.ValidationError("5790 filter restart must be Fine, Medium, or Coarse.")
+        return value
+
+    def validate_f5790_range_mode(self, value):
+        value = str(value).upper()
+        if value not in {"AUTO", "POINT"}:
+            raise serializers.ValidationError("5790 range mode must be Auto or Test point.")
+        return value
+
+    def validate_f5790_input_switch_settling_time(self, value):
+        if not 0 <= value <= 300:
+            raise serializers.ValidationError("5790 input-switch delay must be between 0 and 300 seconds.")
         return value
 
 class FormattedReadingsField(serializers.Field):

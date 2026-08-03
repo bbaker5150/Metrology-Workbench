@@ -78,7 +78,7 @@ class CalibrationSession(models.Model):
     standard_reader_model = models.CharField(max_length=100, blank=True, null=True)
     standard_reader_serial = models.CharField(max_length=100, blank=True, null=True)
     standard_reader_address = models.CharField(max_length=100, blank=True, null=True)
-    standard_reader_input = models.CharField(max_length=5, blank=True, null=True)
+    standard_reader_input = models.CharField(max_length=6, blank=True, null=True)
 
     # Test Instrument (The Unit Under Test, e.g., another A40B Shunt)
     test_instrument_model = models.CharField(max_length=100, blank=True, null=True)
@@ -88,7 +88,7 @@ class CalibrationSession(models.Model):
     test_reader_model = models.CharField(max_length=100, blank=True, null=True)
     test_reader_serial = models.CharField(max_length=100, blank=True, null=True)
     test_reader_address = models.CharField(max_length=100, blank=True, null=True)
-    test_reader_input = models.CharField(max_length=5, blank=True, null=True)
+    test_reader_input = models.CharField(max_length=6, blank=True, null=True)
     
     # AC/DC Source Addresses
     ac_source_serial = models.CharField(max_length=100, blank=True, null=True)
@@ -253,6 +253,14 @@ class CalibrationSettings(models.Model):
     f8508_ac_resolution = models.PositiveSmallIntegerField(default=6)
     f8508_ac_transfer_enabled = models.BooleanField(default=True)
     f8508_ac_dc_coupled = models.BooleanField(default=False)
+    f5790_filter_mode = models.CharField(max_length=10, default="FAST")
+    f5790_filter_restart = models.CharField(max_length=10, default="COARSE")
+    f5790_hires_enabled = models.BooleanField(default=False)
+    f5790_range_mode = models.CharField(max_length=8, default="POINT")
+    f5790_input_switch_settling_time = models.FloatField(
+        default=1.0,
+        help_text="Delay after switching INPUT1/INPUT2 on a shared 5790A/B.",
+    )
     stability_window = models.IntegerField(default=30, null=True, blank=True)
     stability_threshold_ppm = models.FloatField(default=10, null=True, blank=True)
     stability_max_attempts = models.IntegerField(default=10, null=True, blank=True)

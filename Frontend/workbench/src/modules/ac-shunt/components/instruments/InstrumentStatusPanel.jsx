@@ -272,33 +272,60 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         const newAddress = isChecked ? instrument.address : null;
         const newModel = isChecked ? getModelFromIdentity(instrument.identity) : null;
         const newSN = isChecked ? getSNFromIdentity(instrument.identity) : null;
+        const is5790 = /^5790[AB]$/.test(newModel || '');
+        const sameReader = isSameInstrumentAddress(
+            newAddress,
+            role === 'standard' ? tiInstrumentAddress : stdInstrumentAddress,
+        );
         if (role === 'standard') {
-            const input = newModel === '8508A' ? (stdReaderInput || 'FRONT') : null;
+            const input = newModel === '8508A'
+                ? (sameReader ? (tiReaderInput === 'FRONT' ? 'REAR' : 'FRONT') : 'FRONT')
+                : is5790
+                    ? (sameReader ? 'INPUT1' : 'INPUT2')
+                    : null;
+            if (input) setStdReaderInput(input);
             setStdInstrumentAddress(newAddress);
             setStdReaderModel(newModel);
             setStdReaderSN(newSN);
-            handleRoleAssignment({
+            const payload = {
                 standard_reader_address: newAddress,
                 standard_reader_model: newModel,
                 standard_reader_serial: newSN,
                 standard_reader_input: isChecked ? input : null,
-            });
+            };
+            if (isChecked && is5790 && sameReader) {
+                setTiReaderInput('INPUT2');
+                payload.test_reader_input = 'INPUT2';
+            }
+            handleRoleAssignment(payload);
         } else if (role === 'test') {
-            const input = newModel === '8508A' ? (tiReaderInput || 'REAR') : null;
+            const input = newModel === '8508A'
+                ? (sameReader ? (stdReaderInput === 'FRONT' ? 'REAR' : 'FRONT') : 'REAR')
+                : is5790
+                    ? 'INPUT2'
+                    : null;
+            if (input) setTiReaderInput(input);
             setTiInstrumentAddress(newAddress);
             setTiReaderModel(newModel);
             setTiReaderSN(newSN);
-            handleRoleAssignment({
+            const payload = {
                 test_reader_address: newAddress,
                 test_reader_model: newModel,
                 test_reader_serial: newSN,
                 test_reader_input: isChecked ? input : null,
-            });
+            };
+            if (isChecked && is5790 && sameReader) {
+                setStdReaderInput('INPUT1');
+                payload.standard_reader_input = 'INPUT1';
+            }
+            handleRoleAssignment(payload);
         }
     };
 
-    const handle8508InputChange = (role, input) => {
-        const opposite = input === 'FRONT' ? 'REAR' : 'FRONT';
+    const handleReaderInputChange = (role, input) => {
+        const opposite = input.startsWith('INPUT')
+            ? (input === 'INPUT1' ? 'INPUT2' : 'INPUT1')
+            : (input === 'FRONT' ? 'REAR' : 'FRONT');
         if (role === 'standard') {
             setStdReaderInput(input);
             const payload = { standard_reader_input: input };
@@ -581,32 +608,42 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                     <div className="checkbox-group">
                                                         <input type="checkbox" id={`std-role-${inst.address}`} checked={isSameInstrumentAddress(stdInstrumentAddress, inst.address)} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`std-role-${inst.address}`}>Standard</label>
-                                                        {model === '8508A' && isSameInstrumentAddress(stdInstrumentAddress, inst.address) && (
+                                                        {(model === '8508A' || /^5790[AB]$/.test(model)) && isSameInstrumentAddress(stdInstrumentAddress, inst.address) && (
                                                             <select
                                                                 className="reader-input-select"
-                                                                value={stdReaderInput || 'FRONT'}
-                                                                onChange={(event) => handle8508InputChange('standard', event.target.value)}
+                                                                value={stdReaderInput || (model === '8508A' ? 'FRONT' : 'INPUT2')}
+                                                                onChange={(event) => handleReaderInputChange('standard', event.target.value)}
                                                                 disabled={isRemoteViewer || isCollecting}
-                                                                aria-label="8508A Standard input"
+                                                                aria-label={`${model} Standard input`}
                                                             >
-                                                                <option value="FRONT">Front input</option>
-                                                                <option value="REAR">Rear input</option>
+                                                                {model === '8508A' ? (<>
+                                                                    <option value="FRONT">Front input</option>
+                                                                    <option value="REAR">Rear input</option>
+                                                                </>) : (<>
+                                                                    <option value="INPUT1">Input 1</option>
+                                                                    <option value="INPUT2">Input 2</option>
+                                                                </>)}
                                                             </select>
                                                         )}
                                                     </div>
                                                     <div className="checkbox-group">
                                                         <input type="checkbox" id={`test-role-${inst.address}`} checked={isSameInstrumentAddress(tiInstrumentAddress, inst.address)} onChange={(e) => handleStdTiRoleChange(inst, 'test', e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`test-role-${inst.address}`}>Test Instrument</label>
-                                                        {model === '8508A' && isSameInstrumentAddress(tiInstrumentAddress, inst.address) && (
+                                                        {(model === '8508A' || /^5790[AB]$/.test(model)) && isSameInstrumentAddress(tiInstrumentAddress, inst.address) && (
                                                             <select
                                                                 className="reader-input-select"
-                                                                value={tiReaderInput || 'REAR'}
-                                                                onChange={(event) => handle8508InputChange('test', event.target.value)}
+                                                                value={tiReaderInput || (model === '8508A' ? 'REAR' : 'INPUT2')}
+                                                                onChange={(event) => handleReaderInputChange('test', event.target.value)}
                                                                 disabled={isRemoteViewer || isCollecting}
-                                                                aria-label="8508A Test Instrument input"
+                                                                aria-label={`${model} Test Instrument input`}
                                                             >
-                                                                <option value="FRONT">Front input</option>
-                                                                <option value="REAR">Rear input</option>
+                                                                {model === '8508A' ? (<>
+                                                                    <option value="FRONT">Front input</option>
+                                                                    <option value="REAR">Rear input</option>
+                                                                </>) : (<>
+                                                                    <option value="INPUT1">Input 1</option>
+                                                                    <option value="INPUT2">Input 2</option>
+                                                                </>)}
                                                             </select>
                                                         )}
                                                     </div>

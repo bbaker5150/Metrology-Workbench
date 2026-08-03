@@ -5,7 +5,11 @@ from django.test import SimpleTestCase
 
 from npsl_tools.instruments import Instrument11713C, Instrument5790A
 
-from .consumers import CalibrationConsumer, INSTRUMENT_CLASS_MAP
+from .consumers import (
+    CalibrationConsumer,
+    INSTRUMENT_CLASS_MAP,
+    _5790_profile_settings,
+)
 
 
 class Instrument5790ACompatibilityTests(SimpleTestCase):
@@ -46,8 +50,56 @@ class Instrument5790ACompatibilityTests(SimpleTestCase):
         instrument.resource.query.return_value = "FLUKE,5790B,5678,1.0"
         self.assertFalse(instrument.check_identity()[0])
 
+    def test_configurable_profile_programs_shared_alpha_bravo_commands(self):
+        instrument = Instrument5790A.__new__(Instrument5790A)
+        instrument.resource = Mock()
+        instrument.resource.timeout = 1000
+        instrument.configure_acquisition(
+            filter_mode="MEDIUM",
+            filter_restart="FINE",
+            hires=True,
+            range_mode="POINT",
+            point_value=0.1,
+            input_switch_delay=2.5,
+        )
+        instrument.resource.write.assert_any_call("DFILT MEDIUM,FINE")
+        instrument.resource.write.assert_any_call("HIRES 1")
+        instrument.resource.write.assert_any_call("RANGE 0.1")
+        self.assertEqual(instrument.input_switch_delay, 2.5)
+        self.assertEqual(instrument.resource.timeout, 90000)
+
+    def test_profile_defaults_match_factory_input_workflow(self):
+        self.assertEqual(_5790_profile_settings({}), {
+            "filter_mode": "FAST",
+            "filter_restart": "COARSE",
+            "hires_enabled": False,
+            "range_mode": "POINT",
+            "input_switch_delay": 1.0,
+        })
+        self.assertEqual(
+            _5790_profile_settings({"f5790_input_switch_settling_time": 0})[
+                "input_switch_delay"
+            ],
+            0.0,
+        )
+
 
 class ReaderSwitchMappingTests(SimpleTestCase):
+    def test_shared_5790_requires_opposite_main_inputs(self):
+        details = {
+            "std_reader_address": "GPIB0::16::INSTR",
+            "ti_reader_address": "GPIB0::16::INSTR",
+            "std_reader_model": "5790A",
+            "ti_reader_model": "5790A",
+            "std_reader_input": "INPUT2",
+            "ti_reader_input": "INPUT2",
+        }
+        with self.assertRaisesRegex(RuntimeError, "opposite INPUT1/INPUT2"):
+            CalibrationConsumer._validate_reader_assignments({}, details)
+
+        details["std_reader_input"] = "INPUT1"
+        CalibrationConsumer._validate_reader_assignments({}, details)
+
     def test_reader_role_maps_to_configured_physical_route(self):
         switch = Instrument11713C.__new__(Instrument11713C)
         switch.resource = Mock()
@@ -90,6 +142,25 @@ class ReaderSwitchMappingTests(SimpleTestCase):
 
 
 class SequentialReaderAcquisitionTests(SimpleTestCase):
+    def test_shared_5790_reads_ti_then_standard_on_opposite_inputs(self):
+        events = []
+
+        instrument = Instrument5790A.__new__(Instrument5790A)
+        instrument.gpib = "GPIB0::16::INSTR"
+        instrument.read_input = lambda input_name: events.append(input_name) or (
+            2.0 if input_name == "INPUT2" else 1.0
+        )
+
+        async def exercise():
+            consumer = CalibrationConsumer.__new__(CalibrationConsumer)
+            consumer._reader_switch = None
+            consumer._standard_reader_input = "INPUT1"
+            consumer._test_reader_input = "INPUT2"
+            return await consumer._take_reader_pair(instrument, instrument)
+
+        self.assertEqual(asyncio.run(exercise()), (1.0, 2.0))
+        self.assertEqual(events, ["INPUT2", "INPUT1"])
+
     def test_reader_switch_collects_ti_then_standard_but_returns_std_first(self):
         events = []
 

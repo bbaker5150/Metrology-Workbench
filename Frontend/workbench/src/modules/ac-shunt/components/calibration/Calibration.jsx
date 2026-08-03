@@ -31,6 +31,7 @@ import { listAvailableCycles, resolveEffectiveCycle } from "../../utils/resolveE
 import { resolveSessionNCycles } from "../../utils/resolveSessionNCycles";
 import {
   exclude8508PointSettings,
+  select5790PointSettings,
   select8508PointSettings,
 } from "../../utils/calibrationSettingsScope";
 import CalibrationStatusBar from "./CalibrationStatusBar";
@@ -352,6 +353,11 @@ const DEFAULT_CALIBRATION_SETTINGS = {
   settling_time: 45,
   input_switch_settling_time: 5,
   ...get8508SmartDefaults(100),
+  f5790_filter_mode: "FAST",
+  f5790_filter_restart: "COARSE",
+  f5790_hires_enabled: false,
+  f5790_range_mode: "POINT",
+  f5790_input_switch_settling_time: 1,
   nplc: 100,
   stability_check_method: 'sliding_window',
   stability_window: 6,
@@ -473,6 +479,9 @@ function Calibration({
   const has8508Reader = normalizedReaderModels.some((model) =>
     model.includes("8508")
   );
+  const has5790Reader = normalizedReaderModels.some((model) =>
+    model.includes("5790")
+  );
 
   const [activeTab, setActiveTabState] = useState(rememberedCalSubTab);
   const setActiveTab = useCallback((value) => {
@@ -488,6 +497,11 @@ function Calibration({
     settling_time: 120,
     input_switch_settling_time: 5,
     ...get8508SmartDefaults(100),
+    f5790_filter_mode: "FAST",
+    f5790_filter_restart: "COARSE",
+    f5790_hires_enabled: false,
+    f5790_range_mode: "POINT",
+    f5790_input_switch_settling_time: 1,
     nplc: 20,
     stability_check_method: 'sliding_window',
     stability_window: 30,
@@ -515,6 +529,7 @@ function Calibration({
     focusedTP?.frequency
   );
   const [is8508SettingsSaved, setIs8508SettingsSaved] = useState(false);
+  const [is5790SettingsSaved, setIs5790SettingsSaved] = useState(false);
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
     eta_ti: "",
@@ -1452,6 +1467,11 @@ function Calibration({
       f8508_ac_resolution: Number(settings.f8508_ac_resolution) || 6,
       f8508_ac_transfer_enabled: settings.f8508_ac_transfer_enabled !== false,
       f8508_ac_dc_coupled: Boolean(settings.f8508_ac_dc_coupled),
+      f5790_filter_mode: settings.f5790_filter_mode || "FAST",
+      f5790_filter_restart: settings.f5790_filter_restart || "COARSE",
+      f5790_hires_enabled: Boolean(settings.f5790_hires_enabled),
+      f5790_range_mode: settings.f5790_range_mode || "POINT",
+      f5790_input_switch_settling_time: Number(settings.f5790_input_switch_settling_time) || 0,
       ignore_instability_after_lock: settings.ignore_instability_after_lock ?? DEFAULT_CALIBRATION_SETTINGS.ignore_instability_after_lock,
       enable_low_frequency_settings: lowFrequencyEnabled,
       enable_11hz_filter: lowFrequencyEnabled && (settings.enable_11hz_filter ?? DEFAULT_CALIBRATION_SETTINGS.enable_11hz_filter),
@@ -1481,6 +1501,11 @@ function Calibration({
       f8508_ac_resolution: Number(settings.f8508_ac_resolution) || 6,
       f8508_ac_transfer_enabled: settings.f8508_ac_transfer_enabled !== false,
       f8508_ac_dc_coupled: Boolean(settings.f8508_ac_dc_coupled),
+      f5790_filter_mode: settings.f5790_filter_mode || "FAST",
+      f5790_filter_restart: settings.f5790_filter_restart || "COARSE",
+      f5790_hires_enabled: Boolean(settings.f5790_hires_enabled),
+      f5790_range_mode: settings.f5790_range_mode || "POINT",
+      f5790_input_switch_settling_time: Number(settings.f5790_input_switch_settling_time) || 0,
       nplc: parseFloat(settings.nplc) || DEFAULT_CALIBRATION_SETTINGS.nplc,
       stability_check_method: settings.stability_check_method || DEFAULT_CALIBRATION_SETTINGS.stability_check_method,
       stability_window: parseInt(settings.stability_window, 10) || DEFAULT_CALIBRATION_SETTINGS.stability_window,
@@ -2517,9 +2542,8 @@ function Calibration({
         return;
       }
 
-      // 8508A acquisition behavior is point-specific. Never allow Apply All
-      // to overwrite the filter, resolution, coupling, or terminal-switch
-      // delay selected for another current/frequency point.
+      // Reader acquisition behavior is point-specific. Never allow Apply All
+      // to overwrite 8508A or 5790A/B profiles selected for another point.
       const commonSettingsPayload = exclude8508PointSettings(
         buildSettingsPayload(calibrationSettings)
       );
@@ -2578,7 +2602,7 @@ function Calibration({
       isOpen: true,
       title: `Apply Settings to All ${activeDirection} Points?`,
       message:
-        `This will apply shared calibration and stability settings to ALL test points in the ${activeDirection} direction.\n\n8508A filter, resolution, coupling, and front/rear switch-delay settings remain specific to each test point and are excluded. The 'Initial Warm-up Wait' also remains specific to this point. The opposite direction will not be modified.`,
+        `This will apply shared calibration and stability settings to ALL test points in the ${activeDirection} direction.\n\n8508A and 5790A/B acquisition settings remain specific to each test point and are excluded. The 'Initial Warm-up Wait' also remains specific to this point. The opposite direction will not be modified.`,
       onConfirm: confirmAction,
       onCancel: () =>
         setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
@@ -2633,6 +2657,37 @@ function Calibration({
     } catch (error) {
       setIs8508SettingsSaved(false);
       showNotification("Error saving 8508A settings for this point.", "error");
+    }
+  };
+
+  const handle5790SettingsSave = async () => {
+    if (isRemoteViewer) return;
+    if (!focusedTP || !selectedSessionId) {
+      return showNotification("No test point selected.", "error");
+    }
+    const directionName = activeDirection;
+    let pointToUpdate = directionName === "Forward" ? focusedTP.forward : focusedTP.reverse;
+    try {
+      if (!pointToUpdate) {
+        pointToUpdate = (await axios.post(
+          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
+          { current: focusedTP.current, frequency: focusedTP.frequency, direction: directionName }
+        )).data;
+      }
+      await axios.patch(
+        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${pointToUpdate.id}/`,
+        { settings: select5790PointSettings(buildSettingsPayload(calibrationSettings)) }
+      );
+      setIs5790SettingsSaved(true);
+      window.setTimeout(() => setIs5790SettingsSaved(false), 1600);
+      showNotification(
+        `5790 settings saved for ${formatCurrent(focusedTP.current)} @ ${formatFrequency(focusedTP.frequency)} (${directionName}).`,
+        "success"
+      );
+      onDataUpdate();
+    } catch (error) {
+      setIs5790SettingsSaved(false);
+      showNotification("Error saving 5790 settings for this point.", "error");
     }
   };
 
@@ -3652,6 +3707,101 @@ function Calibration({
                                   <ReaderSettingTooltip>
                                     Update 8508A settings for this test point only.
                                   </ReaderSettingTooltip>
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                          {has5790Reader && (
+                            <div className="settings-form-group settings-form-group--8508">
+                              <div className="reader-profile-scope-header">
+                                <span className="settings-form-group-eyebrow">
+                                  5790A/B Settings
+                                </span>
+                              </div>
+                              <div className="reader-profile-grid">
+                                <section className="reader-profile-card" aria-labelledby="reader-profile-5790-filter-title">
+                                  <div className="reader-profile-card-header">
+                                    <strong id="reader-profile-5790-filter-title">Measurement filtering</strong>
+                                  </div>
+                                  <div className="form-section-group">
+                                    <div className="form-section reader-setting-tooltip-trigger">
+                                      <label htmlFor="f5790_filter_mode">Digital filter
+                                        <ReaderSettingTooltip>
+                                          Selects the 5790 digital filter. Fast is the responsive default; Medium and Slow improve stability but can substantially increase measurement time.
+                                        </ReaderSettingTooltip>
+                                      </label>
+                                      <select id="f5790_filter_mode" value={calibrationSettings.f5790_filter_mode || "FAST"}
+                                        onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_filter_mode: e.target.value }))}
+                                        disabled={isRemoteViewer}>
+                                        {['OFF', 'FAST', 'MEDIUM', 'SLOW'].map((value) => <option key={value} value={value}>{value}</option>)}
+                                      </select>
+                                    </div>
+                                    <div className="form-section reader-setting-tooltip-trigger">
+                                      <label htmlFor="f5790_filter_restart">Filter restart
+                                        <ReaderSettingTooltip>
+                                          Controls how aggressively the filter restarts after an input change. Coarse is the fastest default; Fine retains the most filtering continuity.
+                                        </ReaderSettingTooltip>
+                                      </label>
+                                      <select id="f5790_filter_restart" value={calibrationSettings.f5790_filter_restart || "COARSE"}
+                                        onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_filter_restart: e.target.value }))}
+                                        disabled={isRemoteViewer || calibrationSettings.f5790_filter_mode === 'OFF'}>
+                                        {['FINE', 'MEDIUM', 'COARSE'].map((value) => <option key={value} value={value}>{value}</option>)}
+                                      </select>
+                                    </div>
+                                  </div>
+                                </section>
+                                <section className="reader-profile-card" aria-labelledby="reader-profile-5790-range-title">
+                                  <div className="reader-profile-card-header">
+                                    <strong id="reader-profile-5790-range-title">Acquisition</strong>
+                                  </div>
+                                  <div className="form-section-group">
+                                    <div className="form-section reader-setting-tooltip-trigger">
+                                      <label htmlFor="f5790_range_mode">Range
+                                        <ReaderSettingTooltip>
+                                          Test point selects the range from the commanded source value. Auto lets the 5790 select its own range.
+                                        </ReaderSettingTooltip>
+                                      </label>
+                                      <select id="f5790_range_mode" value={calibrationSettings.f5790_range_mode || "POINT"}
+                                        onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_range_mode: e.target.value }))}
+                                        disabled={isRemoteViewer}>
+                                        <option value="POINT">Test point</option>
+                                        <option value="AUTO">Auto</option>
+                                      </select>
+                                    </div>
+                                    <div className="reader-profile-switches full-width">
+                                      <div className="reader-profile-switch-field reader-setting-tooltip-trigger">
+                                        <label className="reader-profile-switch">
+                                          <input type="checkbox" checked={Boolean(calibrationSettings.f5790_hires_enabled)}
+                                            onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_hires_enabled: e.target.checked }))}
+                                            disabled={isRemoteViewer} />
+                                          <span>High resolution</span>
+                                        </label>
+                                        <ReaderSettingTooltip>Enables the 5790 high-resolution display and measurement mode.</ReaderSettingTooltip>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </section>
+                              </div>
+                              <div className="reader-profile-delay">
+                                <div className="form-section reader-setting-tooltip-trigger">
+                                  <label htmlFor="f5790_input_switch_settling_time">Input switch delay (sec)
+                                    <ReaderSettingTooltip>
+                                      Waits after changing INPUT1/INPUT2 on a shared 5790 before requesting the next measurement. It is not added when separate 5790s are used.
+                                    </ReaderSettingTooltip>
+                                  </label>
+                                  <input type="number" id="f5790_input_switch_settling_time" min="0" max="300" step="0.1"
+                                    value={calibrationSettings.f5790_input_switch_settling_time ?? 1}
+                                    onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_input_switch_settling_time: e.target.value }))}
+                                    disabled={isRemoteViewer} />
+                                </div>
+                              </div>
+                              <div className="reader-profile-point-actions">
+                                <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
+                                  <button type="button" className={`reader-profile-point-save${is5790SettingsSaved ? " is-saved" : ""}`}
+                                    onClick={handle5790SettingsSave} disabled={isRemoteViewer} aria-label="Save 5790 settings for this test point">
+                                    <FaCheck aria-hidden="true" />
+                                  </button>
+                                  <ReaderSettingTooltip>Update 5790A/B settings for this test point only.</ReaderSettingTooltip>
                                 </span>
                               </div>
                             </div>

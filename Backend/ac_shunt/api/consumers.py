@@ -146,6 +146,64 @@ def _open_reader(reader_class, model, address, input_terminal=None):
     return _inst(reader_class, model=model, gpib=address)
 
 
+def _is_5790_class(reader_class):
+    return bool(
+        reader_class
+        and isinstance(reader_class, type)
+        and issubclass(reader_class, Instrument5790B)
+    )
+
+
+def _open_reader_pair(std_class, std_model, std_address, std_input,
+                      ti_class, ti_model, ti_address, ti_input):
+    """Open logical readers while sharing one VISA session when appropriate."""
+    if (
+        std_address
+        and std_address == ti_address
+        and _is_5790_class(std_class)
+        and _is_5790_class(ti_class)
+    ):
+        shared = _open_reader(std_class, std_model, std_address, std_input)
+        shared.standard_role_input = str(std_input or 'INPUT1').upper()
+        shared.test_role_input = str(ti_input or 'INPUT2').upper()
+        return shared, shared
+    return (
+        _open_reader(std_class, std_model, std_address, std_input),
+        _open_reader(ti_class, ti_model, ti_address, ti_input),
+    )
+
+
+def _shared_5790_reader_pair(std_reader, ti_reader):
+    return (
+        isinstance(std_reader, Instrument5790B)
+        and isinstance(ti_reader, Instrument5790B)
+        and (
+            std_reader is ti_reader
+            or getattr(std_reader, 'gpib', None) == getattr(ti_reader, 'gpib', None)
+        )
+    )
+
+
+def _5790_profile_settings(measurement_params):
+    params = measurement_params or {}
+    mode = str(params.get('f5790_filter_mode') or 'FAST').upper()
+    restart = str(params.get('f5790_filter_restart') or 'COARSE').upper()
+    range_mode = str(params.get('f5790_range_mode') or 'POINT').upper()
+    switch_delay = params.get('f5790_input_switch_settling_time')
+    if switch_delay is None:
+        switch_delay = 1.0
+    return {
+        'filter_mode': mode if mode in {'OFF', 'FAST', 'MEDIUM', 'SLOW'} else 'FAST',
+        'filter_restart': restart if restart in {'FINE', 'MEDIUM', 'COARSE'} else 'COARSE',
+        'hires_enabled': bool(params.get('f5790_hires_enabled', False)),
+        'range_mode': range_mode if range_mode in {'AUTO', 'POINT'} else 'POINT',
+        'input_switch_delay': max(
+            0.0,
+            min(300.0, float(switch_delay)),
+        ),
+    }
+
+
 def _8508_ac_filter_for_frequency(frequency):
     """Choose the highest 8508A RMS filter that supports the source."""
 
@@ -846,6 +904,16 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         independent 11713Cs for both jobs.
         """
         self._reader_switch = None
+        std_model = str((session_details or {}).get('std_reader_model') or '').upper()
+        ti_model = str((session_details or {}).get('ti_reader_model') or '').upper()
+        self._standard_reader_input = str(
+            (session_details or {}).get('std_reader_input')
+            or ('FRONT' if '8508' in std_model else 'INPUT2')
+        ).upper()
+        self._test_reader_input = str(
+            (session_details or {}).get('ti_reader_input')
+            or ('REAR' if '8508' in ti_model else 'INPUT2')
+        ).upper()
         address = (session_details or {}).get('reader_switch_driver_address')
         if not address:
             return None
@@ -902,6 +970,39 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 ti_reader,
                 reverse_order=reverse_order,
             )
+
+        if (take_std or take_ti) and _shared_5790_reader_pair(std_reader, ti_reader):
+            values = {'STD': None, 'TI': None}
+            # One 5790 measurement engine cannot be queried concurrently.
+            # Visit TI first, then Standard, and return the stable (STD, TI)
+            # contract used by every other reader topology.
+            order = []
+            if take_ti:
+                order.append((
+                    'TI',
+                    ti_reader,
+                    getattr(
+                        ti_reader,
+                        'test_role_input',
+                        getattr(self, '_test_reader_input', 'INPUT2'),
+                    ),
+                ))
+            if take_std:
+                order.append((
+                    'STD',
+                    std_reader,
+                    getattr(
+                        std_reader,
+                        'standard_role_input',
+                        getattr(self, '_standard_reader_input', 'INPUT1'),
+                    ),
+                ))
+            for role, instrument, input_name in order:
+                values[role] = await sync_to_async(
+                    instrument.read_input,
+                    thread_sensitive=True,
+                )(input_name)
+            return values['STD'], values['TI']
 
         reader_switch = getattr(self, '_reader_switch', None)
         if reader_switch and (take_std or take_ti):
@@ -1244,6 +1345,22 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 raise RuntimeError(
                     "Assign separate physical switch drivers for source and reader routing."
                 )
+        std_is_5790 = '5790' in str(details.get('std_reader_model') or '').upper()
+        ti_is_5790 = '5790' in str(details.get('ti_reader_model') or '').upper()
+        if (
+            std_is_5790
+            and ti_is_5790
+            and details.get('std_reader_address') == details.get('ti_reader_address')
+        ):
+            inputs = {
+                str(details.get('std_reader_input') or '').upper(),
+                str(details.get('ti_reader_input') or '').upper(),
+            }
+            if inputs != {'INPUT1', 'INPUT2'}:
+                raise RuntimeError(
+                    "Assign a shared 5790 Standard and Test role to opposite INPUT1/INPUT2 inputs."
+                )
+
         std_is_8508 = '8508' in str(details.get('std_reader_model') or '').upper()
         ti_is_8508 = '8508' in str(details.get('ti_reader_model') or '').upper()
         if std_is_8508 != ti_is_8508:
@@ -1389,12 +1506,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
-                std_reader_class, std_model, std_addr, session_details.get("std_reader_input")
+            std_reader, ti_reader = await sync_to_async(
+                _open_reader_pair,
+                thread_sensitive=True,
+            )(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input"),
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input"),
             )
-            ti_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
-                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
-            )
+            self._standard_reader_input = str(session_details.get("std_reader_input") or "INPUT2").upper()
+            self._test_reader_input = str(session_details.get("ti_reader_input") or "INPUT2").upper()
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
@@ -1839,14 +1959,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         pass
             
             elif isinstance(instrument, Instrument5790B):
-                # TEST LAB: The 5790B reads the RAW source voltage directly.
-                await sync_to_async(instrument.set_range, thread_sensitive=True)(value=abs_source_drive)
-                await sync_to_async(instrument.resource.write, thread_sensitive=True)("HIRES OFF")
-                # Automatically apply SLOW digital filter for LF AC to combat ripple
-                if effective_lf_ac:
-                    await sync_to_async(instrument.resource.write, thread_sensitive=True)("DFILT SLOW,COARSE")
-                else:
-                    await sync_to_async(instrument.resource.write, thread_sensitive=True)("DFILT FAST,COARSE")
+                profile = _5790_profile_settings(measurement_params)
+                await sync_to_async(
+                    instrument.configure_acquisition,
+                    thread_sensitive=True,
+                )(
+                    **profile,
+                    point_value=abs_source_drive,
+                )
             
             elif isinstance(instrument, Instrument3458A): 
                 # TEST LAB: The 3458A reads the RAW source voltage directly.
@@ -2364,11 +2484,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader_instrument = await sync_to_async(_open_reader, thread_sensitive=True)(
-                std_reader_class, std_model, std_addr, session_details.get("std_reader_input")
-            )
-            ti_reader_instrument = await sync_to_async(_open_reader, thread_sensitive=True)(
-                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
+            std_reader_instrument, ti_reader_instrument = await sync_to_async(
+                _open_reader_pair,
+                thread_sensitive=True,
+            )(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input"),
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input"),
             )
             reader_switch = await self._initialize_reader_switch(session_details)
             
@@ -2484,11 +2605,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
-                std_reader_class, std_model, std_addr, session_details.get("std_reader_input")
-            )
-            ti_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
-                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
+            std_reader, ti_reader = await sync_to_async(
+                _open_reader_pair,
+                thread_sensitive=True,
+            )(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input"),
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input"),
             )
             reader_switch = await self._initialize_reader_switch(session_details)
 
@@ -2640,11 +2762,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
             
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
-                std_reader_class, std_model, std_addr, session_details.get("std_reader_input")
-            )
-            ti_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
-                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
+            std_reader, ti_reader = await sync_to_async(
+                _open_reader_pair,
+                thread_sensitive=True,
+            )(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input"),
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input"),
             )
 
             if session_details.get('switch_driver_address'):
@@ -2982,11 +3105,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
-                std_reader_class, std_model, std_addr, session_details.get("std_reader_input")
-            )
-            ti_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
-                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
+            std_reader, ti_reader = await sync_to_async(
+                _open_reader_pair,
+                thread_sensitive=True,
+            )(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input"),
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input"),
             )
 
             if session_details.get('switch_driver_address'):
@@ -3180,11 +3304,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
-                std_reader_class, std_model, std_addr, session_details.get("std_reader_input")
-            )
-            ti_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
-                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
+            std_reader, ti_reader = await sync_to_async(
+                _open_reader_pair,
+                thread_sensitive=True,
+            )(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input"),
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input"),
             )
             reader_switch = await self._initialize_reader_switch(session_details)
 

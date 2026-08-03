@@ -177,11 +177,11 @@ function SessionManager({
       setStdInstrumentAddress(session.standard_reader_address || null);
       setStdReaderModel(session.standard_reader_model || null);
       setStdReaderSN(session.standard_reader_serial || null);
-      setStdReaderInput(session.standard_reader_input || "FRONT");
+      setStdReaderInput(session.standard_reader_input || (/^5790[AB]$/.test(session.standard_reader_model || "") ? "INPUT2" : "FRONT"));
       setTiInstrumentAddress(session.test_reader_address || null);
       setTiReaderModel(session.test_reader_model || null);
       setTiReaderSN(session.test_reader_serial || null);
-      setTiReaderInput(session.test_reader_input || "REAR");
+      setTiReaderInput(session.test_reader_input || (/^5790[AB]$/.test(session.test_reader_model || "") ? "INPUT2" : "REAR"));
       setAcSourceAddress(session.ac_source_address || null);
       setAcSourceSN(session.ac_source_serial || null);
       setDcSourceAddress(session.dc_source_address || null);

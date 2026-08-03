@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   exclude8508PointSettings,
+  F5790_POINT_SETTING_KEYS,
   F8508_POINT_SETTING_KEYS,
+  select5790PointSettings,
   select8508PointSettings,
 } from "./calibrationSettingsScope";
 
@@ -17,6 +19,11 @@ describe("calibration settings scopes", () => {
     f8508_ac_resolution: 6,
     f8508_ac_transfer_enabled: true,
     f8508_ac_dc_coupled: false,
+    f5790_filter_mode: "FAST",
+    f5790_filter_restart: "COARSE",
+    f5790_hires_enabled: false,
+    f5790_range_mode: "POINT",
+    f5790_input_switch_settling_time: 1,
   };
 
   it("isolates every point-specific 8508A setting", () => {
@@ -35,7 +42,20 @@ describe("calibration settings scopes", () => {
     );
   });
 
-  it("keeps Apply All payloads free of point-specific 8508A values", () => {
+  it("isolates every point-specific 5790A/B setting", () => {
+    expect(select5790PointSettings(settings)).toEqual({
+      f5790_filter_mode: "FAST",
+      f5790_filter_restart: "COARSE",
+      f5790_hires_enabled: false,
+      f5790_range_mode: "POINT",
+      f5790_input_switch_settling_time: 1,
+    });
+    expect(Object.keys(select5790PointSettings(settings))).toHaveLength(
+      F5790_POINT_SETTING_KEYS.length
+    );
+  });
+
+  it("keeps Apply All payloads free of point-specific reader values", () => {
     expect(exclude8508PointSettings(settings)).toEqual({
       n_cycles: 15,
       settling_time: 5,

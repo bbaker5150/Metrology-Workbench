@@ -1079,6 +1079,11 @@ class TestPointViewSet(viewsets.ModelViewSet):
                 'f8508_ac_resolution',
                 'f8508_ac_transfer_enabled',
                 'f8508_ac_dc_coupled',
+                'f5790_filter_mode',
+                'f5790_filter_restart',
+                'f5790_hires_enabled',
+                'f5790_range_mode',
+                'f5790_input_switch_settling_time',
             }
             for field_name in point_specific_8508_fields:
                 full_warmup_settings.pop(field_name, None)

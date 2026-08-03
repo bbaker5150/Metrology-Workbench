@@ -8,6 +8,7 @@ from .fluke_instrument import FlukeInstrument
 from .instrument import Instrument 
 from .utils import BoolSetting
 from enum import Enum
+import time
 
 class DFILT_5790B_MODE(int, Enum):
     OFF = 1
@@ -51,13 +52,18 @@ class Instrument5790B(FlukeInstrument):
         resource : pyvisa.resources.Resource
             PyVisa Resource that connects to the instrument
     """
+    VALID_INPUTS = {"INPUT1", "INPUT2"}
+    VALID_FILTER_MODES = {"OFF", "SLOW", "MEDIUM", "FAST"}
+    VALID_FILTER_RESTARTS = {"FINE", "COARSE", "MEDIUM"}
+
     def __init__(self, model: str, gpib: str, timeout: float=60000):
         # Re-enable the parent identity check by calling the FlukeInstrument constructor.
         # This will raise an error if the connected device is not a 5790B.
         super().__init__(model=model, gpib=gpib, timeout=timeout)
         
         self.set_auto_range()
-        self.resource.write("INPUT INPUT2")
+        self.set_input("INPUT2")
+        self.input_switch_delay = 1.0
 
     def read_instrument(self):
         """
@@ -149,6 +155,68 @@ class Instrument5790B(FlukeInstrument):
     
     def set_auto_range(self): 
         self.resource.write("RANGE AUTO")
+
+    def set_input(self, input_name: str):
+        input_name = str(input_name or "INPUT2").strip().upper()
+        if input_name not in self.VALID_INPUTS:
+            raise ValueError("5790 input must be INPUT1 or INPUT2")
+        self.resource.write(f"INPUT {input_name}")
+        self.active_input = input_name
+
+    def configure_acquisition(
+        self,
+        *,
+        filter_mode="FAST",
+        filter_restart="COARSE",
+        hires=False,
+        range_mode="POINT",
+        point_value=None,
+        input_switch_delay=1.0,
+    ):
+        """Apply the operator-selected 5790A/B reading profile.
+
+        The Alpha and Bravo share this command surface.  ``POINT`` locks the
+        range from the current test-point drive; ``AUTO`` leaves autoranging
+        enabled.  Slow digital filtering can take more than 60 seconds below
+        200 Hz, so the VISA timeout is raised to avoid a false timeout.
+        """
+        mode = str(filter_mode or "FAST").strip().upper()
+        restart = str(filter_restart or "COARSE").strip().upper()
+        range_mode = str(range_mode or "POINT").strip().upper()
+        if mode not in self.VALID_FILTER_MODES:
+            raise ValueError("5790 filter mode must be OFF, FAST, MEDIUM, or SLOW")
+        if restart not in self.VALID_FILTER_RESTARTS:
+            raise ValueError("5790 filter restart must be FINE, MEDIUM, or COARSE")
+        if range_mode not in {"AUTO", "POINT"}:
+            raise ValueError("5790 range mode must be AUTO or POINT")
+
+        if mode == "OFF":
+            self.resource.write("DFILT OFF")
+        else:
+            self.resource.write(f"DFILT {mode},{restart}")
+        self.set_hires(bool(hires))
+        if range_mode == "AUTO":
+            self.set_auto_range()
+        elif point_value is not None:
+            self.set_range(abs(float(point_value)))
+
+        delay = float(input_switch_delay or 0)
+        if delay < 0 or delay > 300:
+            raise ValueError("5790 input-switch delay must be between 0 and 300 seconds")
+        self.input_switch_delay = delay
+        if hasattr(self.resource, "timeout"):
+            minimum_timeout = 130000 if mode == "SLOW" else (90000 if mode == "MEDIUM" else 60000)
+            self.resource.timeout = max(float(self.resource.timeout or 0), minimum_timeout)
+
+    def read_input(self, input_name: str):
+        """Select one main input, allow it to settle, then take a fresh read."""
+        input_name = str(input_name or "INPUT2").strip().upper()
+        changed = getattr(self, "active_input", None) != input_name
+        if changed:
+            self.set_input(input_name)
+            if self.input_switch_delay:
+                time.sleep(self.input_switch_delay)
+        return self.read_instrument()
         
     def set_range(self, value: float):
         self.resource.write(f"RANGE {value}")
