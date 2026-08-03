@@ -10647,6 +10647,47 @@ body.dark-mode .isp-zero-cal-btn--compact:hover:not(:disabled) svg {
   opacity: 0.55;
 }
 
+.reader-switch-options {
+  display: inline-flex;
+  align-items: end;
+  gap: 12px;
+  padding-left: 4px;
+}
+
+.reader-switch-option {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  color: var(--text-color-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+}
+
+.reader-switch-option .reader-input-select {
+  min-width: 7rem;
+}
+
+.reader-switch-delay-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-color-muted);
+}
+
+.reader-switch-delay-control .reader-input-select {
+  width: 5.5rem;
+  min-width: 5.5rem;
+  padding-right: 0.625rem;
+}
+
+@media (max-width: 880px) {
+  .reader-switch-options {
+    flex-basis: 100%;
+    padding-left: 0;
+  }
+}
+
 /* --- Status flags body --- */
 .status-card-body {
   padding: 14px 18px;

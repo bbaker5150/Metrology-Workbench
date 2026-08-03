@@ -63,6 +63,7 @@ from npsl_tools.instruments import (
     Instrument11713C,
     Instrument3458A,
     Instrument5730A,
+    Instrument5790A,
     Instrument5790B,
     Instrument34420A,
     Instrument8508A,
@@ -121,6 +122,7 @@ def _clear_live_state(session_id):
 
 INSTRUMENT_CLASS_MAP = {
     '5730A': Instrument5730A,
+    '5790A': Instrument5790A,
     '5790B': Instrument5790B,
     '3458A': Instrument3458A,
     '34420A': Instrument34420A,
@@ -836,6 +838,47 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     def _take_one_reading(self, instrument):
         return instrument.read_instrument()
 
+    async def _initialize_reader_switch(self, session_details):
+        """Open and bind the optional switch dedicated to reader routing.
+
+        Keeping this lifecycle separate from the legacy source switch allows
+        a bench to use one 11713C for readers, one for sources, or two
+        independent 11713Cs for both jobs.
+        """
+        self._reader_switch = None
+        address = (session_details or {}).get('reader_switch_driver_address')
+        if not address:
+            return None
+
+        reader_switch = await sync_to_async(_inst, thread_sensitive=True)(
+            Instrument11713C,
+            gpib=address,
+        )
+        self._reader_switch = reader_switch
+        self._reader_switch_standard_route = (
+            (session_details or {}).get('reader_switch_standard_route') or 'OPEN'
+        )
+        self._reader_switch_settling_time = max(
+            0.0,
+            float((session_details or {}).get('reader_switch_settling_time') or 0),
+        )
+        return reader_switch
+
+    async def _release_reader_switch(self, reader_switch):
+        """Return a reader switch to its passive route and close it safely."""
+        try:
+            if reader_switch:
+                await sync_to_async(reader_switch.deactivate_all, thread_sensitive=True)()
+        except Exception as exc:
+            print(f"[READER-SWITCH] Failed to return switch to passive route: {exc}", flush=True)
+        try:
+            if reader_switch and hasattr(reader_switch, 'close'):
+                await sync_to_async(reader_switch.close, thread_sensitive=True)()
+        except Exception as exc:
+            print(f"[READER-SWITCH] Failed to close switch resource: {exc}", flush=True)
+        finally:
+            self._reader_switch = None
+
     async def _take_reader_pair(
         self,
         std_reader,
@@ -844,7 +887,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         *,
         reverse_order=False,
     ):
-        """Read Standard/TI channels, serializing a shared 8508A correctly."""
+        """Read the logical Standard/TI pair using the active bench topology.
+
+        Independent readers are normally queried concurrently.  When a
+        reader-routing 11713C is active, however, only one reader is physically
+        connected to the source at a time; route and read TI first, then STD,
+        and still return values in the stable ``(standard, test)`` contract.
+        """
 
         take_std = target_tvc in ("STD", "BOTH") and std_reader is not None
         take_ti = target_tvc in ("TI", "BOTH") and ti_reader is not None
@@ -853,6 +902,33 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 ti_reader,
                 reverse_order=reverse_order,
             )
+
+        reader_switch = getattr(self, '_reader_switch', None)
+        if reader_switch and (take_std or take_ti):
+            standard_route = getattr(self, '_reader_switch_standard_route', 'OPEN')
+            delay = max(0.0, float(getattr(self, '_reader_switch_settling_time', 1.0) or 0))
+            values = {'STD': None, 'TI': None}
+            # The requested single-source/two-reader topology is explicitly
+            # TI -> STD.  Do not let the 8508-only reverse_order optimization
+            # silently change this physical relay sequence.
+            order = []
+            if take_ti:
+                order.append(('TI', ti_reader))
+            if take_std:
+                order.append(('STD', std_reader))
+            for role, instrument in order:
+                await sync_to_async(reader_switch.select_reader, thread_sensitive=True)(
+                    role,
+                    standard_route=standard_route,
+                )
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'reader_switch_status_update',
+                    'active_reader': role,
+                }))
+                if delay:
+                    await asyncio.sleep(delay)
+                values[role] = await self._take_one_reading(instrument)
+            return values['STD'], values['TI']
 
         tasks = [
             self._take_one_reading(std_reader) if take_std else asyncio.sleep(0),
@@ -1091,6 +1167,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 'ti_reader_input': session.test_reader_input,
                 'amplifier_address': _addr(session.amplifier_address),
                 'switch_driver_address': _addr(session.switch_driver_address),
+                'reader_switch_driver_address': _addr(session.reader_switch_driver_address),
+                'reader_switch_driver_model': session.reader_switch_driver_model,
+                'reader_switch_standard_route': session.reader_switch_standard_route or 'OPEN',
+                'reader_switch_settling_time': session.reader_switch_settling_time,
             }
         except CalibrationSession.DoesNotExist: return None
 
@@ -1151,6 +1231,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         data['measurement_params'] = measurement_params
 
         details = session_details or {}
+        if details.get('reader_switch_driver_address'):
+            if not details.get('std_reader_address') or not details.get('ti_reader_address'):
+                raise RuntimeError(
+                    "Reader routing requires both Standard and Test reader assignments."
+                )
+            if details.get('std_reader_address') == details.get('ti_reader_address'):
+                raise RuntimeError(
+                    "Reader routing requires two physical readers with different addresses."
+                )
+            if details.get('reader_switch_driver_address') == details.get('switch_driver_address'):
+                raise RuntimeError(
+                    "Assign separate physical switch drivers for source and reader routing."
+                )
         std_is_8508 = '8508' in str(details.get('std_reader_model') or '').upper()
         ti_is_8508 = '8508' in str(details.get('ti_reader_model') or '').upper()
         if std_is_8508 != ti_is_8508:
@@ -1305,6 +1398,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
+
                 await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {char_source_kind} source for Characterization..."}))
                 if char_source_kind == 'AC':
                     await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
@@ -1744,7 +1838,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     except Exception as e:
                         pass
             
-            elif isinstance(instrument, Instrument5790B): 
+            elif isinstance(instrument, Instrument5790B):
                 # TEST LAB: The 5790B reads the RAW source voltage directly.
                 await sync_to_async(instrument.set_range, thread_sensitive=True)(value=abs_source_drive)
                 await sync_to_async(instrument.resource.write, thread_sensitive=True)("HIRES OFF")
@@ -2228,6 +2322,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     
     async def collect_single_reading_set(self, data):
         ac_source, dc_source, std_reader_instrument, ti_reader_instrument, amplifier_instrument, switch_driver = None, None, None, None, None, None
+        reader_switch = None
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
@@ -2275,6 +2370,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             ti_reader_instrument = await sync_to_async(_open_reader, thread_sensitive=True)(
                 ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
             )
+            reader_switch = await self._initialize_reader_switch(session_details)
             
             await self._configure_sources(
                 data.get('test_point'), 
@@ -2353,6 +2449,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
                 await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': 'AC'}))
                 if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
+
+            await self._release_reader_switch(reader_switch)
             
             sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
             for source in sources_to_shutdown:
@@ -2366,6 +2464,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
     async def run_full_calibration_sequence(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier = None, None, None, None, None
+        reader_switch = None
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
@@ -2391,6 +2490,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             ti_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
                 ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
             )
+            reader_switch = await self._initialize_reader_switch(session_details)
 
             await self._configure_sources(
                 data.get('test_point'), 
@@ -2506,6 +2606,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
+            await self._release_reader_switch(reader_switch)
             sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
             for source in sources_to_shutdown:
                 await sync_to_async(source.reset, thread_sensitive=True)()
@@ -2517,6 +2618,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
     async def run_full_calibration_batch(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier, switch_driver = None, None, None, None, None, None
+        reader_switch = None
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
@@ -2547,6 +2649,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
+
+            reader_switch = await self._initialize_reader_switch(session_details)
             
             await self._configure_sources(
                 test_points_to_run,
@@ -2679,6 +2783,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if switch_driver:
                 await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
                 if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
+
+            await self._release_reader_switch(reader_switch)
 
             sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
             for source in sources_to_shutdown:
@@ -2846,6 +2952,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                mirrors the pair-level mean δ and u_A onto both rows.
         """
         ac_source, dc_source, std_reader, ti_reader, amplifier, switch_driver = None, None, None, None, None, None
+        reader_switch = None
         try:
             session_details = await self.get_session_details()
             if not session_details:
@@ -2884,6 +2991,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
+
+            reader_switch = await self._initialize_reader_switch(session_details)
 
             # Configure sources / amplifier using the first point as a probe
             # (matches run_full_calibration_batch's behavior).
@@ -2986,6 +3095,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if hasattr(switch_driver, 'close'):
                     await sync_to_async(switch_driver.close, thread_sensitive=True)()
 
+            await self._release_reader_switch(reader_switch)
+
             sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
             for source in sources_to_shutdown:
                 try:
@@ -3046,6 +3157,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
     async def run_single_stage_batch(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier = None, None, None, None, None
+        reader_switch = None
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
@@ -3074,6 +3186,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             ti_reader = await sync_to_async(_open_reader, thread_sensitive=True)(
                 ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input")
             )
+            reader_switch = await self._initialize_reader_switch(session_details)
 
             await self._configure_sources(
                 test_points_to_run,
@@ -3172,6 +3285,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if switch_driver:
                 await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
                 if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
+
+            await self._release_reader_switch(reader_switch)
 
             sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
             for source in sources_to_shutdown:

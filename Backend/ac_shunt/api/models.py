@@ -101,6 +101,20 @@ class CalibrationSession(models.Model):
     switch_driver_model = models.CharField(max_length=100, blank=True, null=True)
     switch_driver_serial = models.CharField(max_length=100, blank=True, null=True)
 
+    # Optional, independent reader-routing switch.  The legacy switch_driver
+    # fields above remain the source-routing assignment so existing sessions
+    # and the established two-source workflow are unchanged.  Keeping the two
+    # routes independent permits a future bench to use two identical 11713Cs.
+    reader_switch_driver_address = models.CharField(max_length=100, blank=True, null=True)
+    reader_switch_driver_model = models.CharField(max_length=100, blank=True, null=True)
+    reader_switch_driver_serial = models.CharField(max_length=100, blank=True, null=True)
+    reader_switch_standard_route = models.CharField(
+        max_length=6,
+        choices=(("OPEN", "Open / NC"), ("CLOSED", "Closed / NO")),
+        default="OPEN",
+    )
+    reader_switch_settling_time = models.FloatField(default=1.0)
+
     # Amplifier Address
     amplifier_address = models.CharField(max_length=255, null=True, blank=True)
     amplifier_serial = models.CharField(max_length=255, null=True, blank=True)

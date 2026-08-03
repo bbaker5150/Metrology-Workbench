@@ -329,7 +329,10 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
             'test_reader_input', 'standard_instrument_serial', 'standard_reader_model', 'standard_reader_serial',
             'standard_reader_address', 'standard_reader_input',
             'ac_source_address', 'dc_source_address', 'ac_source_serial', 'dc_source_serial', 'switch_driver_address',
-            'switch_driver_model', 'switch_driver_serial', 'amplifier_address', 'amplifier_serial', 'temperature', 'humidity',
+            'switch_driver_model', 'switch_driver_serial',
+            'reader_switch_driver_address', 'reader_switch_driver_model', 'reader_switch_driver_serial',
+            'reader_switch_standard_route', 'reader_switch_settling_time',
+            'amplifier_address', 'amplifier_serial', 'temperature', 'humidity',
             'created_at', 'notes', 'standard_tvc_serial', 'test_tvc_serial',
             'workstation', 'workstation_id',
         ]
@@ -349,6 +352,19 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
         ti_address = value("test_reader_address")
         std_input = (value("standard_reader_input") or "FRONT").upper()
         ti_input = (value("test_reader_input") or "REAR").upper()
+
+        reader_route = (value("reader_switch_standard_route") or "OPEN").upper()
+        if reader_route not in {"OPEN", "CLOSED"}:
+            raise serializers.ValidationError({
+                "reader_switch_standard_route": "Select OPEN/NC or CLOSED/NO."
+            })
+        attrs.setdefault("reader_switch_standard_route", reader_route)
+
+        reader_delay = value("reader_switch_settling_time")
+        if reader_delay is not None and not 0 <= float(reader_delay) <= 300:
+            raise serializers.ValidationError({
+                "reader_switch_settling_time": "Reader switch delay must be between 0 and 300 seconds."
+            })
 
         for field, model, terminal in (
             ("standard_reader_input", std_model, std_input),

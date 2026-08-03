@@ -150,6 +150,8 @@ function SessionManager({
     setStdInstrumentAddress, setStdReaderModel, setStdReaderSN, setStdReaderInput,
     setTiInstrumentAddress, setTiReaderModel, setTiReaderSN, setTiReaderInput,
     setAcSourceAddress, setAcSourceSN, setDcSourceAddress, setDcSourceSN, setSwitchDriverAddress, setSwitchDriverModel, setSwitchDriverSN,
+    setReaderSwitchDriverAddress, setReaderSwitchDriverModel, setReaderSwitchDriverSN,
+    setReaderSwitchStandardRoute, setReaderSwitchSettlingTime,
     setAmplifierAddress, setAmplifierSN, setStandardTvcSn, setTestTvcSn, setStandardInstrumentSerial, setTestInstrumentSerial, setFailedTPKeys,
     activeHostSessionIds,
     observeSession,
@@ -187,6 +189,11 @@ function SessionManager({
       setSwitchDriverAddress(session.switch_driver_address || null);
       setSwitchDriverModel(session.switch_driver_model || null);
       setSwitchDriverSN(session.switch_driver_serial || null);
+      setReaderSwitchDriverAddress(session.reader_switch_driver_address || null);
+      setReaderSwitchDriverModel(session.reader_switch_driver_model || null);
+      setReaderSwitchDriverSN(session.reader_switch_driver_serial || null);
+      setReaderSwitchStandardRoute(session.reader_switch_standard_route || "OPEN");
+      setReaderSwitchSettlingTime(session.reader_switch_settling_time ?? 1);
       setAmplifierAddress(session.amplifier_address || null);
       setAmplifierSN(session.amplifier_serial || null);
       setStandardTvcSn(session.standard_tvc_serial || null);

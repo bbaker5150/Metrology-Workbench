@@ -438,6 +438,9 @@ function AppContent() {
     timerState,
     stdReaderModel,
     tiReaderModel,
+    switchDriverAddress,
+    readerSwitchDriverAddress,
+    readerSwitchSettlingTime,
   } = useInstruments();
 
   const isBulkRunning = bulkRunProgress && bulkRunProgress.total > 0;
@@ -824,6 +827,7 @@ function AppContent() {
 
     let tpSettings = {};
     let activeFrequency = activeCollectionDetails.frequency ?? null;
+    const liveMeasurementParams = activeCollectionDetails.measurement_params || {};
     if (activeCollectionDetails.tpId && uniqueTestPoints) {
       const tp = uniqueTestPoints.find(p =>
         String(p.forward?.id) === String(activeCollectionDetails.tpId) ||
@@ -837,24 +841,50 @@ function AppContent() {
       }
     }
 
+    const readSetting = (key, fallback) => (
+      liveMeasurementParams[key]
+      ?? activeCollectionDetails[key]
+      ?? tpSettings[key]
+      ?? calibrationConfigs?.[key]
+      ?? fallback
+    );
+
     return {
       command: activeCollectionDetails.command,
       is_pre_batch: activeCollectionDetails.is_pre_batch,
-      nplc: activeCollectionDetails.nplc ?? tpSettings.nplc ?? calibrationConfigs?.nplc ?? 20,
-      num_samples: activeCollectionDetails.num_samples ?? tpSettings.num_samples ?? calibrationConfigs?.num_samples ?? 35,
-      initial_warm_up_time: activeCollectionDetails.initial_warm_up_time ?? tpSettings.initial_warm_up_time ?? calibrationConfigs?.initial_warm_up_time ?? 0,
-      settling_time: activeCollectionDetails.settling_time ?? tpSettings.settling_time ?? calibrationConfigs?.settling_time ?? 120,
-      input_switch_settling_time: activeCollectionDetails.measurement_params?.input_switch_settling_time
-        ?? activeCollectionDetails.input_switch_settling_time
-        ?? tpSettings.input_switch_settling_time
-        ?? calibrationConfigs?.input_switch_settling_time
-        ?? 1,
-      n_cycles: activeCollectionDetails.n_cycles ?? tpSettings.n_cycles ?? calibrationConfigs?.n_cycles ?? 3,
+      nplc: readSetting('nplc', 20),
+      num_samples: readSetting('num_samples', 35),
+      initial_warm_up_time: readSetting('initial_warm_up_time', 0),
+      settling_time: readSetting('settling_time', 120),
+      input_switch_settling_time: readSetting('input_switch_settling_time', 1),
+      n_cycles: readSetting('n_cycles', 3),
       frequency: activeFrequency,
+      stability_check_method: readSetting('stability_check_method', 'sliding_window'),
+      stability_window: liveMeasurementParams.window
+        ?? readSetting('stability_window', 30),
+      ignore_instability_after_lock: readSetting('ignore_instability_after_lock', false),
+      f8508_dc_filter_enabled: readSetting('f8508_dc_filter_enabled', true),
+      f8508_dc_resolution: readSetting('f8508_dc_resolution', 7),
+      f8508_dc_fast_enabled: readSetting('f8508_dc_fast_enabled', false),
+      f8508_ac_filter_hz: readSetting('f8508_ac_filter_hz', null),
+      f8508_ac_resolution: readSetting('f8508_ac_resolution', 6),
+      f8508_ac_transfer_enabled: readSetting('f8508_ac_transfer_enabled', true),
+      f8508_ac_dc_coupled: readSetting('f8508_ac_dc_coupled', false),
+      has_switch_driver: Boolean(switchDriverAddress),
+      has_reader_switch: Boolean(readerSwitchDriverAddress),
+      reader_switch_settling_time: Number(readerSwitchSettlingTime) || 0,
       use_char_minus_readings: activeCollectionDetails.use_char_minus_readings ?? tpSettings.use_char_minus_readings ?? calibrationConfigs?.use_char_minus_readings ?? false,
       use_char_plus2_readings: activeCollectionDetails.use_char_plus2_readings ?? tpSettings.use_char_plus2_readings ?? calibrationConfigs?.use_char_plus2_readings ?? false
     };
-  }, [isCollecting, activeCollectionDetails, uniqueTestPoints, calibrationConfigs]);
+  }, [
+    isCollecting,
+    activeCollectionDetails,
+    uniqueTestPoints,
+    calibrationConfigs,
+    switchDriverAddress,
+    readerSwitchDriverAddress,
+    readerSwitchSettlingTime,
+  ]);
 
   // Initializes the hook by passing activeSettings into calibrationSettings
   const estimatedTime = useCalibrationETA({

@@ -35,6 +35,7 @@ from npsl_tools.instruments import (
     Instrument11713C,
     Instrument3458A,
     Instrument5730A,
+    Instrument5790A,
     Instrument5790B,
     Instrument34420A,
     Instrument8508A,
@@ -198,6 +199,13 @@ class Mock5790B(Instrument5790B):
         return None
 
 
+class Mock5790A(Mock5790B, Instrument5790A):
+    """Mock 5790A using the same measurement behavior as the 5790B mock."""
+
+    def __init__(self, model: str = "5790A", gpib: Optional[str] = None, timeout: float = 60000):
+        _install_mock_attrs(self, model=model, gpib=gpib, timeout=timeout)
+
+
 class Mock34420A(Instrument34420A):
     """Mock 34420A nanovoltmeter.
 
@@ -291,6 +299,17 @@ class Mock11713C(Instrument11713C):
     def select_ac_source(self) -> None:  # type: ignore[override]
         _STATE["active_source"] = "AC"
 
+    def set_route(self, route: str) -> None:  # type: ignore[override]
+        _STATE["active_route"] = str(route).upper()
+
+    def select_reader(self, role: str, standard_route: str = "OPEN") -> None:  # type: ignore[override]
+        role = str(role).upper()
+        _STATE["active_reader"] = role
+        route = standard_route if role == "STD" else (
+            "CLOSED" if str(standard_route).upper() == "OPEN" else "OPEN"
+        )
+        self.set_route(route)
+
     def deactivate_all(self) -> None:  # type: ignore[override]
         _STATE["active_source"] = None
 
@@ -302,6 +321,7 @@ class Mock11713C(Instrument11713C):
 MOCK_CLASS_MAP = {
     Instrument5730A: Mock5730A,
     Instrument3458A: Mock3458A,
+    Instrument5790A: Mock5790A,
     Instrument5790B: Mock5790B,
     Instrument34420A: Mock34420A,
     Instrument8508A: Mock8508A,

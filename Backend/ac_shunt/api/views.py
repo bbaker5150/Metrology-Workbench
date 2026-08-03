@@ -34,7 +34,7 @@ from .serializers import (
 )
 
 from npsl_tools.instruments import (
-    Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, 
+    Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790A, Instrument5790B,
     Instrument34420A, Instrument8508A, Instrument8100
 )
 
@@ -64,6 +64,7 @@ def _server_ip_for_request(request):
 
 INSTRUMENT_CLASS_MAP = {
     '5730A': Instrument5730A,
+    '5790A': Instrument5790A,
     '5790B': Instrument5790B,
     '3458A': Instrument3458A,
     '34420A': Instrument34420A,

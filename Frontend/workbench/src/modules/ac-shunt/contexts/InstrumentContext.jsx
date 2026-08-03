@@ -43,6 +43,11 @@ export const InstrumentContextProvider = ({ children }) => {
   const [switchDriverAddress, setSwitchDriverAddress] = useState(null);
   const [switchDriverModel, setSwitchDriverModel] = useState(null);
   const [switchDriverSN, setSwitchDriverSN] = useState(null);
+  const [readerSwitchDriverAddress, setReaderSwitchDriverAddress] = useState(null);
+  const [readerSwitchDriverModel, setReaderSwitchDriverModel] = useState(null);
+  const [readerSwitchDriverSN, setReaderSwitchDriverSN] = useState(null);
+  const [readerSwitchStandardRoute, setReaderSwitchStandardRoute] = useState("OPEN");
+  const [readerSwitchSettlingTime, setReaderSwitchSettlingTime] = useState(1);
   const [amplifierAddress, setAmplifierAddress] = useState(null);
   const [amplifierSN, setAmplifierSN] = useState(null);
 
@@ -367,6 +372,11 @@ export const InstrumentContextProvider = ({ children }) => {
     setSwitchDriverAddress(null);
     setSwitchDriverModel(null);
     setSwitchDriverSN(null);
+    setReaderSwitchDriverAddress(null);
+    setReaderSwitchDriverModel(null);
+    setReaderSwitchDriverSN(null);
+    setReaderSwitchStandardRoute("OPEN");
+    setReaderSwitchSettlingTime(1);
     setAmplifierAddress(null);
     setAmplifierSN(null);
     setStandardTvcSn(null);
@@ -800,6 +810,16 @@ export const InstrumentContextProvider = ({ children }) => {
           const pointKey = `${test_point.current}-${test_point.frequency}`;
           setFocusedTPKey(pointKey);
           setBulkRunProgress({ current, total, pointKey });
+          setActiveCollectionDetails((prev) => ({
+            ...(prev || {}),
+            tpId: test_point.id ?? prev?.tpId,
+            frequency: test_point.frequency ?? prev?.frequency,
+            num_samples: test_point.num_samples ?? prev?.num_samples,
+            settling_time: test_point.settling_time ?? prev?.settling_time,
+            nplc: test_point.nplc ?? prev?.nplc,
+            measurement_params: test_point.measurement_params
+              ?? prev?.measurement_params,
+          }));
 
           setIsCollecting(true);
         }
@@ -1147,11 +1167,19 @@ export const InstrumentContextProvider = ({ children }) => {
         is_pre_batch: params.is_pre_batch,
         readingKey: readingKey,
         stage: readingKey,
+        frequency: params.test_point?.frequency
+          ?? params.test_points?.[0]?.frequency
+          ?? params.forward_points?.[0]?.frequency,
         nplc: params.nplc,
         num_samples: params.num_samples,
         settling_time: params.settling_time,
         initial_warm_up_time: params.initial_warm_up_time,
         n_cycles: params.n_cycles || params.test_points?.[0]?.n_cycles || params.forward_points?.[0]?.n_cycles,
+        measurement_params: params.test_point_id
+          ? params.measurement_params
+          : params.test_points?.[0]?.measurement_params
+            ?? params.forward_points?.[0]?.measurement_params
+            ?? params.measurement_params,
       };
       
       setActiveCollectionDetails(initialDetails);
@@ -1227,6 +1255,16 @@ export const InstrumentContextProvider = ({ children }) => {
     setSwitchDriverModel,
     switchDriverSN,
     setSwitchDriverSN,
+    readerSwitchDriverAddress,
+    setReaderSwitchDriverAddress,
+    readerSwitchDriverModel,
+    setReaderSwitchDriverModel,
+    readerSwitchDriverSN,
+    setReaderSwitchDriverSN,
+    readerSwitchStandardRoute,
+    setReaderSwitchStandardRoute,
+    readerSwitchSettlingTime,
+    setReaderSwitchSettlingTime,
     amplifierAddress,
     setAmplifierAddress,
     amplifierSN,

@@ -12,7 +12,7 @@ import {
     isSameInstrumentAddress,
 } from '../../utils/instrumentStatus';
 
-const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B', '8508A'];
+const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790A', '5790B', '8508A'];
 const ACDC_ASSIGNABLE_MODELS = ['5730A'];
 const AMPLIFIER_MODELS = ['8100'];
 const SUPPORTED_STATUS_MODELS = ['5730', '5790'];
@@ -36,6 +36,11 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         tiReaderInput, setTiReaderInput,
         acSourceAddress, setAcSourceAddress, acSourceSN, setAcSourceSN, dcSourceAddress, setDcSourceAddress, dcSourceSN, setDcSourceSN,
         switchDriverAddress, setSwitchDriverAddress, switchDriverModel, setSwitchDriverModel, switchDriverSN, setSwitchDriverSN,
+        readerSwitchDriverAddress, setReaderSwitchDriverAddress,
+        readerSwitchDriverModel, setReaderSwitchDriverModel,
+        readerSwitchDriverSN, setReaderSwitchDriverSN,
+        readerSwitchStandardRoute, setReaderSwitchStandardRoute,
+        readerSwitchSettlingTime, setReaderSwitchSettlingTime,
         amplifierAddress, setAmplifierAddress, amplifierSN, setAmplifierSN, isCollecting,
         
         // NEW DESTRUCTURES: Exposing the locking mechanism from the context
@@ -335,18 +340,60 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         }
     };
 
-    const handleSwitchDriverRoleChange = (instrument, isChecked) => {
+    const handleSourceSwitchRoleChange = (instrument, isChecked) => {
         const newAddress = isChecked ? instrument.address : null;
         const newModel = isChecked ? getModelFromIdentity(instrument.identity) : null;
         const newSN = isChecked ? getSNFromIdentity(instrument.identity) : null;
         setSwitchDriverAddress(newAddress);
         setSwitchDriverModel(newModel);
         setSwitchDriverSN(newSN);
-        handleRoleAssignment({ switch_driver_address: newAddress, switch_driver_model: newModel, switch_driver_serial: newSN });
+        const payload = { switch_driver_address: newAddress, switch_driver_model: newModel, switch_driver_serial: newSN };
+        if (isChecked && isSameInstrumentAddress(readerSwitchDriverAddress, instrument.address)) {
+            setReaderSwitchDriverAddress(null);
+            setReaderSwitchDriverModel(null);
+            setReaderSwitchDriverSN(null);
+            Object.assign(payload, {
+                reader_switch_driver_address: null,
+                reader_switch_driver_model: null,
+                reader_switch_driver_serial: null,
+            });
+        }
+        handleRoleAssignment(payload);
+    };
+
+    const handleReaderSwitchRoleChange = (instrument, isChecked) => {
+        const newAddress = isChecked ? instrument.address : null;
+        const newModel = isChecked ? getModelFromIdentity(instrument.identity) : null;
+        const newSN = isChecked ? getSNFromIdentity(instrument.identity) : null;
+        setReaderSwitchDriverAddress(newAddress);
+        setReaderSwitchDriverModel(newModel);
+        setReaderSwitchDriverSN(newSN);
+        const payload = {
+            reader_switch_driver_address: newAddress,
+            reader_switch_driver_model: newModel,
+            reader_switch_driver_serial: newSN,
+        };
+        if (isChecked && isSameInstrumentAddress(switchDriverAddress, instrument.address)) {
+            setSwitchDriverAddress(null);
+            setSwitchDriverModel(null);
+            setSwitchDriverSN(null);
+            Object.assign(payload, {
+                switch_driver_address: null,
+                switch_driver_model: null,
+                switch_driver_serial: null,
+            });
+        }
+        handleRoleAssignment(payload);
+    };
+
+    const updateReaderSwitchOption = (field, value) => {
+        if (field === 'reader_switch_standard_route') setReaderSwitchStandardRoute(value);
+        if (field === 'reader_switch_settling_time') setReaderSwitchSettlingTime(value);
+        handleRoleAssignment({ [field]: value });
     };
 
     const activeInstruments = workstations.find(ws => ws.ip === activeWorkstationIp)?.instruments || [];
-    const hasAssignedInstruments = stdInstrumentAddress || tiInstrumentAddress || acSourceAddress || dcSourceAddress || switchDriverAddress || amplifierAddress;
+    const hasAssignedInstruments = stdInstrumentAddress || tiInstrumentAddress || acSourceAddress || dcSourceAddress || switchDriverAddress || readerSwitchDriverAddress || amplifierAddress;
 
     const assignedRoleChips = [
         stdInstrumentAddress && { key: 'std', label: 'Standard DMM', identity: [stdReaderModel, stdReaderSN && `S/N ${stdReaderSN}`].filter(Boolean).join(' '), address: stdInstrumentAddress },
@@ -354,7 +401,8 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         acSourceAddress && { key: 'ac', label: 'AC Source', identity: acSourceSN ? `S/N ${acSourceSN}` : '—', address: acSourceAddress },
         dcSourceAddress && { key: 'dc', label: 'DC Source', identity: dcSourceSN ? `S/N ${dcSourceSN}` : '—', address: dcSourceAddress },
         amplifierAddress && { key: 'amp', label: 'Amplifier', identity: amplifierSN ? `S/N ${amplifierSN}` : '—', address: amplifierAddress },
-        switchDriverAddress && { key: 'sw', label: 'Switch Driver', identity: [switchDriverModel, switchDriverSN && `S/N ${switchDriverSN}`].filter(Boolean).join(' '), address: switchDriverAddress },
+        switchDriverAddress && { key: 'sw-source', label: 'Source Switch', identity: [switchDriverModel, switchDriverSN && `S/N ${switchDriverSN}`].filter(Boolean).join(' '), address: switchDriverAddress },
+        readerSwitchDriverAddress && { key: 'sw-reader', label: 'Reader Switch', identity: [readerSwitchDriverModel, readerSwitchDriverSN && `S/N ${readerSwitchDriverSN}`].filter(Boolean).join(' '), address: readerSwitchDriverAddress },
     ].filter(Boolean);
 
     return (
@@ -588,11 +636,52 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                             )}
                                             {isSwitchDriverAssignable && (
                                                 <div className="role-assignment">
-                                                    <span className="role-assignment-label">Utility Role</span>
+                                                    <span className="role-assignment-label">Routing Role</span>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`switch-driver-role-${inst.address}`} checked={isSameInstrumentAddress(switchDriverAddress, inst.address)} onChange={(e) => handleSwitchDriverRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
-                                                        <label htmlFor={`switch-driver-role-${inst.address}`}>Switch Driver</label>
+                                                        <input type="checkbox" id={`source-switch-role-${inst.address}`} checked={isSameInstrumentAddress(switchDriverAddress, inst.address)} onChange={(e) => handleSourceSwitchRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
+                                                        <label htmlFor={`source-switch-role-${inst.address}`}>Sources</label>
                                                     </div>
+                                                    <div className="checkbox-group">
+                                                        <input type="checkbox" id={`reader-switch-role-${inst.address}`} checked={isSameInstrumentAddress(readerSwitchDriverAddress, inst.address)} onChange={(e) => handleReaderSwitchRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
+                                                        <label htmlFor={`reader-switch-role-${inst.address}`}>Readers</label>
+                                                    </div>
+                                                    {isSameInstrumentAddress(readerSwitchDriverAddress, inst.address) && (
+                                                        <div className="reader-switch-options">
+                                                            <label className="reader-switch-option">
+                                                                <span>Standard path</span>
+                                                                <select
+                                                                    className="reader-input-select"
+                                                                    value={readerSwitchStandardRoute || 'OPEN'}
+                                                                    onChange={(event) => updateReaderSwitchOption('reader_switch_standard_route', event.target.value)}
+                                                                    disabled={isRemoteViewer || isCollecting}
+                                                                    title="Physical relay route wired to the Standard reader; the Test reader uses the opposite route"
+                                                                    aria-label="Standard reader relay route"
+                                                                >
+                                                                    <option value="OPEN">Open / NC</option>
+                                                                    <option value="CLOSED">Closed / NO</option>
+                                                                </select>
+                                                            </label>
+                                                            <label className="reader-switch-option">
+                                                                <span>Switch delay</span>
+                                                                <span className="reader-switch-delay-control">
+                                                                    <input
+                                                                        className="reader-input-select"
+                                                                        type="number"
+                                                                        min="0"
+                                                                        max="300"
+                                                                        step="0.1"
+                                                                        value={readerSwitchSettlingTime ?? 1}
+                                                                        onChange={(event) => setReaderSwitchSettlingTime(event.target.value)}
+                                                                        onBlur={(event) => updateReaderSwitchOption('reader_switch_settling_time', Number(event.target.value) || 0)}
+                                                                        disabled={isRemoteViewer || isCollecting}
+                                                                        title="Delay after changing readers before taking the next reading"
+                                                                        aria-label="Reader switch settling delay in seconds"
+                                                                    />
+                                                                    <span>s</span>
+                                                                </span>
+                                                            </label>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>

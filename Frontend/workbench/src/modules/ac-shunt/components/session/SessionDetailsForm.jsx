@@ -270,6 +270,16 @@ function SessionDetailsForm({
     setSwitchDriverModel,
     switchDriverSN,
     setSwitchDriverSN,
+    readerSwitchDriverAddress,
+    setReaderSwitchDriverAddress,
+    readerSwitchDriverModel,
+    setReaderSwitchDriverModel,
+    readerSwitchDriverSN,
+    setReaderSwitchDriverSN,
+    readerSwitchStandardRoute,
+    setReaderSwitchStandardRoute,
+    readerSwitchSettlingTime,
+    setReaderSwitchSettlingTime,
     amplifierAddress,
     setAmplifierAddress,
     amplifierSN,
@@ -453,6 +463,11 @@ function SessionDetailsForm({
       switch_driver_address: switchDriverAddress,
       switch_driver_model: switchDriverModel,
       switch_driver_serial: switchDriverSN,
+      reader_switch_driver_address: readerSwitchDriverAddress,
+      reader_switch_driver_model: readerSwitchDriverModel,
+      reader_switch_driver_serial: readerSwitchDriverSN,
+      reader_switch_standard_route: readerSwitchStandardRoute,
+      reader_switch_settling_time: Number(readerSwitchSettlingTime) || 0,
       amplifier_address: amplifierAddress,
       amplifier_serial: amplifierSN,
     };
@@ -487,6 +502,11 @@ function SessionDetailsForm({
       setSwitchDriverAddress(savedSession.switch_driver_address || null);
       setSwitchDriverModel(savedSession.switch_driver_model || null);
       setSwitchDriverSN(savedSession.switch_driver_serial || null);
+      setReaderSwitchDriverAddress(savedSession.reader_switch_driver_address || null);
+      setReaderSwitchDriverModel(savedSession.reader_switch_driver_model || null);
+      setReaderSwitchDriverSN(savedSession.reader_switch_driver_serial || null);
+      setReaderSwitchStandardRoute(savedSession.reader_switch_standard_route || "OPEN");
+      setReaderSwitchSettlingTime(savedSession.reader_switch_settling_time ?? 1);
       setAmplifierAddress(savedSession.amplifier_address || null);
       setAmplifierSN(savedSession.amplifier_serial || null);
       setStandardTvcSn(savedSession.standard_tvc_serial || null);
