@@ -84,11 +84,11 @@ class Instrument5790ACompatibilityTests(SimpleTestCase):
 
     def test_profile_defaults_match_factory_input_workflow(self):
         self.assertEqual(_5790_profile_settings({}), {
-            "filter_mode": "FAST",
-            "filter_restart": "COARSE",
-            "hires_enabled": False,
-            "range_mode": "POINT",
-            "input_switch_delay": 1.0,
+            "filter_mode": "MEDIUM",
+            "filter_restart": "MEDIUM",
+            "hires_enabled": True,
+            "range_mode": "AUTO",
+            "input_switch_delay": 30.0,
         })
         self.assertEqual(
             _5790_profile_settings({"f5790_input_switch_settling_time": 0})[
@@ -410,6 +410,7 @@ class SequentialReaderAcquisitionTests(SimpleTestCase):
             consumer._reader_switch = None
             consumer._standard_reader_input = "INPUT1"
             consumer._test_reader_input = "INPUT2"
+            consumer.broadcast = AsyncMock()
             return await consumer._take_reader_pair(instrument, instrument)
 
         self.assertEqual(asyncio.run(exercise()), (1.0, 2.0))

@@ -1151,6 +1151,64 @@ class TestPointViewSet(viewsets.ModelViewSet):
             traceback.print_exc()
             return Response({"detail": f"An unexpected error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @action(detail=False, methods=['post'], url_path='actions/apply-reader-settings-to-all')
+    def apply_reader_settings_to_all(self, request, session_pk=None):
+        """Apply one reader profile to every existing point/direction.
+
+        Reader settings remain point-specific during ordinary saves. This
+        explicit action is the operator's opt-in shortcut and is deliberately
+        restricted to the selected reader family's fields server-side.
+        """
+        reader_type = str(request.data.get('reader_type') or '').strip().lower()
+        settings_data = request.data.get('settings') or {}
+        allowed_by_reader = {
+            '8508': {
+                'input_switch_settling_time',
+                'f8508_dc_filter_enabled',
+                'f8508_dc_resolution',
+                'f8508_dc_fast_enabled',
+                'f8508_ac_filter_hz',
+                'f8508_ac_resolution',
+                'f8508_ac_transfer_enabled',
+                'f8508_ac_dc_coupled',
+            },
+            '5790': {
+                'f5790_filter_mode',
+                'f5790_filter_restart',
+                'f5790_hires_enabled',
+                'f5790_range_mode',
+                'f5790_input_switch_settling_time',
+            },
+        }
+        allowed_fields = allowed_by_reader.get(reader_type)
+        if allowed_fields is None:
+            return Response(
+                {'detail': "reader_type must be '8508' or '5790'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        defaults = {
+            key: value for key, value in settings_data.items()
+            if key in allowed_fields
+        }
+        if not defaults:
+            return Response(
+                {'detail': 'No valid reader settings were supplied.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        test_point_set = get_object_or_404(TestPointSet, session_id=session_pk)
+        points = list(test_point_set.points.all())
+        with transaction.atomic():
+            for point in points:
+                CalibrationSettings.objects.update_or_create(
+                    test_point=point,
+                    defaults=defaults,
+                )
+        return Response({
+            'message': f'{reader_type.upper()} settings applied to all measurement points.',
+            'updated_points': len(points),
+        })
+
     @action(detail=False, methods=['post'], url_path='actions/update-order')
     def update_order(self, request, session_pk=None):
         """

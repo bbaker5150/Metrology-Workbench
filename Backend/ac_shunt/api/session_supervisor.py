@@ -301,11 +301,36 @@ class SessionSupervisor:
                 )
 
     async def stop_task(self) -> None:
-        """Explicit cancel path (user clicked "Stop Collection")."""
+        """Explicit stop path (user clicked ``Stop Collection``).
+
+        Cancellation is intentional here because it interrupts long settling
+        sleeps immediately.  The important safety guarantee is that this
+        method does not return until the run coroutine's ``finally`` block has
+        finished returning sources, amplifiers, and switches to standby.  The
+        former fire-and-forget cancellation let the UI report "stopped" while
+        hardware cleanup was still in flight.
+        """
         self.stop_event.set()
+        # Release operator gates so a task cannot remain parked in a prompt
+        # while Stop is trying to tear the bench down.
+        self.confirmation_status = 'cancelled'
+        self.confirmation_event.set()
+        self.flip_resume_event.set()
         task = self.task
         if task and not task.done():
             task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                # Expected: _run_wrapped has already executed the calibration
+                # coroutine's cleanup before propagating cancellation.
+                pass
+            except Exception:
+                # Cleanup errors are logged by the run wrapper.  Do not leave
+                # Stop wedged, but retain a traceback for bench diagnostics.
+                logger.exception(
+                    "[supervisor:%s] run raised while stopping", self.session_id
+                )
         if self._grace_task and not self._grace_task.done():
             self._grace_task.cancel()
             self._grace_task = None

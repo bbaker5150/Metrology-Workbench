@@ -186,17 +186,17 @@ def _shared_5790_reader_pair(std_reader, ti_reader):
 
 def _5790_profile_settings(measurement_params):
     params = measurement_params or {}
-    mode = str(params.get('f5790_filter_mode') or 'FAST').upper()
-    restart = str(params.get('f5790_filter_restart') or 'COARSE').upper()
-    range_mode = str(params.get('f5790_range_mode') or 'POINT').upper()
+    mode = str(params.get('f5790_filter_mode') or 'MEDIUM').upper()
+    restart = str(params.get('f5790_filter_restart') or 'MEDIUM').upper()
+    range_mode = str(params.get('f5790_range_mode') or 'AUTO').upper()
     switch_delay = params.get('f5790_input_switch_settling_time')
     if switch_delay is None:
-        switch_delay = 1.0
+        switch_delay = 30.0
     return {
-        'filter_mode': mode if mode in {'OFF', 'FAST', 'MEDIUM', 'SLOW'} else 'FAST',
-        'filter_restart': restart if restart in {'FINE', 'MEDIUM', 'COARSE'} else 'COARSE',
-        'hires_enabled': bool(params.get('f5790_hires_enabled', False)),
-        'range_mode': range_mode if range_mode in {'AUTO', 'POINT'} else 'POINT',
+        'filter_mode': mode if mode in {'OFF', 'FAST', 'MEDIUM', 'SLOW'} else 'MEDIUM',
+        'filter_restart': restart if restart in {'FINE', 'MEDIUM', 'COARSE'} else 'MEDIUM',
+        'hires_enabled': bool(params.get('f5790_hires_enabled', True)),
+        'range_mode': range_mode if range_mode in {'AUTO', 'POINT'} else 'AUTO',
         'input_switch_delay': max(
             0.0,
             min(300.0, float(switch_delay)),
@@ -798,6 +798,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
         if command == 'stop_collection':
             if self.supervisor is not None:
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'status_update',
+                    'message': 'Stopping calibration safely...',
+                }))
                 await self.supervisor.stop_task()
             await self.broadcast(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
             return
@@ -923,6 +927,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             'role': role,
             'source': source,
             'label': f"{role} reader switch",
+        }))
+
+    async def _announce_reader_acquisition(self, role, source='reader'):
+        """Keep the action bar explicit while a sequential reader is queried."""
+        await self.broadcast(text_data=json.dumps({
+            'type': 'reader_acquisition_update',
+            'role': role,
+            'source': source,
+            'label': f"Acquiring {role} reading",
         }))
 
     @staticmethod
@@ -1057,6 +1070,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         'Standard' if role == 'STD' else 'Test instrument',
                         '5790_input',
                     )
+                    if internal_delay <= 0:
+                        await self._announce_reader_acquisition(
+                            'Standard' if role == 'STD' else 'Test instrument',
+                            '5790_input',
+                        )
                     values[role] = await sync_to_async(
                         instrument.read_input,
                         thread_sensitive=True,
@@ -1098,6 +1116,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     'Standard' if role == 'STD' else 'Test instrument',
                     '5790_input',
                 )
+                if internal_delay <= 0:
+                    await self._announce_reader_acquisition(
+                        'Standard' if role == 'STD' else 'Test instrument',
+                        '5790_input',
+                    )
                 values[role] = await sync_to_async(
                     instrument.read_input,
                     thread_sensitive=True,
@@ -2396,6 +2419,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 # None creation protects downstream arrays from bloating with fake points
                 std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True} if std_reading_val is not None else None
                 ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
+                just_locked_initial_window = False
 
                 if stability_method == 'sliding_window':
                     if slide_search_window_before_next:
@@ -2413,11 +2437,23 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     # sequentially.
                     primary_candidates = stable_candidate_std if target_tvc in ['STD', 'BOTH'] else stable_candidate_ti
 
-                    def current_role_metrics():
-                        std_window = stable_candidate_std[-window_size:]
-                        ti_window = stable_candidate_ti[-window_size:]
-                        std_ppm = calc_ppm(std_window) if len(std_window) >= 2 else None
-                        ti_ppm = calc_ppm(ti_window) if len(ti_window) >= 2 else None
+                    def current_role_metrics(*, accepted_iteration=False):
+                        # During the initial gate, only the candidate window is
+                        # eligible. Once it passes, the operator-facing metric
+                        # is the standard deviation of every accepted reading
+                        # in this iteration, not merely the last W samples.
+                        std_points = (
+                            final_std_readings
+                            if accepted_iteration and final_std_readings
+                            else stable_candidate_std[-window_size:]
+                        )
+                        ti_points = (
+                            final_ti_readings
+                            if accepted_iteration and final_ti_readings
+                            else stable_candidate_ti[-window_size:]
+                        )
+                        std_ppm = calc_ppm(std_points) if len(std_points) >= 2 else None
+                        ti_ppm = calc_ppm(ti_points) if len(ti_points) >= 2 else None
                         if target_tvc == 'STD':
                             controlling_ppm = std_ppm
                         elif target_tvc == 'TI':
@@ -2468,7 +2504,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             stable_candidate_std.pop(0)
                         if len(stable_candidate_ti) > window_size:
                             stable_candidate_ti.pop(0)
-                        std_ppm, ti_ppm, current_ppm = current_role_metrics()
+                        std_ppm, ti_ppm, current_ppm = current_role_metrics(
+                            accepted_iteration=True,
+                        )
                         monitored_metrics = []
                         if target_tvc in ['STD', 'BOTH'] and std_ppm is not None:
                             monitored_metrics.append(std_ppm)
@@ -2523,6 +2561,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         if not initial_stability_achieved:
                             if is_currently_stable:
                                 initial_stability_achieved = True
+                                just_locked_initial_window = True
                                 for candidate in stable_candidate_std:
                                     candidate['is_stable'] = True
                                 for candidate in stable_candidate_ti:
@@ -2555,6 +2594,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             if std_point: final_std_readings.append(std_point)
                             if ti_point: final_ti_readings.append(ti_point)
 
+                        # The stability decision above intentionally uses the
+                        # gate window. The displayed statistic switches to the
+                        # accepted iteration immediately after lock/promotion.
+                        if initial_stability_achieved:
+                            std_ppm, ti_ppm, current_ppm = current_role_metrics(
+                                accepted_iteration=True,
+                            )
+
                         # --- NOW SEND UPDATES WITH THE ACCURATE METRICS ---
                         await self.broadcast(text_data=json.dumps(
                             stability_payload(
@@ -2567,7 +2614,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                                     if initial_stability_achieved
                                     else 'searching'
                                 ),
-                                window_count=min(len(primary_candidates), window_size),
+                                window_count=(
+                                    get_target_length()
+                                    if initial_stability_achieved
+                                    else min(len(primary_candidates), window_size)
+                                ),
                             )
                         ))
                         
@@ -2622,7 +2673,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 search_window_snapshot = None
                 if (
                     stability_method == 'sliding_window'
-                    and not initial_stability_achieved
+                    and (
+                        not initial_stability_achieved
+                        or just_locked_initial_window
+                    )
                 ):
                     search_window_snapshot = {
                         'std': list(stable_candidate_std),

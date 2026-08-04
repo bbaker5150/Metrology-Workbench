@@ -60,10 +60,10 @@ const ReaderSettingTooltip = ({ children }) => (
   </span>
 );
 
-const calculateWindowPpm = (readings, windowSize) => {
+const calculateIterationPpm = (readings) => {
   if (!Array.isArray(readings) || readings.length < 2) return null;
   const values = readings
-    .slice(-Math.max(2, Number(windowSize) || 30))
+    .filter((point) => point?.is_stable !== false)
     .map((point) => Number(point?.y))
     .filter(Number.isFinite);
   if (values.length < 2) return null;
@@ -372,11 +372,11 @@ const DEFAULT_CALIBRATION_SETTINGS = {
   settling_time: 45,
   input_switch_settling_time: 5,
   ...get8508SmartDefaults(100),
-  f5790_filter_mode: "FAST",
-  f5790_filter_restart: "COARSE",
-  f5790_hires_enabled: false,
-  f5790_range_mode: "POINT",
-  f5790_input_switch_settling_time: 1,
+  f5790_filter_mode: "MEDIUM",
+  f5790_filter_restart: "MEDIUM",
+  f5790_hires_enabled: true,
+  f5790_range_mode: "AUTO",
+  f5790_input_switch_settling_time: 30,
   nplc: 100,
   stability_check_method: 'sliding_window',
   stability_window: 6,
@@ -516,11 +516,11 @@ function Calibration({
     settling_time: 120,
     input_switch_settling_time: 5,
     ...get8508SmartDefaults(100),
-    f5790_filter_mode: "FAST",
-    f5790_filter_restart: "COARSE",
-    f5790_hires_enabled: false,
-    f5790_range_mode: "POINT",
-    f5790_input_switch_settling_time: 1,
+    f5790_filter_mode: "MEDIUM",
+    f5790_filter_restart: "MEDIUM",
+    f5790_hires_enabled: true,
+    f5790_range_mode: "AUTO",
+    f5790_input_switch_settling_time: 30,
     nplc: 20,
     stability_check_method: 'sliding_window',
     stability_window: 30,
@@ -655,30 +655,26 @@ function Calibration({
 
   const liveStdPpm = useMemo(() => {
     if (!isCollecting || !activeCollectionDetails?.stage) return null;
-    return calculateWindowPpm(
-      activeCycleReadings(liveReadings[activeCollectionDetails.stage]),
-      calibrationSettings.stability_window,
+    return calculateIterationPpm(
+      activeCycleReadings(liveReadings[activeCollectionDetails.stage])
     );
   }, [
     liveReadings,
     isCollecting,
     activeCollectionDetails?.stage,
     activeCycleReadings,
-    calibrationSettings.stability_window,
   ]);
 
   const liveTiPpm = useMemo(() => {
     if (!isCollecting || !activeCollectionDetails?.stage) return null;
-    return calculateWindowPpm(
-      activeCycleReadings(tiLiveReadings[activeCollectionDetails.stage]),
-      calibrationSettings.stability_window,
+    return calculateIterationPpm(
+      activeCycleReadings(tiLiveReadings[activeCollectionDetails.stage])
     );
   }, [
     tiLiveReadings,
     isCollecting,
     activeCollectionDetails?.stage,
     activeCycleReadings,
-    calibrationSettings.stability_window,
   ]);
 
   const latestStdReading = useMemo(() => {
@@ -1496,10 +1492,10 @@ function Calibration({
       f8508_ac_resolution: Number(settings.f8508_ac_resolution) || 6,
       f8508_ac_transfer_enabled: settings.f8508_ac_transfer_enabled !== false,
       f8508_ac_dc_coupled: Boolean(settings.f8508_ac_dc_coupled),
-      f5790_filter_mode: settings.f5790_filter_mode || "FAST",
-      f5790_filter_restart: settings.f5790_filter_restart || "COARSE",
+      f5790_filter_mode: settings.f5790_filter_mode || "MEDIUM",
+      f5790_filter_restart: settings.f5790_filter_restart || "MEDIUM",
       f5790_hires_enabled: Boolean(settings.f5790_hires_enabled),
-      f5790_range_mode: settings.f5790_range_mode || "POINT",
+      f5790_range_mode: settings.f5790_range_mode || "AUTO",
       f5790_input_switch_settling_time: Number(settings.f5790_input_switch_settling_time) || 0,
       ignore_instability_after_lock: settings.ignore_instability_after_lock ?? DEFAULT_CALIBRATION_SETTINGS.ignore_instability_after_lock,
       enable_low_frequency_settings: lowFrequencyEnabled,
@@ -1530,10 +1526,10 @@ function Calibration({
       f8508_ac_resolution: Number(settings.f8508_ac_resolution) || 6,
       f8508_ac_transfer_enabled: settings.f8508_ac_transfer_enabled !== false,
       f8508_ac_dc_coupled: Boolean(settings.f8508_ac_dc_coupled),
-      f5790_filter_mode: settings.f5790_filter_mode || "FAST",
-      f5790_filter_restart: settings.f5790_filter_restart || "COARSE",
+      f5790_filter_mode: settings.f5790_filter_mode || "MEDIUM",
+      f5790_filter_restart: settings.f5790_filter_restart || "MEDIUM",
       f5790_hires_enabled: Boolean(settings.f5790_hires_enabled),
-      f5790_range_mode: settings.f5790_range_mode || "POINT",
+      f5790_range_mode: settings.f5790_range_mode || "AUTO",
       f5790_input_switch_settling_time: Number(settings.f5790_input_switch_settling_time) || 0,
       nplc: parseFloat(settings.nplc) || DEFAULT_CALIBRATION_SETTINGS.nplc,
       stability_check_method: settings.stability_check_method || DEFAULT_CALIBRATION_SETTINGS.stability_check_method,
@@ -2720,6 +2716,41 @@ function Calibration({
     }
   };
 
+  const handleReaderSettingsSaveAll = (readerType) => {
+    if (isRemoteViewer || !selectedSessionId) return;
+    const is5790 = readerType === "5790";
+    const label = is5790 ? "5790A/B" : "8508A";
+    const settings = is5790
+      ? select5790PointSettings(buildSettingsPayload(calibrationSettings))
+      : select8508PointSettings(buildSettingsPayload(calibrationSettings));
+
+    const confirmAction = async () => {
+      try {
+        const response = await axios.post(
+          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/actions/apply-reader-settings-to-all/`,
+          { reader_type: readerType, settings }
+        );
+        showNotification(
+          `${label} settings applied to ${response.data.updated_points} measurement points.`,
+          "success"
+        );
+        onDataUpdate();
+      } catch (error) {
+        showNotification(`Error applying ${label} settings to all points.`, "error");
+      } finally {
+        setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
+      }
+    };
+
+    setConfirmationModal({
+      isOpen: true,
+      title: `Apply ${label} Settings to All Points?`,
+      message: `This replaces the ${label} reader profile on every existing Forward and Reverse measurement point in this session.`,
+      onConfirm: confirmAction,
+      onCancel: () => setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
+    });
+  };
+
   const pointForDirection = focusedTP
     ? activeDirection === "Forward"
       ? focusedTP.forward
@@ -2849,10 +2880,8 @@ function Calibration({
     ? (liveReadings[activeCollectionDetails.stage]?.length || 0)
     : 0;
 
-  const activeWindowCount = Math.min(
-    slidingWindowStatus?.window_count ?? currentLiveReadingCount,
-    slidingWindowStatus?.window_size ?? calibrationSettings.stability_window
-  );
+  const activeWindowCount =
+    slidingWindowStatus?.window_count ?? currentLiveReadingCount;
 
   // Cleanly capture retry metrics from context state
   const instabilityCount = slidingWindowStatus?.instability_events ?? 0;
@@ -2866,7 +2895,7 @@ function Calibration({
   const displayedWindowSize =
     slidingWindowStatus?.window_size ?? calibrationSettings.stability_window;
   if (windowPhase === "monitoring") {
-    windowPhaseText = `Monitoring (Last ${activeWindowCount})`;
+    windowPhaseText = `Iteration (${activeWindowCount} accepted)`;
   } else if (windowPhase === "searching") {
     windowPhaseText = `Searching (Sliding ${displayedWindowSize})`;
   } else if (windowPhase === "filling") {
@@ -3751,6 +3780,20 @@ function Calibration({
                                 <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
                                   <button
                                     type="button"
+                                    className="reader-profile-point-save"
+                                    onClick={() => handleReaderSettingsSaveAll("8508")}
+                                    disabled={isRemoteViewer}
+                                    aria-label="Apply 8508A settings to all measurement points"
+                                  >
+                                    <LuSaveAll aria-hidden="true" />
+                                  </button>
+                                  <ReaderSettingTooltip>
+                                    Apply these 8508A settings to every measurement point.
+                                  </ReaderSettingTooltip>
+                                </span>
+                                <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
+                                  <button
+                                    type="button"
                                     className={`reader-profile-point-save${is8508SettingsSaved ? " is-saved" : ""}`}
                                     onClick={handle8508SettingsSave}
                                     disabled={isRemoteViewer}
@@ -3784,7 +3827,7 @@ function Calibration({
                                           Selects the 5790 digital filter. Fast is the responsive default; Medium and Slow improve stability but can substantially increase measurement time.
                                         </ReaderSettingTooltip>
                                       </label>
-                                      <select id="f5790_filter_mode" value={calibrationSettings.f5790_filter_mode || "FAST"}
+                                      <select id="f5790_filter_mode" value={calibrationSettings.f5790_filter_mode || "MEDIUM"}
                                         onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_filter_mode: e.target.value }))}
                                         disabled={isRemoteViewer}>
                                         {['OFF', 'FAST', 'MEDIUM', 'SLOW'].map((value) => <option key={value} value={value}>{value}</option>)}
@@ -3796,7 +3839,7 @@ function Calibration({
                                           Controls how aggressively the filter restarts after an input change. Coarse is the fastest default; Fine retains the most filtering continuity.
                                         </ReaderSettingTooltip>
                                       </label>
-                                      <select id="f5790_filter_restart" value={calibrationSettings.f5790_filter_restart || "COARSE"}
+                                      <select id="f5790_filter_restart" value={calibrationSettings.f5790_filter_restart || "MEDIUM"}
                                         onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_filter_restart: e.target.value }))}
                                         disabled={isRemoteViewer || calibrationSettings.f5790_filter_mode === 'OFF'}>
                                         {['FINE', 'MEDIUM', 'COARSE'].map((value) => <option key={value} value={value}>{value}</option>)}
@@ -3815,7 +3858,7 @@ function Calibration({
                                           Test point selects the range from the commanded source value. Auto lets the 5790 select its own range.
                                         </ReaderSettingTooltip>
                                       </label>
-                                      <select id="f5790_range_mode" value={calibrationSettings.f5790_range_mode || "POINT"}
+                                      <select id="f5790_range_mode" value={calibrationSettings.f5790_range_mode || "AUTO"}
                                         onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_range_mode: e.target.value }))}
                                         disabled={isRemoteViewer}>
                                         <option value="POINT">Test point</option>
@@ -3844,12 +3887,20 @@ function Calibration({
                                     </ReaderSettingTooltip>
                                   </label>
                                   <input type="number" id="f5790_input_switch_settling_time" min="0" max="300" step="0.1"
-                                    value={calibrationSettings.f5790_input_switch_settling_time ?? 1}
+                                    value={calibrationSettings.f5790_input_switch_settling_time ?? 30}
                                     onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_input_switch_settling_time: e.target.value }))}
                                     disabled={isRemoteViewer} />
                                 </div>
                               </div>
                               <div className="reader-profile-point-actions">
+                                <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
+                                  <button type="button" className="reader-profile-point-save"
+                                    onClick={() => handleReaderSettingsSaveAll("5790")} disabled={isRemoteViewer}
+                                    aria-label="Apply 5790 settings to all measurement points">
+                                    <LuSaveAll aria-hidden="true" />
+                                  </button>
+                                  <ReaderSettingTooltip>Apply these 5790A/B settings to every measurement point.</ReaderSettingTooltip>
+                                </span>
                                 <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
                                   <button type="button" className={`reader-profile-point-save${is5790SettingsSaved ? " is-saved" : ""}`}
                                     onClick={handle5790SettingsSave} disabled={isRemoteViewer} aria-label="Save 5790 settings for this test point">

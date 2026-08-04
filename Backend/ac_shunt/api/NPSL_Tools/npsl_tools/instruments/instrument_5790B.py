@@ -63,7 +63,7 @@ class Instrument5790B(FlukeInstrument):
         
         self.set_auto_range()
         self.set_input("INPUT2")
-        self.input_switch_delay = 1.0
+        self.input_switch_delay = 30.0
 
     def read_instrument(self):
         """
@@ -174,13 +174,13 @@ class Instrument5790B(FlukeInstrument):
     def configure_acquisition(
         self,
         *,
-        filter_mode="FAST",
-        filter_restart="COARSE",
-        hires=False,
+        filter_mode="MEDIUM",
+        filter_restart="MEDIUM",
+        hires=True,
         hires_enabled=None,
-        range_mode="POINT",
+        range_mode="AUTO",
         point_value=None,
-        input_switch_delay=1.0,
+        input_switch_delay=30.0,
     ):
         """Apply the operator-selected 5790A/B reading profile.
 
@@ -189,9 +189,9 @@ class Instrument5790B(FlukeInstrument):
         enabled.  Slow digital filtering can take more than 60 seconds below
         200 Hz, so the VISA timeout is raised to avoid a false timeout.
         """
-        mode = str(filter_mode or "FAST").strip().upper()
-        restart = str(filter_restart or "COARSE").strip().upper()
-        range_mode = str(range_mode or "POINT").strip().upper()
+        mode = str(filter_mode or "MEDIUM").strip().upper()
+        restart = str(filter_restart or "MEDIUM").strip().upper()
+        range_mode = str(range_mode or "AUTO").strip().upper()
         if mode not in self.VALID_FILTER_MODES:
             raise ValueError("5790 filter mode must be OFF, FAST, MEDIUM, or SLOW")
         if restart not in self.VALID_FILTER_RESTARTS:

@@ -106,7 +106,9 @@ const CalibrationStatusBar = ({
       ? "Stabilizing"
       : "Collecting";
 
-  const stageValueText = timerState.isActive ? `${countdown}s` : getStageName();
+  const stageValueText = timerState.isActive
+    ? (timerState.isIndeterminate ? "In progress" : `${countdown}s`)
+    : getStageName();
 
   // Unified detail text for all collection modes
   const stageDetailText = timerState.isActive

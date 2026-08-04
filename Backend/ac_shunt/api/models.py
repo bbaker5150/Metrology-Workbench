@@ -253,12 +253,12 @@ class CalibrationSettings(models.Model):
     f8508_ac_resolution = models.PositiveSmallIntegerField(default=6)
     f8508_ac_transfer_enabled = models.BooleanField(default=True)
     f8508_ac_dc_coupled = models.BooleanField(default=False)
-    f5790_filter_mode = models.CharField(max_length=10, default="FAST")
-    f5790_filter_restart = models.CharField(max_length=10, default="COARSE")
-    f5790_hires_enabled = models.BooleanField(default=False)
-    f5790_range_mode = models.CharField(max_length=8, default="POINT")
+    f5790_filter_mode = models.CharField(max_length=10, default="MEDIUM")
+    f5790_filter_restart = models.CharField(max_length=10, default="MEDIUM")
+    f5790_hires_enabled = models.BooleanField(default=True)
+    f5790_range_mode = models.CharField(max_length=8, default="AUTO")
     f5790_input_switch_settling_time = models.FloatField(
-        default=1.0,
+        default=30.0,
         help_text="Delay after switching INPUT1/INPUT2 on a shared 5790A/B.",
     )
     stability_window = models.IntegerField(default=30, null=True, blank=True)

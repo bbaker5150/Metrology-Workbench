@@ -948,6 +948,7 @@ class SupervisorLifecycleTests(_SupervisorAsyncTestCase):
 
     async def test_stop_task_sets_stop_event_and_cancels(self):
         observed_stop = []
+        cleanup_complete = asyncio.Event()
 
         async def work():
             try:
@@ -957,6 +958,8 @@ class SupervisorLifecycleTests(_SupervisorAsyncTestCase):
             except asyncio.CancelledError:
                 observed_stop.append('cancelled')
                 raise
+            finally:
+                cleanup_complete.set()
 
         await self.sup.start_task('cancellable', work())
         # Give it one scheduler tick so the loop is actually running.
@@ -965,6 +968,7 @@ class SupervisorLifecycleTests(_SupervisorAsyncTestCase):
         await asyncio.sleep(0.01)
 
         self.assertTrue(self.sup.stop_event.is_set())
+        self.assertTrue(cleanup_complete.is_set())
         # Either path is acceptable — the important invariant is that
         # stop_task completed and the task no longer runs.
         self.assertTrue(observed_stop)

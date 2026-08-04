@@ -111,10 +111,11 @@ function LiveStabilityTracker({
         const calculated = {};
         currentReadingTypes.forEach(({ key }) => {
             const stageReadings = cycleReadings[key] || [];
-            const displayedReadings = isCollecting && activeStage === key
-                ? stageReadings.slice(-Math.max(2, Number(stabilityWindow) || 30))
-                : stageReadings;
-            calculated[key] = calculateStats(displayedReadings);
+            // The backend marks rejected initial-search samples unstable.
+            // calculateStats already excludes those points, so retain the
+            // complete accepted iteration instead of re-slicing it to the
+            // stability-window width.
+            calculated[key] = calculateStats(stageReadings);
         });
         return calculated;
     }, [

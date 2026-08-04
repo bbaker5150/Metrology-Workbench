@@ -868,6 +868,14 @@ export const InstrumentContextProvider = ({ children }) => {
           targetTime: Date.now() + duration * 1000,
           label: data.label || "Reader switch",
         });
+      } else if (data.type === "reader_acquisition_update") {
+        setIsCollecting(true);
+        setTimerState({
+          isActive: true,
+          isIndeterminate: true,
+          duration: 0,
+          label: data.label || "Acquiring reader",
+        });
       } else if (data.type === "batch_progress_update") {
         const { test_point, current, total } = data;
         if (current > 1) clearLiveReadings();
