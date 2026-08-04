@@ -2212,7 +2212,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             stability_method = measurement_params.get('stability_check_method', 'sliding_window')
             max_retries = measurement_params.get('max_attempts', 50)
             instability_events = 0
-            window_size = measurement_params.get('window', 30)
+            # A stability window cannot require more readings than the stage
+            # itself will retain.  Capping it here prevents a configuration
+            # such as N=6/window=10 from searching forever.
+            window_size = max(
+                2,
+                min(int(measurement_params.get('window', 30)), int(num_samples)),
+            )
             threshold_ppm = measurement_params.get('threshold_ppm', 10)
 
             # Temporary buffers for search phase
@@ -2243,24 +2249,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             # -------------------------------
 
             initial_stability_achieved = skip_initial_check
-            shared_8508_pair = _shared_8508_reader_pair(
-                std_reader_instrument,
-                ti_reader_instrument,
-            )
-            shared_5790_pair = _shared_5790_reader_pair(
-                std_reader_instrument,
-                ti_reader_instrument,
-            )
-            shared_serial_pair = shared_8508_pair or shared_5790_pair
-            # When both logical roles share one physical reader, use one role
-            # to establish the initial lock. The complete pair is collected
-            # only after lock, preserving equal Standard/TI sample counts and
-            # preventing sequential search samples from temporarily bloating
-            # one live chart.
-            stability_target_tvc = (
-                'TI' if target_tvc == 'TI' else 'STD'
-            ) if shared_serial_pair else target_tvc
-
             def calc_ppm(points):
                 """Welford's Algorithm for high-precision variance calculation."""
                 if len(points) < 2: return float('inf')
@@ -2293,19 +2281,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     return False
 
                 # 2. Take Readings (Targeted Instrument Querying)
-                reader_target = (
-                    stability_target_tvc
-                    if (
-                        shared_serial_pair
-                        and stability_method == 'sliding_window'
-                        and not initial_stability_achieved
-                    )
-                    else target_tvc
-                )
                 std_reading_val, ti_reading_val = await self._take_reader_pair(
                     std_reader_instrument,
                     ti_reader_instrument,
-                    reader_target,
+                    target_tvc,
                     reverse_order=bool(pair_index % 2),
                 )
                 pair_index += 1
@@ -2320,8 +2299,44 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     if std_point: stable_candidate_std.append(std_point)
                     if ti_point: stable_candidate_ti.append(ti_point)
 
-                    # Route the window length checks and math to whichever array is actively growing
+                    # Route the progress check to whichever logical role is
+                    # active.  BOTH readers always advance as one pair, even
+                    # when a single physical 5790/8508 must acquire them
+                    # sequentially.
                     primary_candidates = stable_candidate_std if target_tvc in ['STD', 'BOTH'] else stable_candidate_ti
+
+                    def current_role_metrics():
+                        std_window = stable_candidate_std[-window_size:]
+                        ti_window = stable_candidate_ti[-window_size:]
+                        std_ppm = calc_ppm(std_window) if len(std_window) >= 2 else None
+                        ti_ppm = calc_ppm(ti_window) if len(ti_window) >= 2 else None
+                        if target_tvc == 'STD':
+                            controlling_ppm = std_ppm
+                        elif target_tvc == 'TI':
+                            controlling_ppm = ti_ppm
+                        else:
+                            finite_metrics = [
+                                metric for metric in (std_ppm, ti_ppm)
+                                if metric is not None and math.isfinite(metric)
+                            ]
+                            # BOTH roles must pass.  The maximum is therefore
+                            # the conservative scalar retained for older
+                            # clients while the role-specific values below
+                            # keep the live UI unambiguous.
+                            controlling_ppm = max(finite_metrics) if len(finite_metrics) == 2 else None
+                        return std_ppm, ti_ppm, controlling_ppm
+
+                    def stability_payload(std_ppm, ti_ppm, controlling_ppm, is_stable):
+                        return {
+                            'type': 'sliding_window_update',
+                            'ppm': controlling_ppm,
+                            'stdev_ppm': controlling_ppm,
+                            'std_stdev_ppm': std_ppm,
+                            'ti_stdev_ppm': ti_ppm,
+                            'is_stable': is_stable,
+                            'instability_events': instability_events,
+                            'max_retries': max_retries,
+                        }
 
                     if skip_initial_check:
                         # Bypass-mode follow-up cycles: no search phase, no
@@ -2334,18 +2349,27 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             stable_candidate_std.pop(0)
                         if len(stable_candidate_ti) > window_size:
                             stable_candidate_ti.pop(0)
-                        current_ppm = (
-                            calc_ppm(primary_candidates[-window_size:])
-                            if len(primary_candidates) >= 2 else None
+                        std_ppm, ti_ppm, current_ppm = current_role_metrics()
+                        monitored_metrics = []
+                        if target_tvc in ['STD', 'BOTH'] and std_ppm is not None:
+                            monitored_metrics.append(std_ppm)
+                        if target_tvc in ['TI', 'BOTH'] and ti_ppm is not None:
+                            monitored_metrics.append(ti_ppm)
+                        is_currently_stable = (
+                            all(
+                                math.isfinite(metric) and metric < threshold_ppm
+                                for metric in monitored_metrics
+                            )
+                            if monitored_metrics else True
                         )
-                        await self.broadcast(text_data=json.dumps({
-                            'type': 'sliding_window_update',
-                            'ppm': current_ppm,
-                            'stdev_ppm': current_ppm,
-                            'is_stable': True,
-                            'instability_events': 0,
-                            'max_retries': max_retries,
-                        }))
+                        await self.broadcast(text_data=json.dumps(
+                            stability_payload(
+                                std_ppm,
+                                ti_ppm,
+                                current_ppm,
+                                is_currently_stable,
+                            )
+                        ))
                         # Keep the status bar informative — show the rolling
                         # PPM so an operator can still eyeball stability even
                         # though we're not gating collection on it.
@@ -2361,45 +2385,31 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         }))
                     elif len(primary_candidates) >= window_size:
                         # Analyze current window
-                        current_window = primary_candidates[-window_size:]
-                        current_ppm = calc_ppm(current_window)
-                        is_currently_stable = current_ppm < threshold_ppm
+                        std_ppm, ti_ppm, current_ppm = current_role_metrics()
+                        required_metrics = []
+                        if target_tvc in ['STD', 'BOTH']:
+                            required_metrics.append(std_ppm)
+                        if target_tvc in ['TI', 'BOTH']:
+                            required_metrics.append(ti_ppm)
+                        is_currently_stable = bool(required_metrics) and all(
+                            metric is not None
+                            and math.isfinite(metric)
+                            and metric < threshold_ppm
+                            for metric in required_metrics
+                        )
 
                         # --- EVALUATE STABILITY & INCREMENT BEFORE SENDING ---
                         if not initial_stability_achieved:
                             if is_currently_stable:
                                 initial_stability_achieved = True
-                                if shared_serial_pair and target_tvc == 'BOTH':
-                                    # Search samples came from only one logical role
-                                    # and therefore are not a valid pair. Keep
-                                    # the primary rolling window for monitoring,
-                                    # discard any secondary search buffer, and
-                                    # begin paired collection on the next pass.
-                                    if stability_target_tvc == 'STD':
-                                        stable_candidate_ti.clear()
-                                    else:
-                                        stable_candidate_std.clear()
-                                    self._buffer_set_stage(
-                                        reading_type_base,
-                                        tp_id=tp_id,
-                                        total=num_samples,
-                                    )
-                                    await self.broadcast(text_data=json.dumps({
-                                        'type': 'paired_collection_reset',
-                                        'stage': reading_type_base,
-                                        'total': num_samples,
-                                    }))
-                                    await self.broadcast(text_data=json.dumps({
-                                        'type': 'status_update',
-                                        'message': "Initial stability achieved; beginning paired reader collection."
-                                    }))
-                                    # Do not publish the final unpaired search
-                                    # sample after resetting the live series.
-                                    std_point = None
-                                    ti_point = None
-                                else:
-                                    if std_point: final_std_readings.extend(stable_candidate_std)
-                                    if ti_point: final_ti_readings.extend(stable_candidate_ti)
+                                # The search window is already a valid paired
+                                # acquisition. Promote it directly into the
+                                # saved sample set instead of clearing the
+                                # charts and collecting the same N again.
+                                if std_point:
+                                    final_std_readings.extend(stable_candidate_std)
+                                if ti_point:
+                                    final_ti_readings.extend(stable_candidate_ti)
                             else:
                                 # SEARCH PHASE: Unstable. Increment retry count and slide window
                                 instability_events += 1
@@ -2413,14 +2423,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             if ti_point: final_ti_readings.append(ti_point)
 
                         # --- NOW SEND UPDATES WITH THE ACCURATE METRICS ---
-                        await self.broadcast(text_data=json.dumps({
-                            'type': 'sliding_window_update',
-                            'ppm': current_ppm,
-                            'stdev_ppm': current_ppm,
-                            'is_stable': is_currently_stable,
-                            'instability_events': instability_events,
-                            'max_retries': max_retries
-                        }))
+                        await self.broadcast(text_data=json.dumps(
+                            stability_payload(
+                                std_ppm,
+                                ti_ppm,
+                                current_ppm,
+                                is_currently_stable,
+                            )
+                        ))
                         
                         await self.broadcast(text_data=json.dumps({
                             'type': 'status_update',
@@ -2438,17 +2448,23 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             'message': f"Filling initial window... [{len(primary_candidates)}/{window_size}]"
                         }))
                         
-                        temp_ppm = calc_ppm(primary_candidates) if len(primary_candidates) > 1 else None
-                        temp_is_stable = (temp_ppm < threshold_ppm) if temp_ppm is not None else True
-                        
-                        await self.broadcast(text_data=json.dumps({
-                            'type': 'sliding_window_update',
-                            'ppm': temp_ppm,
-                            'stdev_ppm': temp_ppm,
-                            'is_stable': temp_is_stable,
-                            'instability_events': instability_events,
-                            'max_retries': max_retries
-                        }))
+                        std_ppm, ti_ppm, temp_ppm = current_role_metrics()
+                        available_metrics = [
+                            metric for metric in (std_ppm, ti_ppm)
+                            if metric is not None and math.isfinite(metric)
+                        ]
+                        temp_is_stable = bool(available_metrics) and all(
+                            metric < threshold_ppm for metric in available_metrics
+                        )
+
+                        await self.broadcast(text_data=json.dumps(
+                            stability_payload(
+                                std_ppm,
+                                ti_ppm,
+                                temp_ppm,
+                                temp_is_stable,
+                            )
+                        ))
                 else:
                     if std_point: final_std_readings.append(std_point)
                     if ti_point: final_ti_readings.append(ti_point)

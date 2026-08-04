@@ -1,5 +1,6 @@
 import asyncio
-from unittest.mock import Mock
+import json
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.test import SimpleTestCase
 
@@ -95,6 +96,90 @@ class Instrument5790ACompatibilityTests(SimpleTestCase):
             ],
             0.0,
         )
+
+
+class SequentialReaderStabilityTests(SimpleTestCase):
+    def test_initial_paired_window_is_retained_without_chart_reset(self):
+        class Source:
+            def set_output(self, voltage, frequency):
+                self.last_output = (voltage, frequency)
+
+        async def run_measurement():
+            consumer = CalibrationConsumer()
+            consumer.stop_event.clear()
+            consumer.broadcast = AsyncMock()
+            consumer.save_readings_to_db = AsyncMock()
+            consumer._buffer_append_sample = Mock()
+            consumer._take_reader_pair = AsyncMock(side_effect=[
+                (1.000000, 2.000000),
+                (1.000001, 2.000002),
+                (0.999999, 1.999998),
+                (1.000000, 2.000000),
+                (1.000001, 2.000002),
+                (0.999999, 1.999998),
+            ])
+
+            source = Source()
+            shared_reader = object()
+            with patch(
+                "api.consumers.asyncio.sleep",
+                new=AsyncMock(),
+            ):
+                success = await consumer._perform_single_measurement(
+                    "ac_open",
+                    6,
+                    {
+                        "current": 0.1,
+                        "frequency": 60,
+                        "target_tvc": "BOTH",
+                    },
+                    False,
+                    1.0,
+                    source,
+                    shared_reader,
+                    shared_reader,
+                    settling_time=0,
+                    measurement_params={
+                        "stability_check_method": "sliding_window",
+                        "window": 3,
+                        "threshold_ppm": 10,
+                        "max_attempts": 10,
+                    },
+                )
+
+            return consumer, success
+
+        consumer, success = asyncio.run(run_measurement())
+        self.assertTrue(success)
+        self.assertEqual(consumer._take_reader_pair.await_count, 6)
+        self.assertTrue(all(
+            call.args[2] == "BOTH"
+            for call in consumer._take_reader_pair.await_args_list
+        ))
+
+        saved = {
+            call.args[0]: call.args[1]
+            for call in consumer.save_readings_to_db.await_args_list
+        }
+        self.assertEqual(len(saved["std_ac_open"]), 6)
+        self.assertEqual(len(saved["ti_ac_open"]), 6)
+
+        messages = [
+            json.loads(call.kwargs["text_data"])
+            for call in consumer.broadcast.await_args_list
+        ]
+        self.assertNotIn("paired_collection_reset", {
+            message.get("type") for message in messages
+        })
+        stability_updates = [
+            message for message in messages
+            if message.get("type") == "sliding_window_update"
+        ]
+        self.assertTrue(any(
+            update.get("std_stdev_ppm") is not None
+            and update.get("ti_stdev_ppm") is not None
+            for update in stability_updates
+        ))
 
 
 class ReaderSwitchMappingTests(SimpleTestCase):

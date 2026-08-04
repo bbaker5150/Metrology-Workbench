@@ -821,6 +821,8 @@ export const InstrumentContextProvider = ({ children }) => {
             ? null
             : {
               ppm: data.stdev_ppm,
+              std_ppm: data.std_stdev_ppm ?? null,
+              ti_ppm: data.ti_stdev_ppm ?? null,
               is_stable: data.is_stable,
               instability_events: data.instability_events,
               max_retries: data.max_retries

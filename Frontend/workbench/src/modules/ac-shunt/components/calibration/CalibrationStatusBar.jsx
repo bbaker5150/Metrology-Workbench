@@ -29,6 +29,8 @@ const CalibrationStatusBar = ({
   latestTiReading,
   calibrationSettings,
   displayPpm,
+  displayStdPpm,
+  displayTiPpm,
   isStableNow,
   windowPhaseText,
   instabilityCount,
@@ -283,7 +285,18 @@ const CalibrationStatusBar = ({
                     className={`window-ppm-value ${isStableNow ? "status-good" : "status-bad"
                       }`}
                   >
-                    {displayPpm != null ? `${displayPpm.toFixed(2)} PPM` : "..."}
+                    {displayStdPpm != null || displayTiPpm != null
+                      ? [
+                        displayStdPpm != null
+                          ? `STD ${displayStdPpm.toFixed(2)}`
+                          : null,
+                        displayTiPpm != null
+                          ? `TI ${displayTiPpm.toFixed(2)}`
+                          : null,
+                      ].filter(Boolean).join(" · ") + " PPM"
+                      : displayPpm != null
+                        ? `${displayPpm.toFixed(2)} PPM`
+                        : "..."}
                   </span>
                   <span className="status-detail">
                     {`${windowPhaseText} | Retries: ${instabilityCount}/${maxRetries} | Thresh: ${calibrationSettings.stability_threshold_ppm} PPM`}

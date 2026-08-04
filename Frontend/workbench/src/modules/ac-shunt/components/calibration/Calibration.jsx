@@ -60,6 +60,25 @@ const ReaderSettingTooltip = ({ children }) => (
   </span>
 );
 
+const calculateWindowPpm = (readings, windowSize) => {
+  if (!Array.isArray(readings) || readings.length < 2) return null;
+  const values = readings
+    .slice(-Math.max(2, Number(windowSize) || 30))
+    .map((point) => Number(point?.y))
+    .filter(Number.isFinite);
+  if (values.length < 2) return null;
+
+  let mean = 0;
+  let m2 = 0;
+  values.forEach((value, index) => {
+    const delta = value - mean;
+    mean += delta / (index + 1);
+    m2 += delta * (value - mean);
+  });
+  if (Math.abs(mean) <= 1e-9) return 0;
+  return (Math.sqrt(m2 / (values.length - 1)) / Math.abs(mean)) * 1e6;
+};
+
 const CorrectionFactorsModal = ({
   isOpen,
   onClose,
@@ -625,32 +644,42 @@ function Calibration({
     showNotification,
   ]);
 
-  const livePpm = useMemo(() => {
-    if (!isCollecting || !activeCollectionDetails?.stage) return null;
-    const currentReadings = liveReadings[activeCollectionDetails.stage];
-    if (!currentReadings || currentReadings.length < 2) return null;
-
-    // 1. Enforce the sliding window
-    const windowSize = calibrationSettings.stability_window || 30;
-    const values = currentReadings.slice(-windowSize).map((p) => p.y);
-
-    if (values.length < 2) return null;
-
-    // 2. Use Welford's Algorithm for high-precision variance
-    let mean = 0;
-    let M2 = 0;
-    values.forEach((val, index) => {
-      const delta = val - mean;
-      mean += delta / (index + 1);
-      M2 += delta * (val - mean);
+  const activeCycleReadings = useCallback((stageReadings) => {
+    const cycle = activeCollectionDetails?.cycle_index;
+    if (cycle == null) return stageReadings || [];
+    return (stageReadings || []).filter((point) => {
+      const pointCycle = Number.isFinite(point?.cycle) ? Number(point.cycle) : 1;
+      return pointCycle === Number(cycle);
     });
+  }, [activeCollectionDetails?.cycle_index]);
 
-    const variance = M2 / (values.length - 1);
-    const stdDev = Math.sqrt(variance);
-    const ppm = (stdDev / Math.abs(mean)) * 1e6;
+  const liveStdPpm = useMemo(() => {
+    if (!isCollecting || !activeCollectionDetails?.stage) return null;
+    return calculateWindowPpm(
+      activeCycleReadings(liveReadings[activeCollectionDetails.stage]),
+      calibrationSettings.stability_window,
+    );
+  }, [
+    liveReadings,
+    isCollecting,
+    activeCollectionDetails?.stage,
+    activeCycleReadings,
+    calibrationSettings.stability_window,
+  ]);
 
-    return ppm;
-  }, [liveReadings, isCollecting, activeCollectionDetails, calibrationSettings.stability_window]);
+  const liveTiPpm = useMemo(() => {
+    if (!isCollecting || !activeCollectionDetails?.stage) return null;
+    return calculateWindowPpm(
+      activeCycleReadings(tiLiveReadings[activeCollectionDetails.stage]),
+      calibrationSettings.stability_window,
+    );
+  }, [
+    tiLiveReadings,
+    isCollecting,
+    activeCollectionDetails?.stage,
+    activeCycleReadings,
+    calibrationSettings.stability_window,
+  ]);
 
   const latestStdReading = useMemo(() => {
     if (!isCollecting || !activeCollectionDetails?.stage) return null;
@@ -2804,7 +2833,16 @@ function Calibration({
     handleCharacterizationRequest,
   ]);
 
-  const displayPpm = slidingWindowStatus?.ppm ?? livePpm;
+  // Prefer the chart's own active-cycle/window data.  The backend values are
+  // retained as a reconnect fallback, but must never let the status bar show
+  // a different statistic than the visible Standard/TI stability cards.
+  const displayStdPpm = liveStdPpm ?? slidingWindowStatus?.std_ppm;
+  const displayTiPpm = liveTiPpm ?? slidingWindowStatus?.ti_ppm;
+  const displayPpm = slidingWindowStatus?.ppm ?? (
+    [displayStdPpm, displayTiPpm].filter(Number.isFinite).length > 0
+      ? Math.max(...[displayStdPpm, displayTiPpm].filter(Number.isFinite))
+      : null
+  );
 
   // Derive the count directly from the live chart data
   const currentLiveReadingCount = isCollecting && activeCollectionDetails?.stage
@@ -2837,13 +2875,17 @@ function Calibration({
     if (slidingWindowStatus) {
       return slidingWindowStatus.is_stable;
     }
-    if (livePpm !== null) {
-      return livePpm < calibrationSettings.stability_threshold_ppm;
+    const liveMetrics = [liveStdPpm, liveTiPpm].filter(Number.isFinite);
+    if (liveMetrics.length > 0) {
+      return liveMetrics.every(
+        (ppm) => ppm < calibrationSettings.stability_threshold_ppm
+      );
     }
     return true;
   }, [
     slidingWindowStatus,
-    livePpm,
+    liveStdPpm,
+    liveTiPpm,
     calibrationSettings.stability_threshold_ppm,
   ]);
 
@@ -2993,6 +3035,8 @@ function Calibration({
               latestTiReading={latestTiReading}
               calibrationSettings={calibrationSettings}
               displayPpm={displayPpm}
+              displayStdPpm={displayStdPpm}
+              displayTiPpm={displayTiPpm}
               isStableNow={isStableNow}
               windowPhaseText={windowPhaseText}
               instabilityCount={instabilityCount}
@@ -4160,6 +4204,8 @@ function Calibration({
                                   }
                                   activeCycle={stdEffectiveCycle}
                                   activeChartView={activeChartView}
+                                  isCollecting={isCollecting && isCurrentTPActive}
+                                  stabilityWindow={calibrationSettings.stability_window}
                                 />
 
                               </div>
@@ -4197,6 +4243,8 @@ function Calibration({
                                   }
                                   activeCycle={tiEffectiveCycle}
                                   activeChartView={activeChartView}
+                                  isCollecting={isCollecting && isCurrentTPActive}
+                                  stabilityWindow={calibrationSettings.stability_window}
                                 />
 
                               </div>

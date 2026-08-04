@@ -79,7 +79,9 @@ function LiveStabilityTracker({
     readings, 
     activeStage, 
     activeCycle = null, 
-    activeChartView = 'calibration' 
+    activeChartView = 'calibration',
+    isCollecting = false,
+    stabilityWindow = 30,
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [unit, setUnit] = useState('PPM');
@@ -108,10 +110,20 @@ function LiveStabilityTracker({
     const stats = useMemo(() => {
         const calculated = {};
         currentReadingTypes.forEach(({ key }) => {
-            calculated[key] = calculateStats(cycleReadings[key]);
+            const stageReadings = cycleReadings[key] || [];
+            const displayedReadings = isCollecting && activeStage === key
+                ? stageReadings.slice(-Math.max(2, Number(stabilityWindow) || 30))
+                : stageReadings;
+            calculated[key] = calculateStats(displayedReadings);
         });
         return calculated;
-    }, [cycleReadings, currentReadingTypes]);
+    }, [
+        cycleReadings,
+        currentReadingTypes,
+        activeStage,
+        isCollecting,
+        stabilityWindow,
+    ]);
 
     const availableStats = useMemo(() => {
         return currentReadingTypes.filter(({ key }) => stats[key]?.count > 0);
