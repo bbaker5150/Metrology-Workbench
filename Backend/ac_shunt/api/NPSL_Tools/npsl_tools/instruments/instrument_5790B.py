@@ -67,10 +67,16 @@ class Instrument5790B(FlukeInstrument):
 
     def read_instrument(self):
         """
-        Unified method to take a reading. Manually triggers, waits for the
-        operation to complete, and then gets the value using MEAS?.
+        Return the 5790's current measurement value without starting a new
+        measurement transaction.
+
+        ``MEAS?`` waits for a fresh operation to complete inside the
+        instrument.  That hidden wait competes with the AC-shunt workflow's
+        explicit settling and stability timers and can exhaust the VISA
+        timeout.  ``VAL?`` reports the most recently completed reading and is
+        therefore the correct command for the workflow's paced acquisition.
         """
-        voltage, _, _ = self.send_MEAS()
+        voltage, _, _ = self.send_Value()
         return voltage
 
     def _parse_cal_steps(self, query: str, test_points: list = []):
@@ -141,17 +147,19 @@ class Instrument5790B(FlukeInstrument):
     def get_hires(self): return bool(int(self.resouce.query("HIRES?")))
     def set_extguard(self, enabled: bool): self.resource.write(f"EXTGUARD {'ON' if enabled else 'OFF'};*CLS")
 
-    def send_VAL(self):
+    def send_Value(self):
         """Query the "VAL?" command to the 5790B."""
         output = self.resource.query("VAL?").strip()
         output = output.split(',')
         return float(output[0]), float(output[1]), MEASUREMENT_STATUS_5790B(int(output[2]))
 
+    def send_VAL(self):
+        """Backward-compatible alias for :meth:`send_Value`."""
+        return self.send_Value()
+
     def send_MEAS(self):
-        """Query the "MEAS?" command to the 5790B."""
-        output = self.resource.query("MEAS?").strip()
-        output = output.split(',')
-        return float(output[0]), float(output[1]), MEASUREMENT_STATUS_5790B(int(output[2]))
+        """Deprecated compatibility alias; intentionally does not send MEAS?."""
+        return self.send_Value()
     
     def set_auto_range(self): 
         self.resource.write("RANGE AUTO")

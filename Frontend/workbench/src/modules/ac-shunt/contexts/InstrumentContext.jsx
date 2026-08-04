@@ -771,28 +771,55 @@ export const InstrumentContextProvider = ({ children }) => {
           const liveCycle =
             data.cycle_index != null ? data.cycle_index : activeCycleRef.current;
 
-          // ONLY parse and update STD readings if the data is not null
-          if (stdReadingData !== null && stdReadingData !== undefined) {
-            const stdPoint = {
-              x: data.count,
-              y: stdReadingData.value,
-              t: new Date(stdReadingData.timestamp * 1000),
-              is_stable: stdReadingData.is_stable,
+          const replaceSearchWindow = (prevReadings, rawPoints) => {
+            const priorCycles = (prevReadings[key] || []).filter(
+              (point) => point?.cycle !== liveCycle
+            );
+            const currentWindow = (rawPoints || []).map((rawPoint, index) => ({
+              x: index + 1,
+              y: rawPoint.value,
+              t: new Date(rawPoint.timestamp * 1000),
+              is_stable: rawPoint.is_stable,
               cycle: liveCycle,
-            };
-            setLiveReadings((readings) => updateReadings(readings, stdPoint));
-          }
+            }));
+            return { ...prevReadings, [key]: [...priorCycles, ...currentWindow] };
+          };
 
-          // ONLY parse and update TI readings if the data is not null
-          if (tiReadingData !== null && tiReadingData !== undefined) {
-            const tiPoint = {
-              x: data.count,
-              y: tiReadingData.value,
-              t: new Date(tiReadingData.timestamp * 1000),
-              is_stable: tiReadingData.is_stable,
-              cycle: liveCycle,
-            };
-            setTiLiveReadings((readings) => updateReadings(readings, tiPoint));
+          // During the initial stability search, the backend sends the exact
+          // evaluated window after an unstable attempt. Replace that window
+          // atomically so the rejected oldest point disappears and the newly
+          // acquired point cannot look skipped because an x index was reused.
+          if (data.window_snapshot) {
+            setLiveReadings((readings) =>
+              replaceSearchWindow(readings, data.window_snapshot.std)
+            );
+            setTiLiveReadings((readings) =>
+              replaceSearchWindow(readings, data.window_snapshot.ti)
+            );
+          } else {
+            // ONLY parse and update STD readings if the data is not null
+            if (stdReadingData !== null && stdReadingData !== undefined) {
+              const stdPoint = {
+                x: data.count,
+                y: stdReadingData.value,
+                t: new Date(stdReadingData.timestamp * 1000),
+                is_stable: stdReadingData.is_stable,
+                cycle: liveCycle,
+              };
+              setLiveReadings((readings) => updateReadings(readings, stdPoint));
+            }
+
+            // ONLY parse and update TI readings if the data is not null
+            if (tiReadingData !== null && tiReadingData !== undefined) {
+              const tiPoint = {
+                x: data.count,
+                y: tiReadingData.value,
+                t: new Date(tiReadingData.timestamp * 1000),
+                is_stable: tiReadingData.is_stable,
+                cycle: liveCycle,
+              };
+              setTiLiveReadings((readings) => updateReadings(readings, tiPoint));
+            }
           }
         }
 
@@ -816,18 +843,31 @@ export const InstrumentContextProvider = ({ children }) => {
         setTimerState({ isActive: false, duration: 0, label: "" });
       } else if (data.type === "sliding_window_update") {
         setStabilizationStatus(null);
-        setSlidingWindowStatus(
-          data.stdev_ppm === null
-            ? null
-            : {
-              ppm: data.stdev_ppm,
-              std_ppm: data.std_stdev_ppm ?? null,
-              ti_ppm: data.ti_stdev_ppm ?? null,
-              is_stable: data.is_stable,
-              instability_events: data.instability_events,
-              max_retries: data.max_retries
-            }
-        );
+        setSlidingWindowStatus({
+          ppm: data.stdev_ppm ?? null,
+          std_ppm: data.std_stdev_ppm ?? null,
+          ti_ppm: data.ti_stdev_ppm ?? null,
+          is_stable: data.is_stable,
+          instability_events: data.instability_events,
+          max_retries: data.max_retries,
+          phase: data.phase ?? null,
+          window_count: data.window_count ?? null,
+          window_size: data.window_size ?? null,
+        });
+        // The first stability event is deliberately emitted before the first
+        // sequential reader pair. Retire the completed settling countdown so
+        // the action bar immediately changes to Filling/Searching instead of
+        // remaining on a stale 0-second timer.
+        setTimerState({ isActive: false, duration: 0, label: "" });
+      } else if (data.type === "reader_switch_delay_update") {
+        const duration = Math.max(0, Number(data.duration) || 0);
+        setIsCollecting(true);
+        setTimerState({
+          isActive: duration > 0,
+          duration,
+          targetTime: Date.now() + duration * 1000,
+          label: data.label || "Reader switch",
+        });
       } else if (data.type === "batch_progress_update") {
         const { test_point, current, total } = data;
         if (current > 1) clearLiveReadings();

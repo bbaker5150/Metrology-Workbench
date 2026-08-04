@@ -2850,25 +2850,35 @@ function Calibration({
     : 0;
 
   const activeWindowCount = Math.min(
-    currentLiveReadingCount,
-    calibrationSettings.stability_window
+    slidingWindowStatus?.window_count ?? currentLiveReadingCount,
+    slidingWindowStatus?.window_size ?? calibrationSettings.stability_window
   );
 
   // Cleanly capture retry metrics from context state
-  const instabilityCount = slidingWindowStatus?.instability_events || 0;
-  const maxRetries = slidingWindowStatus?.max_retries || calibrationSettings.stability_max_attempts;
+  const instabilityCount = slidingWindowStatus?.instability_events ?? 0;
+  const maxRetries = slidingWindowStatus?.max_retries ?? calibrationSettings.stability_max_attempts;
 
-  // Determine the exact phase of the sliding window for intuitive UI feedback
+  // The backend owns the stability state machine. Display its explicit phase
+  // instead of inferring it from chart/progress lengths (sequential readers
+  // can be routing while neither count has advanced yet).
   let windowPhaseText = "";
-  if (collectionProgress.count > 0) {
-    // Phase 3: Initial stability achieved, now locking in the required samples
+  const windowPhase = slidingWindowStatus?.phase;
+  const displayedWindowSize =
+    slidingWindowStatus?.window_size ?? calibrationSettings.stability_window;
+  if (windowPhase === "monitoring") {
+    windowPhaseText = `Monitoring (Last ${activeWindowCount})`;
+  } else if (windowPhase === "searching") {
+    windowPhaseText = `Searching (Sliding ${displayedWindowSize})`;
+  } else if (windowPhase === "filling") {
+    windowPhaseText = `Filling (${activeWindowCount}/${displayedWindowSize})`;
+  } else if (collectionProgress.count > 0) {
+    // Compatibility for non-window/legacy payloads that do not yet declare
+    // a phase (for example the harmonic-projection summary event).
     windowPhaseText = `Monitoring (Last ${activeWindowCount})`;
   } else if (instabilityCount > 0) {
-    // Phase 2: Window is full but unstable. Currently sliding and testing new points.
-    windowPhaseText = `Searching (Sliding ${calibrationSettings.stability_window})`;
+    windowPhaseText = `Searching (Sliding ${displayedWindowSize})`;
   } else {
-    // Phase 1: Gathering the very first batch of points for the window
-    windowPhaseText = `Filling (${activeWindowCount}/${calibrationSettings.stability_window})`;
+    windowPhaseText = `Filling (${activeWindowCount}/${displayedWindowSize})`;
   }
 
   const isStableNow = useMemo(() => {

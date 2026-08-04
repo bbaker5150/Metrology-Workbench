@@ -21,12 +21,12 @@ class Instrument5790ACompatibilityTests(SimpleTestCase):
     def test_model_is_registered_for_acquisition(self):
         self.assertIs(INSTRUMENT_CLASS_MAP["5790A"], Instrument5790A)
 
-    def test_alpha_uses_shared_remote_measurement_commands(self):
+    def test_alpha_uses_non_blocking_value_query(self):
         instrument = Instrument5790A.__new__(Instrument5790A)
         instrument.resource = Mock()
         instrument.resource.query.return_value = "0.1000000,60.0,0"
 
-        voltage, frequency, status = instrument.send_MEAS()
+        voltage, frequency, status = instrument.send_Value()
         instrument.set_range(0.2)
         instrument.set_filters(
             # Import-free enum access through the inherited method annotations
@@ -40,7 +40,7 @@ class Instrument5790ACompatibilityTests(SimpleTestCase):
         self.assertEqual(voltage, 0.1)
         self.assertEqual(frequency, 60.0)
         self.assertEqual(int(status), 0)
-        instrument.resource.query.assert_called_once_with("MEAS?")
+        instrument.resource.query.assert_called_once_with("VAL?")
         instrument.resource.write.assert_any_call("RANGE 0.2")
         instrument.resource.write.assert_any_call("DFILT FAST,FINE")
         instrument.resource.write.assert_any_call("HIRES 0")
@@ -110,6 +110,7 @@ class SequentialReaderStabilityTests(SimpleTestCase):
             consumer.broadcast = AsyncMock()
             consumer.save_readings_to_db = AsyncMock()
             consumer._buffer_append_sample = Mock()
+            consumer._buffer_replace_search_window = Mock()
             consumer._take_reader_pair = AsyncMock(side_effect=[
                 (1.000000, 2.000000),
                 (1.000001, 2.000002),
@@ -180,6 +181,81 @@ class SequentialReaderStabilityTests(SimpleTestCase):
             and update.get("ti_stdev_ppm") is not None
             for update in stability_updates
         ))
+
+    def test_unstable_windows_advance_retry_count_and_replace_search_window(self):
+        class Source:
+            def set_output(self, voltage, frequency):
+                self.last_output = (voltage, frequency)
+
+        async def run_measurement():
+            consumer = CalibrationConsumer()
+            consumer.stop_event.clear()
+            consumer.broadcast = AsyncMock()
+            consumer.save_readings_to_db = AsyncMock()
+            consumer._buffer_append_sample = Mock()
+            consumer._buffer_replace_search_window = Mock()
+            consumer._take_reader_pair = AsyncMock(side_effect=[
+                (1.000000, 2.000000),
+                (1.001000, 2.002000),
+                (1.000000, 2.000000),  # retry 1
+                (1.000000, 2.000000),  # retry 2
+                (1.000000, 2.000000),  # stable lock
+                (1.000000, 2.000000),  # retained sample 4
+            ])
+
+            with patch(
+                "api.consumers.asyncio.sleep",
+                new=AsyncMock(),
+            ):
+                success = await consumer._perform_single_measurement(
+                    "ac_open",
+                    4,
+                    {"current": 0.1, "frequency": 60, "target_tvc": "BOTH"},
+                    False,
+                    1.0,
+                    Source(),
+                    object(),
+                    object(),
+                    settling_time=0,
+                    measurement_params={
+                        "stability_check_method": "sliding_window",
+                        "window": 3,
+                        "threshold_ppm": 10,
+                        "max_attempts": 10,
+                    },
+                )
+            return consumer, success
+
+        consumer, success = asyncio.run(run_measurement())
+        self.assertTrue(success)
+        self.assertEqual(consumer._take_reader_pair.await_count, 6)
+
+        messages = [
+            json.loads(call.kwargs["text_data"])
+            for call in consumer.broadcast.await_args_list
+        ]
+        searching = [
+            message for message in messages
+            if message.get("type") == "sliding_window_update"
+            and message.get("phase") == "searching"
+        ]
+        self.assertEqual(
+            [message.get("instability_events") for message in searching],
+            [1, 2],
+        )
+        self.assertTrue(all(message.get("window_count") == 3 for message in searching))
+        self.assertTrue(any(
+            message.get("type") == "dual_reading_update"
+            and message.get("window_snapshot")
+            for message in messages
+        ))
+
+        saved = {
+            call.args[0]: call.args[1]
+            for call in consumer.save_readings_to_db.await_args_list
+        }
+        self.assertEqual(len(saved["std_ac_open"]), 4)
+        self.assertEqual(len(saved["ti_ac_open"]), 4)
 
 
 class ReaderSwitchMappingTests(SimpleTestCase):
@@ -377,6 +453,40 @@ class SequentialReaderAcquisitionTests(SimpleTestCase):
                 "route:STD:CLOSED",
                 "read:INPUT2",
             ],
+        )
+
+    def test_internal_5790_switch_delay_is_announced_for_each_changed_input(self):
+        events = []
+        instrument = Instrument5790A.__new__(Instrument5790A)
+        instrument.gpib = "GPIB0::16::INSTR"
+        instrument.active_input = "INPUT1"
+        instrument.input_switch_delay = 2.5
+
+        def read_input(input_name):
+            events.append(f"read:{input_name}")
+            instrument.active_input = input_name
+            return 2.0 if input_name == "INPUT2" else 1.0
+
+        instrument.read_input = read_input
+
+        async def exercise():
+            consumer = CalibrationConsumer.__new__(CalibrationConsumer)
+            consumer._reader_switch = None
+            consumer._standard_reader_input = "INPUT1"
+            consumer._test_reader_input = "INPUT2"
+
+            async def broadcast(*, text_data):
+                events.append(json.loads(text_data))
+
+            consumer.broadcast = broadcast
+            return await consumer._take_reader_pair(instrument, instrument)
+
+        self.assertEqual(asyncio.run(exercise()), (1.0, 2.0))
+        delays = [event for event in events if isinstance(event, dict)]
+        self.assertEqual([event["duration"] for event in delays], [2.5, 2.5])
+        self.assertEqual(
+            [event["role"] for event in delays],
+            ["Test instrument", "Standard"],
         )
 
 

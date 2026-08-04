@@ -896,6 +896,46 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     def _take_one_reading(self, instrument):
         return instrument.read_instrument()
 
+    async def _announce_reader_switch_delay(self, duration, role, source):
+        """Expose a physical/input routing dwell to every live client.
+
+        Reader switching happens below the normal measurement-stage timer.
+        Publishing the dwell before sleeping prevents the action bar from
+        appearing frozen between the initial settling countdown and the first
+        sequential 5790 reading.
+        """
+        duration = max(0.0, float(duration or 0.0))
+        if duration <= 0:
+            return
+        session_id = getattr(self, 'session_id', None)
+        if session_id is not None:
+            state = _get_live_state(session_id)
+            state['isCollecting'] = True
+            state['timerState'] = {
+                'isActive': True,
+                'label': f"{role} reader switch",
+                'duration': duration,
+                'endsAt': time.time() + duration,
+            }
+        await self.broadcast(text_data=json.dumps({
+            'type': 'reader_switch_delay_update',
+            'duration': duration,
+            'role': role,
+            'source': source,
+            'label': f"{role} reader switch",
+        }))
+
+    @staticmethod
+    def _5790_input_delay(instrument, input_name):
+        """Return the dwell that ``read_input`` will apply, if it will switch."""
+        if not isinstance(instrument, Instrument5790B):
+            return 0.0
+        desired = str(input_name or 'INPUT2').strip().upper()
+        active = str(getattr(instrument, 'active_input', '') or '').strip().upper()
+        if active == desired:
+            return 0.0
+        return max(0.0, float(getattr(instrument, 'input_switch_delay', 0.0) or 0.0))
+
     async def _initialize_reader_switch(self, session_details):
         """Open and bind the optional switch dedicated to instrument routing.
 
@@ -1004,8 +1044,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     'active_instrument': role,
                 }))
                 if delay:
+                    await self._announce_reader_switch_delay(
+                        delay,
+                        'Standard' if role == 'STD' else 'Test instrument',
+                        'external_route',
+                    )
                     await asyncio.sleep(delay)
                 if shared_5790:
+                    internal_delay = self._5790_input_delay(instrument, input_name)
+                    await self._announce_reader_switch_delay(
+                        internal_delay,
+                        'Standard' if role == 'STD' else 'Test instrument',
+                        '5790_input',
+                    )
                     values[role] = await sync_to_async(
                         instrument.read_input,
                         thread_sensitive=True,
@@ -1041,6 +1092,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     ),
                 ))
             for role, instrument, input_name in order:
+                internal_delay = self._5790_input_delay(instrument, input_name)
+                await self._announce_reader_switch_delay(
+                    internal_delay,
+                    'Standard' if role == 'STD' else 'Test instrument',
+                    '5790_input',
+                )
                 values[role] = await sync_to_async(
                     instrument.read_input,
                     thread_sensitive=True,
@@ -1255,6 +1312,33 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         _upsert(state['liveReadings'], _to_cached(std_raw))
         _upsert(state['tiLiveReadings'], _to_cached(ti_raw))
         state['collectionProgress'] = {'count': count, 'total': total}
+
+    def _buffer_replace_search_window(self, stage, std_points, ti_points, total):
+        """Mirror the exact sliding-search window for reconnecting clients.
+
+        An unstable window discards its oldest point before the next attempt.
+        Replacing, rather than upserting at a reused x index, keeps the server
+        snapshot identical to the live charts and prevents a rejected sample
+        from appearing to survive while a newer reading looks skipped.
+        """
+        state = _get_live_state(self.session_id)
+
+        def _to_cached(points):
+            cached = []
+            for index, raw in enumerate(points or [], start=1):
+                ts = raw.get('timestamp', 0) or 0
+                cached.append({
+                    'x': index,
+                    'y': raw.get('value'),
+                    't': int(ts * 1000),
+                    'is_stable': raw.get('is_stable', True),
+                })
+            return cached
+
+        state['liveReadings'][stage] = _to_cached(std_points)
+        state['tiLiveReadings'][stage] = _to_cached(ti_points)
+        active_count = len(std_points or []) or len(ti_points or [])
+        state['collectionProgress'] = {'count': active_count, 'total': total}
 
     def _buffer_clear(self):
         _clear_live_state(self.session_id)
@@ -2224,6 +2308,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             # Temporary buffers for search phase
             stable_candidate_std = []
             stable_candidate_ti = []
+            slide_search_window_before_next = False
 
            # Treat the first characterization stage like "Cycle 1" (finds lock), 
             # and subsequent stages like "Cycle 2+" (bypasses lock to avoid thermal shock aborts).
@@ -2264,6 +2349,23 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 return (stdev_val / abs(mean_val)) * 1_000_000 if abs(mean_val) > 1e-9 else 0
 
             await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': "Monitoring stability..."}))
+            # Transition the live action bar immediately when the ordinary
+            # settling timer ends. Sequential 5790 acquisition can spend
+            # several seconds routing readers before its first complete pair,
+            # so waiting for that pair made the stability area look blank.
+            await self.broadcast(text_data=json.dumps({
+                'type': 'sliding_window_update',
+                'ppm': None,
+                'stdev_ppm': None,
+                'std_stdev_ppm': None,
+                'ti_stdev_ppm': None,
+                'is_stable': False,
+                'instability_events': 0,
+                'max_retries': max_retries,
+                'phase': 'monitoring' if skip_initial_check else 'filling',
+                'window_count': 0,
+                'window_size': window_size,
+            }))
 
             # Replaces raw final_std_readings length with the dynamic targeted check
             pair_index = 0
@@ -2296,6 +2398,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
 
                 if stability_method == 'sliding_window':
+                    if slide_search_window_before_next:
+                        if stable_candidate_std:
+                            stable_candidate_std.pop(0)
+                        if stable_candidate_ti:
+                            stable_candidate_ti.pop(0)
+                        slide_search_window_before_next = False
                     if std_point: stable_candidate_std.append(std_point)
                     if ti_point: stable_candidate_ti.append(ti_point)
 
@@ -2326,7 +2434,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             controlling_ppm = max(finite_metrics) if len(finite_metrics) == 2 else None
                         return std_ppm, ti_ppm, controlling_ppm
 
-                    def stability_payload(std_ppm, ti_ppm, controlling_ppm, is_stable):
+                    def stability_payload(
+                        std_ppm,
+                        ti_ppm,
+                        controlling_ppm,
+                        is_stable,
+                        *,
+                        phase,
+                        window_count,
+                    ):
                         return {
                             'type': 'sliding_window_update',
                             'ppm': controlling_ppm,
@@ -2336,6 +2452,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             'is_stable': is_stable,
                             'instability_events': instability_events,
                             'max_retries': max_retries,
+                            'phase': phase,
+                            'window_count': window_count,
+                            'window_size': window_size,
                         }
 
                     if skip_initial_check:
@@ -2368,6 +2487,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                                 ti_ppm,
                                 current_ppm,
                                 is_currently_stable,
+                                phase='monitoring',
+                                window_count=min(len(primary_candidates), window_size),
                             )
                         ))
                         # Keep the status bar informative — show the rolling
@@ -2402,6 +2523,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         if not initial_stability_achieved:
                             if is_currently_stable:
                                 initial_stability_achieved = True
+                                for candidate in stable_candidate_std:
+                                    candidate['is_stable'] = True
+                                for candidate in stable_candidate_ti:
+                                    candidate['is_stable'] = True
                                 # The search window is already a valid paired
                                 # acquisition. Promote it directly into the
                                 # saved sample set instead of clearing the
@@ -2413,8 +2538,16 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             else:
                                 # SEARCH PHASE: Unstable. Increment retry count and slide window
                                 instability_events += 1
-                                if std_point: stable_candidate_std.pop(0)
-                                if ti_point: stable_candidate_ti.pop(0)
+                                if std_point:
+                                    std_point['is_stable'] = False
+                                if ti_point:
+                                    ti_point['is_stable'] = False
+                                # Keep the exact failed window visible while
+                                # the operator reviews its metric/retry count.
+                                # Slide immediately before the next pair is
+                                # appended so no acquisition is hidden or
+                                # displayed against the wrong statistic.
+                                slide_search_window_before_next = True
                         else:
                             # COLLECTION PHASE: Monitor but keep all samples
                             if not is_currently_stable and not ignore_after_lock:
@@ -2429,6 +2562,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                                 ti_ppm,
                                 current_ppm,
                                 is_currently_stable,
+                                phase=(
+                                    'monitoring'
+                                    if initial_stability_achieved
+                                    else 'searching'
+                                ),
+                                window_count=min(len(primary_candidates), window_size),
                             )
                         ))
                         
@@ -2463,6 +2602,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                                 ti_ppm,
                                 temp_ppm,
                                 temp_is_stable,
+                                phase='filling',
+                                window_count=len(primary_candidates),
                             )
                         ))
                 else:
@@ -2478,7 +2619,29 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 # Mirror every sample into the server-side live buffer so late-
                 # joining remotes reconstruct the chart from a single source of
                 # truth instead of stitching a host snapshot to DB historicals.
-                self._buffer_append_sample(reading_type_base, std_point, ti_point, current_count, num_samples)
+                search_window_snapshot = None
+                if (
+                    stability_method == 'sliding_window'
+                    and not initial_stability_achieved
+                ):
+                    search_window_snapshot = {
+                        'std': list(stable_candidate_std),
+                        'ti': list(stable_candidate_ti),
+                    }
+                    self._buffer_replace_search_window(
+                        reading_type_base,
+                        search_window_snapshot['std'],
+                        search_window_snapshot['ti'],
+                        num_samples,
+                    )
+                else:
+                    self._buffer_append_sample(
+                        reading_type_base,
+                        std_point,
+                        ti_point,
+                        current_count,
+                        num_samples,
+                    )
 
                 await self.broadcast(text_data=json.dumps({
                     'type': 'dual_reading_update',
@@ -2487,7 +2650,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     'count': current_count,
                     'stable_count': get_target_length(),
                     'total': num_samples,
-                    'stage': reading_type_base
+                    'stage': reading_type_base,
+                    'window_snapshot': search_window_snapshot,
                 }))
 
                 await asyncio.sleep(0.05)

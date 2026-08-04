@@ -1,7 +1,7 @@
 """Fluke 5790A AC Measurement Standard.
 
 The 5790A and 5790B share the remote measurement commands used by the
-AC-shunt workflow (INPUT, RANGE, HIRES, DFILT, MEAS?/VAL?, and ISR?).  Keep a
+AC-shunt workflow (INPUT, RANGE, HIRES, DFILT, VAL?, and ISR?).  Keep a
 distinct class so discovery and identity validation remain model-accurate,
 while inheriting the audited command implementation from the 5790B driver.
 """
