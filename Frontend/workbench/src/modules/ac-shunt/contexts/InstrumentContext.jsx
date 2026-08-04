@@ -717,6 +717,13 @@ export const InstrumentContextProvider = ({ children }) => {
         setLiveReadings(dropCurrentCycleForStage);
         setTiLiveReadings(dropCurrentCycleForStage);
         setTimerState({ isActive: false, duration: 0, label: "" });
+      } else if (data.type === "paired_collection_reset") {
+        const key = data.stage;
+        if (key) {
+          setLiveReadings((prev) => ({ ...prev, [key]: [] }));
+          setTiLiveReadings((prev) => ({ ...prev, [key]: [] }));
+        }
+        setCollectionProgress({ count: 0, total: Number(data.total) || 0 });
       } else if (data.type === "dual_reading_update") {
         setIsCollecting(true);
         const key = data.stage;
@@ -739,6 +746,22 @@ export const InstrumentContextProvider = ({ children }) => {
               newReadings[existingIndex] = point;
             } else {
               newReadings.push(point);
+            }
+            // A live stage represents one active cycle.  Sequential readers
+            // can deliver at different wall-clock times, but neither series
+            // should ever render more than the operator-requested sample
+            // count while the pair is completing.
+            const total = Number(data.total);
+            if (Number.isFinite(total) && total > 0) {
+              const thisCycle = newReadings.filter((candidate) => candidate?.cycle === pointCycle);
+              if (thisCycle.length > total) {
+                const overflow = thisCycle.length - total;
+                const remove = new Set(thisCycle.slice(0, overflow));
+                return {
+                  ...prevReadings,
+                  [key]: newReadings.filter((candidate) => !remove.has(candidate)),
+                };
+              }
             }
             return { ...prevReadings, [key]: newReadings };
           };

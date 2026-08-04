@@ -302,13 +302,17 @@ class Mock11713C(Instrument11713C):
     def set_route(self, route: str) -> None:  # type: ignore[override]
         _STATE["active_route"] = str(route).upper()
 
-    def select_reader(self, role: str, standard_route: str = "OPEN") -> None:  # type: ignore[override]
+    def select_instrument(self, role: str, standard_route: str = "OPEN") -> None:  # type: ignore[override]
         role = str(role).upper()
         _STATE["active_reader"] = role
+        _STATE["active_instrument"] = role
         route = standard_route if role == "STD" else (
             "CLOSED" if str(standard_route).upper() == "OPEN" else "OPEN"
         )
         self.set_route(route)
+
+    def select_reader(self, role: str, standard_route: str = "OPEN") -> None:  # type: ignore[override]
+        self.select_instrument(role, standard_route=standard_route)
 
     def deactivate_all(self) -> None:  # type: ignore[override]
         _STATE["active_source"] = None

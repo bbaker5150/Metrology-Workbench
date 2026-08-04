@@ -277,11 +277,14 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
             newAddress,
             role === 'standard' ? tiInstrumentAddress : stdInstrumentAddress,
         );
+        const externalInstrumentSwitch = Boolean(readerSwitchDriverAddress);
         if (role === 'standard') {
             const input = newModel === '8508A'
                 ? (sameReader ? (tiReaderInput === 'FRONT' ? 'REAR' : 'FRONT') : 'FRONT')
                 : is5790
-                    ? (sameReader ? 'INPUT1' : 'INPUT2')
+                    ? (sameReader
+                        ? (externalInstrumentSwitch ? (tiReaderInput || 'INPUT2') : 'INPUT1')
+                        : 'INPUT2')
                     : null;
             if (input) setStdReaderInput(input);
             setStdInstrumentAddress(newAddress);
@@ -294,15 +297,16 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                 standard_reader_input: isChecked ? input : null,
             };
             if (isChecked && is5790 && sameReader) {
-                setTiReaderInput('INPUT2');
-                payload.test_reader_input = 'INPUT2';
+                const pairedInput = externalInstrumentSwitch ? input : 'INPUT2';
+                setTiReaderInput(pairedInput);
+                payload.test_reader_input = pairedInput;
             }
             handleRoleAssignment(payload);
         } else if (role === 'test') {
             const input = newModel === '8508A'
                 ? (sameReader ? (stdReaderInput === 'FRONT' ? 'REAR' : 'FRONT') : 'REAR')
                 : is5790
-                    ? 'INPUT2'
+                    ? (sameReader && externalInstrumentSwitch ? (stdReaderInput || 'INPUT2') : 'INPUT2')
                     : null;
             if (input) setTiReaderInput(input);
             setTiInstrumentAddress(newAddress);
@@ -315,8 +319,9 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                 test_reader_input: isChecked ? input : null,
             };
             if (isChecked && is5790 && sameReader) {
-                setStdReaderInput('INPUT1');
-                payload.standard_reader_input = 'INPUT1';
+                const pairedInput = externalInstrumentSwitch ? input : 'INPUT1';
+                setStdReaderInput(pairedInput);
+                payload.standard_reader_input = pairedInput;
             }
             handleRoleAssignment(payload);
         }
@@ -326,10 +331,19 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         const opposite = input.startsWith('INPUT')
             ? (input === 'INPUT1' ? 'INPUT2' : 'INPUT1')
             : (input === 'FRONT' ? 'REAR' : 'FRONT');
+        const shared5790 = (
+            /^5790[AB]$/.test(stdReaderModel || '')
+            && /^5790[AB]$/.test(tiReaderModel || '')
+            && isSameInstrumentAddress(stdInstrumentAddress, tiInstrumentAddress)
+        );
+        const keepSameInput = shared5790 && Boolean(readerSwitchDriverAddress);
         if (role === 'standard') {
             setStdReaderInput(input);
             const payload = { standard_reader_input: input };
-            if (isSameInstrumentAddress(stdInstrumentAddress, tiInstrumentAddress) && tiReaderInput === input) {
+            if (keepSameInput) {
+                setTiReaderInput(input);
+                payload.test_reader_input = input;
+            } else if (isSameInstrumentAddress(stdInstrumentAddress, tiInstrumentAddress) && tiReaderInput === input) {
                 setTiReaderInput(opposite);
                 payload.test_reader_input = opposite;
             }
@@ -337,7 +351,10 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         } else {
             setTiReaderInput(input);
             const payload = { test_reader_input: input };
-            if (isSameInstrumentAddress(tiInstrumentAddress, stdInstrumentAddress) && stdReaderInput === input) {
+            if (keepSameInput) {
+                setStdReaderInput(input);
+                payload.standard_reader_input = input;
+            } else if (isSameInstrumentAddress(tiInstrumentAddress, stdInstrumentAddress) && stdReaderInput === input) {
                 setStdReaderInput(opposite);
                 payload.standard_reader_input = opposite;
             }
@@ -384,6 +401,19 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                 reader_switch_driver_model: null,
                 reader_switch_driver_serial: null,
             });
+            const shared5790 = (
+                /^5790[AB]$/.test(stdReaderModel || '')
+                && /^5790[AB]$/.test(tiReaderModel || '')
+                && isSameInstrumentAddress(stdInstrumentAddress, tiInstrumentAddress)
+            );
+            if (shared5790) {
+                setStdReaderInput('INPUT1');
+                setTiReaderInput('INPUT2');
+                Object.assign(payload, {
+                    standard_reader_input: 'INPUT1',
+                    test_reader_input: 'INPUT2',
+                });
+            }
         }
         handleRoleAssignment(payload);
     };
@@ -400,6 +430,29 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
             reader_switch_driver_model: newModel,
             reader_switch_driver_serial: newSN,
         };
+        const shared5790 = (
+            /^5790[AB]$/.test(stdReaderModel || '')
+            && /^5790[AB]$/.test(tiReaderModel || '')
+            && isSameInstrumentAddress(stdInstrumentAddress, tiInstrumentAddress)
+        );
+        if (shared5790) {
+            if (isChecked) {
+                const commonInput = stdReaderInput || tiReaderInput || 'INPUT2';
+                setStdReaderInput(commonInput);
+                setTiReaderInput(commonInput);
+                Object.assign(payload, {
+                    standard_reader_input: commonInput,
+                    test_reader_input: commonInput,
+                });
+            } else {
+                setStdReaderInput('INPUT1');
+                setTiReaderInput('INPUT2');
+                Object.assign(payload, {
+                    standard_reader_input: 'INPUT1',
+                    test_reader_input: 'INPUT2',
+                });
+            }
+        }
         if (isChecked && isSameInstrumentAddress(switchDriverAddress, instrument.address)) {
             setSwitchDriverAddress(null);
             setSwitchDriverModel(null);
@@ -429,7 +482,7 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         dcSourceAddress && { key: 'dc', label: 'DC Source', identity: dcSourceSN ? `S/N ${dcSourceSN}` : '—', address: dcSourceAddress },
         amplifierAddress && { key: 'amp', label: 'Amplifier', identity: amplifierSN ? `S/N ${amplifierSN}` : '—', address: amplifierAddress },
         switchDriverAddress && { key: 'sw-source', label: 'Source Switch', identity: [switchDriverModel, switchDriverSN && `S/N ${switchDriverSN}`].filter(Boolean).join(' '), address: switchDriverAddress },
-        readerSwitchDriverAddress && { key: 'sw-reader', label: 'Reader Switch', identity: [readerSwitchDriverModel, readerSwitchDriverSN && `S/N ${readerSwitchDriverSN}`].filter(Boolean).join(' '), address: readerSwitchDriverAddress },
+        readerSwitchDriverAddress && { key: 'sw-reader', label: 'Instrument Switch', identity: [readerSwitchDriverModel, readerSwitchDriverSN && `S/N ${readerSwitchDriverSN}`].filter(Boolean).join(' '), address: readerSwitchDriverAddress },
     ].filter(Boolean);
 
     return (
@@ -680,7 +733,7 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                     </div>
                                                     <div className="checkbox-group">
                                                         <input type="checkbox" id={`reader-switch-role-${inst.address}`} checked={isSameInstrumentAddress(readerSwitchDriverAddress, inst.address)} onChange={(e) => handleReaderSwitchRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
-                                                        <label htmlFor={`reader-switch-role-${inst.address}`}>Readers</label>
+                                                        <label htmlFor={`reader-switch-role-${inst.address}`}>Instruments</label>
                                                     </div>
                                                     {isSameInstrumentAddress(readerSwitchDriverAddress, inst.address) && (
                                                         <div className="reader-switch-options">
@@ -691,8 +744,8 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                                     value={readerSwitchStandardRoute || 'OPEN'}
                                                                     onChange={(event) => updateReaderSwitchOption('reader_switch_standard_route', event.target.value)}
                                                                     disabled={isRemoteViewer || isCollecting}
-                                                                    title="Physical relay route wired to the Standard reader; the Test reader uses the opposite route"
-                                                                    aria-label="Standard reader relay route"
+                                                                    title="Physical relay route wired to the Standard instrument; the Test instrument uses the opposite route"
+                                                                    aria-label="Standard instrument relay route"
                                                                 >
                                                                     <option value="OPEN">Open / NC</option>
                                                                     <option value="CLOSED">Closed / NO</option>
@@ -711,8 +764,8 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                                         onChange={(event) => setReaderSwitchSettlingTime(event.target.value)}
                                                                         onBlur={(event) => updateReaderSwitchOption('reader_switch_settling_time', Number(event.target.value) || 0)}
                                                                         disabled={isRemoteViewer || isCollecting}
-                                                                        title="Delay after changing readers before taking the next reading"
-                                                                        aria-label="Reader switch settling delay in seconds"
+                                                                        title="Delay after changing instruments before taking the next reading"
+                                                                        aria-label="Instrument switch settling delay in seconds"
                                                                     />
                                                                     <span>s</span>
                                                                 </span>

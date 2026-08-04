@@ -8,8 +8,12 @@ from npsl_tools.instruments import Instrument11713C, Instrument5790A
 from .consumers import (
     CalibrationConsumer,
     INSTRUMENT_CLASS_MAP,
+    _clear_live_state,
+    _get_live_state,
     _5790_profile_settings,
 )
+from .models import CalibrationSession
+from .serializers import CalibrationSessionSerializer
 
 
 class Instrument5790ACompatibilityTests(SimpleTestCase):
@@ -68,6 +72,15 @@ class Instrument5790ACompatibilityTests(SimpleTestCase):
         self.assertEqual(instrument.input_switch_delay, 2.5)
         self.assertEqual(instrument.resource.timeout, 90000)
 
+    def test_profile_keyword_matches_consumer_configuration(self):
+        instrument = Instrument5790A.__new__(Instrument5790A)
+        instrument.resource = Mock()
+        instrument.resource.timeout = 1000
+
+        instrument.configure_acquisition(hires_enabled=True)
+
+        instrument.resource.write.assert_any_call("HIRES 1")
+
     def test_profile_defaults_match_factory_input_workflow(self):
         self.assertEqual(_5790_profile_settings({}), {
             "filter_mode": "FAST",
@@ -96,7 +109,6 @@ class ReaderSwitchMappingTests(SimpleTestCase):
         }
         with self.assertRaisesRegex(RuntimeError, "opposite INPUT1/INPUT2"):
             CalibrationConsumer._validate_reader_assignments({}, details)
-
         details["std_reader_input"] = "INPUT1"
         CalibrationConsumer._validate_reader_assignments({}, details)
 
@@ -117,15 +129,59 @@ class ReaderSwitchMappingTests(SimpleTestCase):
             ],
         )
 
-    def test_reader_switch_requires_two_distinct_readers(self):
+    def test_instrument_switch_accepts_one_shared_5790_on_one_input(self):
         details = {
             "reader_switch_driver_address": "GPIB0::8::INSTR",
             "std_reader_address": "GPIB0::16::INSTR",
             "ti_reader_address": "GPIB0::16::INSTR",
             "std_reader_model": "5790A",
             "ti_reader_model": "5790A",
+            "std_reader_input": "INPUT2",
+            "ti_reader_input": "INPUT2",
         }
-        with self.assertRaisesRegex(RuntimeError, "two physical readers"):
+        CalibrationConsumer._validate_reader_assignments({}, details)
+
+        details["ti_reader_input"] = "INPUT1"
+        with self.assertRaisesRegex(RuntimeError, "same physical input"):
+            CalibrationConsumer._validate_reader_assignments({}, details)
+
+    def test_instrument_switch_rejects_two_independent_readers(self):
+        details = {
+            "reader_switch_driver_address": "GPIB0::8::INSTR",
+            "std_reader_address": "GPIB0::16::INSTR",
+            "ti_reader_address": "GPIB0::17::INSTR",
+            "std_reader_model": "5790A",
+            "ti_reader_model": "5790B",
+        }
+        with self.assertRaisesRegex(RuntimeError, "one shared 5790A/B"):
+            CalibrationConsumer._validate_reader_assignments({}, details)
+
+    def test_supported_source_and_reader_topologies(self):
+        base = {
+            "std_reader_address": "GPIB0::16::INSTR",
+            "ti_reader_address": "GPIB0::16::INSTR",
+            "std_reader_model": "5790A",
+            "ti_reader_model": "5790A",
+        }
+        # One or two sources, shared 5790 switched internally.
+        for source_switch in (None, "GPIB0::7::INSTR"):
+            details = {
+                **base,
+                "std_reader_input": "INPUT1",
+                "ti_reader_input": "INPUT2",
+                "switch_driver_address": source_switch,
+            }
+            CalibrationConsumer._validate_reader_assignments({}, details)
+
+        # One or two sources, external switch feeding one common 5790 input.
+        for source_switch in (None, "GPIB0::7::INSTR"):
+            details = {
+                **base,
+                "std_reader_input": "INPUT2",
+                "ti_reader_input": "INPUT2",
+                "reader_switch_driver_address": "GPIB0::8::INSTR",
+                "switch_driver_address": source_switch,
+            }
             CalibrationConsumer._validate_reader_assignments({}, details)
 
     def test_source_and_reader_switches_must_be_distinct(self):
@@ -133,12 +189,49 @@ class ReaderSwitchMappingTests(SimpleTestCase):
             "switch_driver_address": "GPIB0::8::INSTR",
             "reader_switch_driver_address": "GPIB0::8::INSTR",
             "std_reader_address": "GPIB0::16::INSTR",
-            "ti_reader_address": "GPIB0::17::INSTR",
+            "ti_reader_address": "GPIB0::16::INSTR",
             "std_reader_model": "5790A",
             "ti_reader_model": "5790A",
+            "std_reader_input": "INPUT2",
+            "ti_reader_input": "INPUT2",
         }
         with self.assertRaisesRegex(RuntimeError, "separate physical switch"):
             CalibrationConsumer._validate_reader_assignments({}, details)
+
+
+class ReaderTopologySerializerTests(SimpleTestCase):
+    def _session(self, **overrides):
+        values = {
+            "standard_reader_address": "GPIB0::16::INSTR",
+            "test_reader_address": "GPIB0::16::INSTR",
+            "standard_reader_model": "5790A",
+            "test_reader_model": "5790A",
+            "standard_reader_input": "INPUT1",
+            "test_reader_input": "INPUT2",
+        }
+        values.update(overrides)
+        return CalibrationSession(**values)
+
+    def test_partial_patch_enables_external_instrument_routing_on_common_input(self):
+        serializer = CalibrationSessionSerializer(
+            instance=self._session(),
+            data={
+                "reader_switch_driver_address": "GPIB0::8::INSTR",
+                "standard_reader_input": "INPUT2",
+                "test_reader_input": "INPUT2",
+            },
+            partial=True,
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_partial_patch_rejects_external_switch_with_opposite_inputs(self):
+        serializer = CalibrationSessionSerializer(
+            instance=self._session(),
+            data={"reader_switch_driver_address": "GPIB0::8::INSTR"},
+            partial=True,
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("test_reader_input", serializer.errors)
 
 
 class SequentialReaderAcquisitionTests(SimpleTestCase):
@@ -161,20 +254,17 @@ class SequentialReaderAcquisitionTests(SimpleTestCase):
         self.assertEqual(asyncio.run(exercise()), (1.0, 2.0))
         self.assertEqual(events, ["INPUT2", "INPUT1"])
 
-    def test_reader_switch_collects_ti_then_standard_but_returns_std_first(self):
+    def test_instrument_switch_collects_ti_then_standard_on_shared_input(self):
         events = []
 
-        class FakeReader:
-            def __init__(self, role, value):
-                self.role = role
-                self.value = value
-
-            def read_instrument(self):
-                events.append(f"read:{self.role}")
-                return self.value
+        instrument = Instrument5790A.__new__(Instrument5790A)
+        instrument.gpib = "GPIB0::16::INSTR"
+        instrument.read_input = lambda input_name: events.append(
+            f"read:{input_name}"
+        ) or (1.0 if len(events) == 4 else 2.0)
 
         class FakeSwitch:
-            def select_reader(self, role, standard_route="OPEN"):
+            def select_instrument(self, role, standard_route="OPEN"):
                 events.append(f"route:{role}:{standard_route}")
 
         async def exercise():
@@ -182,15 +272,14 @@ class SequentialReaderAcquisitionTests(SimpleTestCase):
             consumer._reader_switch = FakeSwitch()
             consumer._reader_switch_standard_route = "CLOSED"
             consumer._reader_switch_settling_time = 0
+            consumer._standard_reader_input = "INPUT2"
+            consumer._test_reader_input = "INPUT2"
 
             async def broadcast(*, text_data):
                 return None
 
             consumer.broadcast = broadcast
-            return await consumer._take_reader_pair(
-                FakeReader("STD", 1.0),
-                FakeReader("TI", 2.0),
-            )
+            return await consumer._take_reader_pair(instrument, instrument)
 
         result = asyncio.run(exercise())
 
@@ -199,8 +288,28 @@ class SequentialReaderAcquisitionTests(SimpleTestCase):
             events,
             [
                 "route:TI:CLOSED",
-                "read:TI",
+                "read:INPUT2",
                 "route:STD:CLOSED",
-                "read:STD",
+                "read:INPUT2",
             ],
+        )
+
+
+class SequentialLiveBufferTests(SimpleTestCase):
+    def tearDown(self):
+        _clear_live_state("shared-5790-live-buffer")
+
+    def test_live_series_never_exceeds_requested_sample_count(self):
+        consumer = CalibrationConsumer.__new__(CalibrationConsumer)
+        consumer.session_id = "shared-5790-live-buffer"
+        for count in range(1, 9):
+            raw = {"value": count / 10, "timestamp": float(count)}
+            consumer._buffer_append_sample("ac_open", raw, raw, count, 6)
+
+        state = _get_live_state(consumer.session_id)
+        self.assertEqual(len(state["liveReadings"]["ac_open"]), 6)
+        self.assertEqual(len(state["tiLiveReadings"]["ac_open"]), 6)
+        self.assertEqual(
+            [point["x"] for point in state["liveReadings"]["ac_open"]],
+            [3, 4, 5, 6, 7, 8],
         )

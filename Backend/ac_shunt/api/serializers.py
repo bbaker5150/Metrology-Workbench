@@ -350,6 +350,8 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
         ti_model = value("test_reader_model")
         std_address = value("standard_reader_address")
         ti_address = value("test_reader_address")
+        instrument_switch_address = value("reader_switch_driver_address")
+        source_switch_address = value("switch_driver_address")
         def is_5790(model):
             return str(model or "").upper() in {"5790A", "5790B"}
 
@@ -399,21 +401,41 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
                     )
                 }
             )
-        if (
+        shared_5790 = (
             is_5790(std_model)
             and is_5790(ti_model)
             and std_address
             and std_address == ti_address
-            and std_input == ti_input
-        ):
-            raise serializers.ValidationError(
-                {
-                    "test_reader_input": (
-                        "A single 5790A/B must use different inputs for the "
-                        "Standard and Test Instrument roles."
+        )
+        complete_reader_assignment = bool(std_address and ti_address and std_model and ti_model)
+        if instrument_switch_address:
+            if complete_reader_assignment and not shared_5790:
+                raise serializers.ValidationError({
+                    "reader_switch_driver_address": (
+                        "Instrument switching requires one shared 5790A/B "
+                        "assigned to both reader roles."
                     )
-                }
-            )
+                })
+            if shared_5790 and std_input != ti_input:
+                raise serializers.ValidationError({
+                    "test_reader_input": (
+                        "When an external instrument switch is used, the "
+                        "shared 5790A/B roles must use the same physical input."
+                    )
+                })
+            if source_switch_address and source_switch_address == instrument_switch_address:
+                raise serializers.ValidationError({
+                    "reader_switch_driver_address": (
+                        "Source and instrument routing require separate physical switches."
+                    )
+                })
+        elif shared_5790 and std_input == ti_input:
+            raise serializers.ValidationError({
+                "test_reader_input": (
+                    "Without an external instrument switch, a shared 5790A/B "
+                    "must use different INPUT1/INPUT2 terminals."
+                )
+            })
         return attrs
 
 class CalibrationTVCCorrectionsSerializer(serializers.ModelSerializer):

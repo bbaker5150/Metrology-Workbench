@@ -169,6 +169,7 @@ class Instrument5790B(FlukeInstrument):
         filter_mode="FAST",
         filter_restart="COARSE",
         hires=False,
+        hires_enabled=None,
         range_mode="POINT",
         point_value=None,
         input_switch_delay=1.0,
@@ -194,6 +195,12 @@ class Instrument5790B(FlukeInstrument):
             self.resource.write("DFILT OFF")
         else:
             self.resource.write(f"DFILT {mode},{restart}")
+        # ``f5790_hires_enabled`` is the persisted API field.  Accept that
+        # spelling directly while preserving ``hires`` for existing callers.
+        # This prevents a settings payload from failing at the start of a run
+        # merely because the UI/API and driver used different keyword names.
+        if hires_enabled is not None:
+            hires = hires_enabled
         self.set_hires(bool(hires))
         if range_mode == "AUTO":
             self.set_auto_range()

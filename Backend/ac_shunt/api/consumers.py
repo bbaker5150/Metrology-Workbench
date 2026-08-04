@@ -897,10 +897,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         return instrument.read_instrument()
 
     async def _initialize_reader_switch(self, session_details):
-        """Open and bind the optional switch dedicated to reader routing.
+        """Open and bind the optional switch dedicated to instrument routing.
 
         Keeping this lifecycle separate from the legacy source switch allows
-        a bench to use one 11713C for readers, one for sources, or two
+        a bench to use one 11713C for instruments, one for sources, or two
         independent 11713Cs for both jobs.
         """
         self._reader_switch = None
@@ -933,17 +933,17 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         return reader_switch
 
     async def _release_reader_switch(self, reader_switch):
-        """Return a reader switch to its passive route and close it safely."""
+        """Return an instrument switch to its passive route and close it safely."""
         try:
             if reader_switch:
                 await sync_to_async(reader_switch.deactivate_all, thread_sensitive=True)()
         except Exception as exc:
-            print(f"[READER-SWITCH] Failed to return switch to passive route: {exc}", flush=True)
+            print(f"[INSTRUMENT-SWITCH] Failed to return switch to passive route: {exc}", flush=True)
         try:
             if reader_switch and hasattr(reader_switch, 'close'):
                 await sync_to_async(reader_switch.close, thread_sensitive=True)()
         except Exception as exc:
-            print(f"[READER-SWITCH] Failed to close switch resource: {exc}", flush=True)
+            print(f"[INSTRUMENT-SWITCH] Failed to close switch resource: {exc}", flush=True)
         finally:
             self._reader_switch = None
 
@@ -957,10 +957,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     ):
         """Read the logical Standard/TI pair using the active bench topology.
 
-        Independent readers are normally queried concurrently.  When a
-        reader-routing 11713C is active, however, only one reader is physically
-        connected to the source at a time; route and read TI first, then STD,
-        and still return values in the stable ``(standard, test)`` contract.
+        Independent readers are normally queried concurrently.  When an
+        instrument-routing 11713C is active, however, the Standard and Test
+        Instrument feed one common input on a single reader; route and read TI
+        first, then STD, and still return the stable ``(standard, test)``
+        contract.
         """
 
         take_std = target_tvc in ("STD", "BOTH") and std_reader is not None
@@ -970,6 +971,48 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 ti_reader,
                 reverse_order=reverse_order,
             )
+
+        reader_switch = getattr(self, '_reader_switch', None)
+        if reader_switch and (take_std or take_ti):
+            standard_route = getattr(self, '_reader_switch_standard_route', 'OPEN')
+            delay = max(0.0, float(getattr(self, '_reader_switch_settling_time', 1.0) or 0))
+            values = {'STD': None, 'TI': None}
+            order = []
+            if take_ti:
+                order.append((
+                    'TI',
+                    ti_reader,
+                    getattr(ti_reader, 'test_role_input', getattr(self, '_test_reader_input', 'INPUT2')),
+                ))
+            if take_std:
+                order.append((
+                    'STD',
+                    std_reader,
+                    getattr(std_reader, 'standard_role_input', getattr(self, '_standard_reader_input', 'INPUT2')),
+                ))
+            shared_5790 = _shared_5790_reader_pair(std_reader, ti_reader)
+            for role, instrument, input_name in order:
+                await sync_to_async(reader_switch.select_instrument, thread_sensitive=True)(
+                    role,
+                    standard_route=standard_route,
+                )
+                await self.broadcast(text_data=json.dumps({
+                    # Retain the event name for existing clients while exposing
+                    # the corrected physical meaning in the payload.
+                    'type': 'reader_switch_status_update',
+                    'active_reader': role,
+                    'active_instrument': role,
+                }))
+                if delay:
+                    await asyncio.sleep(delay)
+                if shared_5790:
+                    values[role] = await sync_to_async(
+                        instrument.read_input,
+                        thread_sensitive=True,
+                    )(input_name)
+                else:
+                    values[role] = await self._take_one_reading(instrument)
+            return values['STD'], values['TI']
 
         if (take_std or take_ti) and _shared_5790_reader_pair(std_reader, ti_reader):
             values = {'STD': None, 'TI': None}
@@ -1002,33 +1045,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     instrument.read_input,
                     thread_sensitive=True,
                 )(input_name)
-            return values['STD'], values['TI']
-
-        reader_switch = getattr(self, '_reader_switch', None)
-        if reader_switch and (take_std or take_ti):
-            standard_route = getattr(self, '_reader_switch_standard_route', 'OPEN')
-            delay = max(0.0, float(getattr(self, '_reader_switch_settling_time', 1.0) or 0))
-            values = {'STD': None, 'TI': None}
-            # The requested single-source/two-reader topology is explicitly
-            # TI -> STD.  Do not let the 8508-only reverse_order optimization
-            # silently change this physical relay sequence.
-            order = []
-            if take_ti:
-                order.append(('TI', ti_reader))
-            if take_std:
-                order.append(('STD', std_reader))
-            for role, instrument in order:
-                await sync_to_async(reader_switch.select_reader, thread_sensitive=True)(
-                    role,
-                    standard_route=standard_route,
-                )
-                await self.broadcast(text_data=json.dumps({
-                    'type': 'reader_switch_status_update',
-                    'active_reader': role,
-                }))
-                if delay:
-                    await asyncio.sleep(delay)
-                values[role] = await self._take_one_reading(instrument)
             return values['STD'], values['TI']
 
         tasks = [
@@ -1233,6 +1249,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     arr[i] = point
                     return
             arr.append(point)
+            if total and len(arr) > int(total):
+                del arr[:-int(total)]
 
         _upsert(state['liveReadings'], _to_cached(std_raw))
         _upsert(state['tiLiveReadings'], _to_cached(ti_raw))
@@ -1257,9 +1275,23 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             def _addr(value):
                 return value if mock else ws.resolve_resource(value)
 
+            ac_source_address = _addr(session.ac_source_address)
+            dc_source_address = _addr(session.dc_source_address)
+            # A source-routing relay has work to do only when AC and DC are
+            # provided by two distinct physical sources.  Keep a saved switch
+            # assignment intact for modular bench setup, but do not actuate it
+            # when one 5730A is assigned to both logical source roles.
+            source_switch_address = (
+                _addr(session.switch_driver_address)
+                if ac_source_address
+                and dc_source_address
+                and ac_source_address != dc_source_address
+                else None
+            )
+
             return {
-                'ac_source_address': _addr(session.ac_source_address),
-                'dc_source_address': _addr(session.dc_source_address),
+                'ac_source_address': ac_source_address,
+                'dc_source_address': dc_source_address,
                 'std_reader_address': _addr(session.standard_reader_address),
                 'std_reader_model': session.standard_reader_model,
                 'std_reader_input': session.standard_reader_input,
@@ -1267,7 +1299,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 'ti_reader_model': session.test_reader_model,
                 'ti_reader_input': session.test_reader_input,
                 'amplifier_address': _addr(session.amplifier_address),
-                'switch_driver_address': _addr(session.switch_driver_address),
+                'switch_driver_address': source_switch_address,
                 'reader_switch_driver_address': _addr(session.reader_switch_driver_address),
                 'reader_switch_driver_model': session.reader_switch_driver_model,
                 'reader_switch_standard_route': session.reader_switch_standard_route or 'OPEN',
@@ -1332,31 +1364,40 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         data['measurement_params'] = measurement_params
 
         details = session_details or {}
-        if details.get('reader_switch_driver_address'):
-            if not details.get('std_reader_address') or not details.get('ti_reader_address'):
-                raise RuntimeError(
-                    "Reader routing requires both Standard and Test reader assignments."
-                )
-            if details.get('std_reader_address') == details.get('ti_reader_address'):
-                raise RuntimeError(
-                    "Reader routing requires two physical readers with different addresses."
-                )
-            if details.get('reader_switch_driver_address') == details.get('switch_driver_address'):
-                raise RuntimeError(
-                    "Assign separate physical switch drivers for source and reader routing."
-                )
+        instrument_switch_address = details.get('reader_switch_driver_address')
         std_is_5790 = '5790' in str(details.get('std_reader_model') or '').upper()
         ti_is_5790 = '5790' in str(details.get('ti_reader_model') or '').upper()
-        if (
+        shared_5790 = bool(
             std_is_5790
             and ti_is_5790
+            and details.get('std_reader_address')
             and details.get('std_reader_address') == details.get('ti_reader_address')
-        ):
+        )
+        if instrument_switch_address:
+            if not details.get('std_reader_address') or not details.get('ti_reader_address'):
+                raise RuntimeError(
+                    "Instrument routing requires both Standard and Test Instrument assignments."
+                )
+            if not shared_5790:
+                raise RuntimeError(
+                    "Instrument routing requires one shared 5790A/B assigned to both "
+                    "Standard and Test Instrument roles."
+                )
+            if instrument_switch_address == details.get('switch_driver_address'):
+                raise RuntimeError(
+                    "Assign separate physical switch drivers for source and instrument routing."
+                )
+        if shared_5790:
             inputs = {
                 str(details.get('std_reader_input') or '').upper(),
                 str(details.get('ti_reader_input') or '').upper(),
             }
-            if inputs != {'INPUT1', 'INPUT2'}:
+            if instrument_switch_address and len(inputs) != 1:
+                raise RuntimeError(
+                    "An instrument-routed shared 5790A/B must use the same physical "
+                    "input for its Standard and Test Instrument roles."
+                )
+            if not instrument_switch_address and inputs != {'INPUT1', 'INPUT2'}:
                 raise RuntimeError(
                     "Assign a shared 5790 Standard and Test role to opposite INPUT1/INPUT2 inputs."
                 )
@@ -1922,6 +1963,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             instruments_to_config.append(std_reader_instrument)
         if target_tvc in ['TI', 'BOTH'] and ti_reader_instrument:
             instruments_to_config.append(ti_reader_instrument)
+        # A single 5790A/B may represent both logical roles.  Reprogramming
+        # its filter/range twice resets its acquisition state twice and creates
+        # a long, unexplained pause before the first reading.  Configure every
+        # physical reader exactly once per stage.
+        instruments_to_config = list({id(instrument): instrument for instrument in instruments_to_config}.values())
 
         # --- Low Frequency AC Detection ---
         # Harmonic projection is part of the legacy 34420A/A40B path only.
@@ -2201,13 +2247,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 std_reader_instrument,
                 ti_reader_instrument,
             )
-            # When both logical roles share one 8508A, use one assigned input
-            # to establish the initial lock. The complete FRONT/REAR pair is
-            # still collected after lock, preserving the normal AC/DC
-            # difference sequence and equal Standard/TI sample counts.
+            shared_5790_pair = _shared_5790_reader_pair(
+                std_reader_instrument,
+                ti_reader_instrument,
+            )
+            shared_serial_pair = shared_8508_pair or shared_5790_pair
+            # When both logical roles share one physical reader, use one role
+            # to establish the initial lock. The complete pair is collected
+            # only after lock, preserving equal Standard/TI sample counts and
+            # preventing sequential search samples from temporarily bloating
+            # one live chart.
             stability_target_tvc = (
                 'TI' if target_tvc == 'TI' else 'STD'
-            ) if shared_8508_pair else target_tvc
+            ) if shared_serial_pair else target_tvc
 
             def calc_ppm(points):
                 """Welford's Algorithm for high-precision variance calculation."""
@@ -2244,7 +2296,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 reader_target = (
                     stability_target_tvc
                     if (
-                        shared_8508_pair
+                        shared_serial_pair
                         and stability_method == 'sliding_window'
                         and not initial_stability_achieved
                     )
@@ -2317,8 +2369,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         if not initial_stability_achieved:
                             if is_currently_stable:
                                 initial_stability_achieved = True
-                                if shared_8508_pair and target_tvc == 'BOTH':
-                                    # Search samples came from only one terminal
+                                if shared_serial_pair and target_tvc == 'BOTH':
+                                    # Search samples came from only one logical role
                                     # and therefore are not a valid pair. Keep
                                     # the primary rolling window for monitoring,
                                     # discard any secondary search buffer, and
@@ -2327,10 +2379,24 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                                         stable_candidate_ti.clear()
                                     else:
                                         stable_candidate_std.clear()
+                                    self._buffer_set_stage(
+                                        reading_type_base,
+                                        tp_id=tp_id,
+                                        total=num_samples,
+                                    )
+                                    await self.broadcast(text_data=json.dumps({
+                                        'type': 'paired_collection_reset',
+                                        'stage': reading_type_base,
+                                        'total': num_samples,
+                                    }))
                                     await self.broadcast(text_data=json.dumps({
                                         'type': 'status_update',
-                                        'message': "Initial stability achieved; beginning paired 8508A collection."
+                                        'message': "Initial stability achieved; beginning paired reader collection."
                                     }))
+                                    # Do not publish the final unpaired search
+                                    # sample after resetting the live series.
+                                    std_point = None
+                                    ti_point = None
                                 else:
                                     if std_point: final_std_readings.extend(stable_candidate_std)
                                     if ti_point: final_ti_readings.extend(stable_candidate_ti)
