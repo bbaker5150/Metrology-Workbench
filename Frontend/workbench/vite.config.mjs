@@ -78,6 +78,25 @@ export default defineConfig(({ mode }) => {
       // the full suite is sharing CPU. Preserve their full assertions and
       // sample counts while allowing realistic CI/workstation contention.
       testTimeout: 30000,
+      coverage: {
+        provider: 'v8',
+        reporter: ['text-summary', 'text', 'html', 'lcov', 'json-summary'],
+        reportsDirectory: './coverage',
+        // Report on every source file, not just the ones a test happened to
+        // import. Without this an untested module simply disappears from the
+        // report and inflates the percentages.
+        all: true,
+        include: ['src/**/*.{js,jsx}'],
+        exclude: [
+          'src/**/*.test.{js,jsx}',
+          'src/setupTests.js',
+          'src/index.jsx',
+          'src/**/assets/**',
+          // Presentational 3D/scene wrappers are WebGL-only; jsdom cannot
+          // execute them meaningfully and mocking them would assert nothing.
+          'src/app/LauncherEmblem.jsx',
+        ],
+      },
     },
   };
 });
