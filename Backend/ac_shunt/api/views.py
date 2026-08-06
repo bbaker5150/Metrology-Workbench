@@ -4,6 +4,7 @@ import pyvisa
 import socket
 import time
 from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
 from rest_framework.decorators import api_view
 from rest_framework import viewsets, status
 from rest_framework.decorators import action

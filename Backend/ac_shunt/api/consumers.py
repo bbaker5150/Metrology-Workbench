@@ -940,7 +940,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
     @staticmethod
     def _5790_input_delay(instrument, input_name):
-        """Return the dwell that ``read_input`` will apply, if it will switch."""
+        """Return the required dwell when a 5790 input selection will change."""
         if not isinstance(instrument, Instrument5790B):
             return 0.0
         desired = str(input_name or 'INPUT2').strip().upper()
@@ -948,6 +948,57 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         if active == desired:
             return 0.0
         return max(0.0, float(getattr(instrument, 'input_switch_delay', 0.0) or 0.0))
+
+    async def _wait_for_stop_or_timeout(self, duration):
+        """Wait for a hardware dwell while remaining immediately stoppable.
+
+        Instrument switch delays used to run as ``time.sleep`` calls inside a
+        ``sync_to_async`` worker.  Cancelling the calibration could not stop
+        that sleeping thread, and all fail-safe standby commands queued behind
+        it.  Keep timing in the event loop instead and race it against the
+        shared stop event so both explicit cancellation and a cooperative stop
+        release the run immediately.
+
+        Returns ``True`` when the complete dwell elapsed and ``False`` when a
+        stop request won the race.
+        """
+        duration = max(0.0, float(duration or 0.0))
+        if duration <= 0:
+            return not self.stop_event.is_set()
+        if self.stop_event.is_set():
+            return False
+        try:
+            await asyncio.wait_for(self.stop_event.wait(), timeout=duration)
+        except asyncio.TimeoutError:
+            return True
+        return False
+
+    async def _take_5790_input_reading(self, instrument, input_name, role):
+        """Select, dwell, and read one 5790 input without blocking shutdown."""
+        input_name = str(input_name or 'INPUT2').strip().upper()
+        delay = self._5790_input_delay(instrument, input_name)
+        changed = delay > 0 or str(
+            getattr(instrument, 'active_input', '') or ''
+        ).strip().upper() != input_name
+
+        if changed:
+            # The VISA write remains serialized, but the long settling dwell
+            # deliberately does not occupy the worker thread.
+            await sync_to_async(
+                instrument.set_input,
+                thread_sensitive=True,
+            )(input_name)
+            await self._announce_reader_switch_delay(delay, role, '5790_input')
+            if not await self._wait_for_stop_or_timeout(delay):
+                raise asyncio.CancelledError
+
+        if self.stop_event.is_set():
+            raise asyncio.CancelledError
+        await self._announce_reader_acquisition(role, '5790_input')
+        return await sync_to_async(
+            instrument.read_instrument,
+            thread_sensitive=True,
+        )()
 
     async def _initialize_reader_switch(self, session_details):
         """Open and bind the optional switch dedicated to instrument routing.
@@ -1149,23 +1200,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         'Standard' if role == 'STD' else 'Test instrument',
                         'external_route',
                     )
-                    await asyncio.sleep(delay)
+                    if not await self._wait_for_stop_or_timeout(delay):
+                        raise asyncio.CancelledError
                 if shared_5790:
-                    internal_delay = self._5790_input_delay(instrument, input_name)
-                    await self._announce_reader_switch_delay(
-                        internal_delay,
+                    values[role] = await self._take_5790_input_reading(
+                        instrument,
+                        input_name,
                         'Standard' if role == 'STD' else 'Test instrument',
-                        '5790_input',
                     )
-                    if internal_delay <= 0:
-                        await self._announce_reader_acquisition(
-                            'Standard' if role == 'STD' else 'Test instrument',
-                            '5790_input',
-                        )
-                    values[role] = await sync_to_async(
-                        instrument.read_input,
-                        thread_sensitive=True,
-                    )(input_name)
                 else:
                     values[role] = await self._take_one_reading(instrument)
             return values['STD'], values['TI']
@@ -1197,21 +1239,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     ),
                 ))
             for role, instrument, input_name in order:
-                internal_delay = self._5790_input_delay(instrument, input_name)
-                await self._announce_reader_switch_delay(
-                    internal_delay,
+                values[role] = await self._take_5790_input_reading(
+                    instrument,
+                    input_name,
                     'Standard' if role == 'STD' else 'Test instrument',
-                    '5790_input',
                 )
-                if internal_delay <= 0:
-                    await self._announce_reader_acquisition(
-                        'Standard' if role == 'STD' else 'Test instrument',
-                        '5790_input',
-                    )
-                values[role] = await sync_to_async(
-                    instrument.read_input,
-                    thread_sensitive=True,
-                )(input_name)
             return values['STD'], values['TI']
 
         tasks = [

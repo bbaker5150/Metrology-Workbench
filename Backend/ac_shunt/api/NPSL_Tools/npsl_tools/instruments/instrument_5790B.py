@@ -223,13 +223,19 @@ class Instrument5790B(FlukeInstrument):
             minimum_timeout = 130000 if mode == "SLOW" else (90000 if mode == "MEDIUM" else 60000)
             self.resource.timeout = max(float(self.resource.timeout or 0), minimum_timeout)
 
-    def read_input(self, input_name: str):
-        """Select one main input, allow it to settle, then take a fresh read."""
+    def read_input(self, input_name: str, *, settle: bool = True):
+        """Select one main input and take a fresh reading.
+
+        ``settle=False`` is used by the asynchronous calibration orchestrator,
+        which performs the switch dwell outside this synchronous driver so a
+        Stop request can interrupt it immediately.  The default preserves the
+        safe standalone-driver behavior for other callers.
+        """
         input_name = str(input_name or "INPUT2").strip().upper()
         changed = getattr(self, "active_input", None) != input_name
         if changed:
             self.set_input(input_name)
-            if self.input_switch_delay:
+            if settle and self.input_switch_delay:
                 time.sleep(self.input_switch_delay)
         return self.read_instrument()
         

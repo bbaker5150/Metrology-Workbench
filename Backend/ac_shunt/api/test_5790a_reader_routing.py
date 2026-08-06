@@ -2,7 +2,8 @@ import asyncio
 import json
 from unittest.mock import AsyncMock, Mock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
+from rest_framework.test import APIRequestFactory
 
 from npsl_tools.instruments import Instrument11713C, Instrument5790A
 
@@ -13,8 +14,14 @@ from .consumers import (
     _get_live_state,
     _5790_profile_settings,
 )
-from .models import CalibrationSession
+from .models import (
+    CalibrationSession,
+    CalibrationSettings,
+    TestPoint,
+    TestPointSet,
+)
 from .serializers import CalibrationSessionSerializer
+from .views import TestPointViewSet
 
 
 class Instrument5790ACompatibilityTests(SimpleTestCase):
@@ -96,6 +103,42 @@ class Instrument5790ACompatibilityTests(SimpleTestCase):
             ],
             0.0,
         )
+
+
+class ReaderSettingsApiTests(TestCase):
+    def test_apply_5790_settings_to_all_points(self):
+        session = CalibrationSession.objects.create(session_name="reader-settings")
+        point_set = TestPointSet.objects.create(session=session)
+        points = [
+            TestPoint.objects.create(
+                test_point_set=point_set,
+                current="0.10000",
+                frequency=60,
+                direction=direction,
+            )
+            for direction in ("Forward", "Reverse")
+        ]
+        request = APIRequestFactory().post(
+            "/reader-settings",
+            {
+                "reader_type": "5790",
+                "settings": {
+                    "f5790_filter_mode": "FAST",
+                    "f5790_input_switch_settling_time": 4.5,
+                },
+            },
+            format="json",
+        )
+        response = TestPointViewSet.as_view({
+            "post": "apply_reader_settings_to_all",
+        })(request, session_pk=session.pk)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["updated_points"], 2)
+        for point in points:
+            settings = CalibrationSettings.objects.get(test_point=point)
+            self.assertEqual(settings.f5790_filter_mode, "FAST")
+            self.assertEqual(settings.f5790_input_switch_settling_time, 4.5)
 
 
 class SequentialReaderStabilityTests(SimpleTestCase):
@@ -448,12 +491,20 @@ class SequentialReaderAcquisitionTests(SimpleTestCase):
 
         instrument = Instrument5790A.__new__(Instrument5790A)
         instrument.gpib = "GPIB0::16::INSTR"
-        instrument.read_input = lambda input_name: events.append(input_name) or (
-            2.0 if input_name == "INPUT2" else 1.0
-        )
+        instrument.active_input = None
+        instrument.input_switch_delay = 0
+
+        def set_input(input_name):
+            instrument.active_input = input_name
+            events.append(f"select:{input_name}")
+
+        instrument.set_input = set_input
+        instrument.read_instrument = lambda: events.append(
+            f"read:{instrument.active_input}"
+        ) or (2.0 if instrument.active_input == "INPUT2" else 1.0)
 
         async def exercise():
-            consumer = CalibrationConsumer.__new__(CalibrationConsumer)
+            consumer = CalibrationConsumer()
             consumer._reader_switch = None
             consumer._standard_reader_input = "INPUT1"
             consumer._test_reader_input = "INPUT2"
@@ -461,23 +512,36 @@ class SequentialReaderAcquisitionTests(SimpleTestCase):
             return await consumer._take_reader_pair(instrument, instrument)
 
         self.assertEqual(asyncio.run(exercise()), (1.0, 2.0))
-        self.assertEqual(events, ["INPUT2", "INPUT1"])
+        self.assertEqual(events, [
+            "select:INPUT2",
+            "read:INPUT2",
+            "select:INPUT1",
+            "read:INPUT1",
+        ])
 
     def test_instrument_switch_collects_ti_then_standard_on_shared_input(self):
         events = []
 
         instrument = Instrument5790A.__new__(Instrument5790A)
         instrument.gpib = "GPIB0::16::INSTR"
-        instrument.read_input = lambda input_name: events.append(
-            f"read:{input_name}"
-        ) or (1.0 if len(events) == 4 else 2.0)
+        instrument.active_input = "INPUT2"
+        instrument.input_switch_delay = 0
+        instrument.set_input = lambda input_name: setattr(
+            instrument, "active_input", input_name
+        )
+
+        def read_instrument():
+            events.append(f"read:{instrument.active_input}")
+            return 1.0 if len(events) == 4 else 2.0
+
+        instrument.read_instrument = read_instrument
 
         class FakeSwitch:
             def select_instrument(self, role, standard_route="OPEN"):
                 events.append(f"route:{role}:{standard_route}")
 
         async def exercise():
-            consumer = CalibrationConsumer.__new__(CalibrationConsumer)
+            consumer = CalibrationConsumer()
             consumer._reader_switch = FakeSwitch()
             consumer._reader_switch_standard_route = "CLOSED"
             consumer._reader_switch_settling_time = 0
@@ -510,15 +574,17 @@ class SequentialReaderAcquisitionTests(SimpleTestCase):
         instrument.active_input = "INPUT1"
         instrument.input_switch_delay = 2.5
 
-        def read_input(input_name):
-            events.append(f"read:{input_name}")
+        def set_input(input_name):
+            events.append(f"select:{input_name}")
             instrument.active_input = input_name
-            return 2.0 if input_name == "INPUT2" else 1.0
 
-        instrument.read_input = read_input
+        instrument.set_input = set_input
+        instrument.read_instrument = lambda: events.append(
+            f"read:{instrument.active_input}"
+        ) or (2.0 if instrument.active_input == "INPUT2" else 1.0)
 
         async def exercise():
-            consumer = CalibrationConsumer.__new__(CalibrationConsumer)
+            consumer = CalibrationConsumer()
             consumer._reader_switch = None
             consumer._standard_reader_input = "INPUT1"
             consumer._test_reader_input = "INPUT2"
@@ -527,15 +593,70 @@ class SequentialReaderAcquisitionTests(SimpleTestCase):
                 events.append(json.loads(text_data))
 
             consumer.broadcast = broadcast
+            consumer._wait_for_stop_or_timeout = AsyncMock(return_value=True)
             return await consumer._take_reader_pair(instrument, instrument)
 
         self.assertEqual(asyncio.run(exercise()), (1.0, 2.0))
-        delays = [event for event in events if isinstance(event, dict)]
+        delays = [
+            event for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "reader_switch_delay_update"
+        ]
         self.assertEqual([event["duration"] for event in delays], [2.5, 2.5])
         self.assertEqual(
             [event["role"] for event in delays],
             ["Test instrument", "Standard"],
         )
+
+    def test_stop_interrupts_5790_switch_delay_before_reading(self):
+        instrument = Instrument5790A.__new__(Instrument5790A)
+        instrument.gpib = "GPIB0::16::INSTR"
+        instrument.active_input = "INPUT1"
+        instrument.input_switch_delay = 60
+        instrument.set_input = Mock(
+            side_effect=lambda value: setattr(instrument, "active_input", value)
+        )
+        instrument.read_instrument = Mock(return_value=2.0)
+        source = Mock()
+
+        async def exercise():
+            consumer = CalibrationConsumer()
+            consumer._reader_switch = None
+            consumer._standard_reader_input = "INPUT1"
+            consumer._test_reader_input = "INPUT2"
+            delay_started = asyncio.Event()
+
+            async def broadcast(*, text_data):
+                message = json.loads(text_data)
+                if message.get("type") == "reader_switch_delay_update":
+                    delay_started.set()
+
+            consumer.broadcast = broadcast
+            consumer.stop_event.clear()
+
+            async def run_with_cleanup():
+                try:
+                    await consumer._take_reader_pair(instrument, instrument)
+                finally:
+                    await consumer._standby_active_outputs((source,), None)
+
+            with patch("api.session_state.release_run_lock", return_value=None):
+                self.assertTrue(await consumer.supervisor.start_task(
+                    "interruptible-delay-test",
+                    run_with_cleanup(),
+                ))
+                await asyncio.wait_for(delay_started.wait(), timeout=0.5)
+                await asyncio.wait_for(
+                    consumer.supervisor.stop_task(),
+                    timeout=0.5,
+                )
+            return consumer
+
+        consumer = asyncio.run(exercise())
+        self.assertTrue(consumer.stop_event.is_set())
+        instrument.set_input.assert_called_once_with("INPUT2")
+        instrument.read_instrument.assert_not_called()
+        source.set_standby.assert_called_once_with()
 
 
 class SequentialLiveBufferTests(SimpleTestCase):
