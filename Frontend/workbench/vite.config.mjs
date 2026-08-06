@@ -96,6 +96,17 @@ export default defineConfig(({ mode }) => {
           // execute them meaningfully and mocking them would assert nothing.
           'src/app/LauncherEmblem.jsx',
         ],
+        // A ratchet, not a target. These sit just under the current numbers so
+        // `npm run test:coverage` fails the moment coverage slips, while the
+        // real goal stays well above them. Raise these as coverage climbs —
+        // the remaining gap is concentrated in a handful of very large
+        // components (see docs/testing-coverage.md).
+        thresholds: {
+          statements: 45,
+          branches: 34,
+          functions: 37,
+          lines: 46,
+        },
       },
     },
   };
