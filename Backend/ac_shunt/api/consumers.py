@@ -1000,6 +1000,93 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self._reader_switch = None
 
+    async def _standby_active_outputs(self, sources=(), amplifier=None):
+        """Place every energized output instrument into standby independently.
+
+        Stop must never depend on a reset command or on another instrument's
+        cleanup succeeding.  In particular, ``*RST`` does not reliably force
+        every 5730A firmware revision out of OPERATE.  Send the instrument's
+        explicit standby command first, isolate failures per device, and let
+        the remaining resource/switch cleanup continue afterwards.
+        """
+        unique_sources = []
+        seen = set()
+        for source in sources or ():
+            if source is None or id(source) in seen:
+                continue
+            seen.add(id(source))
+            unique_sources.append(source)
+
+        for source in unique_sources:
+            try:
+                standby = getattr(source, 'set_standby', None)
+                if callable(standby):
+                    await sync_to_async(standby, thread_sensitive=True)()
+                else:
+                    set_operate_standby = getattr(source, 'set_operate_standby', None)
+                    if callable(set_operate_standby):
+                        await sync_to_async(
+                            set_operate_standby,
+                            thread_sensitive=True,
+                        )(False)
+                    else:
+                        reset = getattr(source, 'reset', None)
+                        if callable(reset):
+                            await sync_to_async(reset, thread_sensitive=True)()
+            except Exception as exc:
+                print(
+                    f"[SAFE-SHUTDOWN] Failed to place source in standby: {exc}",
+                    flush=True,
+                )
+
+        if amplifier is not None:
+            try:
+                standby = getattr(amplifier, 'set_standby', None)
+                if callable(standby):
+                    await sync_to_async(standby, thread_sensitive=True)()
+                else:
+                    reset = getattr(amplifier, 'reset', None)
+                    if callable(reset):
+                        await sync_to_async(reset, thread_sensitive=True)()
+            except Exception as exc:
+                print(
+                    f"[SAFE-SHUTDOWN] Failed to place amplifier in standby: {exc}",
+                    flush=True,
+                )
+
+    async def _deactivate_source_switch(self, switch_driver):
+        """Return the source switch to its passive route without blocking shutdown."""
+        if switch_driver is None:
+            return
+        try:
+            await sync_to_async(
+                switch_driver.deactivate_all,
+                thread_sensitive=True,
+            )()
+        except Exception as exc:
+            print(
+                f"[SAFE-SHUTDOWN] Failed to deactivate source switch: {exc}",
+                flush=True,
+            )
+
+    async def _close_instruments(self, instruments):
+        """Close each instrument resource; one close failure must not block others."""
+        seen = set()
+        for instrument in instruments or ():
+            if instrument is None or id(instrument) in seen:
+                continue
+            seen.add(id(instrument))
+            close = getattr(instrument, 'close', None)
+            if not callable(close):
+                continue
+            try:
+                await sync_to_async(close, thread_sensitive=True)()
+            except Exception as exc:
+                print(
+                    f"[SAFE-SHUTDOWN] Failed to close instrument resource: {exc}",
+                    flush=True,
+                )
+
     async def _take_reader_pair(
         self,
         std_reader,
@@ -1815,20 +1902,22 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
-            if switch_driver and hasattr(switch_driver, 'close'):
-                await sync_to_async(switch_driver.close, thread_sensitive=True)()
-            # Reset whichever source(s) we actually instantiated. When
-            # AC and DC share the same physical unit, the set dedupes for us.
-            for src in filter(None, {ac_source, dc_source}):
-                await sync_to_async(src.reset, thread_sensitive=True)()
-            if amplifier and not characterization_completed:
-                await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
-            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
-                if hasattr(inst, 'close'):
-                    if inst is amplifier and characterization_completed:
-                        await sync_to_async(inst.close, thread_sensitive=True)(reset=False)
-                    else:
-                        await sync_to_async(inst.close, thread_sensitive=True)()
+            await self._standby_active_outputs(
+                (ac_source, dc_source),
+                amplifier if (not characterization_completed or self.stop_event.is_set()) else None,
+            )
+            await self._deactivate_source_switch(switch_driver)
+            await self._close_instruments((switch_driver, std_reader, ti_reader, ac_source, dc_source))
+            if amplifier:
+                try:
+                    await sync_to_async(amplifier.close, thread_sensitive=True)(
+                        reset=not characterization_completed or self.stop_event.is_set(),
+                    )
+                except Exception as exc:
+                    print(
+                        f"[SAFE-SHUTDOWN] Failed to close amplifier resource: {exc}",
+                        flush=True,
+                    )
 
     def _is_low_frequency_ac(self, reading_type_base, test_point_data):
         """Helper to detect if the current stage is low-frequency AC."""
@@ -2866,22 +2955,23 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
+            await self._standby_active_outputs(
+                (ac_source, dc_source),
+                amplifier_instrument,
+            )
             if switch_driver:
-                await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
+                await self._deactivate_source_switch(switch_driver)
                 await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': 'AC'}))
-                if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
 
             await self._release_reader_switch(reader_switch)
-            
-            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
-            for source in sources_to_shutdown:
-                await sync_to_async(source.reset, thread_sensitive=True)()
-
-            if amplifier_instrument: await sync_to_async(amplifier_instrument.set_standby, thread_sensitive=True)()
-            
-            for inst in filter(None, {std_reader_instrument, ti_reader_instrument, amplifier_instrument, ac_source, dc_source}):
-                if hasattr(inst, 'close'):
-                    await sync_to_async(inst.close, thread_sensitive=True)()
+            await self._close_instruments((
+                switch_driver,
+                std_reader_instrument,
+                ti_reader_instrument,
+                amplifier_instrument,
+                ac_source,
+                dc_source,
+            ))
 
     async def run_full_calibration_sequence(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier = None, None, None, None, None
@@ -3028,15 +3118,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
+            await self._standby_active_outputs((ac_source, dc_source), amplifier)
             await self._release_reader_switch(reader_switch)
-            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
-            for source in sources_to_shutdown:
-                await sync_to_async(source.reset, thread_sensitive=True)()
-            if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
-            
-            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
-                if hasattr(inst, 'close'):
-                    await sync_to_async(inst.close, thread_sensitive=True)()
+            await self._close_instruments((
+                std_reader,
+                ti_reader,
+                amplifier,
+                ac_source,
+                dc_source,
+            ))
 
     async def run_full_calibration_batch(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier, switch_driver = None, None, None, None, None, None
@@ -3203,21 +3293,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
+            await self._standby_active_outputs((ac_source, dc_source), amplifier)
             if switch_driver:
-                await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
-                if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
+                await self._deactivate_source_switch(switch_driver)
 
             await self._release_reader_switch(reader_switch)
-
-            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
-            for source in sources_to_shutdown:
-                await sync_to_async(source.reset, thread_sensitive=True)()
-
-            if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
-
-            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
-                if hasattr(inst, 'close'):
-                    await sync_to_async(inst.close, thread_sensitive=True)()
+            await self._close_instruments((
+                switch_driver,
+                std_reader,
+                ti_reader,
+                amplifier,
+                ac_source,
+                dc_source,
+            ))
 
     # ------------------------------------------------------------------
     # Paired AC-DC batch (Forward pass → flip prompt → Reverse pass).
@@ -3511,35 +3599,17 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
-            if switch_driver:
-                try:
-                    await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
-                except Exception:
-                    pass
-                if hasattr(switch_driver, 'close'):
-                    await sync_to_async(switch_driver.close, thread_sensitive=True)()
-
+            await self._standby_active_outputs((ac_source, dc_source), amplifier)
+            await self._deactivate_source_switch(switch_driver)
             await self._release_reader_switch(reader_switch)
-
-            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
-            for source in sources_to_shutdown:
-                try:
-                    await sync_to_async(source.reset, thread_sensitive=True)()
-                except Exception:
-                    pass
-
-            if amplifier:
-                try:
-                    await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
-                except Exception:
-                    pass
-
-            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
-                if hasattr(inst, 'close'):
-                    try:
-                        await sync_to_async(inst.close, thread_sensitive=True)()
-                    except Exception:
-                        pass
+            await self._close_instruments((
+                switch_driver,
+                std_reader,
+                ti_reader,
+                amplifier,
+                ac_source,
+                dc_source,
+            ))
 
     @database_sync_to_async
     def _maybe_recompute_pair_for_single_direction(self, test_point_data):
@@ -3707,21 +3777,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
+            await self._standby_active_outputs((ac_source, dc_source), amplifier)
             if switch_driver:
-                await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
-                if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
+                await self._deactivate_source_switch(switch_driver)
 
             await self._release_reader_switch(reader_switch)
-
-            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
-            for source in sources_to_shutdown:
-                await sync_to_async(source.reset, thread_sensitive=True)()
-
-            if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
-            
-            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
-                if hasattr(inst, 'close'):
-                    await sync_to_async(inst.close, thread_sensitive=True)()
+            await self._close_instruments((
+                switch_driver,
+                std_reader,
+                ti_reader,
+                amplifier,
+                ac_source,
+                dc_source,
+            ))
 
     async def save_readings_to_db(self, reading_type_full, readings_list, test_point):
         """

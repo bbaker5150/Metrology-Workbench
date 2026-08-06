@@ -182,6 +182,7 @@ class SequentialReaderStabilityTests(SimpleTestCase):
             for update in stability_updates
         ))
 
+
     def test_unstable_windows_advance_retry_count_and_replace_search_window(self):
         class Source:
             def set_output(self, voltage, frequency):
@@ -256,6 +257,52 @@ class SequentialReaderStabilityTests(SimpleTestCase):
         }
         self.assertEqual(len(saved["std_ac_open"]), 4)
         self.assertEqual(len(saved["ti_ac_open"]), 4)
+
+
+class SafeShutdownTests(SimpleTestCase):
+    def test_every_output_receives_explicit_standby_even_after_peer_failure(self):
+        class Output:
+            def __init__(self, fail=False):
+                self.fail = fail
+                self.standby_calls = 0
+
+            def set_standby(self):
+                self.standby_calls += 1
+                if self.fail:
+                    raise RuntimeError("simulated VISA failure")
+
+        async def run_shutdown():
+            consumer = CalibrationConsumer()
+            first_source = Output(fail=True)
+            second_source = Output()
+            amplifier = Output()
+            await consumer._standby_active_outputs(
+                (first_source, first_source, second_source),
+                amplifier,
+            )
+            return first_source, second_source, amplifier
+
+        first_source, second_source, amplifier = asyncio.run(run_shutdown())
+        self.assertEqual(first_source.standby_calls, 1)
+        self.assertEqual(second_source.standby_calls, 1)
+        self.assertEqual(amplifier.standby_calls, 1)
+
+    def test_reset_is_only_a_fallback_when_standby_is_unavailable(self):
+        class LegacyOutput:
+            def __init__(self):
+                self.reset_calls = 0
+
+            def reset(self):
+                self.reset_calls += 1
+
+        async def run_shutdown():
+            consumer = CalibrationConsumer()
+            source = LegacyOutput()
+            await consumer._standby_active_outputs((source,), None)
+            return source
+
+        source = asyncio.run(run_shutdown())
+        self.assertEqual(source.reset_calls, 1)
 
 
 class ReaderSwitchMappingTests(SimpleTestCase):
