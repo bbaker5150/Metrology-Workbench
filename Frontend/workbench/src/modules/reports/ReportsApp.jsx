@@ -10,7 +10,7 @@
 // wildcard path /reports/*, so internal navigation lives in the <Routes>
 // below and the shell never knows about it.
 import React from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route } from "react-router";
 import { ReportsProvider } from "./contexts/ReportsContext";
 import ReportsMain from "./components/ReportsMain";
 import "./ReportsApp.css";

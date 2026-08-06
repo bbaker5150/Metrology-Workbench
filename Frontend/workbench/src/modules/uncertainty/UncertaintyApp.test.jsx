@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, beforeAll, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 
 // The analysis tree transitively imports the full Plotly bundle; stub it so the
 // jsdom smoke test doesn't load it. (Charts only render once a point is

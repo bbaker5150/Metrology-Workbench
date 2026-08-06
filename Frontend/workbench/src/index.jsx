@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { RouterProvider } from 'react-router-dom';
+import { RouterProvider } from 'react-router';
 import './index.css';
 // Side-effect import: configures the global axios singleton (retry/backoff)
 // once at boot for every module.

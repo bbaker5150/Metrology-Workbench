@@ -1,5 +1,5 @@
 import React, { Suspense } from "react";
-import { createHashRouter, Navigate } from "react-router-dom";
+import { createHashRouter, Navigate } from "react-router";
 import WorkbenchShell from "./WorkbenchShell";
 import HomeLauncher from "./HomeLauncher";
 import { MODULES } from "./moduleRegistry";
