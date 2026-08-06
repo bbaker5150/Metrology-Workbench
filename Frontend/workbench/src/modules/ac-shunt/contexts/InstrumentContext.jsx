@@ -476,10 +476,10 @@ export const InstrumentContextProvider = ({ children }) => {
     readingWs.current.onopen = () => {
       setReadingWsState(readingWs.current.readyState);
       
-      // Ask the Host for its live chart data if joining late!
-      if (isRemoteViewer) {
-        readingWs.current.send(JSON.stringify({ command: "request_live_sync" }));
-      }
+      // Hydrate from the authoritative server buffer. This is essential for
+      // observers joining mid-cycle and also repairs an operator reconnect
+      // without waiting for another reading event.
+      readingWs.current.send(JSON.stringify({ command: "request_live_sync" }));
     };
 
     readingWs.current.onclose = () => {
@@ -538,15 +538,15 @@ export const InstrumentContextProvider = ({ children }) => {
 
       if (data.type === "live_state_sync") {
         // Authoritative snapshot from the server-side live buffer. Apply it
-        // unconditionally so late-joining remotes see every completed stage,
-        // and so a remote joining between runs correctly resets to idle.
+        // unconditionally so a late-joining host or observer sees the current
+        // cycle, and so a client joining between runs correctly resets to idle.
         //
         // The server stores ``t`` as an integer millisecond epoch so the
         // payload stays JSON-friendly; every other code path that fills
         // ``liveReadings`` uses ``new Date(...)``. Rehydrate on arrival so
         // the chart tooltip's ``toLocaleTimeString`` call finds the Date
         // shape it expects, regardless of which path produced the point.
-        if (isRemoteViewer) {
+        {
           // StrictMode + WS reconnects can deliver the same snapshot twice
           // within a few hundred ms. Fingerprint on the fields that actually
           // drive renders so an identical replay is a no-op. We stringify
@@ -559,6 +559,9 @@ export const InstrumentContextProvider = ({ children }) => {
             tr: data.tiLiveReadings || null,
             p: data.collectionProgress || null,
             f: data.focusedTPKey || null,
+            sw: data.slidingWindowStatus || null,
+            ss: data.stabilizationStatus || null,
+            t: data.timerState || null,
           });
           const now = Date.now();
           const prev = lastLiveSyncSigRef.current;
@@ -584,7 +587,9 @@ export const InstrumentContextProvider = ({ children }) => {
           };
 
           setIsCollecting(Boolean(data.isCollecting));
-          setActiveCollectionDetails(data.activeCollectionDetails || null);
+          const syncedDetails = data.activeCollectionDetails || null;
+          setActiveCollectionDetails(syncedDetails);
+          activeCycleRef.current = syncedDetails?.cycle_index ?? null;
 
           // Rehydrate a pre-measurement countdown (warm-up / settling) from
           // the snapshot. A remote joining mid-warm-up missed the one-shot
@@ -594,27 +599,55 @@ export const InstrumentContextProvider = ({ children }) => {
           // countdown is correct despite client/server skew. An already-
           // expired (or inactive) timer resets to idle.
           const syncedTimer = data.timerState;
-          if (syncedTimer && syncedTimer.isActive && data.serverNow != null) {
-            const remainingSeconds = syncedTimer.endsAt - data.serverNow;
-            if (remainingSeconds > 0) {
+          if (syncedTimer && syncedTimer.isActive) {
+            if (syncedTimer.isIndeterminate) {
               setTimerState({
                 isActive: true,
-                duration: syncedTimer.duration,
-                targetTime: Date.now() + remainingSeconds * 1000,
-                label: syncedTimer.label || "Warm-up",
+                isIndeterminate: true,
+                duration: 0,
+                label: syncedTimer.label || "Acquiring reader",
               });
+            } else if (data.serverNow != null && syncedTimer.endsAt != null) {
+              const remainingSeconds = syncedTimer.endsAt - data.serverNow;
+              if (remainingSeconds > 0) {
+                setTimerState({
+                  isActive: true,
+                  duration: syncedTimer.duration,
+                  targetTime: Date.now() + remainingSeconds * 1000,
+                  label: syncedTimer.label || "Warm-up",
+                });
+              } else {
+                setTimerState({ isActive: false, duration: 0, label: "" });
+              }
             } else {
+              // An active snapshot must describe either a countdown or an
+              // indeterminate acquisition. Do not preserve a timer from an
+              // older stage if a malformed/legacy snapshot describes neither.
               setTimerState({ isActive: false, duration: 0, label: "" });
             }
-          } else if (!data.isCollecting) {
-            // Snapshot says the run is fully idle — clear any stale timer the
-            // remote may have been showing from a previous run.
+          } else {
+            // No timer is active for the current stage. Clear any countdown
+            // retained from the previously-rendered stage or run.
             setTimerState({ isActive: false, duration: 0, label: "" });
           }
           setLiveReadings({ ...initialLiveReadings, ...rehydrateStageMap(data.liveReadings) });
           setTiLiveReadings({ ...initialLiveReadings, ...rehydrateStageMap(data.tiLiveReadings) });
           if (data.collectionProgress) setCollectionProgress(data.collectionProgress);
-          if (data.focusedTPKey) setFocusedTPKey(data.focusedTPKey);
+          setFocusedTPKey(data.focusedTPKey || null);
+          setSlidingWindowStatus(data.slidingWindowStatus || null);
+          const syncedStabilization = data.stabilizationStatus;
+          if (
+            syncedStabilization &&
+            Number.isFinite(Number(syncedStabilization.reading))
+          ) {
+            setStabilizationStatus(
+              `[${syncedStabilization.count}/${syncedStabilization.max_attempts}] ` +
+              `Reading: ${Number(syncedStabilization.reading).toFixed(6)} V, ` +
+              `Stdev: ${syncedStabilization.stdev_ppm} PPM`
+            );
+          } else {
+            setStabilizationStatus(null);
+          }
           setDataRefreshTrigger((prev) => prev + 1);
         }
         return;

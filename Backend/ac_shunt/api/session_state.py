@@ -169,6 +169,11 @@ def _initial_live_state() -> dict:
         'tiLiveReadings': {},
         'collectionProgress': {'count': 0, 'total': 0},
         'focusedTPKey': None,
+        # Latest operator-facing stability payloads. Live clients receive
+        # these incrementally, while a client joining mid-cycle needs the
+        # current values included in its authoritative snapshot.
+        'slidingWindowStatus': None,
+        'stabilizationStatus': None,
         # Pre-measurement countdown (warm-up / settling). Carried in the
         # snapshot so a remote joining mid-warm-up — which has missed the
         # one-shot ``status_update`` broadcast — still sees the timer and
