@@ -677,3 +677,55 @@ class SequentialLiveBufferTests(SimpleTestCase):
             [point["x"] for point in state["liveReadings"]["ac_open"]],
             [3, 4, 5, 6, 7, 8],
         )
+
+    def test_mid_cycle_snapshot_carries_cycle_samples_and_stability(self):
+        consumer = CalibrationConsumer.__new__(CalibrationConsumer)
+        consumer.session_id = "shared-5790-live-buffer"
+        consumer._buffer_set_stage(
+            "ac_open",
+            tp_id=42,
+            total=6,
+            cycle_index=2,
+        )
+        raw = {"value": 0.1, "timestamp": 10.0, "is_stable": True}
+        consumer._buffer_append_sample(
+            "ac_open",
+            raw,
+            raw,
+            1,
+            6,
+            cycle_index=2,
+        )
+        consumer._buffer_record_broadcast({
+            "type": "sliding_window_update",
+            "stdev_ppm": 4.5,
+            "std_stdev_ppm": 3.5,
+            "ti_stdev_ppm": 4.5,
+            "is_stable": True,
+            "instability_events": 1,
+            "max_retries": 10,
+            "phase": "monitoring",
+            "window_count": 1,
+            "window_size": 3,
+        })
+
+        state = _get_live_state(consumer.session_id)
+        self.assertEqual(state["activeCollectionDetails"], {
+            "stage": "ac_open",
+            "tpId": 42,
+            "readingKey": "ac_open",
+            "cycle_index": 2,
+        })
+        self.assertEqual(state["liveReadings"]["ac_open"][0]["cycle"], 2)
+        self.assertEqual(state["tiLiveReadings"]["ac_open"][0]["cycle"], 2)
+        self.assertEqual(state["slidingWindowStatus"], {
+            "ppm": 4.5,
+            "std_ppm": 3.5,
+            "ti_ppm": 4.5,
+            "is_stable": True,
+            "instability_events": 1,
+            "max_retries": 10,
+            "phase": "monitoring",
+            "window_count": 1,
+            "window_size": 3,
+        })

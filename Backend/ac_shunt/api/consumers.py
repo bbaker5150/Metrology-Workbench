@@ -745,11 +745,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         command = data.get('command')
 
-        # Live chart sync for session observers (remotes on collect-readings).
+        # Live chart sync for any client that opens or reconnects mid-run.
         # The server itself is the source of truth for the in-flight buffer, so
-        # a remote joining mid-run gets a complete snapshot directly from the
-        # consumer's state — no host-browser relay required. Runs regardless of
-        # self.state so late joiners can still catch up during an active run.
+        # a host or observer joining mid-run gets a complete snapshot directly
+        # from the consumer's state — no host-browser relay required. Runs
+        # regardless of self.state so late joiners can catch up during an active run.
         if command == 'request_live_sync':
             state = _peek_live_state(self.session_id)
             await self.send(text_data=json.dumps({
@@ -1400,17 +1400,24 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     # any viewer joining mid-run gets an authoritative snapshot from a single
     # source of truth (see ``request_live_sync`` handler in ``receive``).
 
-    def _buffer_set_stage(self, stage, tp_id=None, total=0):
+    def _buffer_set_stage(self, stage, tp_id=None, total=0, cycle_index=None):
         """Record that ``stage`` is now in flight for ``tp_id`` and reset its arrays."""
         state = _get_live_state(self.session_id)
         state['isCollecting'] = True
         # The stage is now underway — retire any warm-up/settling countdown
         # so a late joiner sees "Collecting", not a stale timer.
         state['timerState'] = {'isActive': False}
-        state['activeCollectionDetails'] = {'stage': stage, 'tpId': tp_id, 'readingKey': stage}
+        state['activeCollectionDetails'] = {
+            'stage': stage,
+            'tpId': tp_id,
+            'readingKey': stage,
+            'cycle_index': cycle_index,
+        }
         state['liveReadings'][stage] = []
         state['tiLiveReadings'][stage] = []
         state['collectionProgress'] = {'count': 0, 'total': total}
+        state['slidingWindowStatus'] = None
+        state['stabilizationStatus'] = None
 
     def _buffer_set_batch_point(self, test_point):
         """Mark a new test point in a batch run: wipe per-TP live arrays and refresh focus."""
@@ -1423,7 +1430,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             frequency = test_point.get('frequency')
             state['focusedTPKey'] = f"{current}-{frequency}"
 
-    def _buffer_append_sample(self, stage, std_raw, ti_raw, count, total):
+    def _buffer_append_sample(
+        self, stage, std_raw, ti_raw, count, total, cycle_index=None,
+    ):
         """Upsert the latest STD/TI sample into the buffer, deduped by x=count."""
         state = _get_live_state(self.session_id)
 
@@ -1436,6 +1445,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 'y': raw.get('value'),
                 't': int(ts * 1000),
                 'is_stable': raw.get('is_stable', True),
+                'cycle': cycle_index,
             }
 
         def _upsert(bucket, point):
@@ -1455,7 +1465,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         _upsert(state['tiLiveReadings'], _to_cached(ti_raw))
         state['collectionProgress'] = {'count': count, 'total': total}
 
-    def _buffer_replace_search_window(self, stage, std_points, ti_points, total):
+    def _buffer_replace_search_window(
+        self, stage, std_points, ti_points, total, cycle_index=None,
+    ):
         """Mirror the exact sliding-search window for reconnecting clients.
 
         An unstable window discards its oldest point before the next attempt.
@@ -1474,6 +1486,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     'y': raw.get('value'),
                     't': int(ts * 1000),
                     'is_stable': raw.get('is_stable', True),
+                    'cycle': cycle_index,
                 })
             return cached
 
@@ -1481,6 +1494,68 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         state['tiLiveReadings'][stage] = _to_cached(ti_points)
         active_count = len(std_points or []) or len(ti_points or [])
         state['collectionProgress'] = {'count': active_count, 'total': total}
+
+    def _buffer_record_broadcast(self, payload):
+        """Mirror transient events needed to hydrate a mid-run client."""
+        if not isinstance(payload, dict) or not getattr(self, 'session_id', None):
+            return
+        state = _get_live_state(self.session_id)
+        event_type = payload.get('type')
+
+        if event_type == 'calibration_stage_update':
+            details = dict(state.get('activeCollectionDetails') or {})
+            details.update({
+                'stage': payload.get('stage'),
+                'readingKey': payload.get('stage'),
+                'tpId': payload.get('tpId', details.get('tpId')),
+                'cycle_index': payload.get(
+                    'cycle_index', details.get('cycle_index'),
+                ),
+            })
+            state['activeCollectionDetails'] = details
+            state['isCollecting'] = True
+        elif event_type == 'cycle_progress_update':
+            details = dict(state.get('activeCollectionDetails') or {})
+            details['cycle_index'] = payload.get('cycle_index')
+            if payload.get('tpId') is not None:
+                details['tpId'] = payload.get('tpId')
+            state['activeCollectionDetails'] = details
+            state['isCollecting'] = True
+        elif event_type == 'sliding_window_update':
+            state['slidingWindowStatus'] = {
+                'ppm': payload.get('stdev_ppm', payload.get('ppm')),
+                'std_ppm': payload.get('std_stdev_ppm'),
+                'ti_ppm': payload.get('ti_stdev_ppm'),
+                'is_stable': payload.get('is_stable'),
+                'instability_events': payload.get('instability_events'),
+                'max_retries': payload.get('max_retries'),
+                'phase': payload.get('phase'),
+                'window_count': payload.get('window_count'),
+                'window_size': payload.get('window_size'),
+            }
+            state['stabilizationStatus'] = None
+            state['timerState'] = {'isActive': False}
+        elif event_type == 'stabilization_update':
+            state['stabilizationStatus'] = dict(payload)
+            state['slidingWindowStatus'] = None
+            state['timerState'] = {'isActive': False}
+        elif event_type == 'reader_switch_delay_update':
+            duration = max(0.0, float(payload.get('duration') or 0.0))
+            state['timerState'] = {
+                'isActive': duration > 0,
+                'duration': duration,
+                'endsAt': time.time() + duration,
+                'label': payload.get('label') or 'Reader switch',
+            }
+        elif event_type == 'reader_acquisition_update':
+            state['timerState'] = {
+                'isActive': True,
+                'isIndeterminate': True,
+                'duration': 0,
+                'label': payload.get('label') or 'Acquiring reader',
+            }
+        elif event_type == 'dual_reading_update':
+            state['timerState'] = {'isActive': False}
 
     def _buffer_clear(self):
         _clear_live_state(self.session_id)
@@ -2370,7 +2445,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if ti_point: collected_ti.append(ti_point)
                 sample_count += 1
 
-                self._buffer_append_sample(reading_type_base, std_point, ti_point, sample_count, sample_count)
+                self._buffer_append_sample(
+                    reading_type_base,
+                    std_point,
+                    ti_point,
+                    sample_count,
+                    sample_count,
+                    cycle_index=cycle_index,
+                )
 
                 await self.broadcast(text_data=json.dumps({
                     'type': 'dual_reading_update',
@@ -2379,7 +2461,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     'count': sample_count,
                     'stable_count': sample_count,
                     'total': '∞',
-                    'stage': reading_type_base
+                    'stage': reading_type_base,
+                    'cycle_index': cycle_index,
                 }))
                 await asyncio.sleep(0.05)
 
@@ -2808,6 +2891,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         search_window_snapshot['std'],
                         search_window_snapshot['ti'],
                         num_samples,
+                        cycle_index=cycle_index,
                     )
                 else:
                     self._buffer_append_sample(
@@ -2816,6 +2900,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         ti_point,
                         current_count,
                         num_samples,
+                        cycle_index=cycle_index,
                     )
 
                 await self.broadcast(text_data=json.dumps({
@@ -2826,6 +2911,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     'stable_count': get_target_length(),
                     'total': num_samples,
                     'stage': reading_type_base,
+                    'cycle_index': cycle_index,
                     'window_snapshot': search_window_snapshot,
                 }))
 
@@ -3102,7 +3188,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         source_instrument = ac_source if 'ac' in stage else dc_source
                         if not source_instrument: raise Exception(f"Required {'AC' if 'ac' in stage else 'DC'} Source is not assigned.")
 
-                        self._buffer_set_stage(stage, tp_id=(data.get('test_point') or {}).get('id'), total=num_samples)
+                        self._buffer_set_stage(
+                            stage,
+                            tp_id=(data.get('test_point') or {}).get('id'),
+                            total=num_samples,
+                            cycle_index=cycle_index,
+                        )
                         await self.broadcast(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples, 'cycle_index': cycle_index, 'tpId': (data.get('test_point') or {}).get('id')}))
 
                         success = await self._perform_single_measurement(
@@ -3277,7 +3368,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         source_instrument = ac_source if 'ac' in stage else dc_source
                         if not source_instrument: raise Exception(f"Required source for stage '{stage}' is not assigned.")
 
-                        self._buffer_set_stage(stage, tp_id=point_data.get('id'), total=current_num_samples)
+                        self._buffer_set_stage(
+                            stage,
+                            tp_id=point_data.get('id'),
+                            total=current_num_samples,
+                            cycle_index=cycle_index,
+                        )
                         await self.broadcast(text_data=json.dumps({
                             'type': 'calibration_stage_update',
                             'stage': stage,
@@ -3438,7 +3534,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     if not source_instrument:
                         raise Exception(f"Required source for stage '{stage}' is not assigned.")
 
-                    self._buffer_set_stage(stage, tp_id=point_data.get('id'), total=current_num_samples)
+                    self._buffer_set_stage(
+                        stage,
+                        tp_id=point_data.get('id'),
+                        total=current_num_samples,
+                        cycle_index=cycle_index,
+                    )
                     await self.broadcast(text_data=json.dumps({
                         'type': 'calibration_stage_update',
                         'stage': stage,
@@ -4033,6 +4134,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
     async def broadcast(self, text_data):
         """Intercepts the text_data and broadcasts it to ALL clients in the session."""
+        try:
+            self._buffer_record_broadcast(json.loads(text_data))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            # Buffering is best-effort and must never suppress the live event.
+            pass
         await self.channel_layer.group_send(
             self.session_group_name,
             {
