@@ -2,18 +2,28 @@ import React, { Suspense, useEffect, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF, Stage } from "@react-three/drei";
 
+// Public assets are addressed through Vite's configured base rather than a
+// leading "/". An absolute path only resolves when the app is served from the
+// server root, which is true for the dev server and Electron's file:// load but
+// not when the built bundle is hosted in a subfolder — the SharePoint build
+// lives inside a document library. BASE_URL is "./" in both builds, so this is
+// the same URL as before wherever the app already worked.
+const asset = (file) => `${import.meta.env.BASE_URL}${file}`;
+const EMBLEM_MODEL = asset("3demblem.glb");
+const EMBLEM_FALLBACK = asset("navair-seal-384.webp");
+
 // ---------------------------------------------------------------------
 // HeaderEmblem — the living 3D medallion in the module header brand mark.
 // ---------------------------------------------------------------------
 // Mirrors the workbench home page's LauncherEmblem recipe (same
-// /3demblem.glb + Canvas/Stage lighting) so the brand reads consistently
+// 3demblem.glb + Canvas/Stage lighting) so the brand reads consistently
 // across the whole workbench. Kept module-local (rather than importing the
 // shell's component) to preserve module isolation. Always gently alive: a
 // slow sway keeps the engraved front face toward the viewer, with a soft
 // float + breathing tilt. Non-interactive by design.
 // ---------------------------------------------------------------------
 function AliveEmblem({ onReady }) {
-  const { scene } = useGLTF("/3demblem.glb");
+  const { scene } = useGLTF(EMBLEM_MODEL);
   const ref = useRef();
 
   useEffect(() => {
@@ -38,7 +48,7 @@ export default function HeaderEmblem() {
   return (
     <div className="app-header-emblem-layers">
       <img
-        src="/navair-seal-384.webp"
+        src={EMBLEM_FALLBACK}
         alt=""
         width="384"
         height="384"
@@ -68,4 +78,4 @@ export default function HeaderEmblem() {
   );
 }
 
-useGLTF.preload("/3demblem.glb");
+useGLTF.preload(EMBLEM_MODEL);

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Uncertainty Budget</title>
+    <!--
+      Optional per-deployment configuration. Because the built page is a static
+      file dropped in a document library, this block can be edited in place
+      without rebuilding:
+
+        window.UNCERTAINTY_CONFIG = {
+          listPrefix: 'LabB',                       // isolate a second instance
+          webUrl: 'https://tenant/sites/other'      // target a different web
+        };
+
+      Both are optional. Left unset, the tool uses the "Uncertainty" prefix and
+      discovers the web it is hosted in.
+    -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/standalone/main.jsx"></script>
+  </body>
+</html>
