@@ -11,6 +11,7 @@
 # production
 /build
 /build-standalone
+/build-singlefile
 
 # scratch dir used by scripts/smoke-sharepoint.mjs
 /.smoke-serve

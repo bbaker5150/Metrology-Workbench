@@ -7,18 +7,50 @@ It exists because deploying an SPFx web part needs write access to a tenant App
 Catalog, which is centrally held on Flank Speed. This build needs nothing but
 permission to upload files to a document library and create lists on one site.
 
-## Build
+## Two builds — pick by how it will be hosted
+
+| | `build:standalone` | `build:singlefile` |
+| --- | --- | --- |
+| Output | folder, 91 files | **one 6.6 MB HTML file** |
+| Over the wire | 1.84 MB gzipped, lazy-loaded | 2.58 MB gzipped, all up front |
+| Needs a real URL | **yes** | no |
+| Works in Forge (`srcdoc`) | no | **yes** |
+| 3D header medallion | yes | no (static seal instead) |
+
+**Forge ships apps by injecting their HTML into an `<iframe srcdoc>`**, and
+sanitises it on the way in. A srcdoc document has no URL of its own, so
+relative paths have nothing to resolve against and every chunk, font, and image
+request fails. Only the single-file build survives that.
+
+Use `build:standalone` anywhere the app can be served from a real URL — it
+keeps code splitting and loads less up front.
 
 ```bash
 cd Frontend/workbench
 npm install
-npm run build:standalone     # -> build-standalone/
+npm run build:standalone     # -> build-standalone/            (real URL host)
+npm run build:singlefile     # -> build-singlefile/uncertainty-budget.html  (Forge)
 ```
 
-Output is ~15 MB on disk, **1.8 MB gzipped over the wire**, entry `index.html`.
-Assets use relative URLs, so the bundle works from whatever folder it lands in.
 
-## Deploy
+## Deploy through Forge (single file)
+
+Ship `build-singlefile/uncertainty-budget.html`. It is one self-contained file
+— all JavaScript, CSS, fonts, and images inlined as data URIs, zero subresource
+requests — so there is nothing else to upload and nothing to resolve.
+
+Storage still works: a srcdoc frame **inherits the parent page's origin**, so
+same-origin `/_api/` requests carry cookies and the parent's
+`_spPageContextInfo` is readable. That is how the tool finds which SharePoint
+web it is in, since its own `location.pathname` is just `"srcdoc"`.
+
+The 3D header medallion is absent in this build — `useGLTF` fetches the model
+at runtime, which a single file cannot do. The static seal it already renders
+underneath shows instead, and dropping three.js keeps ~1 MB out of the bundle.
+
+## Deploy to a document library (multi-file)
+
+Only if the app can be reached at a real URL — not through Forge.
 
 1. Create (or pick) a document library folder on the site, e.g.
    `Assets/Software/Uncertainty`.
@@ -111,7 +143,8 @@ All requests use `credentials: 'include'` against the same origin.
 
 ```bash
 npm test                              # 1032 tests, includes 102 for this build
-node scripts/smoke-sharepoint.mjs     # end-to-end in a real browser
+node scripts/smoke-sharepoint.mjs     # multi-file build, served from a real URL
+node scripts/smoke-forge-srcdoc.mjs   # single-file build, inside an iframe srcdoc
 ```
 
 The smoke test serves the built bundle from a SharePoint-shaped path, simulates
@@ -125,8 +158,11 @@ project dependency).
 
 **Verified here**
 
-- Builds; 102 unit tests over the SharePoint layer and adapter
-- All 9 end-to-end smoke checks pass in Chromium against a mocked SharePoint
+- Both builds compile; 102 unit tests over the SharePoint layer and adapter
+- 9/9 smoke checks for the multi-file build served from a real URL
+- 8/8 smoke checks for the single-file build inside an `about:srcdoc` frame:
+  boots with zero failed subresource requests, discovers the web from the
+  parent frame, provisions all four containers, and mounts
 - The workbench's own 930 tests still pass — nothing regressed
 
 **Not verified**
@@ -134,10 +170,14 @@ project dependency).
 - **No call has run against a real SharePoint tenant.** Provisioning and the
   first save/load round trip need a manual pass. The REST shapes are asserted
   against a double, which is not the same as a live site accepting them.
-- How the App page web part actually hosts the file — iframe versus inline
-  injection — was inferred, not observed. If it injects the HTML inline rather
-  than framing the file URL, module scripts will not execute and the page will
-  need the iframe route instead.
+- Whether Forge's sanitiser leaves the inlined `<script>` intact. It strips
+  `href` off preload links, which is harmless here, but the simulation could
+  only reproduce the container, not Forge's own filtering.
+- Whether Forge's iframe carries a `sandbox` attribute. Without
+  `allow-same-origin` the frame gets an opaque origin, cookies are not sent,
+  and SharePoint persistence becomes impossible from inside — the tool would
+  need a different storage story. The smoke test assumes no sandbox, matching
+  the observed `about:srcdoc` behaviour.
 
 **Known limitation**
 
