@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
+import { assertSanitiserSafe } from './hardenInlineHtml.mjs';
 
 // ---------------------------------------------------------------------------
 // Simulates how Forge hosts an app, to prove the single-file build survives it.
@@ -16,6 +17,11 @@ import http from 'node:http';
 //
 // This drives both: the app must boot with zero subresource requests, and it
 // must find the SharePoint web by reading the parent frame.
+//
+// What a real browser cannot reproduce is Forge's own sanitiser, which reads
+// the document before the browser does and killed the first ship attempt by
+// cutting the bundle at a `<script` that was only ever a string. Playwright is
+// too forgiving to catch that, so the file is checked statically as well.
 
 const PORT = 4190;
 const WEB = `http://127.0.0.1:${PORT}/sites/ISEA`;
@@ -100,6 +106,16 @@ const check = (label, ok, extra = '') => {
   ok ? pass++ : fail++;
 };
 
+let sanitiserSafe = true;
+let sanitiserProblem = '';
+try {
+  assertSanitiserSafe(appHtml);
+} catch (error) {
+  sanitiserSafe = false;
+  sanitiserProblem = error.message.split('\n').slice(0, 2).join('\n      ');
+}
+check('nothing in the file can be mistaken for markup', sanitiserSafe, sanitiserProblem);
+
 check('app runs inside an about:srcdoc frame', frame ? (await frame.evaluate(() => location.href)) === 'about:srcdoc' : false);
 check('zero failed subresource requests', subresourceFailures.length === 0,
   subresourceFailures.length ? `\n      ${subresourceFailures.slice(0, 4).join('\n      ')}` : '');
@@ -114,6 +130,16 @@ if (/not set up yet/i.test(frameText)) {
   check('provisioning created all four containers', lists.size === 4, `(${lists.size})`);
   const after = await frame.locator('body').innerText();
   check('app mounted after provisioning', !/not set up yet/i.test(after));
+
+  // Every image has to be embedded, not addressed. A src the frame cannot
+  // resolve fails silently — the element is simply blank — so the check is on
+  // whether the bytes actually decoded, not on whether a request 404'd.
+  const images = await frame.evaluate(() => [...document.images].map((img) => ({
+    embedded: img.currentSrc.startsWith('data:') || img.currentSrc.startsWith('blob:'),
+    decoded: img.naturalWidth > 0,
+  })));
+  check('every image is embedded and decoded', images.length > 0 && images.every((i) => i.embedded && i.decoded),
+    `(${images.length} images, ${images.filter((i) => !i.embedded).length} addressed, ${images.filter((i) => !i.decoded).length} blank)`);
 }
 
 check('no uncaught errors', pageErrors.length === 0,

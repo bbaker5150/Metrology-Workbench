@@ -176,8 +176,13 @@ const EquationLibraryMenu = ({
           </datalist>
           <div className="equation-library-save-actions">
             <button type="button" onClick={cancelSave}>Cancel</button>
+            {/* onClick, not submit — see BugReportModal: native form submission
+                is blocked in the SharePoint host. The disabled guard above is
+                what enforces the two required fields, so nothing is lost by not
+                reaching the browser's validation. */}
             <button
-              type="submit"
+              type="button"
+              onClick={submitSave}
               className="is-primary"
               disabled={!saveName.trim() || !saveArea.trim()}
             >

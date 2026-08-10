@@ -1,9 +1,46 @@
 import { chromium } from 'playwright';
+import { readFileSync, statSync } from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
 
 // Drives the built standalone bundle against a simulated SharePoint REST
 // surface, so the whole chain — web URL discovery, form digest, the storage
 // gate, provisioning, and the axios adapter — is exercised in a real browser.
 const BASE = 'http://127.0.0.1:4182';
+
+// The bundle is served from a path shaped like a document library folder, so
+// web-URL discovery has a realistic /sites/<name>/ prefix to derive from and
+// the chunk requests have to resolve relative to a subfolder, as they will on
+// the real site.
+const MOUNT = '/sites/ISEA/Assets/';
+const ROOT = new URL('../build-standalone/', import.meta.url);
+const TYPES = {
+  '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.webp': 'image/webp', '.png': 'image/png',
+  '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2',
+  '.woff': 'font/woff', '.ttf': 'font/ttf', '.glb': 'model/gltf-binary',
+};
+
+const server = http.createServer((req, res) => {
+  const requested = decodeURIComponent(new URL(req.url, BASE).pathname);
+  if (!requested.startsWith(MOUNT)) return res.writeHead(404).end();
+
+  let relative = requested.slice(MOUNT.length) || 'index.html';
+  if (relative.endsWith('/')) relative += 'index.html';
+
+  const file = new URL(relative, ROOT);
+  // Nothing outside the build directory is servable, whatever the path says.
+  if (!file.href.startsWith(ROOT.href)) return res.writeHead(403).end();
+
+  try {
+    if (statSync(file).isDirectory()) return res.writeHead(404).end();
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(relative)] || 'application/octet-stream' });
+    res.end(readFileSync(file));
+  } catch {
+    res.writeHead(404).end();
+  }
+});
+await new Promise((resolve) => server.listen(4182, '127.0.0.1', resolve));
 
 const state = { lists: new Set(), files: new Map(), items: new Map() };
 let nextItemId = 1;
@@ -120,9 +157,7 @@ const check = (label, ok, extra = '') => {
   ok ? pass++ : fail++;
 };
 
-// The page is served from a path that looks like a SharePoint document
-// library, so web-URL discovery has something realistic to derive from.
-await page.goto(`${BASE}/sites/ISEA/Assets/`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}${MOUNT}`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(2500);
 
 const bodyText = () => page.locator('body').innerText();
@@ -158,4 +193,5 @@ check(
 
 console.log(`\n${fail === 0 ? 'SMOKE: ALL PASS' : `SMOKE: ${fail} FAILED`}  (${pass} passed)`);
 await browser.close();
+server.close();
 process.exit(fail === 0 ? 0 : 1);

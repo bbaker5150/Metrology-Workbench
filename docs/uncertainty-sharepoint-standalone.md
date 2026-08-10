@@ -11,8 +11,8 @@ permission to upload files to a document library and create lists on one site.
 
 | | `build:standalone` | `build:singlefile` |
 | --- | --- | --- |
-| Output | folder, 91 files | **one 6.6 MB HTML file** |
-| Over the wire | 1.84 MB gzipped, lazy-loaded | 2.58 MB gzipped, all up front |
+| Output | folder, 91 files | **one 6.7 MB HTML file** |
+| Over the wire | 1.84 MB gzipped, lazy-loaded | 2.5 MB gzipped, all up front |
 | Needs a real URL | **yes** | no |
 | Works in Forge (`srcdoc`) | no | **yes** |
 | 3D header medallion | yes | no (static seal instead) |
@@ -35,9 +35,10 @@ npm run build:singlefile     # -> build-singlefile/uncertainty-budget.html  (For
 
 ## Deploy through Forge (single file)
 
-Ship `build-singlefile/uncertainty-budget.html`. It is one self-contained file
-— all JavaScript, CSS, fonts, and images inlined as data URIs, zero subresource
-requests — so there is nothing else to upload and nothing to resolve.
+Ship `build-singlefile/uncertainty-budget.html`. It is the only thing in
+`build-singlefile/` and the only thing to upload: all JavaScript, CSS, fonts,
+and images are inlined as data URIs, so the page makes zero subresource
+requests and has nothing to resolve.
 
 Storage still works: a srcdoc frame **inherits the parent page's origin**, so
 same-origin `/_api/` requests carry cookies and the parent's
@@ -47,6 +48,50 @@ web it is in, since its own `location.pathname` is just `"srcdoc"`.
 The 3D header medallion is absent in this build — `useGLTF` fetches the model
 at runtime, which a single file cannot do. The static seal it already renders
 underneath shows instead, and dropping three.js keeps ~1 MB out of the bundle.
+
+### Nothing in the file may look like a tag
+
+Forge does not hand the file to the browser untouched; something reads and
+filters it first. The first ship attempt came back a blank page with
+`Uncaught SyntaxError: Unexpected identifier 'testRecorder'` — and
+`testRecorder` appears nowhere in our bundle, so by the time that error was
+raised the script had already been cut somewhere it should not have been and
+Forge's own injected instrumentation had landed in the wound.
+
+The browser's parser was never the problem. Inside a `<script>` element only
+the exact sequence `</script` ends the element, and `vite-plugin-singlefile`
+escapes that. But the bundle is full of markup that is only ever *data*: React
+ships the literal `"<script><\/script>"`, mathjs emits `'<span
+class="math-…">'` several hundred times, and the print path writes a whole
+`<style>` block into a popup window. Anything that scans for `<script` or
+`<style` instead of running the real tokeniser finds those and splits the file
+in the wrong place.
+
+So `scripts/hardenInlineHtml.mjs` leaves nothing to find. It parses the inlined
+bundle and rewrites `<` to `\x3c` — the same character to a JavaScript engine,
+invisible to an HTML scanner — but only inside string literals, template
+chunks, and regular expressions. That restriction is the whole difficulty:
+search-and-replace cannot be used because `<` is also the less-than operator,
+where `\x3c` is a syntax error. Driving it from the AST is what keeps `i < n`
+untouched while `"<span>"` gets escaped.
+
+Two assertions keep it honest, both fatal to the build:
+
+- After rewriting, the literal values are re-read from the new AST and compared
+  against the originals, so an escape that changed a *value* rather than its
+  spelling fails immediately. This is what catches the one real trap: in
+  `(?<name>` and `\k<name>` the `<` is regex grammar, not a character, and
+  escaping it yields a pattern that will not compile.
+- The finished document is scanned for `</`, `<script`, `<style`, `<iframe`,
+  `<!--`, and `-->` anywhere inside a script or style body. The rewrite only
+  covers what the parser classifies as data, so this is the net under it — a
+  future dependency that hides markup in a legal comment fails the build rather
+  than the ship.
+
+The same reason is why nothing in the app relies on native form submission:
+Firepit blocks it, including the implicit submission a `<button>` performs
+without `type="button"`. The two forms in the tool drive their handlers from
+`onClick` instead.
 
 ## Deploy to a document library (multi-file)
 
@@ -142,37 +187,46 @@ All requests use `credentials: 'include'` against the same origin.
 ## Testing
 
 ```bash
-npm test                              # 1032 tests, includes 102 for this build
+npm test                              # 1060 tests, includes 130 for this build
 node scripts/smoke-sharepoint.mjs     # multi-file build, served from a real URL
 node scripts/smoke-forge-srcdoc.mjs   # single-file build, inside an iframe srcdoc
 ```
 
-The smoke test serves the built bundle from a SharePoint-shaped path, simulates
-the REST API with Playwright route mocking, and drives the whole chain: web URL
+Both smoke tests serve the built bundle from a SharePoint-shaped path, simulate
+the REST API with Playwright route mocking, and drive the whole chain: web URL
 discovery, digest, the storage gate detecting an unprovisioned site,
 provisioning all four containers, the app mounting, and the session list coming
-back through the adapter. It needs `npm i -D playwright` (deliberately not a
-project dependency).
+back through the adapter. They need `npm i -D playwright` (deliberately not a
+project dependency) and the matching build to have been run first.
+
+The srcdoc one also checks what a browser is too forgiving to catch: that the
+file contains nothing a sanitiser could mistake for markup, and that every
+image in the mounted app is embedded and actually decoded — an unresolvable
+`src` inside a srcdoc frame fails silently, leaving a blank element rather than
+a failed request.
 
 ## Status
 
 **Verified here**
 
-- Both builds compile; 102 unit tests over the SharePoint layer and adapter
+- Both builds compile; 130 unit tests over the SharePoint layer, the adapter,
+  and the sanitiser hardening
 - 9/9 smoke checks for the multi-file build served from a real URL
-- 8/8 smoke checks for the single-file build inside an `about:srcdoc` frame:
-  boots with zero failed subresource requests, discovers the web from the
-  parent frame, provisions all four containers, and mounts
-- The workbench's own 930 tests still pass — nothing regressed
+- 10/10 smoke checks for the single-file build inside an `about:srcdoc` frame:
+  holds no sequence a sanitiser could read as markup, boots with zero failed
+  subresource requests, discovers the web from the parent frame, provisions all
+  four containers, mounts, and renders its images from embedded bytes
+- The workbench's own tests still pass — 1060 in total, nothing regressed
 
 **Not verified**
 
 - **No call has run against a real SharePoint tenant.** Provisioning and the
   first save/load round trip need a manual pass. The REST shapes are asserted
   against a double, which is not the same as a live site accepting them.
-- Whether Forge's sanitiser leaves the inlined `<script>` intact. It strips
-  `href` off preload links, which is harmless here, but the simulation could
-  only reproduce the container, not Forge's own filtering.
+- Whether the hardening is enough for Forge. It removes every sequence the
+  observed failure is consistent with, and the file now survives an
+  `about:srcdoc` frame with nothing tag-like left in it — but Forge's own
+  filter cannot be run here, so the next ship is the real test.
 - Whether Forge's iframe carries a `sandbox` attribute. Without
   `allow-same-origin` the frame gets an opaque origin, cookies are not sent,
   and SharePoint persistence becomes impossible from inside — the tool would
@@ -182,13 +236,28 @@ project dependency).
 **Known limitation**
 
 `public/3demblem.glb` is stored in Git LFS. A clone without `git lfs` gets a
-133-byte pointer and the 3D emblem fails to parse; run `git lfs pull`.
+133-byte pointer and the 3D emblem fails to parse; run `git lfs pull`. This
+affects the dev server, Electron, and the multi-file build; the single-file
+build stubs the 3D emblem out entirely.
 
-## One module change
+## Module changes
 
-`HeaderEmblem.jsx` referenced `/3demblem.glb` and `/navair-seal-384.webp` by
-absolute path. Those only resolve when the app is served from the server root —
-true for the dev server and Electron's `file://` load, false for a bundle in a
-library subfolder. Both now go through `import.meta.env.BASE_URL`, which is the
-identical URL wherever the app already worked. It is a correctness fix that
-benefits both builds, not a SharePoint-specific fork.
+Three, all of them fixes rather than SharePoint-specific forks —
+`modules/uncertainty/**` is otherwise the same code the Electron/Django product
+runs.
+
+`HeaderEmblem.jsx` addressed both of its assets by absolute path, which only
+resolves when the app is served from the server root: true for the dev server
+and Electron's `file://` load, false for a bundle in a library subfolder. The
+`.glb` now goes through `import.meta.env.BASE_URL` — the identical URL wherever
+the app already worked. The still seal is *imported* rather than addressed,
+because a srcdoc frame has no URL to resolve against at all; as a module asset
+it is hashed in the normal builds and inlined as a data URI in the single-file
+one. It moved from `public/` to `src/assets/` to make that possible, and
+`index.html` lost its now-pointless preload of the old path.
+
+`BugReportModal.jsx` and `EquationLibraryMenu.jsx` had primary buttons that
+submitted their form. Both now call the handler from `onClick` with
+`type="button"`, so nothing depends on the browser's form machinery — which
+Firepit blocks. The surrounding `<form onSubmit>` is kept, so Enter still
+submits everywhere that is allowed.

@@ -303,8 +303,16 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
 
                             {/* Footer Actions */}
                             <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px', paddingTop: '15px', borderTop: '1px solid var(--border-color)' }}>
+                                {/* Driven by onClick rather than implicit form
+                                    submission: the SharePoint build runs inside
+                                    a host that blocks native submits, and a
+                                    button that has to reach the browser's form
+                                    machinery to work would silently do nothing
+                                    there. The surrounding form is kept for Enter
+                                    to submit where that is allowed. */}
                                 <button
-                                    type="submit"
+                                    type="button"
+                                    onClick={handleSubmit}
                                     className="nav-btn primary"
                                     style={{ padding: '10px 25px' }}
                                 >

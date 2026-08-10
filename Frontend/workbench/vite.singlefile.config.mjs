@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import path from 'node:path';
+import { hardenInlineHtml } from './scripts/hardenInlineHtml.mjs';
 
 // ---------------------------------------------------------------------------
 // Single-file build, for shipping through Forge.
@@ -27,6 +28,10 @@ export default defineConfig({
   plugins: [
     react(),
     viteSingleFile({ removeViteModuleLoader: true }),
+    // Must follow viteSingleFile: it rewrites the bundle *after* it has been
+    // inlined, so that nothing in the document can be mistaken for markup by
+    // whatever reads it before the browser does. See the module header.
+    hardenInlineHtml(),
     {
       // The generated file is index.html by default; give it a name that says
       // what it is, since it gets uploaded somewhere on its own.
@@ -41,6 +46,11 @@ export default defineConfig({
       },
     },
   ],
+  // Nothing in public/ can be reached from a srcdoc frame, so copying it beside
+  // the output would only be a trap: 6.5 MB of files that look like part of the
+  // deliverable and are not. The one thing this build still needs from there,
+  // the seal image, is imported as a module asset and inlined.
+  publicDir: false,
   build: {
     outDir: 'build-singlefile',
     emptyOutDir: true,
