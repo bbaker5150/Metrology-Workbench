@@ -26,6 +26,7 @@ import { SharePointStore, DEFAULT_PREFIX } from './sharepoint/spStore';
 import { resolveWebUrl } from './sharepoint/spContext';
 import { createSharePointAdapter } from './sharepoint/axiosSharePointAdapter';
 import StorageGate from './StorageGate';
+import installFormSubmitShim from './formSubmitShim';
 import './standalone.css';
 
 // The hosting page can override these without a rebuild, which matters because
@@ -57,6 +58,9 @@ const initialTheme = (() => {
   }
 })();
 document.body.classList.add(`${initialTheme}-mode`, 'uncertainty-active');
+
+// Covers the forms inside bundled dependencies; ours do not use submission.
+installFormSubmitShim();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

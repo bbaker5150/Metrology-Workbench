@@ -88,6 +88,12 @@ function stripTrailingSlash(url) {
 
 const JSON_ACCEPT = 'application/json;odata=nometadata';
 
+// A few endpoints will not accept a payload without an explicit OData type.
+// Field creation is the one this build needs: the Fields collection is
+// polymorphic, so SharePoint cannot infer whether a body describes a text,
+// number, or note column, and rejects it with a bare 400.
+const VERBOSE = 'application/json;odata=verbose';
+
 /** Cached digest plus the moment it stops being valid. */
 let digestCache = null;
 
@@ -159,15 +165,21 @@ export async function spGet(webUrl, path, fetchImpl = fetch) {
  * `method` lets callers issue SharePoint's tunnelled MERGE and DELETE verbs,
  * which it expects as a POST carrying X-HTTP-Method.
  */
-export async function spPost(webUrl, path, { body, method, headers = {}, raw = false } = {}, fetchImpl = fetch) {
+export async function spPost(
+  webUrl,
+  path,
+  { body, method, headers = {}, raw = false, verbose = false } = {},
+  fetchImpl = fetch,
+) {
   const digest = await getFormDigest(webUrl, fetchImpl);
+  const contentType = verbose ? VERBOSE : JSON_ACCEPT;
   const requestHeaders = {
-    Accept: JSON_ACCEPT,
+    Accept: contentType,
     'X-RequestDigest': digest,
     ...headers,
   };
   if (!raw && body !== undefined) {
-    requestHeaders['Content-Type'] = JSON_ACCEPT;
+    requestHeaders['Content-Type'] = contentType;
   }
   if (method) {
     requestHeaders['X-HTTP-Method'] = method;
@@ -200,7 +212,11 @@ async function readJson(response, context) {
   if (response.status === 204) return {};
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
-    throw new SharePointError(describeFailure(context, response.status), response.status, detail);
+    throw new SharePointError(
+      describeFailure(context, response.status, detail),
+      response.status,
+      detail,
+    );
   }
   const text = await response.text();
   if (!text) return {};
@@ -211,16 +227,43 @@ async function readJson(response, context) {
   }
 }
 
+/**
+ * SharePoint's own explanation of a failure, dug out of the response body.
+ *
+ * It says things like "A duplicate field name … was found" or "Column limit
+ * exceeded" — the whole diagnosis, sitting in the body of a response we would
+ * otherwise report as a bare status code. Three body shapes are in play because
+ * the format depends on the OData flavour the request asked for.
+ */
+export function sharePointErrorMessage(detail) {
+  if (!detail) return '';
+  let parsed;
+  try {
+    parsed = JSON.parse(detail);
+  } catch {
+    // An HTML sign-in page or a proxy error. Not worth showing raw.
+    return /^\s*</.test(detail) ? '' : detail.slice(0, 300).trim();
+  }
+
+  const error = parsed?.error || parsed?.['odata.error'];
+  const message = error?.message ?? parsed?.['odata.error']?.message;
+  const text = typeof message === 'string' ? message : message?.value;
+  return typeof text === 'string' ? text.trim() : '';
+}
+
 /** Turn a bare status into something an analyst can act on. */
-function describeFailure(context, status) {
+function describeFailure(context, status, detail) {
+  const reason = sharePointErrorMessage(detail);
+  const because = reason ? ` SharePoint said: ${reason}` : '';
+
   if (status === 403) {
-    return `${context} was denied (403). You need Edit permission on this site; ask a site owner.`;
+    return `${context} was denied (403). You need Edit permission on this site; ask a site owner.${because}`;
   }
   if (status === 404) {
-    return `${context} was not found (404). The lists may not have been created yet — run setup from the tool's Storage panel.`;
+    return `${context} was not found (404). The lists may not have been created yet — run setup from the tool's Storage panel.${because}`;
   }
   if (status === 401) {
-    return `${context} was rejected as unauthenticated (401). Reload the page to sign in again.`;
+    return `${context} was rejected as unauthenticated (401). Reload the page to sign in again.${because}`;
   }
-  return `${context} failed (HTTP ${status}).`;
+  return `${context} failed (HTTP ${status}).${because}`;
 }

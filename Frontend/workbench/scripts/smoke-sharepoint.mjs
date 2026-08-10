@@ -106,9 +106,12 @@ await page.route('**/_api/**', async (route) => {
   }
   // Fields
   if (/\/fields\?\$select=InternalName/.test(path)) return route.fulfill(json({ value: [] }));
-  if (/\/fields$/.test(path)) return route.fulfill(json({ Id: 'f' }));
-  if (/getbyinternalnameortitle/.test(path) || /addviewfield/.test(path)) {
-    return route.fulfill(json({}));
+  if (/createfieldasxml/.test(path)) return route.fulfill(json({ Id: 'f' }));
+  // A live tenant answers 400 here: the Fields collection is polymorphic, so a
+  // plain JSON body with no OData type is not enough to say what to create.
+  // Reproduced rather than accepted, so the working shape stays the only one.
+  if (/\/fields$/.test(path) && method === 'POST') {
+    return route.fulfill(json({ error: { message: { value: 'A type named \'\' could not be resolved by the model.' } } }, 400));
   }
   // Library root folder
   if (/RootFolder/.test(path)) {

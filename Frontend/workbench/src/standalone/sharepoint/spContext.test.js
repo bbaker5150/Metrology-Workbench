@@ -7,6 +7,7 @@ import {
   spGet,
   spPost,
   SharePointError,
+  sharePointErrorMessage,
 } from "./spContext";
 
 const digestResponse = (value = "DIGEST-1", seconds = 1800) => ({
@@ -290,6 +291,71 @@ describe("spPost", () => {
     await expect(spPost("https://t.example", "/_api/x", { body: {} }, fetchImpl)).rejects.toMatchObject({
       detail: "Invalid column",
     });
+  });
+
+  it("puts SharePoint's own explanation in the message, not just the status", async () => {
+    // A bare "failed (HTTP 400)" sends someone reading network traces for the
+    // sentence that was already in the response body.
+    const body = JSON.stringify({
+      error: { code: "-1, System.ArgumentException", message: { lang: "en-US", value: "A duplicate field name was found." } },
+    });
+    const fetchImpl = withDigest([{ ok: false, status: 400, text: async () => body, json: async () => JSON.parse(body) }]);
+    await expect(spPost("https://t.example", "/_api/x", { body: {} }, fetchImpl)).rejects.toThrow(
+      /A duplicate field name was found\./,
+    );
+  });
+
+  it("sends the verbose OData content type when asked", async () => {
+    const fetchImpl = withDigest([jsonResponse({}, 200)]);
+    await spPost("https://t.example", "/_api/x", { body: {}, verbose: true }, fetchImpl);
+    const headers = fetchImpl.mock.calls[1][1].headers;
+    expect(headers["Content-Type"]).toBe("application/json;odata=verbose");
+    expect(headers.Accept).toBe("application/json;odata=verbose");
+  });
+
+  it("uses the lean content type otherwise", async () => {
+    const fetchImpl = withDigest([jsonResponse({}, 200)]);
+    await spPost("https://t.example", "/_api/x", { body: {} }, fetchImpl);
+    expect(fetchImpl.mock.calls[1][1].headers["Content-Type"]).toBe("application/json;odata=nometadata");
+  });
+});
+
+describe("sharePointErrorMessage", () => {
+  it("reads the verbose error shape", () => {
+    const body = JSON.stringify({ error: { message: { lang: "en-US", value: "Column limit exceeded." } } });
+    expect(sharePointErrorMessage(body)).toBe("Column limit exceeded.");
+  });
+
+  it("reads the lean error shape, where the message is a plain string", () => {
+    expect(sharePointErrorMessage(JSON.stringify({ error: { message: "List does not exist." } }))).toBe(
+      "List does not exist.",
+    );
+  });
+
+  it("reads the odata.error shape", () => {
+    const body = JSON.stringify({ "odata.error": { code: "-1", message: { value: "Access denied." } } });
+    expect(sharePointErrorMessage(body)).toBe("Access denied.");
+  });
+
+  it("returns nothing for an empty body", () => {
+    expect(sharePointErrorMessage("")).toBe("");
+    expect(sharePointErrorMessage(undefined)).toBe("");
+  });
+
+  it("returns nothing for an HTML page, which is a sign-in redirect rather than an explanation", () => {
+    expect(sharePointErrorMessage("<!doctype html><html><body>Sign in</body></html>")).toBe("");
+  });
+
+  it("passes through a short plain-text body", () => {
+    expect(sharePointErrorMessage("  Bad Request  ")).toBe("Bad Request");
+  });
+
+  it("truncates a long plain-text body rather than filling the panel", () => {
+    expect(sharePointErrorMessage("x".repeat(1000))).toHaveLength(300);
+  });
+
+  it("returns nothing when the JSON has no error in it", () => {
+    expect(sharePointErrorMessage(JSON.stringify({ value: [] }))).toBe("");
   });
 });
 

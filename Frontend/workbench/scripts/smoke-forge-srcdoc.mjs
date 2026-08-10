@@ -84,6 +84,16 @@ await page.route('**/_api/**', async (route) => {
     lists.add(JSON.parse(route.request().postData() || '{}').Title);
     return ok({ Id: 'g' });
   }
+  if (/createfieldasxml/.test(url)) return ok({ Id: 'f' });
+  // What the live tenant answered: the Fields collection is polymorphic, so a
+  // plain JSON body carries no way to tell what kind of column to create.
+  if (/\/fields$/.test(url) && route.request().method() === 'POST') {
+    return route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { message: { value: "A type named '' could not be resolved by the model." } } }),
+    });
+  }
   if (/RootFolder/.test(url)) return ok({ ServerRelativeUrl: '/sites/ISEA/UncertaintySessions' });
   return ok({ value: [] });
 });

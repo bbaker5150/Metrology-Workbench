@@ -69,6 +69,54 @@ export const CONTAINERS = [
   },
 ];
 
+// SP.AddFieldOptions, as a bit field.
+const ADD_FIELD = {
+  /** Take the internal name from `Name` instead of deriving it from the title. */
+  INTERNAL_NAME_HINT: 8,
+  /** Put the column in the list's default view. */
+  TO_DEFAULT_VIEW: 16,
+};
+
+export function addFieldOptions(field) {
+  return ADD_FIELD.INTERNAL_NAME_HINT | (field.inView ? ADD_FIELD.TO_DEFAULT_VIEW : 0);
+}
+
+const xmlAttr = (value) => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
+/**
+ * Field schema XML for one column.
+ *
+ * `Name` and `StaticName` are both set so the internal name is exactly what the
+ * rest of this file addresses the column by; `DisplayName` is free to be
+ * whatever reads well in the list UI.
+ */
+export function fieldSchemaXml(field) {
+  const attrs = {
+    Type: { [FIELD_TYPE.TEXT]: 'Text', [FIELD_TYPE.NOTE]: 'Note', [FIELD_TYPE.NUMBER]: 'Number' }[field.type],
+    DisplayName: field.title || field.name,
+    Name: field.name,
+    StaticName: field.name,
+  };
+  if (!attrs.Type) throw new Error(`No schema XML for field type ${field.type}.`);
+
+  // A Note column cannot be indexed or shown in a view the way the others can,
+  // and rich text would mangle the JSON it holds.
+  if (field.type === FIELD_TYPE.NOTE) {
+    attrs.NumLines = field.lines || 6;
+    attrs.RichText = 'FALSE';
+    attrs.AppendOnly = 'FALSE';
+  } else if (field.indexed) {
+    attrs.Indexed = 'TRUE';
+  }
+
+  const pairs = Object.entries(attrs).map(([key, value]) => `${key}="${xmlAttr(value)}"`);
+  return `<Field ${pairs.join(' ')} />`;
+}
+
 export function containerFor(key) {
   const found = CONTAINERS.find((c) => c.key === key);
   if (!found) throw new Error(`Unknown container '${key}'.`);
@@ -157,33 +205,33 @@ export class SharePointStore {
     return (body.value || []).map((f) => f.InternalName);
   }
 
+  /**
+   * Add one column, described as Field schema XML.
+   *
+   * Posting a plain object to the `/fields` collection does not work: that
+   * collection is polymorphic — SP.FieldText, SP.FieldNumber,
+   * SP.FieldMultiLineText — so without an OData type annotation SharePoint
+   * cannot tell what is being created and answers 400. Schema XML sidesteps the
+   * question entirely by naming the type in the payload.
+   *
+   * It also collapses what used to be three requests into one. Internal name,
+   * display name, and indexing are all set at creation, where the old JSON
+   * route had to create the column under its internal name, rename it, and add
+   * it to the default view separately — with the internal name derived from the
+   * title, which is how a column ends up called `Session_x0020_Id`.
+   */
   async createField(title, field) {
     const api = `/_api/web/lists/getbytitle('${encodeURIComponent(title)}')`;
-    const payload = { Title: field.name, FieldTypeKind: field.type, Indexed: Boolean(field.indexed) };
-    if (field.type === FIELD_TYPE.NOTE) {
-      payload.NumberOfLines = field.lines || 6;
-      payload.RichText = false;
-    }
-    await this.post(`${api}/fields`, { body: payload });
-
-    // SharePoint derives the internal name from Title at creation time, so the
-    // field is created under its internal name and given its display name
-    // afterwards. Renaming first would produce an internal name with escapes.
-    if (field.title && field.title !== field.name) {
-      await this.post(`${api}/fields/getbyinternalnameortitle('${encodeURIComponent(field.name)}')`, {
-        method: 'MERGE',
-        body: { Title: field.title },
-      });
-    }
-
-    if (field.inView) {
-      try {
-        await this.post(`${api}/defaultView/viewfields/addviewfield('${encodeURIComponent(field.name)}')`, {});
-      } catch {
-        // A column missing from the default view is cosmetic; never abort
-        // provisioning over it.
-      }
-    }
+    await this.post(`${api}/fields/createfieldasxml`, {
+      verbose: true,
+      body: {
+        parameters: {
+          __metadata: { type: 'SP.XmlSchemaFieldCreationInformation' },
+          SchemaXml: fieldSchemaXml(field),
+          Options: addFieldOptions(field),
+        },
+      },
+    });
   }
 
   // -- sessions -------------------------------------------------------------

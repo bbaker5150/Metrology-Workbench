@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SharePointStore, listTitle, CONTAINERS, FIELD_TYPE } from "./spStore";
+import { SharePointStore, listTitle, fieldSchemaXml, CONTAINERS, FIELD_TYPE } from "./spStore";
+
 import { resetWebUrlCache } from "./spContext";
 
 const WEB = "https://t.example/sites/ISEA";
@@ -74,9 +75,53 @@ describe("listTitle", () => {
   });
 });
 
+describe("fieldSchemaXml", () => {
+  it("names a text column identically in all three name attributes it addresses it by", () => {
+    const xml = fieldSchemaXml({ name: "RecordId", title: "Record Id", type: FIELD_TYPE.TEXT });
+    expect(xml).toBe('<Field Type="Text" DisplayName="Record Id" Name="RecordId" StaticName="RecordId" />');
+  });
+
+  it("marks an indexed column", () => {
+    const xml = fieldSchemaXml({ name: "SessionId", type: FIELD_TYPE.NUMBER, indexed: true });
+    expect(xml).toContain('Type="Number"');
+    expect(xml).toContain('Indexed="TRUE"');
+  });
+
+  it("does not try to index a Note column, which SharePoint will not do", () => {
+    const xml = fieldSchemaXml({ name: "PayloadJson", type: FIELD_TYPE.NOTE, indexed: true, lines: 12 });
+    expect(xml).not.toContain("Indexed");
+    expect(xml).toContain('NumLines="12"');
+    expect(xml).toContain('AppendOnly="FALSE"');
+  });
+
+  it("falls back to the internal name when there is no display name", () => {
+    expect(fieldSchemaXml({ name: "Analyst", type: FIELD_TYPE.TEXT })).toContain('DisplayName="Analyst"');
+  });
+
+  it("escapes a display name so it cannot break out of the attribute", () => {
+    const xml = fieldSchemaXml({ name: "X", title: 'A & B "C" <d>', type: FIELD_TYPE.TEXT });
+    expect(xml).toContain('DisplayName="A &amp; B &quot;C&quot; &lt;d&gt;"');
+    // One well-formed element, not two.
+    expect(xml.match(/<Field/g)).toHaveLength(1);
+  });
+
+  it("refuses a field type it has no schema for rather than emitting broken XML", () => {
+    expect(() => fieldSchemaXml({ name: "X", type: 999 })).toThrow(/No schema XML/);
+  });
+
+  it("covers every field type the containers actually use", () => {
+    for (const field of CONTAINERS.flatMap((c) => c.fields)) {
+      expect(() => fieldSchemaXml(field)).not.toThrow();
+    }
+  });
+});
+
 describe("provision", () => {
   const allMissing = () => http.on(/getbytitle\('[^']+'\)\?\$select=Id/, { status: 404 });
   const allPresent = () => http.on(/getbytitle\('[^']+'\)\?\$select=Id/, { json: { Id: "1" } });
+  const createdFields = () => http
+    .find(/createfieldasxml/)
+    .map((c) => JSON.parse(c.body).parameters.SchemaXml);
 
   it("creates every container when the site is empty", async () => {
     allMissing();
@@ -107,26 +152,61 @@ describe("provision", () => {
   it("adds the schema's columns to a newly created container", async () => {
     allMissing();
     await store.provision();
-    const fieldNames = http
-      .find(/\/fields$/)
-      .map((c) => JSON.parse(c.body).Title);
-    expect(fieldNames).toContain("SessionId");
-    expect(fieldNames).toContain("PayloadJson");
+    expect(createdFields()).toEqual(
+      expect.arrayContaining([expect.stringContaining('Name="SessionId"'), expect.stringContaining('Name="PayloadJson"')]),
+    );
+  });
+
+  it("creates columns as schema XML, which is the only form the Fields collection accepts", async () => {
+    // The collection is polymorphic, so a plain JSON body with no OData type
+    // annotation is rejected with a bare 400.
+    allMissing();
+    await store.provision();
+    expect(http.find(/\/fields$/)).toHaveLength(0);
+
+    const call = http.find(/createfieldasxml/)[0];
+    expect(call.headers["Content-Type"]).toMatch(/odata=verbose/);
+    expect(JSON.parse(call.body).parameters.__metadata.type).toBe("SP.XmlSchemaFieldCreationInformation");
   });
 
   it("indexes the columns the picker sorts and filters on", async () => {
     allMissing();
     await store.provision();
-    const sessionId = http.find(/\/fields$/).map((c) => JSON.parse(c.body)).find((b) => b.Title === "SessionId");
-    expect(sessionId.Indexed).toBe(true);
-    expect(sessionId.FieldTypeKind).toBe(FIELD_TYPE.NUMBER);
+    const sessionId = createdFields().find((xml) => xml.includes('Name="SessionId"'));
+    expect(sessionId).toContain('Type="Number"');
+    expect(sessionId).toContain('Indexed="TRUE"');
   });
 
   it("creates Note columns as plain text, not rich text", async () => {
     allMissing();
     await store.provision();
-    const payload = http.find(/\/fields$/).map((c) => JSON.parse(c.body)).find((b) => b.Title === "PayloadJson");
-    expect(payload).toMatchObject({ FieldTypeKind: FIELD_TYPE.NOTE, RichText: false });
+    const payload = createdFields().find((xml) => xml.includes('Name="PayloadJson"'));
+    expect(payload).toContain('Type="Note"');
+    expect(payload).toContain('RichText="FALSE"');
+  });
+
+  it("gives every column its exact internal name rather than one derived from the title", async () => {
+    allMissing();
+    await store.provision();
+    // Without the internal-name hint, "Session Id" becomes Session_x0020_Id.
+    const sessionId = http
+      .find(/createfieldasxml/)
+      .map((c) => JSON.parse(c.body).parameters)
+      .find((p) => p.SchemaXml.includes('Name="SessionId"'));
+    expect(sessionId.SchemaXml).toContain('DisplayName="Session Id"');
+    expect(sessionId.SchemaXml).toContain('StaticName="SessionId"');
+    expect(sessionId.Options & 8).toBe(8);
+  });
+
+  it("puts the picker's columns in the default view and leaves the payload out", async () => {
+    allMissing();
+    await store.provision();
+    const options = (name) => http
+      .find(/createfieldasxml/)
+      .map((c) => JSON.parse(c.body).parameters)
+      .find((p) => p.SchemaXml.includes(`Name="${name}"`)).Options;
+    expect(options("SessionName") & 16).toBe(16);
+    expect(options("PayloadJson") & 16).toBe(0);
   });
 
   it("leaves an existing container completely alone", async () => {
@@ -148,18 +228,13 @@ describe("provision", () => {
     expect(added).not.toContain("SessionId");
   });
 
-  it("renames a column to its display name after creation", async () => {
+  it("creates each column in a single request", async () => {
+    // Schema XML carries the display name and the view membership, so the
+    // create-rename-addtoview sequence the JSON route needed is gone.
     allMissing();
     await store.provision();
-    const rename = http.find(/getbyinternalnameortitle\('SessionId'\)/)[0];
-    expect(rename.spMethod).toBe("MERGE");
-    expect(JSON.parse(rename.body)).toEqual({ Title: "Session Id" });
-  });
-
-  it("does not abort when a column cannot be added to the default view", async () => {
-    allMissing();
-    http.on(/addviewfield/, { status: 500 });
-    await expect(store.provision()).resolves.toBeTruthy();
+    expect(http.find(/getbyinternalnameortitle/)).toHaveLength(0);
+    expect(http.find(/addviewfield/)).toHaveLength(0);
   });
 
   it("propagates a permission failure rather than reporting success", async () => {

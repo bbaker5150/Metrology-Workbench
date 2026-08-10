@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrashAlt, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { equationLibrary } from "../../../utils/equationLibrary";
+import submitOnEnter from "../../../utils/submitOnEnter";
 
 /**
  * Popover content for the measurement-equation library.
@@ -143,7 +144,7 @@ const EquationLibraryMenu = ({
       </div>
 
       {isSaveFormOpen && (
-        <form className="equation-library-save-form" onSubmit={submitSave}>
+        <div className="equation-library-save-form" onKeyDown={submitOnEnter(submitSave)}>
           <div className="equation-library-save-heading">
             Save current equation
           </div>
@@ -155,7 +156,6 @@ const EquationLibraryMenu = ({
               onChange={(event) => setSaveName(event.target.value)}
               placeholder="e.g. Capacitive reactance"
               autoFocus
-              required
             />
           </label>
           <label>
@@ -166,7 +166,6 @@ const EquationLibraryMenu = ({
               value={saveArea}
               onChange={(event) => setSaveArea(event.target.value)}
               placeholder="e.g. Electrical"
-              required
             />
           </label>
           <datalist id="equation-library-measurement-areas">
@@ -176,10 +175,9 @@ const EquationLibraryMenu = ({
           </datalist>
           <div className="equation-library-save-actions">
             <button type="button" onClick={cancelSave}>Cancel</button>
-            {/* onClick, not submit — see BugReportModal: native form submission
-                is blocked in the SharePoint host. The disabled guard above is
-                what enforces the two required fields, so nothing is lost by not
-                reaching the browser's validation. */}
+            {/* Not a form — see BugReportModal. The disabled guard is what
+                enforces the two fields, so nothing is lost by giving up the
+                browser's `required` validation along with the submit. */}
             <button
               type="button"
               onClick={submitSave}
@@ -189,7 +187,7 @@ const EquationLibraryMenu = ({
               Save equation
             </button>
           </div>
-        </form>
+        </div>
       )}
 
       {customSections.map(({ area, equations }) => (

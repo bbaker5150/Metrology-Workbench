@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import ReactDOM from "react-dom";
 import { useFloatingWindow } from '../../hooks/useFloatingWindow';
+import submitOnEnter from '../../utils/submitOnEnter';
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
     faBug,
@@ -216,7 +217,7 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
                     )}
 
                     {activeTab === "new" && (
-                        <form onSubmit={handleSubmit} className="bug-report-form">
+                        <div className="bug-report-form" onKeyDown={submitOnEnter(handleSubmit)}>
 
                             {/* Row 1: Reporter & Date */}
                             <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
@@ -303,13 +304,13 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
 
                             {/* Footer Actions */}
                             <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px', paddingTop: '15px', borderTop: '1px solid var(--border-color)' }}>
-                                {/* Driven by onClick rather than implicit form
-                                    submission: the SharePoint build runs inside
-                                    a host that blocks native submits, and a
-                                    button that has to reach the browser's form
-                                    machinery to work would silently do nothing
-                                    there. The surrounding form is kept for Enter
-                                    to submit where that is allowed. */}
+                                {/* This panel is deliberately not a <form>. The
+                                    SharePoint build runs inside a host that
+                                    blocks native submission outright, so a
+                                    button that had to reach the browser's form
+                                    machinery would silently do nothing there.
+                                    Enter still commits — submitOnEnter on the
+                                    container puts that back explicitly. */}
                                 <button
                                     type="button"
                                     onClick={handleSubmit}
@@ -319,7 +320,7 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
                                     <FontAwesomeIcon icon={faCheck} style={{ marginLeft: '8px' }} />
                                 </button>
                             </div>
-                        </form>
+                        </div>
                     )}
 
                     {activeTab === "list" && (

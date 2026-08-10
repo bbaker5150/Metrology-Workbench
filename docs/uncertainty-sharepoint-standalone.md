@@ -88,10 +88,25 @@ Two assertions keep it honest, both fatal to the build:
   future dependency that hides markup in a legal comment fails the build rather
   than the ship.
 
-The same reason is why nothing in the app relies on native form submission:
+### Nothing may rely on native form submission
+
 Firepit blocks it, including the implicit submission a `<button>` performs
-without `type="button"`. The two forms in the tool drive their handlers from
-`onClick` instead.
+inside a form without `type="button"`. A form that works everywhere else fails
+in the shipped app the worst possible way: the click lands, nothing happens, no
+error.
+
+The tool's own two editing panels are no longer forms at all — they call their
+handlers from `onClick`, with `utils/submitOnEnter.js` restoring the one thing
+the `<form>` was still earning, Enter in a single-line field. A source check
+(`src/standalone/noNativeForms.test.js`) fails the suite if a `<form>` or a
+submit button reappears anywhere that ships.
+
+Bundled dependencies are a different matter — the docx editor's hyperlink
+dialog is a real form, and forking a dependency to change two attributes is not
+worth it. `src/standalone/formSubmitShim.js` covers those: on a submit-button
+click it cancels the click and dispatches the `submit` event itself. React
+listens for that event at the root, so the handler runs; and dispatching an
+event is not a form submission, so there is nothing for the host to block.
 
 ## Deploy to a document library (multi-file)
 
@@ -168,6 +183,23 @@ works from memory. So opening the tool reads every session file. Requests run
 with bounded concurrency (6) because unbounded would trip SharePoint throttling
 and serial would make a 30-session site slow to open.
 
+### Creating columns
+
+Provisioning posts **Field schema XML** to `fields/createfieldasxml`, not a JSON
+object to the `/fields` collection. The first live run proved why: that
+collection is polymorphic — `SP.FieldText`, `SP.FieldNumber`,
+`SP.FieldMultiLineText` — so a body with no OData type annotation gives
+SharePoint no way to know what to create, and it answers a bare **HTTP 400**.
+Creating the lists themselves works untyped, because `SP.List` is unambiguous.
+
+Schema XML says the type in the payload, and collapses three requests into one.
+`Name` plus the `AddFieldInternalNameHint` option fixes the internal name
+exactly, so there is no create-under-one-name-then-rename dance and no column
+called `Session_x0020_Id`; `AddFieldToDefaultView` handles view membership.
+
+Both smoke tests now answer 400 to a plain `POST …/fields`, the way the tenant
+did, so the working shape stays the only one that passes.
+
 ### Auth
 
 No SPFx runtime means no `SPHttpClient`, so the plumbing in
@@ -184,10 +216,19 @@ No SPFx runtime means no `SPHttpClient`, so the plumbing in
 
 All requests use `credentials: 'include'` against the same origin.
 
+### Errors say what SharePoint said
+
+A failed call reports the sentence SharePoint put in the response body —
+"A duplicate field name … was found", "Column limit exceeded" — alongside the
+status. Reporting a bare `failed (HTTP 400)` sends whoever is holding it into
+network traces looking for an explanation that was already in hand. Three body
+shapes are parsed because the format follows the OData flavour the request
+asked for.
+
 ## Testing
 
 ```bash
-npm test                              # 1060 tests, includes 130 for this build
+npm test                              # 1125 tests, includes 195 for this build
 node scripts/smoke-sharepoint.mjs     # multi-file build, served from a real URL
 node scripts/smoke-forge-srcdoc.mjs   # single-file build, inside an iframe srcdoc
 ```
@@ -209,24 +250,27 @@ a failed request.
 
 **Verified here**
 
-- Both builds compile; 130 unit tests over the SharePoint layer, the adapter,
+- **Shipped through Forge onto Flank Speed and it runs.** Forge passes the
+  inlined bundle through byte-for-byte — its own 60 KB preamble (manifest
+  comment, `devconsole.js`, `testRecorder.js`) is prepended and nothing of ours
+  is rewritten. The page loads, finds its web, and reaches the REST API.
+- Both builds compile; 195 unit tests over the SharePoint layer, the adapter,
   and the sanitiser hardening
 - 9/9 smoke checks for the multi-file build served from a real URL
 - 10/10 smoke checks for the single-file build inside an `about:srcdoc` frame:
   holds no sequence a sanitiser could read as markup, boots with zero failed
   subresource requests, discovers the web from the parent frame, provisions all
   four containers, mounts, and renders its images from embedded bytes
-- The workbench's own tests still pass — 1060 in total, nothing regressed
+- The workbench's own tests still pass — 1125 in total, nothing regressed
 
 **Not verified**
 
-- **No call has run against a real SharePoint tenant.** Provisioning and the
-  first save/load round trip need a manual pass. The REST shapes are asserted
-  against a double, which is not the same as a live site accepting them.
-- Whether the hardening is enough for Forge. It removes every sequence the
-  observed failure is consistent with, and the file now survives an
-  `about:srcdoc` frame with nothing tag-like left in it — but Forge's own
-  filter cannot be run here, so the next ship is the real test.
+- **The first save/load round trip.** Provisioning has now run against a real
+  tenant, but no session has been written and read back. The remaining REST
+  shapes are asserted against a double, which is not the same as a live site
+  accepting them — column creation is the proof of that (see below).
+- Whether every container provisions cleanly end to end on a site that already
+  has some of them, which is the state a partly-failed first run leaves behind.
 - Whether Forge's iframe carries a `sandbox` attribute. Without
   `allow-same-origin` the frame gets an opaque origin, cookies are not sent,
   and SharePoint persistence becomes impossible from inside — the tool would
@@ -256,8 +300,8 @@ it is hashed in the normal builds and inlined as a data URI in the single-file
 one. It moved from `public/` to `src/assets/` to make that possible, and
 `index.html` lost its now-pointless preload of the old path.
 
-`BugReportModal.jsx` and `EquationLibraryMenu.jsx` had primary buttons that
-submitted their form. Both now call the handler from `onClick` with
-`type="button"`, so nothing depends on the browser's form machinery — which
-Firepit blocks. The surrounding `<form onSubmit>` is kept, so Enter still
-submits everywhere that is allowed.
+`BugReportModal.jsx` and `EquationLibraryMenu.jsx` were forms with submit
+buttons. Neither is a form now: the buttons call their handler from `onClick`,
+and `utils/submitOnEnter.js` keeps Enter working from a single-line field —
+including the cases the browser also declined, so a textarea still takes
+newlines. Nothing depends on the form machinery Firepit blocks.
