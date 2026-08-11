@@ -1,0 +1,96 @@
+/* Styles owned by the standalone SharePoint shell only. The module's own
+   stylesheets are imported unchanged alongside these. */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* The hosting web part may render this page in a frame sized to its container,
+   so the app fills whatever box it is given rather than assuming the viewport. */
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.sp-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  padding: 24px;
+  font-family: "Segoe UI", "Segoe UI Web (West European)", system-ui, sans-serif;
+}
+
+.sp-gate-card {
+  max-width: 560px;
+  padding: 28px 32px;
+  border-radius: 8px;
+  background: var(--background-color, #ffffff);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.sp-gate-card h1 {
+  margin: 0 0 12px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.sp-gate-card p {
+  line-height: 1.5;
+}
+
+.sp-gate-card ul {
+  margin: 12px 0 20px;
+  padding-left: 22px;
+}
+
+.sp-gate-card code {
+  font-family: Consolas, "Courier New", monospace;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.sp-gate-button {
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 18px;
+  border: none;
+  border-radius: 4px;
+  background: #0078d4;
+  color: #fff;
+  cursor: pointer;
+}
+
+.sp-gate-button:hover,
+.sp-gate-button:focus-visible {
+  background: #106ebe;
+}
+
+.sp-gate-note {
+  margin-top: 16px;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+.sp-gate-error {
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: rgba(164, 38, 44, 0.08);
+  border-left: 3px solid #a4262c;
+}
+
+body.dark-mode .sp-gate-card {
+  background: #1b1f27;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f3f2f1;
+}
+
+body.dark-mode .sp-gate-card code {
+  background: rgba(255, 255, 255, 0.1);
+}

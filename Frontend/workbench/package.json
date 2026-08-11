@@ -51,6 +51,9 @@
   "scripts": {
     "start": "vite --host 0.0.0.0 --port 3000",
     "build": "vite build",
+    "build:standalone": "vite build --config vite.standalone.config.mjs",
+    "build:singlefile": "vite build --config vite.singlefile.config.mjs",
+    "dev:standalone": "vite --config vite.standalone.config.mjs --host 0.0.0.0 --port 3001",
     "preview": "vite preview --port 3000",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -107,6 +110,7 @@
     "jsdom": "^25.0.1",
     "serve": "^14.2.6",
     "vite": "^6.0.7",
+    "vite-plugin-singlefile": "^2.3.3",
     "vitest": "^4.1.8",
     "wait-on": "^9.0.5"
   }
