@@ -1,0 +1,65 @@
+# Build targets
+
+Two products ship from this repository. **They are not forks.** There is one
+`src/`, one test suite, and one dependency tree; the products differ only in
+which entry point Vite is pointed at and which config it uses.
+
+| | Metrology Workbench | Uncertainty Budget (Flank Speed) |
+| --- | --- | --- |
+| Command | `npm run build` → `electron-builder` | `npm run build:singlefile` |
+| Entry | `index.html` → `src/main.jsx` | `index.standalone.html` → `src/standalone/main.jsx` |
+| Contains | all three modules, Uncertalytics nested among them | the uncertainty module alone |
+| Backend | Django, bundled into the installer | SharePoint lists, no backend |
+| Ships as | Windows installer | one 6.7 MB HTML file, through Forge |
+
+A third target, `npm run build:standalone`, is the SharePoint app as a folder of
+91 files rather than one. Use it wherever the app can be served from a real URL;
+it keeps code splitting and loads less up front. Forge cannot host it — see
+`uncertainty-sharepoint-standalone.md` for why.
+
+## Why one tree and not two
+
+The uncertainty module is the same code in both products. `src/modules/uncertainty/**`
+is imported by the workbench's module registry (route `/uncertalytics`) and by
+the standalone entry point, and neither has a copy of the other's version.
+
+That is deliberate, and it is the reason the SharePoint build substitutes at the
+**network boundary** rather than at the call sites: `src/standalone/main.jsx`
+installs an axios adapter that recognises the module's
+`${API_BASE_URL}/uncertainty/...` requests and services them from SharePoint
+instead. Editing every call site would have been the obvious approach and would
+have forked the module — leaving two implementations of session handling to keep
+in step, and two places for every future fix to land.
+
+A fork would go stale within weeks. The two products drift in *hosting*, which is
+a thin, well-defined seam; they must not drift in metrology.
+
+## What this costs
+
+Three things in the shared module exist because of the SharePoint host, and all
+three are improvements to both products rather than concessions:
+
+- Assets are imported, not addressed by absolute path. An absolute `/asset.png`
+  only resolves when the app is served from the server root.
+- Nothing relies on native form submission, which the Flank Speed sanitiser
+  blocks. `utils/submitOnEnter.js` provides Enter-to-commit explicitly.
+- `src/standalone/noNativeForms.test.js` fails the suite if either of those
+  regresses anywhere that ships to SharePoint.
+
+## Verifying a change to either
+
+```bash
+cd Frontend/workbench
+npm test                              # 1468 tests, both products
+npm run test:coverage                 # same, with the coverage ratchet
+
+npm run build && npm run build:standalone && npm run build:singlefile
+
+npm i -D playwright                   # deliberately not a project dependency
+node scripts/smoke-sharepoint.mjs     # multi-file build, real URL       (9 checks)
+node scripts/smoke-forge-srcdoc.mjs   # single-file build, srcdoc frame  (10 checks)
+```
+
+`3demblem.glb` is in Git LFS. Without `git lfs pull` a clone gets a 133-byte
+pointer and the workbench launcher's 3D emblem throws while parsing it. The
+single-file build is unaffected — it stubs the 3D emblem out.
