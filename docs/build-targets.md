@@ -34,23 +34,39 @@ in step, and two places for every future fix to land.
 A fork would go stale within weeks. The two products drift in *hosting*, which is
 a thin, well-defined seam; they must not drift in metrology.
 
-## What this costs
+## What changing the tool actually involves
 
-Three things in the shared module exist because of the SharePoint host, and all
-three are improvements to both products rather than concessions:
+Almost always one place. A change to the UI, the equations, the risk maths, a
+table, a chart, or an export is a change to `src/modules/uncertainty/**`, and
+both products get it on their next build.
 
-- Assets are imported, not addressed by absolute path. An absolute `/asset.png`
-  only resolves when the app is served from the server root.
+**The exception is a new endpoint.** If a feature calls a backend route the
+adapter does not know, the request falls past it to the real network and fails
+on SharePoint, where there is no Django to answer. New *fields inside a session*
+are free — a session is stored as one whole JSON document, so its shape can
+change without touching anything.
+
+That exception is the one failure this layout could hide: it works on a
+developer's desk, breaks only on Flank Speed, only in that feature, and only
+once somebody tries it. So it is checked rather than remembered —
+`src/standalone/sharepoint/moduleRoutesCovered.test.js` reads the module's axios
+call sites out of the source and puts each through the real adapter, failing
+with the offending file and endpoint if no route matches.
+
+Two other host constraints are enforced the same way, and both are improvements
+to the workbench too rather than concessions to SharePoint:
+
+- Assets are imported, not addressed by absolute path — an absolute
+  `/asset.png` only resolves when the app is served from the server root.
 - Nothing relies on native form submission, which the Flank Speed sanitiser
-  blocks. `utils/submitOnEnter.js` provides Enter-to-commit explicitly.
-- `src/standalone/noNativeForms.test.js` fails the suite if either of those
-  regresses anywhere that ships to SharePoint.
+  blocks; `utils/submitOnEnter.js` provides Enter-to-commit explicitly, and
+  `src/standalone/noNativeForms.test.js` fails if a `<form>` reappears.
 
 ## Verifying a change to either
 
 ```bash
 cd Frontend/workbench
-npm test                              # 1468 tests, both products
+npm test                              # 1492 tests, both products
 npm run test:coverage                 # same, with the coverage ratchet
 
 npm run build && npm run build:standalone && npm run build:singlefile

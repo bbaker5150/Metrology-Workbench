@@ -254,14 +254,14 @@ a failed request.
   inlined bundle through byte-for-byte — its own 60 KB preamble (manifest
   comment, `devconsole.js`, `testRecorder.js`) is prepended and nothing of ours
   is rewritten. The page loads, finds its web, and reaches the REST API.
-- Both builds compile; 195 unit tests over the SharePoint layer, the adapter,
+- Both builds compile; 219 unit tests over the SharePoint layer, the adapter,
   and the sanitiser hardening
 - 9/9 smoke checks for the multi-file build served from a real URL
 - 10/10 smoke checks for the single-file build inside an `about:srcdoc` frame:
   holds no sequence a sanitiser could read as markup, boots with zero failed
   subresource requests, discovers the web from the parent frame, provisions all
   four containers, mounts, and renders its images from embedded bytes
-- The workbench's own tests still pass — 1125 in total, nothing regressed
+- The workbench's own tests still pass — 1492 in total, nothing regressed
 
 **Not verified**
 
