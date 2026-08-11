@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { FaBolt, FaCalculator, FaFileAlt, FaArrowRight } from "react-icons/fa";
 import { MODULES } from "./moduleRegistry";
 import "./HomeLauncher.css";

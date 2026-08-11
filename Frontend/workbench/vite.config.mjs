@@ -78,6 +78,36 @@ export default defineConfig(({ mode }) => {
       // the full suite is sharing CPU. Preserve their full assertions and
       // sample counts while allowing realistic CI/workstation contention.
       testTimeout: 30000,
+      coverage: {
+        provider: 'v8',
+        reporter: ['text-summary', 'text', 'html', 'lcov', 'json-summary'],
+        reportsDirectory: './coverage',
+        // Report on every source file, not just the ones a test happened to
+        // import. Without this an untested module simply disappears from the
+        // report and inflates the percentages.
+        all: true,
+        include: ['src/**/*.{js,jsx}'],
+        exclude: [
+          'src/**/*.test.{js,jsx}',
+          'src/setupTests.js',
+          'src/index.jsx',
+          'src/**/assets/**',
+          // Presentational 3D/scene wrappers are WebGL-only; jsdom cannot
+          // execute them meaningfully and mocking them would assert nothing.
+          'src/app/LauncherEmblem.jsx',
+        ],
+        // A ratchet, not a target. These sit just under the current numbers so
+        // `npm run test:coverage` fails the moment coverage slips, while the
+        // real goal stays well above them. Raise these as coverage climbs —
+        // the remaining gap is concentrated in a handful of very large
+        // components (see docs/testing-coverage.md).
+        thresholds: {
+          statements: 45,
+          branches: 34,
+          functions: 37,
+          lines: 46,
+        },
+      },
     },
   };
 });

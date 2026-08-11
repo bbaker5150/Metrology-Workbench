@@ -15,7 +15,7 @@
     "@heyirisai/docx-editor-react": "1.11.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
-    "axios": "1.17.0",
+    "axios": "1.19.0",
     "axios-retry": "^4.5.0",
     "bootstrap": "^5.3.7",
     "chart.js": "^4.4.9",
@@ -26,13 +26,13 @@
     "mathjs": "^15.2.0",
     "pdf-lib": "^1.17.1",
     "plotly.js-dist": "^3.6.0",
-    "react": "^19.1.0",
+    "react": "^19.2.8",
     "react-chartjs-2": "^5.3.0",
-    "react-dom": "^19.1.0",
+    "react-dom": "^19.2.8",
     "react-icons": "^5.5.0",
     "react-katex": "^3.1.0",
     "react-plotly.js": "^2.6.0",
-    "react-router-dom": "^7.16.0",
+    "react-router": "^8.3.0",
     "react-select": "^5.10.2",
     "recharts": "^3.8.1",
     "simple-statistics": "^7.8.8",
@@ -40,7 +40,13 @@
     "three": "^0.184.0",
     "util": "0.12.5",
     "uuid": "^14.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "overrides": {
+    "brace-expansion@1": "^1.1.18",
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   },
   "scripts": {
     "start": "vite --host 0.0.0.0 --port 3000",
@@ -48,6 +54,7 @@
     "preview": "vite preview --port 3000",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "start:backend": "cd ../../Backend/ac_shunt && ..\\..\\venv\\Scripts\\python.exe manage.py bootstrap && ..\\..\\venv\\Scripts\\python.exe manage.py runserver 0.0.0.0:8000",
     "start:remote": "vite --host 0.0.0.0 --port 3100",
     "start:backend:remote": "cd ../../Backend/ac_shunt && ..\\..\\venv\\Scripts\\python.exe manage.py bootstrap && ..\\..\\venv\\Scripts\\python.exe manage.py runserver 0.0.0.0:8100",
@@ -92,6 +99,7 @@
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^13.5.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^4.1.10",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "^41.2.0",

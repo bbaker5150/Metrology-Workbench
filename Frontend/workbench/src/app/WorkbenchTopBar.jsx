@@ -1,5 +1,5 @@
 import React from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 import { FaChevronLeft, FaThLarge, FaSun, FaMoon } from "react-icons/fa";
 import { useTheme } from "../shared/ThemeContext";
 import CaptionControls from "../shared/CaptionControls";
