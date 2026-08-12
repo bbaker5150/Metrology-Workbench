@@ -1,42 +1,657 @@
 /* src/modules/reports/ReportsApp.css
  *
- * Module-private styles for the Report of Calibration tool. Scoped under
- * .reports-module so selectors can't collide with other modules. Uses the
- * shared design tokens (--background-color / --text-color) that App.css
- * defines on :root and body.dark-mode, with literal fallbacks so the
- * placeholder is themed even before the AC-Shunt module has ever mounted. */
+ * Module-private styles for the Report of Calibration tool. Uses the SAME
+ * design token NAMES (--background-color, --content-background,
+ * --text-color-*, --border-color, --primary-color, --shadow-*, status
+ * colors, etc.) that modules/ac-shunt/App.css defines on :root and
+ * body.dark-mode, so this module matches the rest of the workbench.
+ *
+ * Those tokens are only guaranteed present once AC-Shunt has mounted (see
+ * the caveat this scaffold already carried), so the values are also
+ * redeclared here — scoped to `.reports-module` / `body.dark-mode
+ * .reports-module` rather than `:root` / bare `body.dark-mode` — so this
+ * module is correctly themed on first paint regardless of load order,
+ * without ever touching global selectors another module could collide
+ * with. Scoping to `.reports-module` also makes these MORE specific than
+ * ac-shunt's `:root` rule, so if both are loaded the values agree anyway
+ * (they're copied 1:1) and there's no "last stylesheet wins" fragility.
+ * Theme itself is NOT module-local — it comes from the shell's
+ * ThemeContext (body.light-mode / body.dark-mode), same as every module.
+ */
+
 .reports-module {
-  min-height: calc(100vh - 48px);
+  /* Surfaces */
+  --background-color: #f5f7fb;
+  --content-background: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f1f4f9;
+  --input-background: #ffffff;
+
+  /* Text */
+  --text-color: #0f172a;
+  --text-color-strong: #020617;
+  --text-color-muted: #64748b;
+  --text-color-subtle: #94a3b8;
+
+  /* Strokes */
+  --border-color: #e2e8f0;
+  --border-color-strong: #cbd5e1;
+  --divider-color: #eef2f7;
+
+  /* Brand & primaries */
+  --primary-color: #2563eb;
+  --primary-color-dark: #1d4ed8;
+  --primary-color-soft: #dbeafe;
+
+  /* Semantic status */
+  --success-color: #059669;
+  --success-color-light: #ecfdf5;
+  --success-text-color: #065f46;
+  --warning-color: #d97706;
+  --warning-color-light: #fef3c7;
+  --warning-text-color: #92400e;
+  --danger-color: #dc2626;
+  --danger-color-light: #fee2e2;
+  --danger-text-color: #991b1b;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 10px rgba(15, 23, 42, 0.06), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 12px 24px rgba(15, 23, 42, 0.10), 0 6px 10px rgba(15, 23, 42, 0.05);
+  --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.22);
+
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+  --scrollbar-track: transparent;
+
+  /* WorkbenchShell (app/WorkbenchShell.jsx) renders the top bar + <Outlet/>
+     with no explicit height on the outlet — every module has to size
+     itself against the viewport, not a percentage chain through ancestors
+     the shell never constrains. `height: 100vh` (matching modules/ac-shunt/
+     App.css's `.App`) fills the page regardless of content length; body's
+     matching `height: 100vh; overflow: hidden` below clips the sliver that
+     would otherwise overflow beneath the sticky top bar. */
+  height: 100vh;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 24px;
-  background: var(--background-color, #f5f7fb);
-  color: var(--text-color, #1a2332);
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  background-color: var(--background-color);
+  color: var(--text-color);
 }
 
-.reports-placeholder {
+/* Identical to the rule modules/ac-shunt/App.css declares — duplicating an
+   unscoped `body` rule is only safe because both modules assert the exact
+   same values, so it doesn't matter which one's CSS chunk loads first. */
+body {
+  height: 100vh;
+  overflow: hidden;
+}
+
+body.dark-mode .reports-module {
+  /* Surfaces */
+  --background-color: #0b1220;
+  --content-background: #111a2e;
+  --surface-raised: #172036;
+  --surface-sunken: #0a1120;
+  --input-background: #0b1220;
+
+  /* Text */
+  --text-color: #e2e8f0;
+  --text-color-strong: #f8fafc;
+  --text-color-muted: #94a3b8;
+  --text-color-subtle: #64748b;
+
+  /* Strokes */
+  --border-color: #1f2a40;
+  --border-color-strong: #334155;
+  --divider-color: #172036;
+
+  /* Brand & primaries — shifted lighter for AA contrast on dark */
+  --primary-color: #60a5fa;
+  --primary-color-dark: #93c5fd;
+  --primary-color-soft: rgba(96, 165, 250, 0.14);
+
+  /* Semantic status */
+  --success-color: #34d399;
+  --success-color-light: rgba(16, 185, 129, 0.14);
+  --success-text-color: #a7f3d0;
+  --warning-color: #fbbf24;
+  --warning-color-light: rgba(245, 158, 11, 0.16);
+  --warning-text-color: #fde68a;
+  --danger-color: #f87171;
+  --danger-color-light: rgba(239, 68, 68, 0.16);
+  --danger-text-color: #fecaca;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 14px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 14px 30px rgba(0, 0, 0, 0.55), 0 6px 12px rgba(0, 0, 0, 0.4);
+  --focus-ring: 0 0 0 3px rgba(96, 165, 250, 0.32);
+
+  --scrollbar-thumb: #334155;
+  --scrollbar-thumb-hover: #475569;
+  --scrollbar-track: transparent;
+}
+
+.reports-module * {
+  box-sizing: border-box;
+}
+
+.reports-module ::-webkit-scrollbar { width: 8px; height: 8px; }
+.reports-module ::-webkit-scrollbar-track { background: var(--scrollbar-track, transparent); }
+.reports-module ::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, #cbd5e1);
+  border-radius: 4px;
+}
+.reports-module ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover, #94a3b8); }
+
+/* ── Shell layout ─────────────────────────────────────────────── */
+
+.roc-shell {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.roc-side {
+  width: 420px;
+  min-width: 360px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--content-background, #ffffff);
+  border-right: 1px solid var(--border-color, #e2e8f0);
+}
+
+.roc-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.roc-side-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* ── Tabs (mirrors .app-chrome-tab's look: transparent, muted text,
+   active = primary color + bottom accent, no sliding-indicator JS) ── */
+
+.roc-tabrow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 8px 0 8px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  background-color: var(--content-background, #ffffff);
+}
+
+.roc-tab {
+  position: relative;
+  flex: 1;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 8px 8px 0 0;
+  background-color: transparent;
+  color: var(--text-color-muted, #64748b);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.roc-tab:hover {
+  color: var(--text-color, #0f172a);
+  background-color: var(--primary-color-soft, #dbeafe);
+}
+
+.roc-tab.is-active {
+  color: var(--primary-color, #2563eb);
+}
+
+.roc-tab.is-active::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--primary-color, #2563eb);
+}
+
+.roc-sourcetabs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.roc-sourcetab {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  text-align: center;
-}
-
-.reports-placeholder-icon {
-  font-size: 2.75rem;
-  opacity: 0.5;
-}
-
-.reports-placeholder-title {
-  margin: 0;
-  font-size: 1.75rem;
+  gap: 6px;
+  padding: 10px 4px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  background-color: var(--content-background, #ffffff);
+  color: var(--text-color-muted, #64748b);
+  font-size: 0.6875rem;
   font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
 
-.reports-placeholder-subtitle {
+.roc-sourcetab:hover {
+  color: var(--text-color, #0f172a);
+  border-color: var(--border-color-strong, #cbd5e1);
+  background-color: var(--surface-sunken, #f1f4f9);
+}
+
+.roc-sourcetab.is-active {
+  color: var(--primary-color, #2563eb);
+  border-color: var(--primary-color, #2563eb);
+  background-color: var(--primary-color-soft, #dbeafe);
+}
+
+/* ── Section / card ───────────────────────────────────────────── */
+
+.roc-section {
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: var(--content-background, #ffffff);
+}
+
+.roc-section + .roc-section { margin-top: 12px; }
+
+.roc-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  background-color: var(--surface-sunken, #f1f4f9);
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.roc-section-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.roc-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-color-muted, #64748b);
   margin: 0;
-  font-size: 1rem;
-  opacity: 0.6;
+}
+
+.roc-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-color-strong, var(--text-color, #0f172a));
+  margin: 0;
+}
+
+.roc-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-color-muted, #64748b);
+  margin: 2px 0 0 0;
+}
+
+/* ── Forms ────────────────────────────────────────────────────── */
+
+.roc-field { display: flex; flex-direction: column; gap: 4px; }
+
+.roc-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-color-muted, #64748b);
+}
+
+.roc-input,
+.roc-select,
+.roc-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  background-color: var(--input-background, #ffffff);
+  color: var(--text-color, #0f172a);
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.roc-input::placeholder,
+.roc-textarea::placeholder {
+  color: var(--text-color-subtle, #94a3b8);
+}
+
+.roc-input:focus,
+.roc-select:focus,
+.roc-textarea:focus {
+  outline: none;
+  border-color: var(--primary-color, #2563eb);
+  box-shadow: var(--focus-ring, 0 0 0 3px rgba(37, 99, 235, 0.22));
+}
+
+.roc-input-mono { font-family: 'Roboto Mono', Menlo, Consolas, monospace; }
+
+.roc-textarea { resize: vertical; min-height: 56px; }
+
+.roc-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.roc-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+
+.roc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 6px;
+  background-color: var(--content-background, #ffffff);
+  color: var(--text-color, #0f172a);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.roc-btn:hover:not(:disabled) {
+  border-color: var(--border-color-strong, #cbd5e1);
+  background-color: var(--surface-sunken, #f1f4f9);
+}
+
+.roc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.roc-btn-primary {
+  background-color: var(--primary-color, #2563eb);
+  border-color: var(--primary-color, #2563eb);
+  color: #ffffff;
+}
+
+.roc-btn-primary:hover:not(:disabled) {
+  background-color: var(--primary-color-dark, #1d4ed8);
+  border-color: var(--primary-color-dark, #1d4ed8);
+}
+
+.roc-btn-danger {
+  border-color: var(--danger-color, #dc2626);
+  background-color: var(--danger-color-light, #fee2e2);
+  color: var(--danger-text-color, #991b1b);
+}
+
+.roc-btn-danger:hover:not(:disabled) {
+  border-color: var(--danger-color-dark, #b91c1c);
+  background-color: #fecaca;
+}
+
+.roc-btn-block { width: 100%; justify-content: center; padding: 10px 14px; font-size: 0.8125rem; }
+
+.roc-btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary-color, #2563eb);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.roc-btn-link:hover { color: var(--primary-color-dark, #1d4ed8); }
+
+/* ── Badges / pills ───────────────────────────────────────────── */
+
+.roc-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.625rem;
+  font-weight: 700;
   letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.roc-badge-pass {
+  background-color: var(--success-color-light, #ecfdf5);
+  color: var(--success-text-color, #065f46);
+}
+
+.roc-badge-fail {
+  background-color: var(--danger-color-light, #fee2e2);
+  color: var(--danger-text-color, #991b1b);
+}
+
+.roc-badge-neutral {
+  background-color: var(--primary-color-soft, #dbeafe);
+  color: var(--primary-color, #2563eb);
+}
+
+.roc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  background-color: var(--primary-color, #2563eb);
+}
+.roc-dot-muted { background-color: var(--border-color-strong, #cbd5e1); }
+
+/* ── List rows (Saved Records, AC-Shunt sessions) ────────────────── */
+
+.roc-list { display: flex; flex-direction: column; gap: 8px; }
+
+.roc-list-item {
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  background-color: var(--content-background, #ffffff);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.roc-list-item:hover:not(:disabled) {
+  border-color: var(--border-color-strong, #cbd5e1);
+  background-color: var(--surface-sunken, #f1f4f9);
+}
+
+.roc-list-item.is-selected {
+  border-color: var(--primary-color, #2563eb);
+  background-color: var(--primary-color-soft, #dbeafe);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(15, 23, 42, 0.05));
+}
+
+.roc-list-item:disabled { opacity: 0.6; cursor: default; }
+
+/* ── Banners ──────────────────────────────────────────────────── */
+
+.roc-banner {
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.roc-banner-danger {
+  background-color: var(--danger-color-light, #fee2e2);
+  border-color: var(--danger-color, #dc2626);
+  color: var(--danger-text-color, #991b1b);
+}
+
+.roc-banner-warning {
+  background-color: var(--warning-color-light, #fef3c7);
+  border-color: var(--warning-color, #d97706);
+  color: var(--warning-text-color, #92400e);
+}
+
+.roc-banner-muted {
+  background-color: var(--surface-sunken, #f1f4f9);
+  border-color: var(--border-color, #e2e8f0);
+  color: var(--text-color-muted, #64748b);
+}
+
+/* ── Key/value grid (parsed-data previews) ───────────────────────── */
+
+.roc-kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.roc-kv-grid.is-narrow { grid-template-columns: 1fr; }
+
+.roc-kv-item {
+  background-color: var(--surface-sunken, #f1f4f9);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.roc-kv-item.is-wide { grid-column: 1 / -1; }
+
+.roc-kv-label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-color-muted, #64748b);
+  margin-bottom: 2px;
+}
+
+.roc-kv-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-color, #0f172a);
+}
+
+/* ── Table (Excel preview) ───────────────────────────────────────── */
+
+.roc-table-wrap { overflow-x: auto; border-radius: 8px; }
+
+.roc-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+.roc-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-color-muted, #64748b);
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+.roc-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--divider-color, #eef2f7);
+  color: var(--text-color, #0f172a);
+}
+.roc-table tr:last-child td { border-bottom: none; }
+.roc-table tr:nth-child(even) td { background-color: var(--surface-sunken, #f1f4f9); }
+
+/* ── Dropzone (Excel import) ──────────────────────────────────────── */
+
+.roc-dropzone {
+  border: 2px dashed var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  padding: 32px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.roc-dropzone:hover {
+  border-color: var(--primary-color, #2563eb);
+  background-color: var(--primary-color-soft, #dbeafe);
+}
+
+/* ── Toolbar (PDF preview header) ─────────────────────────────────── */
+
+.roc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  background-color: var(--content-background, #ffffff);
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.roc-toolbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.6875rem;
+  color: var(--text-color-muted, #64748b);
+}
+
+.roc-toolbar-meta-item { display: flex; align-items: center; gap: 5px; }
+
+/* ── Empty / loading states ───────────────────────────────────────── */
+
+.roc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-color-muted, #64748b);
+}
+
+.roc-empty-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--surface-sunken, #f1f4f9);
+  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-color-subtle, #94a3b8);
+  margin-bottom: 16px;
+}
+
+.roc-empty-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-color, #0f172a);
+  margin: 0 0 4px 0;
+}
+
+.roc-empty-text {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  max-width: 22rem;
+  margin: 0;
+}
+
+.roc-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  color: var(--text-color-muted, #64748b);
+  font-size: 0.8125rem;
+}
+
+@keyframes roc-spin {
+  to { transform: rotate(360deg); }
+}
+.roc-spin { animation: roc-spin 0.9s linear infinite; }
+
+code.roc-code {
+  background-color: var(--surface-sunken, #f1f4f9);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.75em;
+  color: var(--text-color, #0f172a);
 }

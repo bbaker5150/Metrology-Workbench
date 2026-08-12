@@ -1,20 +1,31 @@
 // src/modules/reports/contexts/ReportsContext.jsx
 //
-// Module-private context for the Report of Calibration tool. Lives entirely
-// inside this module — the shell and other modules never import it. Phase 2+
-// will hang the report state, API calls, and pipeline auto-pull guard off
-// this provider; for now it is a thin skeleton so the module root has a
-// provider to wrap and a hook to grow into.
-import React, { createContext, useContext, useMemo } from "react";
+// Module-private context for the Report of Calibration tool. Holds the
+// report-in-progress (`data`), the section visibility/order (`sections`),
+// and which left-panel tab is active — the same state ROC Gen's standalone
+// App.jsx used to own locally, now hoisted here so ReportsMain and its
+// children can all reach it via useReports().
+import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { DEFAULT_SECTIONS, EMPTY_DATA } from "../constants/constants";
 
 const ReportsContext = createContext(null);
 
 export const useReports = () => useContext(ReportsContext);
 
 export function ReportsProvider({ children }) {
-  // Placeholder value. Replace with real report state/actions as the module
-  // is built out.
-  const value = useMemo(() => ({}), []);
+  const [data, setData] = useState(EMPTY_DATA);
+  const [sections, setSections] = useState(DEFAULT_SECTIONS);
+  const [activeTab, setActiveTab] = useState("source");
+  const [recordsRevision, setRecordsRevision] = useState(0);
+
+  const handleDataLoaded = useCallback((incoming) => {
+    setData({ ...EMPTY_DATA, ...incoming });
+  }, []);
+
+  const value = useMemo(() => ({
+    data, setData, sections, setSections, activeTab, setActiveTab, handleDataLoaded,
+    recordsRevision, refreshRecords: () => setRecordsRevision((value) => value + 1),
+  }), [data, sections, activeTab, handleDataLoaded, recordsRevision]);
 
   return (
     <ReportsContext.Provider value={value}>{children}</ReportsContext.Provider>
