@@ -126,6 +126,16 @@ try {
 }
 check('nothing in the file can be mistaken for markup', sanitiserSafe, sanitiserProblem);
 
+// The build does Forge's ship step itself. The host page decides whether to
+// show its "Not Secured" banner by looking for the globals this runtime
+// installs, so a page that boots without them is one that ships with the
+// banner — which is the whole reason the runtime is vendored.
+check('the manifest is the first line of the file', appHtml.startsWith('<!--WFC-MANIFEST:'));
+const devConsoleLive = frame ? await frame.evaluate(() => typeof window.__PseudoDevConsole !== 'undefined') : false;
+check('the Forge runtime installed its globals', devConsoleLive);
+const buildStamp = frame ? await frame.evaluate(() => window.__UNCERTAINTY_BUILD__) : undefined;
+check('the page carries a build stamp', Boolean(buildStamp), `(${buildStamp})`);
+
 check('app runs inside an about:srcdoc frame', frame ? (await frame.evaluate(() => location.href)) === 'about:srcdoc' : false);
 check('zero failed subresource requests', subresourceFailures.length === 0,
   subresourceFailures.length ? `\n      ${subresourceFailures.slice(0, 4).join('\n      ')}` : '');

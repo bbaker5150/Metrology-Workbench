@@ -34,6 +34,29 @@ import { parseAst } from 'vite';
 /** Sequences that make a naive HTML scanner think a tag starts or a comment ends. */
 const DANGEROUS = ['</', '<script', '<style', '<iframe', '<!--', '-->'];
 
+/**
+ * Control characters that do not survive being inlined.
+ *
+ * The HTML tokeniser rewrites a literal NUL inside a `<script>` to U+FFFD, so
+ * source that contains one arrives at the engine corrupted. Forge's own
+ * testRecorder.js has `/[…\x00-\x1f]/` written with the raw characters, and its
+ * shipped apps throw "Range out of order in character class" because of it.
+ * Tab, newline, and carriage return are left alone — they are legal raw inside
+ * a template literal, and escaping a newline there would change the value.
+ */
+// Written with escapes rather than the characters themselves, which is the
+// whole point of the rule.
+const isRawControl = (code) =>
+  (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d)
+  || code === 0x7f
+  // Not control characters, but line terminators to a JavaScript parser: raw
+  // inside a string literal they are a syntax error.
+  || code === 0x2028
+  || code === 0x2029;
+
+const escapeCode = (code) =>
+  (code <= 0xff ? `\\x${code.toString(16).padStart(2, '0')}` : `\\u${code.toString(16).padStart(4, '0')}`);
+
 /** Walk an ESTree tree, visiting every node that carries a `type`. */
 function walk(node, visit) {
   if (!node || typeof node !== 'object') return;
@@ -106,6 +129,13 @@ function escapeDataSpan(text, kind) {
       out += '\\x2d';
       continue;
     }
+    // A control character written raw arrives at the engine mangled: the HTML
+    // tokeniser turns NUL into U+FFFD. Spelling it out means the same value.
+    const code = char.charCodeAt(0);
+    if (isRawControl(code)) {
+      out += escapeCode(code);
+      continue;
+    }
     out += char;
   }
   return out;
@@ -134,6 +164,12 @@ function literalValues(code) {
  * would change meaning rather than spelling: `(?<name>` and `\k<name>`, where
  * the `<` is grammar. Escaping those yields a pattern that will not compile.
  */
+/** Turn `\xNN` / `\uNNNN` back into the characters they stand for. */
+const unescapeHex = (text) => text.replace(
+  /\\x([0-9a-fA-F]{2})|\\u([0-9a-fA-F]{4})/g,
+  (_m, a, b) => String.fromCharCode(parseInt(a || b, 16)),
+);
+
 function assertLiteralsUnchanged(before, after) {
   const a = literalValues(before);
   const b = literalValues(after);
@@ -144,7 +180,7 @@ function assertLiteralsUnchanged(before, after) {
     const [kind, value, flags] = a[i];
     const [afterKind, afterValue, afterFlags] = b[i];
     if (kind === 'regex') {
-      if (afterValue.replaceAll('\\x3c', '<') !== value || afterFlags !== flags) {
+      if (unescapeHex(afterValue) !== unescapeHex(value) || afterFlags !== flags) {
         throw new Error(`hardenInlineHtml: escaping altered a regular expression: /${value}/${flags} -> /${afterValue}/${afterFlags}`);
       }
       // Throws if a `<` that was regex grammar got escaped.
@@ -251,6 +287,13 @@ export function assertSanitiserSafe(html) {
       if (at === -1) continue;
       const context = text.slice(Math.max(0, at - 60), at + 60);
       problems.push(`<${body.tag}> body contains ${JSON.stringify(needle)} at offset ${at}: ${JSON.stringify(context)}`);
+    }
+    for (let i = 0; i < text.length; i += 1) {
+      const code = text.charCodeAt(i);
+      if (!isRawControl(code)) continue;
+      problems.push(`<${body.tag}> body contains a raw control character U+${code.toString(16).padStart(4, '0').toUpperCase()} `
+        + `at offset ${i}: ${JSON.stringify(text.slice(Math.max(0, i - 50), i + 50))}`);
+      break;
     }
   }
   if (problems.length) {

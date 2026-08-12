@@ -10,7 +10,12 @@ which entry point Vite is pointed at and which config it uses.
 | Entry | `index.html` → `src/main.jsx` | `index.standalone.html` → `src/standalone/main.jsx` |
 | Contains | all three modules, Uncertalytics nested among them | the uncertainty module alone |
 | Backend | Django, bundled into the installer | SharePoint lists, no backend |
-| Ships as | Windows installer | one 6.7 MB HTML file, through Forge |
+| Ships as | Windows installer | one 6.7 MB HTML file, uploaded to a document library |
+
+The single-file build finishes the job Forge's "ship" step used to do — it
+inlines Forge's two runtime scripts and prepends the `WFC-MANIFEST` comment
+itself, so the file that comes out of CI is deployable as-is. See
+`vendor/forge/README.md`.
 
 A third target, `npm run build:standalone`, is the SharePoint app as a folder of
 91 files rather than one. Use it wherever the app can be served from a real URL;
@@ -66,14 +71,14 @@ to the workbench too rather than concessions to SharePoint:
 
 ```bash
 cd Frontend/workbench
-npm test                              # 1492 tests, both products
+npm test                              # 1511 tests, both products
 npm run test:coverage                 # same, with the coverage ratchet
 
 npm run build && npm run build:standalone && npm run build:singlefile
 
 npm i -D playwright                   # deliberately not a project dependency
 node scripts/smoke-sharepoint.mjs     # multi-file build, real URL       (9 checks)
-node scripts/smoke-forge-srcdoc.mjs   # single-file build, srcdoc frame  (10 checks)
+node scripts/smoke-forge-srcdoc.mjs   # single-file build, srcdoc frame  (13 checks)
 ```
 
 `3demblem.glb` is in Git LFS. Without `git lfs pull` a clone gets a 133-byte
