@@ -1,5 +1,8 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import nodePath from 'node:path';
 import {
   forgeHash,
   loadForgeRuntime,
@@ -159,6 +162,52 @@ describe('applyForgeRuntime', () => {
   it('is idempotent in shape when run on a document that already has a body', () => {
     const once = apply(page());
     expect((once.match(/WFC-MANIFEST/g) || [])).toHaveLength(1);
+  });
+});
+
+describe('a Windows checkout', () => {
+  // Git for Windows rewrites LF to CRLF on checkout unless told not to, and
+  // these bytes are hashed into the manifest. It broke a real build: the guard
+  // reported devconsole.js hashing to 7cd1d957 instead of c6c905b7. The vendor
+  // directory has a .gitattributes now, and loading normalises regardless, so
+  // the build no longer depends on the checkout being configured correctly.
+  let dir;
+
+  beforeAll(() => {
+    dir = mkdtempSync(nodePath.join(tmpdir(), 'forge-crlf-'));
+    for (const name of ['devconsole.js', 'testRecorder.js']) {
+      const lf = readFileSync(nodePath.join('vendor/forge', name), 'utf8');
+      writeFileSync(nodePath.join(dir, name), lf.replace(/\n/g, '\r\n'));
+    }
+  });
+
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('still produces the hashes Forge published', () => {
+    const files = loadForgeRuntime(dir);
+    expect(Object.fromEntries(files.map((f) => [f.name, f.hash]))).toEqual(EXPECTED_HASHES);
+  });
+
+  it('would fail without the normalisation, which is why it is tested', () => {
+    const crlf = readFileSync(nodePath.join(dir, 'devconsole.js'), 'utf8');
+    expect(crlf).toContain('\r\n');
+    expect(forgeHash(crlf)).toBe('7cd1d957');
+    expect(forgeHash(crlf)).not.toBe(EXPECTED_HASHES['devconsole.js']);
+  });
+
+  it('builds a page from a CRLF checkout without complaint', () => {
+    const out = applyForgeRuntime(page(), {
+      index: 'uncertainty-budget.html',
+      project: 'P',
+      generated: 'G',
+      files: loadForgeRuntime(dir),
+    });
+    expect(out.startsWith('<!--WFC-MANIFEST:')).toBe(true);
+    // And emits the same bytes a LF checkout would, so CI and a workstation agree.
+    const fromLf = applyForgeRuntime(page(), {
+      index: 'uncertainty-budget.html', project: 'P', generated: 'G', files: loadForgeRuntime(),
+    });
+    expect(out).toBe(fromLf);
   });
 });
 
