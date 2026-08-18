@@ -68,6 +68,8 @@ import {
   faChevronRight,
   faExpandArrowsAlt,
   faCompressArrowsAlt,
+  faMoon,
+  faSun,
 } from "@fortawesome/free-solid-svg-icons";
 
 import ThemeContext from "./context/ThemeContext";
@@ -1379,7 +1381,7 @@ const SidebarSessionHeader = ({
   );
 };
 
-function App() {
+function App({ showThemeToggle = false }) {
   const {
     sessions,
     instruments,
@@ -1414,7 +1416,7 @@ function App() {
   // Theme + toasts are provided by the workbench shell (global light/dark
   // toggle in WorkbenchTopBar; toast stack at the shell root). The module no
   // longer owns its own dark-mode/theme state or a local toast.
-  const { theme } = useTheme();
+  const { theme, toggleTheme } = useTheme();
   const isDarkMode = theme === "dark";
 
   const [isToleranceModalOpen, setIsToleranceModalOpen] = useState(false);
@@ -1807,9 +1809,12 @@ function App() {
   // Id of a just-quick-added direct point whose sidebar row should open straight
   // into value-edit. SidebarPointItem consumes it on mount, then App clears it.
   const [pendingValueEditPointId, setPendingValueEditPointId] = useState(null);
-  // Per-UUT direct/derived mode for the "+" quick-add button (keyed by the
-  // sidebar UUT row key). Defaults to "direct".
-  const [newPointModeByUut, setNewPointModeByUut] = useState({});
+  // Per-function direct/derived mode for the "+" quick-add button.
+  const [newPointModeByFunction, setNewPointModeByFunction] = useState({});
+  // Function headers own point creation now that UUT folder rows are gone.
+  // When several UUTs implement the function, this remembers the target shown
+  // in the compact header selector.
+  const [quickAddUutByFunction, setQuickAddUutByFunction] = useState({});
   // When a function exposes more than one range unit, the quick-add button
   // pauses here so the new direct/derived point can be attached to an explicit
   // unit instead of silently choosing the first range.
@@ -2566,18 +2571,6 @@ function App() {
       const newSet = new Set(prev);
       if (newSet.has(functionKey)) newSet.delete(functionKey);
       else newSet.add(functionKey);
-      return newSet;
-    });
-  };
-
-  // uutKey is the composite `${functionKey}::${uutId}` so the same UUT under two
-  // function nodes expands independently.
-  const toggleUutExpand = (e, uutKey) => {
-    e.stopPropagation();
-    setExpandedUuts((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(uutKey)) newSet.delete(uutKey);
-      else newSet.add(uutKey);
       return newSet;
     });
   };
@@ -3736,14 +3729,20 @@ function App() {
 
   // Exact top-to-bottom order of the point rows currently visible in the
   // sidebar. Shift-click must follow the active sort and skip collapsed rows.
-  const visibleSidebarPointOrder = useMemo(
-    () =>
-      getVisibleSidebarPointOrder(
-        sidebarData,
-        { expandedFunctions, expandedUuts },
-        sortSidebarPoints,
-      ),
-    [expandedFunctions, expandedUuts, sidebarData, sortSidebarPoints],
+  const visibleSidebarPointOrder = useMemo(() => {
+    const visibleUutKeys = new Set();
+    sidebarData.forEach((fnGroup) => {
+      (fnGroup.uutGroups || []).forEach((group) => {
+        visibleUutKeys.add(`${fnGroup.id}::${group.id}`);
+      });
+    });
+    return getVisibleSidebarPointOrder(
+      sidebarData,
+      { expandedFunctions, expandedUuts: visibleUutKeys },
+      sortSidebarPoints,
+    );
+  },
+    [expandedFunctions, sidebarData, sortSidebarPoints],
   );
 
   // --- LOGIC: Compute Data to Display ---
@@ -3968,6 +3967,41 @@ function App() {
     />
   );
 
+  const renderEmptySidebarUutRow = (group, fnGroup) => {
+    const uutKey = `${fnGroup.id}::${group.id}`;
+    const gridTemplateColumns = getSidebarGridTemplate(
+      visibleSidebarColumns,
+      sidebarValueColumnWidth,
+    );
+    const identity = formatInstrumentIdentity(group);
+    return (
+      <div
+        key={`empty-${uutKey}`}
+        className={`sidebar-empty-uut-row${dragOverTargetId === uutKey ? " drag-over" : ""}`}
+        style={{ gridTemplateColumns }}
+        aria-label={`${identity}: no measurement points`}
+        onClick={() => handleSelectUut(group.id, fnGroup.id)}
+        onDragOver={(event) => handleDragOver(event, uutKey)}
+        onDragLeave={handleDragLeave}
+        onDrop={(event) => handleDrop(event, group.id, null)}
+      >
+        {visibleSidebarColumns.uut && (
+          <span className="point-uut-name" title={identity}>
+            {identity}
+          </span>
+        )}
+        <span
+          className="sidebar-empty-uut-copy"
+          style={{
+            gridColumn: visibleSidebarColumns.uut ? "2 / -1" : "1 / -1",
+          }}
+        >
+          No measurement points
+        </span>
+      </div>
+    );
+  };
+
   const renderSidebarColumnHeaders = () => {
     const gridTemplateColumns = getSidebarGridTemplate(
       visibleSidebarColumns,
@@ -4112,6 +4146,138 @@ function App() {
           title: "Targeted R_REOP without Guardband",
         })}
         </div>
+      </div>
+    );
+  };
+
+  const renderFunctionPointActions = (fnGroup) => {
+    const uutOptions = (fnGroup.uutGroups || []).filter(
+      (group) => !group.isUnassigned,
+    );
+    if (uutOptions.length === 0) return null;
+
+    const requestedUutId = quickAddUutByFunction[fnGroup.id];
+    const targetUut =
+      uutOptions.find(
+        (group) => String(group.id) === String(requestedUutId),
+      ) || uutOptions[0];
+    const pointMode = newPointModeByFunction[fnGroup.id] || "direct";
+    const setMode = (mode) =>
+      setNewPointModeByFunction((previous) => ({
+        ...previous,
+        [fnGroup.id]: mode,
+      }));
+
+    return (
+      <div
+        className="function-point-actions"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {uutOptions.length > 1 && (
+          <select
+            className="function-point-uut-select"
+            value={targetUut.id}
+            aria-label={`UUT for new ${fnGroup.name} measurement point`}
+            title="UUT for the new measurement point"
+            onChange={(event) =>
+              setQuickAddUutByFunction((previous) => ({
+                ...previous,
+                [fnGroup.id]: event.target.value,
+              }))
+            }
+          >
+            {uutOptions.map((group) => (
+              <option key={group.id} value={group.id}>
+                {formatInstrumentIdentity(group)}
+              </option>
+            ))}
+          </select>
+        )}
+        <div
+          className="point-mode-control point-mode-control--function"
+          role="group"
+          aria-label="Direct / Derived: what the add button creates"
+          title="What the + button adds"
+        >
+          <span
+            className={`point-mode-label ${pointMode === "direct" ? "is-active" : ""}`}
+          >
+            Direct
+          </span>
+          <label className="direction-toggle-switch">
+            <input
+              type="checkbox"
+              checked={pointMode === "derived"}
+              aria-label="Create derived measurement points"
+              onChange={(event) =>
+                setMode(event.target.checked ? "derived" : "direct")
+              }
+            />
+            <span className="direction-toggle-slider" />
+          </label>
+          <span
+            className={`point-mode-label ${pointMode === "derived" ? "is-active" : ""}`}
+          >
+            Derived
+          </span>
+        </div>
+        <button
+          type="button"
+          className="btn-icon-only small"
+          onClick={() => {
+            setExpandedFunctions((previous) =>
+              new Set(previous).add(fnGroup.id),
+            );
+            openQuickAddPoint(fnGroup, targetUut.id, pointMode);
+          }}
+          title={
+            pointMode === "derived"
+              ? "Add derived point"
+              : "Add direct point"
+          }
+          aria-label={
+            pointMode === "derived"
+              ? "Add derived point"
+              : "Add direct point"
+          }
+        >
+          <FontAwesomeIcon icon={faPlus} size="xs" />
+        </button>
+        {pendingPointUnitChoice?.functionId === fnGroup.id &&
+          pendingPointUnitChoice?.uutId === targetUut.id && (
+            <div
+              className="budget-settings-menu point-unit-picker function-point-unit-picker"
+              role="menu"
+              aria-label="Choose measurement point unit"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h5 className="point-unit-picker-title">Choose unit</h5>
+              {pendingPointUnitChoice.units.map((unit) => (
+                <button
+                  key={unit}
+                  type="button"
+                  role="menuitem"
+                  onClick={() =>
+                    handleQuickAddPoint(
+                      fnGroup,
+                      targetUut.id,
+                      pendingPointUnitChoice.mode,
+                      unit,
+                    )
+                  }
+                >
+                  {getUnitDisplayLabel(unit)}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="point-unit-picker-cancel"
+                onClick={() => setPendingPointUnitChoice(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
       </div>
     );
   };
@@ -4343,6 +4509,27 @@ function App() {
                   >
                     <FontAwesomeIcon icon={faBug} />
                   </button>
+                  {showThemeToggle && (
+                    <button
+                      type="button"
+                      className="app-chrome-meta-icon"
+                      onClick={toggleTheme}
+                      title={
+                        theme === "dark"
+                          ? "Switch to light mode"
+                          : "Switch to dark mode"
+                      }
+                      aria-label={
+                        theme === "dark"
+                          ? "Switch to light mode"
+                          : "Switch to dark mode"
+                      }
+                    >
+                      <FontAwesomeIcon
+                        icon={theme === "dark" ? faSun : faMoon}
+                      />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -4629,7 +4816,7 @@ function App() {
                             onDoubleClick={(event) =>
                               expandFunctionBranch(event, fnGroup)
                             }
-                            title="Double-click to expand all instruments and points"
+                            title="Double-click to expand all measurement points"
                           >
                             <FontAwesomeIcon
                               icon={
@@ -4677,7 +4864,7 @@ function App() {
                           onDoubleClick={(event) =>
                             expandFunctionBranch(event, fnGroup)
                           }
-                          title="Double-click to expand all instruments and points"
+                          title="Double-click to expand all measurement points"
                         >
                           <FontAwesomeIcon
                             icon={isFnExpanded ? faChevronDown : faChevronRight}
@@ -4707,239 +4894,24 @@ function App() {
                           >
                             {fnGroup.name}
                           </span>
+                          {renderFunctionPointActions(fnGroup)}
                         </div>
 
                         {isFnExpanded && (
                           <div className="tree-branch">
-                            {fnGroup.uutGroups.map((group) => {
-                              const uutKey = `${fnGroup.id}::${group.id}`;
-                              const isUutExpanded = expandedUuts.has(uutKey);
-                              const isUutSelected =
-                                selectedUutId === group.id &&
-                                selectedFunctionId === fnGroup.id &&
-                                !selectedTestPointId;
-                              const isDragOver = dragOverTargetId === uutKey;
-                              const sortedPoints = sortSidebarPoints(
-                                group.points,
-                              );
-
-                              return (
-                                <div
-                                  key={group.id}
-                                  style={{ marginBottom: "10px" }}
-                                >
-                                  <div
-                                    className={`uut-row ${isUutSelected ? "active" : ""} ${isDragOver ? "drag-over" : ""}`}
-                                    onClick={() =>
-                                      handleSelectUut(group.id, fnGroup.id)
-                                    }
-                                    onDragOver={(e) => handleDragOver(e, uutKey)}
-                                    onDragLeave={handleDragLeave}
-                                    onDrop={(e) => handleDrop(e, group.id, null)}
-                                    onContextMenu={(e) => {
-                                      e.preventDefault();
-                                      setContextMenu({
-                                        x: e.pageX,
-                                        y: e.pageY,
-                                        items: [
-                                          {
-                                            label: "Paste Point Here",
-                                            action: () =>
-                                              handlePastePoint(group.id, null),
-                                            icon: faPaste,
-                                            className:
-                                              clipboardKind !== "point" ||
-                                              !clipboardPoint
-                                                ? "disabled"
-                                                : "",
-                                          },
-                                          {
-                                            label: "Copy UUT",
-                                            action: () => handleCopyUut(group),
-                                            icon: faCopy,
-                                          },
-                                          {
-                                            label: "Edit UUT",
-                                            action: () => handleEditUut(group),
-                                            icon: faEdit,
-                                          },
-                                          {
-                                            label: "Delete UUT",
-                                            action: () =>
-                                              handleDeleteUut(group.id),
-                                            icon: faTrashAlt,
-                                            className: "destructive",
-                                          },
-                                        ],
-                                      });
-                                    }}
-                                  >
-                                    <div className="uut-info">
-                                      <FontAwesomeIcon
-                                        icon={
-                                          isUutExpanded
-                                            ? faChevronDown
-                                            : faChevronRight
-                                        }
-                                        onClick={(e) =>
-                                          toggleUutExpand(e, uutKey)
-                                        }
-                                        style={{
-                                          opacity: 0.6,
-                                          marginRight: "8px",
-                                          fontSize: "0.75em",
-                                          width: "10px",
-                                        }}
-                                      />
-                                      <FontAwesomeIcon
-                                        icon={faMicroscope}
-                                        style={{ opacity: 0.6 }}
-                                      />
-                                      <span
-                                        title={formatInstrumentIdentity(group)}
-                                      >
-                                        {formatInstrumentIdentity(group)}
-                                      </span>
-                                    </div>
-                                    <div className="uut-actions-group">
-                                      {(() => {
-                                        const pointMode =
-                                          newPointModeByUut[uutKey] || "direct";
-                                        const setMode = (mode) =>
-                                          setNewPointModeByUut((m) => ({
-                                            ...m,
-                                            [uutKey]: mode,
-                                          }));
-                                        return (
-                                          <>
-                                            <div
-                                              className="point-mode-control"
-                                              role="group"
-                                              aria-label="Direct / Derived: what the add button creates"
-                                              onClick={(e) => e.stopPropagation()}
-                                              title="What the + button adds"
-                                            >
-                                              <span className={`point-mode-label ${pointMode === "direct" ? "is-active" : ""}`}>
-                                                Direct
-                                              </span>
-                                              <label className="direction-toggle-switch">
-                                                <input
-                                                  type="checkbox"
-                                                  checked={pointMode === "derived"}
-                                                  aria-label="Create derived measurement points"
-                                                  onChange={(e) =>
-                                                    setMode(
-                                                      e.target.checked
-                                                        ? "derived"
-                                                        : "direct",
-                                                    )
-                                                  }
-                                                />
-                                                <span className="direction-toggle-slider" />
-                                              </label>
-                                              <span className={`point-mode-label ${pointMode === "derived" ? "is-active" : ""}`}>
-                                                Derived
-                                              </span>
-                                            </div>
-                                            <button
-                                              className="btn-icon-only small"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                // Ensure the UUT is expanded so
-                                                // the new row is visible (and can
-                                                // open into inline value-edit).
-                                                setExpandedUuts((prev) =>
-                                                  new Set(prev).add(uutKey),
-                                                );
-                                                openQuickAddPoint(
-                                                  fnGroup,
-                                                  group.id,
-                                                  pointMode,
-                                                );
-                                              }}
-                                              title={
-                                                pointMode === "derived"
-                                                  ? "Add derived point"
-                                                  : "Add direct point"
-                                              }
-                                            >
-                                              <FontAwesomeIcon
-                                                icon={faPlus}
-                                                size="xs"
-                                              />
-                                            </button>
-                                            {pendingPointUnitChoice?.functionId ===
-                                              fnGroup.id &&
-                                              pendingPointUnitChoice?.uutId ===
-                                                group.id && (
-                                                <div
-                                                  className="budget-settings-menu point-unit-picker"
-                                                  role="menu"
-                                                  aria-label="Choose measurement point unit"
-                                                  onClick={(e) =>
-                                                    e.stopPropagation()
-                                                  }
-                                                >
-                                                  <h5 className="point-unit-picker-title">
-                                                    Choose unit
-                                                  </h5>
-                                                  {pendingPointUnitChoice.units.map(
-                                                    (unit) => (
-                                                      <button
-                                                        key={unit}
-                                                        type="button"
-                                                        role="menuitem"
-                                                        onClick={(e) => {
-                                                          e.stopPropagation();
-                                                          handleQuickAddPoint(
-                                                            fnGroup,
-                                                            group.id,
-                                                            pendingPointUnitChoice.mode,
-                                                            unit,
-                                                          );
-                                                        }}
-                                                      >
-                                                        {getUnitDisplayLabel(unit)}
-                                                      </button>
-                                                    ),
-                                                  )}
-                                                  <button
-                                                    type="button"
-                                                    className="point-unit-picker-cancel"
-                                                    onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      setPendingPointUnitChoice(
-                                                        null,
-                                                      );
-                                                    }}
-                                                  >
-                                                    Cancel
-                                                  </button>
-                                                </div>
-                                              )}
-                                          </>
-                                        );
-                                      })()}
-                                    </div>
-                                  </div>
-
-                                  {isUutExpanded && (
-                                    <div style={{ paddingLeft: "15px" }}>
-                                      <div className="sidebar-points-scroll-wrapper">
-                                        {renderSidebarColumnHeaders()}
-                                        {sortedPoints.length === 0 ? (
-                                          <div className="empty-branch-msg"></div>
-                                        ) : (
-                                          sortedPoints.map((tp) =>
-                                            renderSidebarPointRow(tp, group.id),
-                                          )
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
+                            <div className="sidebar-points-scroll-wrapper">
+                              {renderSidebarColumnHeaders()}
+                              {fnGroup.uutGroups.flatMap((group) => {
+                                const points = sortSidebarPoints(
+                                  group.points || [],
+                                );
+                                return points.length > 0
+                                  ? points.map((tp) =>
+                                      renderSidebarPointRow(tp, group.id),
+                                    )
+                                  : [renderEmptySidebarUutRow(group, fnGroup)];
+                              })}
+                            </div>
                           </div>
                         )}
                       </div>

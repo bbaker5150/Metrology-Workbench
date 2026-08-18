@@ -12584,9 +12584,30 @@ input.inline-function-input:focus {
 /* --- Collapsed range cell: clicking the active range opens the full editable
    list (add via ghost row; remove with the per-range hover action). --- */
 .range-collapsed-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: grid;
+  grid-auto-flow: row;
+  grid-auto-rows: 36px;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+}
+
+.range-collapsed-cell > .range-stack-row {
+  height: 36px;
+  padding: 4px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--border-color) 72%, transparent);
+  overflow: hidden;
+}
+
+.range-collapsed-cell > .range-stack-row:last-child {
+  border-bottom-color: transparent;
+}
+
+.range-collapsed-cell .inline-tolerance-readview,
+.range-collapsed-cell .inline-tolerance-summary,
+.range-collapsed-cell .range-cell-readview {
+  max-width: 100%;
   min-width: 0;
 }
 
@@ -14318,6 +14339,69 @@ body.theme-cyberpunk .range-header-container:hover {
   letter-spacing: 0.8px;
   color: var(--text-color-muted);
   flex-grow: 1;
+  min-width: 72px;
+}
+
+.function-point-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.function-point-uut-select {
+  width: min(150px, 24vw);
+  min-width: 82px;
+  height: 28px;
+  padding: 0 24px 0 7px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--input-background);
+  color: var(--text-color);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+}
+
+.point-mode-control--function {
+  font-size: 0.68rem;
+}
+
+.function-point-unit-picker {
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  z-index: 40;
+}
+
+.sidebar-empty-uut-row {
+  display: grid;
+  align-items: center;
+  min-height: 34px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-color-muted);
+  cursor: pointer;
+}
+
+.sidebar-empty-uut-row:hover,
+.sidebar-empty-uut-row.drag-over {
+  background: var(--input-background);
+}
+
+.sidebar-empty-uut-row .point-uut-name,
+.sidebar-empty-uut-copy {
+  min-width: 0;
+  padding: 6px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-empty-uut-copy {
+  font-size: 0.7rem;
+  font-style: italic;
 }
 
 .area-header-sticky:hover .area-label {

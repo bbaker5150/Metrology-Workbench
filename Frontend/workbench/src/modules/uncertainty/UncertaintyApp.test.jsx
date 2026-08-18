@@ -469,10 +469,16 @@ describe("UncertaintyApp", () => {
       .find((row) => row.classList.contains("area-label"))
       .closest(".area-header-sticky");
     fireEvent.doubleClick(functionHeader);
+    const emptyUutRow = await waitFor(() => {
+      const row = document.querySelector(".sidebar-empty-uut-row");
+      expect(row).toBeInTheDocument();
+      return row;
+    });
+    expect(emptyUutRow).toHaveTextContent(/Pressure Standard/);
+    expect(emptyUutRow).toHaveTextContent("No measurement points");
+    expect(document.querySelector(".uut-row")).not.toBeInTheDocument();
     expect(
-      await within(document.querySelector(".results-sidebar")).findByText(
-        /Pressure Standard/,
-      ),
+      within(functionHeader).getByRole("button", { name: "Add direct point" }),
     ).toBeInTheDocument();
   });
 

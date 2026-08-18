@@ -12,10 +12,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import axios from 'axios';
-import { FaMoon, FaSun } from 'react-icons/fa';
 
 import '../index.css';
-import { ThemeProvider, useTheme } from '../shared/ThemeContext';
+import { ThemeProvider } from '../shared/ThemeContext';
 import { NotificationProvider } from '../shared/NotificationContext';
 import ZoomToast from '../shared/ZoomToast';
 import { UncertaintyProvider } from '../modules/uncertainty/contexts/UncertaintyContext';
@@ -63,30 +62,13 @@ document.body.classList.add(`${initialTheme}-mode`, 'uncertainty-active');
 // Covers the forms inside bundled dependencies; ours do not use submission.
 installFormSubmitShim();
 
-const StandaloneThemeToggle = () => {
-  const { theme, toggleTheme } = useTheme();
-  const dark = theme === 'dark';
-  return (
-    <button
-      type="button"
-      className="standalone-theme-toggle"
-      onClick={toggleTheme}
-      aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-      title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-    >
-      {dark ? <FaSun aria-hidden /> : <FaMoon aria-hidden />}
-    </button>
-  );
-};
-
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ThemeProvider>
       <NotificationProvider>
-        <StandaloneThemeToggle />
         <StorageGate store={store}>
           <UncertaintyProvider>
-            <UncertalyticsApp />
+            <UncertalyticsApp showThemeToggle />
           </UncertaintyProvider>
         </StorageGate>
         <ZoomToast />

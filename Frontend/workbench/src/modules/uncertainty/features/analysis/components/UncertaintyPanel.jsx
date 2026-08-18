@@ -8171,7 +8171,7 @@ const SummaryDashboard = ({
                           }
                           title={specRows[0]}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const rangeKey = rangeIdOf(range);
                               const tolerance = getItemRangeTolerance(uut, rangeKey) || range;
@@ -8216,7 +8216,7 @@ const SummaryDashboard = ({
                           }
                           title={formatResolutionLabel(activeRange)}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, index, key }) => {
                               const rangeKey = rangeIdOf(range);
                               return (
@@ -8601,7 +8601,7 @@ const SummaryDashboard = ({
                           }
                           title={specRows[0]}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const rangeKey = rangeIdOf(range);
                               const tolerance = getItemRangeTolerance(tmde, rangeKey) || range;
@@ -8643,7 +8643,7 @@ const SummaryDashboard = ({
                           title="Spec band distribution"
                           style={{ verticalAlign: "middle" }}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const rangeKey = rangeIdOf(range);
                               const tolerance = getItemRangeTolerance(tmde, rangeKey) || range;
@@ -8669,7 +8669,7 @@ const SummaryDashboard = ({
                           }
                           title={formatResolutionLabel(activeRange)}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const rangeKey = rangeIdOf(range);
                               return (
@@ -13939,7 +13939,7 @@ function DetailedView({
                           }
                           title={!onSessionSave ? specRows[0] : undefined}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const tolerance =
                                 getItemRangeTolerance(uut, rangeIdOf(range)) ||
@@ -13986,7 +13986,7 @@ function DetailedView({
                           }
                           title={formatResolutionLabel(activeRange)}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => (
                               <div className="range-stack-row" key={key}>
                                 {onSessionSave ? (
@@ -14750,7 +14750,7 @@ function DetailedView({
                               }
                               title={!onSessionSave ? specRows[0] : undefined}
                             >
-                              <div className={showAllRanges ? "range-stack" : undefined}>
+                              <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                                 {visibleRangeRows.map(({ range, key }) => {
                                   const rangeKey = rangeIdOf(range);
                                   const tolerance =
@@ -14799,7 +14799,7 @@ function DetailedView({
                               title="Spec band distribution"
                               style={{ verticalAlign: "middle" }}
                             >
-                              <div className={showAllRanges ? "range-stack" : undefined}>
+                              <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                                 {visibleRangeRows.map(({ range, key }) => {
                                   const rangeKey = rangeIdOf(range);
                                   const tolerance =
@@ -14835,7 +14835,7 @@ function DetailedView({
                               }
                               title={formatResolutionLabel(activeRange)}
                             >
-                              <div className={showAllRanges ? "range-stack" : undefined}>
+                              <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                                 {visibleRangeRows.map(({ range, key }) => {
                                   const rangeKey = rangeIdOf(range);
                                   return (
