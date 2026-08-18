@@ -1452,6 +1452,15 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   cursor: text;
 }
 
+.point-grid-item .point-uut-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
 .point-grid-item .point-value {
   cursor: text;
 }

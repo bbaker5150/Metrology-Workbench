@@ -511,6 +511,7 @@ const ToleranceTermEditor = ({
     typeKey,
     showHighSign = true,
     onCommit,
+    unitOptions = [],
 }) => {
     const component =
         getToleranceComponent(tolerance, typeKey) ||
@@ -967,6 +968,14 @@ const ToleranceTermEditor = ({
                         </button>
                         {unitMenu}
                     </>
+                ) : typeKey === "floor" ? (
+                    <BuilderUnitSelect
+                        value={component.unit || activeRange?.unit || ""}
+                        onChange={(unit) => commit({ unit })}
+                        options={unitOptions}
+                        ariaLabel="Tolerance unit"
+                        width="82px"
+                    />
                 ) : (
                     <span
                         className={`inline-tolerance-chip inline-tolerance-chip--in-cell${
@@ -1011,6 +1020,7 @@ const BuilderSingleSidedToleranceEditor = ({
     tolerance = {},
     activeRange = {},
     onCommit,
+    unitOptions = [],
 }) => {
     const stored = getToleranceComponent(tolerance, "singleSided");
     const component = stored || defaultToleranceComponent("singleSided", activeRange, tolerance);
@@ -1088,7 +1098,6 @@ const BuilderSingleSidedToleranceEditor = ({
               document.body,
           )
         : null;
-    const unit = getUnitDisplayLabel(component.unit || activeRange?.unit || "");
     const limitLabel = direction === "low" ? "Lower limit" : "Upper limit";
 
     return (
@@ -1143,10 +1152,16 @@ const BuilderSingleSidedToleranceEditor = ({
                                 className="inline-tolerance-input builder-single-sided-input"
                             />
                         </span>
-                        {unit && <span className="builder-single-sided-unit">{unit}</span>}
                     </div>
                 );
             })}
+            <BuilderUnitSelect
+                value={component.unit || activeRange?.unit || ""}
+                onChange={(unit) => commit({ unit })}
+                options={unitOptions}
+                ariaLabel="Single-sided tolerance unit"
+                width="82px"
+            />
         </span>
     );
 };
@@ -1284,6 +1299,7 @@ const BuilderRangeCell = ({
 const BuilderToleranceCell = ({
     range = {},
     fn = {},
+    unitOptions = [],
     onToleranceComponentCommit,
 }) => {
     const [editing, setEditing] = useState(false);
@@ -1319,6 +1335,7 @@ const BuilderToleranceCell = ({
                                 tolerance={tolerance}
                                 activeRange={activeRange}
                                 onCommit={onToleranceComponentCommit}
+                                unitOptions={unitOptions}
                             />
                         ) : (
                             <ToleranceTermEditor
@@ -1327,6 +1344,7 @@ const BuilderToleranceCell = ({
                                 typeKey={opt.key}
                                 showHighSign
                                 onCommit={onToleranceComponentCommit}
+                                unitOptions={unitOptions}
                             />
                         )}
                     </span>
@@ -2901,6 +2919,7 @@ const UniversalInstrumentModal = ({
                                                                     <BuilderToleranceCell
                                                                         range={range}
                                                                         fn={fn}
+                                                                        unitOptions={unitOptions}
                                                                         onToleranceComponentCommit={(typeKey, component) =>
                                                                             updateRangeTolerance(fn.id, range.id, (prev) =>
                                                                                 applyToleranceCaseChange(

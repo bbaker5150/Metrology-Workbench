@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   GhostRangeRow,
   InlineToleranceCell,
   InlineDistributionCell,
   ResolutionCellInput,
   RangeCell,
+  getBudgetRangeChoices,
+  getVisibleRangeRows,
   removeRangeFromItem,
 } from "./UncertaintyPanel";
 
@@ -25,6 +27,40 @@ const renderGhost = (onMaterialize, unit = "V") =>
   );
 
 describe("GhostRangeRow", () => {
+  it("keeps every function-scoped range visible in the simplified view", () => {
+    const ranges = [
+      { id: "r1", min: 0, max: 10, unit: "V" },
+      { id: "r2", min: 10, max: 20, unit: "V" },
+      { id: "r3", min: 20, max: 30, unit: "V" },
+    ];
+
+    expect(getVisibleRangeRows(ranges, 1, ranges[1], false)).toEqual([
+      { range: ranges[0], index: 0, key: "r1" },
+      { range: ranges[1], index: 1, key: "r2" },
+      { range: ranges[2], index: 2, key: "r3" },
+    ]);
+  });
+
+  it("offers every TMDE range as an explicit budget-source choice", () => {
+    const choices = getBudgetRangeChoices({
+      instrument: {
+        functions: [
+          {
+            id: "voltage",
+            name: "Voltage",
+            unit: "V",
+            ranges: [
+              { id: "v-low", min: 0, max: 10, unit: "V" },
+              { id: "v-high", min: 10, max: 20, unit: "V" },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(choices.map((range) => range.rangeId)).toEqual(["v-low", "v-high"]);
+  });
+
   it("does not materialize while tabbing min → max within the row", () => {
     const onMaterialize = vi.fn();
     renderGhost(onMaterialize);
@@ -586,6 +622,31 @@ describe("inline range editing", () => {
     fireEvent.click(emptyTolerance);
 
     expect(screen.getAllByPlaceholderText("0").length).toBeGreaterThan(0);
+  });
+
+  it("collapses an expanded tolerance on Escape or a click in another column", async () => {
+    render(
+      <div>
+        <InlineToleranceCell
+          tolerance={{ reading: { high: "1", low: "-1", unit: "%" } }}
+          activeRange={{ id: "range-1", min: 0, max: 10, unit: "V" }}
+          editable
+          onCommit={vi.fn()}
+        />
+        <button type="button">Other column</button>
+      </div>,
+    );
+
+    fireEvent.click(screen.getByTitle("Click to edit tolerance"));
+    fireEvent.keyDown(screen.getAllByPlaceholderText("0")[0], { key: "Escape" });
+    expect(screen.getByTitle("Click to edit tolerance")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Click to edit tolerance"));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Other column" }));
+    fireEvent.click(screen.getByRole("button", { name: "Other column" }));
+    await waitFor(() =>
+      expect(screen.getByTitle("Click to edit tolerance")).toBeInTheDocument(),
+    );
   });
 
   it("authors a workbook-style single-sided unknown upper limit", () => {

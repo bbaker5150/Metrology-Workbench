@@ -61,7 +61,7 @@ describe("applyItemRangePatch on a new instrument with no ranges", () => {
     expect(patched.instrument.functions[0].ranges).toHaveLength(1);
   });
 
-  it("keeps absolute tolerance terms synchronized with a changed range unit", () => {
+  it("preserves explicitly different physical tolerance units when a range unit changes", () => {
     const item = {
       id: "uut-length",
       instrument: {
@@ -90,14 +90,14 @@ describe("applyItemRangePatch on a new instrument with no ranges", () => {
     const patched = applyRangeUnitChange(item, "r-length", "ft");
     const [range] = patched.instrument.functions[0].ranges;
     expect(range.unit).toBe("ft");
-    expect(range.tolerances.floor.unit).toBe("ft");
-    expect(range.tolerances.singleSided.unit).toBe("ft");
+    expect(range.tolerances.floor.unit).toBe("in");
+    expect(range.tolerances.singleSided.unit).toBe("in");
     expect(range.tolerances.reading.unit).toBe("%");
     expect(range.tolerances.range.unit).toBe("%");
     expect(range.tolerances.db).not.toHaveProperty("unit");
   });
 
-  it("materializes a unit-only unbounded range while synchronizing its flat tolerance", () => {
+  it("materializes a unit-only unbounded range without overwriting its tolerance unit", () => {
     const item = {
       id: "uut-unbounded-length",
       tolerance: {
@@ -111,7 +111,7 @@ describe("applyItemRangePatch on a new instrument with no ranges", () => {
     const patched = applyRangeUnitChange(item, "default", "ft");
     const [range] = patched.instrument.functions[0].ranges;
     expect(range).toMatchObject({ min: "", max: "", unit: "ft" });
-    expect(range.tolerances.floor.unit).toBe("ft");
+    expect(range.tolerances.floor.unit).toBe("in");
   });
 
   it("stores a function tolerance on an unbounded range for all values", () => {

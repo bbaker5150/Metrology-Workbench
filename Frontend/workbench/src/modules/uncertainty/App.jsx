@@ -126,6 +126,7 @@ const SIDEBAR_COLUMN_GROUPS = [
     key: "measurement",
     label: "Measurement",
     columns: [
+      "uut",
       "section",
       "value",
       "qualifier",
@@ -168,6 +169,7 @@ const SIDEBAR_COLUMN_GROUPS = [
 const getSidebarGridTemplate = (visibleColumns, valueColumnWidth = "80px") => {
   const parts = [];
   // Fixed widths for stable columns
+  if (visibleColumns.uut) parts.push("minmax(120px, 1.35fr)");
   if (visibleColumns.section) parts.push("50px");
   if (visibleColumns.value) parts.push(valueColumnWidth);
   if (visibleColumns.qualifier) parts.push("80px");
@@ -242,6 +244,7 @@ const SCOPED_ZOOM_SURFACE_SELECTOR = [
 
 const UNCERTAINTY_UI_PREFERENCES_PREFIX = "uncertalytics.uiPreferences.v1";
 const DEFAULT_SIDEBAR_COLUMNS = {
+  uut: true,
   section: false,
   value: true,
   qualifier: false,
@@ -416,6 +419,7 @@ const getPointTmdeLimitSortValue = (point, key) => {
 // --- HELPER COMPONENT: Sidebar Point Item (Supports Inline Editing) ---
 export const SidebarPointItem = ({
   point,
+  uutName = "Unassigned",
   valueColumnWidth = "80px",
   isSelected,
   isActivePoint = false,
@@ -431,6 +435,7 @@ export const SidebarPointItem = ({
   autoEditValue = false,
   onAutoEditConsumed,
   visibleColumns = {
+    uut: true,
     section: true,
     value: true,
     tolerance: true,
@@ -711,7 +716,13 @@ export const SidebarPointItem = ({
       }}
       onContextMenu={(e) => onContextMenu(e, point)}
     >
-      {/* Col 1: Section */}
+      {visibleColumns.uut && (
+        <span className="point-uut-name" title={uutName}>
+          {uutName}
+        </span>
+      )}
+
+      {/* Section */}
       {visibleColumns.section &&
         (editingField === "section" ? (
           <input
@@ -1140,8 +1151,6 @@ const pointToleranceMatchesFunction = (point, tolerance) => {
 const SidebarSessionHeader = ({
   sessionData,
   onUpdate,
-  isActive,
-  onSelect,
   isSessionInfoOpen,
   onSessionInfoOpenChange,
   isRiskInputsOpen,
@@ -1244,23 +1253,7 @@ const SidebarSessionHeader = ({
   const requirements = sessionData.uncReq || {};
 
   return (
-    <div
-      className={`sidebar-session-header-organic ${isActive ? "active" : ""}`}
-      title="Click to select Instrument Overview"
-      onClick={onSelect}
-    >
-      <button
-        type="button"
-        className={`session-overview-button ${isActive ? "active" : ""}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          onSelect();
-        }}
-        aria-current={isActive ? "page" : undefined}
-      >
-        <span>Instrument Overview</span>
-      </button>
-
+    <div className="sidebar-session-header-organic">
       <div className="session-collapsible-block session-info-block">
         <button
           type="button"
@@ -1460,7 +1453,8 @@ function App() {
   const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(true);
   const [isRiskInputsOpen, setIsRiskInputsOpen] = useState(true);
   const [isMitigationInputsOpen, setIsMitigationInputsOpen] = useState(true);
-  const [analysisMode, setAnalysisMode] = useState("uncertaintyTool");
+  const [analysisMode, setAnalysisMode] = useState("overview");
+  const analysisScrollPositionsRef = useRef({});
   const [showContribution, setShowContribution] = useState(false);
   const [scopedZoomLevels, setScopedZoomLevels] = useState({});
   const [loadedPreferencesSessionId, setLoadedPreferencesSessionId] =
@@ -1475,6 +1469,7 @@ function App() {
 
   // --- SIDEBAR PREFERENCES ---
   const [sidebarColumns, setSidebarColumns] = useState({
+    uut: true,
     section: false,
     value: true,
     // Optional secondary parameter (e.g. Frequency); off by default.
@@ -1508,20 +1503,10 @@ function App() {
     noGbMeasRel: false,
   });
   const [sidebarSort, setSidebarSort] = useState(DEFAULT_SIDEBAR_SORT);
-  const hasAnySectionedPoint = useMemo(
-    () =>
-      (currentTestPoints || []).some((point) =>
-        Boolean(String(point.section || "").trim()),
-      ),
-    [currentTestPoints],
-  );
-  const visibleSidebarColumns = useMemo(
-    () => ({
-      ...sidebarColumns,
-      section: sidebarColumns.section && hasAnySectionedPoint,
-    }),
-    [hasAnySectionedPoint, sidebarColumns],
-  );
+  // Keep explicitly enabled columns visible even if their current values are
+  // blank. Hiding Section in that state made its filter appear broken and
+  // prevented users from entering the first section value.
+  const visibleSidebarColumns = sidebarColumns;
   // Reactive per-point risk metrics for the sidebar columns. Recomputed purely
   // in memory (no DB hits) whenever the points or the session's requirements /
   // shared tolerance change, so every row reflects the latest inputs without
@@ -1572,6 +1557,13 @@ function App() {
     (point, key) => {
       const risk = pointRiskMap[point.id] || point.riskMetrics || {};
       switch (key) {
+        case "uut": {
+          const uutId = (point.associatedUutIds || [])[0];
+          const uut = (currentSessionData?.uuts || []).find(
+            (candidate) => String(candidate.id) === String(uutId),
+          );
+          return formatInstrumentIdentity(uut || { name: "Unassigned" });
+        }
         case "section":
           return point.section || "";
         case "value":
@@ -1613,7 +1605,7 @@ function App() {
           return "";
       }
     },
-    [pointRiskMap],
+    [currentSessionData?.uuts, pointRiskMap],
   );
 
   const sortSidebarPoints = useCallback(
@@ -1671,7 +1663,6 @@ function App() {
   );
 
   const [isGlobalExpanded, setIsGlobalExpanded] = useState(false);
-  const [isMeasurementPointsOpen, setIsMeasurementPointsOpen] = useState(true);
 
   // Resize Effect
   useEffect(() => {
@@ -1769,12 +1760,6 @@ function App() {
   const columnMenuRef = useRef(null);
 
   useEffect(() => {
-    if (!isMeasurementPointsOpen) {
-      setIsColumnMenuOpen(false);
-    }
-  }, [isMeasurementPointsOpen]);
-
-  useEffect(() => {
     const handleClickOutside = (event) => {
       if (
         columnMenuRef.current &&
@@ -1869,7 +1854,6 @@ function App() {
     setIsMitigationInputsOpen(
       preferences.isMitigationInputsOpen ?? legacyRequirementsOpen,
     );
-    setIsMeasurementPointsOpen(preferences.isMeasurementPointsOpen ?? true);
     setIsGlobalExpanded(preferences.isGlobalExpanded ?? false);
     setExpandedFunctions(new Set(preferences.expandedFunctions || []));
     setExpandedUuts(new Set(preferences.expandedUuts || []));
@@ -1877,7 +1861,7 @@ function App() {
       new Set(preferences.collapsedInstrumentFunctionKeys || []),
     );
     setActiveRangeIndices(preferences.activeRangeIndices || {});
-    setAnalysisMode(preferences.analysisMode || "uncertaintyTool");
+    setAnalysisMode(preferences.analysisMode || "overview");
     setShowContribution(preferences.showContribution ?? false);
     setScopedZoomLevels(preferences.scopedZoomLevels || {});
     setLoadedPreferencesSessionId(selectedSessionId);
@@ -1898,7 +1882,6 @@ function App() {
       isSessionInfoOpen,
       isRiskInputsOpen,
       isMitigationInputsOpen,
-      isMeasurementPointsOpen,
       isGlobalExpanded,
       expandedFunctions: Array.from(expandedFunctions),
       expandedUuts: Array.from(expandedUuts),
@@ -1926,7 +1909,6 @@ function App() {
     expandedFunctions,
     expandedUuts,
     isGlobalExpanded,
-    isMeasurementPointsOpen,
     isRiskInputsOpen,
     isMitigationInputsOpen,
     isSessionInfoOpen,
@@ -2574,6 +2556,7 @@ function App() {
     setCurrentUutSelection([]);
     setSelectedTablePointIds([]);
     setSelectedSidebarPointIds([]);
+    setAnalysisMode("overview");
   };
 
   // --- TOGGLE EXPANSION HANDLERS ---
@@ -2645,6 +2628,7 @@ function App() {
     setVirtualPoint(null);
     setSelectedTablePointIds([]);
     setSelectedSidebarPointIds(point ? [point.id] : []);
+    setAnalysisMode(point ? "uncertaintyTool" : "overview");
   };
 
   const handleSelectUut = (uutId, functionKey) => {
@@ -2659,6 +2643,7 @@ function App() {
     setVirtualPoint(null);
     setSelectedTablePointIds([]);
     setSelectedSidebarPointIds(point ? [point.id] : []);
+    setAnalysisMode(point ? "uncertaintyTool" : "overview");
   };
 
   const handleSelectTestPoint = (e, tpId, contextUutId = null) => {
@@ -2713,6 +2698,7 @@ function App() {
     setSelectedTestPointContextUutId(contextUutId);
     setCurrentUutSelection([]);
     setSelectedTablePointIds([]);
+    setAnalysisMode("uncertaintyTool");
   };
 
   const handleAddNewSession = () => {
@@ -3927,6 +3913,11 @@ function App() {
     <SidebarPointItem
       key={tp.id}
       point={tp}
+      uutName={formatInstrumentIdentity(
+        (currentSessionData?.uuts || []).find(
+          (uut) => String(uut.id) === String(contextUutId),
+        ) || { name: "Unassigned" },
+      )}
       valueColumnWidth={sidebarValueColumnWidth}
       visibleColumns={visibleSidebarColumns}
       isSelected={selectedSidebarPointIds.includes(tp.id)}
@@ -4013,8 +4004,13 @@ function App() {
             gridTemplateColumns,
           }}
         >
+      {visibleSidebarColumns.uut &&
+        renderSidebarSortHeader("uut", "UUT")}
       {visibleSidebarColumns.section &&
-        renderSidebarSortHeader("section", "Sect.", { align: "right" })}
+        renderSidebarSortHeader("section", "Sect.", {
+          align: "right",
+          title: "Section",
+        })}
       {visibleSidebarColumns.value &&
         renderSidebarSortHeader("value", "Value", {
           className: "sidebar-value-sticky",
@@ -4412,7 +4408,8 @@ function App() {
               {/* === SIDEBAR LIST === */}
               <div className="measurement-point-list">
                 <div className="scoped-zoom-content">
-                {/* 1. INSTRUMENT OVERVIEW + 2. SESSION INFO */}
+                {/* Session metadata stays in the sidebar; Instrument Overview
+                    now lives in the first workspace tab. */}
                 <SidebarSessionHeader
                   sessionData={currentSessionData}
                   onUpdate={updateSession}
@@ -4422,34 +4419,19 @@ function App() {
                   onRiskInputsOpenChange={setIsRiskInputsOpen}
                   isMitigationInputsOpen={isMitigationInputsOpen}
                   onMitigationInputsOpenChange={setIsMitigationInputsOpen}
-                  isActive={
-                    selectedSessionId &&
-                    !selectedFunctionId &&
-                    !selectedUutId &&
-                    !selectedTestPointId
-                  }
-                  onSelect={() => handleSelectSession(selectedSessionId)}
                 />
 
                 {/* 3. MEASUREMENT POINTS */}
                 <div className="sidebar-global-actions">
-                  <button
-                    type="button"
-                    className="sidebar-section-toggle sidebar-measurement-title-toggle"
-                    onClick={() =>
-                      setIsMeasurementPointsOpen((open) => !open)
-                    }
-                    aria-expanded={isMeasurementPointsOpen}
-                  >
+                  <div className="sidebar-section-toggle sidebar-measurement-title-toggle">
                     <span className="sidebar-section-title">
                       Measurement Points
                     </span>
-                  </button>
+                  </div>
 
                   <div className="sidebar-actions-group">
                     {/* Eyeball Button Removed - Moved to HeaderToolbox */}
 
-                    {isMeasurementPointsOpen && (
                       <>
                         {/* Expand/Collapse All */}
                         <button
@@ -4482,6 +4464,7 @@ function App() {
                             {
                               group: "Measurement",
                               cols: [
+                                { key: "uut", label: "UUT" },
                                 { key: "section", label: "Section" },
                                 { key: "value", label: "Value" },
                                 { key: "qualifier", label: "Qualifier" },
@@ -4606,38 +4589,10 @@ function App() {
                           )}
                         </div>
                       </>
-                    )}
-
-                    <button
-                      type="button"
-                      className="sidebar-action-btn-organic sidebar-measurement-accordion"
-                      onClick={() =>
-                        setIsMeasurementPointsOpen((open) => !open)
-                      }
-                      title={
-                        isMeasurementPointsOpen
-                          ? "Collapse Measurement Points"
-                          : "Expand Measurement Points"
-                      }
-                      aria-label={
-                        isMeasurementPointsOpen
-                          ? "Collapse Measurement Points"
-                          : "Expand Measurement Points"
-                      }
-                      aria-expanded={isMeasurementPointsOpen}
-                    >
-                      <FontAwesomeIcon
-                        icon={
-                          isMeasurementPointsOpen
-                            ? faChevronDown
-                            : faChevronRight
-                        }
-                      />
-                    </button>
                   </div>
                 </div>
 
-                {isMeasurementPointsOpen && currentTestPoints.length === 0 && (
+                {currentTestPoints.length === 0 && (
                   <div className="measurement-points-empty-state" role="status">
                     <FontAwesomeIcon icon={faMicroscope} aria-hidden="true" />
                     <div>
@@ -4651,8 +4606,7 @@ function App() {
                   </div>
                 )}
 
-                {isMeasurementPointsOpen &&
-                  sidebarData.map((fnGroup) => {
+                {sidebarData.map((fnGroup) => {
                     const isFnActive =
                       selectedFunctionId === fnGroup.id &&
                       !selectedUutId &&
@@ -4764,13 +4718,6 @@ function App() {
                                 selectedUutId === group.id &&
                                 selectedFunctionId === fnGroup.id &&
                                 !selectedTestPointId;
-                              const uutHasPoints = group.points.length > 0;
-                              if (
-                                !uutHasPoints &&
-                                !isGlobalExpanded &&
-                                currentTestPoints.length > 0
-                              )
-                                return null;
                               const isDragOver = dragOverTargetId === uutKey;
                               const sortedPoints = sortSidebarPoints(
                                 group.points,
@@ -5052,6 +4999,7 @@ function App() {
                     collapsedFunctionKeys={collapsedInstrumentFunctionKeys}
                     setCollapsedFunctionKeys={setCollapsedInstrumentFunctionKeys}
                     keyboardShortcutsEnabled={!isInstrumentBuilderOpen}
+                    scrollPositionsRef={analysisScrollPositionsRef}
                     onSelectUut={handleSelectUut}
                     onSelectTestPoint={handleSelectTestPoint}
                     onDefineTestPoint={handleAddNewTestPoint}

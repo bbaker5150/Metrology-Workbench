@@ -8,6 +8,30 @@ body,
   margin: 0;
 }
 
+.standalone-theme-toggle {
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  z-index: 5000;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.18));
+  border-radius: 50%;
+  background: var(--component-bg, #fff);
+  color: var(--text-color, #172033);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+}
+
+.standalone-theme-toggle:hover,
+.standalone-theme-toggle:focus-visible {
+  color: var(--primary-color, #0078d4);
+  border-color: currentColor;
+}
+
 /* The hosting web part may render this page in a frame sized to its container,
    so the app fills whatever box it is given rather than assuming the viewport. */
 #root {

@@ -1594,10 +1594,11 @@ const describeDimensions = (dimensions) => {
   const known = knownLabels.find(([, candidate]) => dimensionsEqual(dimensions, candidate));
   if (known) return known[0];
 
-  return DIMENSION_KEYS
-    .filter((key) => Math.abs(dimensions[key]) > 1e-10)
-    .map((key) => `${key}${dimensions[key] === 1 ? "" : `^${dimensions[key]}`}`)
-    .join(" ") || "Dimensionless";
+  // Raw dimensional symbols such as "M L" are implementation details, not a
+  // useful instruction to someone fixing an equation. Known quantities above
+  // retain their friendly names; unknown combinations get a plain-language
+  // fallback.
+  return "incompatible units";
 };
 
 // 8.0 evaluates an Excel formula numerically; it does not require the user to
@@ -2291,7 +2292,10 @@ export const calculateDerivedUncertainty = (
           combinedUncertaintyNative: NaN,
           breakdown: [],
           nominalResult: NaN,
-          error: `Unit mismatch: the equation produces ${resultDescription}, but the target unit '${targetUnit}' is ${targetDescription}.${torqueHint}`,
+          error:
+            resultDescription === "incompatible units"
+              ? `Unit mismatch: equation units do not match the expected value for '${targetUnit}'.${torqueHint}`
+              : `Unit mismatch: the equation produces ${resultDescription}, but the target unit '${targetUnit}' is ${targetDescription}.${torqueHint}`,
           unitMismatch: {
             result: resultDescription,
             target: targetDescription,

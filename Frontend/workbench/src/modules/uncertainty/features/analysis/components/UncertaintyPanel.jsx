@@ -1177,7 +1177,7 @@ export const syncTolerancePhysicalUnits = (tolerance = {}, unit = "") => {
   const next = { ...(tolerance || {}) };
   ["floor", "readings_iv", "singleSided"].forEach((key) => {
     if (next[key] && typeof next[key] === "object") {
-      next[key] = { ...next[key], unit };
+      next[key] = { ...next[key], unit: next[key].unit || unit };
     }
   });
   return next;
@@ -1934,7 +1934,13 @@ export const EditableDescriptionCell = ({
     },
     onKeyDown: (e) => {
       if (e.key === "Enter") e.currentTarget.blur();
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setLocal({ make, model, name });
+        setEditing(false);
+        setOpen(false);
+      }
       if (field === "name" && e.key === "Tab" && !e.shiftKey) {
         setOpen(false);
         moveToNextInlineTableColumn(e);
@@ -2309,6 +2315,12 @@ export const ResolutionCellInput = ({
       className="inline-resolution-editor"
       onMouseDown={(e) => e.stopPropagation()}
       onBlur={handleBlur}
+      onKeyDownCapture={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        setIsEditing(false);
+      }}
     >
       <input
         type="text"
@@ -2359,6 +2371,19 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
   useEffect(() => {
     if (!isEditing || !containerRef.current) return;
     containerRef.current.querySelector("button")?.focus();
+  }, [isEditing]);
+
+  useEffect(() => {
+    if (!isEditing) return undefined;
+    const onDocumentClick = (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (containerRef.current?.contains(target)) return;
+      if (target.closest(".inline-unit-menu")) return;
+      setIsEditing(false);
+    };
+    document.addEventListener("click", onDocumentClick);
+    return () => document.removeEventListener("click", onDocumentClick);
   }, [isEditing]);
 
   const label = !isUnset
@@ -2416,6 +2441,12 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
       className="inline-distribution-editor"
       onMouseDown={(e) => e.stopPropagation()}
       onBlur={handleBlur}
+      onKeyDownCapture={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        setIsEditing(false);
+      }}
     >
       <InlineMenuSelect
         value={String(divisor || DISTRIBUTION_NOT_SET)}
@@ -3240,6 +3271,13 @@ const ToleranceTermEditor = ({
             </button>
             {unitMenu}
           </>
+        ) : typeKey === "floor" ? (
+          <UnitSelect
+            value={component.unit || activeRange?.unit || ""}
+            ariaLabel="Tolerance unit"
+            onChange={(unit) => commit({ unit })}
+            width="82px"
+          />
         ) : (
           <span
             className={`inline-tolerance-chip inline-tolerance-chip--in-cell${
@@ -3308,7 +3346,7 @@ const SingleSidedToleranceEditor = ({
     });
   };
   const limitLabel = direction === "low" ? "Lower limit" : "Upper limit";
-  const unit = getUnitDisplayLabel(component.unit || activeRange?.unit || "");
+  const unit = component.unit || activeRange?.unit || "";
   const measurementOptions = [
     { value: "known", label: "Measurement known" },
     { value: "unknown", label: "Measurement unknown" },
@@ -3424,11 +3462,12 @@ const SingleSidedToleranceEditor = ({
           className="inline-tolerance-input"
         />
       </span>
-      {unit && (
-        <span className="inline-tolerance-chip inline-tolerance-chip--in-cell inline-tolerance-chip--static">
-          {unit}
-        </span>
-      )}
+      <UnitSelect
+        value={unit}
+        ariaLabel="Single-sided tolerance unit"
+        onChange={(nextUnit) => commit({ unit: nextUnit })}
+        width="82px"
+      />
           </span>
         );
       })}
@@ -3485,7 +3524,7 @@ export const InlineToleranceCell = ({
 
   useEffect(() => {
     if (!isEditing) return undefined;
-    const handlePointerDownOutsideTable = (event) => {
+    const handlePointerDownOutsideCell = (event) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (target.closest?.(".inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop")) {
@@ -3496,12 +3535,10 @@ export const InlineToleranceCell = ({
       // shape button is interpreted as a click-away and immediately collapses
       // the tolerance editor before the selection can be applied.
       if (containerRef.current?.contains(target)) return;
-      const table = containerRef.current?.closest("table");
-      if (table?.contains(target)) return;
       window.setTimeout(() => setIsEditing(false), 0);
     };
-    document.addEventListener("pointerdown", handlePointerDownOutsideTable, true);
-    return () => document.removeEventListener("pointerdown", handlePointerDownOutsideTable, true);
+    document.addEventListener("pointerdown", handlePointerDownOutsideCell, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDownOutsideCell, true);
   }, [isEditing]);
 
   const summaryRows = showMeasurementStatus
@@ -3556,6 +3593,12 @@ export const InlineToleranceCell = ({
       ref={containerRef}
       className="inline-tolerance-editor inline-tolerance-editor--all"
       onKeyDownCapture={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          setIsEditing(false);
+          return;
+        }
         if (event.key !== "Tab" || event.shiftKey) return;
         const controls = Array.from(
           containerRef.current?.querySelectorAll(
@@ -4086,8 +4129,15 @@ export const GhostRangeRow = ({
   );
 };
 
-const getVisibleRangeRows = (ranges = [], activeIndex = 0, activeRange = {}, showAll = false) => {
-  if (showAll && ranges.length > 0) {
+export const getBudgetRangeChoices = (instrument) => {
+  const ranges = getInstrumentRangeRows(instrument, {
+    flattenTolerances: true,
+  });
+  return ranges.length > 0 ? ranges : [null];
+};
+
+export const getVisibleRangeRows = (ranges = [], activeIndex = 0, activeRange = {}, showAll = false) => {
+  if (ranges.length > 0) {
     // Expanded "view all ranges" is an editing surface, so rows stay in STABLE
     // stored order — no sorting or floating. Reordering while the user edits (an
     // earlier version floated "incomplete" rows to the top) yanks the row out
@@ -6386,9 +6436,11 @@ const SummaryDashboard = ({
     if (sorted !== item) persistItem(kind, sorted);
   };
 
-  const toggleShowAllRanges = (kind, itemId) => {
-    const key = itemStateKey(kind, itemId);
-    if (expandedRangeKeys.has(key)) sortAndPersistRangeGroup(key);
+  const toggleShowAllRanges = (kind, stateId, itemId = stateId) => {
+    const key = itemStateKey(kind, stateId);
+    if (expandedRangeKeys.has(key)) {
+      sortAndPersistRangeGroup(itemStateKey(kind, itemId));
+    }
     setExpandedRangeKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -7121,12 +7173,17 @@ const SummaryDashboard = ({
   };
 
   // The buffered "add" row at the bottom of an expanded range list.
-  const renderGhostRangeRow = (kind, item, activeRange, { includeDistribution }) => (
+  const renderGhostRangeRow = (
+    kind,
+    item,
+    activeRange,
+    { includeDistribution, stateId = item.id },
+  ) => (
     <GhostRangeRow
-      key={`ghost-${kind}-${item.id}`}
+      key={`ghost-${kind}-${stateId}`}
       unit={activeRange?.unit || ""}
       includeDistribution={includeDistribution}
-      dataGroup={itemStateKey(kind, item.id)}
+      dataGroup={itemStateKey(kind, stateId)}
       onMaterialize={(bounds, options) =>
         materializeGhostRange(kind, item, rangeIdOf(activeRange) ?? null, bounds, options)
       }
@@ -7902,7 +7959,7 @@ const SummaryDashboard = ({
                       ? specRows.length
                       : 1;
                   const isSelected = selectedUutIds.includes(uut.id);
-                  const showAllRanges = isShowingAllRanges("uut", uut.id);
+                  const showAllRanges = isShowingAllRanges("uut", uutRowKey);
                   const visibleRangeRows = getVisibleRangeRows(
                     ranges,
                     activeIndex,
@@ -7925,7 +7982,7 @@ const SummaryDashboard = ({
                           return (
                             <tr
                               key={key}
-                              data-range-group={itemStateKey("uut", uut.id)}
+                              data-range-group={itemStateKey("uut", uutRowKey)}
                               className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onMouseDownCapture={(e) =>
@@ -7984,6 +8041,7 @@ const SummaryDashboard = ({
                         })}
                         {renderGhostRangeRow("uut", uut, activeRange, {
                           includeDistribution: false,
+                          stateId: uutRowKey,
                         })}
                       </React.Fragment>
                     );
@@ -8097,7 +8155,9 @@ const SummaryDashboard = ({
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpand("uut", uut, range)
                                   }
-                                  onExpandAll={() => toggleShowAllRanges("uut", uut.id)}
+                                  onExpandAll={() =>
+                                    toggleShowAllRanges("uut", uutRowKey, uut.id)
+                                  }
                                 />
                                 </div>
                               );
@@ -8319,7 +8379,7 @@ const SummaryDashboard = ({
                       ? specRows.length
                       : 1;
                   const isSelected = selectedTmdeIds.includes(tmde.id);
-                  const showAllRanges = isShowingAllRanges("tmde", tmde.id);
+                  const showAllRanges = isShowingAllRanges("tmde", tmdeRowKey);
                   const visibleRangeRows = getVisibleRangeRows(
                     ranges,
                     activeIndex,
@@ -8341,7 +8401,7 @@ const SummaryDashboard = ({
                           return (
                             <tr
                               key={key}
-                              data-range-group={itemStateKey("tmde", tmde.id)}
+                              data-range-group={itemStateKey("tmde", tmdeRowKey)}
                               className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", tmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(tmde.id)}
                               onMouseDownCapture={(e) =>
@@ -8400,6 +8460,7 @@ const SummaryDashboard = ({
                         })}
                         {renderGhostRangeRow("tmde", tmde, activeRange, {
                           includeDistribution: true,
+                          stateId: tmdeRowKey,
                         })}
                       </React.Fragment>
                     );
@@ -8524,7 +8585,9 @@ const SummaryDashboard = ({
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpand("tmde", tmde, range)
                                   }
-                                  onExpandAll={() => toggleShowAllRanges("tmde", tmde.id)}
+                                  onExpandAll={() =>
+                                    toggleShowAllRanges("tmde", tmdeRowKey, tmde.id)
+                                  }
                                 />
                                 </div>
                               );
@@ -9958,9 +10021,11 @@ function DetailedView({
     handleRemoveRangeDetail(kind, item, rangeId);
   };
 
-  const toggleShowAllRangesDetail = (kind, itemId) => {
-    const key = itemStateKey(kind, itemId);
-    if (expandedRangeKeys.has(key)) sortAndPersistRangeGroupDetail(key);
+  const toggleShowAllRangesDetail = (kind, stateId, itemId = stateId) => {
+    const key = itemStateKey(kind, stateId);
+    if (expandedRangeKeys.has(key)) {
+      sortAndPersistRangeGroupDetail(itemStateKey(kind, itemId));
+    }
     setExpandedRangeKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -10228,12 +10293,17 @@ function DetailedView({
 
   // Buffered "add" row for the Detailed View (see SummaryDashboard twin). The
   // extra Distribution column means the ghost mirrors includeDistribution.
-  const renderGhostRangeRowDetail = (kind, item, activeRange, { includeDistribution }) => (
+  const renderGhostRangeRowDetail = (
+    kind,
+    item,
+    activeRange,
+    { includeDistribution, stateId = item.id },
+  ) => (
     <GhostRangeRow
-      key={`ghost-${kind}-${item.id}`}
+      key={`ghost-${kind}-${stateId}`}
       unit={activeRange?.unit || ""}
       includeDistribution={includeDistribution}
-      dataGroup={itemStateKey(kind, item.id)}
+      dataGroup={itemStateKey(kind, stateId)}
       onMaterialize={(bounds, options) =>
         materializeGhostRangeDetail(
           kind,
@@ -11147,6 +11217,41 @@ function DetailedView({
     () => buildFullDetailRows(relevantTmdes, "tmde"),
     [buildFullDetailRows, relevantTmdes],
   );
+
+  // On first opening a point, reduce the UUT table to the function that is
+  // relevant to that measurement. Users can still reopen every other function;
+  // this only establishes the detailed view's default accordion state.
+  const collapsedDefaultsPointRef = useRef(null);
+  useEffect(() => {
+    const functionRows = detailUutRows.filter((row) => row.type === "function");
+    if (
+      !testPointData?.id ||
+      functionRows.length === 0 ||
+      collapsedDefaultsPointRef.current === testPointData.id
+    ) {
+      return;
+    }
+    collapsedDefaultsPointRef.current = testPointData.id;
+    const pointKey = functionKeyOf(testPointData);
+    const pointName = functionNamePart(pointKey).trim().toLowerCase();
+    const pointUnit = functionUnitPart(pointKey);
+    const pointQuantity = unitSystem.getQuantity?.(pointUnit) || null;
+    setCollapsedFunctionKeys((previous) => {
+      const next = new Set(previous);
+      functionRows.forEach((row) => {
+        const fnName = String(row.fn?.name || "").trim().toLowerCase();
+        const fnQuantity = unitSystem.getQuantity?.(row.fn?.unit || "") || null;
+        const relevant =
+          row.fn?.key === pointKey ||
+          (pointName && fnName === pointName) ||
+          (pointQuantity && fnQuantity === pointQuantity);
+        const collapseKey = functionCollapseStateKey("uut", row.fn);
+        if (relevant) next.delete(collapseKey);
+        else next.add(collapseKey);
+      });
+      return next;
+    });
+  }, [detailUutRows, setCollapsedFunctionKeys, testPointData]);
 
   const visibleDetailUutRows = useMemo(
     () =>
@@ -12299,8 +12404,9 @@ function DetailedView({
     return name || formatInstrumentIdentity(master || tmde, "Unnamed TMDE");
   };
 
-  const getBudgetTmdeDetail = (tmde) => {
+  const getBudgetTmdeDetail = (tmde, requestedRange = null) => {
     if (!budgetTmdePicker) return "";
+    if (requestedRange) return formatRangeToleranceDetail(requestedRange);
     const rowKey = `${budgetTmdePicker.functionKey || "single"}::${tmde.id}`;
     const rangeNominal = isDerived
       ? budgetTmdePicker.scope?.nominalPoint || null
@@ -12553,7 +12659,7 @@ function DetailedView({
     ],
   );
 
-  const addBudgetTmde = (tmde) => {
+  const addBudgetTmde = (tmde, requestedRange = null) => {
     if (!budgetTmdePicker) return;
 
     {
@@ -12572,6 +12678,7 @@ function DetailedView({
         budgetTmdePicker.functionKey,
       );
       const activeRange =
+        requestedRange ||
         (resolution.activeRange && Object.keys(resolution.activeRange).length > 0
           ? resolution.activeRange
           : null) ||
@@ -12981,13 +13088,18 @@ function DetailedView({
               what they're adding to the budget. */}
           {(() => {
             const renderTmdeOption = (tmde) => {
-              const detail = getBudgetTmdeDetail(tmde);
-              return (
+              const choices = getBudgetRangeChoices(tmde);
+              return choices.map((range, rangeIndex) => {
+                const detail = getBudgetTmdeDetail(tmde, range);
+                const functionLabel = range?.functionName
+                  ? `${range.functionName} · `
+                  : "";
+                return (
                 <button
-                  key={tmde.id}
+                  key={`${tmde.id}:${rangeIdOf(range || {}) || rangeIndex}`}
                   type="button"
                   style={itemStyle}
-                  onClick={() => addBudgetTmde(tmde)}
+                  onClick={() => addBudgetTmde(tmde, range)}
                   onMouseEnter={(e) =>
                     (e.currentTarget.style.background = "var(--input-background)")
                   }
@@ -13023,12 +13135,13 @@ function DetailedView({
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {detail}
+                        {functionLabel}{detail}
                       </span>
                     )}
                   </span>
                 </button>
-              );
+                );
+              });
             };
             const others = budgetTmdePicker.otherOptions || [];
             return (
@@ -13588,7 +13701,7 @@ function DetailedView({
                           return (
                             <tr
                               key={key}
-                              data-range-group={itemStateKey("uut", uut.id)}
+                              data-range-group={itemStateKey("uut", uutRowKey)}
                               className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onMouseDownCapture={(e) => {
@@ -13674,6 +13787,7 @@ function DetailedView({
                         })}
                         {renderGhostRangeRowDetail("uut", uut, activeRange, {
                           includeDistribution: false,
+                          stateId: uutRowKey,
                           cols: { range: 1, tol: 2, res: 3 },
                         })}
                       </React.Fragment>
@@ -13806,7 +13920,11 @@ function DetailedView({
                                     requestRangeEditAfterExpandDetail("uut", uut, range)
                                   }
                                   onExpandAll={() =>
-                                    toggleShowAllRangesDetail("uut", uut.id)
+                                    toggleShowAllRangesDetail(
+                                      "uut",
+                                      uutRowKey,
+                                      uut.id,
+                                    )
                                   }
                                 />
                               </div>
@@ -14354,7 +14472,7 @@ function DetailedView({
                               return (
                                 <tr
                                   key={key}
-                                  data-range-group={itemStateKey("tmde", masterTmde.id)}
+                                  data-range-group={itemStateKey("tmde", tmdeRowKey)}
                                   className={`tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", masterTmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                                   onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                                   onMouseDownCapture={(e) => {
@@ -14448,6 +14566,7 @@ function DetailedView({
                             })}
                             {renderGhostRangeRowDetail("tmde", masterTmde, activeRange, {
                               includeDistribution: true,
+                              stateId: tmdeRowKey,
                               cols: { range: 1, tol: 2, res: 4 },
                             })}
                           </React.Fragment>
@@ -14608,7 +14727,11 @@ function DetailedView({
                                         )
                                       }
                                       onExpandAll={() =>
-                                        toggleShowAllRangesDetail("tmde", masterTmde.id)
+                                        toggleShowAllRangesDetail(
+                                          "tmde",
+                                          tmdeRowKey,
+                                          masterTmde.id,
+                                        )
                                       }
                                     />
                                     </div>

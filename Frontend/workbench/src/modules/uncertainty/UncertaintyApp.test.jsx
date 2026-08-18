@@ -181,9 +181,21 @@ describe("UncertaintyApp", () => {
       </ThemeProvider>,
     );
 
+    const overviewTab = await screen.findByRole("button", {
+      name: "Instrument Overview",
+    });
+    expect(overviewTab).toBeInTheDocument();
+    const tabs = within(overviewTab.closest(".analysis-tabs")).getAllByRole("button");
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "Instrument Overview",
+      "Uncertainty Budget",
+      "Notes",
+    ]);
     expect(
-      await screen.findByRole("button", { name: "Instrument Overview" }),
-    ).toBeInTheDocument();
+      within(document.querySelector(".results-sidebar")).queryByRole("button", {
+        name: "Instrument Overview",
+      }),
+    ).not.toBeInTheDocument();
     const sessionInfoToggle = screen.getByRole("button", { name: /Session Info/i });
     expect(sessionInfoToggle).toHaveAttribute("aria-expanded", "true");
     expect(await screen.findByText("Risk Inputs")).toBeInTheDocument();
@@ -239,7 +251,7 @@ describe("UncertaintyApp", () => {
     expect(screen.getByText("PFA Required")).toBeInTheDocument();
   });
 
-  test("hides measurement-point actions while the section is collapsed", async () => {
+  test("keeps measurement-point actions visible without a redundant accordion", async () => {
     render(
       <ThemeProvider>
         <NotificationProvider>
@@ -254,21 +266,11 @@ describe("UncertaintyApp", () => {
     expect(screen.getByTitle("Expand All")).toBeInTheDocument();
     expect(screen.getByTitle("Filter visible columns")).toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Collapse Measurement Points" }),
-    );
-
-    expect(screen.queryByTitle("Expand All")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Filter visible columns")).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Expand Measurement Points" }),
-    ).toBeInTheDocument();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Expand Measurement Points" }),
-    );
     expect(screen.getByTitle("Expand All")).toBeInTheDocument();
     expect(screen.getByTitle("Filter visible columns")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Measurement Points/ }),
+    ).not.toBeInTheDocument();
   });
 
   test("replaces floating notes, images, and help with the session Notes tab", async () => {
@@ -416,9 +418,36 @@ describe("UncertaintyApp", () => {
               ],
             },
           },
+          {
+            id: "uut-with-point",
+            description: "Reference Pressure UUT",
+            instrument: {
+              manufacturer: "Fluke",
+              model: "2700G",
+              functions: [
+                {
+                  id: "fn-pressure-2",
+                  name: "Pressure",
+                  unit: "psig",
+                  ranges: [],
+                },
+              ],
+            },
+          },
         ],
         tmdes: [],
-        testPoints: [],
+        testPoints: [
+          {
+            id: "pressure-point",
+            associatedUutIds: ["uut-with-point"],
+            testPointInfo: {
+              parameter: { name: "Pressure", value: "10", unit: "psig" },
+            },
+            tmdeTolerances: [],
+            specifications: {},
+            components: [],
+          },
+        ],
         uncReq: {},
       },
     ];
@@ -436,6 +465,15 @@ describe("UncertaintyApp", () => {
     expect(
       functionRows.some((row) => row.classList.contains("area-label")),
     ).toBe(true);
+    const functionHeader = functionRows
+      .find((row) => row.classList.contains("area-label"))
+      .closest(".area-header-sticky");
+    fireEvent.doubleClick(functionHeader);
+    expect(
+      await within(document.querySelector(".results-sidebar")).findByText(
+        /Pressure Standard/,
+      ),
+    ).toBeInTheDocument();
   });
 
   test("keeps Delete scoped to the open instrument builder", async () => {
@@ -628,11 +666,17 @@ describe("UncertaintyApp", () => {
       "Mitigation (Int Only)",
     ]);
     expect(columnGroups.map((group) => group.style.gridColumn)).toEqual([
-      "span 6",
+      "span 7",
       "span 2",
       "span 1",
       "span 1",
     ]);
+    fireEvent.click(screen.getByTitle("Filter visible columns"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Section" }));
+    expect(
+      screen.getByRole("button", { name: "Sort by Section" }),
+    ).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
     const modeToggle = screen.getByRole("checkbox", {
       name: "Create derived measurement points",
     });
@@ -648,7 +692,7 @@ describe("UncertaintyApp", () => {
     expect(pointRow.style.gridTemplateColumns).toBe(
       columnHeader.style.gridTemplateColumns,
     );
-    expect(pointRow.style.gridTemplateColumns).toMatch(/^\d+px /);
+    expect(pointRow.style.gridTemplateColumns).toMatch(/^minmax\(120px, 1\.35fr\) /);
     expect(pointRow.style.gridTemplateColumns).not.toContain("ch");
     fireEvent.click(pointRow);
     expect(pointRow).toHaveClass("active-point");
@@ -670,7 +714,7 @@ describe("UncertaintyApp", () => {
     ).not.toBeInTheDocument();
   }, 15000);
 
-  test("preserves instrument function accordions across points and session overview", async () => {
+  test("opens the relevant UUT function and collapses irrelevant functions in detail", async () => {
     apiMock.state.sessions = [
       {
         id: 3,
@@ -700,6 +744,19 @@ describe("UncertaintyApp", () => {
                       tolerances: {
                         reading: { high: "1", low: "-1", unit: "%" },
                       },
+                    },
+                  ],
+                },
+                {
+                  id: "fn-pressure",
+                  name: "Pressure",
+                  unit: "psi",
+                  ranges: [
+                    {
+                      id: "range-pressure",
+                      min: "0",
+                      max: "100",
+                      unit: "psi",
                     },
                   ],
                 },
@@ -775,10 +832,10 @@ describe("UncertaintyApp", () => {
       </ThemeProvider>,
     );
 
-    const collapseButton = await screen.findByRole("button", {
+    const collapseButtons = await screen.findAllByRole("button", {
       name: "Collapse function instruments",
     });
-    fireEvent.click(collapseButton);
+    fireEvent.click(collapseButtons[0]);
     expect(
       screen.getByRole("button", { name: "Expand function instruments" }),
     ).toBeInTheDocument();
@@ -787,22 +844,25 @@ describe("UncertaintyApp", () => {
       expect(document.querySelectorAll(".point-grid-item")).toHaveLength(2);
     });
     fireEvent.click(document.querySelectorAll(".point-grid-item")[0]);
-    expect(
-      await screen.findByRole("button", { name: "Expand function instruments" }),
-    ).toBeInTheDocument();
+    const firstPointCollapsed = await screen.findByRole("button", {
+      name: "Expand function instruments",
+    });
+    expect(firstPointCollapsed.closest("tr")).toHaveTextContent("Pressure");
 
     await waitFor(() => {
       expect(document.querySelectorAll(".point-grid-item")).toHaveLength(2);
     });
     fireEvent.click(document.querySelectorAll(".point-grid-item")[1]);
-    expect(
-      await screen.findByRole("button", { name: "Expand function instruments" }),
-    ).toBeInTheDocument();
+    const secondPointCollapsed = await screen.findByRole("button", {
+      name: "Expand function instruments",
+    });
+    expect(secondPointCollapsed.closest("tr")).toHaveTextContent("Pressure");
 
     fireEvent.click(screen.getByRole("button", { name: "Instrument Overview" }));
-    expect(
-      await screen.findByRole("button", { name: "Expand function instruments" }),
-    ).toBeInTheDocument();
+    const overviewCollapsed = await screen.findByRole("button", {
+      name: "Expand function instruments",
+    });
+    expect(overviewCollapsed.closest("tr")).toHaveTextContent("Pressure");
   }, 15000);
 
   test("zooms a table around the cursor without zooming the page", async () => {
