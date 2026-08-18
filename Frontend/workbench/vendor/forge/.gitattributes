@@ -1,0 +1,5 @@
+# These files are hashed into the WFC-MANIFEST comment of the built page, so
+# their bytes are the contract. Git for Windows rewrites LF to CRLF on checkout
+# by default, which changes the hash and breaks the build — `-text` stops it
+# touching them at all.
+*.js -text

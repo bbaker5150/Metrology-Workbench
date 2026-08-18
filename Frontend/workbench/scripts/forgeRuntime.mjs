@@ -39,10 +39,20 @@ export function forgeHash(text) {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-/** The vendored runtime, with the hashes its manifest entry must carry. */
+/**
+ * The vendored runtime, with the hashes its manifest entry must carry.
+ *
+ * Line endings are normalised to LF before anything else sees the source.
+ * Git for Windows rewrites LF to CRLF on checkout by default, and these bytes
+ * are the contract — a CRLF checkout hashes devconsole.js to 7cd1d957 instead
+ * of the c6c905b7 Forge published, and the build stops. `.gitattributes` in
+ * the vendor directory prevents that; normalising here means the build does
+ * not depend on it, and that CI on Linux and a workstation on Windows emit the
+ * same file either way.
+ */
 export function loadForgeRuntime(dir = VENDOR) {
   return ['devconsole.js', 'testRecorder.js'].map((name) => {
-    const source = readFileSync(path.join(dir, name), 'utf8');
+    const source = readFileSync(path.join(dir, name), 'utf8').replace(/\r\n/g, '\n');
     return { name, source, hash: forgeHash(source) };
   });
 }
