@@ -76,10 +76,19 @@ npm run test:coverage                 # same, with the coverage ratchet
 
 npm run build && npm run build:standalone && npm run build:singlefile
 
-npm i -D playwright                   # deliberately not a project dependency
+npm i --no-save playwright            # deliberately not a project dependency
 node scripts/smoke-sharepoint.mjs     # multi-file build, real URL       (9 checks)
 node scripts/smoke-forge-srcdoc.mjs   # single-file build, srcdoc frame  (13 checks)
 ```
+
+CI does the same on every push to `main` (`.github/workflows/uncertainty-singlefile.yml`)
+and publishes the single file as a release asset with its SHA-256, so the newest
+deployable build is always at a stable URL:
+
+    https://github.com/<owner>/<repo>/releases/latest/download/uncertainty-budget.html
+
+Deploying it is `scripts/deploy-uncertainty.ps1`, which runs on a workstation
+rather than a runner — see `uncertainty-sharepoint-standalone.md` for why.
 
 `3demblem.glb` is in Git LFS. Without `git lfs pull` a clone gets a 133-byte
 pointer and the workbench launcher's 3D emblem throws while parsing it. The

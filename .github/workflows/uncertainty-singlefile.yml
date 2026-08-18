@@ -1,0 +1,165 @@
+# Builds the Flank Speed single-file app and publishes it as a release asset.
+#
+# The file is deployed by overwriting one fixed path in a SharePoint document
+# library, so the .aspx that points at it never changes. That makes "deploy"
+# a file copy, and this workflow's job is to make sure the file worth copying
+# always exists at a stable URL:
+#
+#   https://github.com/<owner>/<repo>/releases/latest/download/uncertainty-budget.html
+#
+# Nothing here touches SharePoint. A runner on commercial GitHub cannot reach a
+# .mil tenant, and putting a credential that could write to one into a
+# commercial CI is a policy question rather than a technical one. The last step
+# stays on a CAC-authenticated workstation — see scripts/deploy-uncertainty.ps1.
+
+name: Uncertainty single-file build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Frontend/workbench/**'
+      - '.github/workflows/uncertainty-singlefile.yml'
+  workflow_dispatch:
+
+# Read-only by default; the publish job asks for more, and only it gets it.
+permissions:
+  contents: read
+
+concurrency:
+  # A newer commit on main makes an in-flight build obsolete.
+  group: uncertainty-singlefile
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: Frontend/workbench
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only to create the release at the end
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 3demblem.glb lives in LFS, and this build stubs the 3D emblem out
+          # entirely — pulling it would cost bandwidth for a file nothing reads.
+          lfs: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Frontend/workbench/package-lock.json
+
+      - name: Install
+        run: npm ci
+        env:
+          # Electron is a devDependency for the workbench build and its
+          # postinstall pulls a ~100 MB binary this job never launches.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - name: Audit
+        # Everything is reported, but only high and critical stop a release.
+        # A new moderate advisory in a transitive dependency should not be able
+        # to block shipping a metrology fix — that happened once already, with
+        # dompurify — and a gate that blocks routine work gets switched off.
+        run: |
+          npm audit || true
+          {
+            echo "<details><summary>npm audit</summary>"
+            echo ""
+            echo '```'
+            npm audit 2>&1 || true
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+          npm audit --audit-level=high
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        # BUILD_STAMP is baked into the page. The file is overwritten in place
+        # in SharePoint, so its URL says nothing about which build is live —
+        # this is how someone looking at the running app can tell.
+        run: |
+          export BUILD_STAMP="$(echo "$COMMIT" | cut -c1-7) $(date -u +%Y-%m-%dT%H:%MZ)"
+          echo "Building $BUILD_STAMP"
+          npm run build:singlefile
+        env:
+          COMMIT: ${{ github.sha }}
+
+      - name: Install a browser for the smoke test
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      - name: Smoke test the built file in an iframe srcdoc
+        # The unit tests cannot see this: whether the finished single file
+        # actually boots with no URL to resolve against, finds its SharePoint
+        # web from the parent frame, and provisions. A bundle that fails here
+        # must not become a release.
+        run: node scripts/smoke-forge-srcdoc.mjs
+
+      - name: Checksum
+        id: checksum
+        run: |
+          cd build-singlefile
+          sha256sum uncertainty-budget.html > uncertainty-budget.html.sha256
+          echo "sha256=$(cut -d' ' -f1 uncertainty-budget.html.sha256)" >> "$GITHUB_OUTPUT"
+          echo "bytes=$(stat -c%s uncertainty-budget.html)" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the artifact on the run as well as the release
+        uses: actions/upload-artifact@v4
+        with:
+          name: uncertainty-budget
+          path: Frontend/workbench/build-singlefile/uncertainty-budget.html*
+          retention-days: 90
+
+      - name: Publish
+        # `gh` is preinstalled on GitHub runners, so this needs no third-party
+        # action. The tag is per-commit, which keeps every deployable build
+        # addressable; /releases/latest/download/ always resolves to the newest.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ github.sha }}
+          BYTES: ${{ steps.checksum.outputs.bytes }}
+          SHA256: ${{ steps.checksum.outputs.sha256 }}
+        run: |
+          TAG="build-$(echo "$COMMIT" | cut -c1-7)"
+          cat > release-notes.md <<'NOTES'
+          Single-file build of the uncertainty tool for SharePoint.
+
+          Deploy by overwriting `uncertainty-budget.html` in the library the app
+          page points at. The URL does not change, and the library keeps the
+          previous version for rollback.
+
+              pwsh Frontend/workbench/scripts/deploy-uncertainty.ps1 -LibraryPath '<synced folder>'
+          NOTES
+          # Appended rather than interpolated, so nothing in a commit SHA or a
+          # future note can be read as shell.
+          {
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Commit | \`$COMMIT\` |"
+            echo "| Size | $BYTES bytes |"
+            echo "| SHA-256 | \`$SHA256\` |"
+          } >> release-notes.md
+          gh release create "$TAG" \
+            build-singlefile/uncertainty-budget.html \
+            build-singlefile/uncertainty-budget.html.sha256 \
+            --title "Uncertainty Budget $TAG" \
+            --notes-file release-notes.md
+
+      - name: Summary
+        run: |
+          {
+            echo "### Uncertainty single-file build"
+            echo ""
+            echo "- **Size**: ${{ steps.checksum.outputs.bytes }} bytes"
+            echo "- **SHA-256**: \`${{ steps.checksum.outputs.sha256 }}\`"
+            echo "- **Latest**: \`${{ github.server_url }}/${{ github.repository }}/releases/latest/download/uncertainty-budget.html\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -52,7 +52,10 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 
 const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+  // Left to Playwright unless pointed somewhere explicitly, so this runs on a
+  // CI runner (`npx playwright install chromium`) as well as on a workstation
+  // or in a sandbox with a preinstalled browser.
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM || undefined,
 });
 const page = await browser.newPage();
 

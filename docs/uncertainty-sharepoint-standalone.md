@@ -14,10 +14,10 @@ permission to upload files to a document library and create lists on one site.
 | Output | folder, 91 files | **one 6.7 MB HTML file** |
 | Over the wire | 1.84 MB gzipped, lazy-loaded | 2.5 MB gzipped, all up front |
 | Needs a real URL | **yes** | no |
-| Works in Forge (`srcdoc`) | no | **yes** |
+| Works in an `<iframe srcdoc>` | no | **yes** |
 | 3D header medallion | yes | no (static seal instead) |
 
-**Forge ships apps by injecting their HTML into an `<iframe srcdoc>`**, and
+**The app page injects the HTML into an `<iframe srcdoc>`**, and something
 sanitises it on the way in. A srcdoc document has no URL of its own, so
 relative paths have nothing to resolve against and every chunk, font, and image
 request fails. Only the single-file build survives that.
@@ -29,21 +29,74 @@ keeps code splitting and loads less up front.
 cd Frontend/workbench
 npm install
 npm run build:standalone     # -> build-standalone/            (real URL host)
-npm run build:singlefile     # -> build-singlefile/uncertainty-budget.html  (Forge)
+npm run build:singlefile     # -> build-singlefile/uncertainty-budget.html  (deployable)
 ```
 
 
-## Deploy through Forge (single file)
+## Deploy to SharePoint (single file)
 
 Ship `build-singlefile/uncertainty-budget.html`. It is the only thing in
 `build-singlefile/` and the only thing to upload: all JavaScript, CSS, fonts,
 and images are inlined as data URIs, so the page makes zero subresource
 requests and has nothing to resolve.
 
-Storage still works: a srcdoc frame **inherits the parent page's origin**, so
-same-origin `/_api/` requests carry cookies and the parent's
-`_spPageContextInfo` is readable. That is how the tool finds which SharePoint
-web it is in, since its own `location.pathname` is just `"srcdoc"`.
+Storage still works from inside an `<iframe srcdoc>`, which is how the app page
+hosts it: the frame **inherits the parent page's origin**, so same-origin
+`/_api/` requests carry cookies and the parent's `_spPageContextInfo` is
+readable. That is how the tool finds which SharePoint web it is in, since its
+own `location.pathname` is just `"srcdoc"`.
+
+Forge is no longer in the chain. The build does its ship step itself — see
+`vendor/forge/README.md` — so a file straight out of CI is deployable.
+
+### One-time setup
+
+The point of this arrangement is that **the URL never changes**, so the app
+page is configured once and every later deploy is a file overwrite.
+
+1. **Create a dedicated document library**, e.g. `AppFiles`. Not `Shared
+   Documents` — a separate library keeps deploy permissions and file churn away
+   from everyday documents.
+2. **Turn on versioning** (Library settings → Versioning settings), keeping
+   ~50 major versions. This is what makes overwriting in place safe: rollback
+   is right-click → Version history → Restore.
+3. On that same page, **turn two things off**, both of which break "always
+   latest" silently rather than loudly:
+   - *Require content approval* — with it on, an upload stays a draft and every
+     reader keeps seeing the previous build.
+   - *Require check out* — otherwise overwrites fight the checkout state.
+4. **Set permissions**: Contribute for whoever deploys, Read for everyone who
+   uses the tool. The app page fetches the HTML **as the signed-in user**, so a
+   user without Read on the file gets a blank page that looks like a code bug.
+5. **Upload the file once** as `uncertainty-budget.html` and note its
+   server-relative path, e.g.
+   `/sites/ISEAMETENG/AppFiles/uncertainty-budget.html`. Take it from the
+   Details pane, not the "Copy link" button — that produces a sharing link,
+   which is a different thing and will rot.
+6. **Point the app page at that path, publish, and do not edit the page again.**
+7. **Sync the library** (library → Sync) so it appears as a local folder.
+
+### Every deploy after that
+
+```powershell
+pwsh Frontend/workbench/scripts/deploy-uncertainty.ps1 -LibraryPath '<synced folder>'
+```
+
+It downloads the newest release, checks it against the published SHA-256,
+skips the copy if the library already holds those exact bytes, and otherwise
+overwrites the file. OneDrive syncs it up as you, with the permissions you
+already have — no app registration, no admin consent, and no credential that
+could write to a `.mil` tenant sitting in commercial CI.
+
+Nothing in the pipeline touches SharePoint, deliberately. A GitHub-hosted
+runner cannot reach a DoD tenant, and storing a credential that could is a
+policy question before it is a technical one. The last hop stays on a
+CAC-authenticated workstation.
+
+Caching: the app page usually revalidates, but a browser can hold the old file.
+That is what the build stamp is for — `<meta name="x-uncertainty-build">` and
+`window.__UNCERTAINTY_BUILD__` — so "am I looking at the new build?" is a
+question with an answer rather than a guess. Ctrl+F5 clears it.
 
 The 3D header medallion is absent in this build — `useGLTF` fetches the model
 at runtime, which a single file cannot do. The static seal it already renders
@@ -110,7 +163,9 @@ event is not a form submission, so there is nothing for the host to block.
 
 ## Deploy to a document library (multi-file)
 
-Only if the app can be reached at a real URL — not through Forge.
+Only where the app can be reached at a real URL. An app page that renders into
+an `<iframe srcdoc>` cannot host it, because a srcdoc frame has no URL for the
+chunk requests to resolve against.
 
 1. Create (or pick) a document library folder on the site, e.g.
    `Assets/Software/Uncertainty`.
@@ -237,7 +292,7 @@ Both smoke tests serve the built bundle from a SharePoint-shaped path, simulate
 the REST API with Playwright route mocking, and drive the whole chain: web URL
 discovery, digest, the storage gate detecting an unprovisioned site,
 provisioning all four containers, the app mounting, and the session list coming
-back through the adapter. They need `npm i -D playwright` (deliberately not a
+back through the adapter. They need `npm i --no-save playwright` (deliberately not a
 project dependency) and the matching build to have been run first.
 
 The srcdoc one also checks what a browser is too forgiving to catch: that the

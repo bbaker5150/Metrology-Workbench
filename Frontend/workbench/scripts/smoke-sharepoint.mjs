@@ -52,7 +52,10 @@ const json = (body, status = 200) => ({
 });
 
 const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+  // Left to Playwright unless pointed somewhere explicitly, so this runs on a
+  // CI runner (`npx playwright install chromium`) as well as on a workstation
+  // or in a sandbox with a preinstalled browser.
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM || undefined,
 });
 const page = await browser.newPage();
 
