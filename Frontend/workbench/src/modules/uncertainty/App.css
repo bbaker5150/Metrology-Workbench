@@ -11590,7 +11590,10 @@ body.theme-cyberpunk .notification-window .window-header {
 /* Description columns: bold, truncated with ellipsis */
 .instrument-summary-table td.cell-description {
   font-weight: 600;
-  vertical-align: top;
+  /* Keep the instrument identity visible beside tall collapsed range stacks.
+     A description pinned to the top is easy to lose when an instrument has
+     many ranges; the expanded-row path already centers this same cell. */
+  vertical-align: middle;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -12687,7 +12690,9 @@ input.inline-function-input:focus {
 .range-collapsed-cell {
   display: grid;
   grid-auto-flow: row;
-  grid-auto-rows: 36px;
+  /* Compact rows stay 36px, but an inline editor must be allowed to grow to
+     its complete mode bar and full set of tolerance terms. */
+  grid-auto-rows: minmax(36px, auto);
   align-items: stretch;
   gap: 0;
   width: 100%;
@@ -12695,10 +12700,16 @@ input.inline-function-input:focus {
 }
 
 .range-collapsed-cell > .range-stack-row {
+  min-height: 36px;
   height: 36px;
   padding: 4px 0;
   border-bottom: 1px dashed color-mix(in srgb, var(--border-color) 72%, transparent);
   overflow: hidden;
+}
+
+.range-collapsed-cell > .range-stack-row:has(.inline-tolerance-editor) {
+  height: auto;
+  overflow: visible;
 }
 
 .range-collapsed-cell > .range-stack-row:last-child {
