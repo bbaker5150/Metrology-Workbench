@@ -284,9 +284,9 @@ describe("measurement-point Risk 8 metric interactions", () => {
     );
 
     expect(screen.getByTitle("0.00999981624765"))
-      .toHaveTextContent("0.01000 V");
+      .toHaveTextContent("0.01000");
     expect(screen.getByTitle("0.0199996324953"))
-      .toHaveTextContent("0.02000 V");
+      .toHaveTextContent("0.02000");
     expect(screen.getByTitle("3.141592653589793")).toHaveTextContent("3.14");
     expect(screen.getByTitle("0.123456789012345")).toHaveTextContent("0.12%");
   });

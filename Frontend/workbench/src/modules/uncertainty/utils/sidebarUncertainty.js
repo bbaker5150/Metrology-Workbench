@@ -1,4 +1,4 @@
-import { getUnitDisplayLabel, unitSystem } from "./uncertaintyMath";
+import { unitSystem } from "./uncertaintyMath";
 
 const parseNumericValue = (value) => {
   if (value === undefined || value === null || value === "") return null;
@@ -39,8 +39,7 @@ export const formatSidebarUncertainty = (point, kind) => {
   const value = getSidebarUncertaintyDisplayValue(point, kind);
   if (!value) return "-";
 
-  const { numeric, displayUnit } = value;
-  return `${numeric.toPrecision(4)} ${getUnitDisplayLabel(displayUnit)}`;
+  return value.numeric.toPrecision(4);
 };
 
 /** Full unrounded numeric value used by the native hover tooltip. */

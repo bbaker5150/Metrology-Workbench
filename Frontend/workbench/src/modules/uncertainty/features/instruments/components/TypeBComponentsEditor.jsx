@@ -19,7 +19,7 @@
  */
 import React, { useMemo } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFlask, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import {
   unitSystem,
   unitCategories,
@@ -203,7 +203,6 @@ const TypeBComponentsEditor = ({
             >
               <div className="function-spec-header typeb-card-header">
                 <div className="function-name-control">
-                  <FontAwesomeIcon icon={faFlask} />
                   <input
                     type="text"
                     value={mc.name || ""}
@@ -383,7 +382,6 @@ const TypeBComponentsEditor = ({
               marginBottom: 0,
             }}
           >
-            <FontAwesomeIcon icon={faFlask} />
             <span>No Type B Uncertainties yet.</span>
           </div>
         )}

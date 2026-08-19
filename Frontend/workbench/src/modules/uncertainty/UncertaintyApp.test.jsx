@@ -85,6 +85,27 @@ beforeEach(() => {
 });
 
 describe("UncertaintyApp", () => {
+  test("toggles the instrument builder from its header button", async () => {
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const builderButton = await screen.findByRole("button", {
+      name: "Instrument builder",
+    });
+    fireEvent.click(builderButton);
+    expect(screen.getByText("Select Instrument from Library")).toBeInTheDocument();
+
+    fireEvent.click(builderButton);
+    expect(screen.queryByText("Select Instrument from Library")).not.toBeInTheDocument();
+  });
+
   test("mounts the ported Uncertalytics app under the workbench shell", async () => {
     render(
       <ThemeProvider>

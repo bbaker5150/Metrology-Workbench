@@ -890,8 +890,8 @@ export const SidebarPointItem = ({
         </span>
       )}
 
-      {/* Calculated uncertainty columns are persisted in PPM by the analysis
-          calculation, so the unit is shown directly with each value. */}
+      {/* The Value column already establishes the measurement unit. Keep the
+          calculated uncertainty columns numeric, matching the low/high cells. */}
       {visibleColumns.standardUncertainty && (
         <span
           className="point-metric point-uncertainty-metric"
@@ -4550,7 +4550,13 @@ function App({ showThemeToggle = false }) {
                   <button
                     type="button"
                     className={`app-chrome-meta-icon${isInstrumentBuilderOpen ? " is-active" : ""}`}
-                    onClick={() => handleOpenLibrary()}
+                    onClick={() => {
+                      if (isInstrumentBuilderOpen) {
+                        setIsInstrumentBuilderOpen(false);
+                      } else {
+                        handleOpenLibrary();
+                      }
+                    }}
                     title="Instrument builder"
                     aria-label="Instrument builder"
                   >

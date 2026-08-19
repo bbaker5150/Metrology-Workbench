@@ -1840,7 +1840,12 @@ const formatRangeToleranceDetail = (range = null) => {
   const distributionLabel = getBandDistLabel(range);
   const isPlaceholder = (value) => {
     const normalized = String(value || "").trim();
-    return !normalized || normalized === "-" || normalized === "\u2014";
+    return (
+      !normalized ||
+      normalized === "-" ||
+      normalized === "\u2014" ||
+      /not set/i.test(normalized)
+    );
   };
   return [rangeLabel, specLabel, distributionLabel]
     .filter((value) => !isPlaceholder(value))
@@ -2185,19 +2190,7 @@ export const EditableDescriptionCell = ({
   // differs from its shared origin, shown in place of the measurement area.
   const describeEntry = (inst) => {
     if (inst.scope === "validated") return "shared";
-    if (!inst.sourceId && !inst.validatedSnapshot) return "local · new";
-    const diffs = diffFromSnapshot(inst);
-    // Linked to the shared library and unchanged from its captured snapshot:
-    // this IS the synced version (green link), so don't mislabel it "local"
-    // just because this record happens to be scope:"local".
-    if (!diffs.length) return inst.validatedSnapshot ? "synced" : "local";
-    const labelFor = {
-      manufacturer: "mfg",
-      model: "model",
-      description: "name",
-      functions: "functions",
-    };
-    return `local · ${diffs.map((d) => labelFor[d.field] || d.field).join(", ")} changed`;
+    return "local";
   };
 
   const combinedDescription =
@@ -4014,8 +4007,8 @@ export const RangeCell = ({
           <button
             type="button"
             className={`inline-tolerance-summary${rangeSummary ? "" : " is-empty"}`}
-            title={onExpandAll && rangeSummary ? "Show all ranges" : rangeSummary ? "Click to edit range" : "Click to set a range"}
-            aria-label={onExpandAll && rangeSummary ? "Show all ranges" : undefined}
+            title={onExpandAll && rangeSummary ? "Edit ranges" : rangeSummary ? "Click to edit range" : "Click to set a range"}
+            aria-label={onExpandAll && rangeSummary ? "Edit ranges" : undefined}
             onClick={openEditor}
           >
             {summary}
@@ -7453,8 +7446,8 @@ const SummaryDashboard = ({
       <button
         type="button"
         className="range-expand-btn"
-        title="Show all ranges — edit, add, or remove"
-        aria-label="Show all ranges"
+        title="Edit ranges — add or remove"
+        aria-label="Edit ranges"
         onClick={(e) => {
           e.stopPropagation();
           toggleShowAllRanges(kind, item.id);
@@ -10623,8 +10616,8 @@ function DetailedView({
       <button
         type="button"
         className="range-expand-btn"
-        title="Show all ranges — edit, add, or remove"
-        aria-label="Show all ranges"
+        title="Edit ranges — add or remove"
+        aria-label="Edit ranges"
         onClick={(e) => {
           e.stopPropagation();
           toggleShowAllRangesDetail(kind, item.id);

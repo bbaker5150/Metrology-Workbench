@@ -617,7 +617,7 @@ describe("inline range editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show all ranges" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit ranges" }));
 
     expect(onExpandAll).toHaveBeenCalledOnce();
     expect(screen.queryByPlaceholderText("min")).not.toBeInTheDocument();

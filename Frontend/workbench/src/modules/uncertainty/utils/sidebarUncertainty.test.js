@@ -9,7 +9,7 @@ describe("formatSidebarUncertainty", () => {
       combined_uncertainty_absolute_base: 0.453592,
     };
 
-    expect(formatSidebarUncertainty(point, "combined")).toBe("1.000 lb");
+    expect(formatSidebarUncertainty(point, "combined")).toBe("1.000");
   });
 
   test("uses the display label for native units and supports expanded results", () => {
@@ -19,7 +19,7 @@ describe("formatSidebarUncertainty", () => {
       expanded_uncertainty_absolute_base: 0.55555555,
     };
 
-    expect(formatSidebarUncertainty(point, "expanded")).toContain("°F");
+    expect(formatSidebarUncertainty(point, "expanded")).not.toContain("°F");
     expect(formatSidebarUncertainty(point, "expanded")).not.toContain("ppm");
   });
 
@@ -29,6 +29,6 @@ describe("formatSidebarUncertainty", () => {
       combined_uncertainty: 12.3456,
     };
 
-    expect(formatSidebarUncertainty(point, "combined")).toBe("12.35 ppm");
+    expect(formatSidebarUncertainty(point, "combined")).toBe("12.35");
   });
 });

@@ -93,6 +93,41 @@ const changeResolution = (value) => {
 };
 
 describe("UniversalInstrumentModal library synchronization", () => {
+  test("uses the add button as the only new-instrument entry point", () => {
+    renderModal({
+      mode: "library",
+      initialData: null,
+      instruments: [],
+    });
+
+    expect(screen.queryByTitle("Back to Editor")).not.toBeInTheDocument();
+    expect(screen.getByTitle("Create Manual Instrument")).toBeInTheDocument();
+  });
+
+  test("shows missing required fields when save is attempted", () => {
+    const props = renderModal({
+      mode: "uut",
+      initialData: null,
+      instruments: [],
+    });
+
+    const save = screen.getByRole("button", { name: "Save configuration" });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+
+    const notice = screen.getByRole("alertdialog", {
+      name: "Complete required fields",
+    });
+    expect(notice).toHaveTextContent("Mfr., Model, Name");
+    expect(props.onSave).not.toHaveBeenCalled();
+  });
+
+  test("does not decorate Type B authoring with flask icons", () => {
+    renderModal();
+
+    expect(document.querySelector('[data-icon="flask"]')).not.toBeInTheDocument();
+  });
+
   test("owns Delete and routes it to the selected library instrument", async () => {
     const onDelete = vi.fn(async () => {});
     renderModal({

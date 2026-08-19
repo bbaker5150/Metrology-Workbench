@@ -10683,6 +10683,35 @@ body.theme-cyberpunk .notification-window .window-header {
   cursor: text;
 }
 
+.bug-report-check-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--primary-color);
+  font-size: 0.78rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.bug-report-check-action:hover,
+.bug-report-check-action:focus-visible {
+  border: 0;
+  background: transparent;
+  color: var(--primary-color-dark, var(--primary-color));
+  outline: none;
+  transform: none;
+}
+
+.bug-report-check-action--complete {
+  color: var(--status-good);
+}
+
 .measurement-input-symbol:hover,
 .measurement-input-symbol:focus-visible {
   border-color: var(--border-color);
@@ -16459,6 +16488,14 @@ body:not(.dark-mode)
   color: var(--primary-color);
   background-color: var(--primary-color-soft, var(--primary-color-light));
   border-color: color-mix(in srgb, var(--primary-color) 35%, transparent);
+}
+
+/* Keep the Instrument Builder trigger reachable while its centered floating
+   window is open so the same control can toggle the window closed. */
+.uncertainty-module
+  .app-chrome-meta-icon[aria-label="Instrument builder"].is-active {
+  position: relative;
+  z-index: 2201;
 }
 
 /* --- AC-Shunt-aligned session selector row polish ------------------- */

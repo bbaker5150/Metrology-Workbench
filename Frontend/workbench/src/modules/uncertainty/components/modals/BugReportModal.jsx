@@ -38,7 +38,7 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
     const { position, handleMouseDown } = useFloatingWindow({
         isOpen,
         defaultWidth: 600,
-        defaultHeight: 750
+        defaultHeight: Math.min(750, window.innerHeight * 0.9)
     });
 
     if (!isOpen) return null;
@@ -314,10 +314,11 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
                                 <button
                                     type="button"
                                     onClick={handleSubmit}
-                                    className="nav-btn primary"
-                                    style={{ padding: '10px 25px' }}
+                                    className="bug-report-check-action"
+                                    aria-label={formData.id ? "Save report changes" : "Submit report"}
+                                    title={formData.id ? "Save report changes" : "Submit report"}
                                 >
-                                    <FontAwesomeIcon icon={faCheck} style={{ marginLeft: '8px' }} />
+                                    <FontAwesomeIcon icon={faCheck} />
                                 </button>
                             </div>
                         </div>
@@ -402,10 +403,10 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
                                             }}>
                                                 {report.status !== 'Complete' && (
                                                     <button
-                                                        className="icon-btn-round"
+                                                        className="bug-report-check-action bug-report-check-action--complete"
                                                         onClick={() => handleMarkComplete(report)}
                                                         title="Mark Complete"
-                                                        style={{ color: 'var(--status-good)', borderColor: 'var(--status-good)' }}
+                                                        aria-label="Mark Complete"
                                                     >
                                                         <FontAwesomeIcon icon={faCheck} />
                                                     </button>

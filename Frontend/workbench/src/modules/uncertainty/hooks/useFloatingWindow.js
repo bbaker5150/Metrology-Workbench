@@ -19,7 +19,8 @@ export const useFloatingWindow = ({
     const [isDragging, setIsDragging] = useState(false);
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
-    // Initialize Position (Center of Viewport with Header Safety)
+    // Initialize in the true visible center. Clamp oversized defaults to a
+    // small viewport margin so every popout starts fully reachable.
     useLayoutEffect(() => {
         if (isOpen) {
             if (initialPosition) {
@@ -29,16 +30,17 @@ export const useFloatingWindow = ({
                 const w = typeof defaultWidth === 'number' ? defaultWidth : 400; 
                 const h = typeof defaultHeight === 'number' ? defaultHeight : 400;
 
-                const x = Math.max(0, (window.innerWidth - w) / 2);
-                
-                // Calculate Y, but ensure it never spawns in the top 10% or top 80px (Header Safety)
-                let y = (window.innerHeight - h) / 2;
-                const headerSafety = 80; // Approximate header height
-                
-                // If centered Y is too high (or calculation failed), force it down
-                if (isNaN(y) || y < headerSafety) {
-                    y = headerSafety + 20; 
-                }
+                const viewportMargin = 16;
+                const visibleWidth = Math.min(
+                    w,
+                    Math.max(0, window.innerWidth - viewportMargin * 2),
+                );
+                const visibleHeight = Math.min(
+                    h,
+                    Math.max(0, window.innerHeight - viewportMargin * 2),
+                );
+                const x = Math.max(0, (window.innerWidth - visibleWidth) / 2);
+                const y = Math.max(0, (window.innerHeight - visibleHeight) / 2);
 
                 setPosition({ x, y });
             }

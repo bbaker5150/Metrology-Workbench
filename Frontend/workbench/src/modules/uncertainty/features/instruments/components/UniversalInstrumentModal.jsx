@@ -9,7 +9,6 @@ import {
   faTimes,
   faPlus,
   faTrashAlt,
-  faArrowLeft,
   faSearch,
   faChevronDown,
   faChevronUp,
@@ -20,8 +19,7 @@ import {
   faTag,
   faIndustry,
   faFingerprint,
-  faSyncAlt,
-  faFlask
+  faSyncAlt
 } from "@fortawesome/free-solid-svg-icons";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -1641,6 +1639,7 @@ const UniversalInstrumentModal = ({
     const [pendingDelete, setPendingDelete] = useState(null); // { ids: [...] }
     const [pendingSync, setPendingSync] = useState(null);
     const [syncNotice, setSyncNotice] = useState(null);
+    const [validationNotice, setValidationNotice] = useState(false);
     const [pendingInstrumentSave, setPendingInstrumentSave] = useState(false);
     // Password prompt for writing an instrument to the validated (shared) library
     // from the builder. Any save that promotes/updates the shared definition is
@@ -1679,8 +1678,8 @@ const UniversalInstrumentModal = ({
 
     const { position, handleMouseDown } = useFloatingWindow({
         isOpen,
-        defaultWidth: 1100,
-        defaultHeight: 850
+        defaultWidth: Math.min(1100, window.innerWidth * 0.95),
+        defaultHeight: Math.min(850, window.innerHeight * 0.85)
     });
     const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
 
@@ -1693,6 +1692,7 @@ const UniversalInstrumentModal = ({
             setPendingDelete(null);
             setPendingSync(null);
             setSyncNotice(null);
+            setValidationNotice(false);
             setPendingInstrumentSave(false);
             setPendingLibraryPassword(false);
             setLibraryPasswordError("");
@@ -1905,13 +1905,12 @@ const UniversalInstrumentModal = ({
 
     const modeIcon = effectiveMode === 'uut' ? faMicroscope : (effectiveMode === 'tmde' ? faTools : faBookOpen);
 
-    const isFormValid = useMemo(() => {
-        // Mfr. + Model define the instrument; the trailing Name token is optional
-        // (mirrors the inline tables, where a name/label is not required).
-        if (!instrumentDef.manufacturer?.trim()) return false;
-        if (!instrumentDef.model?.trim()) return false;
-        return true;
-    }, [instrumentDef.manufacturer, instrumentDef.model]);
+    const missingRequiredFields = useMemo(() => [
+        !instrumentDef.manufacturer?.trim() ? "Mfr." : null,
+        !instrumentDef.model?.trim() ? "Model" : null,
+        !metaData.name?.trim() ? "Name" : null,
+    ].filter(Boolean), [instrumentDef.manufacturer, instrumentDef.model, metaData.name]);
+    const isFormValid = missingRequiredFields.length === 0;
 
     const isInstrumentInLibrary = useMemo(
         () => instruments.some(
@@ -2154,6 +2153,7 @@ const UniversalInstrumentModal = ({
         }));
         setActiveFunctionId(null);
         setActiveTypeBId(null);
+        setValidationNotice(false);
         setViewMode("edit");
     };
 
@@ -2498,7 +2498,10 @@ const UniversalInstrumentModal = ({
     };
 
     const handleSave = () => {
-        if (!isFormValid) return;
+        if (!isFormValid) {
+            setValidationNotice(true);
+            return;
+        }
 
         if (
             (effectiveMode === 'uut' || effectiveMode === 'tmde') &&
@@ -2556,11 +2559,6 @@ const UniversalInstrumentModal = ({
                 onMouseDown={handleMouseDown}
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    {viewMode === 'list' && (
-                        <button className="icon-btn-ghost" onClick={() => setViewMode("edit")} title="Back to Editor">
-                            <FontAwesomeIcon icon={faArrowLeft} />
-                        </button>
-                    )}
                     <h3 style={{ margin: 0, fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <FontAwesomeIcon icon={modeIcon} style={{ color: 'var(--primary-color)' }} />
                         {viewMode === 'list' ? "Select Instrument from Library" : modalTitle}
@@ -2627,9 +2625,9 @@ const UniversalInstrumentModal = ({
                                                     </td>
                                                     <td onClick={e => e.stopPropagation()}>
                                                         <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
-                                                            {inst.functions.map(f => (
+                                                            {inst.functions.map((f, functionIndex) => (
                                                                 <button
-                                                                    key={f.id}
+                                                                    key={f.id || `${inst.id}-function-${functionIndex}`}
                                                                     onClick={(e) => toggleFunctionDetails(e, inst.id, f.id)}
                                                                     className={`status-pill ${isExpanded && expandedDetail.funcId === f.id ? "active" : ""}`}
                                                                 >
@@ -2758,17 +2756,6 @@ const UniversalInstrumentModal = ({
                                     />
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <span
-                                        className="builder-typeb-status"
-                                        title="Associated Type B uncertainties are edited below the function specs"
-                                    >
-                                        <FontAwesomeIcon icon={faFlask} />
-                                        {(instrumentDef.typeBComponents?.length || 0) > 0 && (
-                                            <span className="typeb-count-badge">
-                                                {instrumentDef.typeBComponents.length}
-                                            </span>
-                                        )}
-                                    </span>
                                     <button className="icon-btn-ghost" onClick={() => setViewMode('list')} title="Import from Library">
                                         <FontAwesomeIcon icon={faBookOpen} />
                                     </button>
@@ -2983,7 +2970,7 @@ const UniversalInstrumentModal = ({
                                 <section className="typeb-spec-section">
                                     <div className="spec-sheet-toolbar typeb-spec-toolbar">
                                         <h5>
-                                            <FontAwesomeIcon icon={faFlask} /> Type B Uncertainties
+                                            Type B Uncertainties
                                         </h5>
                                         <div className="spec-toolbar-actions">
                                             <button
@@ -3027,8 +3014,7 @@ const UniversalInstrumentModal = ({
                             <button 
                                 className="icon-btn-ghost editor-save-button"
                                 onClick={handleSave} 
-                                disabled={!isFormValid}
-                                title={!isFormValid ? "Fill Manufacturer, Model, and Description" : "Save Configuration"}
+                                title="Save Configuration"
                                 aria-label="Save configuration"
                             >
                                 <FontAwesomeIcon icon={faCheck} />
@@ -3137,6 +3123,12 @@ const UniversalInstrumentModal = ({
                 onClose={() => setSyncNotice(null)}
                 title={syncNotice?.title}
                 message={syncNotice?.message}
+            />
+            <NotificationModal
+                isOpen={validationNotice}
+                onClose={() => setValidationNotice(false)}
+                title="Complete required fields"
+                message={`Fill in all required fields before saving: ${missingRequiredFields.join(", ")}.`}
             />
         </div>,
         document.body
