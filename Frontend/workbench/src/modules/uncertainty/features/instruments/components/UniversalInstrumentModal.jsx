@@ -36,7 +36,11 @@ import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 import useInstrumentSync from "../../../hooks/useInstrumentSync";
-import { computeSyncState, diffFromSnapshot } from "../../../utils/instrumentSync";
+import {
+  buildValidatedSnapshot,
+  computeSyncState,
+  diffFromSnapshot,
+} from "../../../utils/instrumentSync";
 
 import "./UniversalInstrumentModal.css";
 
@@ -1932,9 +1936,27 @@ const UniversalInstrumentModal = ({
 
     const hasLibraryChanges = useMemo(() => {
         if (!linkedLibraryInstrument) return false;
-        return JSON.stringify(getComparableLibraryInstrument(instrumentDef)) !==
+        return JSON.stringify(getComparableLibraryInstrument({
+            ...instrumentDef,
+            description: metaData.name,
+        })) !==
             initialInstrumentSignature;
-    }, [initialInstrumentSignature, instrumentDef, linkedLibraryInstrument]);
+    }, [initialInstrumentSignature, instrumentDef, linkedLibraryInstrument, metaData.name]);
+
+    const sourceBadgeInstrument = useMemo(() => {
+        if (instrumentDef.scope !== "validated" || !hasLibraryChanges) {
+            return instrumentDef;
+        }
+        return {
+            ...instrumentDef,
+            scope: "local",
+            sourceId: instrumentDef.sourceId || instrumentDef.id,
+            validatedSnapshot:
+                instrumentDef.validatedSnapshot ||
+                buildValidatedSnapshot(linkedLibraryInstrument || instrumentDef),
+            localOverride: true,
+        };
+    }, [hasLibraryChanges, instrumentDef, linkedLibraryInstrument]);
 
     // --- Library list multi-select (ctrl = toggle, shift = range) ---
     const handleRowSelect = (e, instId) => {
@@ -2394,13 +2416,32 @@ const UniversalInstrumentModal = ({
                 type: effectiveMode
             };
         } else {
-            // Library Mode: Sync description with the input field (metaData.name)
-            finalData = { 
-                ...instrumentDef, 
-                description: metaData.name, // Ensure description is updated from UI
+            // Library-mode editing is always local. Editing a shared definition
+            // creates a linked local copy and leaves the canonical shared record
+            // untouched; the explicit Sync action remains the only path that can
+            // write changes back to the shared library.
+            const editingSharedInstrument = instrumentDef.scope === "validated";
+            const sharedSourceId =
+                instrumentDef.sourceId ||
+                instrumentDef.libraryInstrumentId ||
+                (editingSharedInstrument ? instrumentDef.id : null);
+            finalData = {
+                ...instrumentDef,
+                id: editingSharedInstrument ? uuidv4() : instrumentDef.id,
+                description: metaData.name,
                 measurementArea: metaData.measurementArea, 
                 measurementAreaColor: metaData.measurementAreaColor,
-                type: 'library' 
+                type: 'library',
+                scope: "local",
+                ...(sharedSourceId ? { sourceId: sharedSourceId } : {}),
+                ...(editingSharedInstrument
+                    ? {
+                        validatedSnapshot:
+                            instrumentDef.validatedSnapshot ||
+                            buildValidatedSnapshot(linkedLibraryInstrument || instrumentDef),
+                    }
+                    : {}),
+                localOverride: true,
             };
         }
 
@@ -2510,15 +2551,6 @@ const UniversalInstrumentModal = ({
             hasLibraryChanges
         ) {
             setPendingInstrumentSave(true);
-            return;
-        }
-
-        // Library mode: editing a validated (shared) instrument writes straight
-        // to the shared library, which the backend password-gates. Collect the
-        // password first instead of firing an unguarded save that 403s. New /
-        // local instruments stay local and save without a password.
-        if (effectiveMode === 'library' && instrumentDef.scope === 'validated') {
-            promptLibraryPassword();
             return;
         }
 
@@ -2751,7 +2783,7 @@ const UniversalInstrumentModal = ({
                                 <div className="identity-title">
                                     <span>Identification</span>
                                     <InstrumentSourceBadge
-                                        instrument={instrumentDef}
+                                        instrument={sourceBadgeInstrument}
                                         linkedInstrument={linkedLibraryInstrument}
                                     />
                                 </div>
