@@ -47,7 +47,11 @@ beforeEach(() => {
   http = fakeFetch();
   http.on(/contextinfo/, { json: { FormDigestValue: "D", FormDigestTimeoutSeconds: 1800 } });
   http.on(/RootFolder/, { json: { ServerRelativeUrl: FOLDER } });
-  store = new SharePointStore({ webUrl: WEB, fetchImpl: http });
+  store = new SharePointStore({
+    webUrl: WEB,
+    fetchImpl: http,
+    currentUser: { id: 41, title: "Analyst One" },
+  });
 });
 
 describe("listTitle", () => {
@@ -70,7 +74,11 @@ describe("listTitle", () => {
   });
 
   it("trims the web URL's trailing slash so paths concatenate cleanly", () => {
-    const s = new SharePointStore({ webUrl: `${WEB}/`, fetchImpl: http });
+    const s = new SharePointStore({
+      webUrl: `${WEB}/`,
+      fetchImpl: http,
+      currentUser: { id: 41 },
+    });
     expect(s.webUrl).toBe(WEB);
   });
 });
@@ -254,6 +262,7 @@ describe("sessions", () => {
       expect.objectContaining({ id: 7, name: "Shunt", analyst: "BB", updated_at: "2026-05-01" }),
     ]);
     expect(http.find(/items\?/)[0].url).toContain("$orderby=Modified desc");
+    expect(http.find(/items\?/)[0].url).toContain("$filter=AuthorId eq 41");
   });
 
   it("skips rows with no session id rather than emitting NaN", async () => {
@@ -266,10 +275,40 @@ describe("sessions", () => {
     expect((await store.listSessions())[0].name).toBe("Untitled session");
   });
 
-  it("reads a session from its deterministic file name", async () => {
+  it("reads a session from its user-scoped deterministic file name", async () => {
     http.on(/\$value/, { text: JSON.stringify({ id: 42, name: "B" }) });
     expect(await store.getSession(42)).toEqual({ id: 42, name: "B" });
+    expect(http.find(/\$value/)[0].url).toContain("session-41-42.json");
+  });
+
+  it("retains the existing filename for an owned legacy session", async () => {
+    http.on(/UncertaintySessions'\)\/items\?/, {
+      json: {
+        value: [
+          { SessionId: 42, SessionName: "Legacy", FileLeafRef: "session-42.json" },
+        ],
+      },
+    });
+    http.on(/\$value/, { text: JSON.stringify({ id: 42, name: "Legacy" }) });
+
+    await store.listSessions();
+    await store.getSession(42);
+
     expect(http.find(/\$value/)[0].url).toContain("session-42.json");
+  });
+
+  it("deduplicates a legacy and migrated file with the same per-user session id", async () => {
+    http.on(/UncertaintySessions'\)\/items\?/, {
+      json: {
+        value: [
+          { SessionId: 7, SessionName: "Newest", FileLeafRef: "session-41-7.json" },
+          { SessionId: 7, SessionName: "Legacy", FileLeafRef: "session-7.json" },
+        ],
+      },
+    });
+    expect(await store.listSessions()).toEqual([
+      expect.objectContaining({ id: 7, name: "Newest" }),
+    ]);
   });
 
   it("reports a corrupt session rather than throwing a raw JSON error", async () => {
@@ -288,6 +327,7 @@ describe("sessions", () => {
     await store.saveSession({ id: 9, name: "Cal" });
     const upload = http.find(/files\/add/)[0];
     expect(upload.url).toContain("overwrite=true");
+    expect(upload.url).toContain("session-41-9.json");
     expect(JSON.parse(upload.body)).toEqual({ id: 9, name: "Cal" });
   });
 
@@ -300,7 +340,13 @@ describe("sessions", () => {
 
   it("recycles rather than hard-deleting so a mistake is recoverable", async () => {
     await store.deleteSession(5);
-    expect(http.find(/recycle/)[0].url).toContain("session-5.json");
+    expect(http.find(/recycle/)[0].url).toContain("session-41-5.json");
+  });
+
+  it("uses the signed-in user's id in image filenames", async () => {
+    expect(await store.scopedImageFileName(5, "img-a")).toBe(
+      "image-41-5-img-a.json",
+    );
   });
 });
 
@@ -310,6 +356,7 @@ describe("record lists", () => {
       json: { value: [{ Id: 1, RecordId: "i-1", PayloadJson: '{"id":"i-1","name":"5790A"}' }] },
     });
     expect(await store.listRecords("instruments")).toEqual([{ id: "i-1", name: "5790A" }]);
+    expect(http.find(/UncertaintyInstruments/)[0].url).not.toContain("AuthorId");
   });
 
   it("drops one unreadable row instead of failing the whole list", async () => {

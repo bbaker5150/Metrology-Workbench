@@ -14,7 +14,7 @@
 //
 // Instruments and equations are genuinely row-shaped and are lists.
 
-import { SharePointError, spGet, spGetText, spPost } from './spContext';
+import { getCurrentUser, SharePointError, spGet, spGetText, spPost } from './spContext';
 
 export const LIST_TEMPLATE = { GENERIC: 100, LIBRARY: 101 };
 export const FIELD_TYPE = { TEXT: 2, NOTE: 3, NUMBER: 9 };
@@ -131,20 +131,53 @@ export function listTitle(prefix, key) {
 
 const listApi = (prefix, key) => `/_api/web/lists/getbytitle('${encodeURIComponent(listTitle(prefix, key))}')`;
 
+function normalizeUser(user) {
+  const id = Number(user?.id ?? user?.Id);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new SharePointError('SharePoint returned an invalid signed-in user.', 401);
+  }
+  return {
+    id,
+    loginName: user?.loginName ?? user?.LoginName ?? '',
+    email: user?.email ?? user?.Email ?? '',
+    title: user?.title ?? user?.Title ?? '',
+  };
+}
+
 /**
  * SharePoint store. Constructed with the web URL and container prefix; `deps`
  * exists so tests can drive it with a fake fetch.
  */
 export class SharePointStore {
-  constructor({ webUrl, prefix = DEFAULT_PREFIX, fetchImpl = fetch } = {}) {
+  constructor({ webUrl, prefix = DEFAULT_PREFIX, fetchImpl = fetch, currentUser } = {}) {
     this.webUrl = String(webUrl || '').replace(/\/+$/, '');
     this.prefix = prefix;
     this.fetchImpl = fetchImpl;
     this._folderCache = null;
+    this._currentUser = currentUser ? normalizeUser(currentUser) : null;
+    this._currentUserPromise = null;
+    this._sessionFiles = new Map();
+    this._imageFiles = new Map();
   }
 
   get = (path) => spGet(this.webUrl, path, this.fetchImpl);
   post = (path, options) => spPost(this.webUrl, path, options, this.fetchImpl);
+
+  async currentUser() {
+    if (this._currentUser) return this._currentUser;
+    if (!this._currentUserPromise) {
+      this._currentUserPromise = getCurrentUser(this.webUrl, this.fetchImpl)
+        .then((user) => {
+          this._currentUser = normalizeUser(user);
+          return this._currentUser;
+        })
+        .catch((error) => {
+          this._currentUserPromise = null;
+          throw error;
+        });
+    }
+    return this._currentUserPromise;
+  }
 
   // -- provisioning ---------------------------------------------------------
 
@@ -243,15 +276,56 @@ export class SharePointStore {
     return this._folderCache;
   }
 
-  fileName = (id) => `session-${id}.json`;
+  fileName = (id, userId) => `session-${userId}-${id}.json`;
+
+  imageFileName = (sessionId, imageId, userId) =>
+    `image-${userId}-${sessionId}-${imageId}.json`;
+
+  imageKey = (sessionId, imageId) => `${sessionId}:${imageId}`;
+
+  async sessionFileName(id) {
+    const cached = this._sessionFiles.get(Number(id));
+    if (cached) return cached;
+    const user = await this.currentUser();
+    return this.fileName(id, user.id);
+  }
+
+  async scopedImageFileName(sessionId, imageId) {
+    const cached = this._imageFiles.get(this.imageKey(sessionId, imageId));
+    if (cached) return cached;
+    const user = await this.currentUser();
+    return this.imageFileName(sessionId, imageId, user.id);
+  }
+
+  rememberImageFile(sessionId, imageId, name) {
+    this._imageFiles.set(this.imageKey(sessionId, imageId), name);
+  }
+
+  async listOwnedLibraryFileNames() {
+    const user = await this.currentUser();
+    const query =
+      '$select=FileLeafRef,AuthorId&' +
+      `$filter=AuthorId eq ${user.id}&$top=5000`;
+    const body = await this.get(`${listApi(this.prefix, 'sessions')}/items?${query}`);
+    return (body.value || []).map((item) => item.FileLeafRef).filter(Boolean);
+  }
 
   async listSessions() {
+    const user = await this.currentUser();
     const select =
-      '$select=SessionId,SessionName,Analyst,Organization,DocumentRef,DocumentDate,Modified' +
-      '&$orderby=Modified desc&$top=500';
+      '$select=SessionId,SessionName,Analyst,Organization,DocumentRef,DocumentDate,Modified,FileLeafRef,AuthorId' +
+      `&$filter=AuthorId eq ${user.id}&$orderby=Modified desc&$top=500`;
     const body = await this.get(`${listApi(this.prefix, 'sessions')}/items?${select}`);
+    const seen = new Set();
     return (body.value || [])
-      .filter((item) => item.SessionId !== null && item.SessionId !== undefined)
+      .filter((item) => {
+        if (item.SessionId === null || item.SessionId === undefined) return false;
+        const id = Number(item.SessionId);
+        if (seen.has(id)) return false;
+        seen.add(id);
+        if (item.FileLeafRef) this._sessionFiles.set(id, item.FileLeafRef);
+        return true;
+      })
       .map((item) => ({
         id: Number(item.SessionId),
         name: item.SessionName || 'Untitled session',
@@ -265,7 +339,8 @@ export class SharePointStore {
 
   async getSession(id) {
     const folder = await this.libraryFolder();
-    const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${this.fileName(id)}`)}')/$value`;
+    const name = await this.sessionFileName(id);
+    const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/$value`;
     const text = await spGetText(this.webUrl, path, this.fetchImpl);
     try {
       return JSON.parse(text);
@@ -276,7 +351,7 @@ export class SharePointStore {
 
   async saveSession(doc) {
     const folder = await this.libraryFolder();
-    const name = this.fileName(doc.id);
+    const name = await this.sessionFileName(doc.id);
     const addPath =
       `/_api/web/getfolderbyserverrelativeurl('${encodeURIComponent(folder)}')` +
       `/files/add(url='${encodeURIComponent(name)}',overwrite=true)`;
@@ -303,15 +378,18 @@ export class SharePointStore {
       },
     });
 
+    this._sessionFiles.set(Number(doc.id), name);
     return doc;
   }
 
   async deleteSession(id) {
     const folder = await this.libraryFolder();
+    const name = await this.sessionFileName(id);
     // recycle() rather than a hard delete, so a mistaken removal is
     // recoverable from the site recycle bin.
-    const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${this.fileName(id)}`)}')/recycle()`;
+    const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/recycle()`;
     await this.post(path, {});
+    this._sessionFiles.delete(Number(id));
   }
 
   // -- generic record lists (instruments, equations, bug reports) ------------

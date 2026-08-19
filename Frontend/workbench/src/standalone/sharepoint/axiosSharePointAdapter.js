@@ -15,7 +15,7 @@
 // adapter untouched.
 
 import { SharePointStore } from './spStore';
-import { SharePointError } from './spContext';
+import { SharePointError, spGetText } from './spContext';
 
 /** Route table: [method, RegExp over the path after /uncertainty, handler]. */
 function buildRoutes(store) {
@@ -96,22 +96,23 @@ async function patchNotes(store, sessionId, body) {
 // every session read. Each image is its own small JSON file in the same
 // library, named so the set for a session can be found by prefix.
 
-const imageFileName = (sessionId, imageId) => `image-${sessionId}-${imageId}.json`;
-
 async function listImages(store, sessionId) {
   const folder = await store.libraryFolder();
-  const body = await store.get(
-    `/_api/web/getfolderbyserverrelativeurl('${encodeURIComponent(folder)}')/Files?$select=Name&$top=5000`,
+  const user = await store.currentUser();
+  const scopedPrefix = `image-${user.id}-${sessionId}-`;
+  const legacyPrefix = `image-${sessionId}-`;
+  const ownedNames = await store.listOwnedLibraryFileNames();
+  const names = ownedNames.filter(
+    (name) => name.startsWith(scopedPrefix) || name.startsWith(legacyPrefix),
   );
-  const prefix = `image-${sessionId}-`;
-  const names = (body.value || []).map((f) => f.Name).filter((n) => n.startsWith(prefix));
 
   const images = [];
   for (const name of names) {
     try {
       const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/$value`;
-      const { spGetText } = await import('./spContext');
-      images.push(JSON.parse(await spGetText(store.webUrl, path, store.fetchImpl)));
+      const image = JSON.parse(await spGetText(store.webUrl, path, store.fetchImpl));
+      store.rememberImageFile(sessionId, image.imageId, name);
+      images.push(image);
     } catch (error) {
       console.warn(`[uncertainty] Skipping unreadable image ${name}: ${error.message}`);
     }
@@ -121,7 +122,7 @@ async function listImages(store, sessionId) {
 
 async function saveImage(store, sessionId, body) {
   const folder = await store.libraryFolder();
-  const name = imageFileName(sessionId, body.imageId);
+  const name = await store.scopedImageFileName(sessionId, body.imageId);
   const path =
     `/_api/web/getfolderbyserverrelativeurl('${encodeURIComponent(folder)}')` +
     `/files/add(url='${encodeURIComponent(name)}',overwrite=true)`;
@@ -135,7 +136,7 @@ async function saveImage(store, sessionId, body) {
 
 async function deleteImage(store, sessionId, imageId) {
   const folder = await store.libraryFolder();
-  const name = imageFileName(sessionId, imageId);
+  const name = await store.scopedImageFileName(sessionId, imageId);
   const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/recycle()`;
   try {
     await store.post(path, {});

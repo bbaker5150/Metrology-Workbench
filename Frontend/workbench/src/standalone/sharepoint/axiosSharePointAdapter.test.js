@@ -15,6 +15,11 @@ function fakeStore(overrides = {}) {
     saveRecord: vi.fn(async (_k, r) => r),
     deleteRecord: vi.fn().mockResolvedValue(undefined),
     libraryFolder: vi.fn().mockResolvedValue("/sites/X/UncertaintySessions"),
+    currentUser: vi.fn().mockResolvedValue({ id: 41, title: "Analyst One" }),
+    listOwnedLibraryFileNames: vi.fn().mockResolvedValue([]),
+    scopedImageFileName: vi.fn(async (sessionId, imageId) =>
+      `image-41-${sessionId}-${imageId}.json`),
+    rememberImageFile: vi.fn(),
     get: vi.fn().mockResolvedValue({ value: [] }),
     post: vi.fn().mockResolvedValue({}),
     webUrl: "https://t.example/sites/X",

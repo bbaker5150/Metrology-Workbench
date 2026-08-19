@@ -111,7 +111,10 @@ import {
   resolveSessionFunctions,
 } from "./utils/functionGrouping";
 import { formatRangeLabel } from "./utils/rangeFormatting";
-import { formatSidebarUncertainty } from "./utils/sidebarUncertainty";
+import {
+  formatSidebarUncertainty,
+  formatSidebarUncertaintyFull,
+} from "./utils/sidebarUncertainty";
 import { ZOOM_TOAST_EVENT } from "../../shared/ZoomToast";
 
 // Synthetic ids for the top-level "Unassigned Points" bucket (points whose
@@ -670,6 +673,25 @@ export const SidebarPointItem = ({
       ? `${Number(value).toFixed(digits)}%`
       : "-";
 
+  const fullMetricTitle = (
+    label,
+    value,
+    { suffix = "", action = false, note = "" } = {},
+  ) => {
+    const rawValue =
+      value !== undefined && value !== null && value !== "" &&
+      Number.isFinite(Number(value))
+        ? `${String(value)}${suffix}`
+        : "-";
+    return [
+      `${label}: ${rawValue}`,
+      note,
+      action && !boundaryOnly ? "Ctrl+click for breakdown" : "",
+    ]
+      .filter(Boolean)
+      .join(" — ");
+  };
+
   // Calculate Metrics
   const toleranceSummary = React.useMemo(() => {
     const ptParam = point.testPointInfo?.parameter;
@@ -679,10 +701,17 @@ export const SidebarPointItem = ({
   const limitsData = React.useMemo(() => {
     const ptParam = point.testPointInfo?.parameter;
     const limits = getAbsoluteLimits(point.uutTolerance, ptParam);
-    if (!limits || limits.low === "N/A") return { low: "-", high: "-" };
+    if (!limits || limits.low === "N/A") {
+      return { low: "-", high: "-", fullLow: "-", fullHigh: "-" };
+    }
     const shortLow = limits.low.split(" ")[0];
     const shortHigh = limits.high.split(" ")[0];
-    return { low: shortLow, high: shortHigh };
+    return {
+      low: shortLow,
+      high: shortHigh,
+      fullLow: limits.low,
+      fullHigh: limits.high,
+    };
   }, [point.uutTolerance, point.testPointInfo]);
 
   const tmdeLimitsData = React.useMemo(() => {
@@ -773,7 +802,7 @@ export const SidebarPointItem = ({
           <span
             className="point-section"
             onClick={(e) => handleSingleClickEdit(e, "section", point.section)}
-            title="Click to edit Section"
+            title={`Section: ${point.section || "-"} — Click to edit`}
           >
             {point.section || "-"}
           </span>
@@ -802,7 +831,9 @@ export const SidebarPointItem = ({
           <span
             className="point-value point-value-with-unit sidebar-value-sticky"
             onClick={(e) => handleSingleClickEdit(e, "value", displayValue)}
-            title="Click to edit Value"
+            title={`Value: ${displayValue ?? "-"}${
+              displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
+            } — Click to edit`}
           >
             <span className="point-value-number">
               {displayValue || <span className="point-placeholder">-</span>}
@@ -838,7 +869,7 @@ export const SidebarPointItem = ({
                 point.testPointInfo?.qualifier?.value,
               )
             }
-            title="Click to edit Qualifier"
+            title={`Qualifier: ${point.testPointInfo?.qualifier?.value ?? "-"} — Click to edit`}
           >
             {point.testPointInfo?.qualifier?.value || (
               <span className="point-placeholder">-</span>
@@ -858,14 +889,14 @@ export const SidebarPointItem = ({
 
       {/* Col 4: Low Limit */}
       {visibleColumns.lowLimit && (
-        <span className="point-metric" title={`Low: ${limitsData.low}`}>
+        <span className="point-metric" title={`Low: ${limitsData.fullLow}`}>
           {limitsData.low}
         </span>
       )}
 
       {/* Col 5: High Limit */}
       {visibleColumns.highLimit && (
-        <span className="point-metric" title={`High: ${limitsData.high}`}>
+        <span className="point-metric" title={`High: ${limitsData.fullHigh}`}>
           {limitsData.high}
         </span>
       )}
@@ -875,7 +906,7 @@ export const SidebarPointItem = ({
       {visibleColumns.standardUncertainty && (
         <span
           className="point-metric point-uncertainty-metric"
-          title="Standard Uncertainty (combined)"
+          title={`Standard Uncertainty (combined): ${formatSidebarUncertaintyFull(point, "combined")}`}
         >
           {formatSidebarUncertainty(point, "combined")}
         </span>
@@ -883,7 +914,7 @@ export const SidebarPointItem = ({
       {visibleColumns.measurementUncertainty && (
         <span
           className="point-metric point-uncertainty-metric"
-          title="Measurement Uncertainty (expanded)"
+          title={`Measurement Uncertainty (expanded): ${formatSidebarUncertaintyFull(point, "expanded")}`}
         >
           {formatSidebarUncertainty(point, "expanded")}
         </span>
@@ -940,7 +971,7 @@ export const SidebarPointItem = ({
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getTurColor(risk.tur), fontWeight: 600 }}
-          title="TUR — Ctrl+click for breakdown"
+          title={fullMetricTitle("TUR", risk.tur, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "tur")}
         >
           {risk.tur !== undefined ? `${Number(risk.tur).toFixed(2)}` : "-"}
@@ -950,7 +981,7 @@ export const SidebarPointItem = ({
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getTarColor(risk.tar) }}
-          title="TAR — Ctrl+click for breakdown"
+          title={fullMetricTitle("TAR", risk.tar, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "tar")}
         >
           {risk.tar !== undefined ? `${Number(risk.tar).toFixed(1)}` : "-"}
@@ -959,7 +990,10 @@ export const SidebarPointItem = ({
       {visibleColumns.observedReop && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="REOP at test-point TUR - Ctrl+click for breakdown"
+          title={fullMetricTitle("REOP at test-point TUR", risk.observedReop, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "observedreop")}
         >
           {formatMitigationPercent(risk.observedReop, 2)}
@@ -969,9 +1003,11 @@ export const SidebarPointItem = ({
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getPfaColor(risk.pfa), fontWeight: 600 }}
-          title={`PFA — Ctrl+click for breakdown${
-            riskMethodMark ? ` · ${riskMethodMark.note}` : ""
-          }`}
+          title={fullMetricTitle("PFA", risk.pfa, {
+            suffix: "%",
+            action: true,
+            note: riskMethodMark?.note || "",
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "pfa")}
         >
           {risk.pfa !== undefined ? `${Number(risk.pfa).toFixed(2)}%` : "-"}
@@ -988,7 +1024,7 @@ export const SidebarPointItem = ({
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getPfrColor(risk.pfr) }}
-          title="PFR — Ctrl+click for breakdown"
+          title={fullMetricTitle("PFR", risk.pfr, { suffix: "%", action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "pfr")}
         >
           {risk.pfr !== undefined ? `${Number(risk.pfr).toFixed(2)}%` : "-"}
@@ -997,7 +1033,10 @@ export const SidebarPointItem = ({
       {visibleColumns.maxReop && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Maximum REOP - Ctrl+click for breakdown"
+          title={fullMetricTitle("Maximum REOP", risk.maxReop, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "maxreop")}
         >
           {formatMitigationPercent(risk.maxReop, 2)}
@@ -1006,7 +1045,7 @@ export const SidebarPointItem = ({
       {visibleColumns.trueReop && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="R_meas - Ctrl+click for breakdown"
+          title={fullMetricTitle("R_meas", risk.trueReop, { suffix: "%", action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "truereop")}
         >
           {formatMitigationPercent(risk.trueReop, 2)}
@@ -1015,7 +1054,10 @@ export const SidebarPointItem = ({
       {visibleColumns.gbMult && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Guardband Multiplier — Ctrl+click for breakdown"
+          title={fullMetricTitle("Guardband Multiplier", risk.gbMult, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbmult")}
         >
           {risk.gbMult !== undefined ? `${Number(risk.gbMult).toFixed(2)}%` : "-"}
@@ -1024,7 +1066,7 @@ export const SidebarPointItem = ({
       {visibleColumns.gbLow && (
         <span
           className={`point-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Guardband Low Limit — Ctrl+click for breakdown"
+          title={fullMetricTitle("Guardband Low Limit", risk.gbLow, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gblow")}
         >
           {risk.gbLow !== undefined ? Number(risk.gbLow).toPrecision(4) : "-"}
@@ -1033,7 +1075,7 @@ export const SidebarPointItem = ({
       {visibleColumns.gbHigh && (
         <span
           className={`point-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Guardband High Limit — Ctrl+click for breakdown"
+          title={fullMetricTitle("Guardband High Limit", risk.gbHigh, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbhigh")}
         >
           {risk.gbHigh !== undefined ? Number(risk.gbHigh).toPrecision(4) : "-"}
@@ -1043,7 +1085,10 @@ export const SidebarPointItem = ({
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getPfaColor(risk.gbPfa), fontWeight: 600 }}
-          title="PFA w/ Guardband — Ctrl+click for breakdown"
+          title={fullMetricTitle("PFA with Guardband", risk.gbPfa, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbpfa")}
         >
           {risk.gbPfa !== undefined ? `${Number(risk.gbPfa).toFixed(2)}%` : "-"}
@@ -1053,7 +1098,10 @@ export const SidebarPointItem = ({
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getPfrColor(risk.gbPfr) }}
-          title="PFR w/ Guardband — Ctrl+click for breakdown"
+          title={fullMetricTitle("PFR with Guardband", risk.gbPfr, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbpfr")}
         >
           {risk.gbPfr !== undefined ? `${Number(risk.gbPfr).toFixed(2)}%` : "-"}
@@ -1062,7 +1110,9 @@ export const SidebarPointItem = ({
       {visibleColumns.gbCalInt && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Calibration Interval with Guard Banding"
+          title={fullMetricTitle("Calibration Interval with Guard Banding", risk.gbCalInt, {
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbcalint")}
         >
           {formatMitigationNumber(risk.gbCalInt)}
@@ -1071,7 +1121,10 @@ export const SidebarPointItem = ({
       {visibleColumns.gbMeasRel && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Targeted REOP with GB - Ctrl+click for breakdown"
+          title={fullMetricTitle("Targeted REOP with GB", risk.gbMeasRel, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbmeasrel")}
         >
           {formatMitigationPercent(risk.gbMeasRel, 2)}
@@ -1080,7 +1133,10 @@ export const SidebarPointItem = ({
       {visibleColumns.noGbPfa && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="PFA without GB - Ctrl+click for breakdown"
+          title={fullMetricTitle("PFA without GB", risk.noGbPfa, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "nogbpfa")}
         >
           {formatMitigationPercent(risk.noGbPfa, 2)}
@@ -1089,7 +1145,10 @@ export const SidebarPointItem = ({
       {visibleColumns.noGbPfr && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="PFR without GB - Ctrl+click for breakdown"
+          title={fullMetricTitle("PFR without GB", risk.noGbPfr, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "nogbpfr")}
         >
           {formatMitigationPercent(risk.noGbPfr, 2)}
@@ -1098,7 +1157,11 @@ export const SidebarPointItem = ({
       {visibleColumns.noGbCalInt && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Calibration Interval without Guard Banding - Ctrl+click for breakdown"
+          title={fullMetricTitle(
+            "Calibration Interval without Guard Banding",
+            risk.noGbCalInt,
+            { action: true },
+          )}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "calint")}
         >
           {formatMitigationNumber(risk.noGbCalInt)}
@@ -1107,7 +1170,10 @@ export const SidebarPointItem = ({
       {visibleColumns.noGbMeasRel && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Targeted REOP without GB - Ctrl+click for breakdown"
+          title={fullMetricTitle("Targeted REOP without GB", risk.noGbMeasRel, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "measrel")}
         >
           {formatMitigationPercent(risk.noGbMeasRel, 2)}

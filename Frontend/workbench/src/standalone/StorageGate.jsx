@@ -15,6 +15,11 @@ export default function StorageGate({ store, children }) {
   const check = useCallback(async () => {
     setState({ phase: 'checking' });
     try {
+      // SharePoint is the login provider for this static build. Resolve the
+      // current Microsoft 365 user before mounting any session data so an
+      // unauthenticated page can never fall through as an apparently empty
+      // workspace.
+      await store.currentUser();
       const missing = [];
       for (const container of CONTAINERS) {
         const title = listTitle(store.prefix, container.key);

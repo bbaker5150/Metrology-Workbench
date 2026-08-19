@@ -66,6 +66,13 @@ const formatCalculatedResult = (value) => {
   return String(Number(n.toPrecision(8)));
 };
 
+const fullPrecisionValue = (value, unit = "") => {
+  if (value === undefined || value === null || value === "") return "N/A";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return numeric === Infinity ? "Infinity" : "N/A";
+  return `${String(value)}${unit ? ` ${unit}` : ""}`;
+};
+
 const simplifyBudgetLabel = (label = "") =>
   String(label).replace(
     /^(.+?)\s+\([^)]*\)(\s+Uncertainty Budget)$/i,
@@ -752,14 +759,20 @@ const ResultsCard = ({
       <div className="budget-results-title">
         {title}
       </div>
-      <div className="budget-results-row">
+      <div
+        className="budget-results-row"
+        title={`Combined Uncertainty: ${fullPrecisionValue(results?.combined, unit)}`}
+      >
         <span>Combined Uncertainty</span>
         <strong>
           {formatCalculatedResult(results?.combined)}
           {unitSuffix}
         </strong>
       </div>
-      <div className="budget-results-row">
+      <div
+        className="budget-results-row"
+        title={`Effective DOF: ${fullPrecisionValue(results?.effective_dof)}`}
+      >
         <span className="budget-results-dof-label">
           <label
             className="direction-toggle-switch"
@@ -776,11 +789,17 @@ const ResultsCard = ({
         </span>
         <strong>{effDofDisplay}</strong>
       </div>
-      <div className="budget-results-row">
+      <div
+        className="budget-results-row"
+        title={`Coverage Factor (k): ${fullPrecisionValue(results?.k_value)}`}
+      >
         <span>Coverage Factor (k)</span>
         <strong>{formatNumber(results?.k_value, sigFigs)}</strong>
       </div>
-      <div className="budget-results-row">
+      <div
+        className="budget-results-row"
+        title={`Expanded Uncertainty: ${fullPrecisionValue(results?.expanded, unit)}`}
+      >
         <span>Expanded Uncertainty</span>
         <strong>
           {formatCalculatedResult(results?.expanded)}
