@@ -1976,6 +1976,28 @@ export const getRangeColumnClickContext = (target) => {
   };
 };
 
+export const handoffMaterializedRangeToTolerance = ({
+  kind,
+  itemId,
+  newRangeId,
+  setPendingToleranceRangeKey,
+  setExpandedRangeKeys,
+}) => {
+  if (!newRangeId) return;
+  const groupKey = itemStateKey(kind, itemId);
+  setPendingToleranceRangeKey(`${groupKey}:${newRangeId}`);
+  // Queue the editor request and collapse the range group in the same event.
+  // If the new expanded row renders first, it consumes the request and is then
+  // unmounted by the click-away collapse, which leaves the collapsed tolerance
+  // cell requiring a second click.
+  setExpandedRangeKeys((previous) => {
+    if (!previous.has(groupKey)) return previous;
+    const next = new Set(previous);
+    next.delete(groupKey);
+    return next;
+  });
+};
+
 // Inline-editable Description cell: mfr. / model / name as three tabbable
 // sub-fields (feature/inline-instrument-tables). Edits stay local while typing
 // and commit on blur, so we PUT the session once per field, not per keystroke.
@@ -6569,8 +6591,14 @@ const SummaryDashboard = ({
       : { min, max, unit };
     const updated = applyItemRangePatch(withRange, newRangeId, patch);
     persistItem(kind, updated);
-    if (openTolerance && newRangeId) {
-      setPendingToleranceRangeKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
+    if (openTolerance) {
+      handoffMaterializedRangeToTolerance({
+        kind,
+        itemId: item.id,
+        newRangeId,
+        setPendingToleranceRangeKey,
+        setExpandedRangeKeys,
+      });
     }
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
@@ -10207,8 +10235,14 @@ function DetailedView({
       : { min, max, unit };
     const updated = applyItemRangePatch(withRange, newRangeId, patch);
     persistInlineItemDetail(kind, updated);
-    if (openTolerance && newRangeId) {
-      setPendingToleranceRangeKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
+    if (openTolerance) {
+      handoffMaterializedRangeToTolerance({
+        kind,
+        itemId: item.id,
+        newRangeId,
+        setPendingToleranceRangeKey,
+        setExpandedRangeKeys,
+      });
     }
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];

@@ -7,6 +7,7 @@ import {
   ResolutionCellInput,
   RangeCell,
   getRangeColumnClickContext,
+  handoffMaterializedRangeToTolerance,
   getBudgetRangeChoices,
   getVisibleRangeRows,
   removeRangeFromItem,
@@ -66,6 +67,29 @@ describe("GhostRangeRow", () => {
       inRangeColumn: false,
       toleranceKey: "uut:test-instrument:r1",
     });
+  });
+
+  it("keeps a newly materialized tolerance request alive through range collapse", () => {
+    let pendingKey = null;
+    let expandedKeys = new Set([
+      "uut:test-instrument",
+      "tmde:other-instrument",
+    ]);
+
+    handoffMaterializedRangeToTolerance({
+      kind: "uut",
+      itemId: "test-instrument",
+      newRangeId: "new-range",
+      setPendingToleranceRangeKey: (key) => {
+        pendingKey = key;
+      },
+      setExpandedRangeKeys: (update) => {
+        expandedKeys = update(expandedKeys);
+      },
+    });
+
+    expect(pendingKey).toBe("uut:test-instrument:new-range");
+    expect([...expandedKeys]).toEqual(["tmde:other-instrument"]);
   });
 
   it("keeps every function-scoped range visible in the simplified view", () => {
