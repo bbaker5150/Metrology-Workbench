@@ -21,12 +21,30 @@ const renderGhost = (onMaterialize, unit = "V") =>
   render(
     <table>
       <tbody>
-        <GhostRangeRow unit={unit} onMaterialize={onMaterialize} />
+        <GhostRangeRow
+          unit={unit}
+          dataGroup="uut:test-instrument"
+          onMaterialize={onMaterialize}
+        />
       </tbody>
     </table>,
   );
 
 describe("GhostRangeRow", () => {
+  it("marks its blank inputs as part of the expanded range column", () => {
+    renderGhost(vi.fn());
+    const minimum = screen.getByLabelText("New range minimum");
+
+    expect(minimum.closest("[data-range-cell]")).toHaveAttribute(
+      "data-range-cell",
+      "true",
+    );
+    expect(minimum.closest("[data-range-group]")).toHaveAttribute(
+      "data-range-group",
+      "uut:test-instrument",
+    );
+  });
+
   it("keeps every function-scoped range visible in the simplified view", () => {
     const ranges = [
       { id: "r1", min: 0, max: 10, unit: "V" },

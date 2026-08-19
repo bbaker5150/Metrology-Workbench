@@ -4161,7 +4161,7 @@ export const GhostRangeRow = ({
       data-range-group={dataGroup}
       onBlur={handleBlur}
     >
-      <td className="cell-value">
+      <td className="cell-value" data-range-cell="true">
         <div className="range-row-cell range-row-cell--ghost">
           <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
             <div className="inline-range-main">

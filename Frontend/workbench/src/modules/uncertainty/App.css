@@ -14524,6 +14524,14 @@ body.theme-cyberpunk .range-header-container:hover {
   pointer-events: auto;
 }
 
+/* Every function header is sticky and therefore forms a stacking context.
+   Lift the header that owns an open settings menu above later function
+   headers and their sticky value cells so the dialog paints as one clean
+   surface instead of being sliced through by the next section. */
+.area-header-sticky:has(.function-point-settings.is-open) {
+  z-index: 100;
+}
+
 .function-point-settings-menu {
   position: absolute;
   top: calc(100% + 7px);
