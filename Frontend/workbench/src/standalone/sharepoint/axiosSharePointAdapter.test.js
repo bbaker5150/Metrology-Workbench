@@ -11,6 +11,9 @@ function fakeStore(overrides = {}) {
     getSession: vi.fn().mockResolvedValue({}),
     saveSession: vi.fn(async (doc) => doc),
     deleteSession: vi.fn().mockResolvedValue(undefined),
+    listInstruments: vi.fn().mockResolvedValue([]),
+    saveInstrument: vi.fn(async (record) => record),
+    deleteInstrument: vi.fn().mockResolvedValue(undefined),
     listRecords: vi.fn().mockResolvedValue([]),
     saveRecord: vi.fn(async (_k, r) => r),
     deleteRecord: vi.fn().mockResolvedValue(undefined),
@@ -170,7 +173,6 @@ describe("session writes", () => {
 
 describe("record routes", () => {
   it.each([
-    ["instruments", "instruments"],
     ["equations", "equations"],
     ["bug_reports", "bugReports"],
   ])("lists %s from the matching container", async (route, key) => {
@@ -179,7 +181,6 @@ describe("record routes", () => {
   });
 
   it.each([
-    ["instruments", "instruments"],
     ["equations", "equations"],
     ["bug_reports", "bugReports"],
   ])("saves %s to the matching container", async (route, key) => {
@@ -188,7 +189,6 @@ describe("record routes", () => {
   });
 
   it.each([
-    ["instruments", "instruments"],
     ["equations", "equations"],
     ["bug_reports", "bugReports"],
   ])("deletes %s from the matching container", async (route, key) => {
@@ -196,9 +196,18 @@ describe("record routes", () => {
     expect(store.deleteRecord).toHaveBeenCalledWith(key, "abc");
   });
 
-  it("decodes an id that was percent-encoded into the path", async () => {
+  it("uses the user-scoped instrument store routes", async () => {
+    await call("get", "/instruments/");
+    await call("post", "/instruments/", { id: "mine", scope: "local" });
+    await call("delete", "/instruments/mine/");
+    expect(store.listInstruments).toHaveBeenCalledOnce();
+    expect(store.saveInstrument).toHaveBeenCalledWith({ id: "mine", scope: "local" });
+    expect(store.deleteInstrument).toHaveBeenCalledWith("mine");
+  });
+
+  it("decodes an instrument id that was percent-encoded into the path", async () => {
     await call("delete", "/instruments/a%2Fb/");
-    expect(store.deleteRecord).toHaveBeenCalledWith("instruments", "a/b");
+    expect(store.deleteInstrument).toHaveBeenCalledWith("a/b");
   });
 });
 
@@ -225,7 +234,7 @@ describe("error translation", () => {
   });
 
   it("defaults an unclassified failure to 500", async () => {
-    store.listRecords.mockRejectedValue(new Error("boom"));
+    store.listInstruments.mockRejectedValue(new Error("boom"));
     await expect(call("get", "/instruments/")).rejects.toMatchObject({ response: { status: 500 } });
   });
 
@@ -240,12 +249,12 @@ describe("error translation", () => {
 describe("request bodies", () => {
   it("parses a JSON string body, which is how axios hands it over", async () => {
     await call("post", "/instruments/", { id: "i", nested: { a: 1 } });
-    expect(store.saveRecord).toHaveBeenCalledWith("instruments", { id: "i", nested: { a: 1 } });
+    expect(store.saveInstrument).toHaveBeenCalledWith({ id: "i", nested: { a: 1 } });
   });
 
   it("accepts an already-parsed object body", async () => {
     await adapter({ method: "post", url: `${API}/instruments/`, data: { id: "obj" } });
-    expect(store.saveRecord).toHaveBeenCalledWith("instruments", { id: "obj" });
+    expect(store.saveInstrument).toHaveBeenCalledWith({ id: "obj" });
   });
 
   it("tolerates a request with no body", async () => {
@@ -254,6 +263,6 @@ describe("request bodies", () => {
 
   it("defaults to GET when axios omits the method", async () => {
     await adapter({ url: `${API}/instruments/` });
-    expect(store.listRecords).toHaveBeenCalledWith("instruments");
+    expect(store.listInstruments).toHaveBeenCalledOnce();
   });
 });

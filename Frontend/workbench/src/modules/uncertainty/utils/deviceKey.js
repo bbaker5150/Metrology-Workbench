@@ -10,6 +10,21 @@
 const STORAGE_KEY = "uncertainty.deviceKey";
 
 let cached = null;
+let ownerOverride = null;
+
+/**
+ * Replace the browser/device identity with an authenticated host identity.
+ * The SharePoint build uses this before the uncertainty app mounts so local
+ * instruments follow the Microsoft 365 user across browsers and devices.
+ * Returns a cleanup function for tests/unmounts.
+ */
+export const setDeviceKeyOverride = (value) => {
+  const next = String(value || "").trim() || null;
+  ownerOverride = next;
+  return () => {
+    if (ownerOverride === next) ownerOverride = null;
+  };
+};
 
 const randomKey = () => {
   try {
@@ -23,6 +38,7 @@ const randomKey = () => {
 };
 
 export const getDeviceKey = () => {
+  if (ownerOverride) return ownerOverride;
   if (cached) return cached;
   try {
     const existing = localStorage.getItem(STORAGE_KEY);

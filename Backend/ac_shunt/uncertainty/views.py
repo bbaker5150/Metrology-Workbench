@@ -119,7 +119,11 @@ def instruments(request):
                 Q(scope=models.Instrument.SCOPE_VALIDATED)
                 | Q(scope=models.Instrument.SCOPE_LOCAL, owner=owner)
             )
-        # No params -> return everything (back-compat with the current client).
+        else:
+            # Anonymous/global listings expose only deliberately synced rows.
+            # Local rows require an explicit owner key and must never leak just
+            # because an older client omitted its owner parameter.
+            qs = qs.filter(scope=models.Instrument.SCOPE_VALIDATED)
 
         return Response([serializers.instrument_to_dict(i) for i in qs])
 
@@ -141,7 +145,14 @@ def instruments(request):
 @api_view(["DELETE"])
 @permission_classes([AllowAny])
 def instrument_detail(request, instrument_id):
-    models.Instrument.objects.filter(pk=str(instrument_id)).delete()
+    instrument = models.Instrument.objects.filter(pk=str(instrument_id)).first()
+    if instrument and instrument.scope == models.Instrument.SCOPE_LOCAL:
+        owner = request.query_params.get("owner") or ""
+        if not owner or owner != instrument.owner:
+            # Do not reveal whether another user's private record exists.
+            return Response(status=status.HTTP_404_NOT_FOUND)
+    if instrument:
+        instrument.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 

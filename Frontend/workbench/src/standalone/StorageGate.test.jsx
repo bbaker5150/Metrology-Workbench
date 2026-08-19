@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import StorageGate from './StorageGate';
+import { getDeviceKey } from '../modules/uncertainty/utils/deviceKey';
 
 const readyStore = (overrides = {}) => ({
   prefix: 'Uncertainty',
@@ -25,6 +26,7 @@ describe('SharePoint storage gate authentication', () => {
     expect(store.currentUser.mock.invocationCallOrder[0]).toBeLessThan(
       store.listExists.mock.invocationCallOrder[0],
     );
+    expect(getDeviceKey()).toBe('sharepoint-user:41');
   });
 
   it('does not render an empty workspace when SharePoint sign-in cannot be resolved', async () => {

@@ -30,9 +30,9 @@ function buildRoutes(store) {
     ['POST', /^\/sessions\/(\d+)\/images\/$/, (m, body) => saveImage(store, Number(m[1]), body)],
     ['DELETE', /^\/sessions\/(\d+)\/images\/([^/]+)\/$/, (m) => deleteImage(store, Number(m[1]), m[2])],
 
-    ['GET', /^\/instruments\/$/, () => store.listRecords('instruments')],
-    ['POST', /^\/instruments\/$/, (_m, body) => store.saveRecord('instruments', body)],
-    ['DELETE', /^\/instruments\/([^/]+)\/$/, (m) => store.deleteRecord('instruments', decodeURIComponent(m[1]))],
+    ['GET', /^\/instruments\/$/, () => store.listInstruments()],
+    ['POST', /^\/instruments\/$/, (_m, body) => store.saveInstrument(body)],
+    ['DELETE', /^\/instruments\/([^/]+)\/$/, (m) => store.deleteInstrument(decodeURIComponent(m[1]))],
 
     ['GET', /^\/equations\/$/, () => store.listRecords('equations')],
     ['POST', /^\/equations\/$/, (_m, body) => store.saveRecord('equations', body)],

@@ -144,6 +144,15 @@ function normalizeUser(user) {
   };
 }
 
+/** Stable owner identity used by the shared React code for local records. */
+export function sharePointInstrumentOwnerKey(user) {
+  const id = Number(user?.id ?? user?.Id);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new SharePointError('SharePoint returned an invalid signed-in user.', 401);
+  }
+  return `sharepoint-user:${id}`;
+}
+
 /**
  * SharePoint store. Constructed with the web URL and container prefix; `deps`
  * exists so tests can drive it with a fake fetch.
@@ -424,6 +433,106 @@ export class SharePointStore {
   }
 
   // -- generic record lists (instruments, equations, bug reports) ------------
+
+  async instrumentRows(recordId) {
+    const filter = recordId == null
+      ? ''
+      : `&$filter=RecordId eq '${String(recordId).replace(/'/g, "''")}'`;
+    const body = await this.get(
+      `${listApi(this.prefix, 'instruments')}/items?` +
+      `$select=Id,RecordId,PayloadJson,AuthorId${filter}&$top=5000`,
+    );
+    return (body.value || []).map((item) => ({
+      item,
+      record: this.parsePayload(item, 'instruments'),
+    })).filter(({ record }) => Boolean(record));
+  }
+
+  /**
+   * Return every validated/shared definition plus only the signed-in user's
+   * local definitions. AuthorId is the access boundary for legacy rows whose
+   * payload still carries an old per-browser owner key.
+   */
+  async listInstruments() {
+    const user = await this.currentUser();
+    const owner = sharePointInstrumentOwnerKey(user);
+    const rows = await this.instrumentRows();
+    return rows.flatMap(({ item, record }) => {
+      if (record.scope !== 'local') return [record];
+      if (Number(item.AuthorId) !== user.id) return [];
+      return [{ ...record, scope: 'local', owner }];
+    });
+  }
+
+  async saveInstrument(record) {
+    const recordId = String(record?.id ?? '');
+    if (!recordId) throw new Error('Cannot save an instruments record with no id.');
+
+    const user = await this.currentUser();
+    const scope = record.scope === 'validated' ? 'validated' : 'local';
+    const { password: _password, ...safeRecord } = record;
+    const canonical = scope === 'local'
+      ? { ...safeRecord, scope, owner: sharePointInstrumentOwnerKey(user) }
+      : { ...safeRecord, scope };
+    const rows = await this.instrumentRows(recordId);
+    const existing = rows.find(({ item, record: candidate }) =>
+      scope === 'local'
+        ? candidate.scope === 'local' && Number(item.AuthorId) === user.id
+        : candidate.scope !== 'local',
+    );
+    const fields = {
+      Title: String(canonical.name || canonical.description || canonical.model || recordId).slice(0, 255),
+      RecordId: recordId,
+      PayloadJson: JSON.stringify(canonical),
+    };
+
+    if (existing) {
+      await this.post(`${listApi(this.prefix, 'instruments')}/items(${existing.item.Id})`, {
+        method: 'MERGE',
+        body: fields,
+      });
+    } else {
+      await this.post(`${listApi(this.prefix, 'instruments')}/items`, { body: fields });
+    }
+
+    // A successful sync replaces this user's linked local working copy while
+    // leaving every other user's local copy untouched.
+    if (scope === 'validated') {
+      const sourceId = String(canonical.sourceId || canonical.id);
+      // The local copy normally has its own RecordId, so search the whole
+      // instrument list by sourceId rather than only the shared record's id.
+      const cleanupRows = await this.instrumentRows();
+      const ownLinkedLocals = cleanupRows.filter(({ item, record: candidate }) =>
+        candidate.scope === 'local' &&
+        Number(item.AuthorId) === user.id &&
+        String(candidate.sourceId || '') === sourceId,
+      );
+      await Promise.all(
+        ownLinkedLocals.map(({ item }) =>
+          this.post(`${listApi(this.prefix, 'instruments')}/items(${item.Id})`, {
+            method: 'DELETE',
+          }),
+        ),
+      );
+    }
+    return canonical;
+  }
+
+  async deleteInstrument(recordId) {
+    const user = await this.currentUser();
+    const rows = await this.instrumentRows(recordId);
+    const ownLocal = rows.find(({ item, record }) =>
+      record.scope === 'local' && Number(item.AuthorId) === user.id,
+    );
+    const shared = rows.find(({ record }) => record.scope !== 'local');
+    const target = ownLocal || shared;
+    // Another user's local row is intentionally indistinguishable from an
+    // absent record and can never be deleted through the app.
+    if (!target) return;
+    await this.post(`${listApi(this.prefix, 'instruments')}/items(${target.item.Id})`, {
+      method: 'DELETE',
+    });
+  }
 
   async listRecords(key) {
     const body = await this.get(`${listApi(this.prefix, key)}/items?$select=Id,RecordId,PayloadJson&$top=5000`);

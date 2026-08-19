@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SharePointStore, listTitle, fieldSchemaXml, CONTAINERS, FIELD_TYPE } from "./spStore";
+import {
+  SharePointStore,
+  listTitle,
+  fieldSchemaXml,
+  CONTAINERS,
+  FIELD_TYPE,
+  sharePointInstrumentOwnerKey,
+} from "./spStore";
 
 import { resetWebUrlCache } from "./spContext";
 
@@ -447,5 +454,129 @@ describe("record lists", () => {
     http.on(/\$filter=RecordId/, { json: { value: [] } });
     await store.saveRecord("bugReports", { report_id: "r-1", title: "Broken" });
     expect(http.find(/\$filter/)[0].url).toContain("r-1");
+  });
+});
+
+describe("user-scoped instrument records", () => {
+  it("uses a stable SharePoint user owner key", () => {
+    expect(sharePointInstrumentOwnerKey({ id: 41 })).toBe("sharepoint-user:41");
+  });
+
+  it("returns shared instruments and only the signed-in user's local instruments", async () => {
+    http.on(/UncertaintyInstruments'\)\/items\?\$select/, {
+      json: {
+        value: [
+          { Id: 1, AuthorId: 99, RecordId: "shared", PayloadJson: '{"id":"shared","scope":"validated"}' },
+          { Id: 2, AuthorId: 41, RecordId: "mine", PayloadJson: '{"id":"mine","scope":"local","owner":"old-browser"}' },
+          { Id: 3, AuthorId: 99, RecordId: "theirs", PayloadJson: '{"id":"theirs","scope":"local","owner":"other-browser"}' },
+          { Id: 4, AuthorId: 99, RecordId: "legacy", PayloadJson: '{"id":"legacy","model":"Legacy shared"}' },
+        ],
+      },
+    });
+
+    expect(await store.listInstruments()).toEqual([
+      { id: "shared", scope: "validated" },
+      { id: "mine", scope: "local", owner: "sharepoint-user:41" },
+      { id: "legacy", model: "Legacy shared" },
+    ]);
+    expect(http.find(/UncertaintyInstruments/)[0].url).toContain("AuthorId");
+  });
+
+  it("creates a separate local row instead of overwriting another user's matching id", async () => {
+    http.on(/\$filter=RecordId/, {
+      json: {
+        value: [
+          { Id: 72, AuthorId: 99, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
+        ],
+      },
+    });
+
+    const saved = await store.saveInstrument({
+      id: "same",
+      scope: "local",
+      owner: "spoofed",
+      model: "5790A",
+      password: "must-not-persist",
+    });
+
+    const write = http.calls.filter((call) => /items$/.test(call.url)).pop();
+    expect(write.spMethod).toBeUndefined();
+    expect(saved.owner).toBe("sharepoint-user:41");
+    expect(saved).not.toHaveProperty("password");
+    expect(JSON.parse(JSON.parse(write.body).PayloadJson)).toEqual(saved);
+  });
+
+  it("updates only the signed-in user's existing local row", async () => {
+    http.on(/\$filter=RecordId/, {
+      json: {
+        value: [
+          { Id: 72, AuthorId: 99, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
+          { Id: 73, AuthorId: 41, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
+        ],
+      },
+    });
+
+    await store.saveInstrument({ id: "same", scope: "local", model: "8508A" });
+    expect(http.find(/items\(73\)/)[0].spMethod).toBe("MERGE");
+    expect(http.find(/items\(72\)/)).toHaveLength(0);
+  });
+
+  it("syncs a shared definition and removes only this user's linked local copy", async () => {
+    http.on(/\$filter=RecordId/, {
+      json: {
+        value: [
+          { Id: 80, AuthorId: 12, RecordId: "shared", PayloadJson: '{"id":"shared","scope":"validated"}' },
+        ],
+      },
+    });
+    http.on(/UncertaintyInstruments'\)\/items\?\$select=Id,RecordId,PayloadJson,AuthorId&\$top/, {
+      json: {
+        value: [
+          { Id: 80, AuthorId: 12, RecordId: "shared", PayloadJson: '{"id":"shared","scope":"validated"}' },
+          { Id: 81, AuthorId: 41, RecordId: "my-copy", PayloadJson: '{"id":"my-copy","scope":"local","sourceId":"shared"}' },
+          { Id: 82, AuthorId: 99, RecordId: "their-copy", PayloadJson: '{"id":"their-copy","scope":"local","sourceId":"shared"}' },
+        ],
+      },
+    });
+
+    const saved = await store.saveInstrument({
+      id: "shared",
+      sourceId: "shared",
+      scope: "validated",
+      password: "calibrate",
+    });
+
+    expect(http.find(/items\(80\)/)[0].spMethod).toBe("MERGE");
+    expect(http.find(/items\(81\)/)[0].spMethod).toBe("DELETE");
+    expect(http.find(/items\(82\)/)).toHaveLength(0);
+    expect(saved).not.toHaveProperty("password");
+  });
+
+  it("does not delete another user's local instrument", async () => {
+    http.on(/\$filter=RecordId/, {
+      json: {
+        value: [
+          { Id: 72, AuthorId: 99, RecordId: "theirs", PayloadJson: '{"id":"theirs","scope":"local"}' },
+        ],
+      },
+    });
+
+    await store.deleteInstrument("theirs");
+    expect(http.calls.filter((call) => call.spMethod === "DELETE")).toHaveLength(0);
+  });
+
+  it("deletes the signed-in user's local row without touching a matching foreign row", async () => {
+    http.on(/\$filter=RecordId/, {
+      json: {
+        value: [
+          { Id: 72, AuthorId: 99, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
+          { Id: 73, AuthorId: 41, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
+        ],
+      },
+    });
+
+    await store.deleteInstrument("same");
+    expect(http.find(/items\(73\)/)[0].spMethod).toBe("DELETE");
+    expect(http.find(/items\(72\)/)).toHaveLength(0);
   });
 });
