@@ -294,6 +294,36 @@ describe("inline resolution distribution", () => {
     expect(screen.getByPlaceholderText("—")).toBeInTheDocument();
   });
 
+  it("reopens resolution after a tolerance commit remounts the table row", () => {
+    const onOpenRequest = vi.fn();
+    const onOpenRequestHandled = vi.fn();
+    const commonProps = {
+      value: "",
+      unit: "V",
+      onCommit: vi.fn(),
+      onCommitUnit: vi.fn(),
+      onOpenRequest,
+      onOpenRequestHandled,
+    };
+    const { rerender } = render(
+      <ResolutionCellInput key="before-tolerance-commit" {...commonProps} />,
+    );
+
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Set resolution" }));
+    expect(onOpenRequest).toHaveBeenCalledOnce();
+
+    rerender(
+      <ResolutionCellInput
+        key="after-tolerance-commit"
+        {...commonProps}
+        openRequested
+      />,
+    );
+
+    expect(onOpenRequestHandled).toHaveBeenCalledOnce();
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+  });
+
   it("shows the full custom distribution menu", () => {
     const onCommitDistribution = vi.fn();
     render(

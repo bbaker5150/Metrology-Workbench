@@ -2435,6 +2435,9 @@ export const ResolutionCellInput = ({
   onCommit,
   onCommitUnit,
   onCommitDistribution,
+  openRequested = false,
+  onOpenRequest,
+  onOpenRequestHandled,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [v, setV] = useState(() => toPlainNumber(value));
@@ -2442,6 +2445,12 @@ export const ResolutionCellInput = ({
   useEffect(() => {
     setV(toPlainNumber(value));
   }, [value]);
+
+  useEffect(() => {
+    if (!openRequested) return;
+    setIsEditing(true);
+    onOpenRequestHandled?.();
+  }, [openRequested, onOpenRequestHandled]);
 
   // Focus the magnitude field on open so a click-away always produces a
   // focusout (committing the in-progress value before the editor closes).
@@ -2476,6 +2485,10 @@ export const ResolutionCellInput = ({
           className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
           title={summary ? "Click to edit resolution" : "Click to set a resolution"}
           aria-label={summary ? undefined : "Set resolution"}
+          onMouseDown={(event) => {
+            event.stopPropagation();
+            onOpenRequest?.();
+          }}
           onClick={openEditor}
         >
           {summary || "Not Set"}
@@ -7133,6 +7146,7 @@ const SummaryDashboard = ({
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
+  const [pendingResolutionRangeKey, setPendingResolutionRangeKey] = useState(null);
   const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
   const rangeClickGroupRef = useRef(null);
   // Click-away collapse: an expanded range column stays open only while the
@@ -7390,6 +7404,16 @@ const SummaryDashboard = ({
             unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
             fallbackUnit={range?.unit}
             distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
+            openRequested={
+              pendingResolutionRangeKey ===
+              `${itemStateKey(kind, item.id)}:${rangeKey}`
+            }
+            onOpenRequest={() =>
+              setPendingResolutionRangeKey(
+                `${itemStateKey(kind, item.id)}:${rangeKey}`,
+              )
+            }
+            onOpenRequestHandled={() => setPendingResolutionRangeKey(null)}
             onCommit={(v) => setRangeResolution(kind, item, rangeKey, v)}
             onCommitUnit={(value) => setRangeResolutionUnit(kind, item, rangeKey, value)}
             onCommitDistribution={(value) =>
@@ -8460,6 +8484,18 @@ const SummaryDashboard = ({
                                     unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
                                     fallbackUnit={range?.unit}
                                     distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
+                                    openRequested={
+                                      pendingResolutionRangeKey ===
+                                      `${itemStateKey("uut", uut.id)}:${rangeKey}`
+                                    }
+                                    onOpenRequest={() =>
+                                      setPendingResolutionRangeKey(
+                                        `${itemStateKey("uut", uut.id)}:${rangeKey}`,
+                                      )
+                                    }
+                                    onOpenRequestHandled={() =>
+                                      setPendingResolutionRangeKey(null)
+                                    }
                                     onCommit={(v) =>
                                       setRangeResolution("uut", uut, rangeKey, v)
                                     }
@@ -8910,6 +8946,18 @@ const SummaryDashboard = ({
                                     unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
                                     fallbackUnit={range?.unit}
                                     distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
+                                    openRequested={
+                                      pendingResolutionRangeKey ===
+                                      `${itemStateKey("tmde", tmde.id)}:${rangeKey}`
+                                    }
+                                    onOpenRequest={() =>
+                                      setPendingResolutionRangeKey(
+                                        `${itemStateKey("tmde", tmde.id)}:${rangeKey}`,
+                                      )
+                                    }
+                                    onOpenRequestHandled={() =>
+                                      setPendingResolutionRangeKey(null)
+                                    }
                                     onCommit={(v) =>
                                       setRangeResolution("tmde", tmde, rangeKey, v)
                                     }
@@ -9139,6 +9187,7 @@ function DetailedView({
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
+  const [pendingResolutionRangeKey, setPendingResolutionRangeKey] = useState(null);
   const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
   const rangeClickGroupRef = useRef(null);
   // --- NEW: Local Selection State ---
@@ -10523,6 +10572,16 @@ function DetailedView({
             unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
             fallbackUnit={range?.unit}
             distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
+            openRequested={
+              pendingResolutionRangeKey ===
+              `${itemStateKey(kind, item.id)}:${rangeKey}`
+            }
+            onOpenRequest={() =>
+              setPendingResolutionRangeKey(
+                `${itemStateKey(kind, item.id)}:${rangeKey}`,
+              )
+            }
+            onOpenRequestHandled={() => setPendingResolutionRangeKey(null)}
             onCommit={(v) => setRangeResolutionDetail(kind, item, rangeKey, v)}
             onCommitUnit={(value) => setRangeResolutionUnitDetail(kind, item, rangeKey, value)}
             onCommitDistribution={(value) =>
@@ -14295,6 +14354,18 @@ function DetailedView({
                                     unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
                                     fallbackUnit={range?.unit}
                                     distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
+                                    openRequested={
+                                      pendingResolutionRangeKey ===
+                                      `${itemStateKey("uut", uut.id)}:${rangeIdOf(range)}`
+                                    }
+                                    onOpenRequest={() =>
+                                      setPendingResolutionRangeKey(
+                                        `${itemStateKey("uut", uut.id)}:${rangeIdOf(range)}`,
+                                      )
+                                    }
+                                    onOpenRequestHandled={() =>
+                                      setPendingResolutionRangeKey(null)
+                                    }
                                     onCommit={(v) =>
                                       setRangeResolutionDetail("uut", uut, rangeIdOf(range), v)
                                     }
@@ -15154,6 +15225,18 @@ function DetailedView({
                                         distribution={
                                           range?.resolutionDistribution ??
                                           range?.measuringResolutionDistribution
+                                        }
+                                        openRequested={
+                                          pendingResolutionRangeKey ===
+                                          `${itemStateKey("tmde", masterTmde.id)}:${rangeKey}`
+                                        }
+                                        onOpenRequest={() =>
+                                          setPendingResolutionRangeKey(
+                                            `${itemStateKey("tmde", masterTmde.id)}:${rangeKey}`,
+                                          )
+                                        }
+                                        onOpenRequestHandled={() =>
+                                          setPendingResolutionRangeKey(null)
                                         }
                                         onCommit={(v) =>
                                           setRangeResolutionDetail(
