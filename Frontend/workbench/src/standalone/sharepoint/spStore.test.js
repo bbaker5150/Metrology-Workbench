@@ -13,6 +13,14 @@ import { resetWebUrlCache } from "./spContext";
 const WEB = "https://t.example/sites/ISEA";
 const FOLDER = "/sites/ISEA/UncertaintySessions";
 
+const formValueObject = (call) =>
+  Object.fromEntries(
+    JSON.parse(call.body).formValues.map(({ FieldName, FieldValue }) => [
+      FieldName,
+      FieldValue,
+    ]),
+  );
+
 /**
  * Fetch double. Handlers are matched newest-first against "METHOD url" so a
  * test can override a default set up by the helper.
@@ -54,6 +62,7 @@ beforeEach(() => {
   http = fakeFetch();
   http.on(/contextinfo/, { json: { FormDigestValue: "D", FormDigestTimeoutSeconds: 1800 } });
   http.on(/RootFolder/, { json: { ServerRelativeUrl: FOLDER } });
+  http.on(/ListItemAllFields\?\$select=Id/, { json: { Id: 91 } });
   store = new SharePointStore({
     webUrl: WEB,
     fetchImpl: http,
@@ -338,14 +347,19 @@ describe("sessions", () => {
     expect(JSON.parse(upload.body)).toEqual({ id: 9, name: "Cal" });
   });
 
-  it("promotes the picker's columns onto the file's list item", async () => {
+  it("promotes picker columns with a regular form-update POST", async () => {
     await store.saveSession({ id: 9, name: "Cal", analyst: "BB", organization: "NPSL" });
-    const merge = http.find(/ListItemAllFields/)[0];
-    expect(merge.spMethod).toBe("MERGE");
-    expect(JSON.parse(merge.body)).toMatchObject({ SessionId: 9, SessionName: "Cal", Analyst: "BB" });
+    const update = http.find(/UncertaintySessions'\)\/items\(91\)\/ValidateUpdateListItem/)[0];
+    expect(update.method).toBe("POST");
+    expect(update.spMethod).toBeUndefined();
+    expect(formValueObject(update)).toMatchObject({
+      SessionId: "9",
+      SessionName: "Cal",
+      Analyst: "BB",
+    });
   });
 
-  it("does not repeat the metadata MERGE for an ordinary budget-only save", async () => {
+  it("does not repeat the metadata form update for an ordinary budget-only save", async () => {
     http.on(/UncertaintySessions'\)\/items\?/, {
       json: {
         value: [
@@ -368,7 +382,7 @@ describe("sessions", () => {
       testPoints: [{ id: "changed-budget" }],
     });
 
-    expect(http.calls.filter((call) => call.spMethod === "MERGE")).toHaveLength(0);
+    expect(http.find(/ValidateUpdateListItem/)).toHaveLength(0);
     expect(http.find(/files\/add/)).toHaveLength(1);
   });
 
@@ -383,9 +397,24 @@ describe("sessions", () => {
     await store.listSessions();
     await store.saveSession({ id: 9, name: "After" });
 
-    const merges = http.calls.filter((call) => call.spMethod === "MERGE");
-    expect(merges).toHaveLength(1);
-    expect(JSON.parse(merges[0].body).SessionName).toBe("After");
+    const updates = http.find(/UncertaintySessions'\)\/items\(91\)\/ValidateUpdateListItem/);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].spMethod).toBeUndefined();
+    expect(formValueObject(updates[0]).SessionName).toBe("After");
+  });
+
+  it("surfaces a field validation failure instead of silently accepting metadata", async () => {
+    http.on(/UncertaintySessions'\)\/items\(91\)\/ValidateUpdateListItem/, {
+      json: {
+        value: [
+          { FieldName: "SessionName", HasException: true, ErrorMessage: "Invalid title" },
+        ],
+      },
+    });
+
+    await expect(store.saveSession({ id: 9, name: "Cal" })).rejects.toThrow(
+      /SessionName: Invalid title/,
+    );
   });
 
   it("recycles rather than hard-deleting so a mistake is recoverable", async () => {
@@ -427,11 +456,12 @@ describe("record lists", () => {
     expect(JSON.parse(JSON.parse(write.body).PayloadJson)).toEqual({ id: "i-9", name: "8508A" });
   });
 
-  it("merges into the existing row when the record id is already present", async () => {
+  it("updates an existing row without a tunneled mutation method", async () => {
     http.on(/\$filter=RecordId/, { json: { value: [{ Id: 12 }] } });
     await store.saveRecord("instruments", { id: "i-9", name: "8508A" });
-    const write = http.calls.filter((c) => /items\(12\)/.test(c.url)).pop();
-    expect(write.spMethod).toBe("MERGE");
+    const write = http.find(/items\(12\)\/ValidateUpdateListItem/)[0];
+    expect(write.spMethod).toBeUndefined();
+    expect(formValueObject(write).RecordId).toBe("i-9");
   });
 
   it("escapes quotes in an id so the OData filter cannot be broken", async () => {
@@ -443,7 +473,7 @@ describe("record lists", () => {
   it("treats deleting an absent record as a no-op", async () => {
     http.on(/\$filter=RecordId/, { json: { value: [] } });
     await store.deleteRecord("instruments", "ghost");
-    expect(http.calls.filter((c) => c.spMethod === "DELETE")).toHaveLength(0);
+    expect(http.find(/recycle/)).toHaveLength(0);
   });
 
   it("refuses to save a record with no id rather than creating an orphan", async () => {
@@ -517,7 +547,7 @@ describe("user-scoped instrument records", () => {
     });
 
     await store.saveInstrument({ id: "same", scope: "local", model: "8508A" });
-    expect(http.find(/items\(73\)/)[0].spMethod).toBe("MERGE");
+    expect(http.find(/items\(73\)\/ValidateUpdateListItem/)[0].spMethod).toBeUndefined();
     expect(http.find(/items\(72\)/)).toHaveLength(0);
   });
 
@@ -546,8 +576,8 @@ describe("user-scoped instrument records", () => {
       password: "calibrate",
     });
 
-    expect(http.find(/items\(80\)/)[0].spMethod).toBe("MERGE");
-    expect(http.find(/items\(81\)/)[0].spMethod).toBe("DELETE");
+    expect(http.find(/items\(80\)\/ValidateUpdateListItem/)[0].spMethod).toBeUndefined();
+    expect(http.find(/items\(81\)\/recycle/)[0].spMethod).toBeUndefined();
     expect(http.find(/items\(82\)/)).toHaveLength(0);
     expect(saved).not.toHaveProperty("password");
   });
@@ -562,7 +592,7 @@ describe("user-scoped instrument records", () => {
     });
 
     await store.deleteInstrument("theirs");
-    expect(http.calls.filter((call) => call.spMethod === "DELETE")).toHaveLength(0);
+    expect(http.find(/recycle/)).toHaveLength(0);
   });
 
   it("deletes the signed-in user's local row without touching a matching foreign row", async () => {
@@ -576,7 +606,23 @@ describe("user-scoped instrument records", () => {
     });
 
     await store.deleteInstrument("same");
-    expect(http.find(/items\(73\)/)[0].spMethod).toBe("DELETE");
+    expect(http.find(/items\(73\)\/recycle/)[0].spMethod).toBeUndefined();
     expect(http.find(/items\(72\)/)).toHaveLength(0);
+  });
+
+  it("never uses mutation override headers for update or recycle operations", async () => {
+    http.on(/\$filter=RecordId/, {
+      json: {
+        value: [
+          { Id: 73, AuthorId: 41, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
+        ],
+      },
+    });
+
+    await store.saveInstrument({ id: "same", scope: "local", model: "8508A" });
+    await store.deleteInstrument("same");
+
+    expect(http.calls.some((call) => call.spMethod === "MERGE")).toBe(false);
+    expect(http.calls.some((call) => call.spMethod === "DELETE")).toBe(false);
   });
 });

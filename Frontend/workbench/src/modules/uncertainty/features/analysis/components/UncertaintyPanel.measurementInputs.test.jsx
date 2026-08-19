@@ -114,6 +114,26 @@ describe("measurement input compact editors", () => {
     ).toHaveTextContent("3.5 V");
   });
 
+  it("shows an inferred unit with no nominal value as Not Set", () => {
+    render(
+      <MeasurementInputNominalCell
+        symbol="m"
+        name="Mass"
+        value=""
+        unit="lb"
+        onValueChange={vi.fn()}
+        onUnitChange={vi.fn()}
+      />,
+    );
+
+    const summary = screen.getByRole("button", {
+      name: "Edit nominal for equation variable m",
+    });
+    expect(summary).toHaveTextContent("Not Set");
+    expect(summary).not.toHaveTextContent("lb");
+    expect(summary).toHaveClass("is-empty");
+  });
+
   it("keeps the nominal editor open while using the portaled unit menu", () => {
     const onUnitChange = vi.fn();
     render(

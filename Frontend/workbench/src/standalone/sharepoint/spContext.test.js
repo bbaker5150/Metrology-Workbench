@@ -301,19 +301,13 @@ describe("spPost", () => {
     expect(fetchImpl.mock.calls[1][1].body).toBe("already-a-string");
   });
 
-  it("tunnels MERGE through POST as SharePoint expects", async () => {
+  it("does not emit mutation override headers", async () => {
     const fetchImpl = withDigest([jsonResponse({}, 204)]);
-    await spPost("https://t.example", "/_api/x", { method: "MERGE", body: {} }, fetchImpl);
+    await spPost("https://t.example", "/_api/x", { body: {} }, fetchImpl);
     const headers = fetchImpl.mock.calls[1][1].headers;
     expect(fetchImpl.mock.calls[1][1].method).toBe("POST");
-    expect(headers["X-HTTP-Method"]).toBe("MERGE");
-    expect(headers["IF-MATCH"]).toBe("*");
-  });
-
-  it("tunnels DELETE the same way", async () => {
-    const fetchImpl = withDigest([jsonResponse({}, 200)]);
-    await spPost("https://t.example", "/_api/x", { method: "DELETE" }, fetchImpl);
-    expect(fetchImpl.mock.calls[1][1].headers["X-HTTP-Method"]).toBe("DELETE");
+    expect(headers).not.toHaveProperty("X-HTTP-Method");
+    expect(headers).not.toHaveProperty("IF-MATCH");
   });
 
   it("treats 204 No Content as success", async () => {

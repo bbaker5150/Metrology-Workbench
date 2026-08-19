@@ -36,16 +36,17 @@ context is allowed to call it.
 
 ### Embedded mutation confirmations
 
-Some embedded single-file hosts display a confirmation before SharePoint write
-requests. The app avoids redundant writes: normal budget edits update the
-session JSON but no longer repeat the session-list metadata `MERGE` unless the
-session name, analyst, organization, document, or document date changed.
+The app does not use SharePoint's tunneled `MERGE` or `DELETE` method overrides.
+Those override headers cause some embedded single-file hosts to interrupt users
+with a mutation confirmation even though the operation is already constrained
+and validated by the app. Existing list rows are updated with
+`ValidateUpdateListItem`, and removals use SharePoint's recoverable `recycle()`
+endpoint; both are ordinary authenticated POST requests.
 
-A confirmation may still be shown for a real required write if the host enforces
-that policy. That guard belongs to the embedding host and should not be bypassed
-from application code. A directly hosted `build-standalone` deployment uses
-SharePoint's normal authenticated REST behavior and does not add an embedding
-host mutation guard.
+Normal budget edits still avoid redundant metadata writes. The session JSON is
+updated, but its picker columns are only posted when the session name, analyst,
+organization, document, or document date actually changes. Standard,
+standalone, and single-file builds use the same storage behavior.
 
 ## Permission boundary
 

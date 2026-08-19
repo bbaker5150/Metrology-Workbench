@@ -131,6 +131,23 @@ export function listTitle(prefix, key) {
 
 const listApi = (prefix, key) => `/_api/web/lists/getbytitle('${encodeURIComponent(listTitle(prefix, key))}')`;
 
+const formValuesFor = (fields = {}) =>
+  Object.entries(fields).map(([FieldName, value]) => ({
+    FieldName,
+    FieldValue: value === null || value === undefined ? '' : String(value),
+  }));
+
+const assertFormUpdateSucceeded = (result, context) => {
+  const rows = result?.value || result?.d?.ValidateUpdateListItem?.results || [];
+  const failures = rows.filter((row) => row?.HasException || row?.ErrorMessage);
+  if (failures.length === 0) return;
+
+  const detail = failures
+    .map((row) => `${row.FieldName || 'Field'}: ${row.ErrorMessage || 'update rejected'}`)
+    .join('; ');
+  throw new SharePointError(`${context} was rejected by SharePoint. ${detail}`, 400, detail);
+};
+
 function normalizeUser(user) {
   const id = Number(user?.id ?? user?.Id);
   if (!Number.isInteger(id) || id <= 0) {
@@ -172,6 +189,39 @@ export class SharePointStore {
 
   get = (path) => spGet(this.webUrl, path, this.fetchImpl);
   post = (path, options) => spPost(this.webUrl, path, options, this.fetchImpl);
+
+  async updateListItem(key, itemId, fields) {
+    const result = await this.post(
+      `${listApi(this.prefix, key)}/items(${itemId})/ValidateUpdateListItem()`,
+      {
+        body: {
+          formValues: formValuesFor(fields),
+          bNewDocumentUpdate: false,
+        },
+      },
+    );
+    assertFormUpdateSucceeded(result, `Updating ${listTitle(this.prefix, key)} item ${itemId}`);
+    return result;
+  }
+
+  async updateFileListItem(folder, name, fields) {
+    const itemPath =
+      `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')` +
+      '/ListItemAllFields?$select=Id';
+    const item = await this.get(itemPath);
+    const itemId = Number(item?.Id);
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+      throw new SharePointError(
+        `SharePoint returned no list item for session file ${name}.`,
+        500,
+      );
+    }
+    return this.updateListItem('sessions', itemId, fields);
+  }
+
+  async recycleListItem(key, itemId) {
+    return this.post(`${listApi(this.prefix, key)}/items(${itemId})/recycle()`, {});
+  }
 
   async currentUser() {
     if (this._currentUser) return this._currentUser;
@@ -402,18 +452,13 @@ export class SharePointStore {
 
     // Promote picker columns only when they actually changed. Budget edits
     // rewrite the JSON frequently, while this small metadata set usually stays
-    // identical. Avoiding a redundant tunneled MERGE prevents the embedded
-    // SharePoint host from asking the user to approve the same metadata
-    // mutation after every ordinary edit.
+    // identical. ValidateUpdateListItem is a regular POST rather than a
+    // tunneled MERGE, so embedded SharePoint hosts do not interrupt users with
+    // a mutation-method confirmation for this already validated operation.
     const metadata = this.sessionMetadata(doc);
     const metadataSignature = this.sessionMetadataSignature(metadata);
     if (this._sessionMetadata.get(Number(doc.id)) !== metadataSignature) {
-      const itemPath =
-        `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/ListItemAllFields`;
-      await this.post(itemPath, {
-        method: 'MERGE',
-        body: metadata,
-      });
+      await this.updateFileListItem(folder, name, metadata);
       this._sessionMetadata.set(Number(doc.id), metadataSignature);
     }
 
@@ -487,10 +532,7 @@ export class SharePointStore {
     };
 
     if (existing) {
-      await this.post(`${listApi(this.prefix, 'instruments')}/items(${existing.item.Id})`, {
-        method: 'MERGE',
-        body: fields,
-      });
+      await this.updateListItem('instruments', existing.item.Id, fields);
     } else {
       await this.post(`${listApi(this.prefix, 'instruments')}/items`, { body: fields });
     }
@@ -509,9 +551,7 @@ export class SharePointStore {
       );
       await Promise.all(
         ownLinkedLocals.map(({ item }) =>
-          this.post(`${listApi(this.prefix, 'instruments')}/items(${item.Id})`, {
-            method: 'DELETE',
-          }),
+          this.recycleListItem('instruments', item.Id),
         ),
       );
     }
@@ -529,9 +569,7 @@ export class SharePointStore {
     // Another user's local row is intentionally indistinguishable from an
     // absent record and can never be deleted through the app.
     if (!target) return;
-    await this.post(`${listApi(this.prefix, 'instruments')}/items(${target.item.Id})`, {
-      method: 'DELETE',
-    });
+    await this.recycleListItem('instruments', target.item.Id);
   }
 
   async listRecords(key) {
@@ -568,7 +606,7 @@ export class SharePointStore {
     };
 
     if (existingId) {
-      await this.post(`${listApi(this.prefix, key)}/items(${existingId})`, { method: 'MERGE', body: fields });
+      await this.updateListItem(key, existingId, fields);
     } else {
       await this.post(`${listApi(this.prefix, key)}/items`, { body: fields });
     }
@@ -579,6 +617,6 @@ export class SharePointStore {
     const existingId = await this.findItemId(key, recordId);
     // Deleting something already gone is not an error worth surfacing.
     if (!existingId) return;
-    await this.post(`${listApi(this.prefix, key)}/items(${existingId})`, { method: 'DELETE' });
+    await this.recycleListItem(key, existingId);
   }
 }

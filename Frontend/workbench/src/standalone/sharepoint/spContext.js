@@ -201,16 +201,11 @@ export async function spGet(webUrl, path, fetchImpl = fetch) {
   return readJson(response, `GET ${path}`);
 }
 
-/**
- * POST with a form digest attached.
- *
- * `method` lets callers issue SharePoint's tunnelled MERGE and DELETE verbs,
- * which it expects as a POST carrying X-HTTP-Method.
- */
+/** POST with a form digest attached. */
 export async function spPost(
   webUrl,
   path,
-  { body, method, headers = {}, raw = false, verbose = false } = {},
+  { body, headers = {}, raw = false, verbose = false } = {},
   fetchImpl = fetch,
 ) {
   const digest = await getFormDigest(webUrl, fetchImpl);
@@ -223,11 +218,6 @@ export async function spPost(
   if (!raw && body !== undefined) {
     requestHeaders['Content-Type'] = contentType;
   }
-  if (method) {
-    requestHeaders['X-HTTP-Method'] = method;
-    requestHeaders['IF-MATCH'] = requestHeaders['IF-MATCH'] || '*';
-  }
-
   const response = await fetchImpl(`${webUrl}${path}`, {
     method: 'POST',
     credentials: 'include',

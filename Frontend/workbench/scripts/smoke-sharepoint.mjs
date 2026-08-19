@@ -148,7 +148,13 @@ await page.route('**/_api/**', async (route) => {
     state.files.set(decodeURIComponent(name), req.postData() || '{}');
     return route.fulfill(json({ ServerRelativeUrl: `/sites/ISEA/UncertaintySessions/${name}` }));
   }
-  if (/ListItemAllFields/.test(path)) return route.fulfill(json({}, 204));
+  if (/ListItemAllFields\?\$select=Id/.test(path)) return route.fulfill(json({ Id: 91 }));
+  if (/ValidateUpdateListItem/.test(path) && method === 'POST') {
+    return route.fulfill(json({ value: [] }));
+  }
+  if (/\/recycle\(\)$/.test(path) && method === 'POST') {
+    return route.fulfill(json({ value: 'recycled-item' }));
+  }
   if (/Files\?\$select=Name/.test(path)) return route.fulfill(json({ value: [] }));
   if (/\$filter=RecordId/.test(path)) return route.fulfill(json({ value: [] }));
   if (/\/items$/.test(path) && method === 'POST') return route.fulfill(json({ Id: nextItemId++ }));
@@ -191,6 +197,10 @@ await page.waitForTimeout(3000);
 const afterText = await bodyText();
 check('app mounts once storage is ready', !/not set up yet/i.test(afterText));
 check('session list was requested through the adapter', apiCalls.some((c) => c.includes('Sessions')));
+check(
+  'adapter never tunnels MERGE or DELETE through SharePoint',
+  !apiCalls.some((c) => /^(MERGE|DELETE) /.test(c)),
+);
 check(
   'no uncaught errors during boot and provisioning',
   errors.length === 0,

@@ -1719,7 +1719,12 @@ export const MeasurementInputNominalCell = ({
   const hasValue = value !== "" && value !== null && value !== undefined;
   const valueLabel = hasValue ? toPlainNumber(value) : "";
   const unitLabel = getUnitDisplayLabel(unit || "");
-  const summary = [valueLabel, unitLabel].filter(Boolean).join(" ");
+  // An inferred unit alone is not a nominal. Keep the untouched state aligned
+  // with the UUT/TMDE tables instead of presenting a bare unit as though the
+  // input had already been configured.
+  const summary = hasValue
+    ? [valueLabel, unitLabel].filter(Boolean).join(" ")
+    : "";
   const hasName = Boolean(String(name || "").trim());
 
   return (
@@ -1760,7 +1765,7 @@ export const MeasurementInputNominalCell = ({
           title="Click to edit nominal value and unit"
           onClick={() => setEditing(true)}
         >
-          {summary || "Set nominal"}
+          {summary || "Not Set"}
         </button>
       )}
     </div>
@@ -1957,6 +1962,18 @@ const useInlineColumnDismiss = ({
       document.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [expanded, onDismiss, portalSelector, rootRef]);
+};
+
+export const getRangeColumnClickContext = (target) => {
+  const element = target?.closest ? target : null;
+  const group = element?.closest?.("[data-range-group]");
+  const toleranceCell = element?.closest?.("[data-range-tolerance-key]");
+  return {
+    key: group?.getAttribute("data-range-group") || null,
+    inRangeColumn: Boolean(element?.closest?.("[data-range-cell]")),
+    toleranceKey:
+      toleranceCell?.getAttribute("data-range-tolerance-key") || null,
+  };
 };
 
 // Inline-editable Description cell: mfr. / model / name as three tabbable
@@ -4153,6 +4170,21 @@ export const GhostRangeRow = ({
     event.stopPropagation();
     commit({ openTolerance: true });
   };
+  const advanceToNextRange = () => {
+    const hasBufferedRange = isSingle ? value !== "" : min !== "" || max !== "";
+    if (!hasBufferedRange) return;
+    commit();
+    // The ghost row keeps a stable key while the materialized range is inserted
+    // immediately above it. Return focus to its cleared inputs so several
+    // ranges can be entered in one uninterrupted keyboard flow.
+    window.setTimeout(() => {
+      rowRef.current
+        ?.querySelector(
+          '[aria-label="New range minimum"], [aria-label="New single value"]',
+        )
+        ?.focus();
+    }, 0);
+  };
 
   return (
     <tr
@@ -4218,7 +4250,7 @@ export const GhostRangeRow = ({
                 value={rangeUnit}
                 ariaLabel="New range unit"
                 onChange={setRangeUnit}
-                onTab={openTolerance}
+                onTab={advanceToNextRange}
                 width="72px"
                 compact
               />
@@ -7081,11 +7113,7 @@ const SummaryDashboard = ({
   useEffect(() => {
     if (expandedRangeKeys.size === 0) return undefined;
     const onMouseDownCapture = (e) => {
-      const group = e.target?.closest?.("[data-range-group]");
-      rangeClickGroupRef.current = {
-        key: group?.getAttribute("data-range-group") || null,
-        inRangeColumn: Boolean(e.target?.closest?.("[data-range-cell]")),
-      };
+      rangeClickGroupRef.current = getRangeColumnClickContext(e.target);
     };
     const onDown = (e) => {
       // UnitSelect renders its options in a body-level portal. Selecting an
@@ -7099,6 +7127,8 @@ const SummaryDashboard = ({
       const clickedRangeKey = rangeClickGroupRef.current?.key || null;
       const clickedInsideRangeColumn =
         Boolean(clickedRangeKey) && rangeClickGroupRef.current?.inRangeColumn;
+      const toleranceKey = rangeClickGroupRef.current?.toleranceKey || null;
+      if (toleranceKey) setPendingToleranceRangeKey(toleranceKey);
       if (!clickedInsideRangeColumn) {
         const ae = document.activeElement;
         if (ae && typeof ae.blur === "function" && ae.closest?.("[data-range-group]")) {
@@ -7291,6 +7321,7 @@ const SummaryDashboard = ({
         </td>
 
         <td
+          data-range-tolerance-key={`${itemStateKey(kind, item.id)}:${rangeKey}`}
           className={`cell-tolerance ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: 2 })}
           title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
@@ -10212,11 +10243,7 @@ function DetailedView({
   useEffect(() => {
     if (expandedRangeKeys.size === 0) return undefined;
     const onMouseDownCapture = (e) => {
-      const group = e.target?.closest?.("[data-range-group]");
-      rangeClickGroupRef.current = {
-        key: group?.getAttribute("data-range-group") || null,
-        inRangeColumn: Boolean(e.target?.closest?.("[data-range-cell]")),
-      };
+      rangeClickGroupRef.current = getRangeColumnClickContext(e.target);
     };
     const onDown = (e) => {
       // UnitSelect renders its options in a body-level portal. Selecting an
@@ -10230,6 +10257,8 @@ function DetailedView({
       const clickedRangeKey = rangeClickGroupRef.current?.key || null;
       const clickedInsideRangeColumn =
         Boolean(clickedRangeKey) && rangeClickGroupRef.current?.inRangeColumn;
+      const toleranceKey = rangeClickGroupRef.current?.toleranceKey || null;
+      if (toleranceKey) setPendingToleranceRangeKey(toleranceKey);
       if (!clickedInsideRangeColumn) {
         const ae = document.activeElement;
         if (ae && typeof ae.blur === "function" && ae.closest?.("[data-range-group]")) {
@@ -10419,6 +10448,7 @@ function DetailedView({
         </td>
 
         <td
+          data-range-tolerance-key={`${itemStateKey(kind, item.id)}:${rangeKey}`}
           className={`cell-tolerance ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.tol ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.tol })}
           title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}

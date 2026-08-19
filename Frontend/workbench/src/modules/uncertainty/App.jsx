@@ -467,7 +467,6 @@ export const SidebarPointItem = ({
   onSelect,
   onSave,
   onContextMenu,
-  onDragStart,
   onShowRiskBreakdown,
   autoEditValue = false,
   onAutoEditConsumed,
@@ -751,7 +750,6 @@ export const SidebarPointItem = ({
 
   return (
     <div
-      draggable={!editingField}
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
       style={{ gridTemplateColumns: getSidebarGridTemplate(visibleColumns, valueColumnWidth) }}
       onClick={(e) => {
@@ -760,7 +758,6 @@ export const SidebarPointItem = ({
           onSelect(e, point);
         }
       }}
-      onDragStart={(e) => onDragStart(e, point.id)}
       onDoubleClick={(e) => {
         if (!editingField) {
           e.preventDefault();
@@ -2052,9 +2049,7 @@ function App({ showThemeToggle = false }) {
     return () => observer.disconnect();
   }, [scopedZoomLevels]);
 
-  // --- DRAG AND DROP & CLIPBOARD STATE ---
-  const [draggedPointId, setDraggedPointId] = useState(null);
-  const [dragOverTargetId, setDragOverTargetId] = useState(null);
+  // --- CLIPBOARD STATE ---
   const [clipboardPoint, setClipboardPoint] = useState(null);
   const [clipboardUut, setClipboardUut] = useState(null);
   const [clipboardPointMode, setClipboardPointMode] = useState("copy");
@@ -2522,132 +2517,6 @@ function App({ showThemeToggle = false }) {
     window.addEventListener("wheel", handleZoom, { passive: false });
     return () => window.removeEventListener("wheel", handleZoom);
   }, []);
-
-  // --- DRAG AND DROP HANDLERS (AUTO-MOVE) ---
-
-  const handleDragStart = (e, pointId) => {
-    // If dragging an item that is NOT in the selection, make it the only selection
-    if (!selectedSidebarPointIds.includes(pointId)) {
-      setSelectedSidebarPointIds([pointId]);
-      setDraggedPointId(pointId);
-    } else {
-      // Dragging a selected item = dragging the group
-      setDraggedPointId(pointId); // Still track primary for generic logic
-    }
-
-    e.dataTransfer.effectAllowed = "move";
-    // Optional: Set drag preview size/text if multiple
-  };
-
-  const handleDragOver = (e, targetId) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    if (dragOverTargetId !== targetId) {
-      setDragOverTargetId(targetId);
-    }
-  };
-
-  const handleDragLeave = () => {
-    // Optional cleanup
-  };
-
-  const handleDrop = (e, targetUutId, targetAreaId, targetRange = null) => {
-    e.preventDefault();
-    setDragOverTargetId(null);
-
-    // Identify points to move
-    let pointsToMoveIds = [];
-    if (draggedPointId && selectedSidebarPointIds.includes(draggedPointId)) {
-      pointsToMoveIds = [...selectedSidebarPointIds];
-    } else if (draggedPointId) {
-      pointsToMoveIds = [draggedPointId];
-    }
-
-    if (pointsToMoveIds.length === 0) return;
-
-    const targetUut = currentSessionData.uuts.find((u) => u.id === targetUutId);
-
-    // FIX: Robust Area ID Lookup
-    let resolvedAreaId = targetAreaId;
-    if (!resolvedAreaId && targetUut) {
-      resolvedAreaId = targetUut.measurementAreaId;
-      if (!resolvedAreaId && targetUut.measurementArea) {
-        const area = currentSessionData.measurementAreas?.find(
-          (a) => a.name === targetUut.measurementArea,
-        );
-        if (area) resolvedAreaId = area.id;
-      }
-    }
-
-    // --- RANGE CHECK FUNCTION ---
-    const isValueInRange = (val, unit, range) => {
-      if (!range) return true;
-      const numVal = parseFloat(val);
-      if (isNaN(numVal)) return true;
-
-      const min = parseFloat(range.min);
-      const max = parseFloat(range.max);
-      const unitMatch =
-        !unit || !range.unit || unit.toLowerCase() === range.unit.toLowerCase();
-
-      if (!isNaN(min) && !isNaN(max)) {
-        return unitMatch && numVal >= min && numVal <= max;
-      }
-      return unitMatch;
-    };
-
-    const updatesToSave = [];
-    let errorCount = 0;
-
-    pointsToMoveIds.forEach((pId) => {
-      const pointToProcess = currentTestPoints.find((p) => p.id === pId);
-      if (!pointToProcess) return;
-
-      const val = pointToProcess.testPointInfo?.parameter?.value;
-      const unit = pointToProcess.testPointInfo?.parameter?.unit;
-
-      // CHECK VALIDITY
-      if (targetRange) {
-        if (!isValueInRange(val, unit, targetRange)) {
-          errorCount++;
-          return;
-        }
-      }
-
-      const updatedPointData = {
-        ...pointToProcess,
-        measurementAreaId: resolvedAreaId, // Use resolved ID
-        associatedUutIds: [targetUutId],
-      };
-
-      // Tolerance Logic
-      if (targetRange) {
-        updatedPointData.uutTolerance = targetRange;
-      } else if (targetUut) {
-        const matched = findMatchingRange(targetUut, val, unit);
-        updatedPointData.uutTolerance = matched || null;
-      }
-
-      updatesToSave.push(updatedPointData);
-    });
-
-    if (errorCount > 0) {
-      showToast(
-        `Move rejected: ${errorCount} point(s) do not fit in target range.`,
-        "error",
-      );
-    }
-
-    if (updatesToSave.length > 0) {
-      saveTestPoint(updatesToSave, null);
-      showToast(
-        `Moved ${updatesToSave.length} measurement point${updatesToSave.length > 1 ? "s" : ""}`,
-      );
-      setSelectedTestPointContextUutId(targetUutId);
-    }
-
-    setDraggedPointId(null);
-  };
 
   // --- SELECTION HANDLERS ---
   const handleSelectSession = (newId) => {
@@ -4128,7 +3997,6 @@ function App({ showThemeToggle = false }) {
       autoEditValue={pendingValueEditPointId === tp.id}
       onAutoEditConsumed={() => setPendingValueEditPointId(null)}
       onSave={handleInlinePointUpdate}
-      onDragStart={handleDragStart}
       onContextMenu={(e, p) => {
         e.preventDefault();
         e.stopPropagation();
@@ -4175,13 +4043,10 @@ function App({ showThemeToggle = false }) {
     return (
       <div
         key={`empty-${uutKey}`}
-        className={`sidebar-empty-uut-row${dragOverTargetId === uutKey ? " drag-over" : ""}`}
+        className="sidebar-empty-uut-row"
         style={{ gridTemplateColumns }}
         aria-label={`${identity}: no measurement points`}
         onClick={() => handleSelectUut(group.id, fnGroup.id)}
-        onDragOver={(event) => handleDragOver(event, uutKey)}
-        onDragLeave={handleDragLeave}
-        onDrop={(event) => handleDrop(event, group.id, null)}
       >
         {visibleSidebarColumns.uut && (
           <span className="point-uut-name" title={identity}>

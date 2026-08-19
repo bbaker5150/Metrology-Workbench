@@ -6,6 +6,7 @@ import {
   InlineDistributionCell,
   ResolutionCellInput,
   RangeCell,
+  getRangeColumnClickContext,
   getBudgetRangeChoices,
   getVisibleRangeRows,
   removeRangeFromItem,
@@ -43,6 +44,28 @@ describe("GhostRangeRow", () => {
       "data-range-group",
       "uut:test-instrument",
     );
+  });
+
+  it("identifies a tolerance click as a range-column editor handoff", () => {
+    const { container } = render(
+      <table>
+        <tbody>
+          <tr data-range-group="uut:test-instrument">
+            <td data-range-tolerance-key="uut:test-instrument:r1">
+              <button type="button">Not Set</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>,
+    );
+
+    expect(
+      getRangeColumnClickContext(container.querySelector("button")),
+    ).toEqual({
+      key: "uut:test-instrument",
+      inRangeColumn: false,
+      toleranceKey: "uut:test-instrument:r1",
+    });
   });
 
   it("keeps every function-scoped range visible in the simplified view", () => {
@@ -134,7 +157,7 @@ describe("GhostRangeRow", () => {
     );
   });
 
-  it("tabs through the new range unit before opening tolerance", () => {
+  it("tabs through the new range unit into the next blank range", async () => {
     const onMaterialize = vi.fn();
     renderGhost(onMaterialize);
 
@@ -155,13 +178,13 @@ describe("GhostRangeRow", () => {
     expect(onMaterialize).not.toHaveBeenCalled();
     fireEvent.keyDown(unitPrefix, { key: "Tab" });
 
-    expect(onMaterialize).toHaveBeenCalledWith(
-      { min: "0", max: "10", unit: "V" },
-      { openTolerance: true },
-    );
+    expect(onMaterialize).toHaveBeenCalledWith({ min: "0", max: "10", unit: "V" });
+    await waitFor(() => {
+      expect(screen.getByLabelText("New range minimum")).toHaveFocus();
+    });
   });
 
-  it("tabs directly from a non-scalable unit into tolerance", () => {
+  it("tabs directly from a non-scalable unit into the next blank range", async () => {
     const onMaterialize = vi.fn();
     renderGhost(onMaterialize, "psig");
 
@@ -176,10 +199,14 @@ describe("GhostRangeRow", () => {
       { key: "Tab" },
     );
 
-    expect(onMaterialize).toHaveBeenCalledWith(
-      { min: "0", max: "10", unit: "psig" },
-      { openTolerance: true },
-    );
+    expect(onMaterialize).toHaveBeenCalledWith({
+      min: "0",
+      max: "10",
+      unit: "psig",
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("New range minimum")).toHaveFocus();
+    });
   });
 
   it("lets the new range choose a different unit before it materializes", () => {

@@ -6,6 +6,27 @@ import { SidebarPointItem } from "./App";
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test("does not expose obsolete drag behavior on measurement-point rows", () => {
+    const { container } = render(
+      <SidebarPointItem
+        point={{
+          id: "point-not-draggable",
+          testPointInfo: { parameter: { value: 25, unit: "psi" } },
+        }}
+        isSelected={false}
+        isActivePoint={false}
+        isTableSelected={false}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ value: true }}
+      />,
+    );
+
+    expect(container.querySelector(".point-grid-item")).not.toHaveAttribute(
+      "draggable",
+    );
+  });
+
   test("selects an unselected point and focuses its value input with one click", () => {
     const onSelect = vi.fn();
     render(
