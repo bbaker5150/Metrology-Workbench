@@ -43,10 +43,10 @@ export const formatSidebarUncertainty = (point, kind) => {
   return `${numeric.toPrecision(4)} ${getUnitDisplayLabel(displayUnit)}`;
 };
 
-/** Full stored/calculated value used by the native hover tooltip. */
+/** Full unrounded numeric value used by the native hover tooltip. */
 export const formatSidebarUncertaintyFull = (point, kind) => {
   const value = getSidebarUncertaintyDisplayValue(point, kind);
   if (!value) return "-";
 
-  return `${String(value.numeric)} ${getUnitDisplayLabel(value.displayUnit)}`;
+  return String(value.numeric);
 };

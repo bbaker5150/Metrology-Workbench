@@ -53,7 +53,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
       point: {
         id: "point-thresholds",
         testPointInfo: { parameter: { value: 1, unit: "V" } },
-        riskMetrics: { pfa: 1.5, pfr: 1.5, tur: 3, tar: 3 },
+        riskMetrics: { pfa: 1.5, pfr: 1.6, tur: 3, tar: 3.1 },
       },
       isSelected: true,
       isActivePoint: true,
@@ -69,14 +69,14 @@ describe("measurement-point Risk 8 metric interactions", () => {
     const { rerender } = render(
       <SidebarPointItem {...common} riskRequirements={{ reqPFA: 2, neededTUR: 3 }} />,
     );
-    expect(screen.getByTitle(/^PFA/)).toHaveStyle({ color: "var(--status-good)" });
-    expect(screen.getByTitle(/^TUR/)).toHaveStyle({ color: "var(--status-good)" });
+    expect(screen.getByTitle("1.5")).toHaveStyle({ color: "var(--status-good)" });
+    expect(screen.getByTitle("3")).toHaveStyle({ color: "var(--status-good)" });
 
     rerender(<SidebarPointItem {...common} riskRequirements={{ reqPFA: 1, neededTUR: 4 }} />);
-    expect(screen.getByTitle(/^PFA/)).toHaveStyle({ color: "var(--status-warning)" });
-    expect(screen.getByTitle(/^PFR/)).toHaveStyle({ color: "var(--status-warning)" });
-    expect(screen.getByTitle(/^TUR/)).toHaveStyle({ color: "var(--status-warning)" });
-    expect(screen.getByTitle(/^TAR/)).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("1.5")).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("1.6")).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("3")).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("3.1")).toHaveStyle({ color: "var(--status-warning)" });
   });
 
   test("does not show a Risk 8 badge and Ctrl-click requests the PFA breakdown", () => {
@@ -126,7 +126,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
     );
 
     expect(screen.queryByText("Risk 8")).not.toBeInTheDocument();
-    const pfa = screen.getByTitle(/^PFA: 0\.11%/);
+    const pfa = screen.getByTitle("0.11");
     fireEvent.click(pfa, { ctrlKey: true });
 
     expect(onSelect).toHaveBeenCalledWith({
@@ -136,7 +136,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
     });
     expect(onShowRiskBreakdown).toHaveBeenCalledWith("pfa");
 
-    fireEvent.click(screen.getByTitle(/^PFR: 0\.12%/), {
+    fireEvent.click(screen.getByTitle("0.12"), {
       ctrlKey: true,
     });
     expect(onShowRiskBreakdown).toHaveBeenNthCalledWith(2, "pfr");
@@ -162,7 +162,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
             gbPfr: 4.18,
             gbCalInt: 5.40849,
             gbMeasRel: 86.47,
-            noGbPfa: 2,
+            noGbPfa: 2.01,
             noGbPfr: 3.61,
             noGbCalInt: 4.69473132,
             noGbMeasRel: 88.27,
@@ -207,29 +207,29 @@ describe("measurement-point Risk 8 metric interactions", () => {
       />,
     );
 
-    expect(screen.getByTitle(/^REOP at test-point TUR:/)).toHaveTextContent("84.18%");
-    expect(screen.getByTitle(/^Maximum REOP:/)).toHaveTextContent("100.00%");
-    expect(screen.getByTitle(/^R_meas:/)).toHaveTextContent("85.69%");
-    expect(screen.getByTitle(/^Targeted REOP with GB:/)).toHaveTextContent("86.47%");
-    expect(screen.getByTitle(/^Calibration Interval with Guard Banding:/)).toHaveTextContent(
+    expect(screen.getByTitle("84.18")).toHaveTextContent("84.18%");
+    expect(screen.getByTitle("100")).toHaveTextContent("100.00%");
+    expect(screen.getByTitle("85.69")).toHaveTextContent("85.69%");
+    expect(screen.getByTitle("86.47")).toHaveTextContent("86.47%");
+    expect(screen.getByTitle("5.40849")).toHaveTextContent(
       "5.40849",
     );
-    expect(screen.getByTitle(/^PFA without GB:/)).toHaveTextContent("2.00%");
-    expect(screen.getByTitle(/^PFR without GB:/)).toHaveTextContent("3.61%");
-    expect(screen.getByTitle(/^Calibration Interval without Guard Banding:/)).toHaveTextContent(
+    expect(screen.getByTitle("2.01")).toHaveTextContent("2.01%");
+    expect(screen.getByTitle("3.61")).toHaveTextContent("3.61%");
+    expect(screen.getByTitle("4.69473132")).toHaveTextContent(
       "4.69473132",
     );
-    expect(screen.getByTitle(/^Targeted REOP without GB:/)).toHaveTextContent("88.27%");
+    expect(screen.getByTitle("88.27")).toHaveTextContent("88.27%");
 
     const interactiveMetrics = [
-      [/^REOP at test-point TUR:/, "observedreop"],
-      [/^Maximum REOP:/, "maxreop"],
-      [/^R_meas:/, "truereop"],
-      [/^Targeted REOP with GB:/, "gbmeasrel"],
-      [/^PFA without GB:/, "nogbpfa"],
-      [/^PFR without GB:/, "nogbpfr"],
-      [/^Calibration Interval without Guard Banding:/, "calint"],
-      [/^Targeted REOP without GB:/, "measrel"],
+      ["84.18", "observedreop"],
+      ["100", "maxreop"],
+      ["85.69", "truereop"],
+      ["86.47", "gbmeasrel"],
+      ["2.01", "nogbpfa"],
+      ["3.61", "nogbpfr"],
+      ["4.69473132", "calint"],
+      ["88.27", "measrel"],
     ];
     interactiveMetrics.forEach(([titlePattern, modalType]) => {
       fireEvent.click(screen.getByTitle(titlePattern), { ctrlKey: true });
@@ -262,11 +262,11 @@ describe("measurement-point Risk 8 metric interactions", () => {
       />,
     );
 
-    expect(screen.getByTitle("Standard Uncertainty (combined): 0.00999981624765 V"))
+    expect(screen.getByTitle("0.00999981624765"))
       .toHaveTextContent("0.01000 V");
-    expect(screen.getByTitle("Measurement Uncertainty (expanded): 0.0199996324953 V"))
+    expect(screen.getByTitle("0.0199996324953"))
       .toHaveTextContent("0.02000 V");
-    expect(screen.getByTitle(/^TUR: 3\.141592653589793/)).toHaveTextContent("3.14");
-    expect(screen.getByTitle(/^PFA: 0\.123456789012345%/)).toHaveTextContent("0.12%");
+    expect(screen.getByTitle("3.141592653589793")).toHaveTextContent("3.14");
+    expect(screen.getByTitle("0.123456789012345")).toHaveTextContent("0.12%");
   });
 });

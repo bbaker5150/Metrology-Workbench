@@ -673,24 +673,16 @@ export const SidebarPointItem = ({
       ? `${Number(value).toFixed(digits)}%`
       : "-";
 
-  const fullMetricTitle = (
-    label,
-    value,
-    { suffix = "", action = false, note = "" } = {},
-  ) => {
-    const rawValue =
-      value !== undefined && value !== null && value !== "" &&
-      Number.isFinite(Number(value))
-        ? `${String(value)}${suffix}`
-        : "-";
-    return [
-      `${label}: ${rawValue}`,
-      note,
-      action && !boundaryOnly ? "Ctrl+click for breakdown" : "",
-    ]
-      .filter(Boolean)
-      .join(" — ");
-  };
+  // Hover text is intentionally only the unrounded stored value. Column
+  // headings already explain what the number means; repeating the label and
+  // interaction instructions made the native tooltip unnecessarily noisy.
+  const fullMetricTitle = (_label, value) =>
+    value !== undefined &&
+    value !== null &&
+    value !== "" &&
+    Number.isFinite(Number(value))
+      ? String(value)
+      : "-";
 
   // Calculate Metrics
   const toleranceSummary = React.useMemo(() => {
@@ -906,7 +898,7 @@ export const SidebarPointItem = ({
       {visibleColumns.standardUncertainty && (
         <span
           className="point-metric point-uncertainty-metric"
-          title={`Standard Uncertainty (combined): ${formatSidebarUncertaintyFull(point, "combined")}`}
+          title={formatSidebarUncertaintyFull(point, "combined")}
         >
           {formatSidebarUncertainty(point, "combined")}
         </span>
@@ -914,7 +906,7 @@ export const SidebarPointItem = ({
       {visibleColumns.measurementUncertainty && (
         <span
           className="point-metric point-uncertainty-metric"
-          title={`Measurement Uncertainty (expanded): ${formatSidebarUncertaintyFull(point, "expanded")}`}
+          title={formatSidebarUncertaintyFull(point, "expanded")}
         >
           {formatSidebarUncertainty(point, "expanded")}
         </span>
@@ -4371,31 +4363,11 @@ function App({ showThemeToggle = false }) {
     const settingsOpen = openFunctionSettingsId === fnGroup.id;
 
     return (
-      <div
-        className="function-point-actions"
-        onClick={(event) => event.stopPropagation()}
-      >
-        {uutOptions.length > 1 && (
-          <select
-            className="function-point-uut-select"
-            value={targetUut.id}
-            aria-label={`UUT for new ${fnGroup.name} measurement point`}
-            title="UUT for the new measurement point"
-            onChange={(event) =>
-              setQuickAddUutByFunction((previous) => ({
-                ...previous,
-                [fnGroup.id]: event.target.value,
-              }))
-            }
-          >
-            {uutOptions.map((group) => (
-              <option key={group.id} value={group.id}>
-                {formatInstrumentIdentity(group)}
-              </option>
-            ))}
-          </select>
-        )}
-        <div className="function-point-settings">
+      <>
+        <div
+          className={`function-point-settings${settingsOpen ? " is-open" : ""}`}
+          onClick={(event) => event.stopPropagation()}
+        >
           <button
             type="button"
             className={`function-point-settings-button${settingsOpen ? " is-active" : ""}`}
@@ -4437,21 +4409,23 @@ function App({ showThemeToggle = false }) {
                   </button>
                 ))}
               </div>
-              <label className="function-point-setting-check">
-                <input
-                  type="checkbox"
-                  checked={settings.reuseEquation}
-                  onChange={(event) =>
-                    updateFunctionPointSettings(fnGroup, {
-                      reuseEquation: event.target.checked,
-                    })
-                  }
-                />
-                <span>
-                  <strong>Reuse the first point's equation</strong>
-                  <small>New derived points start with the same equation and variables.</small>
-                </span>
-              </label>
+              {settings.mode === "derived" && (
+                <label className="function-point-setting-check">
+                  <input
+                    type="checkbox"
+                    checked={settings.reuseEquation}
+                    onChange={(event) =>
+                      updateFunctionPointSettings(fnGroup, {
+                        reuseEquation: event.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    <strong>Reuse the first point's equation</strong>
+                    <small>New derived points start with the same equation and variables.</small>
+                  </span>
+                </label>
+              )}
               <label className="function-point-setting-check">
                 <input
                   type="checkbox"
@@ -4470,64 +4444,89 @@ function App({ showThemeToggle = false }) {
             </div>
           )}
         </div>
-        <button
-          type="button"
-          className="btn-icon-only small function-point-add-button"
-          onClick={() => {
-            setExpandedFunctions((previous) =>
-              new Set(previous).add(fnGroup.id),
-            );
-            openQuickAddPoint(fnGroup, targetUut.id, settings);
-          }}
-          title={
-            settings.mode === "derived"
-              ? "Add derived point"
-              : "Add direct point"
-          }
-          aria-label={
-            settings.mode === "derived"
-              ? "Add derived point"
-              : "Add direct point"
-          }
+        <div
+          className="function-point-actions"
+          onClick={(event) => event.stopPropagation()}
         >
-          <FontAwesomeIcon icon={faPlus} size="xs" />
-        </button>
-        {pendingPointUnitChoice?.functionId === fnGroup.id &&
-          pendingPointUnitChoice?.uutId === targetUut.id && (
-            <div
-              className="budget-settings-menu point-unit-picker function-point-unit-picker"
-              role="menu"
-              aria-label="Choose measurement point unit"
-              onClick={(event) => event.stopPropagation()}
+          {uutOptions.length > 1 && (
+            <select
+              className="function-point-uut-select"
+              value={targetUut.id}
+              aria-label={`UUT for new ${fnGroup.name} measurement point`}
+              title="UUT for the new measurement point"
+              onChange={(event) =>
+                setQuickAddUutByFunction((previous) => ({
+                  ...previous,
+                  [fnGroup.id]: event.target.value,
+                }))
+              }
             >
-              <h5 className="point-unit-picker-title">Choose unit</h5>
-              {pendingPointUnitChoice.units.map((unit) => (
-                <button
-                  key={unit}
-                  type="button"
-                  role="menuitem"
-                  onClick={() =>
-                    handleQuickAddPoint(
-                      fnGroup,
-                      targetUut.id,
-                      pendingPointUnitChoice.settings,
-                      unit,
-                    )
-                  }
-                >
-                  {getUnitDisplayLabel(unit)}
-                </button>
+              {uutOptions.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {formatInstrumentIdentity(group)}
+                </option>
               ))}
-              <button
-                type="button"
-                className="point-unit-picker-cancel"
-                onClick={() => setPendingPointUnitChoice(null)}
-              >
-                Cancel
-              </button>
-            </div>
+            </select>
           )}
-      </div>
+          <button
+            type="button"
+            className="btn-icon-only small function-point-add-button"
+            onClick={() => {
+              setExpandedFunctions((previous) =>
+                new Set(previous).add(fnGroup.id),
+              );
+              openQuickAddPoint(fnGroup, targetUut.id, settings);
+            }}
+            title={
+              settings.mode === "derived"
+                ? "Add derived point"
+                : "Add direct point"
+            }
+            aria-label={
+              settings.mode === "derived"
+                ? "Add derived point"
+                : "Add direct point"
+            }
+          >
+            <FontAwesomeIcon icon={faPlus} size="xs" />
+          </button>
+          {pendingPointUnitChoice?.functionId === fnGroup.id &&
+            pendingPointUnitChoice?.uutId === targetUut.id && (
+              <div
+                className="budget-settings-menu point-unit-picker function-point-unit-picker"
+                role="menu"
+                aria-label="Choose measurement point unit"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <h5 className="point-unit-picker-title">Choose unit</h5>
+                {pendingPointUnitChoice.units.map((unit) => (
+                  <button
+                    key={unit}
+                    type="button"
+                    role="menuitem"
+                    onClick={() =>
+                      handleQuickAddPoint(
+                        fnGroup,
+                        targetUut.id,
+                        pendingPointUnitChoice.settings,
+                        unit,
+                      )
+                    }
+                  >
+                    {getUnitDisplayLabel(unit)}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="point-unit-picker-cancel"
+                  onClick={() => setPendingPointUnitChoice(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+        </div>
+      </>
     );
   };
 

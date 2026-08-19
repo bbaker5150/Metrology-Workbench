@@ -4504,10 +4504,8 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   margin-top: 4px;
 }
 
-/* The add-to-budget picker is a stack of independent source groups. Keep the
-   ordering intentional even when one or more groups are absent: UUT
-   resolution is the first source, matching/primary TMDEs follow, and the
-   cross-unit "Other TMDEs" group is always last. */
+/* The add-to-budget picker is a stack of independent, usable source groups.
+   Keep the ordering intentional even when one or more groups are absent. */
 .budget-tmde-picker-menu > .budget-picker-heading {
   order: 0;
 }
@@ -4535,10 +4533,6 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 
 .budget-tmde-picker-menu > .budget-picker-section--typeb {
   order: 40;
-}
-
-.budget-tmde-picker-menu > .budget-picker-section--other {
-  order: 100;
 }
 
 .budget-settings-menu h5 {
@@ -10673,24 +10667,26 @@ body.theme-cyberpunk .notification-window .window-header {
 .measurement-input-symbol {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 7px;
-  border-radius: 6px;
-  color: var(--primary-color);
-  background: color-mix(in srgb, var(--primary-color) 9%, transparent);
-  font-family: "Cambria Math", "STIX Two Math", serif;
-  font-size: 0.98rem;
-  font-weight: 700;
+  justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-color);
+  background: transparent;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
   box-sizing: border-box;
-  border: 0;
   cursor: text;
 }
 
 .measurement-input-symbol:hover,
 .measurement-input-symbol:focus-visible {
-  background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+  border-color: var(--border-color);
+  background: transparent;
   outline: none;
 }
 
@@ -10698,11 +10694,11 @@ body.theme-cyberpunk .notification-window .window-header {
   width: min(100%, 72px);
   height: 28px;
   padding: 3px 6px;
-  color: var(--primary-color);
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-  font-size: 0.82rem;
-  font-weight: 700;
-  text-align: center;
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: left;
 }
 
 .measurement-input-name,
@@ -14471,7 +14467,7 @@ body.theme-cyberpunk .range-header-container:hover {
   text-transform: uppercase;
   letter-spacing: 0.8px;
   color: var(--text-color-muted);
-  flex-grow: 1;
+  flex: 0 1 auto;
   min-width: 72px;
 }
 
@@ -14501,12 +14497,26 @@ body.theme-cyberpunk .range-header-container:hover {
 .function-point-settings {
   position: relative;
   display: inline-flex;
+  margin-left: -4px;
+}
+
+.function-point-settings-button {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+
+.area-header-sticky:hover .function-point-settings-button,
+.area-header-sticky:focus-within .function-point-settings-button,
+.function-point-settings.is-open .function-point-settings-button {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .function-point-settings-menu {
   position: absolute;
   top: calc(100% + 7px);
-  right: 0;
+  left: 0;
   z-index: 80;
   width: min(330px, calc(100vw - 28px));
   padding: 12px;

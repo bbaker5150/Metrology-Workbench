@@ -66,11 +66,11 @@ const formatCalculatedResult = (value) => {
   return String(Number(n.toPrecision(8)));
 };
 
-const fullPrecisionValue = (value, unit = "") => {
+const fullPrecisionValue = (value) => {
   if (value === undefined || value === null || value === "") return "N/A";
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return numeric === Infinity ? "Infinity" : "N/A";
-  return `${String(value)}${unit ? ` ${unit}` : ""}`;
+  return String(value);
 };
 
 const simplifyBudgetLabel = (label = "") =>
@@ -761,7 +761,7 @@ const ResultsCard = ({
       </div>
       <div
         className="budget-results-row"
-        title={`Combined Uncertainty: ${fullPrecisionValue(results?.combined, unit)}`}
+        title={fullPrecisionValue(results?.combined)}
       >
         <span>Combined Uncertainty</span>
         <strong>
@@ -771,7 +771,7 @@ const ResultsCard = ({
       </div>
       <div
         className="budget-results-row"
-        title={`Effective DOF: ${fullPrecisionValue(results?.effective_dof)}`}
+        title={fullPrecisionValue(results?.effective_dof)}
       >
         <span className="budget-results-dof-label">
           <label
@@ -791,14 +791,14 @@ const ResultsCard = ({
       </div>
       <div
         className="budget-results-row"
-        title={`Coverage Factor (k): ${fullPrecisionValue(results?.k_value)}`}
+        title={fullPrecisionValue(results?.k_value)}
       >
         <span>Coverage Factor (k)</span>
         <strong>{formatNumber(results?.k_value, sigFigs)}</strong>
       </div>
       <div
         className="budget-results-row"
-        title={`Expanded Uncertainty: ${fullPrecisionValue(results?.expanded, unit)}`}
+        title={fullPrecisionValue(results?.expanded)}
       >
         <span>Expanded Uncertainty</span>
         <strong>

@@ -645,10 +645,22 @@ describe("UncertaintyApp", () => {
       </ThemeProvider>,
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "New Torque point settings" }),
-    );
+    const settingsButton = await screen.findByRole("button", {
+      name: "New Torque point settings",
+    });
+    const functionName = screen
+      .getAllByText("Torque")
+      .find((node) => node.classList.contains("area-label"));
+    expect(settingsButton.closest(".function-point-settings").previousElementSibling)
+      .toBe(functionName);
+    fireEvent.click(settingsButton);
+    expect(
+      screen.queryByRole("checkbox", { name: /Reuse the first point's equation/i }),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Derived" }));
+    expect(
+      screen.getByRole("checkbox", { name: /Reuse the first point's equation/i }),
+    ).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("checkbox", { name: /Reuse the first point's equation/i }),
     );

@@ -479,10 +479,10 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.getByText("0.019999632 in-oz")).toBeInTheDocument();
     expect(screen.queryByText(/0\.00999981624765/)).not.toBeInTheDocument();
     expect(
-      screen.getByTitle("Combined Uncertainty: 0.00999981624765 in-oz"),
+      screen.getByTitle("0.00999981624765"),
     ).toBeInTheDocument();
     expect(
-      screen.getByTitle("Expanded Uncertainty: 0.0199996324953 in-oz"),
+      screen.getByTitle("0.0199996324953"),
     ).toBeInTheDocument();
   });
 

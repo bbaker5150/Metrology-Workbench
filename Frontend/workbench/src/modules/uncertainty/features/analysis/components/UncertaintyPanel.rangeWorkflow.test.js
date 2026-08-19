@@ -4,6 +4,7 @@ import {
   addBlankFunctionToInstrument,
   countTmdeBudgetUses,
   getDeleteSelectionTarget,
+  getUsableBudgetRangeChoices,
   rangeIsBlank,
   removeRangeFromItem,
   removeSelectedRangesFromItem,
@@ -12,6 +13,71 @@ import {
   sortRangesInItem,
   synchronizeLocalInstrumentDefinitions,
 } from "./UncertaintyPanel";
+
+describe("add-to-budget range filtering", () => {
+  const multiFunctionInstrument = {
+    id: "multi-function",
+    functions: [
+      {
+        id: "weight",
+        name: "Weight",
+        unit: "kg",
+        ranges: [
+          {
+            id: "weight-range",
+            min: 0,
+            max: 100,
+            unit: "kg",
+            tolerance: {
+              floor: { high: 0.1, low: -0.1, unit: "kg", distribution: "1.732" },
+            },
+          },
+        ],
+      },
+      {
+        id: "voltage",
+        name: "DC Voltage",
+        unit: "V",
+        ranges: [
+          {
+            id: "voltage-range",
+            min: 0,
+            max: 10,
+            unit: "V",
+            tolerance: {
+              floor: { high: 0.01, low: -0.01, unit: "V", distribution: "1.732" },
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  it("shows only accuracy ranges that resolve for the budget quantity", () => {
+    const choices = getUsableBudgetRangeChoices(
+      multiFunctionInstrument,
+      { value: 5, unit: "kg" },
+      {
+        functionKey: makeFunctionKey("Weight", "kg"),
+        requireFunctionMatch: true,
+      },
+    );
+
+    expect(choices.map((range) => range.id)).toEqual(["weight-range"]);
+  });
+
+  it("does not offer an incompatible voltage accuracy to a weight budget", () => {
+    expect(
+      getUsableBudgetRangeChoices(
+        {
+          id: "voltage-only",
+          functions: multiFunctionInstrument.functions.slice(1),
+        },
+        { value: 5, unit: "kg" },
+      ),
+    ).toEqual([]);
+  });
+});
 
 describe("local instrument role synchronization", () => {
   it("uses one edited definition for matching local UUT and TMDE rows", () => {

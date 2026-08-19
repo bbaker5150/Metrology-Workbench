@@ -649,6 +649,53 @@ describe("inline range editing", () => {
     );
   });
 
+  it("collapses range, resolution, and distribution editors outside their columns", async () => {
+    render(
+      <div>
+        <RangeCell
+          ranges={[{ id: "range-1", min: 0, max: 10, unit: "V" }]}
+          activeIndex={0}
+          activeRange={{ id: "range-1", min: 0, max: 10, unit: "V" }}
+          editable
+          onEditBound={vi.fn()}
+          onEditUnit={vi.fn()}
+          onPatchRange={vi.fn()}
+        />
+        <ResolutionCellInput
+          value="0.01"
+          unit="V"
+          distribution="3.464"
+          onCommit={vi.fn()}
+          onCommitUnit={vi.fn()}
+          onCommitDistribution={vi.fn()}
+        />
+        <InlineDistributionCell divisor="1.732" onChange={vi.fn()} />
+        <button type="button">Outside column</button>
+      </div>,
+    );
+
+    const outside = screen.getByRole("button", { name: "Outside column" });
+
+    fireEvent.click(screen.getByTitle("Click to edit range"));
+    expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
+    fireEvent.pointerDown(outside);
+    await waitFor(() =>
+      expect(screen.getByTitle("Click to edit range")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTitle("Click to edit resolution"));
+    expect(screen.getByPlaceholderText("—")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByTitle("Click to edit resolution")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Click to edit distribution"));
+    expect(screen.getByLabelText("Spec band distribution")).toBeInTheDocument();
+    fireEvent.pointerDown(outside);
+    await waitFor(() =>
+      expect(screen.getByTitle("Click to edit distribution")).toBeInTheDocument(),
+    );
+  });
+
   it("authors a workbook-style single-sided unknown upper limit", () => {
     const onCommit = vi.fn();
     render(

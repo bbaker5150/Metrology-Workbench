@@ -1924,6 +1924,41 @@ const confirmViaNotification = (
   });
 };
 
+// Every expanded UUT/TMDE table cell follows one dismissal contract: Escape
+// collapses it from anywhere in the editor, and a pointer press outside the
+// active column collapses it after blur-driven commits have run. Unit and
+// tolerance menus are portaled to <body>, so they remain part of the editor.
+const useInlineColumnDismiss = ({
+  expanded,
+  rootRef,
+  onDismiss,
+  portalSelector =
+    ".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search",
+}) => {
+  useEffect(() => {
+    if (!expanded) return undefined;
+
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (rootRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(portalSelector)) return;
+      window.setTimeout(() => onDismiss(), 0);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      onDismiss();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [expanded, onDismiss, portalSelector, rootRef]);
+};
+
 // Inline-editable Description cell: mfr. / model / name as three tabbable
 // sub-fields (feature/inline-instrument-tables). Edits stay local while typing
 // and commit on blur, so we PUT the session once per field, not per keystroke.
@@ -1968,6 +2003,17 @@ export const EditableDescriptionCell = ({
   useEffect(() => {
     setLocal({ make, model, name });
   }, [make, model, name]);
+
+  const dismissDescriptionEditor = useCallback(() => {
+    setLocal({ make, model, name });
+    setEditing(false);
+    setOpen(false);
+  }, [make, model, name]);
+  useInlineColumnDismiss({
+    expanded: editing,
+    rootRef: anchorRef,
+    onDismiss: dismissDescriptionEditor,
+  });
 
   // Live library matches as the user types (make/model/name). Token-AND search
   // over the user's local + shared library (the `instruments` prop).
@@ -2047,9 +2093,7 @@ export const EditableDescriptionCell = ({
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        setLocal({ make, model, name });
-        setEditing(false);
-        setOpen(false);
+        dismissDescriptionEditor();
       }
       if (field === "name" && e.key === "Tab" && !e.shiftKey) {
         setOpen(false);
@@ -2368,19 +2412,12 @@ export const ResolutionCellInput = ({
     firstInput?.focus();
   }, [isEditing]);
 
-  // Document-click fallback close (portaled UnitSelect menu case, see RangeCell).
-  useEffect(() => {
-    if (!isEditing) return undefined;
-    const onDocClick = (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      if (containerRef.current?.contains(target)) return;
-      if (target.closest(".inline-unit-menu")) return;
-      setIsEditing(false);
-    };
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [isEditing]);
+  const dismissResolutionEditor = useCallback(() => setIsEditing(false), []);
+  useInlineColumnDismiss({
+    expanded: isEditing,
+    rootRef: containerRef,
+    onDismiss: dismissResolutionEditor,
+  });
 
   const summary = formatResolutionSummaryText(value, unit, fallbackUnit);
 
@@ -2429,7 +2466,7 @@ export const ResolutionCellInput = ({
         if (event.key !== "Escape") return;
         event.preventDefault();
         event.stopPropagation();
-        setIsEditing(false);
+        dismissResolutionEditor();
       }}
     >
       <input
@@ -2483,18 +2520,12 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
     containerRef.current.querySelector("button")?.focus();
   }, [isEditing]);
 
-  useEffect(() => {
-    if (!isEditing) return undefined;
-    const onDocumentClick = (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      if (containerRef.current?.contains(target)) return;
-      if (target.closest(".inline-unit-menu")) return;
-      setIsEditing(false);
-    };
-    document.addEventListener("click", onDocumentClick);
-    return () => document.removeEventListener("click", onDocumentClick);
-  }, [isEditing]);
+  const dismissDistributionEditor = useCallback(() => setIsEditing(false), []);
+  useInlineColumnDismiss({
+    expanded: isEditing,
+    rootRef: containerRef,
+    onDismiss: dismissDistributionEditor,
+  });
 
   const label = !isUnset
     ? errorDistributions.find((e) => e.value === String(divisor))?.label ||
@@ -2555,7 +2586,7 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
         if (event.key !== "Escape") return;
         event.preventDefault();
         event.stopPropagation();
-        setIsEditing(false);
+        dismissDistributionEditor();
       }}
     >
       <InlineMenuSelect
@@ -3632,24 +3663,12 @@ export const InlineToleranceCell = ({
     firstInput?.focus();
   }, [isEditing]);
 
-  useEffect(() => {
-    if (!isEditing) return undefined;
-    const handlePointerDownOutsideCell = (event) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (target.closest?.(".inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop")) {
-        return;
-      }
-      // Type B editors live in builder cards rather than table cells. Treat
-      // pointer events inside the editor as in-scope too, otherwise choosing a
-      // shape button is interpreted as a click-away and immediately collapses
-      // the tolerance editor before the selection can be applied.
-      if (containerRef.current?.contains(target)) return;
-      window.setTimeout(() => setIsEditing(false), 0);
-    };
-    document.addEventListener("pointerdown", handlePointerDownOutsideCell, true);
-    return () => document.removeEventListener("pointerdown", handlePointerDownOutsideCell, true);
-  }, [isEditing]);
+  const dismissToleranceEditor = useCallback(() => setIsEditing(false), []);
+  useInlineColumnDismiss({
+    expanded: isEditing,
+    rootRef: containerRef,
+    onDismiss: dismissToleranceEditor,
+  });
 
   const summaryRows = showMeasurementStatus
     ? getUutSpecRows(tolerance)
@@ -3706,7 +3725,7 @@ export const InlineToleranceCell = ({
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
-          setIsEditing(false);
+          dismissToleranceEditor();
           return;
         }
         if (event.key !== "Tab" || event.shiftKey) return;
@@ -3882,21 +3901,12 @@ export const RangeCell = ({
     firstInput?.focus();
   }, [isEditing]);
 
-  // Document-click fallback close (see component comment). Registered only
-  // while editing; `click` (not mousedown) so the blurred input's commit runs
-  // first as part of the same interaction.
-  useEffect(() => {
-    if (!isEditing) return undefined;
-    const onDocClick = (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      if (containerRef.current?.contains(target)) return;
-      if (target.closest(".inline-unit-menu")) return;
-      setIsEditing(false);
-    };
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [isEditing]);
+  const dismissRangeEditor = useCallback(() => setIsEditing(false), []);
+  useInlineColumnDismiss({
+    expanded: isEditing,
+    rootRef: containerRef,
+    onDismiss: dismissRangeEditor,
+  });
 
   // The in-cell range-selector dropdown was removed: when an instrument has
   // several ranges the "edit / add" expander already lists them all (and lets
@@ -4008,7 +4018,7 @@ export const RangeCell = ({
         if (event.key !== "Escape") return;
         event.preventDefault();
         event.stopPropagation();
-        setIsEditing(false);
+        dismissRangeEditor();
       }}
     >
       <div className="inline-range-main">
@@ -4245,6 +4255,49 @@ export const getBudgetRangeChoices = (instrument) => {
   });
   return ranges.length > 0 ? ranges : [null];
 };
+
+// The add-to-budget menu is a list of actions, not an inventory browser. Only
+// expose range accuracies that can resolve into at least one real component for
+// this budget's nominal and unit. This prevents cross-quantity rows (for
+// example a voltage accuracy in a weight budget) from appearing and then
+// silently doing nothing when selected.
+export const getUsableBudgetRangeChoices = (
+  instrument,
+  nominalPoint,
+  { functionKey = null, requireFunctionMatch = false } = {},
+) =>
+  getBudgetRangeChoices(instrument).filter((range) => {
+    if (!range || !nominalPoint?.unit) return false;
+    const nominalUnit = nominalPoint.unit;
+    const rangeUnit = range.functionUnit || range.unit || "";
+    if (rangeUnit) {
+      const nominalQuantity = unitSystem.getQuantity?.(nominalUnit) || null;
+      const rangeQuantity = unitSystem.getQuantity?.(rangeUnit) || null;
+      const sameUnit =
+        normalizeUnitToken(rangeUnit) === normalizeUnitToken(nominalUnit);
+      if (
+        (nominalQuantity && rangeQuantity && nominalQuantity !== rangeQuantity) ||
+        ((!nominalQuantity || !rangeQuantity) && !sameUnit)
+      ) {
+        return false;
+      }
+    }
+    if (requireFunctionMatch && functionKey) {
+      const rangeFunctionName = range.functionName || "";
+      const rangeFunctionUnit = range.functionUnit || range.unit || "";
+      if (
+        (rangeFunctionName || range.functionUnit) &&
+        !functionPartsMatch(rangeFunctionName, rangeFunctionUnit, functionKey)
+      ) {
+        return false;
+      }
+    }
+    return getBudgetComponentsFromTolerance(range, nominalPoint).some(
+      (component) =>
+        !component.isResolution &&
+        Number.isFinite(Number(component.value_native ?? component.value)),
+    );
+  });
 
 export const getVisibleRangeRows = (ranges = [], activeIndex = 0, activeRange = {}, showAll = false) => {
   if (ranges.length > 0) {
@@ -7022,15 +7075,17 @@ const SummaryDashboard = ({
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
   const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
   const rangeClickGroupRef = useRef(null);
-  // Click-away collapse: while any range list is expanded, a click that
-  // lands outside that instrument's row group (tagged data-range-group) snaps it
-  // shut — mirroring the tolerance cell's focus-out close across the multi-<tr>
-  // expanded group (which has no single wrapper element to hang an onBlur on).
+  // Click-away collapse: an expanded range column stays open only while the
+  // user is interacting with that same instrument's range cells. Clicking a
+  // different column, clicking elsewhere, or pressing Escape snaps it shut.
   useEffect(() => {
     if (expandedRangeKeys.size === 0) return undefined;
     const onMouseDownCapture = (e) => {
       const group = e.target?.closest?.("[data-range-group]");
-      rangeClickGroupRef.current = group?.getAttribute("data-range-group") || null;
+      rangeClickGroupRef.current = {
+        key: group?.getAttribute("data-range-group") || null,
+        inRangeColumn: Boolean(e.target?.closest?.("[data-range-cell]")),
+      };
     };
     const onDown = (e) => {
       // UnitSelect renders its options in a body-level portal. Selecting an
@@ -7041,10 +7096,10 @@ const SummaryDashboard = ({
       // focused inline editor, so its onBlur commit — new range, tolerance edit,
       // clear-to-delete — would never run before the list collapses. Force the
       // focused editor to blur first so its commit lands.
-      const clickedRangeKey = rangeClickGroupRef.current;
-      const clickedInsideGroup =
-        clickedRangeKey || e.target?.closest?.("[data-range-group]");
-      if (!clickedInsideGroup) {
+      const clickedRangeKey = rangeClickGroupRef.current?.key || null;
+      const clickedInsideRangeColumn =
+        Boolean(clickedRangeKey) && rangeClickGroupRef.current?.inRangeColumn;
+      if (!clickedInsideRangeColumn) {
         const ae = document.activeElement;
         if (ae && typeof ae.blur === "function" && ae.closest?.("[data-range-group]")) {
           ae.blur();
@@ -7052,9 +7107,7 @@ const SummaryDashboard = ({
       }
       const keysToCollapse = [];
       expandedRangeKeys.forEach((key) => {
-        const inside = clickedRangeKey
-          ? clickedRangeKey === key
-          : e.target?.closest?.(`[data-range-group="${key}"]`);
+        const inside = clickedInsideRangeColumn && clickedRangeKey === key;
         if (!inside) keysToCollapse.push(key);
       });
       if (keysToCollapse.length === 0) return;
@@ -7064,15 +7117,22 @@ const SummaryDashboard = ({
         return next;
       });
     };
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape") return;
+      document.activeElement?.blur?.();
+      setExpandedRangeKeys(new Set());
+    };
     // Listen on "click" (fires after mousedown -> blur -> mouseup) so any
     // in-progress editor commits its onBlur BEFORE the list collapses and
     // unmounts it. A mousedown listener would collapse first and swallow the
     // pending commit (lost new range / tolerance / clear-to-delete).
     document.addEventListener("mousedown", onMouseDownCapture, true);
-    document.addEventListener("click", onDown);
+    document.addEventListener("click", onDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("mousedown", onMouseDownCapture, true);
-      document.removeEventListener("click", onDown);
+      document.removeEventListener("click", onDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
     };
   }, [expandedRangeKeys]);
   const [pinnedInlineUutIds, setPinnedInlineUutIds] = useState([]);
@@ -10148,12 +10208,15 @@ function DetailedView({
   const isShowingAllRangesDetail = (kind, itemId) =>
     expandedRangeKeys.has(itemStateKey(kind, itemId));
 
-  // Click-away collapse for the expanded range list (see SummaryDashboard twin).
+  // Click-away/Escape collapse for the expanded range column (Summary twin).
   useEffect(() => {
     if (expandedRangeKeys.size === 0) return undefined;
     const onMouseDownCapture = (e) => {
       const group = e.target?.closest?.("[data-range-group]");
-      rangeClickGroupRef.current = group?.getAttribute("data-range-group") || null;
+      rangeClickGroupRef.current = {
+        key: group?.getAttribute("data-range-group") || null,
+        inRangeColumn: Boolean(e.target?.closest?.("[data-range-cell]")),
+      };
     };
     const onDown = (e) => {
       // UnitSelect renders its options in a body-level portal. Selecting an
@@ -10164,10 +10227,10 @@ function DetailedView({
       // focused inline editor, so its onBlur commit — new range, tolerance edit,
       // clear-to-delete — would never run before the list collapses. Force the
       // focused editor to blur first so its commit lands.
-      const clickedRangeKey = rangeClickGroupRef.current;
-      const clickedInsideGroup =
-        clickedRangeKey || e.target?.closest?.("[data-range-group]");
-      if (!clickedInsideGroup) {
+      const clickedRangeKey = rangeClickGroupRef.current?.key || null;
+      const clickedInsideRangeColumn =
+        Boolean(clickedRangeKey) && rangeClickGroupRef.current?.inRangeColumn;
+      if (!clickedInsideRangeColumn) {
         const ae = document.activeElement;
         if (ae && typeof ae.blur === "function" && ae.closest?.("[data-range-group]")) {
           ae.blur();
@@ -10175,9 +10238,7 @@ function DetailedView({
       }
       const keysToCollapse = [];
       expandedRangeKeys.forEach((key) => {
-        const inside = clickedRangeKey
-          ? clickedRangeKey === key
-          : e.target?.closest?.(`[data-range-group="${key}"]`);
+        const inside = clickedInsideRangeColumn && clickedRangeKey === key;
         if (!inside) keysToCollapse.push(key);
       });
       if (keysToCollapse.length === 0) return;
@@ -10187,15 +10248,22 @@ function DetailedView({
         return next;
       });
     };
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape") return;
+      document.activeElement?.blur?.();
+      setExpandedRangeKeys(new Set());
+    };
     // Listen on "click" (fires after mousedown -> blur -> mouseup) so any
     // in-progress editor commits its onBlur BEFORE the list collapses and
     // unmounts it. A mousedown listener would collapse first and swallow the
     // pending commit (lost new range / tolerance / clear-to-delete).
     document.addEventListener("mousedown", onMouseDownCapture, true);
-    document.addEventListener("click", onDown);
+    document.addEventListener("click", onDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("mousedown", onMouseDownCapture, true);
-      document.removeEventListener("click", onDown);
+      document.removeEventListener("click", onDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
     };
   }, [expandedRangeKeys]);
 
@@ -12654,15 +12722,19 @@ function DetailedView({
       const isMatch = isDerived
         ? (tmde) => tmdeMatchesUnit(tmde, scope?.nominalPoint?.unit || "")
         : (tmde) => tmdeSupportsFunction(tmde, functionKey);
+      const budgetNominal = isDerived ? scope?.nominalPoint || null : uutNominal;
       const options = isDerivedFinalScope
         ? []
-        : relevantTmdes.filter(isMatch).sort(byLabel);
-      // Non-matching TMDEs stay reachable in a secondary section — the picker
-      // suggests, it doesn't censor (deliberate cross-function/cross-unit
-      // assignments are legitimate).
-      const otherOptions = isDerivedFinalScope
-        ? []
-        : relevantTmdes.filter((tmde) => !isMatch(tmde)).sort(byLabel);
+        : relevantTmdes
+            .filter(isMatch)
+            .filter(
+              (tmde) =>
+                getUsableBudgetRangeChoices(tmde, budgetNominal, {
+                  functionKey,
+                  requireFunctionMatch: !isDerived,
+                }).length > 0,
+            )
+            .sort(byLabel);
       // The UUT's measuring resolution is offered for direct points AND for the
       // derived final budget (where the derived UUT's rounding lives). Modeling
       // it as a proper resolution component keeps it absolute (LSD/2/divisor,
@@ -12690,7 +12762,7 @@ function DetailedView({
         : tmdeTolerancesData;
       const resolutionSourceTmdes = isDerivedFinalScope
         ? []
-        : relevantTmdes;
+        : relevantTmdes.filter(isMatch);
       const resolutionNominal = isDerived
         ? scope?.nominalPoint || null
         : uutNominal;
@@ -12763,7 +12835,15 @@ function DetailedView({
       };
       const typeBOptions = typeBSourceTmdes.flatMap((tmde) =>
         freshTypeBFor(tmde)
-          .filter((comp) => typeBHasMagnitude(comp))
+          .filter(
+            (comp) =>
+              typeBHasMagnitude(comp) &&
+              getBudgetComponentsFromTolerance(
+                { name: comp.name || "Type B" },
+                budgetNominal,
+                [comp],
+              ).length > 0,
+          )
           .map((comp) => ({ tmde, comp })),
       );
 
@@ -12774,7 +12854,6 @@ function DetailedView({
       const canAddRepeatability = Boolean(scope?.canAddRepeatability);
       if (
         options.length === 0 &&
-        otherOptions.length === 0 &&
         !resolutionOption &&
         tmdeResolutionOptions.length === 0 &&
         typeBOptions.length === 0 &&
@@ -12794,7 +12873,6 @@ function DetailedView({
         scope,
         functionKey,
         options,
-        otherOptions,
         resolutionOption,
         tmdeResolutionOptions,
         typeBOptions,
@@ -13250,7 +13328,15 @@ function DetailedView({
               what they're adding to the budget. */}
           {(() => {
             const renderTmdeOption = (tmde) => {
-              const choices = getBudgetRangeChoices(tmde);
+              const scope = budgetTmdePicker.scope || {};
+              const choices = getUsableBudgetRangeChoices(
+                tmde,
+                isDerived ? scope.nominalPoint || null : uutNominal,
+                {
+                  functionKey: budgetTmdePicker.functionKey,
+                  requireFunctionMatch: !isDerived,
+                },
+              );
               return choices.map((range, rangeIndex) => {
                 const detail = getBudgetTmdeDetail(tmde, range);
                 const functionLabel = range?.functionName
@@ -13305,7 +13391,6 @@ function DetailedView({
                 );
               });
             };
-            const others = budgetTmdePicker.otherOptions || [];
             return (
               <>
                 {budgetTmdePicker.options.length > 0 && (
@@ -13314,17 +13399,6 @@ function DetailedView({
                       TMDEs
                     </div>
                     {budgetTmdePicker.options.map(renderTmdeOption)}
-                  </div>
-                )}
-                {/* TMDEs that don't match this variable's unit / point's
-                    function — still selectable, just de-emphasized, so the
-                    picker never hides part of the session inventory. */}
-                {others.length > 0 && (
-                  <div className="budget-picker-section budget-picker-section--other">
-                    <div className="budget-tmde-picker-category">
-                      Other TMDEs
-                    </div>
-                    {others.map(renderTmdeOption)}
                   </div>
                 )}
               </>
