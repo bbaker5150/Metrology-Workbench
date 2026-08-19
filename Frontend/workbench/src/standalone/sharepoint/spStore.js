@@ -157,6 +157,7 @@ export class SharePointStore {
     this._currentUser = currentUser ? normalizeUser(currentUser) : null;
     this._currentUserPromise = null;
     this._sessionFiles = new Map();
+    this._sessionMetadata = new Map();
     this._imageFiles = new Map();
   }
 
@@ -301,6 +302,22 @@ export class SharePointStore {
     this._imageFiles.set(this.imageKey(sessionId, imageId), name);
   }
 
+  sessionMetadata(doc) {
+    return {
+      Title: doc.name || 'Untitled session',
+      SessionId: Number(doc.id),
+      SessionName: doc.name || 'Untitled session',
+      Analyst: doc.analyst || '',
+      Organization: doc.organization || '',
+      DocumentRef: doc.document || '',
+      DocumentDate: doc.documentDate || '',
+    };
+  }
+
+  sessionMetadataSignature(metadata) {
+    return JSON.stringify(metadata);
+  }
+
   async listOwnedLibraryFileNames() {
     const user = await this.currentUser();
     const query =
@@ -324,6 +341,18 @@ export class SharePointStore {
         if (seen.has(id)) return false;
         seen.add(id);
         if (item.FileLeafRef) this._sessionFiles.set(id, item.FileLeafRef);
+        this._sessionMetadata.set(
+          id,
+          this.sessionMetadataSignature({
+            Title: item.SessionName || 'Untitled session',
+            SessionId: id,
+            SessionName: item.SessionName || 'Untitled session',
+            Analyst: item.Analyst || '',
+            Organization: item.Organization || '',
+            DocumentRef: item.DocumentRef || '',
+            DocumentDate: item.DocumentDate || '',
+          }),
+        );
         return true;
       })
       .map((item) => ({
@@ -362,21 +391,22 @@ export class SharePointStore {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    // Promote the picker's columns onto the file's list item.
-    const itemPath =
-      `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/ListItemAllFields`;
-    await this.post(itemPath, {
-      method: 'MERGE',
-      body: {
-        Title: doc.name || 'Untitled session',
-        SessionId: doc.id,
-        SessionName: doc.name || 'Untitled session',
-        Analyst: doc.analyst || '',
-        Organization: doc.organization || '',
-        DocumentRef: doc.document || '',
-        DocumentDate: doc.documentDate || '',
-      },
-    });
+    // Promote picker columns only when they actually changed. Budget edits
+    // rewrite the JSON frequently, while this small metadata set usually stays
+    // identical. Avoiding a redundant tunneled MERGE prevents the embedded
+    // SharePoint host from asking the user to approve the same metadata
+    // mutation after every ordinary edit.
+    const metadata = this.sessionMetadata(doc);
+    const metadataSignature = this.sessionMetadataSignature(metadata);
+    if (this._sessionMetadata.get(Number(doc.id)) !== metadataSignature) {
+      const itemPath =
+        `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/ListItemAllFields`;
+      await this.post(itemPath, {
+        method: 'MERGE',
+        body: metadata,
+      });
+      this._sessionMetadata.set(Number(doc.id), metadataSignature);
+    }
 
     this._sessionFiles.set(Number(doc.id), name);
     return doc;
@@ -390,6 +420,7 @@ export class SharePointStore {
     const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/recycle()`;
     await this.post(path, {});
     this._sessionFiles.delete(Number(id));
+    this._sessionMetadata.delete(Number(id));
   }
 
   // -- generic record lists (instruments, equations, bug reports) ------------

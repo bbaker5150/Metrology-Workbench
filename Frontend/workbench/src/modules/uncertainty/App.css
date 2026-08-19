@@ -4642,10 +4642,10 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   align-items: center;
   gap: 7px;
   min-height: 28px;
-  padding: 3px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface-sunken) 62%, transparent);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   box-sizing: border-box;
   white-space: nowrap;
 }
@@ -5255,18 +5255,18 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
   width: 72px;
   height: 24px;
   box-sizing: border-box;
-  padding: 2px 6px;
+  padding: 2px 4px;
   color: var(--text-color);
-  background: var(--input-background);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   font: inherit;
   font-variant-numeric: tabular-nums;
 }
 
 .budget-mc-trials input:focus {
-  border-color: var(--primary-color);
   outline: none;
+  background: color-mix(in srgb, var(--primary-color) 7%, transparent);
 }
 
 .budget-mc-trials.is-disabled {
@@ -5275,8 +5275,7 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
 
 .budget-mc-trials input:disabled {
   color: var(--text-color-muted);
-  background: color-mix(in srgb, var(--input-background) 55%, transparent);
-  border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+  background: transparent;
   opacity: 0.62;
   cursor: not-allowed;
 }
@@ -10685,6 +10684,25 @@ body.theme-cyberpunk .notification-window .window-header {
   font-size: 0.98rem;
   font-weight: 700;
   box-sizing: border-box;
+  border: 0;
+  cursor: text;
+}
+
+.measurement-input-symbol:hover,
+.measurement-input-symbol:focus-visible {
+  background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+  outline: none;
+}
+
+.measurement-input-symbol-input {
+  width: min(100%, 72px);
+  height: 28px;
+  padding: 3px 6px;
+  color: var(--primary-color);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: center;
 }
 
 .measurement-input-name,
@@ -12436,6 +12454,87 @@ input.inline-function-input:focus {
   z-index: 5;
   background: transparent;
   box-shadow: none;
+}
+
+/* Compact correlation editor: the matrix is the content, with the same 28px
+   tool-button rhythm used by the budget-table header. */
+.correlation-matrix-modal {
+  padding: 0;
+  overflow: hidden;
+}
+
+.correlation-modal-toolbar {
+  min-height: 36px;
+  padding: 4px 6px 4px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--table-header-bg);
+  cursor: move;
+  user-select: none;
+}
+
+.correlation-modal-title {
+  color: var(--text-color-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.correlation-modal-body {
+  overflow: auto;
+  padding: 10px 14px 12px;
+}
+
+.correlation-modal-hint {
+  margin: 0 0 8px;
+  color: var(--text-color-muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.correlation-matrix-table {
+  margin: 0 auto;
+  border-collapse: collapse;
+}
+
+.correlation-modal-actions {
+  margin-top: 10px;
+  padding-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+
+.correlation-modal-icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.correlation-modal-icon-button:hover,
+.correlation-modal-icon-button:focus-visible {
+  color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.07);
+  outline: none;
+}
+
+.correlation-modal-icon-button.is-primary {
+  color: var(--primary-color);
 }
 
 .function-header-collapse-btn:hover {

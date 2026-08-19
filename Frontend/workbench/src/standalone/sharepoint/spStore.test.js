@@ -338,6 +338,49 @@ describe("sessions", () => {
     expect(JSON.parse(merge.body)).toMatchObject({ SessionId: 9, SessionName: "Cal", Analyst: "BB" });
   });
 
+  it("does not repeat the metadata MERGE for an ordinary budget-only save", async () => {
+    http.on(/UncertaintySessions'\)\/items\?/, {
+      json: {
+        value: [
+          {
+            SessionId: 9,
+            SessionName: "Cal",
+            Analyst: "BB",
+            Organization: "NPSL",
+            FileLeafRef: "session-41-9.json",
+          },
+        ],
+      },
+    });
+    await store.listSessions();
+    await store.saveSession({
+      id: 9,
+      name: "Cal",
+      analyst: "BB",
+      organization: "NPSL",
+      testPoints: [{ id: "changed-budget" }],
+    });
+
+    expect(http.calls.filter((call) => call.spMethod === "MERGE")).toHaveLength(0);
+    expect(http.find(/files\/add/)).toHaveLength(1);
+  });
+
+  it("updates picker metadata when the user renames an existing session", async () => {
+    http.on(/UncertaintySessions'\)\/items\?/, {
+      json: {
+        value: [
+          { SessionId: 9, SessionName: "Before", FileLeafRef: "session-41-9.json" },
+        ],
+      },
+    });
+    await store.listSessions();
+    await store.saveSession({ id: 9, name: "After" });
+
+    const merges = http.calls.filter((call) => call.spMethod === "MERGE");
+    expect(merges).toHaveLength(1);
+    expect(JSON.parse(merges[0].body).SessionName).toBe("After");
+  });
+
   it("recycles rather than hard-deleting so a mistake is recoverable", async () => {
     await store.deleteSession(5);
     expect(http.find(/recycle/)[0].url).toContain("session-41-5.json");

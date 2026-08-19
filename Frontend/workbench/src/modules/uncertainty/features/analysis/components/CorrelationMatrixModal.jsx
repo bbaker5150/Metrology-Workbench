@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheck, faProjectDiagram, faRotateLeft } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faRotateLeft, faTimes } from "@fortawesome/free-solid-svg-icons";
 import { correlationKey, getCorrelation } from "../../../utils/uncertaintyMath";
 
 /**
@@ -107,7 +107,10 @@ const CorrelationMatrixModal = ({ isOpen, onClose, components = [], correlations
 
   return ReactDOM.createPortal(
     <div
-      className="modal-content floating-window-content"
+      className="modal-content floating-window-content correlation-matrix-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Input correlation matrix"
       style={{
         maxWidth: "95vw",
         width: "720px",
@@ -122,56 +125,33 @@ const CorrelationMatrixModal = ({ isOpen, onClose, components = [], correlations
         maxHeight: "90vh",
       }}
     >
-      {/* DRAGGABLE HEADER */}
       <div
+        className="correlation-modal-toolbar"
         onMouseDown={handleMouseDown}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: "10px",
-          borderBottom: "1px solid var(--border-color)",
-          paddingBottom: "15px",
-          cursor: "move",
-          userSelect: "none",
-        }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div
-            style={{
-              width: "40px",
-              height: "40px",
-              borderRadius: "8px",
-              backgroundColor: "var(--primary-color-light)",
-              color: "var(--primary-color)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "1.2rem",
-            }}
-          >
-            <FontAwesomeIcon icon={faProjectDiagram} />
-          </div>
-          <div>
-            <h3 style={{ margin: 0, fontSize: "1.3rem" }}>Input Correlation Matrix</h3>
-            <div style={{ fontSize: "0.85rem", color: "var(--text-color-muted)" }}>
-              Enter correlations between input errors (lower triangle). 0 = independent, 1 = fully correlated.
-            </div>
-          </div>
-        </div>
-        <button onClick={onClose} className="modal-close-button" style={{ position: "static", transform: "none" }}>
-          &times;
+        <span className="correlation-modal-title">Input correlations</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="correlation-modal-icon-button"
+          title="Close"
+          aria-label="Close input correlations"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <FontAwesomeIcon icon={faTimes} />
         </button>
       </div>
 
-      {/* CONTENT */}
-      <div style={{ overflow: "auto", paddingRight: "5px" }}>
+      <div className="correlation-modal-body">
+        <p className="correlation-modal-hint">
+          Enter the lower triangle. Zero means independent; one means fully correlated.
+        </p>
         {components.length < 2 ? (
           <div className="form-section-info" style={{ color: "var(--text-color-muted)" }}>
             At least two budget components are required to set correlations.
           </div>
         ) : (
-          <table style={{ borderCollapse: "collapse", margin: "0 auto" }}>
+          <table className="correlation-matrix-table">
             <thead>
               <tr>
                 <th style={th}></th>
@@ -234,40 +214,22 @@ const CorrelationMatrixModal = ({ isOpen, onClose, components = [], correlations
           </div>
         )}
 
-        <div
-          className="modal-actions"
-          style={{ marginTop: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
-        >
+        <div className="correlation-modal-actions">
           <button
+            type="button"
             onClick={() => onSave({})}
             title="Reset all correlations to zero (independent)"
-            style={{
-              background: "transparent",
-              border: "1px solid var(--border-color)",
-              color: "var(--text-color-muted)",
-              cursor: "pointer",
-              borderRadius: "6px",
-              padding: "6px 12px",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
+            aria-label="Reset all correlations"
+            className="correlation-modal-icon-button"
           >
-            <FontAwesomeIcon icon={faRotateLeft} /> Reset
+            <FontAwesomeIcon icon={faRotateLeft} />
           </button>
           <button
+            type="button"
             onClick={() => onSave(matrix)}
             title="Apply correlations"
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "var(--primary-color)",
-              cursor: "pointer",
-              fontSize: "1.5rem",
-              transition: "transform 0.2s ease",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.2)")}
-            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+            aria-label="Apply correlations"
+            className="correlation-modal-icon-button is-primary"
           >
             <FontAwesomeIcon icon={faCheck} />
           </button>

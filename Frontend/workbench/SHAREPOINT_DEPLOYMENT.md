@@ -34,6 +34,19 @@ If the file is hosted under a different web than the storage lists, set the
 existing `webUrl` configuration override to that web and make sure the hosting
 context is allowed to call it.
 
+### Embedded mutation confirmations
+
+Some embedded single-file hosts display a confirmation before SharePoint write
+requests. The app avoids redundant writes: normal budget edits update the
+session JSON but no longer repeat the session-list metadata `MERGE` unless the
+session name, analyst, organization, document, or document date changed.
+
+A confirmation may still be shown for a real required write if the host enforces
+that policy. That guard belongs to the embedding host and should not be bypassed
+from application code. A directly hosted `build-standalone` deployment uses
+SharePoint's normal authenticated REST behavior and does not add an embedding
+host mutation guard.
+
 ## Permission boundary
 
 The app's user filter prevents one analyst's sessions from appearing or being

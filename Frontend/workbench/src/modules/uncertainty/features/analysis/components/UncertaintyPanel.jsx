@@ -1530,12 +1530,12 @@ const toPlainNumber = (v) => {
 // clicks the cell, then the real inline control. Keep these as small controlled
 // components so each cell owns click-away behavior without expanding the whole
 // table. Portaled unit menus are considered part of the nominal editor.
-const useMeasurementInputEditor = () => {
+const useMeasurementInputEditor = ({ closeOnOutside = true } = {}) => {
   const [editing, setEditing] = useState(false);
   const rootRef = useRef(null);
 
   useEffect(() => {
-    if (!editing) return undefined;
+    if (!editing || !closeOnOutside) return undefined;
     const closeOnOutsideMouseDown = (event) => {
       const target = event.target;
       if (
@@ -1549,9 +1549,119 @@ const useMeasurementInputEditor = () => {
     document.addEventListener("mousedown", closeOnOutsideMouseDown);
     return () =>
       document.removeEventListener("mousedown", closeOnOutsideMouseDown);
-  }, [editing]);
+  }, [closeOnOutside, editing]);
 
   return { editing, setEditing, rootRef };
+};
+
+export const isValidEquationVariableSymbol = (value) =>
+  /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(value || "").trim());
+
+export const renameEquationVariable = (equationString, oldSymbol, newSymbol) => {
+  const source = String(equationString || "");
+  const oldName = String(oldSymbol || "").trim();
+  const newName = String(newSymbol || "").trim();
+  if (!oldName || !isValidEquationVariableSymbol(newName) || oldName === newName) {
+    return source;
+  }
+
+  const equalsIndex = source.indexOf("=");
+  const prefix = equalsIndex >= 0 ? source.slice(0, equalsIndex + 1) : "";
+  const expression = equalsIndex >= 0 ? source.slice(equalsIndex + 1) : source;
+  const escaped = oldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const token = new RegExp(`(^|[^A-Za-z0-9_])${escaped}(?=$|[^A-Za-z0-9_])`, "g");
+  return `${prefix}${expression.replace(token, (_match, before) => `${before}${newName}`)}`;
+};
+
+export const reconcileEquationVariableState = ({
+  variables = [],
+  currentMappings = {},
+  currentNominals = {},
+  rememberedMappings = {},
+}) => {
+  const knownSymbols = Array.from(
+    new Set([...Object.keys(currentMappings), ...Object.keys(currentNominals)]),
+  );
+  const removedSymbols = knownSymbols.filter(
+    (symbol) => !variables.includes(symbol),
+  );
+  const addedSymbols = variables.filter(
+    (symbol) => !knownSymbols.includes(symbol),
+  );
+  const simpleRename =
+    removedSymbols.length === 1 && addedSymbols.length === 1
+      ? { from: removedSymbols[0], to: addedSymbols[0] }
+      : null;
+  const mappings = {};
+  const nominals = {};
+
+  variables.forEach((symbol) => {
+    const sourceSymbol = simpleRename?.to === symbol ? simpleRename.from : symbol;
+    mappings[symbol] =
+      currentMappings[sourceSymbol] ||
+      rememberedMappings[symbol] ||
+      rememberedMappings[sourceSymbol] ||
+      "";
+    if (currentNominals[sourceSymbol] !== undefined) {
+      nominals[symbol] = currentNominals[sourceSymbol];
+    }
+  });
+
+  return { mappings, nominals, simpleRename };
+};
+
+export const MeasurementInputSymbolCell = ({ symbol, onCommit }) => {
+  const { editing, setEditing, rootRef } = useMeasurementInputEditor({
+    closeOnOutside: false,
+  });
+  const [draft, setDraft] = useState(symbol || "");
+
+  useEffect(() => {
+    if (!editing) setDraft(symbol || "");
+  }, [editing, symbol]);
+
+  const commit = () => {
+    const next = String(draft || "").trim();
+    if (isValidEquationVariableSymbol(next)) onCommit?.(next);
+    else setDraft(symbol || "");
+    setEditing(false);
+  };
+
+  return (
+    <div ref={rootRef} className="measurement-input-cell-editor">
+      {editing ? (
+        <input
+          autoFocus
+          type="text"
+          className="inline-function-input measurement-input-symbol-input"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commit();
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              setDraft(symbol || "");
+              setEditing(false);
+            }
+          }}
+          aria-label={`Equation variable ${symbol}`}
+        />
+      ) : (
+        <button
+          type="button"
+          className="measurement-input-symbol"
+          title="Click to rename this equation variable"
+          aria-label={`Rename equation variable ${symbol}`}
+          onClick={() => setEditing(true)}
+        >
+          {formatEquationVariableSymbol(symbol)}
+        </button>
+      )}
+    </div>
+  );
 };
 
 export const MeasurementInputNameCell = ({
@@ -11334,14 +11444,19 @@ function DetailedView({
     const patch = { equationString: newEquationString };
     if (variables !== null) {
       const currentMappings = testPointData.variableMappings || {};
-      const newMappings = {};
-      variables.forEach((v) => {
-        // Fall back to the remembered name so re-typed variables keep their
-        // identity (and any TMDEs assigned to that name reconnect).
-        newMappings[v] =
-          currentMappings[v] || rememberedVariableNamesRef.current[v] || "";
+      const currentNominals = testPointData.variableNominals || {};
+      const reconciled = reconcileEquationVariableState({
+        variables,
+        currentMappings,
+        currentNominals,
+        rememberedMappings: rememberedVariableNamesRef.current,
       });
-      patch.variableMappings = newMappings;
+      patch.variableMappings = reconciled.mappings;
+      patch.variableNominals = reconciled.nominals;
+      if (reconciled.simpleRename && reconciled.mappings[reconciled.simpleRename.to]) {
+        rememberedVariableNamesRef.current[reconciled.simpleRename.to] =
+          reconciled.mappings[reconciled.simpleRename.to];
+      }
     }
 
     if (onUpdateTestPoint) {
@@ -11553,6 +11668,52 @@ function DetailedView({
     if (onUpdateTestPoint) {
       onUpdateTestPoint(patch);
     }
+  };
+
+  const handleVariableSymbolChange = (oldSymbol, rawNewSymbol) => {
+    const newSymbol = String(rawNewSymbol || "").trim();
+    if (newSymbol === oldSymbol) return;
+    const activeSymbols = equationDisplayData?.variables.map((item) => item.symbol) || [];
+    if (
+      !isValidEquationVariableSymbol(newSymbol) ||
+      activeSymbols.some((symbol) => symbol !== oldSymbol && symbol === newSymbol)
+    ) {
+      setNotification?.({
+        title: "Variable name not available",
+        message:
+          "Use a unique variable beginning with a letter or underscore and containing only letters, numbers, or underscores.",
+      });
+      return;
+    }
+
+    const nextEquation = renameEquationVariable(
+      testPointData.equationString || "",
+      oldSymbol,
+      newSymbol,
+    );
+    if (nextEquation === testPointData.equationString) return;
+
+    const currentMappings = testPointData.variableMappings || {};
+    const currentNominals = testPointData.variableNominals || {};
+    const nextMappings = { ...currentMappings };
+    const nextNominals = { ...currentNominals };
+    nextMappings[newSymbol] = currentMappings[oldSymbol] || "";
+    delete nextMappings[oldSymbol];
+    if (currentNominals[oldSymbol] !== undefined) {
+      nextNominals[newSymbol] = currentNominals[oldSymbol];
+      delete nextNominals[oldSymbol];
+    }
+    if (rememberedVariableNamesRef.current[oldSymbol]) {
+      rememberedVariableNamesRef.current[newSymbol] =
+        rememberedVariableNamesRef.current[oldSymbol];
+      delete rememberedVariableNamesRef.current[oldSymbol];
+    }
+
+    onUpdateTestPoint?.({
+      equationString: nextEquation,
+      variableMappings: nextMappings,
+      variableNominals: nextNominals,
+    });
   };
 
   // Write a distribution divisor (e.g. "1.960") onto every tolerance
@@ -13525,12 +13686,12 @@ function DetailedView({
             {equationDisplayData.variables.map((variable) => (
               <tr key={variable.symbol}>
                 <td>
-              <span
-                className="measurement-input-symbol"
-                title={variable.symbol}
-              >
-                {formatEquationVariableSymbol(variable.symbol)}
-              </span>
+                  <MeasurementInputSymbolCell
+                    symbol={variable.symbol}
+                    onCommit={(nextSymbol) =>
+                      handleVariableSymbolChange(variable.symbol, nextSymbol)
+                    }
+                  />
                 </td>
                 <td>
                   <MeasurementInputNameCell
