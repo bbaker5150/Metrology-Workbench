@@ -207,10 +207,10 @@ describe("measurement-point Risk 8 metric interactions", () => {
       />,
     );
 
-    expect(screen.getByTitle("R_REOP at test-point TUR - Ctrl+click for breakdown")).toHaveTextContent("84.18%");
-    expect(screen.getByTitle("Maximum R_REOP - Ctrl+click for breakdown")).toHaveTextContent("100.00%");
+    expect(screen.getByTitle("REOP at test-point TUR - Ctrl+click for breakdown")).toHaveTextContent("84.18%");
+    expect(screen.getByTitle("Maximum REOP - Ctrl+click for breakdown")).toHaveTextContent("100.00%");
     expect(screen.getByTitle("R_meas - Ctrl+click for breakdown")).toHaveTextContent("85.69%");
-    expect(screen.getByTitle("Targeted R_REOP with GB - Ctrl+click for breakdown")).toHaveTextContent("86.47%");
+    expect(screen.getByTitle("Targeted REOP with GB - Ctrl+click for breakdown")).toHaveTextContent("86.47%");
     expect(screen.getByTitle("Calibration Interval with Guard Banding")).toHaveTextContent(
       "5.40849",
     );
@@ -219,17 +219,17 @@ describe("measurement-point Risk 8 metric interactions", () => {
     expect(screen.getByTitle("Calibration Interval without Guard Banding - Ctrl+click for breakdown")).toHaveTextContent(
       "4.69473132",
     );
-    expect(screen.getByTitle("Targeted R_REOP without GB - Ctrl+click for breakdown")).toHaveTextContent("88.27%");
+    expect(screen.getByTitle("Targeted REOP without GB - Ctrl+click for breakdown")).toHaveTextContent("88.27%");
 
     const interactiveMetrics = [
-      ["R_REOP at test-point TUR - Ctrl+click for breakdown", "observedreop"],
-      ["Maximum R_REOP - Ctrl+click for breakdown", "maxreop"],
+      ["REOP at test-point TUR - Ctrl+click for breakdown", "observedreop"],
+      ["Maximum REOP - Ctrl+click for breakdown", "maxreop"],
       ["R_meas - Ctrl+click for breakdown", "truereop"],
-      ["Targeted R_REOP with GB - Ctrl+click for breakdown", "gbmeasrel"],
+      ["Targeted REOP with GB - Ctrl+click for breakdown", "gbmeasrel"],
       ["PFA without GB - Ctrl+click for breakdown", "nogbpfa"],
       ["PFR without GB - Ctrl+click for breakdown", "nogbpfr"],
       ["Calibration Interval without Guard Banding - Ctrl+click for breakdown", "calint"],
-      ["Targeted R_REOP without GB - Ctrl+click for breakdown", "measrel"],
+      ["Targeted REOP without GB - Ctrl+click for breakdown", "measrel"],
     ];
     interactiveMetrics.forEach(([title, modalType]) => {
       fireEvent.click(screen.getByTitle(title), { ctrlKey: true });

@@ -68,6 +68,7 @@ import {
   faChevronRight,
   faExpandArrowsAlt,
   faCompressArrowsAlt,
+  faCog,
   faMoon,
   faSun,
 } from "@fortawesome/free-solid-svg-icons";
@@ -122,6 +123,37 @@ const UNASSIGNED_UUT_ID = "__unassigned_uut__";
 // handles genuinely wide column sets; flexible `1fr` tracks made short values
 // appear detached from their headers and changed spacing with viewport width.
 const SIDEBAR_UNCERTAINTY_COLUMN = "110px";
+
+const DEFAULT_FUNCTION_POINT_SETTINGS = Object.freeze({
+  mode: "direct",
+  reuseEquation: false,
+  reuseBudget: false,
+});
+
+const clonePointSettingValue = (value) => {
+  if (Array.isArray(value)) return value.map(clonePointSettingValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        clonePointSettingValue(nested),
+      ]),
+    );
+  }
+  return value;
+};
+
+const getFunctionPointSettings = (sessionData, functionId) => {
+  const stored = (sessionData?.functionGroups || []).find(
+    (group) =>
+      makeFunctionKey(group.name) === functionId && group.kind !== "tmde",
+  )?.pointCreationSettings;
+  return {
+    ...DEFAULT_FUNCTION_POINT_SETTINGS,
+    ...(stored || {}),
+    mode: stored?.mode === "derived" ? "derived" : "direct",
+  };
+};
 
 const SIDEBAR_COLUMN_GROUPS = [
   {
@@ -927,7 +959,7 @@ export const SidebarPointItem = ({
       {visibleColumns.observedReop && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="R_REOP at test-point TUR - Ctrl+click for breakdown"
+          title="REOP at test-point TUR - Ctrl+click for breakdown"
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "observedreop")}
         >
           {formatMitigationPercent(risk.observedReop, 2)}
@@ -965,7 +997,7 @@ export const SidebarPointItem = ({
       {visibleColumns.maxReop && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Maximum R_REOP - Ctrl+click for breakdown"
+          title="Maximum REOP - Ctrl+click for breakdown"
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "maxreop")}
         >
           {formatMitigationPercent(risk.maxReop, 2)}
@@ -1039,7 +1071,7 @@ export const SidebarPointItem = ({
       {visibleColumns.gbMeasRel && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Targeted R_REOP with GB - Ctrl+click for breakdown"
+          title="Targeted REOP with GB - Ctrl+click for breakdown"
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbmeasrel")}
         >
           {formatMitigationPercent(risk.gbMeasRel, 2)}
@@ -1075,7 +1107,7 @@ export const SidebarPointItem = ({
       {visibleColumns.noGbMeasRel && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Targeted R_REOP without GB - Ctrl+click for breakdown"
+          title="Targeted REOP without GB - Ctrl+click for breakdown"
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "measrel")}
         >
           {formatMitigationPercent(risk.noGbMeasRel, 2)}
@@ -1457,6 +1489,7 @@ function App({ showThemeToggle = false }) {
   const [isMitigationInputsOpen, setIsMitigationInputsOpen] = useState(true);
   const [analysisMode, setAnalysisMode] = useState("overview");
   const analysisScrollPositionsRef = useRef({});
+  const lastSelectedPointBySessionRef = useRef({});
   const [showContribution, setShowContribution] = useState(false);
   const [scopedZoomLevels, setScopedZoomLevels] = useState({});
   const [loadedPreferencesSessionId, setLoadedPreferencesSessionId] =
@@ -1809,8 +1842,6 @@ function App({ showThemeToggle = false }) {
   // Id of a just-quick-added direct point whose sidebar row should open straight
   // into value-edit. SidebarPointItem consumes it on mount, then App clears it.
   const [pendingValueEditPointId, setPendingValueEditPointId] = useState(null);
-  // Per-function direct/derived mode for the "+" quick-add button.
-  const [newPointModeByFunction, setNewPointModeByFunction] = useState({});
   // Function headers own point creation now that UUT folder rows are gone.
   // When several UUTs implement the function, this remembers the target shown
   // in the compact header selector.
@@ -1819,6 +1850,7 @@ function App({ showThemeToggle = false }) {
   // pauses here so the new direct/derived point can be attached to an explicit
   // unit instead of silently choosing the first range.
   const [pendingPointUnitChoice, setPendingPointUnitChoice] = useState(null);
+  const [openFunctionSettingsId, setOpenFunctionSettingsId] = useState(null);
 
   useEffect(() => {
     if (!pendingPointUnitChoice) return undefined;
@@ -1829,6 +1861,16 @@ function App({ showThemeToggle = false }) {
     document.addEventListener("pointerdown", closePicker);
     return () => document.removeEventListener("pointerdown", closePicker);
   }, [pendingPointUnitChoice]);
+
+  useEffect(() => {
+    if (!openFunctionSettingsId) return undefined;
+    const closeSettings = (event) => {
+      if (event.target?.closest?.(".function-point-settings")) return;
+      setOpenFunctionSettingsId(null);
+    };
+    document.addEventListener("pointerdown", closeSettings);
+    return () => document.removeEventListener("pointerdown", closeSettings);
+  }, [openFunctionSettingsId]);
 
   // --- Global UUT Selection State ---
   const [currentUutSelection, setCurrentUutSelection] = useState([]);
@@ -2575,23 +2617,6 @@ function App({ showThemeToggle = false }) {
     });
   };
 
-  const expandFunctionBranch = (event, fnGroup) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setExpandedFunctions((previous) => {
-      const next = new Set(previous);
-      next.add(fnGroup.id);
-      return next;
-    });
-    setExpandedUuts((previous) => {
-      const next = new Set(previous);
-      (fnGroup.uutGroups || []).forEach((group) => {
-        next.add(`${fnGroup.id}::${group.id}`);
-      });
-      return next;
-    });
-  };
-
   // Pick the point to focus when a function/UUT node is clicked: keep the current
   // point if it still belongs to the clicked scope, otherwise fall back to the
   // first matching point.
@@ -2607,21 +2632,6 @@ function App({ showThemeToggle = false }) {
       (point) => point.id === selectedTestPointId && inScope(point),
     );
     return current || currentTestPoints.find(inScope) || null;
-  };
-
-  const handleSelectFunction = (functionKey) => {
-    setRiskResults(null);
-    const point = resolveFunctionPoint(functionKey);
-
-    setSelectedFunctionId(functionKey);
-    setSelectedUutId(null);
-    setSelectedTestPointId(point?.id || null);
-    setSelectedTestPointContextUutId(point?.associatedUutIds?.[0] || null);
-    setCurrentUutSelection([]);
-    setVirtualPoint(null);
-    setSelectedTablePointIds([]);
-    setSelectedSidebarPointIds(point ? [point.id] : []);
-    setAnalysisMode(point ? "uncertaintyTool" : "overview");
   };
 
   const handleSelectUut = (uutId, functionKey) => {
@@ -3373,12 +3383,86 @@ function App({ showThemeToggle = false }) {
     return newId;
   };
 
+  const updateFunctionPointSettings = (fnGroup, patch) => {
+    if (!currentSessionData) return;
+    const existing = Array.isArray(currentSessionData.functionGroups)
+      ? currentSessionData.functionGroups
+      : [];
+    let found = false;
+    const next = existing.map((group) => {
+      if (
+        makeFunctionKey(group.name) !== fnGroup.id ||
+        group.kind === "tmde"
+      ) {
+        return group;
+      }
+      found = true;
+      return {
+        ...group,
+        pointCreationSettings: {
+          ...DEFAULT_FUNCTION_POINT_SETTINGS,
+          ...(group.pointCreationSettings || {}),
+          ...patch,
+        },
+      };
+    });
+    if (!found) {
+      next.push({
+        name: fnGroup.name,
+        unit: fnGroup.unit || "",
+        units: fnGroup.units || (fnGroup.unit ? [fnGroup.unit] : []),
+        kind: "uut",
+        pointCreationSettings: {
+          ...DEFAULT_FUNCTION_POINT_SETTINGS,
+          ...patch,
+        },
+      });
+    }
+    updateSession({ ...currentSessionData, functionGroups: next });
+  };
+
+  const applyFunctionPointTemplate = (point, fnGroup, settings) => {
+    const template = currentTestPoints.find(
+      (candidate) => functionKeyOf(candidate) === fnGroup.id,
+    );
+    if (!template) return point;
+
+    const next = { ...point };
+    if (settings.reuseEquation) {
+      [
+        "equationString",
+        "equationName",
+        "variableMappings",
+        "variableNominals",
+      ].forEach((field) => {
+        const value = clonePointSettingValue(template[field]);
+        if (value !== undefined) next[field] = value;
+      });
+    }
+    if (settings.reuseBudget) {
+      [
+        "components",
+        "tmdeTolerances",
+        "inputCorrelations",
+        "coverageFactorMode",
+        "coverageFactorOverride",
+        "budgetPropagationMethod",
+        "monteCarloTrials",
+        "useEffectiveDofByGroup",
+      ].forEach((field) => {
+        const value = clonePointSettingValue(template[field]);
+        if (value !== undefined) next[field] = value;
+      });
+    }
+    return next;
+  };
+
   // Quick-add a blank point directly onto a UUT (no modal): the unit/function
   // come from the function group the "+" was clicked under, the point starts
   // with an empty value, and a direct point is dropped straight into inline
   // value-edit in the sidebar. Derived points open in the Detailed View where
   // the equation editor already lives.
-  const buildBlankPoint = (uutId, fnGroup, mode, selectedUnit = "") => {
+  const buildBlankPoint = (uutId, fnGroup, settings, selectedUnit = "") => {
     const uut = currentSessionData?.uuts?.find((u) => u.id === uutId);
     const ranges = uut ? getAllUutRanges(uut) : [];
     const requestedUnit = selectedUnit || fnGroup?.unit || "";
@@ -3402,13 +3486,13 @@ function App({ showThemeToggle = false }) {
       fnGroup?.unit ||
       uut?.instrument?.functions?.[0]?.unit ||
       "";
-    return {
+    return applyFunctionPointTemplate({
       measurementAreaId: null,
       associatedUutIds: [uutId],
-      measurementType: mode,
+      measurementType: settings.mode,
       uutTolerance: fnRange || null,
       testPointInfo: { parameter: { name: functionName, value: "", unit } },
-    };
+    }, fnGroup, settings);
   };
 
   // A shared function section can span several UUTs. Only offer units that
@@ -3428,12 +3512,12 @@ function App({ showThemeToggle = false }) {
   const handleQuickAddPoint = (
     fnGroup,
     uutId,
-    mode = "direct",
+    settings,
     selectedUnit = "",
   ) => {
     if (!uutId) return;
     const newId = handleSaveTestPoint(
-      buildBlankPoint(uutId, fnGroup, mode, selectedUnit),
+      buildBlankPoint(uutId, fnGroup, settings, selectedUnit),
     );
     setSelectedTestPointContextUutId(uutId);
     setPendingPointUnitChoice(null);
@@ -3442,13 +3526,18 @@ function App({ showThemeToggle = false }) {
     }
   };
 
-  const openQuickAddPoint = (fnGroup, uutId, mode) => {
+  const openQuickAddPoint = (fnGroup, uutId, settings) => {
     const units = unitsForQuickAddPoint(fnGroup, uutId);
     if (units.length > 1) {
-      setPendingPointUnitChoice({ functionId: fnGroup.id, uutId, mode, units });
+      setPendingPointUnitChoice({
+        functionId: fnGroup.id,
+        uutId,
+        settings,
+        units,
+      });
       return;
     }
-    handleQuickAddPoint(fnGroup, uutId, mode, units[0] || "");
+    handleQuickAddPoint(fnGroup, uutId, settings, units[0] || "");
   };
 
   // ---  Inline update handler for sidebar edits ---
@@ -3743,6 +3832,57 @@ function App({ showThemeToggle = false }) {
     );
   },
     [expandedFunctions, sidebarData, sortSidebarPoints],
+  );
+
+  useEffect(() => {
+    if (selectedSessionId && selectedTestPointId) {
+      lastSelectedPointBySessionRef.current[selectedSessionId] =
+        selectedTestPointId;
+    }
+  }, [selectedSessionId, selectedTestPointId]);
+
+  const handleAnalysisModeChange = useCallback(
+    (nextMode) => {
+      if (nextMode !== "uncertaintyTool" || selectedTestPointId) {
+        setAnalysisMode(nextMode);
+        return;
+      }
+
+      const rememberedId = selectedSessionId
+        ? lastSelectedPointBySessionRef.current[selectedSessionId]
+        : null;
+      const point =
+        currentTestPoints.find(
+          (candidate) => String(candidate.id) === String(rememberedId),
+        ) || currentTestPoints[0];
+      if (!point) {
+        setAnalysisMode("overview");
+        return;
+      }
+
+      const occurrence = visibleSidebarPointOrder.find(
+        (entry) => String(entry.pointId) === String(point.id),
+      );
+      const contextUutId =
+        occurrence?.contextUutId || point.associatedUutIds?.[0] || null;
+      setSelectedTestPointId(point.id);
+      setSelectedTestPointContextUutId(contextUutId);
+      setSelectedFunctionId(functionKeyOf(point));
+      setSelectedUutId(null);
+      setSelectedSidebarPointIds([point.id]);
+      setSidebarSelectionAnchor({ pointId: point.id, contextUutId });
+      setVirtualPoint(null);
+      setCurrentUutSelection([]);
+      setSelectedTablePointIds([]);
+      setAnalysisMode("uncertaintyTool");
+    },
+    [
+      currentTestPoints,
+      selectedSessionId,
+      selectedTestPointId,
+      setSelectedTestPointId,
+      visibleSidebarPointOrder,
+    ],
   );
 
   // --- LOGIC: Compute Data to Display ---
@@ -4082,7 +4222,7 @@ function App({ showThemeToggle = false }) {
       {visibleSidebarColumns.observedReop &&
         renderSidebarSortHeader("observedReop", "REOP @ TUR", {
           align: "center",
-          title: "R_REOP at Test-Point TUR",
+          title: "REOP at Test-Point TUR",
         })}
       {visibleSidebarColumns.pfa &&
         renderSidebarSortHeader("pfa", "PFA", { align: "center" })}
@@ -4123,7 +4263,7 @@ function App({ showThemeToggle = false }) {
       {visibleSidebarColumns.gbMeasRel &&
         renderSidebarSortHeader("gbMeasRel", "Target REOP + GB", {
           align: "center",
-          title: "Targeted R_REOP with Guardband",
+          title: "Targeted REOP with Guardband",
         })}
       {visibleSidebarColumns.noGbPfa &&
         renderSidebarSortHeader("noGbPfa", "PFA no GB", {
@@ -4143,7 +4283,7 @@ function App({ showThemeToggle = false }) {
       {visibleSidebarColumns.noGbMeasRel &&
         renderSidebarSortHeader("noGbMeasRel", "Target REOP no GB", {
           align: "center",
-          title: "Targeted R_REOP without Guardband",
+          title: "Targeted REOP without Guardband",
         })}
         </div>
       </div>
@@ -4161,12 +4301,8 @@ function App({ showThemeToggle = false }) {
       uutOptions.find(
         (group) => String(group.id) === String(requestedUutId),
       ) || uutOptions[0];
-    const pointMode = newPointModeByFunction[fnGroup.id] || "direct";
-    const setMode = (mode) =>
-      setNewPointModeByFunction((previous) => ({
-        ...previous,
-        [fnGroup.id]: mode,
-      }));
+    const settings = getFunctionPointSettings(currentSessionData, fnGroup.id);
+    const settingsOpen = openFunctionSettingsId === fnGroup.id;
 
     return (
       <div
@@ -4193,50 +4329,97 @@ function App({ showThemeToggle = false }) {
             ))}
           </select>
         )}
-        <div
-          className="point-mode-control point-mode-control--function"
-          role="group"
-          aria-label="Direct / Derived: what the add button creates"
-          title="What the + button adds"
-        >
-          <span
-            className={`point-mode-label ${pointMode === "direct" ? "is-active" : ""}`}
+        <div className="function-point-settings">
+          <button
+            type="button"
+            className={`function-point-settings-button${settingsOpen ? " is-active" : ""}`}
+            title={`New ${fnGroup.name} point settings`}
+            aria-label={`New ${fnGroup.name} point settings`}
+            aria-expanded={settingsOpen}
+            onClick={() =>
+              setOpenFunctionSettingsId((current) =>
+                current === fnGroup.id ? null : fnGroup.id,
+              )
+            }
           >
-            Direct
-          </span>
-          <label className="direction-toggle-switch">
-            <input
-              type="checkbox"
-              checked={pointMode === "derived"}
-              aria-label="Create derived measurement points"
-              onChange={(event) =>
-                setMode(event.target.checked ? "derived" : "direct")
-              }
-            />
-            <span className="direction-toggle-slider" />
-          </label>
-          <span
-            className={`point-mode-label ${pointMode === "derived" ? "is-active" : ""}`}
-          >
-            Derived
-          </span>
+            <FontAwesomeIcon icon={faCog} />
+          </button>
+          {settingsOpen && (
+            <div
+              className="function-point-settings-menu"
+              role="dialog"
+              aria-label={`${fnGroup.name} point settings`}
+            >
+              <div className="function-point-settings-heading">
+                <strong>New point settings</strong>
+                <span>Applied to this function</span>
+              </div>
+              <div className="function-point-type-options" role="radiogroup" aria-label="New point type">
+                {[
+                  ["direct", "Direct"],
+                  ["derived", "Derived"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={settings.mode === value}
+                    className={settings.mode === value ? "is-selected" : ""}
+                    onClick={() => updateFunctionPointSettings(fnGroup, { mode: value })}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <label className="function-point-setting-check">
+                <input
+                  type="checkbox"
+                  checked={settings.reuseEquation}
+                  onChange={(event) =>
+                    updateFunctionPointSettings(fnGroup, {
+                      reuseEquation: event.target.checked,
+                    })
+                  }
+                />
+                <span>
+                  <strong>Reuse the first point's equation</strong>
+                  <small>New derived points start with the same equation and variables.</small>
+                </span>
+              </label>
+              <label className="function-point-setting-check">
+                <input
+                  type="checkbox"
+                  checked={settings.reuseBudget}
+                  onChange={(event) =>
+                    updateFunctionPointSettings(fnGroup, {
+                      reuseBudget: event.target.checked,
+                    })
+                  }
+                />
+                <span>
+                  <strong>Reuse the first point's budget</strong>
+                  <small>New points start with the same components and propagation settings.</small>
+                </span>
+              </label>
+            </div>
+          )}
         </div>
         <button
           type="button"
-          className="btn-icon-only small"
+          className="btn-icon-only small function-point-add-button"
           onClick={() => {
             setExpandedFunctions((previous) =>
               new Set(previous).add(fnGroup.id),
             );
-            openQuickAddPoint(fnGroup, targetUut.id, pointMode);
+            openQuickAddPoint(fnGroup, targetUut.id, settings);
           }}
           title={
-            pointMode === "derived"
+            settings.mode === "derived"
               ? "Add derived point"
               : "Add direct point"
           }
           aria-label={
-            pointMode === "derived"
+            settings.mode === "derived"
               ? "Add derived point"
               : "Add direct point"
           }
@@ -4261,7 +4444,7 @@ function App({ showThemeToggle = false }) {
                     handleQuickAddPoint(
                       fnGroup,
                       targetUut.id,
-                      pendingPointUnitChoice.mode,
+                      pendingPointUnitChoice.settings,
                       unit,
                     )
                   }
@@ -4677,7 +4860,7 @@ function App({ showThemeToggle = false }) {
                               cols: [
                                 {
                                   key: "observedReop",
-                                  label: "R_REOP @ test pt TUR",
+                                  label: "REOP @ test pt TUR",
                                 },
                                 { key: "pfa", label: "PFA" },
                                 { key: "pfr", label: "PFR" },
@@ -4696,7 +4879,7 @@ function App({ showThemeToggle = false }) {
                                 { key: "gbCalInt", label: "Cal Int with GB" },
                                 {
                                   key: "gbMeasRel",
-                                  label: "Targeted R_REOP w/ GB",
+                                  label: "Targeted REOP w/ GB",
                                 },
                               ],
                             },
@@ -4708,7 +4891,7 @@ function App({ showThemeToggle = false }) {
                                 { key: "noGbCalInt", label: "Cal Int w/o GB" },
                                 {
                                   key: "noGbMeasRel",
-                                  label: "Targeted R_REOP w/o GB",
+                                  label: "Targeted REOP w/o GB",
                                 },
                               ],
                             },
@@ -4794,10 +4977,6 @@ function App({ showThemeToggle = false }) {
                 )}
 
                 {sidebarData.map((fnGroup) => {
-                    const isFnActive =
-                      selectedFunctionId === fnGroup.id &&
-                      !selectedUutId &&
-                      !selectedTestPointId;
                     const isFnExpanded = expandedFunctions.has(fnGroup.id);
                     // The Unassigned bucket renders its points directly under the
                     // function header (no real UUT to nest under).
@@ -4810,28 +4989,19 @@ function App({ showThemeToggle = false }) {
                           key={fnGroup.id}
                           className="measurement-group-container"
                         >
-                          <div
-                            className={`area-header-sticky ${isFnActive ? "active" : ""}`}
-                            onClick={() => handleSelectFunction(fnGroup.id)}
-                            onDoubleClick={(event) =>
-                              expandFunctionBranch(event, fnGroup)
-                            }
-                            title="Double-click to expand all measurement points"
-                          >
-                            <FontAwesomeIcon
-                              icon={
-                                isFnExpanded ? faChevronDown : faChevronRight
-                              }
-                              onClick={(e) =>
-                                toggleFunctionExpand(e, fnGroup.id)
-                              }
-                              style={{
-                                opacity: 0.6,
-                                marginRight: "8px",
-                                fontSize: "0.75em",
-                                width: "10px",
-                              }}
-                            />
+                          <div className="area-header-sticky">
+                            <button
+                              type="button"
+                              className="function-sidebar-collapse-button"
+                              onClick={(e) => toggleFunctionExpand(e, fnGroup.id)}
+                              title={isFnExpanded ? "Collapse function" : "Expand function"}
+                              aria-label={isFnExpanded ? "Collapse function" : "Expand function"}
+                              aria-expanded={isFnExpanded}
+                            >
+                              <FontAwesomeIcon
+                                icon={isFnExpanded ? faChevronDown : faChevronRight}
+                              />
+                            </button>
                             <FontAwesomeIcon
                               icon={faLayerGroup}
                               style={{ opacity: 0.6 }}
@@ -4858,30 +5028,25 @@ function App({ showThemeToggle = false }) {
                         key={fnGroup.id}
                         className="measurement-group-container"
                       >
-                        <div
-                          className={`area-header-sticky ${isFnActive ? "active" : ""}`}
-                          onClick={() => handleSelectFunction(fnGroup.id)}
-                          onDoubleClick={(event) =>
-                            expandFunctionBranch(event, fnGroup)
-                          }
-                          title="Double-click to expand all measurement points"
-                        >
-                          <FontAwesomeIcon
-                            icon={isFnExpanded ? faChevronDown : faChevronRight}
+                        <div className="area-header-sticky">
+                          <button
+                            type="button"
+                            className="function-sidebar-collapse-button"
                             onClick={(e) => toggleFunctionExpand(e, fnGroup.id)}
-                            style={{
-                              opacity: 0.6,
-                              marginRight: "8px",
-                              fontSize: "0.75em",
-                              width: "10px",
-                            }}
-                          />
+                            title={isFnExpanded ? "Collapse function" : "Expand function"}
+                            aria-label={isFnExpanded ? "Collapse function" : "Expand function"}
+                            aria-expanded={isFnExpanded}
+                          >
+                            <FontAwesomeIcon
+                              icon={isFnExpanded ? faChevronDown : faChevronRight}
+                            />
+                          </button>
                           <FontAwesomeIcon
                             icon={faCube}
                             style={{
                               color:
                                 fnGroup.color || "var(--primary-color)",
-                              opacity: isFnActive ? 1 : 0.7,
+                              opacity: 0.7,
                             }}
                             size="sm"
                           />
@@ -4965,7 +5130,7 @@ function App({ showThemeToggle = false }) {
                     selectedTablePointIds={selectedTablePointIds}
                     setSelectedTablePointIds={setSelectedTablePointIds}
                     preferredAnalysisMode={analysisMode}
-                    onAnalysisModeChange={setAnalysisMode}
+                    onAnalysisModeChange={handleAnalysisModeChange}
                     preferredShowContribution={showContribution}
                     onShowContributionChange={setShowContribution}
                     collapsedFunctionKeys={collapsedInstrumentFunctionKeys}

@@ -123,9 +123,9 @@ describe("UncertaintyApp", () => {
     expect(screen.getByText("Risk")).toBeInTheDocument();
     expect(screen.getByText("Mitigation (GB + Int)")).toBeInTheDocument();
     expect(screen.getByText("Mitigation (Int Only)")).toBeInTheDocument();
-    expect(screen.getByText("R_REOP @ test pt TUR")).toBeInTheDocument();
-    expect(screen.getByText("Targeted R_REOP w/ GB")).toBeInTheDocument();
-    expect(screen.getByText("Targeted R_REOP w/o GB")).toBeInTheDocument();
+    expect(screen.getByText("REOP @ test pt TUR")).toBeInTheDocument();
+    expect(screen.getByText("Targeted REOP w/ GB")).toBeInTheDocument();
+    expect(screen.getByText("Targeted REOP w/o GB")).toBeInTheDocument();
     const riskGroupToggle = screen.getByRole("checkbox", {
       name: "Toggle all Risk columns",
     });
@@ -215,13 +215,13 @@ describe("UncertaintyApp", () => {
     ).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Document Date")).toBeInTheDocument();
     expect(screen.getByText("Confidence (%)")).toBeInTheDocument();
-    expect(screen.getByText("Assumed R_REOP")).toBeInTheDocument();
+    expect(screen.getByText("Assumed REOP")).toBeInTheDocument();
     expect(screen.getByText("TUR Needed")).toBeInTheDocument();
     expect(screen.getByText("PFA Required")).toBeInTheDocument();
-    expect(screen.getByText("R_REOP Required")).toBeInTheDocument();
-    expect(screen.getByText("Cal Int for assumed R_REOP")).toBeInTheDocument();
+    expect(screen.getByText("REOP Required")).toBeInTheDocument();
+    expect(screen.getByText("Cal Int for assumed REOP")).toBeInTheDocument();
     const assumedReliabilityHelp = screen
-      .getByText("Assumed R_REOP")
+      .getByText("Assumed REOP")
       .closest(".session-header-label");
     expect(assumedReliabilityHelp.title).toMatch(/probability/i);
     expect(assumedReliabilityHelp.title).not.toMatch(/workbook/i);
@@ -305,6 +305,98 @@ describe("UncertaintyApp", () => {
     expect(await screen.findByRole("region", { name: "Session notes" })).toBeInTheDocument();
     expect(screen.getByText("Legacy note")).toBeInTheDocument();
   });
+
+  test("selects the first point for Uncertainty Budget and preserves every tab scroll position", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 103,
+        name: "Tab State Session",
+        measurementAreas: [],
+        uuts: [
+          {
+            id: "uut-tabs",
+            description: "Tab UUT",
+            instrument: {
+              functions: [
+                {
+                  id: "fn-tabs",
+                  name: "Voltage",
+                  unit: "V",
+                  ranges: [{ id: "range-tabs", min: 0, max: 10, unit: "V" }],
+                },
+              ],
+            },
+          },
+        ],
+        tmdes: [],
+        testPoints: [
+          {
+            id: "point-tabs",
+            associatedUutIds: ["uut-tabs"],
+            measurementType: "direct",
+            testPointInfo: {
+              parameter: { name: "Voltage", value: "5", unit: "V" },
+            },
+            uutTolerance: {
+              functionName: "Voltage",
+              rangeId: "range-tabs",
+              min: 0,
+              max: 10,
+              unit: "V",
+            },
+            tmdeTolerances: [],
+            components: [],
+          },
+        ],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const overviewTab = await screen.findByRole("button", {
+      name: "Instrument Overview",
+    });
+    const notesTab = screen.getByRole("button", { name: "Notes" });
+    const budgetTab = screen.getByRole("button", { name: "Uncertainty Budget" });
+    document.querySelector(".analysis-content").scrollTop = 111;
+
+    fireEvent.click(notesTab);
+    await screen.findByRole("region", { name: "Session notes" });
+    document.querySelector(".analysis-content").scrollTop = 222;
+
+    fireEvent.click(budgetTab);
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Uncertainty Budget" }),
+      ).toHaveClass("active");
+      expect(
+        document.querySelector(".detailed-view-section-layout"),
+      ).toBeInTheDocument();
+    });
+    document.querySelector(".analysis-content").scrollTop = 333;
+
+    fireEvent.click(screen.getByRole("button", { name: "Instrument Overview" }));
+    await waitFor(() => {
+      expect(document.querySelector(".analysis-content").scrollTop).toBe(111);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
+    await waitFor(() => {
+      expect(document.querySelector(".analysis-content").scrollTop).toBe(222);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Uncertainty Budget" }));
+    await waitFor(() => {
+      expect(document.querySelector(".analysis-content").scrollTop).toBe(333);
+    });
+  }, 15000);
 
   test("renders named function headers in the sidebar", async () => {
     apiMock.state.sessions = [
@@ -468,7 +560,9 @@ describe("UncertaintyApp", () => {
     const functionHeader = functionRows
       .find((row) => row.classList.contains("area-label"))
       .closest(".area-header-sticky");
-    fireEvent.doubleClick(functionHeader);
+    fireEvent.click(
+      within(functionHeader).getByRole("button", { name: "Expand function" }),
+    );
     const emptyUutRow = await waitFor(() => {
       const row = document.querySelector(".sidebar-empty-uut-row");
       expect(row).toBeInTheDocument();
@@ -481,6 +575,114 @@ describe("UncertaintyApp", () => {
       within(functionHeader).getByRole("button", { name: "Add direct point" }),
     ).toBeInTheDocument();
   });
+
+  test("applies persistent function settings when adding subsequent points", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 104,
+        name: "Function Template Session",
+        functionGroups: [],
+        measurementAreas: [],
+        uuts: [
+          {
+            id: "uut-template",
+            description: "Template UUT",
+            instrument: {
+              functions: [
+                {
+                  id: "fn-template",
+                  name: "Torque",
+                  unit: "lb-ft",
+                  ranges: [
+                    { id: "range-template", min: 0, max: 100, unit: "lb-ft" },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        tmdes: [],
+        testPoints: [
+          {
+            id: "point-template",
+            associatedUutIds: ["uut-template"],
+            measurementType: "derived",
+            equationString: "T=L*W",
+            equationName: "Torque",
+            variableMappings: { L: "Length", W: "Force" },
+            variableNominals: {
+              L: { value: 2, unit: "ft" },
+              W: { value: 10, unit: "lb" },
+            },
+            inputCorrelations: { "L:W": 0.2 },
+            components: [{ id: "operator", name: "Operator", value: 0.1 }],
+            tmdeTolerances: [{ id: "tmde-copy", name: "Standard" }],
+            budgetPropagationMethod: "montecarlo",
+            monteCarloTrials: 25000,
+            testPointInfo: {
+              parameter: { name: "Torque", value: 20, unit: "lb-ft" },
+            },
+            uutTolerance: {
+              functionName: "Torque",
+              rangeId: "range-template",
+              min: 0,
+              max: 100,
+              unit: "lb-ft",
+            },
+          },
+        ],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "New Torque point settings" }),
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "Derived" }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Reuse the first point's equation/i }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Reuse the first point's budget/i }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add derived point" }));
+
+    await waitFor(() => {
+      const savedSession = apiMock.put.mock.calls
+        .map((call) => call[1])
+        .find((session) => session?.id === 104 && session.testPoints?.length === 2);
+      expect(savedSession).toBeTruthy();
+      const created = savedSession.testPoints.find(
+        (point) => point.id !== "point-template",
+      );
+      expect(created).toMatchObject({
+        measurementType: "derived",
+        equationString: "T=L*W",
+        equationName: "Torque",
+        variableMappings: { L: "Length", W: "Force" },
+        inputCorrelations: { "L:W": 0.2 },
+        components: [{ id: "operator", name: "Operator", value: 0.1 }],
+        tmdeTolerances: [{ id: "tmde-copy", name: "Standard" }],
+        budgetPropagationMethod: "montecarlo",
+        monteCarloTrials: 25000,
+      });
+      expect(savedSession.functionGroups[0].pointCreationSettings).toEqual({
+        mode: "derived",
+        reuseEquation: true,
+        reuseBudget: true,
+      });
+    });
+  }, 15000);
 
   test("keeps Delete scoped to the open instrument builder", async () => {
     apiMock.state.sessions = [
@@ -683,12 +885,13 @@ describe("UncertaintyApp", () => {
       screen.getByRole("button", { name: "Sort by Section" }),
     ).toBeInTheDocument();
     fireEvent.mouseDown(document.body);
-    const modeToggle = screen.getByRole("checkbox", {
-      name: "Create derived measurement points",
-    });
-    expect(modeToggle).not.toBeChecked();
-    fireEvent.click(modeToggle);
-    expect(modeToggle).toBeChecked();
+    fireEvent.click(
+      screen.getByRole("button", { name: "New Voltage point settings" }),
+    );
+    const derivedOption = screen.getByRole("radio", { name: "Derived" });
+    expect(derivedOption).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(derivedOption);
+    expect(derivedOption).toHaveAttribute("aria-checked", "true");
     expect(
       screen.getByRole("button", { name: "Add derived point" }),
     ).toBeInTheDocument();

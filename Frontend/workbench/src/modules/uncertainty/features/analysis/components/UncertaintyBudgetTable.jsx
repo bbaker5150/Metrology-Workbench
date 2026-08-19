@@ -56,22 +56,14 @@ const formatNumber = (value, sigFigs = 4) => {
   return n.toPrecision(sigFigs);
 };
 
-// Results cards are a calculation readout, not a compact table column. Keep
-// enough significant digits to expose the actual combined/expanded result
-// instead of making a value such as 0.0019992 look like 0.002000. Twelve
-// significant digits suppress normal binary floating-point noise while
-// preserving substantially more calculation precision than the table rows.
+// Result cards should expose useful precision without leaking floating-point
+// noise. Eight significant digits keeps small metrology values readable while
+// avoiding readouts such as 0.00999981624765.
 const formatCalculatedResult = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return "N/A";
   if (n === 0) return "0";
-
-  const magnitude = Math.floor(Math.log10(Math.abs(n)));
-  const decimalPlaces = Math.min(20, Math.max(0, 12 - magnitude - 1));
-  return n
-    .toFixed(decimalPlaces)
-    .replace(/(\.\d*?[1-9])0+$/, "$1")
-    .replace(/\.0+$/, "");
+  return String(Number(n.toPrecision(8)));
 };
 
 const simplifyBudgetLabel = (label = "") =>
@@ -1519,7 +1511,6 @@ const UncertaintyBudgetTable = ({
                 <div className="budget-section-title-actions">
                   {group.kind === "final" && (
                     <>
-                      {!isDirect && renderPropagationControl()}
                       <button
                         type="button"
                         className={`budget-contribution-button${showContribution ? " is-active" : ""}`}
@@ -1532,6 +1523,8 @@ const UncertaintyBudgetTable = ({
                       </button>
                     </>
                   )}
+                  {group.kind === "equation" && !isDirect &&
+                    renderPropagationControl()}
                   {group.kind === "equation"
                     ? renderEquationActions()
                     : canAddTmdeForGroup(group) && (

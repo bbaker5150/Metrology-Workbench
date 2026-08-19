@@ -7796,34 +7796,35 @@ const SummaryDashboard = ({
 
   return (
     <div className="configuration-panel">
-      {/* Header */}
-      <div
-        style={{
-          paddingBottom: "10px",
-          borderBottom: "1px solid var(--border-color)",
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: "1.3rem" }}>
-          {viewMode === "range" && (
-            <FontAwesomeIcon
-              icon={faRulerCombined}
-              style={{ marginRight: "10px", color: "var(--primary-color)" }}
-            />
+      {viewMode !== "session" && (
+        <div
+          style={{
+            paddingBottom: "10px",
+            borderBottom: "1px solid var(--border-color)",
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: "1.3rem" }}>
+            {viewMode === "range" && (
+              <FontAwesomeIcon
+                icon={faRulerCombined}
+                style={{ marginRight: "10px", color: "var(--primary-color)" }}
+              />
+            )}
+            {title}
+          </h2>
+          {subtitle && (
+            <div
+              style={{
+                color: "var(--text-color-muted)",
+                fontSize: "0.85rem",
+                marginTop: "4px",
+              }}
+            >
+              {subtitle}
+            </div>
           )}
-          {title}
-        </h2>
-        {subtitle && (
-          <div
-            style={{
-              color: "var(--text-color-muted)",
-              fontSize: "0.85rem",
-              marginTop: "4px",
-            }}
-          >
-            {subtitle}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* UUT TABLE */}
       <div className="panel-card">

@@ -1346,6 +1346,12 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 
 .sidebar-measurement-title-toggle {
   align-self: stretch;
+  cursor: default;
+}
+
+.sidebar-measurement-title-toggle:hover,
+.sidebar-measurement-title-toggle:hover .sidebar-section-title {
+  color: var(--text-color);
 }
 
 .sidebar-measurement-accordion {
@@ -1650,13 +1656,13 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 .sidebar-column-headers .sidebar-value-sticky {
   z-index: 8;
   background-color: var(--sidebar-sticky-surface);
-  box-shadow: 7px 0 8px -9px rgba(0, 0, 0, 0.5);
+  box-shadow: none;
 }
 
 .point-grid-item > .sidebar-value-sticky {
   z-index: 6;
   background-color: var(--sidebar-sticky-surface);
-  box-shadow: 7px 0 8px -9px rgba(0, 0, 0, 0.5);
+  box-shadow: none;
 }
 
 .point-grid-item:hover > .sidebar-value-sticky {
@@ -2625,7 +2631,7 @@ body.dark-mode .uncertainty-module .analysis-container > .analysis-tabs {
 }
 
 .industry-table tbody tr.instrument-area-section-row {
-  background: var(--background-color-secondary);
+  background: var(--content-background);
   pointer-events: none;
 }
 
@@ -10645,7 +10651,7 @@ body.theme-cyberpunk .notification-window .window-header {
   height: 30px;
   padding: 6px 10px;
   color: var(--text-color-muted);
-  background: color-mix(in srgb, var(--surface-sunken) 72%, transparent);
+  background: var(--content-background);
   border-bottom: 1px solid var(--border-color);
   font-size: 0.68rem;
   font-weight: 700;
@@ -12428,8 +12434,8 @@ input.inline-function-input:focus {
   position: sticky;
   right: 8px;
   z-index: 5;
-  background: color-mix(in srgb, var(--table-header-bg) 92%, transparent);
-  box-shadow: -10px 0 14px -13px rgba(0, 0, 0, 0.65);
+  background: transparent;
+  box-shadow: none;
 }
 
 .function-header-collapse-btn:hover {
@@ -14328,8 +14334,36 @@ body.theme-cyberpunk .range-header-container:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  cursor: pointer;
+  cursor: default;
   transition: all 0.15s ease;
+}
+
+.function-sidebar-collapse-button,
+.function-point-settings-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+}
+
+.function-sidebar-collapse-button {
+  margin-right: 1px;
+  font-size: 0.68rem;
+}
+
+.function-sidebar-collapse-button:hover,
+.function-point-settings-button:hover,
+.function-point-settings-button.is-active {
+  background: var(--primary-color-light);
+  color: var(--primary-color);
 }
 
 .area-label {
@@ -14365,8 +14399,102 @@ body.theme-cyberpunk .range-header-container:hover {
   text-overflow: ellipsis;
 }
 
-.point-mode-control--function {
+.function-point-settings {
+  position: relative;
+  display: inline-flex;
+}
+
+.function-point-settings-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 80;
+  width: min(330px, calc(100vw - 28px));
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--content-background);
+  color: var(--text-color);
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.18);
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.function-point-settings-heading {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.function-point-settings-heading strong {
+  font-size: 0.78rem;
+}
+
+.function-point-settings-heading span,
+.function-point-setting-check small {
+  color: var(--text-color-muted);
   font-size: 0.68rem;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.function-point-type-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 9px;
+  padding: 3px;
+  border-radius: 7px;
+  background: var(--surface-sunken, var(--background-color));
+}
+
+.function-point-type-options button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.function-point-type-options button.is-selected {
+  background: var(--content-background);
+  color: var(--primary-color);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.function-point-setting-check {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: start;
+  gap: 8px;
+  padding: 8px 4px;
+  cursor: pointer;
+}
+
+.function-point-setting-check + .function-point-setting-check {
+  border-top: 1px solid var(--border-color);
+}
+
+.function-point-setting-check input {
+  margin: 2px 0 0;
+}
+
+.function-point-setting-check span {
+  display: grid;
+  gap: 2px;
+}
+
+.function-point-setting-check strong {
+  font-size: 0.72rem;
+}
+
+.function-point-add-button {
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
 .function-point-unit-picker {
@@ -14402,10 +14530,6 @@ body.theme-cyberpunk .range-header-container:hover {
 .sidebar-empty-uut-copy {
   font-size: 0.7rem;
   font-style: italic;
-}
-
-.area-header-sticky:hover .area-label {
-  color: var(--primary-color);
 }
 
 /* Inline rename input — inherits the label's look so editing is seamless. */
@@ -16226,13 +16350,13 @@ body:not(.dark-mode)
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-color-muted);
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease,
     border-color 0.15s ease, transform 0.15s ease;
@@ -16554,20 +16678,20 @@ body:not(.dark-mode)
 
 .uncertainty-module .sidebar-view-controls {
   gap: 2px;
-  height: 32px;
+  height: 26px;
   align-items: center;
   flex-shrink: 0;
 }
 
 .uncertainty-module .sidebar-view-controls .sidebar-action-button {
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   padding: 0;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-color-muted);
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   box-shadow: none;
   transform: none;
   transition: background-color 0.15s ease, color 0.15s ease,
@@ -16647,6 +16771,14 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   ) !important;
 }
 
+/* The variable labels belong to the measurement-input table body, so keep the
+   header on that same surface in every theme instead of inheriting the darker
+   generic instrument-table header gradient. */
+.uncertainty-module .measurement-inputs-table thead th {
+  background-color: var(--content-background);
+  background-image: none;
+}
+
 /* Final sticky-value geometry. The point row uses 5px vertical padding and an
    8px grid gap; extending the opaque value surface across both prevents the
    next metric from painting beneath the frozen value while horizontally
@@ -16670,7 +16802,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
     var(--primary-color) 8%,
     var(--sidebar-sticky-surface)
   ) !important;
-  box-shadow: 7px 0 8px -9px rgba(0, 0, 0, 0.5);
+  box-shadow: none;
 }
 
 .uncertainty-module
