@@ -85,6 +85,131 @@ beforeEach(() => {
 });
 
 describe("UncertaintyApp", () => {
+  test("starts the guided walkthrough without rendering an empty session dropdown", async () => {
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    expect(await screen.findByText("No sessions yet")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Analysis Session" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("dialog", { name: "Uncertalytics walkthrough" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Start an analysis session")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Add New Session"));
+    expect(await screen.findByRole("combobox", { name: "Analysis Session" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText("Complete the session information")).toBeInTheDocument(),
+    );
+  });
+
+  test("opens the walkthrough again from the header help button", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 100,
+        name: "Help Session",
+        measurementAreas: [],
+        uuts: [],
+        tmdes: [],
+        testPoints: [],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const helpButton = await screen.findByRole("button", { name: "Open walkthrough" });
+    expect(screen.queryByRole("dialog", { name: "Uncertalytics walkthrough" })).not.toBeInTheDocument();
+    fireEvent.click(helpButton);
+    expect(
+      screen.getByRole("dialog", { name: "Uncertalytics walkthrough" }),
+    ).toBeInTheDocument();
+  });
+
+  test("asks which UUT to use only after adding a point to a multi-instrument function", async () => {
+    const voltageFunction = {
+      id: "fn-voltage",
+      name: "Voltage",
+      unit: "V",
+      ranges: [{ id: "range-v", min: 0, max: 10, unit: "V" }],
+    };
+    apiMock.state.sessions = [
+      {
+        id: 99,
+        name: "Multi UUT Session",
+        measurementAreas: [],
+        functionGroups: [{ name: "Voltage", unit: "V", kind: "uut" }],
+        uuts: [
+          {
+            id: "uut-one",
+            description: "Primary DMM",
+            instrument: { manufacturer: "Mock", model: "100", functions: [voltageFunction] },
+          },
+          {
+            id: "uut-two",
+            description: "Backup DMM",
+            instrument: { manufacturer: "Mock", model: "200", functions: [voltageFunction] },
+          },
+        ],
+        tmdes: [],
+        testPoints: [],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const addPoint = await screen.findByRole("button", { name: "Add direct point" });
+    expect(
+      screen.queryByRole("combobox", { name: /UUT for new Voltage measurement point/i }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(addPoint);
+
+    const picker = screen.getByRole("menu", {
+      name: "Choose UUT for new Voltage measurement point",
+    });
+    const primaryInstrument = within(picker).getByRole("menuitem", {
+      name: /Mock 100 Primary DMM/i,
+    });
+    expect(primaryInstrument).toBeInTheDocument();
+    expect(within(picker).getByRole("menuitem", { name: /Mock 200 Backup DMM/i })).toBeInTheDocument();
+
+    fireEvent.click(primaryInstrument);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("menu", {
+          name: "Choose UUT for new Voltage measurement point",
+        }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText("Ready for your first measurement point"),
+    ).not.toBeInTheDocument();
+  });
+
   test("toggles the instrument builder from its header button", async () => {
     render(
       <ThemeProvider>

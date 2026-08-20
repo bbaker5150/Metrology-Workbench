@@ -976,10 +976,19 @@ function Analysis({
   // =========================================================================
 
   const analysisTabs = (
-    <div className="analysis-tabs">
+    <div className="analysis-tabs" data-tour="analysis-tabs">
       {VISIBLE_ANALYSIS_MODES.map((mode) => (
         <button
           key={mode}
+          data-tour={
+            mode === "overview"
+              ? "tab-overview"
+              : mode === "uncertaintyTool"
+                ? "tab-budget"
+                : mode === "notes"
+                  ? "tab-notes"
+                  : undefined
+          }
           className={analysisMode === mode ? "active" : ""}
           onClick={() => {
             if (mode === "riskmitigation") {

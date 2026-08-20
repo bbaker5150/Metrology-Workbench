@@ -15775,6 +15775,179 @@ body.theme-cyberpunk .industry-table tr.selected-row {
   color: var(--text-color-muted, var(--text-color));
 }
 
+.function-point-instrument-picker {
+  min-width: min(240px, calc(100vw - 28px));
+}
+
+.function-point-instrument-picker button:not(.point-unit-picker-cancel) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Guided direct-measurement onboarding. The spotlight never captures pointer
+   input, so the highlighted control stays fully interactive while the coach
+   card provides navigation and context. */
+.guided-walkthrough-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  pointer-events: none;
+}
+
+.guided-walkthrough-highlight {
+  position: fixed;
+  z-index: 12001;
+  border: 2px solid var(--primary-color);
+  border-radius: 9px;
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--primary-color) 24%, transparent),
+    0 0 0 9999px rgba(5, 11, 24, 0.62);
+  pointer-events: none;
+  transition: inset 0.16s ease, width 0.16s ease, height 0.16s ease;
+}
+
+.guided-walkthrough-dim {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 11, 24, 0.62);
+}
+
+.guided-walkthrough-card {
+  position: fixed;
+  z-index: 12002;
+  display: grid;
+  gap: 10px;
+  max-height: calc(100vh - 24px);
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 34%, var(--border-color));
+  border-radius: 12px;
+  background: var(--content-background);
+  color: var(--text-color);
+  box-shadow: 0 20px 55px rgba(5, 11, 24, 0.38);
+  pointer-events: auto;
+}
+
+.guided-walkthrough-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-color-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.guided-walkthrough-card-header button {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+}
+
+.guided-walkthrough-card-header button:hover {
+  background: var(--primary-color-light);
+  color: var(--primary-color);
+}
+
+.guided-walkthrough-card h3 {
+  margin: 0;
+  color: var(--text-color);
+  font-size: 1rem;
+}
+
+.guided-walkthrough-card p {
+  margin: 0;
+  color: var(--text-color-muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.guided-walkthrough-hint,
+.guided-walkthrough-waiting {
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: var(--primary-color-light);
+  color: var(--text-color);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.guided-walkthrough-waiting {
+  background: var(--input-background);
+  color: var(--text-color-muted);
+}
+
+.guided-walkthrough-progress {
+  display: flex;
+  gap: 3px;
+  min-width: 0;
+}
+
+.guided-walkthrough-progress span {
+  height: 3px;
+  min-width: 3px;
+  flex: 1;
+  border-radius: 999px;
+  background: var(--border-color);
+}
+
+.guided-walkthrough-progress span.is-complete {
+  background: var(--primary-color);
+}
+
+.guided-walkthrough-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.guided-walkthrough-actions button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.guided-walkthrough-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.guided-walkthrough-secondary {
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-color-muted);
+}
+
+.guided-walkthrough-primary {
+  margin-left: auto;
+  border: 1px solid var(--primary-color);
+  background: var(--primary-color);
+  color: #fff;
+}
+
+.session-empty-label {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  color: var(--text-color-muted);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
 /* =================================================================== */
 /* DARK MODE SCROLLBAR REFINEMENTS                                     */
 /* =================================================================== */

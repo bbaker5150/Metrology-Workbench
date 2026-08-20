@@ -24,6 +24,7 @@ import TestPointInfoModal from "./features/testPoints/components/TestPointInfoMo
 import UniversalInstrumentModal from "./features/instruments/components/UniversalInstrumentModal";
 import UnresolvedToleranceModal from "./features/testPoints/components/UnresolvedToleranceModal";
 import BugReportModal from "./components/modals/BugReportModal";
+import GuidedWalkthrough from "./components/common/GuidedWalkthrough";
 
 // --- Brand emblem (shared 3D medallion recipe) ---
 import HeaderEmblem from "./components/HeaderEmblem";
@@ -1347,7 +1348,7 @@ const SidebarSessionHeader = ({
   const requirements = sessionData.uncReq || {};
 
   return (
-    <div className="sidebar-session-header-organic">
+    <div className="sidebar-session-header-organic" data-tour="session-information">
       <div className="session-collapsible-block session-info-block">
         <button
           type="button"
@@ -1476,6 +1477,7 @@ const SidebarSessionHeader = ({
 function App({ showThemeToggle = false }) {
   const {
     sessions,
+    sessionsLoaded,
     instruments,
     customEquations,
     saveCustomEquation,
@@ -1535,6 +1537,144 @@ function App({ showThemeToggle = false }) {
   });
 
   const [isBugReportOpen, setIsBugReportOpen] = useState(false);
+  const [isWalkthroughOpen, setIsWalkthroughOpen] = useState(false);
+  const [walkthroughStepIndex, setWalkthroughStepIndex] = useState(0);
+  const walkthroughAutoStartedRef = useRef(false);
+
+  const walkthroughSteps = useMemo(
+    () => [
+      {
+        id: "new-session",
+        title: "Start an analysis session",
+        description:
+          "Select the highlighted add button to create your first analysis session. Sessions keep instruments, points, budgets, and notes together.",
+        hint:
+          sessions.length === 0
+            ? "Click the highlighted + to continue."
+            : "You already have a session, so you can continue or create another one.",
+        target: '[data-tour="add-session"]',
+        advanceOnTargetClick: true,
+        canAdvance: sessions.length > 0,
+      },
+      {
+        id: "session-information",
+        title: "Complete the session information",
+        description:
+          "Give the session a recognizable name, then enter the analyst, organization, document, and date. The risk and mitigation inputs below establish the requirements used across the session.",
+        target: '[data-tour="session-information"]',
+        hint: "Values save as you enter them. Required analysis settings can be refined at any time.",
+      },
+      {
+        id: "overview-tab",
+        title: "Open Instrument Overview",
+        description:
+          "Instrument Overview is where you define the UUT and TMDE available to every measurement point in this session.",
+        target: '[data-tour="tab-overview"]',
+      },
+      {
+        id: "uut-function",
+        title: "Create the UUT function",
+        description:
+          "Use this add button to create the function being tested, such as Voltage, Weight, or Torque. Existing functions are listed for reuse, and a session can contain as many functions as needed.",
+        target: '[data-tour="uut-add-function"]',
+      },
+      {
+        id: "uut-instrument",
+        title: "Add the unit under test",
+        description:
+          "Use the + on the function header to add an instrument. Choose a local or shared instrument from the Description suggestions, or enter a new instrument directly through Description, Range, Tolerance, and Resolution.",
+        target: '[data-tour="uut-add-instrument"]',
+        hint: "Each range remains aligned with its tolerance and resolution, and any number of UUTs can share this function.",
+      },
+      {
+        id: "uut-columns",
+        title: "Define the UUT specifications",
+        description:
+          "Description identifies the instrument. Range defines where a specification applies, Tolerance defines its accuracy, Resolution defines readable increments, and Sync controls sharing with the validated library.",
+        target: '[data-tour="uut-table"]',
+      },
+      {
+        id: "function-settings",
+        title: "Review Function Settings",
+        description:
+          "Hover beside the function name and open the settings button. Keep Direct selected for this walkthrough. Reusing the first point's budget makes later points inherit the complete initial budget.",
+        target: '[data-tour="function-settings"]',
+      },
+      {
+        id: "measurement-point",
+        title: "Create a direct measurement point",
+        description:
+          "Select the + on the function header. If several UUTs share the function, choose the instrument from the menu that opens, then enter the measurement value in the new sidebar row.",
+        target: '[data-tour="add-measurement-point"]',
+      },
+      {
+        id: "tmde-function",
+        title: "Create the TMDE function",
+        description:
+          "Now repeat the setup for the measuring equipment. Add the function used by the TMDE; it can reuse a function already defined in the session.",
+        target: '[data-tour="tmde-add-function"]',
+      },
+      {
+        id: "tmde-instrument",
+        title: "Add the TMDE",
+        description:
+          "Use the function's + button to add the measuring instrument, then select a local or shared definition or enter a new Description, Range, Tolerance, and Resolution.",
+        target: '[data-tour="tmde-add-instrument"]',
+      },
+      {
+        id: "tmde-columns",
+        title: "Define the TMDE specifications",
+        description:
+          "Complete the TMDE table just like the UUT table. These specifications become the selectable accuracy and resolution sources used in uncertainty budgets.",
+        target: '[data-tour="tmde-table"]',
+      },
+      {
+        id: "workspace-tabs",
+        title: "Understand the three workspaces",
+        description:
+          "Instrument Overview manages session instruments. Uncertainty Budget builds and calculates the selected point's budget. Notes stores formatted session documentation and supporting images.",
+        target: '[data-tour="analysis-tabs"]',
+      },
+      {
+        id: "budget-tab",
+        title: "Open the Uncertainty Budget",
+        description:
+          "Select a measurement point, then open Uncertainty Budget. The selected point's UUT nominal, instrument sources, calculation controls, and results appear here.",
+        target: '[data-tour="tab-budget"]',
+      },
+      {
+        id: "budget-component",
+        title: "Build the budget",
+        description:
+          "Use Add component on each budget table to select a compatible tolerance, resolution, repeatability result, or manual source. Configure its distribution and coverage details, then calculate the combined and expanded uncertainty.",
+        target: '[data-tour="budget-add-component"]',
+        hint: "A yellow range warning appears when a selected instrument range does not contain the direct measurement nominal.",
+      },
+      {
+        id: "complete",
+        title: "Your direct workflow is ready",
+        description:
+          "You now know the direct-measurement path from session setup through instruments, points, and uncertainty budgets. Use the Help button at any time to restart this walkthrough.",
+        target: '[data-tour="help-walkthrough"]',
+      },
+    ],
+    [sessions.length],
+  );
+
+  useEffect(() => {
+    if (!sessionsLoaded || walkthroughAutoStartedRef.current) return;
+    walkthroughAutoStartedRef.current = true;
+    if (sessions.length === 0) {
+      setWalkthroughStepIndex(0);
+      setIsWalkthroughOpen(true);
+    }
+  }, [sessions.length, sessionsLoaded]);
+
+  useEffect(() => {
+    if (!isWalkthroughOpen) return;
+    const stepId = walkthroughSteps[walkthroughStepIndex]?.id;
+    if (stepId === "session-information") setIsSessionInfoOpen(true);
+  }, [isWalkthroughOpen, walkthroughStepIndex, walkthroughSteps]);
 
   const [sessionImageCache, setSessionImageCache] = useState(new Map());
   const [riskResults, setRiskResults] = useState(null);
@@ -1903,9 +2043,11 @@ function App({ showThemeToggle = false }) {
   // into value-edit. SidebarPointItem consumes it on mount, then App clears it.
   const [pendingValueEditPointId, setPendingValueEditPointId] = useState(null);
   // Function headers own point creation now that UUT folder rows are gone.
-  // When several UUTs implement the function, this remembers the target shown
-  // in the compact header selector.
+  // When several UUTs implement the function, this remembers the most recent
+  // choice after the add-button instrument picker closes.
   const [quickAddUutByFunction, setQuickAddUutByFunction] = useState({});
+  const [pendingPointInstrumentChoice, setPendingPointInstrumentChoice] =
+    useState(null);
   // When a function exposes more than one range unit, the quick-add button
   // pauses here so the new direct/derived point can be attached to an explicit
   // unit instead of silently choosing the first range.
@@ -1913,14 +2055,15 @@ function App({ showThemeToggle = false }) {
   const [openFunctionSettingsId, setOpenFunctionSettingsId] = useState(null);
 
   useEffect(() => {
-    if (!pendingPointUnitChoice) return undefined;
+    if (!pendingPointUnitChoice && !pendingPointInstrumentChoice) return undefined;
     const closePicker = (event) => {
       if (event.target?.closest?.(".point-unit-picker")) return;
       setPendingPointUnitChoice(null);
+      setPendingPointInstrumentChoice(null);
     };
     document.addEventListener("pointerdown", closePicker);
     return () => document.removeEventListener("pointerdown", closePicker);
-  }, [pendingPointUnitChoice]);
+  }, [pendingPointInstrumentChoice, pendingPointUnitChoice]);
 
   useEffect(() => {
     if (!openFunctionSettingsId) return undefined;
@@ -3775,7 +3918,15 @@ function App({ showThemeToggle = false }) {
 
   const handleAnalysisModeChange = useCallback(
     (nextMode) => {
-      if (nextMode !== "uncertaintyTool" || selectedTestPointId) {
+      if (nextMode !== "uncertaintyTool") {
+        setAnalysisMode(nextMode);
+        return;
+      }
+
+      const activePoint = currentTestPoints.find(
+        (candidate) => String(candidate.id) === String(selectedTestPointId),
+      );
+      if (activePoint) {
         setAnalysisMode(nextMode);
         return;
       }
@@ -4241,6 +4392,7 @@ function App({ showThemeToggle = false }) {
           <button
             type="button"
             className={`function-point-settings-button${settingsOpen ? " is-active" : ""}`}
+            data-tour="function-settings"
             title={`${fnGroup.name} function settings`}
             aria-label={`${fnGroup.name} function settings`}
             aria-expanded={settingsOpen}
@@ -4317,34 +4469,23 @@ function App({ showThemeToggle = false }) {
           className="function-point-actions"
           onClick={(event) => event.stopPropagation()}
         >
-          {uutOptions.length > 1 && (
-            <select
-              className="function-point-uut-select"
-              value={targetUut.id}
-              aria-label={`UUT for new ${fnGroup.name} measurement point`}
-              title="UUT for the new measurement point"
-              onChange={(event) =>
-                setQuickAddUutByFunction((previous) => ({
-                  ...previous,
-                  [fnGroup.id]: event.target.value,
-                }))
-              }
-            >
-              {uutOptions.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {formatInstrumentIdentity(group)}
-                </option>
-              ))}
-            </select>
-          )}
           <button
             type="button"
             className="btn-icon-only small function-point-add-button"
+            data-tour="add-measurement-point"
             onClick={() => {
               setExpandedFunctions((previous) =>
                 new Set(previous).add(fnGroup.id),
               );
-              openQuickAddPoint(fnGroup, targetUut.id, settings);
+              setPendingPointUnitChoice(null);
+              if (uutOptions.length > 1) {
+                setPendingPointInstrumentChoice({
+                  functionId: fnGroup.id,
+                  settings,
+                });
+              } else {
+                openQuickAddPoint(fnGroup, targetUut.id, settings);
+              }
             }}
             title={
               settings.mode === "derived"
@@ -4359,6 +4500,44 @@ function App({ showThemeToggle = false }) {
           >
             <FontAwesomeIcon icon={faPlus} size="xs" />
           </button>
+          {pendingPointInstrumentChoice?.functionId === fnGroup.id && (
+            <div
+              className="budget-settings-menu point-unit-picker function-point-instrument-picker"
+              role="menu"
+              aria-label={`Choose UUT for new ${fnGroup.name} measurement point`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h5 className="point-unit-picker-title">Choose instrument</h5>
+              {uutOptions.map((group) => (
+                <button
+                  key={group.id}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setQuickAddUutByFunction((previous) => ({
+                      ...previous,
+                      [fnGroup.id]: group.id,
+                    }));
+                    setPendingPointInstrumentChoice(null);
+                    openQuickAddPoint(
+                      fnGroup,
+                      group.id,
+                      pendingPointInstrumentChoice.settings,
+                    );
+                  }}
+                >
+                  {formatInstrumentIdentity(group)}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="point-unit-picker-cancel"
+                onClick={() => setPendingPointInstrumentChoice(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
           {pendingPointUnitChoice?.functionId === fnGroup.id &&
             pendingPointUnitChoice?.uutId === targetUut.id && (
               <div
@@ -4432,6 +4611,13 @@ function App({ showThemeToggle = false }) {
           reports={bugReports}
           onSave={saveBugReport}
           onDelete={handleDeleteBugReport}
+        />
+        <GuidedWalkthrough
+          isOpen={isWalkthroughOpen}
+          steps={walkthroughSteps}
+          stepIndex={walkthroughStepIndex}
+          onStepChange={setWalkthroughStepIndex}
+          onClose={() => setIsWalkthroughOpen(false)}
         />
         {currentSessionData && (
           <>
@@ -4626,6 +4812,19 @@ function App({ showThemeToggle = false }) {
                   <button
                     type="button"
                     className="app-chrome-meta-icon"
+                    data-tour="help-walkthrough"
+                    onClick={() => {
+                      setWalkthroughStepIndex(0);
+                      setIsWalkthroughOpen(true);
+                    }}
+                    title="Open walkthrough"
+                    aria-label="Open walkthrough"
+                  >
+                    <FontAwesomeIcon icon={faQuestionCircle} />
+                  </button>
+                  <button
+                    type="button"
+                    className="app-chrome-meta-icon"
                     onClick={() => setIsBugReportOpen(true)}
                     title="Report an issue"
                     aria-label="Report an issue"
@@ -4681,37 +4880,48 @@ function App({ showThemeToggle = false }) {
                 style={{ alignItems: "flex-end" }}
               >
                 <div className="session-controls">
-                  <label htmlFor="session-select">Analysis Session</label>
-                  <select
-                    id="session-select"
-                    className="session-selector"
-                    value={selectedSessionId || ""}
-                    onChange={(e) =>
-                      handleSelectSession(Number(e.target.value))
-                    }
-                  >
-                    {sessions.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
+                  <label htmlFor={sessions.length > 0 ? "session-select" : undefined}>
+                    Analysis Session
+                  </label>
+                  {sessions.length > 0 ? (
+                    <select
+                      id="session-select"
+                      className="session-selector"
+                      value={selectedSessionId || ""}
+                      onChange={(e) =>
+                        handleSelectSession(Number(e.target.value))
+                      }
+                    >
+                      {sessions.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="session-empty-label" role="status">
+                      No sessions yet
+                    </div>
+                  )}
                 </div>
                 <div className="sidebar-view-controls">
                   <button
                     onClick={handleAddNewSession}
+                    data-tour="add-session"
                     title="Add New Session"
                     className="sidebar-action-button"
                   >
                     <FontAwesomeIcon icon={faPlus} />
                   </button>
-                  <button
-                    onClick={() => handleDeleteSession(selectedSessionId)}
-                    title="Delete Session"
-                    className="sidebar-action-button delete"
-                  >
-                    <FontAwesomeIcon icon={faTrashAlt} />
-                  </button>
+                  {sessions.length > 0 && (
+                    <button
+                      onClick={() => handleDeleteSession(selectedSessionId)}
+                      title="Delete Session"
+                      className="sidebar-action-button delete"
+                    >
+                      <FontAwesomeIcon icon={faTrashAlt} />
+                    </button>
+                  )}
                 </div>
               </div>
 

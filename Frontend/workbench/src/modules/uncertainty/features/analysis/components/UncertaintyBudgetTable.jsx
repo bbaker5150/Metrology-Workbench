@@ -1561,6 +1561,7 @@ const UncertaintyBudgetTable = ({
                         <button
                           type="button"
                           className="btn-add-item"
+                          data-tour="budget-add-component"
                           title="Add component to budget"
                           aria-label="Add component to budget"
                           onClick={(event) =>

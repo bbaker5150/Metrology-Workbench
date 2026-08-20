@@ -7054,6 +7054,7 @@ const SummaryDashboard = ({
       <button
         type="button"
         className="range-header-action-btn range-header-action-btn--add function-header-action-btn"
+        data-tour={`${kind}-add-instrument`}
         title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         onClick={(e) => {
@@ -8243,6 +8244,7 @@ const SummaryDashboard = ({
             )}
             <button
               className="btn-add-item"
+              data-tour="uut-add-function"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 setAddFunctionMenu((m) =>
@@ -8256,7 +8258,7 @@ const SummaryDashboard = ({
             {renderAddFunctionMenu("uut")}
           </div>
         </div>
-        <div className="panel-table-container instrument-panel-table-container">
+        <div className="panel-table-container instrument-panel-table-container" data-tour="uut-table">
           <table
             className="instrument-summary-table industry-table instrument-equipment-table"
             onMouseLeave={() => {
@@ -8714,6 +8716,7 @@ const SummaryDashboard = ({
             )}
             <button
               className="btn-add-item"
+              data-tour="tmde-add-function"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 setAddFunctionMenu((m) =>
@@ -8727,7 +8730,7 @@ const SummaryDashboard = ({
             {renderAddFunctionMenu("tmde")}
           </div>
         </div>
-        <div className="panel-table-container instrument-panel-table-container">
+        <div className="panel-table-container instrument-panel-table-container" data-tour="tmde-table">
           <table
             className="instrument-summary-table industry-table equipment-summary-table instrument-equipment-table"
             onMouseLeave={() => {
@@ -11355,6 +11358,7 @@ function DetailedView({
       <button
         type="button"
         className="range-header-action-btn range-header-action-btn--add function-header-action-btn"
+        data-tour={`${kind}-add-instrument`}
         title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         onClick={(e) => {
@@ -14133,6 +14137,7 @@ function DetailedView({
             )}
             <button
               className="btn-add-item"
+              data-tour="uut-add-function"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 setAddFunctionMenu((m) =>
@@ -14146,7 +14151,7 @@ function DetailedView({
             {renderAddFunctionMenu("uut")}
           </div>
         </div>
-        <div className="panel-table-container instrument-panel-table-container">
+        <div className="panel-table-container instrument-panel-table-container" data-tour="uut-table">
           <table
             className="instrument-summary-table industry-table instrument-equipment-table"
             onMouseLeave={() => {
@@ -14886,6 +14891,7 @@ function DetailedView({
               )}
               <button
                 className="btn-add-item"
+                data-tour="tmde-add-function"
                 onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   setAddFunctionMenu((m) =>
@@ -14900,7 +14906,7 @@ function DetailedView({
             </div>
           </div>
 
-          <div className="panel-table-container instrument-panel-table-container">
+          <div className="panel-table-container instrument-panel-table-container" data-tour="tmde-table">
             <table
               className="instrument-summary-table industry-table equipment-detail-table instrument-equipment-table"
               onMouseLeave={() => {
