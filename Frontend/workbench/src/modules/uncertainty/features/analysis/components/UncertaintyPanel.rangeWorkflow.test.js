@@ -5,6 +5,7 @@ import {
   countTmdeBudgetUses,
   getDeleteSelectionTarget,
   getUsableBudgetRangeChoices,
+  localizeSharedInstrumentEdit,
   rangeIsBlank,
   removeRangeFromItem,
   removeSelectedRangesFromItem,
@@ -13,6 +14,110 @@ import {
   sortRangesInItem,
   synchronizeLocalInstrumentDefinitions,
 } from "./UncertaintyPanel";
+
+describe("shared instrument inline editing", () => {
+  it("forks an edited shared definition to a linked local copy", () => {
+    const sharedDefinition = {
+      id: "shared-dmm",
+      scope: "validated",
+      manufacturer: "Acme",
+      model: "DMM-1",
+      description: "Shared DMM",
+      functions: [
+        {
+          id: "voltage",
+          name: "Voltage",
+          unit: "V",
+          ranges: [{ id: "range-1", min: 0, max: 10, unit: "V" }],
+        },
+      ],
+    };
+    const editedItem = {
+      id: "uut-row",
+      description: "Shared DMM",
+      instrument: {
+        ...sharedDefinition,
+        functions: [
+          {
+            ...sharedDefinition.functions[0],
+            ranges: [
+              ...sharedDefinition.functions[0].ranges,
+              { id: "range-2", min: 10, max: 20, unit: "V" },
+            ],
+          },
+        ],
+      },
+    };
+
+    const localized = localizeSharedInstrumentEdit(editedItem, [sharedDefinition]);
+
+    expect(localized.id).toBe("uut-row");
+    expect(localized.instrument).toEqual(
+      expect.objectContaining({
+        scope: "local",
+        sourceId: "shared-dmm",
+        libraryInstrumentId: "shared-dmm",
+        localOverride: true,
+      }),
+    );
+    expect(localized.instrument.id).not.toBe("shared-dmm");
+    expect(localized.instrument.functions[0].ranges).toHaveLength(2);
+    expect(localized.instrument.validatedSnapshot.functions[0].ranges).toHaveLength(1);
+
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      { uuts: [{ ...editedItem, instrument: sharedDefinition }], tmdes: [] },
+      localized,
+      "uut",
+    );
+    expect(synchronized.uuts[0].instrument.scope).toBe("local");
+    expect(synchronized.uuts[0].instrument.functions[0].ranges).toHaveLength(2);
+  });
+
+  it("replaces the exact shared TMDE row after it is localized", () => {
+    const sharedDefinition = {
+      id: "shared-meter",
+      scope: "validated",
+      functions: [
+        {
+          id: "current",
+          name: "Current",
+          unit: "A",
+          ranges: [{ id: "range-1", min: 0, max: 1, unit: "A" }],
+        },
+      ],
+    };
+    const sharedRow = {
+      id: "tmde-row",
+      name: "Shared Meter",
+      instrument: sharedDefinition,
+    };
+    const editedRow = {
+      ...sharedRow,
+      instrument: {
+        ...sharedDefinition,
+        functions: [
+          {
+            ...sharedDefinition.functions[0],
+            ranges: [
+              ...sharedDefinition.functions[0].ranges,
+              { id: "range-2", min: 1, max: 10, unit: "A" },
+            ],
+          },
+        ],
+      },
+    };
+    const localized = localizeSharedInstrumentEdit(editedRow, [sharedDefinition]);
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      { uuts: [], tmdes: [sharedRow] },
+      localized,
+      "tmde",
+    );
+
+    expect(synchronized.tmdes[0].instrument.scope).toBe("local");
+    expect(synchronized.tmdes[0].instrument.sourceId).toBe("shared-meter");
+    expect(synchronized.tmdes[0].instrument.functions[0].ranges).toHaveLength(2);
+  });
+});
 
 describe("add-to-budget range filtering", () => {
   const multiFunctionInstrument = {

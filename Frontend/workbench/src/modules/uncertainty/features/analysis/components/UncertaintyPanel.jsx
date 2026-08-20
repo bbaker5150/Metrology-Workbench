@@ -4962,6 +4962,44 @@ const localInstrumentIdentityKeys = (item = {}) => {
   );
 };
 
+// Inline table edits must never attempt to mutate the canonical shared record.
+// Fork a validated definition into a linked local copy before the edit enters
+// the session/local-library persistence pipeline. The original shared snapshot
+// remains available for diffing and an explicit future Sync action.
+export const localizeSharedInstrumentEdit = (item = {}, library = []) => {
+  const definition = item?.instrument || {};
+  if (definition.scope !== "validated") return item;
+
+  const sourceId =
+    definition.sourceId ||
+    definition.libraryInstrumentId ||
+    item.libraryInstrumentId ||
+    definition.id;
+  const sharedDefinition = (library || []).find(
+    (candidate) =>
+      candidate?.scope === "validated" && sameId(candidate.id, sourceId),
+  );
+  const localDefinitionId = sameId(definition.id, sourceId)
+    ? uuidv4()
+    : definition.id || uuidv4();
+
+  return {
+    ...item,
+    libraryInstrumentId: item.libraryInstrumentId || sourceId,
+    instrument: {
+      ...definition,
+      id: localDefinitionId,
+      libraryInstrumentId: definition.libraryInstrumentId || sourceId,
+      scope: "local",
+      sourceId,
+      validatedSnapshot:
+        definition.validatedSnapshot ||
+        buildValidatedSnapshot(sharedDefinition || definition),
+      localOverride: true,
+    },
+  };
+};
+
 const hasSetDistribution = (value) =>
   value !== undefined &&
   value !== null &&
@@ -5108,12 +5146,12 @@ export const synchronizeLocalInstrumentDefinitions = (
       )
     : sourceDefinition;
   const mergeDefinition = (item, kind) => {
-    if (!matchesSource(item)) return item;
     if (kind === updatedKind && String(item.id) === String(updatedItem.id)) {
       return canonicalDefinition === sourceDefinition
         ? updatedItem
         : { ...updatedItem, instrument: canonicalDefinition };
     }
+    if (!matchesSource(item)) return item;
     const currentDefinition = item.instrument || {};
     const roleFields =
       kind === "tmde"
@@ -5923,9 +5961,10 @@ const SummaryDashboard = ({
   };
 
   const persistInlineItem = (kind, updatedItem, { maybePromptLocal = false } = {}) => {
+    const localizedItem = localizeSharedInstrumentEdit(updatedItem, instruments);
     const synchronized = synchronizeLocalInstrumentDefinitions(
       sessionData,
-      updatedItem,
+      localizedItem,
       kind,
     );
     let nextTestPoints = sessionData.testPoints || [];
@@ -5957,13 +5996,13 @@ const SummaryDashboard = ({
     };
     const synchronizedItem = (
       kind === "uut" ? synchronized.uuts : synchronized.tmdes
-    ).find((item) => String(item.id) === String(updatedItem.id)) || updatedItem;
+    ).find((item) => String(item.id) === String(localizedItem.id)) || localizedItem;
     onSessionSave(nextSession);
     if (
       onSaveInstrument &&
       (synchronizedItem.instrument?.sourceId ||
         synchronizedItem.instrument?.scope === "local" ||
-        localLibraryChoices[`${kind}:${updatedItem.id}`] === "local")
+        localLibraryChoices[`${kind}:${localizedItem.id}`] === "local")
     ) {
       saveItemInstrumentToLocalLibrary(kind, synchronizedItem);
     } else if (maybePromptLocal) {
@@ -9780,14 +9819,15 @@ function DetailedView({
     { maybePromptLocal = false } = {},
   ) => {
     if (!onSessionSave) return;
+    const localizedItem = localizeSharedInstrumentEdit(updatedItem, instruments);
     const synchronized = synchronizeLocalInstrumentDefinitions(
       sessionData,
-      updatedItem,
+      localizedItem,
       kind,
     );
     const synchronizedItem = (
       kind === "uut" ? synchronized.uuts : synchronized.tmdes
-    ).find((item) => String(item.id) === String(updatedItem.id)) || updatedItem;
+    ).find((item) => String(item.id) === String(localizedItem.id)) || localizedItem;
     onSessionSave({
       ...sessionData,
       uuts: synchronized.uuts,
@@ -9797,7 +9837,7 @@ function DetailedView({
       onSaveInstrument &&
       (synchronizedItem.instrument?.sourceId ||
         synchronizedItem.instrument?.scope === "local" ||
-        localLibraryChoices[`${kind}:${updatedItem.id}`] === "local")
+        localLibraryChoices[`${kind}:${localizedItem.id}`] === "local")
     ) {
       saveItemInstrumentToLocalLibrary(kind, synchronizedItem);
     } else if (maybePromptLocal) {
