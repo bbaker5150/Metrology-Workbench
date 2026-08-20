@@ -85,6 +85,8 @@ describe("getToleranceErrorSummary", () => {
     expect(getAbsoluteLimits(tolerance, { value: 5, unit: "uV" })).toEqual({
       low: "3.000000 µV",
       high: "7.000000 µV",
+      rawLow: "3",
+      rawHigh: "7",
     });
   });
 });
@@ -126,13 +128,23 @@ describe("errorDistributions", () => {
         { singleSided: { direction: "low", limit: 1, unit: "V" } },
         { value: 2, unit: "V" },
       ),
-    ).toEqual({ low: "1.000000 V", high: "—" });
+    ).toEqual({
+      low: "1.000000 V",
+      high: "—",
+      rawLow: "1",
+      rawHigh: "—",
+    });
 
     expect(
       getAbsoluteLimits(
         { singleSided: { direction: "high", limit: 3, unit: "V" } },
         { value: 2, unit: "V" },
       ),
-    ).toEqual({ low: "—", high: "3.000000 V" });
+    ).toEqual({
+      low: "—",
+      high: "3.000000 V",
+      rawLow: "—",
+      rawHigh: "3",
+    });
   });
 });

@@ -264,7 +264,7 @@ const ManualValueCell = ({ component, onCommit, suffix }) => {
     return (
       <span
         className="budget-editable-value"
-        title="Click to edit the entered value"
+        title="Edit value"
         onClick={begin}
         style={{
           cursor: "pointer",
@@ -839,6 +839,7 @@ const UncertaintyBudgetTable = ({
   monteCarloTrials = 10000,
   onPropagationMethodChange,
   onMonteCarloTrialsChange,
+  rangeWarningsByGroup = {},
 }) => {
   // Effective DOF is toggled per (sub)budget. Persist the change as a patch to
   // the keyed map (variableType / "equation" / "final"). Default ON.
@@ -1547,6 +1548,16 @@ const UncertaintyBudgetTable = ({
                   {group.kind === "equation"
                     ? renderEquationActions()
                     : canAddTmdeForGroup(group) && (
+                      <>
+                        {(rangeWarningsByGroup[groupDofKey(group)] || []).length > 0 && (
+                          <span
+                            className="budget-range-warning"
+                            title="Selected range does not include the nominal"
+                            aria-label="Selected range does not include the nominal"
+                          >
+                            <FontAwesomeIcon icon={faExclamationTriangle} />
+                          </span>
+                        )}
                         <button
                           type="button"
                           className="btn-add-item"
@@ -1558,6 +1569,7 @@ const UncertaintyBudgetTable = ({
                         >
                           <FontAwesomeIcon icon={faPlus} size="xs" />
                         </button>
+                      </>
                       )}
                 </div>
               </div>

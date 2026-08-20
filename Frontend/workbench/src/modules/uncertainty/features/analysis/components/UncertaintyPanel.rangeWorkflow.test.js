@@ -3,7 +3,9 @@ import { makeFunctionKey } from "../../../utils/functionGrouping";
 import {
   addBlankFunctionToInstrument,
   countTmdeBudgetUses,
+  buildFunctionGroupedRows,
   getDeleteSelectionTarget,
+  getBudgetRangeWarnings,
   getUsableBudgetRangeChoices,
   localizeSharedInstrumentEdit,
   rangeIsBlank,
@@ -14,6 +16,100 @@ import {
   sortRangesInItem,
   synchronizeLocalInstrumentDefinitions,
 } from "./UncertaintyPanel";
+
+describe("active function units", () => {
+  it("shows units from instruments used in the table, not every persisted function unit", () => {
+    const rows = buildFunctionGroupedRows(
+      [
+        {
+          type: "item",
+          index: 0,
+          item: {
+            id: "uut-1",
+            instrument: {
+              functions: [
+                {
+                  name: "Voltage",
+                  ranges: [{ id: "r1", min: 0, max: 10, unit: "V" }],
+                },
+              ],
+            },
+          },
+        },
+      ],
+      {
+        functionGroups: [
+          { name: "Voltage", units: ["V", "mV", "kV", "µV"] },
+        ],
+        uuts: [],
+        tmdes: [],
+        testPoints: [],
+      },
+      "uut",
+    );
+
+    expect(rows[0].type).toBe("function");
+    expect(rows[0].fn.activeUnits).toEqual(["V"]);
+  });
+});
+
+describe("budget range warnings", () => {
+  const component = {
+    id: "budget-range-component",
+    name: "Meter - Accuracy",
+    isBudgetInstance: true,
+    tmdeBudgetRangeId: "range-2",
+    tmdeBudgetRange: {
+      rangeId: "range-2",
+      min: 10,
+      max: 20,
+      unit: "V",
+    },
+  };
+
+  it("warns when a direct point uses a range outside its measurement value", () => {
+    const warnings = getBudgetRangeWarnings({
+      components: [component],
+      measurementType: "direct",
+      directNominal: { value: 3, unit: "V" },
+    });
+
+    expect(warnings.final).toHaveLength(1);
+    expect(warnings.final[0].reason).toMatch(/below this selected TMDE range/i);
+  });
+
+  it("warns on the affected derived input budget only", () => {
+    const warnings = getBudgetRangeWarnings({
+      components: [{ ...component, variableType: "Weight" }],
+      measurementType: "derived",
+      groups: [
+        {
+          kind: "input",
+          variableType: "Weight",
+          nominalPoint: { value: 3, unit: "V" },
+        },
+        {
+          kind: "input",
+          variableType: "Length",
+          nominalPoint: { value: 12, unit: "V" },
+        },
+      ],
+    });
+
+    expect(Object.keys(warnings)).toEqual(["Weight"]);
+    expect(warnings.Weight).toHaveLength(1);
+  });
+
+  it("does not warn when the selected range contains the nominal", () => {
+    expect(
+      getBudgetRangeWarnings({
+        components: [component],
+        measurementType: "direct",
+        directNominal: { value: 12, unit: "V" },
+      }),
+    ).toEqual({});
+  });
+});
 
 describe("shared instrument inline editing", () => {
   it("forks an edited shared definition to a linked local copy", () => {

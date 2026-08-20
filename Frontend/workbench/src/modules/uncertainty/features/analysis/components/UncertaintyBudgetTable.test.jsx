@@ -210,6 +210,24 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     );
   });
 
+  it("shows a range warning beside the add-component button", () => {
+    renderDirectBudget({
+      onAddTmdeToBudget: vi.fn(),
+      rangeWarningsByGroup: {
+        final: [{ componentId: "outside-range", reason: "below range" }],
+      },
+    });
+
+    const addButton = screen.getByRole("button", {
+      name: "Add component to budget",
+    });
+    const warning = screen.getByLabelText(
+      "Selected range does not include the nominal",
+    );
+    expect(warning).toBeInTheDocument();
+    expect(warning.parentElement).toBe(addButton.parentElement);
+  });
+
   it("renders uncertainty at a fixed precision without nominal table data", () => {
     renderDirectBudget({
       components: [

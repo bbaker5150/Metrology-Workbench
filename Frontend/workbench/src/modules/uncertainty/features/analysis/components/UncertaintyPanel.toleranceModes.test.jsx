@@ -58,7 +58,7 @@ describe("inline tolerance global modes", () => {
       },
     };
     render(<ToleranceHarness initialTolerance={initial} />);
-    fireEvent.click(screen.getByTitle("Click to edit tolerance"));
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
     fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
     fireEvent.click(screen.getByTitle("Single-sided tolerance"));
 
@@ -82,7 +82,7 @@ describe("inline tolerance global modes", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to edit tolerance"));
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
 
     expect(screen.getByLabelText("Tolerance mode")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "IV %" })).toBeInTheDocument();

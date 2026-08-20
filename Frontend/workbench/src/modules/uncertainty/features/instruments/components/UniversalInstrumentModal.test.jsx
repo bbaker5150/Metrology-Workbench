@@ -101,7 +101,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     });
 
     expect(screen.queryByTitle("Back to Editor")).not.toBeInTheDocument();
-    expect(screen.getByTitle("Create Manual Instrument")).toBeInTheDocument();
+    expect(screen.getByTitle("Create Instrument")).toBeInTheDocument();
   });
 
   test("shows missing required fields when save is attempted", () => {

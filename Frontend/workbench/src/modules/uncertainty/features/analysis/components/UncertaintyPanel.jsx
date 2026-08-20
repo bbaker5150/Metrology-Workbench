@@ -1653,7 +1653,7 @@ export const MeasurementInputSymbolCell = ({ symbol, onCommit }) => {
         <button
           type="button"
           className="measurement-input-symbol"
-          title="Click to rename this equation variable"
+          title="Rename variable"
           aria-label={`Rename equation variable ${symbol}`}
           onClick={() => setEditing(true)}
         >
@@ -1697,7 +1697,7 @@ export const MeasurementInputNameCell = ({
             displayValue ? "" : " is-empty"
           }`}
           aria-label={`Edit name for equation variable ${symbol}`}
-          title="Click to edit input name"
+          title="Edit input name"
           onClick={() => setEditing(true)}
         >
           {displayValue || "Name this input"}
@@ -1762,7 +1762,7 @@ export const MeasurementInputNominalCell = ({
             summary ? "" : " is-empty"
           }`}
           aria-label={`Edit nominal for equation variable ${symbol}`}
-          title="Click to edit nominal value and unit"
+          title="Edit nominal"
           onClick={() => setEditing(true)}
         >
           {summary || "Not Set"}
@@ -1891,7 +1891,7 @@ const SyncBadge = ({ item, onSync }) => {
       title={
         green
           ? "In sync with shared library"
-          : "Out of sync (local) - click to sync to the shared library"
+          : "Sync local changes to shared library"
       }
       aria-label={
         green
@@ -2476,7 +2476,7 @@ export const ResolutionCellInput = ({
         <button
           type="button"
           className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
-          title={summary ? "Click to edit resolution" : "Click to set a resolution"}
+          title={summary ? "Edit resolution" : "Set resolution"}
           aria-label={summary ? undefined : "Set resolution"}
           onMouseDown={(event) => {
             event.stopPropagation();
@@ -2593,7 +2593,7 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
           type="button"
           className={`inline-tolerance-summary${isUnset ? " is-empty" : ""}`}
           title={
-            isUnset ? "Click to set a distribution" : "Click to edit distribution"
+            isUnset ? "Set distribution" : "Edit distribution"
           }
           onClick={open}
         >
@@ -3420,7 +3420,7 @@ const ToleranceTermEditor = ({
               className={`inline-tolerance-shape-button${
                 shapeMenuRect ? " is-open" : ""
               }`}
-              title={`Tolerance shape: ${currentShape.label}`}
+              title="Change tolerance shape"
               aria-haspopup="menu"
               aria-expanded={Boolean(shapeMenuRect)}
               onMouseDown={(e) => e.preventDefault()}
@@ -3442,7 +3442,7 @@ const ToleranceTermEditor = ({
               className={`inline-tolerance-chip inline-tolerance-chip--in-cell inline-tolerance-chip--button${
                 unitMenuRect ? " is-open" : ""
               }`}
-              title={`${typeKey === "reading" ? "IV" : "Range/FS"} unit - click to change`}
+              title={`Change ${typeKey === "reading" ? "IV" : "range/FS"} unit`}
               aria-haspopup="menu"
               aria-expanded={Boolean(unitMenuRect)}
               onMouseDown={(e) => e.preventDefault()}
@@ -3736,7 +3736,7 @@ export const InlineToleranceCell = ({
         <button
           type="button"
           className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}`}
-          title={hasValue ? "Click to edit tolerance" : "Click to set a tolerance"}
+          title={hasValue ? "Edit tolerance" : "Set tolerance"}
           aria-label={hasValue ? undefined : "Set tolerance"}
           onClick={openEditor}
         >
@@ -4007,7 +4007,7 @@ export const RangeCell = ({
           <button
             type="button"
             className={`inline-tolerance-summary${rangeSummary ? "" : " is-empty"}`}
-            title={onExpandAll && rangeSummary ? "Edit ranges" : rangeSummary ? "Click to edit range" : "Click to set a range"}
+            title={rangeSummary ? (onExpandAll ? "Edit ranges" : "Edit range") : "Set range"}
             aria-label={onExpandAll && rangeSummary ? "Edit ranges" : undefined}
             onClick={openEditor}
           >
@@ -4291,7 +4291,7 @@ export const GhostRangeRow = ({
           type="button"
           className="range-ghost-tolerance"
           aria-label="Set new range tolerance"
-          title="Set this new range's tolerance"
+          title="Set tolerance"
           onMouseDown={openTolerance}
         >
         <span className="range-ghost-hint">Not Set</span>
@@ -4767,7 +4767,102 @@ export const resolveUutRangeHelper = (
 // id for single-function instruments, `${functionKey}::${id}` for multi-function
 // ones so each subsection's range state is independent). Empty subsections are
 // emitted for user-added functions (session.functionGroups) with no instrument.
-const buildFunctionGroupedRows = (
+const budgetRangeSnapshot = (range = {}) => {
+  const singleValue =
+    range.value !== undefined && range.value !== null && range.value !== ""
+      ? range.value
+      : undefined;
+  return {
+    rangeId: range.rangeId ?? range.id ?? "",
+    functionId: range.functionId ?? "",
+    functionName: range.functionName ?? "",
+    min: range.min ?? singleValue ?? "",
+    max: range.max ?? singleValue ?? "",
+    unit: range.unit || range.functionUnit || "",
+  };
+};
+
+const findBudgetComponentRange = (component = {}, tmdes = []) => {
+  if (component.tmdeBudgetRange) {
+    return budgetRangeSnapshot(component.tmdeBudgetRange);
+  }
+  const sourceId = component.tmdeBudgetSourceId ?? component.sourceTmdeId;
+  const rangeId = component.tmdeBudgetRangeId;
+  if (sourceId === undefined || sourceId === null || !rangeId) return null;
+  const source = (tmdes || []).find((tmde) =>
+    [tmde?.id, tmde?.sourceId, tmde?.instrument?.id].some((id) =>
+      sameId(id, sourceId),
+    ),
+  );
+  if (!source) return null;
+  const range = getInstrumentRangeRows(source, { flattenTolerances: true }).find(
+    (candidate) => sameId(candidate.rangeId ?? candidate.id, rangeId),
+  );
+  return range ? budgetRangeSnapshot(range) : null;
+};
+
+// Budget users may deliberately select any compatible TMDE range. Surface a
+// quiet warning when that chosen range does not actually contain the nominal
+// used by its direct point or derived equation input.
+export const getBudgetRangeWarnings = ({
+  components = [],
+  measurementType = "direct",
+  directNominal = null,
+  groups = [],
+  tmdes = [],
+} = {}) => {
+  const inputNominals = new Map(
+    (groups || [])
+      .filter((group) => group?.kind === "input")
+      .map((group) => [
+        String(group.variableType || group.variable || ""),
+        group.nominalPoint || {
+          value: group.nominalValue,
+          unit: group.unit,
+        },
+      ]),
+  );
+  const warnings = {};
+
+  (components || []).forEach((component) => {
+    if (!component?.isBudgetInstance || !component.tmdeBudgetRangeId) return;
+    const groupKey =
+      measurementType === "derived"
+        ? String(component.variableType || "")
+        : "final";
+    if (!groupKey) return;
+    const nominal =
+      measurementType === "derived"
+        ? inputNominals.get(groupKey)
+        : directNominal;
+    if (
+      nominal?.value === undefined ||
+      nominal?.value === null ||
+      nominal?.value === "" ||
+      !nominal?.unit
+    ) {
+      return;
+    }
+    const range = findBudgetComponentRange(component, tmdes);
+    if (!range) return;
+    const compatibility = assessRangeCompatibility(
+      range,
+      nominal,
+      "selected TMDE range",
+    );
+    if (compatibility.compatible) return;
+    if (!warnings[groupKey]) warnings[groupKey] = [];
+    warnings[groupKey].push({
+      componentId: component.id || component.componentId,
+      name: component.name || "TMDE component",
+      reason: compatibility.reason,
+    });
+  });
+
+  return warnings;
+};
+
+export const buildFunctionGroupedRows = (
   groupedItems,
   sessionData,
   kind = null,
@@ -4816,7 +4911,16 @@ const buildFunctionGroupedRows = (
         unit: primary.unit,
         color: null,
       };
-      const tableFn = kind ? { ...fn, kind } : fn;
+      const activeUnits = Array.from(
+        new Set(
+          [...(primary.units || []), primary.unit]
+            .map((unit) => String(unit || "").trim())
+            .filter(Boolean),
+        ),
+      );
+      const tableFn = kind
+        ? { ...fn, kind, activeUnits }
+        : { ...fn, activeUnits };
       if (!groups.has(fn.key)) {
         groups.set(fn.key, {
           type: "function",
@@ -4824,6 +4928,14 @@ const buildFunctionGroupedRows = (
           order: fnOrder.has(fn.key) ? fnOrder.get(fn.key) : Number.MAX_SAFE_INTEGER,
           items: [],
         });
+      } else {
+        const group = groups.get(fn.key);
+        group.fn = {
+          ...group.fn,
+          activeUnits: Array.from(
+            new Set([...(group.fn.activeUnits || []), ...activeUnits]),
+          ),
+        };
       }
       groups.get(fn.key).items.push({
         ...row,
@@ -4840,7 +4952,11 @@ const buildFunctionGroupedRows = (
         const key = makeFunctionKey(fg.name, fg.unit);
         if (!groups.has(key)) {
           const resolvedFn = fnByKey.get(key) || { key, name: fg.name, unit: fg.unit, color: null };
-          const fn = { ...resolvedFn, ...(fg.kind ? { kind: fg.kind } : kind ? { kind } : {}) };
+          const fn = {
+            ...resolvedFn,
+            activeUnits: [],
+            ...(fg.kind ? { kind: fg.kind } : kind ? { kind } : {}),
+          };
           groups.set(key, {
             type: "function",
             fn,
@@ -6856,7 +6972,7 @@ const SummaryDashboard = ({
     if (!onSessionSave) return <span style={dotStyle} />;
     return (
       <label
-        title="Click to change function color"
+        title="Change function color"
         onClick={(e) => e.stopPropagation()}
         style={{
           ...dotStyle,
@@ -6921,10 +7037,7 @@ const SummaryDashboard = ({
   };
 
   const renderFunctionUnitChip = (fn) => {
-    const unitLabels = getUniqueUnitDisplayLabels([
-      ...(fn.units || []),
-      fn.unit,
-    ]);
+    const unitLabels = getUniqueUnitDisplayLabels(fn.activeUnits || []);
     return unitLabels.length > 0 ? (
       <span className="function-header-unit-chip">
         {unitLabels.join(", ")}
@@ -7485,7 +7598,7 @@ const SummaryDashboard = ({
       <button
         type="button"
         className="range-expand-btn"
-        title="Edit ranges — add or remove"
+        title="Edit ranges"
         aria-label="Edit ranges"
         onClick={(e) => {
           e.stopPropagation();
@@ -9148,7 +9261,7 @@ const DetailWorkspaceSectionToggle = ({
     onDrop={onDrop}
     onDragEnd={onDragEnd}
     style={style}
-    title={canReorder ? `Drag to reorder ${label}; click to expand or collapse` : undefined}
+    title={canReorder ? `Reorder ${label}` : undefined}
     aria-expanded={!collapsed}
     aria-label={`${collapsed ? "Expand" : "Collapse"} ${label} section`}
     aria-grabbed={canReorder ? isDragging : undefined}
@@ -10656,7 +10769,7 @@ function DetailedView({
       <button
         type="button"
         className="range-expand-btn"
-        title="Edit ranges — add or remove"
+        title="Edit ranges"
         aria-label="Edit ranges"
         onClick={(e) => {
           e.stopPropagation();
@@ -11166,7 +11279,7 @@ function DetailedView({
     if (!onSessionSave) return <span style={dotStyle} />;
     return (
       <label
-        title="Click to change function color"
+        title="Change function color"
         onClick={(e) => e.stopPropagation()}
         style={{
           ...dotStyle,
@@ -11229,10 +11342,7 @@ function DetailedView({
   };
 
   const renderFunctionUnitChip = (fn) => {
-    const unitLabels = getUniqueUnitDisplayLabels([
-      ...(fn.units || []),
-      fn.unit,
-    ]);
+    const unitLabels = getUniqueUnitDisplayLabels(fn.activeUnits || []);
     return unitLabels.length > 0 ? (
       <span className="function-header-unit-chip">
         {unitLabels.join(", ")}
@@ -11521,6 +11631,25 @@ function DetailedView({
     // Detail view exposes the same TMDE inventory as Session Overview.
     return sessionData.tmdes || [];
   }, [sessionData.tmdes]);
+
+  const budgetRangeWarningsByGroup = useMemo(
+    () =>
+      getBudgetRangeWarnings({
+        components: testPointData.components || [],
+        measurementType: testPointData.measurementType,
+        directNominal: uutNominal,
+        groups: calcResults?.calculatedBudgetGroups || [],
+        tmdes: [...relevantTmdes, ...(tmdeTolerancesData || [])],
+      }),
+    [
+      calcResults?.calculatedBudgetGroups,
+      relevantTmdes,
+      testPointData.components,
+      testPointData.measurementType,
+      tmdeTolerancesData,
+      uutNominal,
+    ],
+  );
 
   // The Detailed View lists the SAME instruments as the Session Overview —
   // the full session inventory grouped by function — and simply flags the
@@ -13124,6 +13253,7 @@ function DetailedView({
           sourceTmdeId: sourceTmde.id ?? sourceTmde.sourceId,
           tmdeBudgetSourceId: tmde.id ?? tmde.sourceId,
           tmdeBudgetRangeId: activeRange.rangeId ?? activeRange.id ?? "",
+          tmdeBudgetRange: budgetRangeSnapshot(activeRange),
           tmdeBudgetFunctionId: activeRange.functionId ?? "",
           tmdeBudgetFunctionName: activeRange.functionName ?? "",
           tmdeBudgetComponentKind: suffix,
@@ -13594,7 +13724,7 @@ function DetailedView({
                       getUnitDisplayLabel(budgetTmdePicker.resolutionOption.unit)
                         ? ` ${getUnitDisplayLabel(budgetTmdePicker.resolutionOption.unit)}`
                         : ""
-                    } · rounding contribution`}
+                    }`}
                   </span>
                 </span>
               </button>
@@ -13642,7 +13772,7 @@ function DetailedView({
                           color: "var(--text-color-muted)",
                         }}
                       >
-                        {`${option.value}${resUnitLabel ? ` ${resUnitLabel}` : ""} · rounding contribution`}
+                        {`${option.value}${resUnitLabel ? ` ${resUnitLabel}` : ""}`}
                       </span>
                     </span>
                   </button>
@@ -14204,7 +14334,7 @@ function DetailedView({
                           uutFnKey,
                         )}
                         onDragEnd={handleDetailInstrumentDragEnd}
-                        title="Click to select"
+                        title="Select instrument"
                       >
                         <td
                           rowSpan={rowSpan}
@@ -14491,7 +14621,18 @@ function DetailedView({
               <div className="scoped-zoom-content">
               {isEquationEditorOpen ? (
                 <>
-                <div className="measurement-equation-editor-stack">
+                <div
+                  className="measurement-equation-editor-stack"
+                  style={{
+                    width: `min(100%, ${Math.max(
+                      42,
+                      Math.min(
+                        88,
+                        String(equationDisplayData.equation || "").length + 30,
+                      ),
+                    )}ch)`,
+                  }}
+                >
                   <div className="add-point-equation-input measurement-equation-input-row">
                     <div className="measurement-equation-editor">
                       <input
@@ -14610,7 +14751,7 @@ function DetailedView({
                   onKeyDown={handleEquationPreviewKeyDown}
                   aria-expanded={false}
                   aria-label="Edit measurement equation"
-                  title="Click to edit measurement equation"
+                  title="Edit measurement equation"
                 >
                   {equationPreview.status === "ok" ? (
                     <span
@@ -14622,8 +14763,8 @@ function DetailedView({
                   ) : (
                     <span className="measurement-equation-preview-empty">
                       {equationPreview.status === "empty"
-                        ? "Click to enter a measurement equation"
-                        : "Click to edit the measurement equation"}
+                        ? "Set measurement equation"
+                        : "Edit measurement equation"}
                     </span>
                   )}
                 </button>
@@ -14994,7 +15135,7 @@ function DetailedView({
                               tmdeFnKey,
                             )}
                             onDragEnd={handleDetailInstrumentDragEnd}
-                            title="Click to select"
+                            title="Select instrument"
                           >
                             <td
                               rowSpan={rowSpan}
@@ -15424,6 +15565,7 @@ function DetailedView({
               useEffectiveDofByGroup={
                 testPointData.useEffectiveDofByGroup || {}
               }
+              rangeWarningsByGroup={budgetRangeWarningsByGroup}
             />
           </>
         )

@@ -590,7 +590,6 @@ const metricDetails = (modalType, results) => {
           ["Observed reliability at test TUR", fractionPercent(out.obs)],
           ["Maximum reliability at test TUR", fractionPercent(out.maxReop)],
           ["True reliability at test TUR", fractionPercent(out.trueReop)],
-          ["Core engine status", out.statusCore || "N/A"],
         ],
       };
     case "pfr":
@@ -604,7 +603,6 @@ const metricDetails = (modalType, results) => {
           ["PFR", percent(results.pfr)],
           ["Observed reliability at test TUR", fractionPercent(out.obs)],
           ["Active specification side", side],
-          ["Core engine status", out.statusCore || "N/A"],
         ],
       };
     case "observedreop":
@@ -616,7 +614,6 @@ const metricDetails = (modalType, results) => {
           ["Observed reliability", fractionPercent(out.obs)],
           ["Correct-accept probability", fractionPercent(results.risk8?.diagnostics?.core?.pPCA)],
           ["False-accept probability", fractionPercent(results.risk8?.diagnostics?.core?.pPFA)],
-          ["Core engine status", out.statusCore || "N/A"],
         ],
       };
     case "maxreop":
@@ -628,7 +625,6 @@ const metricDetails = (modalType, results) => {
           ["Maximum achievable reliability", fractionPercent(out.maxReop)],
           ["Calibration sigma at test TUR", number(results.risk8?.diagnostics?.core?.sc_in)],
           ["Observed mean in normalized units", number(results.risk8?.diagnostics?.muObserved)],
-          ["Core engine status", out.statusCore || "N/A"],
         ],
       };
     case "truereop":
@@ -640,7 +636,6 @@ const metricDetails = (modalType, results) => {
           ["True UUT reliability", fractionPercent(out.trueReop)],
           ["Correct-accept probability", fractionPercent(results.risk8?.diagnostics?.core?.pPCA)],
           ["False-reject probability", fractionPercent(results.risk8?.diagnostics?.core?.pPFR)],
-          ["Core engine status", out.statusCore || "N/A"],
         ],
       };
     case "tur":

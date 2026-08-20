@@ -667,7 +667,7 @@ describe("UncertaintyApp", () => {
     );
 
     const settingsButton = await screen.findByRole("button", {
-      name: "New Torque point settings",
+      name: "Torque function settings",
     });
     const functionName = screen
       .getAllByText("Torque")
@@ -675,6 +675,11 @@ describe("UncertaintyApp", () => {
     expect(settingsButton.closest(".function-point-settings").previousElementSibling)
       .toBe(functionName);
     fireEvent.click(settingsButton);
+    expect(screen.getByText("Function Settings")).toBeInTheDocument();
+    expect(screen.queryByText("Applied to this function")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("New points carry over entire budget of initial point."),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("checkbox", { name: /Reuse the first point's equation/i }),
     ).not.toBeInTheDocument();
@@ -919,7 +924,7 @@ describe("UncertaintyApp", () => {
     ).toBeInTheDocument();
     fireEvent.mouseDown(document.body);
     fireEvent.click(
-      screen.getByRole("button", { name: "New Voltage point settings" }),
+      screen.getByRole("button", { name: "Voltage function settings" }),
     );
     const derivedOption = screen.getByRole("radio", { name: "Derived" });
     expect(derivedOption).toHaveAttribute("aria-checked", "false");

@@ -59,7 +59,7 @@ describe("measurement-point value editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle(/^Value: 25 psi/));
+    fireEvent.click(screen.getByTitle("25 psi"));
 
     expect(onSelect).toHaveBeenCalledOnce();
     const input = document.querySelector(".sidebar-inline-input.value");

@@ -697,11 +697,16 @@ export const SidebarPointItem = ({
     }
     const shortLow = limits.low.split(" ")[0];
     const shortHigh = limits.high.split(" ")[0];
+    const referenceUnitLabel = getUnitDisplayLabel(ptParam?.unit || "");
+    const fullLimit = (raw, formatted) =>
+      raw !== undefined
+        ? `${raw}${raw !== "—" && referenceUnitLabel ? ` ${referenceUnitLabel}` : ""}`
+        : formatted;
     return {
       low: shortLow,
       high: shortHigh,
-      fullLow: limits.low,
-      fullHigh: limits.high,
+      fullLow: fullLimit(limits.rawLow, limits.low),
+      fullHigh: fullLimit(limits.rawHigh, limits.high),
     };
   }, [point.uutTolerance, point.testPointInfo]);
 
@@ -791,7 +796,7 @@ export const SidebarPointItem = ({
           <span
             className="point-section"
             onClick={(e) => handleSingleClickEdit(e, "section", point.section)}
-            title={`Section: ${point.section || "-"} — Click to edit`}
+            title={String(point.section || "-")}
           >
             {point.section || "-"}
           </span>
@@ -820,9 +825,9 @@ export const SidebarPointItem = ({
           <span
             className="point-value point-value-with-unit sidebar-value-sticky"
             onClick={(e) => handleSingleClickEdit(e, "value", displayValue)}
-            title={`Value: ${displayValue ?? "-"}${
+            title={`${displayValue ?? "-"}${
               displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
-            } — Click to edit`}
+            }`}
           >
             <span className="point-value-number">
               {displayValue || <span className="point-placeholder">-</span>}
@@ -858,7 +863,7 @@ export const SidebarPointItem = ({
                 point.testPointInfo?.qualifier?.value,
               )
             }
-            title={`Qualifier: ${point.testPointInfo?.qualifier?.value ?? "-"} — Click to edit`}
+            title={String(point.testPointInfo?.qualifier?.value ?? "-")}
           >
             {point.testPointInfo?.qualifier?.value || (
               <span className="point-placeholder">-</span>
@@ -878,14 +883,14 @@ export const SidebarPointItem = ({
 
       {/* Col 4: Low Limit */}
       {visibleColumns.lowLimit && (
-        <span className="point-metric" title={`Low: ${limitsData.fullLow}`}>
+        <span className="point-metric" title={limitsData.fullLow}>
           {limitsData.low}
         </span>
       )}
 
       {/* Col 5: High Limit */}
       {visibleColumns.highLimit && (
-        <span className="point-metric" title={`High: ${limitsData.fullHigh}`}>
+        <span className="point-metric" title={limitsData.fullHigh}>
           {limitsData.high}
         </span>
       )}
@@ -915,7 +920,7 @@ export const SidebarPointItem = ({
           className={`point-metric ${
             tmdeLimitsData.entries.length > 0 ? "point-metric-list" : ""
           }`}
-          title={tmdeLimitsTitle || `TMDE Low: ${tmdeLimitsData.low}`}
+          title={tmdeLimitsTitle || tmdeLimitsData.low}
         >
           {tmdeLimitsData.entries.length > 0
             ? tmdeLimitsData.entries.map((entry) => (
@@ -937,7 +942,7 @@ export const SidebarPointItem = ({
           className={`point-metric ${
             tmdeLimitsData.entries.length > 0 ? "point-metric-list" : ""
           }`}
-          title={tmdeLimitsTitle || `TMDE High: ${tmdeLimitsData.high}`}
+          title={tmdeLimitsTitle || tmdeLimitsData.high}
         >
           {tmdeLimitsData.entries.length > 0
             ? tmdeLimitsData.entries.map((entry) => (
@@ -4236,8 +4241,8 @@ function App({ showThemeToggle = false }) {
           <button
             type="button"
             className={`function-point-settings-button${settingsOpen ? " is-active" : ""}`}
-            title={`New ${fnGroup.name} point settings`}
-            aria-label={`New ${fnGroup.name} point settings`}
+            title={`${fnGroup.name} function settings`}
+            aria-label={`${fnGroup.name} function settings`}
             aria-expanded={settingsOpen}
             onClick={() =>
               setOpenFunctionSettingsId((current) =>
@@ -4251,11 +4256,10 @@ function App({ showThemeToggle = false }) {
             <div
               className="function-point-settings-menu"
               role="dialog"
-              aria-label={`${fnGroup.name} point settings`}
+              aria-label={`${fnGroup.name} function settings`}
             >
               <div className="function-point-settings-heading">
-                <strong>New point settings</strong>
-                <span>Applied to this function</span>
+                <strong>Function Settings</strong>
               </div>
               <div className="function-point-type-options" role="radiogroup" aria-label="New point type">
                 {[
@@ -4303,7 +4307,7 @@ function App({ showThemeToggle = false }) {
                 />
                 <span>
                   <strong>Reuse the first point's budget</strong>
-                  <small>New points start with the same components and propagation settings.</small>
+                  <small>New points carry over entire budget of initial point.</small>
                 </span>
               </label>
             </div>

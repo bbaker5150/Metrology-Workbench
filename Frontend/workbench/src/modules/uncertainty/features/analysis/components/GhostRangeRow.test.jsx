@@ -449,7 +449,7 @@ describe("inline range editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to set a range"));
+    fireEvent.click(screen.getByTitle("Set range"));
 
     expect(onEnsureInitialRange).toHaveBeenCalledOnce();
     rerender(
@@ -476,7 +476,7 @@ describe("inline range editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to set a range"));
+    fireEvent.click(screen.getByTitle("Set range"));
 
     expect(onExpandAll).not.toHaveBeenCalled();
     expect(screen.queryByText("Set rangeâ€¦")).not.toBeInTheDocument();
@@ -496,7 +496,7 @@ describe("inline range editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to edit range"));
+    fireEvent.click(screen.getByTitle("Edit range"));
     expect(screen.queryByRole("button", { name: "Clear range" })).not.toBeInTheDocument();
   });
 
@@ -530,7 +530,7 @@ describe("inline range editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to edit range"));
+    fireEvent.click(screen.getByTitle("Edit range"));
     const value = screen.getByPlaceholderText("value");
     fireEvent.change(value, { target: { value: "" } });
     fireEvent.blur(value);
@@ -551,7 +551,7 @@ describe("inline range editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to set a range"));
+    fireEvent.click(screen.getByTitle("Set range"));
     fireEvent.keyDown(screen.getByPlaceholderText("min"), { key: "Escape" });
 
     expect(onEditBound).not.toHaveBeenCalled();
@@ -579,7 +579,7 @@ describe("inline range editing", () => {
       </div>,
     );
 
-    fireEvent.click(screen.getByTitle("Click to set a range"));
+    fireEvent.click(screen.getByTitle("Set range"));
     expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Set tolerance" }));
@@ -637,7 +637,7 @@ describe("inline range editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to set a range"));
+    fireEvent.click(screen.getByTitle("Set range"));
     const max = screen.getByPlaceholderText("max");
     fireEvent.change(max, { target: { value: "10" } });
     fireEvent.keyDown(max, { key: "Tab" });
@@ -736,15 +736,15 @@ describe("inline range editing", () => {
       </div>,
     );
 
-    fireEvent.click(screen.getByTitle("Click to edit tolerance"));
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
     fireEvent.keyDown(screen.getAllByPlaceholderText("0")[0], { key: "Escape" });
-    expect(screen.getByTitle("Click to edit tolerance")).toBeInTheDocument();
+    expect(screen.getByTitle("Edit tolerance")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTitle("Click to edit tolerance"));
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
     fireEvent.pointerDown(screen.getByRole("button", { name: "Other column" }));
     fireEvent.click(screen.getByRole("button", { name: "Other column" }));
     await waitFor(() =>
-      expect(screen.getByTitle("Click to edit tolerance")).toBeInTheDocument(),
+      expect(screen.getByTitle("Edit tolerance")).toBeInTheDocument(),
     );
   });
 
@@ -775,23 +775,23 @@ describe("inline range editing", () => {
 
     const outside = screen.getByRole("button", { name: "Outside column" });
 
-    fireEvent.click(screen.getByTitle("Click to edit range"));
+    fireEvent.click(screen.getByTitle("Edit range"));
     expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
     fireEvent.pointerDown(outside);
     await waitFor(() =>
-      expect(screen.getByTitle("Click to edit range")).toBeInTheDocument(),
+      expect(screen.getByTitle("Edit range")).toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByTitle("Click to edit resolution"));
+    fireEvent.click(screen.getByTitle("Edit resolution"));
     expect(screen.getByPlaceholderText("—")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.getByTitle("Click to edit resolution")).toBeInTheDocument();
+    expect(screen.getByTitle("Edit resolution")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTitle("Click to edit distribution"));
+    fireEvent.click(screen.getByTitle("Edit distribution"));
     expect(screen.getByLabelText("Spec band distribution")).toBeInTheDocument();
     fireEvent.pointerDown(outside);
     await waitFor(() =>
-      expect(screen.getByTitle("Click to edit distribution")).toBeInTheDocument(),
+      expect(screen.getByTitle("Edit distribution")).toBeInTheDocument(),
     );
   });
 

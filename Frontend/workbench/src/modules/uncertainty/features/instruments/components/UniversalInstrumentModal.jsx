@@ -937,7 +937,7 @@ const ToleranceTermEditor = ({
                             className={`inline-tolerance-shape-button${
                                 shapeMenuRect ? " is-open" : ""
                             }`}
-                            title={`Tolerance shape: ${currentShape.label}`}
+                            title="Change tolerance shape"
                             aria-haspopup="menu"
                             aria-expanded={Boolean(shapeMenuRect)}
                             onMouseDown={(e) => e.preventDefault()}
@@ -959,7 +959,7 @@ const ToleranceTermEditor = ({
                             className={`inline-tolerance-chip inline-tolerance-chip--in-cell inline-tolerance-chip--button${
                                 unitMenuRect ? " is-open" : ""
                             }`}
-                            title={`${typeKey === "reading" ? "IV" : "Range/FS"} unit - click to change`}
+                            title={`Change ${typeKey === "reading" ? "IV" : "range/FS"} unit`}
                             aria-haspopup="menu"
                             aria-expanded={Boolean(unitMenuRect)}
                             onMouseDown={(e) => e.preventDefault()}
@@ -1199,7 +1199,7 @@ const BuilderRangeCell = ({
                 <button
                     type="button"
                     className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
-                    title={summary ? "Click to edit range" : "Click to set a range"}
+                    title={summary ? "Edit range" : "Set range"}
                     onClick={(e) => {
                         e.stopPropagation();
                         setEditing(true);
@@ -1360,7 +1360,7 @@ const BuilderToleranceCell = ({
             <button
                 type="button"
                 className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}`}
-                title={hasValue ? "Click to edit tolerance" : "Click to set a tolerance"}
+                title={hasValue ? "Edit tolerance" : "Set tolerance"}
                 aria-label={hasValue ? undefined : "Set tolerance"}
                 onClick={(e) => {
                     e.stopPropagation();
@@ -1393,7 +1393,7 @@ const BuilderDistributionCell = ({ value, onChange }) => {
                 <button
                     type="button"
                     className="inline-tolerance-summary"
-                    title="Click to edit distribution"
+                    title="Edit distribution"
                     onClick={(e) => {
                         e.stopPropagation();
                         setEditing(true);
@@ -1467,7 +1467,7 @@ const BuilderResolutionCell = ({
                 <button
                     type="button"
                     className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
-                    title={summary ? "Click to edit resolution" : "Click to set a resolution"}
+                    title={summary ? "Edit resolution" : "Set resolution"}
                     aria-label={summary ? undefined : "Set resolution"}
                     onClick={(e) => {
                         e.stopPropagation();
@@ -2615,7 +2615,7 @@ const UniversalInstrumentModal = ({
                                     autoFocus
                                 />
                             </div>
-                            <button className="icon-btn-ghost" onClick={handleCreateNew} title="Create Manual Instrument">
+                            <button className="icon-btn-ghost" onClick={handleCreateNew} title="Create Instrument">
                                 <FontAwesomeIcon icon={faPlus} />
                             </button>
                         </div>
@@ -2642,7 +2642,7 @@ const UniversalInstrumentModal = ({
                                                     onClick={(e) => handleRowSelect(e, inst.id)}
                                                     onDoubleClick={() => handleEditLibraryItem(inst)}
                                                     className={`hover-row ${isRowSelected ? 'row-selected' : ''}`}
-                                                    title="Click to select (Ctrl/Shift for multi); double-click to open"
+                                                    title="Select instrument"
                                                     tabIndex={0}
                                                     aria-selected={isRowSelected}
                                                 >
