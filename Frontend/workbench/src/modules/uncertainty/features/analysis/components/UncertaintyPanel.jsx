@@ -7179,6 +7179,7 @@ const SummaryDashboard = ({
         />
         <div
           onClick={(e) => e.stopPropagation()}
+          data-tour={`${kind}-function-menu`}
           style={{
             position: "fixed",
             top: placement.top,
@@ -13494,6 +13495,7 @@ function DetailedView({
         />
         <div
           className="budget-settings-menu budget-tmde-picker-menu"
+          data-tour="budget-component-menu"
           style={{
             position: "fixed",
             top: placement.top,

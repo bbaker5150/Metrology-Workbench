@@ -10,6 +10,7 @@ import {
 const CARD_WIDTH = 360;
 const VIEWPORT_GAP = 12;
 const TARGET_GAP = 14;
+const ELEVATED_SURFACE_CLASS = "guided-walkthrough-elevated-surface";
 
 const visibleTarget = (selector) => {
   if (!selector) return null;
@@ -23,6 +24,47 @@ const visibleTarget = (selector) => {
       style.visibility !== "hidden"
     );
   }) || null;
+};
+
+const combineRects = (...rects) => {
+  const visibleRects = rects.filter(Boolean);
+  if (visibleRects.length === 0) return null;
+  const top = Math.min(...visibleRects.map((rect) => rect.top));
+  const right = Math.max(...visibleRects.map((rect) => rect.right));
+  const bottom = Math.max(...visibleRects.map((rect) => rect.bottom));
+  const left = Math.min(...visibleRects.map((rect) => rect.left));
+  return {
+    top,
+    right,
+    bottom,
+    left,
+    width: right - left,
+    height: bottom - top,
+  };
+};
+
+const createsStackingContext = (style) => {
+  const opacity = Number.parseFloat(style.opacity);
+  return (
+    (style.position !== "static" && style.zIndex !== "auto") ||
+    Boolean(style.transform && style.transform !== "none") ||
+    Boolean(style.filter && style.filter !== "none") ||
+    Boolean(style.perspective && style.perspective !== "none") ||
+    style.isolation === "isolate" ||
+    (Number.isFinite(opacity) && opacity < 1)
+  );
+};
+
+const elevateRevealedSurface = (surface, elevatedElements) => {
+  let element = surface;
+  while (element && element !== document.body) {
+    const style = window.getComputedStyle(element);
+    if (element === surface || createsStackingContext(style)) {
+      element.classList.add(ELEVATED_SURFACE_CLASS);
+      elevatedElements.add(element);
+    }
+    element = element.parentElement;
+  }
 };
 
 export const getWalkthroughCardPosition = (
@@ -89,10 +131,27 @@ const GuidedWalkthrough = ({
     if (!isOpen || !step) return undefined;
 
     let frame = null;
+    const elevatedElements = new Set();
+    const clearElevatedSurfaces = () => {
+      elevatedElements.forEach((element) =>
+        element.classList.remove(ELEVATED_SURFACE_CLASS),
+      );
+      elevatedElements.clear();
+    };
     const update = () => {
       const target = visibleTarget(step.target);
+      const revealedSurface = visibleTarget(step.revealedTarget);
+      clearElevatedSurfaces();
+      if (revealedSurface) {
+        elevateRevealedSurface(revealedSurface, elevatedElements);
+      }
       setHasTarget(Boolean(target));
-      setTargetRect(target ? target.getBoundingClientRect() : null);
+      setTargetRect(
+        combineRects(
+          target ? target.getBoundingClientRect() : null,
+          revealedSurface ? revealedSurface.getBoundingClientRect() : null,
+        ),
+      );
     };
     const queueUpdate = () => {
       if (frame != null) window.cancelAnimationFrame(frame);
@@ -118,6 +177,7 @@ const GuidedWalkthrough = ({
       window.removeEventListener("resize", queueUpdate);
       window.removeEventListener("scroll", queueUpdate, true);
       if (frame != null) window.cancelAnimationFrame(frame);
+      clearElevatedSurfaces();
     };
   }, [isOpen, step]);
 

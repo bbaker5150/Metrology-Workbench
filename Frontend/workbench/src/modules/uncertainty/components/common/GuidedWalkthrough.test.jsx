@@ -69,4 +69,76 @@ describe("GuidedWalkthrough", () => {
       expect(screen.getByRole("dialog", { name: "Uncertalytics walkthrough" })).toBeInTheDocument(),
     );
   });
+
+  it("elevates a menu revealed by the highlighted action and cleans it up", async () => {
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function getRect() {
+        if (this.dataset?.tour === "revealed-menu") {
+          return {
+            top: 90,
+            left: 40,
+            right: 280,
+            bottom: 300,
+            width: 240,
+            height: 210,
+          };
+        }
+        return {
+          top: 40,
+          left: 40,
+          right: 70,
+          bottom: 70,
+          width: 30,
+          height: 30,
+        };
+      });
+    const menuSteps = [
+      {
+        id: "menu",
+        title: "Open the menu",
+        description: "Use the menu.",
+        target: '[data-tour="target"]',
+        revealedTarget: '[data-tour="revealed-menu"]',
+      },
+    ];
+    const props = {
+      steps: menuSteps,
+      stepIndex: 0,
+      onStepChange: vi.fn(),
+      onClose: vi.fn(),
+    };
+    const { rerender } = render(
+      <>
+        <button type="button" data-tour="target">
+          Open
+        </button>
+        <div role="menu" data-tour="revealed-menu">
+          Menu
+        </div>
+        <GuidedWalkthrough isOpen {...props} />
+      </>,
+    );
+
+    const menu = screen.getByRole("menu");
+    await waitFor(() =>
+      expect(menu).toHaveClass("guided-walkthrough-elevated-surface"),
+    );
+
+    rerender(
+      <>
+        <button type="button" data-tour="target">
+          Open
+        </button>
+        <div role="menu" data-tour="revealed-menu">
+          Menu
+        </div>
+        <GuidedWalkthrough isOpen={false} {...props} />
+      </>,
+    );
+    expect(screen.getByRole("menu")).not.toHaveClass(
+      "guided-walkthrough-elevated-surface",
+    );
+    rectSpy.mockRestore();
+  });
 });

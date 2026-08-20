@@ -1577,6 +1577,7 @@ function App({ showThemeToggle = false }) {
         description:
           "Use this add button to create the function being tested, such as Voltage, Weight, or Torque. Existing functions are listed for reuse, and a session can contain as many functions as needed.",
         target: '[data-tour="uut-add-function"]',
+        revealedTarget: '[data-tour="uut-function-menu"]',
       },
       {
         id: "uut-instrument",
@@ -1599,6 +1600,7 @@ function App({ showThemeToggle = false }) {
         description:
           "Hover beside the function name and open the settings button. Keep Direct selected for this walkthrough. Reusing the first point's budget makes later points inherit the complete initial budget.",
         target: '[data-tour="function-settings"]',
+        revealedTarget: '[data-tour="function-settings-menu"]',
       },
       {
         id: "measurement-point",
@@ -1606,6 +1608,7 @@ function App({ showThemeToggle = false }) {
         description:
           "Select the + on the function header. If several UUTs share the function, choose the instrument from the menu that opens, then enter the measurement value in the new sidebar row.",
         target: '[data-tour="add-measurement-point"]',
+        revealedTarget: '[data-tour="measurement-point-menu"]',
       },
       {
         id: "tmde-function",
@@ -1613,6 +1616,7 @@ function App({ showThemeToggle = false }) {
         description:
           "Now repeat the setup for the measuring equipment. Add the function used by the TMDE; it can reuse a function already defined in the session.",
         target: '[data-tour="tmde-add-function"]',
+        revealedTarget: '[data-tour="tmde-function-menu"]',
       },
       {
         id: "tmde-instrument",
@@ -1648,6 +1652,7 @@ function App({ showThemeToggle = false }) {
         description:
           "Use Add component on each budget table to select a compatible tolerance, resolution, repeatability result, or manual source. Configure its distribution and coverage details, then calculate the combined and expanded uncertainty.",
         target: '[data-tour="budget-add-component"]',
+        revealedTarget: '[data-tour="budget-component-menu"]',
         hint: "A yellow range warning appears when a selected instrument range does not contain the direct measurement nominal.",
       },
       {
@@ -4407,6 +4412,7 @@ function App({ showThemeToggle = false }) {
           {settingsOpen && (
             <div
               className="function-point-settings-menu"
+              data-tour="function-settings-menu"
               role="dialog"
               aria-label={`${fnGroup.name} function settings`}
             >
@@ -4503,6 +4509,7 @@ function App({ showThemeToggle = false }) {
           {pendingPointInstrumentChoice?.functionId === fnGroup.id && (
             <div
               className="budget-settings-menu point-unit-picker function-point-instrument-picker"
+              data-tour="measurement-point-menu"
               role="menu"
               aria-label={`Choose UUT for new ${fnGroup.name} measurement point`}
               onClick={(event) => event.stopPropagation()}
@@ -4542,6 +4549,7 @@ function App({ showThemeToggle = false }) {
             pendingPointUnitChoice?.uutId === targetUut.id && (
               <div
                 className="budget-settings-menu point-unit-picker function-point-unit-picker"
+                data-tour="measurement-point-menu"
                 role="menu"
                 aria-label="Choose measurement point unit"
                 onClick={(event) => event.stopPropagation()}
