@@ -1008,6 +1008,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         sample_count,
         *,
         inter_sample_delay=1.0,
+        on_sample=None,
     ):
         """Acquire a complete role batch without changing 5790 inputs.
 
@@ -1036,11 +1037,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 input_name,
                 role,
             )
-            points.append({
+            point = {
                 'value': value,
                 'timestamp': time.time(),
                 'is_stable': True,
-            })
+            }
+            points.append(point)
+            if on_sample is not None:
+                await on_sample(point, sample_index + 1)
             if sample_index < sample_count - 1 and inter_sample_delay:
                 if not await self._wait_for_stop_or_timeout(inter_sample_delay):
                     raise asyncio.CancelledError
@@ -1053,6 +1057,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         sample_count,
         *,
         inter_sample_delay=1.0,
+        on_sample=None,
     ):
         """Read Standard N times, switch once, then read TI N times."""
         if not _shared_5790_reader_pair(std_reader, ti_reader):
@@ -1068,12 +1073,24 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             'test_role_input',
             getattr(self, '_test_reader_input', 'INPUT2'),
         )
+
+        async def publish_role_sample(role, point, sample_index):
+            if on_sample is not None:
+                await on_sample(role, point, sample_index)
+
+        async def publish_standard_sample(point, sample_index):
+            await publish_role_sample('std', point, sample_index)
+
+        async def publish_test_sample(point, sample_index):
+            await publish_role_sample('ti', point, sample_index)
+
         standard_points = await self._take_5790_input_batch(
             std_reader,
             std_input,
             'Standard',
             sample_count,
             inter_sample_delay=inter_sample_delay,
+            on_sample=publish_standard_sample,
         )
         test_points = await self._take_5790_input_batch(
             ti_reader,
@@ -1081,6 +1098,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             'Test instrument',
             sample_count,
             inter_sample_delay=inter_sample_delay,
+            on_sample=publish_test_sample,
         )
         return standard_points, test_points
 
@@ -2693,6 +2711,32 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 0.0,
                 float(measurement_params.get('f5790_inter_sample_delay', 1.0)),
             )
+
+            async def stream_shared_5790_sample(role, point, sample_index):
+                """Publish a physical shared-5790 reading as soon as it arrives."""
+                std_point = point if role == 'std' else None
+                ti_point = point if role == 'ti' else None
+                self._buffer_append_sample(
+                    reading_type_base,
+                    std_point,
+                    ti_point,
+                    sample_index,
+                    num_samples,
+                    cycle_index=cycle_index,
+                )
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'dual_reading_update',
+                    'std_reading': std_point,
+                    'ti_reading': ti_point,
+                    'count': sample_index,
+                    'stable_count': get_target_length(),
+                    'total': num_samples,
+                    'stage': reading_type_base,
+                    'cycle_index': cycle_index,
+                    'reader_role': role,
+                    'live_physical_sample': True,
+                }))
+
             while get_target_length() < num_samples and not self.stop_event.is_set():
                 # 1. Global Abort Check (Applies to both Search and Collection phases)
                 if instability_events >= max_retries:
@@ -2714,6 +2758,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             ti_reader_instrument,
                             num_samples,
                             inter_sample_delay=shared_5790_sample_delay,
+                            on_sample=stream_shared_5790_sample,
                         )
                         pending_reader_pairs.extend(zip(std_batch, ti_batch))
                     std_point, ti_point = pending_reader_pairs.popleft()
@@ -3011,17 +3056,33 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         cycle_index=cycle_index,
                     )
 
-                await self.broadcast(text_data=json.dumps({
-                    'type': 'dual_reading_update',
-                    'std_reading': std_point,
-                    'ti_reading': ti_point,
-                    'count': current_count,
-                    'stable_count': get_target_length(),
-                    'total': num_samples,
-                    'stage': reading_type_base,
-                    'cycle_index': cycle_index,
-                    'window_snapshot': search_window_snapshot,
-                }))
+                # Shared-5790 points were already published at the exact time
+                # each physical reading arrived. Re-broadcasting reconstructed
+                # pairs here made both charts appear to fill all at once. The
+                # only follow-up this path needs is a final search-window
+                # snapshot when stability evaluation changed point flags.
+                should_publish_processed_pair = not use_shared_5790_batches
+                should_publish_shared_snapshot = bool(
+                    use_shared_5790_batches
+                    and search_window_snapshot is not None
+                    and not pending_reader_pairs
+                )
+                if should_publish_processed_pair or should_publish_shared_snapshot:
+                    await self.broadcast(text_data=json.dumps({
+                        'type': 'dual_reading_update',
+                        'std_reading': (
+                            None if use_shared_5790_batches else std_point
+                        ),
+                        'ti_reading': (
+                            None if use_shared_5790_batches else ti_point
+                        ),
+                        'count': current_count,
+                        'stable_count': get_target_length(),
+                        'total': num_samples,
+                        'stage': reading_type_base,
+                        'cycle_index': cycle_index,
+                        'window_snapshot': search_window_snapshot,
+                    }))
 
                 await asyncio.sleep(0.05)
         

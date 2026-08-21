@@ -172,8 +172,22 @@ class SequentialReaderStabilityTests(SimpleTestCase):
                 {**point, "value": point["value"] * 2}
                 for point in batch
             ]
+            async def take_shared_batches(
+                std_reader,
+                ti_reader,
+                sample_count,
+                *,
+                inter_sample_delay,
+                on_sample,
+            ):
+                for sample_index, point in enumerate(batch, start=1):
+                    await on_sample("std", point, sample_index)
+                for sample_index, point in enumerate(ti_batch, start=1):
+                    await on_sample("ti", point, sample_index)
+                return batch, ti_batch
+
             consumer._take_shared_5790_batches = AsyncMock(
-                return_value=(batch, ti_batch),
+                side_effect=take_shared_batches,
             )
 
             with patch("api.consumers.asyncio.sleep", new=AsyncMock()):
@@ -200,13 +214,56 @@ class SequentialReaderStabilityTests(SimpleTestCase):
         consumer, success, instrument = asyncio.run(run_measurement())
 
         self.assertTrue(success)
-        consumer._take_shared_5790_batches.assert_awaited_once_with(
-            instrument,
-            instrument,
-            3,
-            inter_sample_delay=0.0,
-        )
+        consumer._take_shared_5790_batches.assert_awaited_once()
+        batch_call = consumer._take_shared_5790_batches.await_args
+        self.assertEqual(batch_call.args, (instrument, instrument, 3))
+        self.assertEqual(batch_call.kwargs["inter_sample_delay"], 0.0)
+        self.assertTrue(callable(batch_call.kwargs["on_sample"]))
         consumer._take_reader_pair.assert_not_awaited()
+
+        broadcasts = [
+            json.loads(call.kwargs["text_data"])
+            for call in consumer.broadcast.await_args_list
+        ]
+        live_samples = [
+            payload for payload in broadcasts
+            if payload.get("live_physical_sample")
+        ]
+        self.assertEqual(
+            [payload["reader_role"] for payload in live_samples],
+            ["std", "std", "std", "ti", "ti", "ti"],
+        )
+        self.assertEqual(
+            [payload["count"] for payload in live_samples],
+            [1, 2, 3, 1, 2, 3],
+        )
+        self.assertTrue(all(
+            payload["std_reading"] is not None
+            and payload["ti_reading"] is None
+            for payload in live_samples[:3]
+        ))
+        self.assertTrue(all(
+            payload["std_reading"] is None
+            and payload["ti_reading"] is not None
+            for payload in live_samples[3:]
+        ))
+
+        processed_updates = [
+            payload for payload in broadcasts
+            if payload.get("type") == "dual_reading_update"
+            and not payload.get("live_physical_sample")
+        ]
+        self.assertEqual(len(processed_updates), 1)
+        self.assertIsNone(processed_updates[0]["std_reading"])
+        self.assertIsNone(processed_updates[0]["ti_reading"])
+        self.assertEqual(
+            len(processed_updates[0]["window_snapshot"]["std"]),
+            3,
+        )
+        self.assertEqual(
+            len(processed_updates[0]["window_snapshot"]["ti"]),
+            3,
+        )
         saved = {
             call.args[0]: call.args[1]
             for call in consumer.save_readings_to_db.await_args_list
@@ -582,14 +639,16 @@ class SequentialReaderAcquisitionTests(SimpleTestCase):
             consumer = CalibrationConsumer()
             consumer.broadcast = AsyncMock()
             consumer._wait_for_stop_or_timeout = AsyncMock(return_value=True)
+            on_sample = AsyncMock()
             return await consumer._take_shared_5790_batches(
                 instrument,
                 instrument,
                 3,
                 inter_sample_delay=1.0,
-            ), consumer
+                on_sample=on_sample,
+            ), consumer, on_sample
 
-        (standard, test), consumer = asyncio.run(exercise())
+        (standard, test), consumer, on_sample = asyncio.run(exercise())
 
         self.assertEqual([point["value"] for point in standard], [1.0, 1.0, 1.0])
         self.assertEqual([point["value"] for point in test], [2.0, 2.0, 2.0])
@@ -603,6 +662,14 @@ class SequentialReaderAcquisitionTests(SimpleTestCase):
             "read:INPUT2",
             "read:INPUT2",
         ])
+        self.assertEqual(
+            [call.args[0] for call in on_sample.await_args_list],
+            ["std", "std", "std", "ti", "ti", "ti"],
+        )
+        self.assertEqual(
+            [call.args[2] for call in on_sample.await_args_list],
+            [1, 2, 3, 1, 2, 3],
+        )
         sample_dwells = [
             call for call in consumer._wait_for_stop_or_timeout.await_args_list
             if call.args == (1.0,)
