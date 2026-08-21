@@ -91,6 +91,16 @@ await page.route('**/_api/**', async (route) => {
   const method = req.headers()['x-http-method'] || req.method();
   apiCalls.push(`${method} ${path.replace(/^.*\/_api/, '_api')}`);
 
+  // SharePoint supplies the app's identity. Returning a real user here keeps
+  // this browser-level smoke test aligned with the user-scoped storage gate.
+  if (path.includes('/_api/web/currentuser')) {
+    return route.fulfill(json({
+      Id: 7,
+      LoginName: 'i:0#.f|membership|smoke.user@example.test',
+      Email: 'smoke.user@example.test',
+      Title: 'Smoke Test User',
+    }));
+  }
   // Form digest
   if (path.includes('/_api/contextinfo')) {
     return route.fulfill(json({ FormDigestValue: 'DIGEST', FormDigestTimeoutSeconds: 1800 }));
