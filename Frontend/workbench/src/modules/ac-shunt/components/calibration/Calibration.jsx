@@ -304,8 +304,9 @@ const SubNav = ({ activeTab, setActiveTab }) => (
 // alive across unmount/remount for the app session without any persistence.
 let rememberedCalSubTab = "settings";
 
-// Readings sub-tab: stacked vs. side-by-side chart layout (session only).
-let rememberedReadingsChartLayout = "stacked";
+// Readings sub-tab: side-by-side is the default, while an explicit user
+// choice is still remembered for the rest of the app session.
+let rememberedReadingsChartLayout = "sideBySide";
 
 const LINE_FREQUENCY_HZ = 60;
 const CYCLE_CLEAN_TOLERANCE = 1e-6;
@@ -1727,6 +1728,9 @@ function Calibration({
     if (!validateInstrumentAssignments("start batch calibration")) {
       return;
     }
+    // The primary action-bar play button starts a live run. Put the operator
+    // where the incoming Standard and TI samples are visible immediately.
+    setActiveTab("readings");
     setFailedTPKeys(new Set());
 
     const runBatchSequence = async () => {

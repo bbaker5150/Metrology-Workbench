@@ -1500,7 +1500,14 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                 </button>
               </div>
             )}
-            <button onClick={handleShellClose} className="cal-results-excel-icon-btn" title="Close" aria-label="Close">
+            <button
+              type="button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={handleShellClose}
+              className="cal-results-excel-icon-btn corrections-modal-close"
+              title="Close"
+              aria-label="Close"
+            >
               <FaTimes aria-hidden />
             </button>
           </div>
