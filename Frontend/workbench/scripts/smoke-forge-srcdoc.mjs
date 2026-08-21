@@ -76,6 +76,18 @@ await page.route('**/_api/**', async (route) => {
   apiCalls.push(url);
   const ok = (body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 
+  // The single-file build uses SharePoint's existing signed-in identity to
+  // scope sessions and local instruments. Keep that authentication handshake
+  // in the smoke environment so the storage gate can proceed to its list
+  // probes just as it does on a real tenant.
+  if (url.includes('/_api/web/currentuser')) {
+    return ok({
+      Id: 7,
+      LoginName: 'i:0#.f|membership|smoke.user@example.test',
+      Email: 'smoke.user@example.test',
+      Title: 'Smoke Test User',
+    });
+  }
   if (url.includes('contextinfo')) return ok({ FormDigestValue: 'D', FormDigestTimeoutSeconds: 1800 });
   const probe = /getbytitle\('([^']+)'\)\?\$select=Id/.exec(url);
   if (probe) {
