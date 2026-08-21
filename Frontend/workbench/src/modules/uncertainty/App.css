@@ -1405,9 +1405,19 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   font-weight: 700;
 }
 
-.measurement-points-empty-state span {
+.measurement-points-empty-state span,
+.measurement-points-empty-copy {
   font-size: 0.7rem;
   line-height: 1.45;
+}
+
+.measurement-points-empty-copy {
+  display: grid;
+  gap: 7px;
+}
+
+.measurement-points-empty-copy p {
+  margin: 0;
 }
 
 /* Ensure the buttons feel organic/subtle */

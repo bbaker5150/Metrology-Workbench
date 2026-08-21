@@ -1667,12 +1667,19 @@ function App({ showThemeToggle = false }) {
   );
 
   useEffect(() => {
-    if (!sessionsLoaded || walkthroughAutoStartedRef.current) return;
+    if (
+      !sessionsLoaded ||
+      sessions.length > 0 ||
+      walkthroughAutoStartedRef.current
+    ) return;
+
+    // Mark this only when onboarding truly starts. Previously a successful
+    // load with existing sessions consumed the one-time check, so deleting
+    // the final session later left the user on an empty workspace with no
+    // guidance.
     walkthroughAutoStartedRef.current = true;
-    if (sessions.length === 0) {
-      setWalkthroughStepIndex(0);
-      setIsWalkthroughOpen(true);
-    }
+    setWalkthroughStepIndex(0);
+    setIsWalkthroughOpen(true);
   }, [sessions.length, sessionsLoaded]);
 
   useEffect(() => {
@@ -5125,11 +5132,22 @@ function App({ showThemeToggle = false }) {
                     <FontAwesomeIcon icon={faMicroscope} aria-hidden="true" />
                     <div>
                       <strong>Ready for your first measurement point</strong>
-                      <span>
-                        {(currentSessionData?.uuts || []).length === 0
-                          ? "Create a function in Instrument Overview, then add a UUT to that function."
-                          : "Use the + beside a UUT below to add a direct or derived measurement point."}
-                      </span>
+                      <div className="measurement-points-empty-copy">
+                        <p>
+                          Instruments are organized by Function, grouping them
+                          by capability (such as DC Voltage or Pressure) while
+                          keeping multi-mode operations separate.
+                        </p>
+                        <p>
+                          Select or create a Function to define the measurement
+                          category.
+                        </p>
+                        <p>Add the UUTs that perform that Function.</p>
+                        <p>
+                          Add Measurement Points to define the exact test values
+                          and tolerances for each UUT.
+                        </p>
+                      </div>
                     </div>
                   </div>
                 )}

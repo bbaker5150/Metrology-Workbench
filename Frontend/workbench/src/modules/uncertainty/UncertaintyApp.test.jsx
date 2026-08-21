@@ -141,6 +141,46 @@ describe("UncertaintyApp", () => {
     ).toBeInTheDocument();
   });
 
+  test("starts the walkthrough when the final existing session is deleted", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 102,
+        name: "Last Session",
+        measurementAreas: [],
+        uuts: [],
+        tmdes: [],
+        testPoints: [],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const deleteButton = await screen.findByTitle("Delete Session");
+    expect(
+      screen.queryByRole("dialog", { name: "Uncertalytics walkthrough" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(deleteButton);
+    const confirmation = await screen.findByRole("alertdialog", {
+      name: "Delete Session",
+    });
+    fireEvent.click(within(confirmation).getByRole("button", { name: /Delete/i }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "Uncertalytics walkthrough" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Start an analysis session")).toBeInTheDocument();
+  });
+
   test("asks which UUT to use only after adding a point to a multi-instrument function", async () => {
     const voltageFunction = {
       id: "fn-voltage",
@@ -376,7 +416,22 @@ describe("UncertaintyApp", () => {
       screen.getByText("Ready for your first measurement point"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Create a function in Instrument Overview/i),
+      screen.getByText(/Instruments are organized by Function/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Select or create a Function/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Add the UUTs that perform that Function/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Add Measurement Points to define the exact test values/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Add a UUT using the + icon in the top-right."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Add a TMDE using the + icon in the top-right."),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Risk Inputs/i }));
