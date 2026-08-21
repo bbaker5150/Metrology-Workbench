@@ -1000,6 +1000,90 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             thread_sensitive=True,
         )()
 
+    async def _take_5790_input_batch(
+        self,
+        instrument,
+        input_name,
+        role,
+        sample_count,
+        *,
+        inter_sample_delay=1.0,
+    ):
+        """Acquire a complete role batch without changing 5790 inputs.
+
+        A shared 5790 has one measurement engine.  Keeping one input selected
+        for the operator-requested sample count avoids restarting its filter
+        and input-settling cycle between every Standard/TI reading.  The short
+        inter-sample dwell is event-loop based so Stop remains responsive.
+        """
+        sample_count = max(0, int(sample_count or 0))
+        inter_sample_delay = max(0.0, float(inter_sample_delay or 0.0))
+        input_name = str(input_name or 'INPUT2').strip().upper()
+        points = []
+
+        await self.broadcast(text_data=json.dumps({
+            'type': 'status_update',
+            'message': (
+                f"Acquiring {sample_count} {role} sample"
+                f"{'s' if sample_count != 1 else ''} on {input_name}..."
+            ),
+        }))
+        for sample_index in range(sample_count):
+            if self.stop_event.is_set():
+                raise asyncio.CancelledError
+            value = await self._take_5790_input_reading(
+                instrument,
+                input_name,
+                role,
+            )
+            points.append({
+                'value': value,
+                'timestamp': time.time(),
+                'is_stable': True,
+            })
+            if sample_index < sample_count - 1 and inter_sample_delay:
+                if not await self._wait_for_stop_or_timeout(inter_sample_delay):
+                    raise asyncio.CancelledError
+        return points
+
+    async def _take_shared_5790_batches(
+        self,
+        std_reader,
+        ti_reader,
+        sample_count,
+        *,
+        inter_sample_delay=1.0,
+    ):
+        """Read Standard N times, switch once, then read TI N times."""
+        if not _shared_5790_reader_pair(std_reader, ti_reader):
+            raise ValueError("Shared 5790 batch acquisition requires one physical 5790")
+
+        std_input = getattr(
+            std_reader,
+            'standard_role_input',
+            getattr(self, '_standard_reader_input', 'INPUT1'),
+        )
+        ti_input = getattr(
+            ti_reader,
+            'test_role_input',
+            getattr(self, '_test_reader_input', 'INPUT2'),
+        )
+        standard_points = await self._take_5790_input_batch(
+            std_reader,
+            std_input,
+            'Standard',
+            sample_count,
+            inter_sample_delay=inter_sample_delay,
+        )
+        test_points = await self._take_5790_input_batch(
+            ti_reader,
+            ti_input,
+            'Test instrument',
+            sample_count,
+            inter_sample_delay=inter_sample_delay,
+        )
+        return standard_points, test_points
+
     async def _initialize_reader_switch(self, session_details):
         """Open and bind the optional switch dedicated to instrument routing.
 
@@ -2596,6 +2680,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             # Replaces raw final_std_readings length with the dynamic targeted check
             pair_index = 0
+            pending_reader_pairs = deque()
+            use_shared_5790_batches = bool(
+                target_tvc == 'BOTH'
+                and getattr(self, '_reader_switch', None) is None
+                and _shared_5790_reader_pair(
+                    std_reader_instrument,
+                    ti_reader_instrument,
+                )
+            )
+            shared_5790_sample_delay = max(
+                0.0,
+                float(measurement_params.get('f5790_inter_sample_delay', 1.0)),
+            )
             while get_target_length() < num_samples and not self.stop_event.is_set():
                 # 1. Global Abort Check (Applies to both Search and Collection phases)
                 if instability_events >= max_retries:
@@ -2610,19 +2707,30 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     return False
 
                 # 2. Take Readings (Targeted Instrument Querying)
-                std_reading_val, ti_reading_val = await self._take_reader_pair(
-                    std_reader_instrument,
-                    ti_reader_instrument,
-                    target_tvc,
-                    reverse_order=bool(pair_index % 2),
-                )
-                pair_index += 1
-                
-                timestamp = time.time()
-                
-                # None creation protects downstream arrays from bloating with fake points
-                std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True} if std_reading_val is not None else None
-                ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
+                if use_shared_5790_batches:
+                    if not pending_reader_pairs:
+                        std_batch, ti_batch = await self._take_shared_5790_batches(
+                            std_reader_instrument,
+                            ti_reader_instrument,
+                            num_samples,
+                            inter_sample_delay=shared_5790_sample_delay,
+                        )
+                        pending_reader_pairs.extend(zip(std_batch, ti_batch))
+                    std_point, ti_point = pending_reader_pairs.popleft()
+                else:
+                    std_reading_val, ti_reading_val = await self._take_reader_pair(
+                        std_reader_instrument,
+                        ti_reader_instrument,
+                        target_tvc,
+                        reverse_order=bool(pair_index % 2),
+                    )
+                    pair_index += 1
+
+                    timestamp = time.time()
+
+                    # None creation protects downstream arrays from bloating with fake points
+                    std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True} if std_reading_val is not None else None
+                    ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
                 just_locked_initial_window = False
 
                 if stability_method == 'sliding_window':
