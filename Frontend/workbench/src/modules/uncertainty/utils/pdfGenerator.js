@@ -44,7 +44,7 @@ export const PDF_COLUMN_GROUPS = [
     key: "risk",
     label: "Risk",
     columns: [
-      column("observedReop", "R_REOP @ TUR %", 90), column("pfa", "PFA %", 70),
+      column("observedReop", "REOP @ TUR %", 90), column("pfa", "PFA %", 70),
       column("pfr", "PFR %", 70), column("maxReop", "Max REOP %", 90),
       column("trueReop", "R_meas %", 85),
     ],

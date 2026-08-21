@@ -46,6 +46,31 @@ const renderDirectBudget = (overrides = {}) => {
   return { ...props, ...view };
 };
 
+const derivedApproximationGroups = (finalOverrides = {}) => [
+  {
+    id: "equation_approximation",
+    kind: "equation",
+    label: "Measurement Equation Approximation",
+    unit: "V",
+    rows: [],
+    results: {},
+  },
+  {
+    id: "final_budget",
+    kind: "final",
+    label: "Voltage Uncertainty Budget",
+    unit: "V",
+    components: [],
+    results: {
+      combined: 1,
+      effective_dof: Infinity,
+      k_value: 2,
+      expanded: 2,
+    },
+    ...finalOverrides,
+  },
+];
+
 describe("UncertaintyBudgetTable direct budget actions", () => {
   it("keeps manually added components at the bottom of the budget", () => {
     const { container } = renderDirectBudget({
@@ -183,6 +208,24 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(onAddTmdeToBudget.mock.calls[0][0]).not.toHaveProperty(
       "canAddPropagation",
     );
+  });
+
+  it("shows a range warning beside the add-component button", () => {
+    renderDirectBudget({
+      onAddTmdeToBudget: vi.fn(),
+      rangeWarningsByGroup: {
+        final: [{ componentId: "outside-range", reason: "below range" }],
+      },
+    });
+
+    const addButton = screen.getByRole("button", {
+      name: "Add component to budget",
+    });
+    const warning = screen.getByLabelText(
+      "Selected range does not include the nominal",
+    );
+    expect(warning).toBeInTheDocument();
+    expect(warning.parentElement).toBe(addButton.parentElement);
   });
 
   it("renders uncertainty at a fixed precision without nominal table data", () => {
@@ -334,12 +377,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     renderDirectBudget({
       measurementType: "derived",
       calcResults: {
-        calculatedBudgetGroups: [
-          {
-            id: "final_budget",
-            kind: "final",
-            label: "Voltage Uncertainty Budget",
-            unit: "V",
+        calculatedBudgetGroups: derivedApproximationGroups({
             components: [
               {
                 id: "risk8_monte_carlo_uncertainty",
@@ -362,8 +400,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
               k_value: 2.064,
               expanded: 3.096,
             },
-          },
-        ],
+          }),
       },
       referencePoint: { name: "Voltage", unit: "V" },
       budgetPropagationMethod: "montecarlo",
@@ -400,6 +437,9 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
   it("defaults a newly enabled Monte Carlo method to 10,000 trials", () => {
     renderDirectBudget({
       measurementType: "derived",
+      calcResults: {
+        calculatedBudgetGroups: derivedApproximationGroups(),
+      },
       budgetPropagationMethod: "montecarlo",
       onPropagationMethodChange: vi.fn(),
     });
@@ -443,9 +483,33 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.queryByText("0.002000 in")).not.toBeInTheDocument();
   });
 
+  it("limits result-card readouts to eight significant digits", () => {
+    renderDirectBudget({
+      calcResults: {
+        combined_uncertainty: 0.00999981624765,
+        effective_dof: Infinity,
+        k_value: 2,
+        expanded_uncertainty: 0.0199996324953,
+      },
+    });
+
+    expect(screen.getByText("0.0099998162 in-oz")).toBeInTheDocument();
+    expect(screen.getByText("0.019999632 in-oz")).toBeInTheDocument();
+    expect(screen.queryByText(/0\.00999981624765/)).not.toBeInTheDocument();
+    expect(
+      screen.getByTitle("0.00999981624765"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTitle("0.0199996324953"),
+    ).toBeInTheDocument();
+  });
+
   it("keeps the Monte Carlo trial count visible but disabled for Taylor Series", () => {
     renderDirectBudget({
       measurementType: "derived",
+      calcResults: {
+        calculatedBudgetGroups: derivedApproximationGroups(),
+      },
       budgetPropagationMethod: "linear",
       monteCarloTrials: 25000,
       onMonteCarloTrialsChange: vi.fn(),

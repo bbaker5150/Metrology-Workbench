@@ -1177,7 +1177,7 @@ export const syncTolerancePhysicalUnits = (tolerance = {}, unit = "") => {
   const next = { ...(tolerance || {}) };
   ["floor", "readings_iv", "singleSided"].forEach((key) => {
     if (next[key] && typeof next[key] === "object") {
-      next[key] = { ...next[key], unit };
+      next[key] = { ...next[key], unit: next[key].unit || unit };
     }
   });
   return next;
@@ -1530,12 +1530,12 @@ const toPlainNumber = (v) => {
 // clicks the cell, then the real inline control. Keep these as small controlled
 // components so each cell owns click-away behavior without expanding the whole
 // table. Portaled unit menus are considered part of the nominal editor.
-const useMeasurementInputEditor = () => {
+const useMeasurementInputEditor = ({ closeOnOutside = true } = {}) => {
   const [editing, setEditing] = useState(false);
   const rootRef = useRef(null);
 
   useEffect(() => {
-    if (!editing) return undefined;
+    if (!editing || !closeOnOutside) return undefined;
     const closeOnOutsideMouseDown = (event) => {
       const target = event.target;
       if (
@@ -1549,9 +1549,119 @@ const useMeasurementInputEditor = () => {
     document.addEventListener("mousedown", closeOnOutsideMouseDown);
     return () =>
       document.removeEventListener("mousedown", closeOnOutsideMouseDown);
-  }, [editing]);
+  }, [closeOnOutside, editing]);
 
   return { editing, setEditing, rootRef };
+};
+
+export const isValidEquationVariableSymbol = (value) =>
+  /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(value || "").trim());
+
+export const renameEquationVariable = (equationString, oldSymbol, newSymbol) => {
+  const source = String(equationString || "");
+  const oldName = String(oldSymbol || "").trim();
+  const newName = String(newSymbol || "").trim();
+  if (!oldName || !isValidEquationVariableSymbol(newName) || oldName === newName) {
+    return source;
+  }
+
+  const equalsIndex = source.indexOf("=");
+  const prefix = equalsIndex >= 0 ? source.slice(0, equalsIndex + 1) : "";
+  const expression = equalsIndex >= 0 ? source.slice(equalsIndex + 1) : source;
+  const escaped = oldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const token = new RegExp(`(^|[^A-Za-z0-9_])${escaped}(?=$|[^A-Za-z0-9_])`, "g");
+  return `${prefix}${expression.replace(token, (_match, before) => `${before}${newName}`)}`;
+};
+
+export const reconcileEquationVariableState = ({
+  variables = [],
+  currentMappings = {},
+  currentNominals = {},
+  rememberedMappings = {},
+}) => {
+  const knownSymbols = Array.from(
+    new Set([...Object.keys(currentMappings), ...Object.keys(currentNominals)]),
+  );
+  const removedSymbols = knownSymbols.filter(
+    (symbol) => !variables.includes(symbol),
+  );
+  const addedSymbols = variables.filter(
+    (symbol) => !knownSymbols.includes(symbol),
+  );
+  const simpleRename =
+    removedSymbols.length === 1 && addedSymbols.length === 1
+      ? { from: removedSymbols[0], to: addedSymbols[0] }
+      : null;
+  const mappings = {};
+  const nominals = {};
+
+  variables.forEach((symbol) => {
+    const sourceSymbol = simpleRename?.to === symbol ? simpleRename.from : symbol;
+    mappings[symbol] =
+      currentMappings[sourceSymbol] ||
+      rememberedMappings[symbol] ||
+      rememberedMappings[sourceSymbol] ||
+      "";
+    if (currentNominals[sourceSymbol] !== undefined) {
+      nominals[symbol] = currentNominals[sourceSymbol];
+    }
+  });
+
+  return { mappings, nominals, simpleRename };
+};
+
+export const MeasurementInputSymbolCell = ({ symbol, onCommit }) => {
+  const { editing, setEditing, rootRef } = useMeasurementInputEditor({
+    closeOnOutside: false,
+  });
+  const [draft, setDraft] = useState(symbol || "");
+
+  useEffect(() => {
+    if (!editing) setDraft(symbol || "");
+  }, [editing, symbol]);
+
+  const commit = () => {
+    const next = String(draft || "").trim();
+    if (isValidEquationVariableSymbol(next)) onCommit?.(next);
+    else setDraft(symbol || "");
+    setEditing(false);
+  };
+
+  return (
+    <div ref={rootRef} className="measurement-input-cell-editor">
+      {editing ? (
+        <input
+          autoFocus
+          type="text"
+          className="inline-function-input measurement-input-symbol-input"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commit();
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              setDraft(symbol || "");
+              setEditing(false);
+            }
+          }}
+          aria-label={`Equation variable ${symbol}`}
+        />
+      ) : (
+        <button
+          type="button"
+          className="measurement-input-symbol"
+          title="Rename variable"
+          aria-label={`Rename equation variable ${symbol}`}
+          onClick={() => setEditing(true)}
+        >
+          {formatEquationVariableSymbol(symbol)}
+        </button>
+      )}
+    </div>
+  );
 };
 
 export const MeasurementInputNameCell = ({
@@ -1587,7 +1697,7 @@ export const MeasurementInputNameCell = ({
             displayValue ? "" : " is-empty"
           }`}
           aria-label={`Edit name for equation variable ${symbol}`}
-          title="Click to edit input name"
+          title="Edit input name"
           onClick={() => setEditing(true)}
         >
           {displayValue || "Name this input"}
@@ -1609,7 +1719,12 @@ export const MeasurementInputNominalCell = ({
   const hasValue = value !== "" && value !== null && value !== undefined;
   const valueLabel = hasValue ? toPlainNumber(value) : "";
   const unitLabel = getUnitDisplayLabel(unit || "");
-  const summary = [valueLabel, unitLabel].filter(Boolean).join(" ");
+  // An inferred unit alone is not a nominal. Keep the untouched state aligned
+  // with the UUT/TMDE tables instead of presenting a bare unit as though the
+  // input had already been configured.
+  const summary = hasValue
+    ? [valueLabel, unitLabel].filter(Boolean).join(" ")
+    : "";
   const hasName = Boolean(String(name || "").trim());
 
   return (
@@ -1647,10 +1762,10 @@ export const MeasurementInputNominalCell = ({
             summary ? "" : " is-empty"
           }`}
           aria-label={`Edit nominal for equation variable ${symbol}`}
-          title="Click to edit nominal value and unit"
+          title="Edit nominal"
           onClick={() => setEditing(true)}
         >
-          {summary || "Set nominal"}
+          {summary || "Not Set"}
         </button>
       )}
     </div>
@@ -1725,7 +1840,12 @@ const formatRangeToleranceDetail = (range = null) => {
   const distributionLabel = getBandDistLabel(range);
   const isPlaceholder = (value) => {
     const normalized = String(value || "").trim();
-    return !normalized || normalized === "-" || normalized === "\u2014";
+    return (
+      !normalized ||
+      normalized === "-" ||
+      normalized === "\u2014" ||
+      /not set/i.test(normalized)
+    );
   };
   return [rangeLabel, specLabel, distributionLabel]
     .filter((value) => !isPlaceholder(value))
@@ -1771,7 +1891,7 @@ const SyncBadge = ({ item, onSync }) => {
       title={
         green
           ? "In sync with shared library"
-          : "Out of sync (local) - click to sync to the shared library"
+          : "Sync local changes to shared library"
       }
       aria-label={
         green
@@ -1811,6 +1931,75 @@ const confirmViaNotification = (
       onConfirm?.();
     },
     onSecondary: () => setNotification(null),
+  });
+};
+
+// Every expanded UUT/TMDE table cell follows one dismissal contract: Escape
+// collapses it from anywhere in the editor, and a pointer press outside the
+// active column collapses it after blur-driven commits have run. Unit and
+// tolerance menus are portaled to <body>, so they remain part of the editor.
+const useInlineColumnDismiss = ({
+  expanded,
+  rootRef,
+  onDismiss,
+  portalSelector =
+    ".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search",
+}) => {
+  useEffect(() => {
+    if (!expanded) return undefined;
+
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (rootRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(portalSelector)) return;
+      window.setTimeout(() => onDismiss(), 0);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      onDismiss();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [expanded, onDismiss, portalSelector, rootRef]);
+};
+
+export const getRangeColumnClickContext = (target) => {
+  const element = target?.closest ? target : null;
+  const group = element?.closest?.("[data-range-group]");
+  const toleranceCell = element?.closest?.("[data-range-tolerance-key]");
+  return {
+    key: group?.getAttribute("data-range-group") || null,
+    inRangeColumn: Boolean(element?.closest?.("[data-range-cell]")),
+    toleranceKey:
+      toleranceCell?.getAttribute("data-range-tolerance-key") || null,
+  };
+};
+
+export const handoffMaterializedRangeToTolerance = ({
+  kind,
+  itemId,
+  newRangeId,
+  setPendingToleranceRangeKey,
+  setExpandedRangeKeys,
+}) => {
+  if (!newRangeId) return;
+  const groupKey = itemStateKey(kind, itemId);
+  setPendingToleranceRangeKey(`${groupKey}:${newRangeId}`);
+  // Queue the editor request and collapse the range group in the same event.
+  // If the new expanded row renders first, it consumes the request and is then
+  // unmounted by the click-away collapse, which leaves the collapsed tolerance
+  // cell requiring a second click.
+  setExpandedRangeKeys((previous) => {
+    if (!previous.has(groupKey)) return previous;
+    const next = new Set(previous);
+    next.delete(groupKey);
+    return next;
   });
 };
 
@@ -1858,6 +2047,17 @@ export const EditableDescriptionCell = ({
   useEffect(() => {
     setLocal({ make, model, name });
   }, [make, model, name]);
+
+  const dismissDescriptionEditor = useCallback(() => {
+    setLocal({ make, model, name });
+    setEditing(false);
+    setOpen(false);
+  }, [make, model, name]);
+  useInlineColumnDismiss({
+    expanded: editing,
+    rootRef: anchorRef,
+    onDismiss: dismissDescriptionEditor,
+  });
 
   // Live library matches as the user types (make/model/name). Token-AND search
   // over the user's local + shared library (the `instruments` prop).
@@ -1934,7 +2134,11 @@ export const EditableDescriptionCell = ({
     },
     onKeyDown: (e) => {
       if (e.key === "Enter") e.currentTarget.blur();
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        dismissDescriptionEditor();
+      }
       if (field === "name" && e.key === "Tab" && !e.shiftKey) {
         setOpen(false);
         moveToNextInlineTableColumn(e);
@@ -1986,19 +2190,7 @@ export const EditableDescriptionCell = ({
   // differs from its shared origin, shown in place of the measurement area.
   const describeEntry = (inst) => {
     if (inst.scope === "validated") return "shared";
-    if (!inst.sourceId && !inst.validatedSnapshot) return "local · new";
-    const diffs = diffFromSnapshot(inst);
-    // Linked to the shared library and unchanged from its captured snapshot:
-    // this IS the synced version (green link), so don't mislabel it "local"
-    // just because this record happens to be scope:"local".
-    if (!diffs.length) return inst.validatedSnapshot ? "synced" : "local";
-    const labelFor = {
-      manufacturer: "mfg",
-      model: "model",
-      description: "name",
-      functions: "functions",
-    };
-    return `local · ${diffs.map((d) => labelFor[d.field] || d.field).join(", ")} changed`;
+    return "local";
   };
 
   const combinedDescription =
@@ -2236,6 +2428,9 @@ export const ResolutionCellInput = ({
   onCommit,
   onCommitUnit,
   onCommitDistribution,
+  openRequested = false,
+  onOpenRequest,
+  onOpenRequestHandled,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [v, setV] = useState(() => toPlainNumber(value));
@@ -2243,6 +2438,12 @@ export const ResolutionCellInput = ({
   useEffect(() => {
     setV(toPlainNumber(value));
   }, [value]);
+
+  useEffect(() => {
+    if (!openRequested) return;
+    setIsEditing(true);
+    onOpenRequestHandled?.();
+  }, [openRequested, onOpenRequestHandled]);
 
   // Focus the magnitude field on open so a click-away always produces a
   // focusout (committing the in-progress value before the editor closes).
@@ -2252,19 +2453,12 @@ export const ResolutionCellInput = ({
     firstInput?.focus();
   }, [isEditing]);
 
-  // Document-click fallback close (portaled UnitSelect menu case, see RangeCell).
-  useEffect(() => {
-    if (!isEditing) return undefined;
-    const onDocClick = (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      if (containerRef.current?.contains(target)) return;
-      if (target.closest(".inline-unit-menu")) return;
-      setIsEditing(false);
-    };
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [isEditing]);
+  const dismissResolutionEditor = useCallback(() => setIsEditing(false), []);
+  useInlineColumnDismiss({
+    expanded: isEditing,
+    rootRef: containerRef,
+    onDismiss: dismissResolutionEditor,
+  });
 
   const summary = formatResolutionSummaryText(value, unit, fallbackUnit);
 
@@ -2282,8 +2476,12 @@ export const ResolutionCellInput = ({
         <button
           type="button"
           className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
-          title={summary ? "Click to edit resolution" : "Click to set a resolution"}
+          title={summary ? "Edit resolution" : "Set resolution"}
           aria-label={summary ? undefined : "Set resolution"}
+          onMouseDown={(event) => {
+            event.stopPropagation();
+            onOpenRequest?.();
+          }}
           onClick={openEditor}
         >
           {summary || "Not Set"}
@@ -2309,6 +2507,12 @@ export const ResolutionCellInput = ({
       className="inline-resolution-editor"
       onMouseDown={(e) => e.stopPropagation()}
       onBlur={handleBlur}
+      onKeyDownCapture={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        dismissResolutionEditor();
+      }}
     >
       <input
         type="text"
@@ -2361,6 +2565,13 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
     containerRef.current.querySelector("button")?.focus();
   }, [isEditing]);
 
+  const dismissDistributionEditor = useCallback(() => setIsEditing(false), []);
+  useInlineColumnDismiss({
+    expanded: isEditing,
+    rootRef: containerRef,
+    onDismiss: dismissDistributionEditor,
+  });
+
   const label = !isUnset
     ? errorDistributions.find((e) => e.value === String(divisor))?.label ||
       `k=${divisor}`
@@ -2382,7 +2593,7 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
           type="button"
           className={`inline-tolerance-summary${isUnset ? " is-empty" : ""}`}
           title={
-            isUnset ? "Click to set a distribution" : "Click to edit distribution"
+            isUnset ? "Set distribution" : "Edit distribution"
           }
           onClick={open}
         >
@@ -2416,6 +2627,12 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
       className="inline-distribution-editor"
       onMouseDown={(e) => e.stopPropagation()}
       onBlur={handleBlur}
+      onKeyDownCapture={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        dismissDistributionEditor();
+      }}
     >
       <InlineMenuSelect
         value={String(divisor || DISTRIBUTION_NOT_SET)}
@@ -3203,7 +3420,7 @@ const ToleranceTermEditor = ({
               className={`inline-tolerance-shape-button${
                 shapeMenuRect ? " is-open" : ""
               }`}
-              title={`Tolerance shape: ${currentShape.label}`}
+              title="Change tolerance shape"
               aria-haspopup="menu"
               aria-expanded={Boolean(shapeMenuRect)}
               onMouseDown={(e) => e.preventDefault()}
@@ -3225,7 +3442,7 @@ const ToleranceTermEditor = ({
               className={`inline-tolerance-chip inline-tolerance-chip--in-cell inline-tolerance-chip--button${
                 unitMenuRect ? " is-open" : ""
               }`}
-              title={`${typeKey === "reading" ? "IV" : "Range/FS"} unit - click to change`}
+              title={`Change ${typeKey === "reading" ? "IV" : "range/FS"} unit`}
               aria-haspopup="menu"
               aria-expanded={Boolean(unitMenuRect)}
               onMouseDown={(e) => e.preventDefault()}
@@ -3240,6 +3457,13 @@ const ToleranceTermEditor = ({
             </button>
             {unitMenu}
           </>
+        ) : typeKey === "floor" ? (
+          <UnitSelect
+            value={component.unit || activeRange?.unit || ""}
+            ariaLabel="Tolerance unit"
+            onChange={(unit) => commit({ unit })}
+            width="82px"
+          />
         ) : (
           <span
             className={`inline-tolerance-chip inline-tolerance-chip--in-cell${
@@ -3308,7 +3532,7 @@ const SingleSidedToleranceEditor = ({
     });
   };
   const limitLabel = direction === "low" ? "Lower limit" : "Upper limit";
-  const unit = getUnitDisplayLabel(component.unit || activeRange?.unit || "");
+  const unit = component.unit || activeRange?.unit || "";
   const measurementOptions = [
     { value: "known", label: "Measurement known" },
     { value: "unknown", label: "Measurement unknown" },
@@ -3424,11 +3648,12 @@ const SingleSidedToleranceEditor = ({
           className="inline-tolerance-input"
         />
       </span>
-      {unit && (
-        <span className="inline-tolerance-chip inline-tolerance-chip--in-cell inline-tolerance-chip--static">
-          {unit}
-        </span>
-      )}
+      <UnitSelect
+        value={unit}
+        ariaLabel="Single-sided tolerance unit"
+        onChange={(nextUnit) => commit({ unit: nextUnit })}
+        width="82px"
+      />
           </span>
         );
       })}
@@ -3483,26 +3708,12 @@ export const InlineToleranceCell = ({
     firstInput?.focus();
   }, [isEditing]);
 
-  useEffect(() => {
-    if (!isEditing) return undefined;
-    const handlePointerDownOutsideTable = (event) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (target.closest?.(".inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop")) {
-        return;
-      }
-      // Type B editors live in builder cards rather than table cells. Treat
-      // pointer events inside the editor as in-scope too, otherwise choosing a
-      // shape button is interpreted as a click-away and immediately collapses
-      // the tolerance editor before the selection can be applied.
-      if (containerRef.current?.contains(target)) return;
-      const table = containerRef.current?.closest("table");
-      if (table?.contains(target)) return;
-      window.setTimeout(() => setIsEditing(false), 0);
-    };
-    document.addEventListener("pointerdown", handlePointerDownOutsideTable, true);
-    return () => document.removeEventListener("pointerdown", handlePointerDownOutsideTable, true);
-  }, [isEditing]);
+  const dismissToleranceEditor = useCallback(() => setIsEditing(false), []);
+  useInlineColumnDismiss({
+    expanded: isEditing,
+    rootRef: containerRef,
+    onDismiss: dismissToleranceEditor,
+  });
 
   const summaryRows = showMeasurementStatus
     ? getUutSpecRows(tolerance)
@@ -3525,7 +3736,7 @@ export const InlineToleranceCell = ({
         <button
           type="button"
           className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}`}
-          title={hasValue ? "Click to edit tolerance" : "Click to set a tolerance"}
+          title={hasValue ? "Edit tolerance" : "Set tolerance"}
           aria-label={hasValue ? undefined : "Set tolerance"}
           onClick={openEditor}
         >
@@ -3556,6 +3767,12 @@ export const InlineToleranceCell = ({
       ref={containerRef}
       className="inline-tolerance-editor inline-tolerance-editor--all"
       onKeyDownCapture={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          dismissToleranceEditor();
+          return;
+        }
         if (event.key !== "Tab" || event.shiftKey) return;
         const controls = Array.from(
           containerRef.current?.querySelectorAll(
@@ -3729,21 +3946,12 @@ export const RangeCell = ({
     firstInput?.focus();
   }, [isEditing]);
 
-  // Document-click fallback close (see component comment). Registered only
-  // while editing; `click` (not mousedown) so the blurred input's commit runs
-  // first as part of the same interaction.
-  useEffect(() => {
-    if (!isEditing) return undefined;
-    const onDocClick = (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      if (containerRef.current?.contains(target)) return;
-      if (target.closest(".inline-unit-menu")) return;
-      setIsEditing(false);
-    };
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [isEditing]);
+  const dismissRangeEditor = useCallback(() => setIsEditing(false), []);
+  useInlineColumnDismiss({
+    expanded: isEditing,
+    rootRef: containerRef,
+    onDismiss: dismissRangeEditor,
+  });
 
   // The in-cell range-selector dropdown was removed: when an instrument has
   // several ranges the "edit / add" expander already lists them all (and lets
@@ -3799,8 +4007,8 @@ export const RangeCell = ({
           <button
             type="button"
             className={`inline-tolerance-summary${rangeSummary ? "" : " is-empty"}`}
-            title={onExpandAll && rangeSummary ? "Show all ranges" : rangeSummary ? "Click to edit range" : "Click to set a range"}
-            aria-label={onExpandAll && rangeSummary ? "Show all ranges" : undefined}
+            title={rangeSummary ? (onExpandAll ? "Edit ranges" : "Edit range") : "Set range"}
+            aria-label={onExpandAll && rangeSummary ? "Edit ranges" : undefined}
             onClick={openEditor}
           >
             {summary}
@@ -3855,7 +4063,7 @@ export const RangeCell = ({
         if (event.key !== "Escape") return;
         event.preventDefault();
         event.stopPropagation();
-        setIsEditing(false);
+        dismissRangeEditor();
       }}
     >
       <div className="inline-range-main">
@@ -3990,6 +4198,21 @@ export const GhostRangeRow = ({
     event.stopPropagation();
     commit({ openTolerance: true });
   };
+  const advanceToNextRange = () => {
+    const hasBufferedRange = isSingle ? value !== "" : min !== "" || max !== "";
+    if (!hasBufferedRange) return;
+    commit();
+    // The ghost row keeps a stable key while the materialized range is inserted
+    // immediately above it. Return focus to its cleared inputs so several
+    // ranges can be entered in one uninterrupted keyboard flow.
+    window.setTimeout(() => {
+      rowRef.current
+        ?.querySelector(
+          '[aria-label="New range minimum"], [aria-label="New single value"]',
+        )
+        ?.focus();
+    }, 0);
+  };
 
   return (
     <tr
@@ -3998,7 +4221,7 @@ export const GhostRangeRow = ({
       data-range-group={dataGroup}
       onBlur={handleBlur}
     >
-      <td className="cell-value">
+      <td className="cell-value" data-range-cell="true">
         <div className="range-row-cell range-row-cell--ghost">
           <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
             <div className="inline-range-main">
@@ -4055,7 +4278,7 @@ export const GhostRangeRow = ({
                 value={rangeUnit}
                 ariaLabel="New range unit"
                 onChange={setRangeUnit}
-                onTab={openTolerance}
+                onTab={advanceToNextRange}
                 width="72px"
                 compact
               />
@@ -4068,7 +4291,7 @@ export const GhostRangeRow = ({
           type="button"
           className="range-ghost-tolerance"
           aria-label="Set new range tolerance"
-          title="Set this new range's tolerance"
+          title="Set tolerance"
           onMouseDown={openTolerance}
         >
         <span className="range-ghost-hint">Not Set</span>
@@ -4086,8 +4309,58 @@ export const GhostRangeRow = ({
   );
 };
 
-const getVisibleRangeRows = (ranges = [], activeIndex = 0, activeRange = {}, showAll = false) => {
-  if (showAll && ranges.length > 0) {
+export const getBudgetRangeChoices = (instrument) => {
+  const ranges = getInstrumentRangeRows(instrument, {
+    flattenTolerances: true,
+  });
+  return ranges.length > 0 ? ranges : [null];
+};
+
+// The add-to-budget menu is a list of actions, not an inventory browser. Only
+// expose range accuracies that can resolve into at least one real component for
+// this budget's nominal and unit. This prevents cross-quantity rows (for
+// example a voltage accuracy in a weight budget) from appearing and then
+// silently doing nothing when selected.
+export const getUsableBudgetRangeChoices = (
+  instrument,
+  nominalPoint,
+  { functionKey = null, requireFunctionMatch = false } = {},
+) =>
+  getBudgetRangeChoices(instrument).filter((range) => {
+    if (!range || !nominalPoint?.unit) return false;
+    const nominalUnit = nominalPoint.unit;
+    const rangeUnit = range.functionUnit || range.unit || "";
+    if (rangeUnit) {
+      const nominalQuantity = unitSystem.getQuantity?.(nominalUnit) || null;
+      const rangeQuantity = unitSystem.getQuantity?.(rangeUnit) || null;
+      const sameUnit =
+        normalizeUnitToken(rangeUnit) === normalizeUnitToken(nominalUnit);
+      if (
+        (nominalQuantity && rangeQuantity && nominalQuantity !== rangeQuantity) ||
+        ((!nominalQuantity || !rangeQuantity) && !sameUnit)
+      ) {
+        return false;
+      }
+    }
+    if (requireFunctionMatch && functionKey) {
+      const rangeFunctionName = range.functionName || "";
+      const rangeFunctionUnit = range.functionUnit || range.unit || "";
+      if (
+        (rangeFunctionName || range.functionUnit) &&
+        !functionPartsMatch(rangeFunctionName, rangeFunctionUnit, functionKey)
+      ) {
+        return false;
+      }
+    }
+    return getBudgetComponentsFromTolerance(range, nominalPoint).some(
+      (component) =>
+        !component.isResolution &&
+        Number.isFinite(Number(component.value_native ?? component.value)),
+    );
+  });
+
+export const getVisibleRangeRows = (ranges = [], activeIndex = 0, activeRange = {}, showAll = false) => {
+  if (ranges.length > 0) {
     // Expanded "view all ranges" is an editing surface, so rows stay in STABLE
     // stored order — no sorting or floating. Reordering while the user edits (an
     // earlier version floated "incomplete" rows to the top) yanks the row out
@@ -4494,7 +4767,102 @@ export const resolveUutRangeHelper = (
 // id for single-function instruments, `${functionKey}::${id}` for multi-function
 // ones so each subsection's range state is independent). Empty subsections are
 // emitted for user-added functions (session.functionGroups) with no instrument.
-const buildFunctionGroupedRows = (
+const budgetRangeSnapshot = (range = {}) => {
+  const singleValue =
+    range.value !== undefined && range.value !== null && range.value !== ""
+      ? range.value
+      : undefined;
+  return {
+    rangeId: range.rangeId ?? range.id ?? "",
+    functionId: range.functionId ?? "",
+    functionName: range.functionName ?? "",
+    min: range.min ?? singleValue ?? "",
+    max: range.max ?? singleValue ?? "",
+    unit: range.unit || range.functionUnit || "",
+  };
+};
+
+const findBudgetComponentRange = (component = {}, tmdes = []) => {
+  if (component.tmdeBudgetRange) {
+    return budgetRangeSnapshot(component.tmdeBudgetRange);
+  }
+  const sourceId = component.tmdeBudgetSourceId ?? component.sourceTmdeId;
+  const rangeId = component.tmdeBudgetRangeId;
+  if (sourceId === undefined || sourceId === null || !rangeId) return null;
+  const source = (tmdes || []).find((tmde) =>
+    [tmde?.id, tmde?.sourceId, tmde?.instrument?.id].some((id) =>
+      sameId(id, sourceId),
+    ),
+  );
+  if (!source) return null;
+  const range = getInstrumentRangeRows(source, { flattenTolerances: true }).find(
+    (candidate) => sameId(candidate.rangeId ?? candidate.id, rangeId),
+  );
+  return range ? budgetRangeSnapshot(range) : null;
+};
+
+// Budget users may deliberately select any compatible TMDE range. Surface a
+// quiet warning when that chosen range does not actually contain the nominal
+// used by its direct point or derived equation input.
+export const getBudgetRangeWarnings = ({
+  components = [],
+  measurementType = "direct",
+  directNominal = null,
+  groups = [],
+  tmdes = [],
+} = {}) => {
+  const inputNominals = new Map(
+    (groups || [])
+      .filter((group) => group?.kind === "input")
+      .map((group) => [
+        String(group.variableType || group.variable || ""),
+        group.nominalPoint || {
+          value: group.nominalValue,
+          unit: group.unit,
+        },
+      ]),
+  );
+  const warnings = {};
+
+  (components || []).forEach((component) => {
+    if (!component?.isBudgetInstance || !component.tmdeBudgetRangeId) return;
+    const groupKey =
+      measurementType === "derived"
+        ? String(component.variableType || "")
+        : "final";
+    if (!groupKey) return;
+    const nominal =
+      measurementType === "derived"
+        ? inputNominals.get(groupKey)
+        : directNominal;
+    if (
+      nominal?.value === undefined ||
+      nominal?.value === null ||
+      nominal?.value === "" ||
+      !nominal?.unit
+    ) {
+      return;
+    }
+    const range = findBudgetComponentRange(component, tmdes);
+    if (!range) return;
+    const compatibility = assessRangeCompatibility(
+      range,
+      nominal,
+      "selected TMDE range",
+    );
+    if (compatibility.compatible) return;
+    if (!warnings[groupKey]) warnings[groupKey] = [];
+    warnings[groupKey].push({
+      componentId: component.id || component.componentId,
+      name: component.name || "TMDE component",
+      reason: compatibility.reason,
+    });
+  });
+
+  return warnings;
+};
+
+export const buildFunctionGroupedRows = (
   groupedItems,
   sessionData,
   kind = null,
@@ -4543,7 +4911,16 @@ const buildFunctionGroupedRows = (
         unit: primary.unit,
         color: null,
       };
-      const tableFn = kind ? { ...fn, kind } : fn;
+      const activeUnits = Array.from(
+        new Set(
+          [...(primary.units || []), primary.unit]
+            .map((unit) => String(unit || "").trim())
+            .filter(Boolean),
+        ),
+      );
+      const tableFn = kind
+        ? { ...fn, kind, activeUnits }
+        : { ...fn, activeUnits };
       if (!groups.has(fn.key)) {
         groups.set(fn.key, {
           type: "function",
@@ -4551,6 +4928,14 @@ const buildFunctionGroupedRows = (
           order: fnOrder.has(fn.key) ? fnOrder.get(fn.key) : Number.MAX_SAFE_INTEGER,
           items: [],
         });
+      } else {
+        const group = groups.get(fn.key);
+        group.fn = {
+          ...group.fn,
+          activeUnits: Array.from(
+            new Set([...(group.fn.activeUnits || []), ...activeUnits]),
+          ),
+        };
       }
       groups.get(fn.key).items.push({
         ...row,
@@ -4567,7 +4952,11 @@ const buildFunctionGroupedRows = (
         const key = makeFunctionKey(fg.name, fg.unit);
         if (!groups.has(key)) {
           const resolvedFn = fnByKey.get(key) || { key, name: fg.name, unit: fg.unit, color: null };
-          const fn = { ...resolvedFn, ...(fg.kind ? { kind: fg.kind } : kind ? { kind } : {}) };
+          const fn = {
+            ...resolvedFn,
+            activeUnits: [],
+            ...(fg.kind ? { kind: fg.kind } : kind ? { kind } : {}),
+          };
           groups.set(key, {
             type: "function",
             fn,
@@ -4687,6 +5076,44 @@ const localInstrumentIdentityKeys = (item = {}) => {
       .filter((id) => id !== undefined && id !== null && String(id) !== "")
       .map(String),
   );
+};
+
+// Inline table edits must never attempt to mutate the canonical shared record.
+// Fork a validated definition into a linked local copy before the edit enters
+// the session/local-library persistence pipeline. The original shared snapshot
+// remains available for diffing and an explicit future Sync action.
+export const localizeSharedInstrumentEdit = (item = {}, library = []) => {
+  const definition = item?.instrument || {};
+  if (definition.scope !== "validated") return item;
+
+  const sourceId =
+    definition.sourceId ||
+    definition.libraryInstrumentId ||
+    item.libraryInstrumentId ||
+    definition.id;
+  const sharedDefinition = (library || []).find(
+    (candidate) =>
+      candidate?.scope === "validated" && sameId(candidate.id, sourceId),
+  );
+  const localDefinitionId = sameId(definition.id, sourceId)
+    ? uuidv4()
+    : definition.id || uuidv4();
+
+  return {
+    ...item,
+    libraryInstrumentId: item.libraryInstrumentId || sourceId,
+    instrument: {
+      ...definition,
+      id: localDefinitionId,
+      libraryInstrumentId: definition.libraryInstrumentId || sourceId,
+      scope: "local",
+      sourceId,
+      validatedSnapshot:
+        definition.validatedSnapshot ||
+        buildValidatedSnapshot(sharedDefinition || definition),
+      localOverride: true,
+    },
+  };
 };
 
 const hasSetDistribution = (value) =>
@@ -4835,12 +5262,12 @@ export const synchronizeLocalInstrumentDefinitions = (
       )
     : sourceDefinition;
   const mergeDefinition = (item, kind) => {
-    if (!matchesSource(item)) return item;
     if (kind === updatedKind && String(item.id) === String(updatedItem.id)) {
       return canonicalDefinition === sourceDefinition
         ? updatedItem
         : { ...updatedItem, instrument: canonicalDefinition };
     }
+    if (!matchesSource(item)) return item;
     const currentDefinition = item.instrument || {};
     const roleFields =
       kind === "tmde"
@@ -5650,9 +6077,10 @@ const SummaryDashboard = ({
   };
 
   const persistInlineItem = (kind, updatedItem, { maybePromptLocal = false } = {}) => {
+    const localizedItem = localizeSharedInstrumentEdit(updatedItem, instruments);
     const synchronized = synchronizeLocalInstrumentDefinitions(
       sessionData,
-      updatedItem,
+      localizedItem,
       kind,
     );
     let nextTestPoints = sessionData.testPoints || [];
@@ -5684,13 +6112,13 @@ const SummaryDashboard = ({
     };
     const synchronizedItem = (
       kind === "uut" ? synchronized.uuts : synchronized.tmdes
-    ).find((item) => String(item.id) === String(updatedItem.id)) || updatedItem;
+    ).find((item) => String(item.id) === String(localizedItem.id)) || localizedItem;
     onSessionSave(nextSession);
     if (
       onSaveInstrument &&
       (synchronizedItem.instrument?.sourceId ||
         synchronizedItem.instrument?.scope === "local" ||
-        localLibraryChoices[`${kind}:${updatedItem.id}`] === "local")
+        localLibraryChoices[`${kind}:${localizedItem.id}`] === "local")
     ) {
       saveItemInstrumentToLocalLibrary(kind, synchronizedItem);
     } else if (maybePromptLocal) {
@@ -6324,8 +6752,14 @@ const SummaryDashboard = ({
       : { min, max, unit };
     const updated = applyItemRangePatch(withRange, newRangeId, patch);
     persistItem(kind, updated);
-    if (openTolerance && newRangeId) {
-      setPendingToleranceRangeKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
+    if (openTolerance) {
+      handoffMaterializedRangeToTolerance({
+        kind,
+        itemId: item.id,
+        newRangeId,
+        setPendingToleranceRangeKey,
+        setExpandedRangeKeys,
+      });
     }
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
@@ -6386,9 +6820,11 @@ const SummaryDashboard = ({
     if (sorted !== item) persistItem(kind, sorted);
   };
 
-  const toggleShowAllRanges = (kind, itemId) => {
-    const key = itemStateKey(kind, itemId);
-    if (expandedRangeKeys.has(key)) sortAndPersistRangeGroup(key);
+  const toggleShowAllRanges = (kind, stateId, itemId = stateId) => {
+    const key = itemStateKey(kind, stateId);
+    if (expandedRangeKeys.has(key)) {
+      sortAndPersistRangeGroup(itemStateKey(kind, itemId));
+    }
     setExpandedRangeKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -6536,7 +6972,7 @@ const SummaryDashboard = ({
     if (!onSessionSave) return <span style={dotStyle} />;
     return (
       <label
-        title="Click to change function color"
+        title="Change function color"
         onClick={(e) => e.stopPropagation()}
         style={{
           ...dotStyle,
@@ -6601,10 +7037,7 @@ const SummaryDashboard = ({
   };
 
   const renderFunctionUnitChip = (fn) => {
-    const unitLabels = getUniqueUnitDisplayLabels([
-      ...(fn.units || []),
-      fn.unit,
-    ]);
+    const unitLabels = getUniqueUnitDisplayLabels(fn.activeUnits || []);
     return unitLabels.length > 0 ? (
       <span className="function-header-unit-chip">
         {unitLabels.join(", ")}
@@ -6621,6 +7054,7 @@ const SummaryDashboard = ({
       <button
         type="button"
         className="range-header-action-btn range-header-action-btn--add function-header-action-btn"
+        data-tour={`${kind}-add-instrument`}
         title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         onClick={(e) => {
@@ -6745,6 +7179,7 @@ const SummaryDashboard = ({
         />
         <div
           onClick={(e) => e.stopPropagation()}
+          data-tour={`${kind}-function-menu`}
           style={{
             position: "fixed",
             top: placement.top,
@@ -6858,17 +7293,16 @@ const SummaryDashboard = ({
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
+  const [pendingResolutionRangeKey, setPendingResolutionRangeKey] = useState(null);
   const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
   const rangeClickGroupRef = useRef(null);
-  // Click-away collapse: while any range list is expanded, a click that
-  // lands outside that instrument's row group (tagged data-range-group) snaps it
-  // shut — mirroring the tolerance cell's focus-out close across the multi-<tr>
-  // expanded group (which has no single wrapper element to hang an onBlur on).
+  // Click-away collapse: an expanded range column stays open only while the
+  // user is interacting with that same instrument's range cells. Clicking a
+  // different column, clicking elsewhere, or pressing Escape snaps it shut.
   useEffect(() => {
     if (expandedRangeKeys.size === 0) return undefined;
     const onMouseDownCapture = (e) => {
-      const group = e.target?.closest?.("[data-range-group]");
-      rangeClickGroupRef.current = group?.getAttribute("data-range-group") || null;
+      rangeClickGroupRef.current = getRangeColumnClickContext(e.target);
     };
     const onDown = (e) => {
       // UnitSelect renders its options in a body-level portal. Selecting an
@@ -6879,10 +7313,12 @@ const SummaryDashboard = ({
       // focused inline editor, so its onBlur commit — new range, tolerance edit,
       // clear-to-delete — would never run before the list collapses. Force the
       // focused editor to blur first so its commit lands.
-      const clickedRangeKey = rangeClickGroupRef.current;
-      const clickedInsideGroup =
-        clickedRangeKey || e.target?.closest?.("[data-range-group]");
-      if (!clickedInsideGroup) {
+      const clickedRangeKey = rangeClickGroupRef.current?.key || null;
+      const clickedInsideRangeColumn =
+        Boolean(clickedRangeKey) && rangeClickGroupRef.current?.inRangeColumn;
+      const toleranceKey = rangeClickGroupRef.current?.toleranceKey || null;
+      if (toleranceKey) setPendingToleranceRangeKey(toleranceKey);
+      if (!clickedInsideRangeColumn) {
         const ae = document.activeElement;
         if (ae && typeof ae.blur === "function" && ae.closest?.("[data-range-group]")) {
           ae.blur();
@@ -6890,9 +7326,7 @@ const SummaryDashboard = ({
       }
       const keysToCollapse = [];
       expandedRangeKeys.forEach((key) => {
-        const inside = clickedRangeKey
-          ? clickedRangeKey === key
-          : e.target?.closest?.(`[data-range-group="${key}"]`);
+        const inside = clickedInsideRangeColumn && clickedRangeKey === key;
         if (!inside) keysToCollapse.push(key);
       });
       if (keysToCollapse.length === 0) return;
@@ -6902,15 +7336,22 @@ const SummaryDashboard = ({
         return next;
       });
     };
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape") return;
+      document.activeElement?.blur?.();
+      setExpandedRangeKeys(new Set());
+    };
     // Listen on "click" (fires after mousedown -> blur -> mouseup) so any
     // in-progress editor commits its onBlur BEFORE the list collapses and
     // unmounts it. A mousedown listener would collapse first and swallow the
     // pending commit (lost new range / tolerance / clear-to-delete).
     document.addEventListener("mousedown", onMouseDownCapture, true);
-    document.addEventListener("click", onDown);
+    document.addEventListener("click", onDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("mousedown", onMouseDownCapture, true);
-      document.removeEventListener("click", onDown);
+      document.removeEventListener("click", onDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
     };
   }, [expandedRangeKeys]);
   const [pinnedInlineUutIds, setPinnedInlineUutIds] = useState([]);
@@ -7069,6 +7510,7 @@ const SummaryDashboard = ({
         </td>
 
         <td
+          data-range-tolerance-key={`${itemStateKey(kind, item.id)}:${rangeKey}`}
           className={`cell-tolerance ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: 2 })}
           title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
@@ -7109,6 +7551,16 @@ const SummaryDashboard = ({
             unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
             fallbackUnit={range?.unit}
             distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
+            openRequested={
+              pendingResolutionRangeKey ===
+              `${itemStateKey(kind, item.id)}:${rangeKey}`
+            }
+            onOpenRequest={() =>
+              setPendingResolutionRangeKey(
+                `${itemStateKey(kind, item.id)}:${rangeKey}`,
+              )
+            }
+            onOpenRequestHandled={() => setPendingResolutionRangeKey(null)}
             onCommit={(v) => setRangeResolution(kind, item, rangeKey, v)}
             onCommitUnit={(value) => setRangeResolutionUnit(kind, item, rangeKey, value)}
             onCommitDistribution={(value) =>
@@ -7121,12 +7573,17 @@ const SummaryDashboard = ({
   };
 
   // The buffered "add" row at the bottom of an expanded range list.
-  const renderGhostRangeRow = (kind, item, activeRange, { includeDistribution }) => (
+  const renderGhostRangeRow = (
+    kind,
+    item,
+    activeRange,
+    { includeDistribution, stateId = item.id },
+  ) => (
     <GhostRangeRow
-      key={`ghost-${kind}-${item.id}`}
+      key={`ghost-${kind}-${stateId}`}
       unit={activeRange?.unit || ""}
       includeDistribution={includeDistribution}
-      dataGroup={itemStateKey(kind, item.id)}
+      dataGroup={itemStateKey(kind, stateId)}
       onMaterialize={(bounds, options) =>
         materializeGhostRange(kind, item, rangeIdOf(activeRange) ?? null, bounds, options)
       }
@@ -7143,8 +7600,8 @@ const SummaryDashboard = ({
       <button
         type="button"
         className="range-expand-btn"
-        title="Show all ranges — edit, add, or remove"
-        aria-label="Show all ranges"
+        title="Edit ranges"
+        aria-label="Edit ranges"
         onClick={(e) => {
           e.stopPropagation();
           toggleShowAllRanges(kind, item.id);
@@ -7739,34 +8196,35 @@ const SummaryDashboard = ({
 
   return (
     <div className="configuration-panel">
-      {/* Header */}
-      <div
-        style={{
-          paddingBottom: "10px",
-          borderBottom: "1px solid var(--border-color)",
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: "1.3rem" }}>
-          {viewMode === "range" && (
-            <FontAwesomeIcon
-              icon={faRulerCombined}
-              style={{ marginRight: "10px", color: "var(--primary-color)" }}
-            />
+      {viewMode !== "session" && (
+        <div
+          style={{
+            paddingBottom: "10px",
+            borderBottom: "1px solid var(--border-color)",
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: "1.3rem" }}>
+            {viewMode === "range" && (
+              <FontAwesomeIcon
+                icon={faRulerCombined}
+                style={{ marginRight: "10px", color: "var(--primary-color)" }}
+              />
+            )}
+            {title}
+          </h2>
+          {subtitle && (
+            <div
+              style={{
+                color: "var(--text-color-muted)",
+                fontSize: "0.85rem",
+                marginTop: "4px",
+              }}
+            >
+              {subtitle}
+            </div>
           )}
-          {title}
-        </h2>
-        {subtitle && (
-          <div
-            style={{
-              color: "var(--text-color-muted)",
-              fontSize: "0.85rem",
-              marginTop: "4px",
-            }}
-          >
-            {subtitle}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* UUT TABLE */}
       <div className="panel-card">
@@ -7787,6 +8245,7 @@ const SummaryDashboard = ({
             )}
             <button
               className="btn-add-item"
+              data-tour="uut-add-function"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 setAddFunctionMenu((m) =>
@@ -7800,7 +8259,7 @@ const SummaryDashboard = ({
             {renderAddFunctionMenu("uut")}
           </div>
         </div>
-        <div className="panel-table-container instrument-panel-table-container">
+        <div className="panel-table-container instrument-panel-table-container" data-tour="uut-table">
           <table
             className="instrument-summary-table industry-table instrument-equipment-table"
             onMouseLeave={() => {
@@ -7902,7 +8361,7 @@ const SummaryDashboard = ({
                       ? specRows.length
                       : 1;
                   const isSelected = selectedUutIds.includes(uut.id);
-                  const showAllRanges = isShowingAllRanges("uut", uut.id);
+                  const showAllRanges = isShowingAllRanges("uut", uutRowKey);
                   const visibleRangeRows = getVisibleRangeRows(
                     ranges,
                     activeIndex,
@@ -7925,7 +8384,7 @@ const SummaryDashboard = ({
                           return (
                             <tr
                               key={key}
-                              data-range-group={itemStateKey("uut", uut.id)}
+                              data-range-group={itemStateKey("uut", uutRowKey)}
                               className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onMouseDownCapture={(e) =>
@@ -7984,6 +8443,7 @@ const SummaryDashboard = ({
                         })}
                         {renderGhostRangeRow("uut", uut, activeRange, {
                           includeDistribution: false,
+                          stateId: uutRowKey,
                         })}
                       </React.Fragment>
                     );
@@ -8097,7 +8557,9 @@ const SummaryDashboard = ({
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpand("uut", uut, range)
                                   }
-                                  onExpandAll={() => toggleShowAllRanges("uut", uut.id)}
+                                  onExpandAll={() =>
+                                    toggleShowAllRanges("uut", uutRowKey, uut.id)
+                                  }
                                 />
                                 </div>
                               );
@@ -8111,7 +8573,7 @@ const SummaryDashboard = ({
                           }
                           title={specRows[0]}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const rangeKey = rangeIdOf(range);
                               const tolerance = getItemRangeTolerance(uut, rangeKey) || range;
@@ -8156,7 +8618,7 @@ const SummaryDashboard = ({
                           }
                           title={formatResolutionLabel(activeRange)}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, index, key }) => {
                               const rangeKey = rangeIdOf(range);
                               return (
@@ -8170,6 +8632,18 @@ const SummaryDashboard = ({
                                     unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
                                     fallbackUnit={range?.unit}
                                     distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
+                                    openRequested={
+                                      pendingResolutionRangeKey ===
+                                      `${itemStateKey("uut", uut.id)}:${rangeKey}`
+                                    }
+                                    onOpenRequest={() =>
+                                      setPendingResolutionRangeKey(
+                                        `${itemStateKey("uut", uut.id)}:${rangeKey}`,
+                                      )
+                                    }
+                                    onOpenRequestHandled={() =>
+                                      setPendingResolutionRangeKey(null)
+                                    }
                                     onCommit={(v) =>
                                       setRangeResolution("uut", uut, rangeKey, v)
                                     }
@@ -8243,6 +8717,7 @@ const SummaryDashboard = ({
             )}
             <button
               className="btn-add-item"
+              data-tour="tmde-add-function"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 setAddFunctionMenu((m) =>
@@ -8256,7 +8731,7 @@ const SummaryDashboard = ({
             {renderAddFunctionMenu("tmde")}
           </div>
         </div>
-        <div className="panel-table-container instrument-panel-table-container">
+        <div className="panel-table-container instrument-panel-table-container" data-tour="tmde-table">
           <table
             className="instrument-summary-table industry-table equipment-summary-table instrument-equipment-table"
             onMouseLeave={() => {
@@ -8319,7 +8794,7 @@ const SummaryDashboard = ({
                       ? specRows.length
                       : 1;
                   const isSelected = selectedTmdeIds.includes(tmde.id);
-                  const showAllRanges = isShowingAllRanges("tmde", tmde.id);
+                  const showAllRanges = isShowingAllRanges("tmde", tmdeRowKey);
                   const visibleRangeRows = getVisibleRangeRows(
                     ranges,
                     activeIndex,
@@ -8341,7 +8816,7 @@ const SummaryDashboard = ({
                           return (
                             <tr
                               key={key}
-                              data-range-group={itemStateKey("tmde", tmde.id)}
+                              data-range-group={itemStateKey("tmde", tmdeRowKey)}
                               className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", tmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(tmde.id)}
                               onMouseDownCapture={(e) =>
@@ -8400,6 +8875,7 @@ const SummaryDashboard = ({
                         })}
                         {renderGhostRangeRow("tmde", tmde, activeRange, {
                           includeDistribution: true,
+                          stateId: tmdeRowKey,
                         })}
                       </React.Fragment>
                     );
@@ -8524,7 +9000,9 @@ const SummaryDashboard = ({
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpand("tmde", tmde, range)
                                   }
-                                  onExpandAll={() => toggleShowAllRanges("tmde", tmde.id)}
+                                  onExpandAll={() =>
+                                    toggleShowAllRanges("tmde", tmdeRowKey, tmde.id)
+                                  }
                                 />
                                 </div>
                               );
@@ -8538,7 +9016,7 @@ const SummaryDashboard = ({
                           }
                           title={specRows[0]}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const rangeKey = rangeIdOf(range);
                               const tolerance = getItemRangeTolerance(tmde, rangeKey) || range;
@@ -8580,7 +9058,7 @@ const SummaryDashboard = ({
                           title="Spec band distribution"
                           style={{ verticalAlign: "middle" }}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const rangeKey = rangeIdOf(range);
                               const tolerance = getItemRangeTolerance(tmde, rangeKey) || range;
@@ -8606,7 +9084,7 @@ const SummaryDashboard = ({
                           }
                           title={formatResolutionLabel(activeRange)}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const rangeKey = rangeIdOf(range);
                               return (
@@ -8617,6 +9095,18 @@ const SummaryDashboard = ({
                                     unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
                                     fallbackUnit={range?.unit}
                                     distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
+                                    openRequested={
+                                      pendingResolutionRangeKey ===
+                                      `${itemStateKey("tmde", tmde.id)}:${rangeKey}`
+                                    }
+                                    onOpenRequest={() =>
+                                      setPendingResolutionRangeKey(
+                                        `${itemStateKey("tmde", tmde.id)}:${rangeKey}`,
+                                      )
+                                    }
+                                    onOpenRequestHandled={() =>
+                                      setPendingResolutionRangeKey(null)
+                                    }
                                     onCommit={(v) =>
                                       setRangeResolution("tmde", tmde, rangeKey, v)
                                     }
@@ -8775,7 +9265,7 @@ const DetailWorkspaceSectionToggle = ({
     onDrop={onDrop}
     onDragEnd={onDragEnd}
     style={style}
-    title={canReorder ? `Drag to reorder ${label}; click to expand or collapse` : undefined}
+    title={canReorder ? `Reorder ${label}` : undefined}
     aria-expanded={!collapsed}
     aria-label={`${collapsed ? "Expand" : "Collapse"} ${label} section`}
     aria-grabbed={canReorder ? isDragging : undefined}
@@ -8846,6 +9336,7 @@ function DetailedView({
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
+  const [pendingResolutionRangeKey, setPendingResolutionRangeKey] = useState(null);
   const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
   const rangeClickGroupRef = useRef(null);
   // --- NEW: Local Selection State ---
@@ -9445,14 +9936,15 @@ function DetailedView({
     { maybePromptLocal = false } = {},
   ) => {
     if (!onSessionSave) return;
+    const localizedItem = localizeSharedInstrumentEdit(updatedItem, instruments);
     const synchronized = synchronizeLocalInstrumentDefinitions(
       sessionData,
-      updatedItem,
+      localizedItem,
       kind,
     );
     const synchronizedItem = (
       kind === "uut" ? synchronized.uuts : synchronized.tmdes
-    ).find((item) => String(item.id) === String(updatedItem.id)) || updatedItem;
+    ).find((item) => String(item.id) === String(localizedItem.id)) || localizedItem;
     onSessionSave({
       ...sessionData,
       uuts: synchronized.uuts,
@@ -9462,7 +9954,7 @@ function DetailedView({
       onSaveInstrument &&
       (synchronizedItem.instrument?.sourceId ||
         synchronizedItem.instrument?.scope === "local" ||
-        localLibraryChoices[`${kind}:${updatedItem.id}`] === "local")
+        localLibraryChoices[`${kind}:${localizedItem.id}`] === "local")
     ) {
       saveItemInstrumentToLocalLibrary(kind, synchronizedItem);
     } else if (maybePromptLocal) {
@@ -9942,8 +10434,14 @@ function DetailedView({
       : { min, max, unit };
     const updated = applyItemRangePatch(withRange, newRangeId, patch);
     persistInlineItemDetail(kind, updated);
-    if (openTolerance && newRangeId) {
-      setPendingToleranceRangeKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
+    if (openTolerance) {
+      handoffMaterializedRangeToTolerance({
+        kind,
+        itemId: item.id,
+        newRangeId,
+        setPendingToleranceRangeKey,
+        setExpandedRangeKeys,
+      });
     }
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
@@ -9958,9 +10456,11 @@ function DetailedView({
     handleRemoveRangeDetail(kind, item, rangeId);
   };
 
-  const toggleShowAllRangesDetail = (kind, itemId) => {
-    const key = itemStateKey(kind, itemId);
-    if (expandedRangeKeys.has(key)) sortAndPersistRangeGroupDetail(key);
+  const toggleShowAllRangesDetail = (kind, stateId, itemId = stateId) => {
+    const key = itemStateKey(kind, stateId);
+    if (expandedRangeKeys.has(key)) {
+      sortAndPersistRangeGroupDetail(itemStateKey(kind, itemId));
+    }
     setExpandedRangeKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -9972,12 +10472,11 @@ function DetailedView({
   const isShowingAllRangesDetail = (kind, itemId) =>
     expandedRangeKeys.has(itemStateKey(kind, itemId));
 
-  // Click-away collapse for the expanded range list (see SummaryDashboard twin).
+  // Click-away/Escape collapse for the expanded range column (Summary twin).
   useEffect(() => {
     if (expandedRangeKeys.size === 0) return undefined;
     const onMouseDownCapture = (e) => {
-      const group = e.target?.closest?.("[data-range-group]");
-      rangeClickGroupRef.current = group?.getAttribute("data-range-group") || null;
+      rangeClickGroupRef.current = getRangeColumnClickContext(e.target);
     };
     const onDown = (e) => {
       // UnitSelect renders its options in a body-level portal. Selecting an
@@ -9988,10 +10487,12 @@ function DetailedView({
       // focused inline editor, so its onBlur commit — new range, tolerance edit,
       // clear-to-delete — would never run before the list collapses. Force the
       // focused editor to blur first so its commit lands.
-      const clickedRangeKey = rangeClickGroupRef.current;
-      const clickedInsideGroup =
-        clickedRangeKey || e.target?.closest?.("[data-range-group]");
-      if (!clickedInsideGroup) {
+      const clickedRangeKey = rangeClickGroupRef.current?.key || null;
+      const clickedInsideRangeColumn =
+        Boolean(clickedRangeKey) && rangeClickGroupRef.current?.inRangeColumn;
+      const toleranceKey = rangeClickGroupRef.current?.toleranceKey || null;
+      if (toleranceKey) setPendingToleranceRangeKey(toleranceKey);
+      if (!clickedInsideRangeColumn) {
         const ae = document.activeElement;
         if (ae && typeof ae.blur === "function" && ae.closest?.("[data-range-group]")) {
           ae.blur();
@@ -9999,9 +10500,7 @@ function DetailedView({
       }
       const keysToCollapse = [];
       expandedRangeKeys.forEach((key) => {
-        const inside = clickedRangeKey
-          ? clickedRangeKey === key
-          : e.target?.closest?.(`[data-range-group="${key}"]`);
+        const inside = clickedInsideRangeColumn && clickedRangeKey === key;
         if (!inside) keysToCollapse.push(key);
       });
       if (keysToCollapse.length === 0) return;
@@ -10011,15 +10510,22 @@ function DetailedView({
         return next;
       });
     };
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape") return;
+      document.activeElement?.blur?.();
+      setExpandedRangeKeys(new Set());
+    };
     // Listen on "click" (fires after mousedown -> blur -> mouseup) so any
     // in-progress editor commits its onBlur BEFORE the list collapses and
     // unmounts it. A mousedown listener would collapse first and swallow the
     // pending commit (lost new range / tolerance / clear-to-delete).
     document.addEventListener("mousedown", onMouseDownCapture, true);
-    document.addEventListener("click", onDown);
+    document.addEventListener("click", onDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("mousedown", onMouseDownCapture, true);
-      document.removeEventListener("click", onDown);
+      document.removeEventListener("click", onDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
     };
   }, [expandedRangeKeys]);
 
@@ -10175,6 +10681,7 @@ function DetailedView({
         </td>
 
         <td
+          data-range-tolerance-key={`${itemStateKey(kind, item.id)}:${rangeKey}`}
           className={`cell-tolerance ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.tol ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.tol })}
           title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
@@ -10215,6 +10722,16 @@ function DetailedView({
             unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
             fallbackUnit={range?.unit}
             distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
+            openRequested={
+              pendingResolutionRangeKey ===
+              `${itemStateKey(kind, item.id)}:${rangeKey}`
+            }
+            onOpenRequest={() =>
+              setPendingResolutionRangeKey(
+                `${itemStateKey(kind, item.id)}:${rangeKey}`,
+              )
+            }
+            onOpenRequestHandled={() => setPendingResolutionRangeKey(null)}
             onCommit={(v) => setRangeResolutionDetail(kind, item, rangeKey, v)}
             onCommitUnit={(value) => setRangeResolutionUnitDetail(kind, item, rangeKey, value)}
             onCommitDistribution={(value) =>
@@ -10228,12 +10745,17 @@ function DetailedView({
 
   // Buffered "add" row for the Detailed View (see SummaryDashboard twin). The
   // extra Distribution column means the ghost mirrors includeDistribution.
-  const renderGhostRangeRowDetail = (kind, item, activeRange, { includeDistribution }) => (
+  const renderGhostRangeRowDetail = (
+    kind,
+    item,
+    activeRange,
+    { includeDistribution, stateId = item.id },
+  ) => (
     <GhostRangeRow
-      key={`ghost-${kind}-${item.id}`}
+      key={`ghost-${kind}-${stateId}`}
       unit={activeRange?.unit || ""}
       includeDistribution={includeDistribution}
-      dataGroup={itemStateKey(kind, item.id)}
+      dataGroup={itemStateKey(kind, stateId)}
       onMaterialize={(bounds, options) =>
         materializeGhostRangeDetail(
           kind,
@@ -10251,8 +10773,8 @@ function DetailedView({
       <button
         type="button"
         className="range-expand-btn"
-        title="Show all ranges — edit, add, or remove"
-        aria-label="Show all ranges"
+        title="Edit ranges"
+        aria-label="Edit ranges"
         onClick={(e) => {
           e.stopPropagation();
           toggleShowAllRangesDetail(kind, item.id);
@@ -10761,7 +11283,7 @@ function DetailedView({
     if (!onSessionSave) return <span style={dotStyle} />;
     return (
       <label
-        title="Click to change function color"
+        title="Change function color"
         onClick={(e) => e.stopPropagation()}
         style={{
           ...dotStyle,
@@ -10824,10 +11346,7 @@ function DetailedView({
   };
 
   const renderFunctionUnitChip = (fn) => {
-    const unitLabels = getUniqueUnitDisplayLabels([
-      ...(fn.units || []),
-      fn.unit,
-    ]);
+    const unitLabels = getUniqueUnitDisplayLabels(fn.activeUnits || []);
     return unitLabels.length > 0 ? (
       <span className="function-header-unit-chip">
         {unitLabels.join(", ")}
@@ -10840,6 +11359,7 @@ function DetailedView({
       <button
         type="button"
         className="range-header-action-btn range-header-action-btn--add function-header-action-btn"
+        data-tour={`${kind}-add-instrument`}
         title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         onClick={(e) => {
@@ -11117,6 +11637,25 @@ function DetailedView({
     return sessionData.tmdes || [];
   }, [sessionData.tmdes]);
 
+  const budgetRangeWarningsByGroup = useMemo(
+    () =>
+      getBudgetRangeWarnings({
+        components: testPointData.components || [],
+        measurementType: testPointData.measurementType,
+        directNominal: uutNominal,
+        groups: calcResults?.calculatedBudgetGroups || [],
+        tmdes: [...relevantTmdes, ...(tmdeTolerancesData || [])],
+      }),
+    [
+      calcResults?.calculatedBudgetGroups,
+      relevantTmdes,
+      testPointData.components,
+      testPointData.measurementType,
+      tmdeTolerancesData,
+      uutNominal,
+    ],
+  );
+
   // The Detailed View lists the SAME instruments as the Session Overview —
   // the full session inventory grouped by function — and simply flags the
   // point's active UUT. It is deliberately NOT scoped to the point's
@@ -11147,6 +11686,41 @@ function DetailedView({
     () => buildFullDetailRows(relevantTmdes, "tmde"),
     [buildFullDetailRows, relevantTmdes],
   );
+
+  // On first opening a point, reduce the UUT table to the function that is
+  // relevant to that measurement. Users can still reopen every other function;
+  // this only establishes the detailed view's default accordion state.
+  const collapsedDefaultsPointRef = useRef(null);
+  useEffect(() => {
+    const functionRows = detailUutRows.filter((row) => row.type === "function");
+    if (
+      !testPointData?.id ||
+      functionRows.length === 0 ||
+      collapsedDefaultsPointRef.current === testPointData.id
+    ) {
+      return;
+    }
+    collapsedDefaultsPointRef.current = testPointData.id;
+    const pointKey = functionKeyOf(testPointData);
+    const pointName = functionNamePart(pointKey).trim().toLowerCase();
+    const pointUnit = functionUnitPart(pointKey);
+    const pointQuantity = unitSystem.getQuantity?.(pointUnit) || null;
+    setCollapsedFunctionKeys((previous) => {
+      const next = new Set(previous);
+      functionRows.forEach((row) => {
+        const fnName = String(row.fn?.name || "").trim().toLowerCase();
+        const fnQuantity = unitSystem.getQuantity?.(row.fn?.unit || "") || null;
+        const relevant =
+          row.fn?.key === pointKey ||
+          (pointName && fnName === pointName) ||
+          (pointQuantity && fnQuantity === pointQuantity);
+        const collapseKey = functionCollapseStateKey("uut", row.fn);
+        if (relevant) next.delete(collapseKey);
+        else next.add(collapseKey);
+      });
+      return next;
+    });
+  }, [detailUutRows, setCollapsedFunctionKeys, testPointData]);
 
   const visibleDetailUutRows = useMemo(
     () =>
@@ -11228,14 +11802,19 @@ function DetailedView({
     const patch = { equationString: newEquationString };
     if (variables !== null) {
       const currentMappings = testPointData.variableMappings || {};
-      const newMappings = {};
-      variables.forEach((v) => {
-        // Fall back to the remembered name so re-typed variables keep their
-        // identity (and any TMDEs assigned to that name reconnect).
-        newMappings[v] =
-          currentMappings[v] || rememberedVariableNamesRef.current[v] || "";
+      const currentNominals = testPointData.variableNominals || {};
+      const reconciled = reconcileEquationVariableState({
+        variables,
+        currentMappings,
+        currentNominals,
+        rememberedMappings: rememberedVariableNamesRef.current,
       });
-      patch.variableMappings = newMappings;
+      patch.variableMappings = reconciled.mappings;
+      patch.variableNominals = reconciled.nominals;
+      if (reconciled.simpleRename && reconciled.mappings[reconciled.simpleRename.to]) {
+        rememberedVariableNamesRef.current[reconciled.simpleRename.to] =
+          reconciled.mappings[reconciled.simpleRename.to];
+      }
     }
 
     if (onUpdateTestPoint) {
@@ -11447,6 +12026,52 @@ function DetailedView({
     if (onUpdateTestPoint) {
       onUpdateTestPoint(patch);
     }
+  };
+
+  const handleVariableSymbolChange = (oldSymbol, rawNewSymbol) => {
+    const newSymbol = String(rawNewSymbol || "").trim();
+    if (newSymbol === oldSymbol) return;
+    const activeSymbols = equationDisplayData?.variables.map((item) => item.symbol) || [];
+    if (
+      !isValidEquationVariableSymbol(newSymbol) ||
+      activeSymbols.some((symbol) => symbol !== oldSymbol && symbol === newSymbol)
+    ) {
+      setNotification?.({
+        title: "Variable name not available",
+        message:
+          "Use a unique variable beginning with a letter or underscore and containing only letters, numbers, or underscores.",
+      });
+      return;
+    }
+
+    const nextEquation = renameEquationVariable(
+      testPointData.equationString || "",
+      oldSymbol,
+      newSymbol,
+    );
+    if (nextEquation === testPointData.equationString) return;
+
+    const currentMappings = testPointData.variableMappings || {};
+    const currentNominals = testPointData.variableNominals || {};
+    const nextMappings = { ...currentMappings };
+    const nextNominals = { ...currentNominals };
+    nextMappings[newSymbol] = currentMappings[oldSymbol] || "";
+    delete nextMappings[oldSymbol];
+    if (currentNominals[oldSymbol] !== undefined) {
+      nextNominals[newSymbol] = currentNominals[oldSymbol];
+      delete nextNominals[oldSymbol];
+    }
+    if (rememberedVariableNamesRef.current[oldSymbol]) {
+      rememberedVariableNamesRef.current[newSymbol] =
+        rememberedVariableNamesRef.current[oldSymbol];
+      delete rememberedVariableNamesRef.current[oldSymbol];
+    }
+
+    onUpdateTestPoint?.({
+      equationString: nextEquation,
+      variableMappings: nextMappings,
+      variableNominals: nextNominals,
+    });
   };
 
   // Write a distribution divisor (e.g. "1.960") onto every tolerance
@@ -12299,8 +12924,9 @@ function DetailedView({
     return name || formatInstrumentIdentity(master || tmde, "Unnamed TMDE");
   };
 
-  const getBudgetTmdeDetail = (tmde) => {
+  const getBudgetTmdeDetail = (tmde, requestedRange = null) => {
     if (!budgetTmdePicker) return "";
+    if (requestedRange) return formatRangeToleranceDetail(requestedRange);
     const rowKey = `${budgetTmdePicker.functionKey || "single"}::${tmde.id}`;
     const rangeNominal = isDerived
       ? budgetTmdePicker.scope?.nominalPoint || null
@@ -12386,15 +13012,19 @@ function DetailedView({
       const isMatch = isDerived
         ? (tmde) => tmdeMatchesUnit(tmde, scope?.nominalPoint?.unit || "")
         : (tmde) => tmdeSupportsFunction(tmde, functionKey);
+      const budgetNominal = isDerived ? scope?.nominalPoint || null : uutNominal;
       const options = isDerivedFinalScope
         ? []
-        : relevantTmdes.filter(isMatch).sort(byLabel);
-      // Non-matching TMDEs stay reachable in a secondary section — the picker
-      // suggests, it doesn't censor (deliberate cross-function/cross-unit
-      // assignments are legitimate).
-      const otherOptions = isDerivedFinalScope
-        ? []
-        : relevantTmdes.filter((tmde) => !isMatch(tmde)).sort(byLabel);
+        : relevantTmdes
+            .filter(isMatch)
+            .filter(
+              (tmde) =>
+                getUsableBudgetRangeChoices(tmde, budgetNominal, {
+                  functionKey,
+                  requireFunctionMatch: !isDerived,
+                }).length > 0,
+            )
+            .sort(byLabel);
       // The UUT's measuring resolution is offered for direct points AND for the
       // derived final budget (where the derived UUT's rounding lives). Modeling
       // it as a proper resolution component keeps it absolute (LSD/2/divisor,
@@ -12422,7 +13052,7 @@ function DetailedView({
         : tmdeTolerancesData;
       const resolutionSourceTmdes = isDerivedFinalScope
         ? []
-        : relevantTmdes;
+        : relevantTmdes.filter(isMatch);
       const resolutionNominal = isDerived
         ? scope?.nominalPoint || null
         : uutNominal;
@@ -12495,7 +13125,15 @@ function DetailedView({
       };
       const typeBOptions = typeBSourceTmdes.flatMap((tmde) =>
         freshTypeBFor(tmde)
-          .filter((comp) => typeBHasMagnitude(comp))
+          .filter(
+            (comp) =>
+              typeBHasMagnitude(comp) &&
+              getBudgetComponentsFromTolerance(
+                { name: comp.name || "Type B" },
+                budgetNominal,
+                [comp],
+              ).length > 0,
+          )
           .map((comp) => ({ tmde, comp })),
       );
 
@@ -12506,7 +13144,6 @@ function DetailedView({
       const canAddRepeatability = Boolean(scope?.canAddRepeatability);
       if (
         options.length === 0 &&
-        otherOptions.length === 0 &&
         !resolutionOption &&
         tmdeResolutionOptions.length === 0 &&
         typeBOptions.length === 0 &&
@@ -12526,7 +13163,6 @@ function DetailedView({
         scope,
         functionKey,
         options,
-        otherOptions,
         resolutionOption,
         tmdeResolutionOptions,
         typeBOptions,
@@ -12553,7 +13189,7 @@ function DetailedView({
     ],
   );
 
-  const addBudgetTmde = (tmde) => {
+  const addBudgetTmde = (tmde, requestedRange = null) => {
     if (!budgetTmdePicker) return;
 
     {
@@ -12572,6 +13208,7 @@ function DetailedView({
         budgetTmdePicker.functionKey,
       );
       const activeRange =
+        requestedRange ||
         (resolution.activeRange && Object.keys(resolution.activeRange).length > 0
           ? resolution.activeRange
           : null) ||
@@ -12621,6 +13258,7 @@ function DetailedView({
           sourceTmdeId: sourceTmde.id ?? sourceTmde.sourceId,
           tmdeBudgetSourceId: tmde.id ?? tmde.sourceId,
           tmdeBudgetRangeId: activeRange.rangeId ?? activeRange.id ?? "",
+          tmdeBudgetRange: budgetRangeSnapshot(activeRange),
           tmdeBudgetFunctionId: activeRange.functionId ?? "",
           tmdeBudgetFunctionName: activeRange.functionName ?? "",
           tmdeBudgetComponentKind: suffix,
@@ -12857,6 +13495,7 @@ function DetailedView({
         />
         <div
           className="budget-settings-menu budget-tmde-picker-menu"
+          data-tour="budget-component-menu"
           style={{
             position: "fixed",
             top: placement.top,
@@ -12981,13 +13620,26 @@ function DetailedView({
               what they're adding to the budget. */}
           {(() => {
             const renderTmdeOption = (tmde) => {
-              const detail = getBudgetTmdeDetail(tmde);
-              return (
+              const scope = budgetTmdePicker.scope || {};
+              const choices = getUsableBudgetRangeChoices(
+                tmde,
+                isDerived ? scope.nominalPoint || null : uutNominal,
+                {
+                  functionKey: budgetTmdePicker.functionKey,
+                  requireFunctionMatch: !isDerived,
+                },
+              );
+              return choices.map((range, rangeIndex) => {
+                const detail = getBudgetTmdeDetail(tmde, range);
+                const functionLabel = range?.functionName
+                  ? `${range.functionName} · `
+                  : "";
+                return (
                 <button
-                  key={tmde.id}
+                  key={`${tmde.id}:${rangeIdOf(range || {}) || rangeIndex}`}
                   type="button"
                   style={itemStyle}
-                  onClick={() => addBudgetTmde(tmde)}
+                  onClick={() => addBudgetTmde(tmde, range)}
                   onMouseEnter={(e) =>
                     (e.currentTarget.style.background = "var(--input-background)")
                   }
@@ -13023,14 +13675,14 @@ function DetailedView({
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {detail}
+                        {functionLabel}{detail}
                       </span>
                     )}
                   </span>
                 </button>
-              );
+                );
+              });
             };
-            const others = budgetTmdePicker.otherOptions || [];
             return (
               <>
                 {budgetTmdePicker.options.length > 0 && (
@@ -13039,17 +13691,6 @@ function DetailedView({
                       TMDEs
                     </div>
                     {budgetTmdePicker.options.map(renderTmdeOption)}
-                  </div>
-                )}
-                {/* TMDEs that don't match this variable's unit / point's
-                    function — still selectable, just de-emphasized, so the
-                    picker never hides part of the session inventory. */}
-                {others.length > 0 && (
-                  <div className="budget-picker-section budget-picker-section--other">
-                    <div className="budget-tmde-picker-category">
-                      Other TMDEs
-                    </div>
-                    {others.map(renderTmdeOption)}
                   </div>
                 )}
               </>
@@ -13089,7 +13730,7 @@ function DetailedView({
                       getUnitDisplayLabel(budgetTmdePicker.resolutionOption.unit)
                         ? ` ${getUnitDisplayLabel(budgetTmdePicker.resolutionOption.unit)}`
                         : ""
-                    } · rounding contribution`}
+                    }`}
                   </span>
                 </span>
               </button>
@@ -13137,7 +13778,7 @@ function DetailedView({
                           color: "var(--text-color-muted)",
                         }}
                       >
-                        {`${option.value}${resUnitLabel ? ` ${resUnitLabel}` : ""} · rounding contribution`}
+                        {`${option.value}${resUnitLabel ? ` ${resUnitLabel}` : ""}`}
                       </span>
                     </span>
                   </button>
@@ -13411,12 +14052,12 @@ function DetailedView({
             {equationDisplayData.variables.map((variable) => (
               <tr key={variable.symbol}>
                 <td>
-              <span
-                className="measurement-input-symbol"
-                title={variable.symbol}
-              >
-                {formatEquationVariableSymbol(variable.symbol)}
-              </span>
+                  <MeasurementInputSymbolCell
+                    symbol={variable.symbol}
+                    onCommit={(nextSymbol) =>
+                      handleVariableSymbolChange(variable.symbol, nextSymbol)
+                    }
+                  />
                 </td>
                 <td>
                   <MeasurementInputNameCell
@@ -13498,6 +14139,7 @@ function DetailedView({
             )}
             <button
               className="btn-add-item"
+              data-tour="uut-add-function"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 setAddFunctionMenu((m) =>
@@ -13511,7 +14153,7 @@ function DetailedView({
             {renderAddFunctionMenu("uut")}
           </div>
         </div>
-        <div className="panel-table-container instrument-panel-table-container">
+        <div className="panel-table-container instrument-panel-table-container" data-tour="uut-table">
           <table
             className="instrument-summary-table industry-table instrument-equipment-table"
             onMouseLeave={() => {
@@ -13588,7 +14230,7 @@ function DetailedView({
                           return (
                             <tr
                               key={key}
-                              data-range-group={itemStateKey("uut", uut.id)}
+                              data-range-group={itemStateKey("uut", uutRowKey)}
                               className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onMouseDownCapture={(e) => {
@@ -13674,6 +14316,7 @@ function DetailedView({
                         })}
                         {renderGhostRangeRowDetail("uut", uut, activeRange, {
                           includeDistribution: false,
+                          stateId: uutRowKey,
                           cols: { range: 1, tol: 2, res: 3 },
                         })}
                       </React.Fragment>
@@ -13698,7 +14341,7 @@ function DetailedView({
                           uutFnKey,
                         )}
                         onDragEnd={handleDetailInstrumentDragEnd}
-                        title="Click to select"
+                        title="Select instrument"
                       >
                         <td
                           rowSpan={rowSpan}
@@ -13806,7 +14449,11 @@ function DetailedView({
                                     requestRangeEditAfterExpandDetail("uut", uut, range)
                                   }
                                   onExpandAll={() =>
-                                    toggleShowAllRangesDetail("uut", uut.id)
+                                    toggleShowAllRangesDetail(
+                                      "uut",
+                                      uutRowKey,
+                                      uut.id,
+                                    )
                                   }
                                 />
                               </div>
@@ -13821,7 +14468,7 @@ function DetailedView({
                           }
                           title={!onSessionSave ? specRows[0] : undefined}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => {
                               const tolerance =
                                 getItemRangeTolerance(uut, rangeIdOf(range)) ||
@@ -13868,7 +14515,7 @@ function DetailedView({
                           }
                           title={formatResolutionLabel(activeRange)}
                         >
-                          <div className={showAllRanges ? "range-stack" : undefined}>
+                          <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => (
                               <div className="range-stack-row" key={key}>
                                 {onSessionSave ? (
@@ -13877,6 +14524,18 @@ function DetailedView({
                                     unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
                                     fallbackUnit={range?.unit}
                                     distribution={range?.resolutionDistribution ?? range?.measuringResolutionDistribution}
+                                    openRequested={
+                                      pendingResolutionRangeKey ===
+                                      `${itemStateKey("uut", uut.id)}:${rangeIdOf(range)}`
+                                    }
+                                    onOpenRequest={() =>
+                                      setPendingResolutionRangeKey(
+                                        `${itemStateKey("uut", uut.id)}:${rangeIdOf(range)}`,
+                                      )
+                                    }
+                                    onOpenRequestHandled={() =>
+                                      setPendingResolutionRangeKey(null)
+                                    }
                                     onCommit={(v) =>
                                       setRangeResolutionDetail("uut", uut, rangeIdOf(range), v)
                                     }
@@ -13969,7 +14628,18 @@ function DetailedView({
               <div className="scoped-zoom-content">
               {isEquationEditorOpen ? (
                 <>
-                <div className="measurement-equation-editor-stack">
+                <div
+                  className="measurement-equation-editor-stack"
+                  style={{
+                    width: `min(100%, ${Math.max(
+                      42,
+                      Math.min(
+                        88,
+                        String(equationDisplayData.equation || "").length + 30,
+                      ),
+                    )}ch)`,
+                  }}
+                >
                   <div className="add-point-equation-input measurement-equation-input-row">
                     <div className="measurement-equation-editor">
                       <input
@@ -14088,7 +14758,7 @@ function DetailedView({
                   onKeyDown={handleEquationPreviewKeyDown}
                   aria-expanded={false}
                   aria-label="Edit measurement equation"
-                  title="Click to edit measurement equation"
+                  title="Edit measurement equation"
                 >
                   {equationPreview.status === "ok" ? (
                     <span
@@ -14100,8 +14770,8 @@ function DetailedView({
                   ) : (
                     <span className="measurement-equation-preview-empty">
                       {equationPreview.status === "empty"
-                        ? "Click to enter a measurement equation"
-                        : "Click to edit the measurement equation"}
+                        ? "Set measurement equation"
+                        : "Edit measurement equation"}
                     </span>
                   )}
                 </button>
@@ -14223,6 +14893,7 @@ function DetailedView({
               )}
               <button
                 className="btn-add-item"
+                data-tour="tmde-add-function"
                 onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   setAddFunctionMenu((m) =>
@@ -14237,7 +14908,7 @@ function DetailedView({
             </div>
           </div>
 
-          <div className="panel-table-container instrument-panel-table-container">
+          <div className="panel-table-container instrument-panel-table-container" data-tour="tmde-table">
             <table
               className="instrument-summary-table industry-table equipment-detail-table instrument-equipment-table"
               onMouseLeave={() => {
@@ -14354,7 +15025,7 @@ function DetailedView({
                               return (
                                 <tr
                                   key={key}
-                                  data-range-group={itemStateKey("tmde", masterTmde.id)}
+                                  data-range-group={itemStateKey("tmde", tmdeRowKey)}
                                   className={`tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", masterTmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                                   onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                                   onMouseDownCapture={(e) => {
@@ -14448,6 +15119,7 @@ function DetailedView({
                             })}
                             {renderGhostRangeRowDetail("tmde", masterTmde, activeRange, {
                               includeDistribution: true,
+                              stateId: tmdeRowKey,
                               cols: { range: 1, tol: 2, res: 4 },
                             })}
                           </React.Fragment>
@@ -14471,7 +15143,7 @@ function DetailedView({
                               tmdeFnKey,
                             )}
                             onDragEnd={handleDetailInstrumentDragEnd}
-                            title="Click to select"
+                            title="Select instrument"
                           >
                             <td
                               rowSpan={rowSpan}
@@ -14608,7 +15280,11 @@ function DetailedView({
                                         )
                                       }
                                       onExpandAll={() =>
-                                        toggleShowAllRangesDetail("tmde", masterTmde.id)
+                                        toggleShowAllRangesDetail(
+                                          "tmde",
+                                          tmdeRowKey,
+                                          masterTmde.id,
+                                        )
                                       }
                                     />
                                     </div>
@@ -14627,7 +15303,7 @@ function DetailedView({
                               }
                               title={!onSessionSave ? specRows[0] : undefined}
                             >
-                              <div className={showAllRanges ? "range-stack" : undefined}>
+                              <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                                 {visibleRangeRows.map(({ range, key }) => {
                                   const rangeKey = rangeIdOf(range);
                                   const tolerance =
@@ -14676,7 +15352,7 @@ function DetailedView({
                               title="Spec band distribution"
                               style={{ verticalAlign: "middle" }}
                             >
-                              <div className={showAllRanges ? "range-stack" : undefined}>
+                              <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                                 {visibleRangeRows.map(({ range, key }) => {
                                   const rangeKey = rangeIdOf(range);
                                   const tolerance =
@@ -14712,7 +15388,7 @@ function DetailedView({
                               }
                               title={formatResolutionLabel(activeRange)}
                             >
-                              <div className={showAllRanges ? "range-stack" : undefined}>
+                              <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                                 {visibleRangeRows.map(({ range, key }) => {
                                   const rangeKey = rangeIdOf(range);
                                   return (
@@ -14731,6 +15407,18 @@ function DetailedView({
                                         distribution={
                                           range?.resolutionDistribution ??
                                           range?.measuringResolutionDistribution
+                                        }
+                                        openRequested={
+                                          pendingResolutionRangeKey ===
+                                          `${itemStateKey("tmde", masterTmde.id)}:${rangeKey}`
+                                        }
+                                        onOpenRequest={() =>
+                                          setPendingResolutionRangeKey(
+                                            `${itemStateKey("tmde", masterTmde.id)}:${rangeKey}`,
+                                          )
+                                        }
+                                        onOpenRequestHandled={() =>
+                                          setPendingResolutionRangeKey(null)
                                         }
                                         onCommit={(v) =>
                                           setRangeResolutionDetail(
@@ -14885,6 +15573,7 @@ function DetailedView({
               useEffectiveDofByGroup={
                 testPointData.useEffectiveDofByGroup || {}
               }
+              rangeWarningsByGroup={budgetRangeWarningsByGroup}
             />
           </>
         )

@@ -13,6 +13,7 @@
 
 /** Cached web URL so discovery only runs once per page load. */
 let cachedWebUrl;
+let currentUserCache = null;
 
 /**
  * Absolute URL of the SharePoint web this page is hosted in.
@@ -41,6 +42,47 @@ export function resolveWebUrl(win = typeof window !== 'undefined' ? window : und
 export function resetWebUrlCache() {
   cachedWebUrl = undefined;
   digestCache = null;
+  currentUserCache = null;
+}
+
+/**
+ * Resolve the Microsoft 365 identity already authenticated by SharePoint.
+ *
+ * The standalone page deliberately has no second password/login system. It
+ * uses SharePoint's same-origin authentication cookie and current-user REST
+ * endpoint, so tenant MFA and access policies continue to apply.
+ */
+export async function getCurrentUser(webUrl, fetchImpl = fetch) {
+  if (currentUserCache?.webUrl === webUrl) return currentUserCache.promise;
+
+  const promise = spGet(
+    webUrl,
+    '/_api/web/currentuser?$select=Id,LoginName,Email,Title',
+    fetchImpl,
+  ).then((body) => {
+    const source = body?.d || body || {};
+    const id = Number(source.Id);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new SharePointError(
+        'SharePoint could not identify the signed-in user. Open this file from its SharePoint site and sign in again.',
+        401,
+      );
+    }
+    return {
+      id,
+      loginName: source.LoginName || '',
+      email: source.Email || '',
+      title: source.Title || source.Email || source.LoginName || `User ${id}`,
+    };
+  });
+
+  currentUserCache = { webUrl, promise };
+  try {
+    return await promise;
+  } catch (error) {
+    currentUserCache = null;
+    throw error;
+  }
 }
 
 function discoverWebUrl(win) {
@@ -159,16 +201,11 @@ export async function spGet(webUrl, path, fetchImpl = fetch) {
   return readJson(response, `GET ${path}`);
 }
 
-/**
- * POST with a form digest attached.
- *
- * `method` lets callers issue SharePoint's tunnelled MERGE and DELETE verbs,
- * which it expects as a POST carrying X-HTTP-Method.
- */
+/** POST with a form digest attached. */
 export async function spPost(
   webUrl,
   path,
-  { body, method, headers = {}, raw = false, verbose = false } = {},
+  { body, headers = {}, raw = false, verbose = false } = {},
   fetchImpl = fetch,
 ) {
   const digest = await getFormDigest(webUrl, fetchImpl);
@@ -181,11 +218,6 @@ export async function spPost(
   if (!raw && body !== undefined) {
     requestHeaders['Content-Type'] = contentType;
   }
-  if (method) {
-    requestHeaders['X-HTTP-Method'] = method;
-    requestHeaders['IF-MATCH'] = requestHeaders['IF-MATCH'] || '*';
-  }
-
   const response = await fetchImpl(`${webUrl}${path}`, {
     method: 'POST',
     credentials: 'include',

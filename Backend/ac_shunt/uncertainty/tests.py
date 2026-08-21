@@ -227,18 +227,47 @@ class InstrumentAndBugReportTests(APITestCase):
         payload = {
             "id": "inst-uuid-1", "manufacturer": "Fluke", "model": "5790B",
             "description": "AC Measurement Standard",
+            "owner": "bench-1",
             "functions": [{"name": "ACV", "ranges": []}],
         }
         post = self.client.post("/api/uncertainty/instruments/", payload, format="json")
         self.assertEqual(post.status_code, status.HTTP_201_CREATED)
 
-        listing = self.client.get("/api/uncertainty/instruments/")
+        listing = self.client.get("/api/uncertainty/instruments/", {"owner": "bench-1"})
         self.assertEqual(len(listing.data), 1)
         self.assertEqual(listing.data[0]["description"], "AC Measurement Standard")
 
-        delete = self.client.delete("/api/uncertainty/instruments/inst-uuid-1/")
+        delete = self.client.delete(
+            "/api/uncertainty/instruments/inst-uuid-1/?owner=bench-1"
+        )
         self.assertEqual(delete.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(models.Instrument.objects.count(), 0)
+
+    def test_global_listing_and_foreign_delete_do_not_expose_local_instruments(self):
+        self.client.post(
+            "/api/uncertainty/instruments/",
+            {"id": "private", "model": "Local", "scope": "local", "owner": "userA"},
+            format="json",
+        )
+        self.client.post(
+            "/api/uncertainty/instruments/",
+            {
+                "id": "shared",
+                "model": "Shared",
+                "scope": "validated",
+                "password": "calibrate",
+            },
+            format="json",
+        )
+
+        listing = self.client.get("/api/uncertainty/instruments/")
+        self.assertEqual({item["id"] for item in listing.data}, {"shared"})
+
+        denied = self.client.delete(
+            "/api/uncertainty/instruments/private/?owner=userB"
+        )
+        self.assertEqual(denied.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(models.Instrument.objects.filter(id="private").exists())
 
     def test_linked_local_instrument_upserts_by_source_id(self):
         self.client.post(

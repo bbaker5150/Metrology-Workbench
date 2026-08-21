@@ -41,7 +41,13 @@ const persistTheme = (nextTheme) => {
 
 export const ThemeProvider = ({ children }) => {
     const [theme, setTheme] = useState(() => {
-        return localStorage.getItem('theme') || 'light';
+        try {
+            return localStorage.getItem('theme') || 'light';
+        } catch (_) {
+            // Sandboxed SharePoint/srcdoc hosts may deny storage access. Theme
+            // switching still works for the current page in memory.
+            return 'light';
+        }
     });
 
     // Mirror `theme` in a ref so the toggle handler can read the latest value

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deriveWebUrlFromPath,
+  getCurrentUser,
   getFormDigest,
   resetWebUrlCache,
   resolveWebUrl,
@@ -123,6 +124,42 @@ describe("resolveWebUrl", () => {
     const first = resolveWebUrl(w);
     w.location.pathname = "/sites/Changed/a.html";
     expect(resolveWebUrl(w)).toBe(first);
+  });
+});
+
+describe("getCurrentUser", () => {
+  it("uses SharePoint's authenticated Microsoft 365 identity", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        Id: 41,
+        LoginName: "i:0#.f|membership|analyst@example.com",
+        Email: "analyst@example.com",
+        Title: "Analyst One",
+      }),
+    );
+
+    await expect(getCurrentUser("https://t.example/sites/X", fetchImpl)).resolves.toEqual({
+      id: 41,
+      loginName: "i:0#.f|membership|analyst@example.com",
+      email: "analyst@example.com",
+      title: "Analyst One",
+    });
+    expect(fetchImpl.mock.calls[0][0]).toContain("/_api/web/currentuser");
+    expect(fetchImpl.mock.calls[0][1].credentials).toBe("include");
+  });
+
+  it("caches the identity for the page lifetime", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ Id: 9, Title: "A" }));
+    await getCurrentUser("https://t.example/sites/X", fetchImpl);
+    await getCurrentUser("https://t.example/sites/X", fetchImpl);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("fails clearly instead of treating a sign-in page as an empty workspace", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}));
+    await expect(getCurrentUser("https://t.example/sites/X", fetchImpl)).rejects.toThrow(
+      /signed-in user/,
+    );
   });
 });
 
@@ -264,19 +301,13 @@ describe("spPost", () => {
     expect(fetchImpl.mock.calls[1][1].body).toBe("already-a-string");
   });
 
-  it("tunnels MERGE through POST as SharePoint expects", async () => {
+  it("does not emit mutation override headers", async () => {
     const fetchImpl = withDigest([jsonResponse({}, 204)]);
-    await spPost("https://t.example", "/_api/x", { method: "MERGE", body: {} }, fetchImpl);
+    await spPost("https://t.example", "/_api/x", { body: {} }, fetchImpl);
     const headers = fetchImpl.mock.calls[1][1].headers;
     expect(fetchImpl.mock.calls[1][1].method).toBe("POST");
-    expect(headers["X-HTTP-Method"]).toBe("MERGE");
-    expect(headers["IF-MATCH"]).toBe("*");
-  });
-
-  it("tunnels DELETE the same way", async () => {
-    const fetchImpl = withDigest([jsonResponse({}, 200)]);
-    await spPost("https://t.example", "/_api/x", { method: "DELETE" }, fetchImpl);
-    expect(fetchImpl.mock.calls[1][1].headers["X-HTTP-Method"]).toBe("DELETE");
+    expect(headers).not.toHaveProperty("X-HTTP-Method");
+    expect(headers).not.toHaveProperty("IF-MATCH");
   });
 
   it("treats 204 No Content as success", async () => {

@@ -1,10 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SharePointStore, listTitle, fieldSchemaXml, CONTAINERS, FIELD_TYPE } from "./spStore";
+import {
+  SharePointStore,
+  listTitle,
+  fieldSchemaXml,
+  CONTAINERS,
+  FIELD_TYPE,
+  sharePointInstrumentOwnerKey,
+} from "./spStore";
 
 import { resetWebUrlCache } from "./spContext";
 
 const WEB = "https://t.example/sites/ISEA";
 const FOLDER = "/sites/ISEA/UncertaintySessions";
+
+const formValueObject = (call) =>
+  Object.fromEntries(
+    JSON.parse(call.body).formValues.map(({ FieldName, FieldValue }) => [
+      FieldName,
+      FieldValue,
+    ]),
+  );
 
 /**
  * Fetch double. Handlers are matched newest-first against "METHOD url" so a
@@ -47,7 +62,12 @@ beforeEach(() => {
   http = fakeFetch();
   http.on(/contextinfo/, { json: { FormDigestValue: "D", FormDigestTimeoutSeconds: 1800 } });
   http.on(/RootFolder/, { json: { ServerRelativeUrl: FOLDER } });
-  store = new SharePointStore({ webUrl: WEB, fetchImpl: http });
+  http.on(/ListItemAllFields\?\$select=Id/, { json: { Id: 91 } });
+  store = new SharePointStore({
+    webUrl: WEB,
+    fetchImpl: http,
+    currentUser: { id: 41, title: "Analyst One" },
+  });
 });
 
 describe("listTitle", () => {
@@ -70,7 +90,11 @@ describe("listTitle", () => {
   });
 
   it("trims the web URL's trailing slash so paths concatenate cleanly", () => {
-    const s = new SharePointStore({ webUrl: `${WEB}/`, fetchImpl: http });
+    const s = new SharePointStore({
+      webUrl: `${WEB}/`,
+      fetchImpl: http,
+      currentUser: { id: 41 },
+    });
     expect(s.webUrl).toBe(WEB);
   });
 });
@@ -254,6 +278,7 @@ describe("sessions", () => {
       expect.objectContaining({ id: 7, name: "Shunt", analyst: "BB", updated_at: "2026-05-01" }),
     ]);
     expect(http.find(/items\?/)[0].url).toContain("$orderby=Modified desc");
+    expect(http.find(/items\?/)[0].url).toContain("$filter=AuthorId eq 41");
   });
 
   it("skips rows with no session id rather than emitting NaN", async () => {
@@ -266,10 +291,40 @@ describe("sessions", () => {
     expect((await store.listSessions())[0].name).toBe("Untitled session");
   });
 
-  it("reads a session from its deterministic file name", async () => {
+  it("reads a session from its user-scoped deterministic file name", async () => {
     http.on(/\$value/, { text: JSON.stringify({ id: 42, name: "B" }) });
     expect(await store.getSession(42)).toEqual({ id: 42, name: "B" });
+    expect(http.find(/\$value/)[0].url).toContain("session-41-42.json");
+  });
+
+  it("retains the existing filename for an owned legacy session", async () => {
+    http.on(/UncertaintySessions'\)\/items\?/, {
+      json: {
+        value: [
+          { SessionId: 42, SessionName: "Legacy", FileLeafRef: "session-42.json" },
+        ],
+      },
+    });
+    http.on(/\$value/, { text: JSON.stringify({ id: 42, name: "Legacy" }) });
+
+    await store.listSessions();
+    await store.getSession(42);
+
     expect(http.find(/\$value/)[0].url).toContain("session-42.json");
+  });
+
+  it("deduplicates a legacy and migrated file with the same per-user session id", async () => {
+    http.on(/UncertaintySessions'\)\/items\?/, {
+      json: {
+        value: [
+          { SessionId: 7, SessionName: "Newest", FileLeafRef: "session-41-7.json" },
+          { SessionId: 7, SessionName: "Legacy", FileLeafRef: "session-7.json" },
+        ],
+      },
+    });
+    expect(await store.listSessions()).toEqual([
+      expect.objectContaining({ id: 7, name: "Newest" }),
+    ]);
   });
 
   it("reports a corrupt session rather than throwing a raw JSON error", async () => {
@@ -288,19 +343,89 @@ describe("sessions", () => {
     await store.saveSession({ id: 9, name: "Cal" });
     const upload = http.find(/files\/add/)[0];
     expect(upload.url).toContain("overwrite=true");
+    expect(upload.url).toContain("session-41-9.json");
     expect(JSON.parse(upload.body)).toEqual({ id: 9, name: "Cal" });
   });
 
-  it("promotes the picker's columns onto the file's list item", async () => {
+  it("promotes picker columns with a regular form-update POST", async () => {
     await store.saveSession({ id: 9, name: "Cal", analyst: "BB", organization: "NPSL" });
-    const merge = http.find(/ListItemAllFields/)[0];
-    expect(merge.spMethod).toBe("MERGE");
-    expect(JSON.parse(merge.body)).toMatchObject({ SessionId: 9, SessionName: "Cal", Analyst: "BB" });
+    const update = http.find(/UncertaintySessions'\)\/items\(91\)\/ValidateUpdateListItem/)[0];
+    expect(update.method).toBe("POST");
+    expect(update.spMethod).toBeUndefined();
+    expect(formValueObject(update)).toMatchObject({
+      SessionId: "9",
+      SessionName: "Cal",
+      Analyst: "BB",
+    });
+  });
+
+  it("does not repeat the metadata form update for an ordinary budget-only save", async () => {
+    http.on(/UncertaintySessions'\)\/items\?/, {
+      json: {
+        value: [
+          {
+            SessionId: 9,
+            SessionName: "Cal",
+            Analyst: "BB",
+            Organization: "NPSL",
+            FileLeafRef: "session-41-9.json",
+          },
+        ],
+      },
+    });
+    await store.listSessions();
+    await store.saveSession({
+      id: 9,
+      name: "Cal",
+      analyst: "BB",
+      organization: "NPSL",
+      testPoints: [{ id: "changed-budget" }],
+    });
+
+    expect(http.find(/ValidateUpdateListItem/)).toHaveLength(0);
+    expect(http.find(/files\/add/)).toHaveLength(1);
+  });
+
+  it("updates picker metadata when the user renames an existing session", async () => {
+    http.on(/UncertaintySessions'\)\/items\?/, {
+      json: {
+        value: [
+          { SessionId: 9, SessionName: "Before", FileLeafRef: "session-41-9.json" },
+        ],
+      },
+    });
+    await store.listSessions();
+    await store.saveSession({ id: 9, name: "After" });
+
+    const updates = http.find(/UncertaintySessions'\)\/items\(91\)\/ValidateUpdateListItem/);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].spMethod).toBeUndefined();
+    expect(formValueObject(updates[0]).SessionName).toBe("After");
+  });
+
+  it("surfaces a field validation failure instead of silently accepting metadata", async () => {
+    http.on(/UncertaintySessions'\)\/items\(91\)\/ValidateUpdateListItem/, {
+      json: {
+        value: [
+          { FieldName: "SessionName", HasException: true, ErrorMessage: "Invalid title" },
+        ],
+      },
+    });
+
+    await expect(store.saveSession({ id: 9, name: "Cal" })).rejects.toThrow(
+      /SessionName: Invalid title/,
+    );
   });
 
   it("recycles rather than hard-deleting so a mistake is recoverable", async () => {
     await store.deleteSession(5);
-    expect(http.find(/recycle/)[0].url).toContain("session-5.json");
+    expect(http.find(/recycle/)[0].url).toContain("session-41-5.json");
+  });
+
+  it("uses the signed-in user's id in image filenames", async () => {
+    expect(await store.scopedImageFileName(5, "img-a")).toBe(
+      "image-41-5-img-a.json",
+    );
   });
 });
 
@@ -310,6 +435,7 @@ describe("record lists", () => {
       json: { value: [{ Id: 1, RecordId: "i-1", PayloadJson: '{"id":"i-1","name":"5790A"}' }] },
     });
     expect(await store.listRecords("instruments")).toEqual([{ id: "i-1", name: "5790A" }]);
+    expect(http.find(/UncertaintyInstruments/)[0].url).not.toContain("AuthorId");
   });
 
   it("drops one unreadable row instead of failing the whole list", async () => {
@@ -330,11 +456,12 @@ describe("record lists", () => {
     expect(JSON.parse(JSON.parse(write.body).PayloadJson)).toEqual({ id: "i-9", name: "8508A" });
   });
 
-  it("merges into the existing row when the record id is already present", async () => {
+  it("updates an existing row without a tunneled mutation method", async () => {
     http.on(/\$filter=RecordId/, { json: { value: [{ Id: 12 }] } });
     await store.saveRecord("instruments", { id: "i-9", name: "8508A" });
-    const write = http.calls.filter((c) => /items\(12\)/.test(c.url)).pop();
-    expect(write.spMethod).toBe("MERGE");
+    const write = http.find(/items\(12\)\/ValidateUpdateListItem/)[0];
+    expect(write.spMethod).toBeUndefined();
+    expect(formValueObject(write).RecordId).toBe("i-9");
   });
 
   it("escapes quotes in an id so the OData filter cannot be broken", async () => {
@@ -346,7 +473,7 @@ describe("record lists", () => {
   it("treats deleting an absent record as a no-op", async () => {
     http.on(/\$filter=RecordId/, { json: { value: [] } });
     await store.deleteRecord("instruments", "ghost");
-    expect(http.calls.filter((c) => c.spMethod === "DELETE")).toHaveLength(0);
+    expect(http.find(/recycle/)).toHaveLength(0);
   });
 
   it("refuses to save a record with no id rather than creating an orphan", async () => {
@@ -357,5 +484,145 @@ describe("record lists", () => {
     http.on(/\$filter=RecordId/, { json: { value: [] } });
     await store.saveRecord("bugReports", { report_id: "r-1", title: "Broken" });
     expect(http.find(/\$filter/)[0].url).toContain("r-1");
+  });
+});
+
+describe("user-scoped instrument records", () => {
+  it("uses a stable SharePoint user owner key", () => {
+    expect(sharePointInstrumentOwnerKey({ id: 41 })).toBe("sharepoint-user:41");
+  });
+
+  it("returns shared instruments and only the signed-in user's local instruments", async () => {
+    http.on(/UncertaintyInstruments'\)\/items\?\$select/, {
+      json: {
+        value: [
+          { Id: 1, AuthorId: 99, RecordId: "shared", PayloadJson: '{"id":"shared","scope":"validated"}' },
+          { Id: 2, AuthorId: 41, RecordId: "mine", PayloadJson: '{"id":"mine","scope":"local","owner":"old-browser"}' },
+          { Id: 3, AuthorId: 99, RecordId: "theirs", PayloadJson: '{"id":"theirs","scope":"local","owner":"other-browser"}' },
+          { Id: 4, AuthorId: 99, RecordId: "legacy", PayloadJson: '{"id":"legacy","model":"Legacy shared"}' },
+        ],
+      },
+    });
+
+    expect(await store.listInstruments()).toEqual([
+      { id: "shared", scope: "validated" },
+      { id: "mine", scope: "local", owner: "sharepoint-user:41" },
+      { id: "legacy", model: "Legacy shared" },
+    ]);
+    expect(http.find(/UncertaintyInstruments/)[0].url).toContain("AuthorId");
+  });
+
+  it("creates a separate local row instead of overwriting another user's matching id", async () => {
+    http.on(/\$filter=RecordId/, {
+      json: {
+        value: [
+          { Id: 72, AuthorId: 99, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
+        ],
+      },
+    });
+
+    const saved = await store.saveInstrument({
+      id: "same",
+      scope: "local",
+      owner: "spoofed",
+      model: "5790A",
+      password: "must-not-persist",
+    });
+
+    const write = http.calls.filter((call) => /items$/.test(call.url)).pop();
+    expect(write.spMethod).toBeUndefined();
+    expect(saved.owner).toBe("sharepoint-user:41");
+    expect(saved).not.toHaveProperty("password");
+    expect(JSON.parse(JSON.parse(write.body).PayloadJson)).toEqual(saved);
+  });
+
+  it("updates only the signed-in user's existing local row", async () => {
+    http.on(/\$filter=RecordId/, {
+      json: {
+        value: [
+          { Id: 72, AuthorId: 99, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
+          { Id: 73, AuthorId: 41, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
+        ],
+      },
+    });
+
+    await store.saveInstrument({ id: "same", scope: "local", model: "8508A" });
+    expect(http.find(/items\(73\)\/ValidateUpdateListItem/)[0].spMethod).toBeUndefined();
+    expect(http.find(/items\(72\)/)).toHaveLength(0);
+  });
+
+  it("syncs a shared definition and removes only this user's linked local copy", async () => {
+    http.on(/\$filter=RecordId/, {
+      json: {
+        value: [
+          { Id: 80, AuthorId: 12, RecordId: "shared", PayloadJson: '{"id":"shared","scope":"validated"}' },
+        ],
+      },
+    });
+    http.on(/UncertaintyInstruments'\)\/items\?\$select=Id,RecordId,PayloadJson,AuthorId&\$top/, {
+      json: {
+        value: [
+          { Id: 80, AuthorId: 12, RecordId: "shared", PayloadJson: '{"id":"shared","scope":"validated"}' },
+          { Id: 81, AuthorId: 41, RecordId: "my-copy", PayloadJson: '{"id":"my-copy","scope":"local","sourceId":"shared"}' },
+          { Id: 82, AuthorId: 99, RecordId: "their-copy", PayloadJson: '{"id":"their-copy","scope":"local","sourceId":"shared"}' },
+        ],
+      },
+    });
+
+    const saved = await store.saveInstrument({
+      id: "shared",
+      sourceId: "shared",
+      scope: "validated",
+      password: "calibrate",
+    });
+
+    expect(http.find(/items\(80\)\/ValidateUpdateListItem/)[0].spMethod).toBeUndefined();
+    expect(http.find(/items\(81\)\/recycle/)[0].spMethod).toBeUndefined();
+    expect(http.find(/items\(82\)/)).toHaveLength(0);
+    expect(saved).not.toHaveProperty("password");
+  });
+
+  it("does not delete another user's local instrument", async () => {
+    http.on(/\$filter=RecordId/, {
+      json: {
+        value: [
+          { Id: 72, AuthorId: 99, RecordId: "theirs", PayloadJson: '{"id":"theirs","scope":"local"}' },
+        ],
+      },
+    });
+
+    await store.deleteInstrument("theirs");
+    expect(http.find(/recycle/)).toHaveLength(0);
+  });
+
+  it("deletes the signed-in user's local row without touching a matching foreign row", async () => {
+    http.on(/\$filter=RecordId/, {
+      json: {
+        value: [
+          { Id: 72, AuthorId: 99, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
+          { Id: 73, AuthorId: 41, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
+        ],
+      },
+    });
+
+    await store.deleteInstrument("same");
+    expect(http.find(/items\(73\)\/recycle/)[0].spMethod).toBeUndefined();
+    expect(http.find(/items\(72\)/)).toHaveLength(0);
+  });
+
+  it("never uses mutation override headers for update or recycle operations", async () => {
+    http.on(/\$filter=RecordId/, {
+      json: {
+        value: [
+          { Id: 73, AuthorId: 41, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
+        ],
+      },
+    });
+
+    await store.saveInstrument({ id: "same", scope: "local", model: "8508A" });
+    await store.deleteInstrument("same");
+
+    expect(http.calls.some((call) => call.spMethod === "MERGE")).toBe(false);
+    expect(http.calls.some((call) => call.spMethod === "DELETE")).toBe(false);
   });
 });

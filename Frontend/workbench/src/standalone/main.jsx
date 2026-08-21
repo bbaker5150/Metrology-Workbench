@@ -68,7 +68,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <NotificationProvider>
         <StorageGate store={store}>
           <UncertaintyProvider>
-            <UncertalyticsApp />
+            <UncertalyticsApp showThemeToggle />
           </UncertaintyProvider>
         </StorageGate>
         <ZoomToast />

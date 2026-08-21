@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DISTRIBUTION_NOT_SET,
+  calculateUncertaintyFromToleranceObject,
   distributionDivisorValue,
   errorDistributions,
   getAbsoluteLimits,
@@ -8,6 +9,29 @@ import {
 } from "./uncertaintyMath";
 
 describe("getToleranceErrorSummary", () => {
+  it("converts a physical tolerance expressed in a different compatible unit", () => {
+    const result = calculateUncertaintyFromToleranceObject(
+      {
+        min: 0,
+        max: 1000,
+        unit: "mg",
+        floor: {
+          high: 0.001,
+          low: -0.001,
+          unit: "lb",
+          symmetric: true,
+          distribution: "1.7320508075688772",
+        },
+      },
+      { value: 500, unit: "mg" },
+    );
+
+    expect(result.breakdown).toHaveLength(1);
+    expect(result.breakdown[0].originalUnit).toBe("lb");
+    expect(result.breakdown[0].absoluteHigh).toBeCloseTo(953.592, 4);
+    expect(result.breakdown[0].absoluteLow).toBeCloseTo(46.408, 4);
+  });
+
   it("ignores a textual range label when calculating point tolerance", () => {
     const tolerance = {
       range: "100 V Range",
@@ -61,6 +85,8 @@ describe("getToleranceErrorSummary", () => {
     expect(getAbsoluteLimits(tolerance, { value: 5, unit: "uV" })).toEqual({
       low: "3.000000 µV",
       high: "7.000000 µV",
+      rawLow: "3",
+      rawHigh: "7",
     });
   });
 });
@@ -102,13 +128,23 @@ describe("errorDistributions", () => {
         { singleSided: { direction: "low", limit: 1, unit: "V" } },
         { value: 2, unit: "V" },
       ),
-    ).toEqual({ low: "1.000000 V", high: "—" });
+    ).toEqual({
+      low: "1.000000 V",
+      high: "—",
+      rawLow: "1",
+      rawHigh: "—",
+    });
 
     expect(
       getAbsoluteLimits(
         { singleSided: { direction: "high", limit: 3, unit: "V" } },
         { value: 2, unit: "V" },
       ),
-    ).toEqual({ low: "—", high: "3.000000 V" });
+    ).toEqual({
+      low: "—",
+      high: "3.000000 V",
+      rawLow: "—",
+      rawHigh: "3",
+    });
   });
 });

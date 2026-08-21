@@ -2,8 +2,6 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useFloatingWindow } from "./useFloatingWindow";
 
-const HEADER_SAFETY = 80;
-
 const setViewport = (width, height) => {
   window.innerWidth = width;
   window.innerHeight = height;
@@ -56,13 +54,12 @@ describe("initial placement", () => {
     expect(result.current.position).toEqual({ x: 42, y: 99 });
   });
 
-  it("pushes the window below the header when centering would put it too high", () => {
-    // A tall window in a short viewport centers above the header.
+  it("keeps a tall window centered and fully visible", () => {
     setViewport(1000, 500);
     const { result } = renderHook(() =>
       useFloatingWindow({ isOpen: true, defaultWidth: 400, defaultHeight: 460 }),
     );
-    expect(result.current.position.y).toBe(HEADER_SAFETY + 20);
+    expect(result.current.position).toEqual({ x: 300, y: 20 });
   });
 
   it("never places the window off the left edge when it is wider than the viewport", () => {
@@ -70,7 +67,7 @@ describe("initial placement", () => {
     const { result } = renderHook(() =>
       useFloatingWindow({ isOpen: true, defaultWidth: 800, defaultHeight: 300 }),
     );
-    expect(result.current.position.x).toBe(0);
+    expect(result.current.position.x).toBe(16);
   });
 
   it('treats "auto" dimensions as the 400px fallback', () => {

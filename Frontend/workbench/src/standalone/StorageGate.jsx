@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { listTitle, CONTAINERS } from './sharepoint/spStore';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { setDeviceKeyOverride } from '../modules/uncertainty/utils/deviceKey';
+import { listTitle, CONTAINERS, sharePointInstrumentOwnerKey } from './sharepoint/spStore';
 
 /**
  * Blocks the tool until its SharePoint containers exist.
@@ -11,10 +12,20 @@ import { listTitle, CONTAINERS } from './sharepoint/spStore';
  */
 export default function StorageGate({ store, children }) {
   const [state, setState] = useState({ phase: 'checking' });
+  const clearOwnerOverrideRef = useRef(null);
 
   const check = useCallback(async () => {
     setState({ phase: 'checking' });
     try {
+      // SharePoint is the login provider for this static build. Resolve the
+      // current Microsoft 365 user before mounting any session data so an
+      // unauthenticated page can never fall through as an apparently empty
+      // workspace.
+      const user = await store.currentUser();
+      clearOwnerOverrideRef.current?.();
+      clearOwnerOverrideRef.current = setDeviceKeyOverride(
+        sharePointInstrumentOwnerKey(user),
+      );
       const missing = [];
       for (const container of CONTAINERS) {
         const title = listTitle(store.prefix, container.key);
@@ -29,6 +40,7 @@ export default function StorageGate({ store, children }) {
 
   useEffect(() => {
     check();
+    return () => clearOwnerOverrideRef.current?.();
   }, [check]);
 
   const provision = useCallback(async () => {

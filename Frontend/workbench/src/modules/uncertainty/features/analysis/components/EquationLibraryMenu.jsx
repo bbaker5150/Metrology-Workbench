@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTrashAlt, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faTrashAlt, faSave } from "@fortawesome/free-solid-svg-icons";
 import { equationLibrary } from "../../../utils/equationLibrary";
 import submitOnEnter from "../../../utils/submitOnEnter";
 
@@ -129,16 +129,17 @@ const EquationLibraryMenu = ({
           <button
             type="button"
             className="equation-library-save-btn"
+            aria-label="Save current equation"
             disabled={!canSaveCurrent}
             title={
               canSaveCurrent
-                ? "Save the editor's current equation to your library"
+                ? "Save current equation"
                 : saveDisabledReason ||
                   "Enter a valid equation in the editor to save it"
             }
             onClick={() => setIsSaveFormOpen((open) => !open)}
           >
-            <FontAwesomeIcon icon={faPlus} size="xs" /> Save current
+            <FontAwesomeIcon icon={faSave} />
           </button>
         )}
       </div>

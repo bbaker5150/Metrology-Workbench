@@ -58,12 +58,37 @@ describe("inline tolerance global modes", () => {
       },
     };
     render(<ToleranceHarness initialTolerance={initial} />);
-    fireEvent.click(screen.getByTitle("Click to edit tolerance"));
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
     fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
     fireEvent.click(screen.getByTitle("Single-sided tolerance"));
 
     expect(screen.queryByText("IV %")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Single-sided direction")).toBeInTheDocument();
+  });
+
+  it("reopens an existing tolerance with the complete editor", () => {
+    render(
+      <ToleranceHarness
+        initialTolerance={{
+          reading: {
+            high: "1",
+            low: "-1",
+            value: "1",
+            unit: "%",
+            distribution: "1.732",
+            symmetric: true,
+          },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
+
+    expect(screen.getByLabelText("Tolerance mode")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "IV %" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "% FS" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Tolerance unit")).toBeInTheDocument();
+    expect(screen.getByTitle("dB")).toBeInTheDocument();
   });
 });
 

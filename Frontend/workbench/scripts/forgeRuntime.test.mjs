@@ -176,7 +176,8 @@ describe('a Windows checkout', () => {
   beforeAll(() => {
     dir = mkdtempSync(nodePath.join(tmpdir(), 'forge-crlf-'));
     for (const name of ['devconsole.js', 'testRecorder.js']) {
-      const lf = readFileSync(nodePath.join('vendor/forge', name), 'utf8');
+      const lf = readFileSync(nodePath.join('vendor/forge', name), 'utf8')
+        .replace(/\r\n/g, '\n');
       writeFileSync(nodePath.join(dir, name), lf.replace(/\n/g, '\r\n'));
     }
   });

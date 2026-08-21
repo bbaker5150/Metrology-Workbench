@@ -1,4 +1,4 @@
-import { getUnitDisplayLabel, unitSystem } from "./uncertaintyMath";
+import { unitSystem } from "./uncertaintyMath";
 
 const parseNumericValue = (value) => {
   if (value === undefined || value === null || value === "") return null;
@@ -17,7 +17,7 @@ const parseNumericValue = (value) => {
  * SI-base value; the latter is the source of truth for the measurement-point
  * list so a pound, volt, or temperature point is not mislabeled as PPM.
  */
-export const formatSidebarUncertainty = (point, kind) => {
+export const getSidebarUncertaintyDisplayValue = (point, kind) => {
   const unit = point?.testPointInfo?.parameter?.unit || "";
   const absoluteBase = point?.[`${kind}_uncertainty_absolute_base`];
   const baseValue = Number(absoluteBase);
@@ -27,10 +27,25 @@ export const formatSidebarUncertainty = (point, kind) => {
       : point?.[`${kind}_uncertainty`];
   const numeric = parseNumericValue(nativeValue);
 
-  if (numeric === null) return "-";
+  if (numeric === null) return null;
 
   // Keep the historical PPM fallback for older points that predate the native
   // absolute uncertainty fields and therefore do not carry a point unit.
   const displayUnit = unit || "ppm";
-  return `${numeric.toPrecision(4)} ${getUnitDisplayLabel(displayUnit)}`;
+  return { numeric, displayUnit };
+};
+
+export const formatSidebarUncertainty = (point, kind) => {
+  const value = getSidebarUncertaintyDisplayValue(point, kind);
+  if (!value) return "-";
+
+  return value.numeric.toPrecision(4);
+};
+
+/** Full unrounded numeric value used by the native hover tooltip. */
+export const formatSidebarUncertaintyFull = (point, kind) => {
+  const value = getSidebarUncertaintyDisplayValue(point, kind);
+  if (!value) return "-";
+
+  return String(value.numeric);
 };

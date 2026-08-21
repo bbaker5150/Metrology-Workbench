@@ -3,7 +3,11 @@ import { makeFunctionKey } from "../../../utils/functionGrouping";
 import {
   addBlankFunctionToInstrument,
   countTmdeBudgetUses,
+  buildFunctionGroupedRows,
   getDeleteSelectionTarget,
+  getBudgetRangeWarnings,
+  getUsableBudgetRangeChoices,
+  localizeSharedInstrumentEdit,
   rangeIsBlank,
   removeRangeFromItem,
   removeSelectedRangesFromItem,
@@ -12,6 +16,269 @@ import {
   sortRangesInItem,
   synchronizeLocalInstrumentDefinitions,
 } from "./UncertaintyPanel";
+
+describe("active function units", () => {
+  it("shows units from instruments used in the table, not every persisted function unit", () => {
+    const rows = buildFunctionGroupedRows(
+      [
+        {
+          type: "item",
+          index: 0,
+          item: {
+            id: "uut-1",
+            instrument: {
+              functions: [
+                {
+                  name: "Voltage",
+                  ranges: [{ id: "r1", min: 0, max: 10, unit: "V" }],
+                },
+              ],
+            },
+          },
+        },
+      ],
+      {
+        functionGroups: [
+          { name: "Voltage", units: ["V", "mV", "kV", "µV"] },
+        ],
+        uuts: [],
+        tmdes: [],
+        testPoints: [],
+      },
+      "uut",
+    );
+
+    expect(rows[0].type).toBe("function");
+    expect(rows[0].fn.activeUnits).toEqual(["V"]);
+  });
+});
+
+describe("budget range warnings", () => {
+  const component = {
+    id: "budget-range-component",
+    name: "Meter - Accuracy",
+    isBudgetInstance: true,
+    tmdeBudgetRangeId: "range-2",
+    tmdeBudgetRange: {
+      rangeId: "range-2",
+      min: 10,
+      max: 20,
+      unit: "V",
+    },
+  };
+
+  it("warns when a direct point uses a range outside its measurement value", () => {
+    const warnings = getBudgetRangeWarnings({
+      components: [component],
+      measurementType: "direct",
+      directNominal: { value: 3, unit: "V" },
+    });
+
+    expect(warnings.final).toHaveLength(1);
+    expect(warnings.final[0].reason).toMatch(/below this selected TMDE range/i);
+  });
+
+  it("warns on the affected derived input budget only", () => {
+    const warnings = getBudgetRangeWarnings({
+      components: [{ ...component, variableType: "Weight" }],
+      measurementType: "derived",
+      groups: [
+        {
+          kind: "input",
+          variableType: "Weight",
+          nominalPoint: { value: 3, unit: "V" },
+        },
+        {
+          kind: "input",
+          variableType: "Length",
+          nominalPoint: { value: 12, unit: "V" },
+        },
+      ],
+    });
+
+    expect(Object.keys(warnings)).toEqual(["Weight"]);
+    expect(warnings.Weight).toHaveLength(1);
+  });
+
+  it("does not warn when the selected range contains the nominal", () => {
+    expect(
+      getBudgetRangeWarnings({
+        components: [component],
+        measurementType: "direct",
+        directNominal: { value: 12, unit: "V" },
+      }),
+    ).toEqual({});
+  });
+});
+
+describe("shared instrument inline editing", () => {
+  it("forks an edited shared definition to a linked local copy", () => {
+    const sharedDefinition = {
+      id: "shared-dmm",
+      scope: "validated",
+      manufacturer: "Acme",
+      model: "DMM-1",
+      description: "Shared DMM",
+      functions: [
+        {
+          id: "voltage",
+          name: "Voltage",
+          unit: "V",
+          ranges: [{ id: "range-1", min: 0, max: 10, unit: "V" }],
+        },
+      ],
+    };
+    const editedItem = {
+      id: "uut-row",
+      description: "Shared DMM",
+      instrument: {
+        ...sharedDefinition,
+        functions: [
+          {
+            ...sharedDefinition.functions[0],
+            ranges: [
+              ...sharedDefinition.functions[0].ranges,
+              { id: "range-2", min: 10, max: 20, unit: "V" },
+            ],
+          },
+        ],
+      },
+    };
+
+    const localized = localizeSharedInstrumentEdit(editedItem, [sharedDefinition]);
+
+    expect(localized.id).toBe("uut-row");
+    expect(localized.instrument).toEqual(
+      expect.objectContaining({
+        scope: "local",
+        sourceId: "shared-dmm",
+        libraryInstrumentId: "shared-dmm",
+        localOverride: true,
+      }),
+    );
+    expect(localized.instrument.id).not.toBe("shared-dmm");
+    expect(localized.instrument.functions[0].ranges).toHaveLength(2);
+    expect(localized.instrument.validatedSnapshot.functions[0].ranges).toHaveLength(1);
+
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      { uuts: [{ ...editedItem, instrument: sharedDefinition }], tmdes: [] },
+      localized,
+      "uut",
+    );
+    expect(synchronized.uuts[0].instrument.scope).toBe("local");
+    expect(synchronized.uuts[0].instrument.functions[0].ranges).toHaveLength(2);
+  });
+
+  it("replaces the exact shared TMDE row after it is localized", () => {
+    const sharedDefinition = {
+      id: "shared-meter",
+      scope: "validated",
+      functions: [
+        {
+          id: "current",
+          name: "Current",
+          unit: "A",
+          ranges: [{ id: "range-1", min: 0, max: 1, unit: "A" }],
+        },
+      ],
+    };
+    const sharedRow = {
+      id: "tmde-row",
+      name: "Shared Meter",
+      instrument: sharedDefinition,
+    };
+    const editedRow = {
+      ...sharedRow,
+      instrument: {
+        ...sharedDefinition,
+        functions: [
+          {
+            ...sharedDefinition.functions[0],
+            ranges: [
+              ...sharedDefinition.functions[0].ranges,
+              { id: "range-2", min: 1, max: 10, unit: "A" },
+            ],
+          },
+        ],
+      },
+    };
+    const localized = localizeSharedInstrumentEdit(editedRow, [sharedDefinition]);
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      { uuts: [], tmdes: [sharedRow] },
+      localized,
+      "tmde",
+    );
+
+    expect(synchronized.tmdes[0].instrument.scope).toBe("local");
+    expect(synchronized.tmdes[0].instrument.sourceId).toBe("shared-meter");
+    expect(synchronized.tmdes[0].instrument.functions[0].ranges).toHaveLength(2);
+  });
+});
+
+describe("add-to-budget range filtering", () => {
+  const multiFunctionInstrument = {
+    id: "multi-function",
+    functions: [
+      {
+        id: "weight",
+        name: "Weight",
+        unit: "kg",
+        ranges: [
+          {
+            id: "weight-range",
+            min: 0,
+            max: 100,
+            unit: "kg",
+            tolerance: {
+              floor: { high: 0.1, low: -0.1, unit: "kg", distribution: "1.732" },
+            },
+          },
+        ],
+      },
+      {
+        id: "voltage",
+        name: "DC Voltage",
+        unit: "V",
+        ranges: [
+          {
+            id: "voltage-range",
+            min: 0,
+            max: 10,
+            unit: "V",
+            tolerance: {
+              floor: { high: 0.01, low: -0.01, unit: "V", distribution: "1.732" },
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  it("shows only accuracy ranges that resolve for the budget quantity", () => {
+    const choices = getUsableBudgetRangeChoices(
+      multiFunctionInstrument,
+      { value: 5, unit: "kg" },
+      {
+        functionKey: makeFunctionKey("Weight", "kg"),
+        requireFunctionMatch: true,
+      },
+    );
+
+    expect(choices.map((range) => range.id)).toEqual(["weight-range"]);
+  });
+
+  it("does not offer an incompatible voltage accuracy to a weight budget", () => {
+    expect(
+      getUsableBudgetRangeChoices(
+        {
+          id: "voltage-only",
+          functions: multiFunctionInstrument.functions.slice(1),
+        },
+        { value: 5, unit: "kg" },
+      ),
+    ).toEqual([]);
+  });
+});
 
 describe("local instrument role synchronization", () => {
   it("uses one edited definition for matching local UUT and TMDE rows", () => {

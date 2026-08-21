@@ -6,6 +6,27 @@ import { SidebarPointItem } from "./App";
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test("does not expose obsolete drag behavior on measurement-point rows", () => {
+    const { container } = render(
+      <SidebarPointItem
+        point={{
+          id: "point-not-draggable",
+          testPointInfo: { parameter: { value: 25, unit: "psi" } },
+        }}
+        isSelected={false}
+        isActivePoint={false}
+        isTableSelected={false}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ value: true }}
+      />,
+    );
+
+    expect(container.querySelector(".point-grid-item")).not.toHaveAttribute(
+      "draggable",
+    );
+  });
+
   test("selects an unselected point and focuses its value input with one click", () => {
     const onSelect = vi.fn();
     render(
@@ -38,7 +59,7 @@ describe("measurement-point value editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to edit Value"));
+    fireEvent.click(screen.getByTitle("25 psi"));
 
     expect(onSelect).toHaveBeenCalledOnce();
     const input = document.querySelector(".sidebar-inline-input.value");
@@ -53,7 +74,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
       point: {
         id: "point-thresholds",
         testPointInfo: { parameter: { value: 1, unit: "V" } },
-        riskMetrics: { pfa: 1.5, pfr: 1.5, tur: 3, tar: 3 },
+        riskMetrics: { pfa: 1.5, pfr: 1.6, tur: 3, tar: 3.1 },
       },
       isSelected: true,
       isActivePoint: true,
@@ -69,14 +90,14 @@ describe("measurement-point Risk 8 metric interactions", () => {
     const { rerender } = render(
       <SidebarPointItem {...common} riskRequirements={{ reqPFA: 2, neededTUR: 3 }} />,
     );
-    expect(screen.getByTitle(/^PFA/)).toHaveStyle({ color: "var(--status-good)" });
-    expect(screen.getByTitle(/^TUR/)).toHaveStyle({ color: "var(--status-good)" });
+    expect(screen.getByTitle("1.5")).toHaveStyle({ color: "var(--status-good)" });
+    expect(screen.getByTitle("3")).toHaveStyle({ color: "var(--status-good)" });
 
     rerender(<SidebarPointItem {...common} riskRequirements={{ reqPFA: 1, neededTUR: 4 }} />);
-    expect(screen.getByTitle(/^PFA/)).toHaveStyle({ color: "var(--status-warning)" });
-    expect(screen.getByTitle(/^PFR/)).toHaveStyle({ color: "var(--status-warning)" });
-    expect(screen.getByTitle(/^TUR/)).toHaveStyle({ color: "var(--status-warning)" });
-    expect(screen.getByTitle(/^TAR/)).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("1.5")).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("1.6")).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("3")).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("3.1")).toHaveStyle({ color: "var(--status-warning)" });
   });
 
   test("does not show a Risk 8 badge and Ctrl-click requests the PFA breakdown", () => {
@@ -126,7 +147,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
     );
 
     expect(screen.queryByText("Risk 8")).not.toBeInTheDocument();
-    const pfa = screen.getByTitle("PFA — Ctrl+click for breakdown");
+    const pfa = screen.getByTitle("0.11");
     fireEvent.click(pfa, { ctrlKey: true });
 
     expect(onSelect).toHaveBeenCalledWith({
@@ -136,7 +157,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
     });
     expect(onShowRiskBreakdown).toHaveBeenCalledWith("pfa");
 
-    fireEvent.click(screen.getByTitle("PFR — Ctrl+click for breakdown"), {
+    fireEvent.click(screen.getByTitle("0.12"), {
       ctrlKey: true,
     });
     expect(onShowRiskBreakdown).toHaveBeenNthCalledWith(2, "pfr");
@@ -162,7 +183,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
             gbPfr: 4.18,
             gbCalInt: 5.40849,
             gbMeasRel: 86.47,
-            noGbPfa: 2,
+            noGbPfa: 2.01,
             noGbPfr: 3.61,
             noGbCalInt: 4.69473132,
             noGbMeasRel: 88.27,
@@ -207,33 +228,66 @@ describe("measurement-point Risk 8 metric interactions", () => {
       />,
     );
 
-    expect(screen.getByTitle("R_REOP at test-point TUR - Ctrl+click for breakdown")).toHaveTextContent("84.18%");
-    expect(screen.getByTitle("Maximum R_REOP - Ctrl+click for breakdown")).toHaveTextContent("100.00%");
-    expect(screen.getByTitle("R_meas - Ctrl+click for breakdown")).toHaveTextContent("85.69%");
-    expect(screen.getByTitle("Targeted R_REOP with GB - Ctrl+click for breakdown")).toHaveTextContent("86.47%");
-    expect(screen.getByTitle("Calibration Interval with Guard Banding")).toHaveTextContent(
+    expect(screen.getByTitle("84.18")).toHaveTextContent("84.18%");
+    expect(screen.getByTitle("100")).toHaveTextContent("100.00%");
+    expect(screen.getByTitle("85.69")).toHaveTextContent("85.69%");
+    expect(screen.getByTitle("86.47")).toHaveTextContent("86.47%");
+    expect(screen.getByTitle("5.40849")).toHaveTextContent(
       "5.40849",
     );
-    expect(screen.getByTitle("PFA without GB - Ctrl+click for breakdown")).toHaveTextContent("2.00%");
-    expect(screen.getByTitle("PFR without GB - Ctrl+click for breakdown")).toHaveTextContent("3.61%");
-    expect(screen.getByTitle("Calibration Interval without Guard Banding - Ctrl+click for breakdown")).toHaveTextContent(
+    expect(screen.getByTitle("2.01")).toHaveTextContent("2.01%");
+    expect(screen.getByTitle("3.61")).toHaveTextContent("3.61%");
+    expect(screen.getByTitle("4.69473132")).toHaveTextContent(
       "4.69473132",
     );
-    expect(screen.getByTitle("Targeted R_REOP without GB - Ctrl+click for breakdown")).toHaveTextContent("88.27%");
+    expect(screen.getByTitle("88.27")).toHaveTextContent("88.27%");
 
     const interactiveMetrics = [
-      ["R_REOP at test-point TUR - Ctrl+click for breakdown", "observedreop"],
-      ["Maximum R_REOP - Ctrl+click for breakdown", "maxreop"],
-      ["R_meas - Ctrl+click for breakdown", "truereop"],
-      ["Targeted R_REOP with GB - Ctrl+click for breakdown", "gbmeasrel"],
-      ["PFA without GB - Ctrl+click for breakdown", "nogbpfa"],
-      ["PFR without GB - Ctrl+click for breakdown", "nogbpfr"],
-      ["Calibration Interval without Guard Banding - Ctrl+click for breakdown", "calint"],
-      ["Targeted R_REOP without GB - Ctrl+click for breakdown", "measrel"],
+      ["84.18", "observedreop"],
+      ["100", "maxreop"],
+      ["85.69", "truereop"],
+      ["86.47", "gbmeasrel"],
+      ["2.01", "nogbpfa"],
+      ["3.61", "nogbpfr"],
+      ["4.69473132", "calint"],
+      ["88.27", "measrel"],
     ];
-    interactiveMetrics.forEach(([title, modalType]) => {
-      fireEvent.click(screen.getByTitle(title), { ctrlKey: true });
+    interactiveMetrics.forEach(([titlePattern, modalType]) => {
+      fireEvent.click(screen.getByTitle(titlePattern), { ctrlKey: true });
       expect(onShowRiskBreakdown).toHaveBeenLastCalledWith(modalType);
     });
+  });
+
+  test("hover titles retain full precision while cells stay compact", () => {
+    render(
+      <SidebarPointItem
+        point={{
+          id: "point-precision",
+          testPointInfo: { parameter: { value: 1, unit: "V" } },
+          combined_uncertainty_absolute_base: 0.00999981624765,
+          expanded_uncertainty_absolute_base: 0.0199996324953,
+          riskMetrics: { tur: 3.141592653589793, pfa: 0.123456789012345 },
+        }}
+        isSelected
+        isActivePoint
+        isTableSelected={false}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{
+          value: false,
+          standardUncertainty: true,
+          measurementUncertainty: true,
+          tur: true,
+          pfa: true,
+        }}
+      />,
+    );
+
+    expect(screen.getByTitle("0.00999981624765"))
+      .toHaveTextContent("0.01000");
+    expect(screen.getByTitle("0.0199996324953"))
+      .toHaveTextContent("0.02000");
+    expect(screen.getByTitle("3.141592653589793")).toHaveTextContent("3.14");
+    expect(screen.getByTitle("0.123456789012345")).toHaveTextContent("0.12%");
   });
 });

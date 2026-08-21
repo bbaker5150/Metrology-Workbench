@@ -4,6 +4,50 @@ import { describe, expect, it, vi } from "vitest";
 import { EditableDescriptionCell, RangeCell } from "./UncertaintyPanel";
 
 describe("inline instrument column navigation", () => {
+  it("keeps library suggestions concise and omits unset metadata", async () => {
+    render(
+      <EditableDescriptionCell
+        make=""
+        model=""
+        name=""
+        functionKey="voltage::V"
+        onCommit={vi.fn()}
+        onPickLibrary={vi.fn()}
+        instruments={[
+          {
+            id: "local-dmm",
+            manufacturer: "Acme",
+            model: "DMM-1",
+            description: "Bench meter",
+            scope: "local",
+            sourceId: "shared-dmm",
+            validatedSnapshot: {
+              manufacturer: "Acme",
+              model: "DMM-1",
+              description: "Original meter",
+              functions: [],
+            },
+            functions: [
+              {
+                id: "voltage",
+                name: "Voltage",
+                unit: "V",
+                ranges: [{ id: "all", min: "", max: "", unit: "V", tolerances: {} }],
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Click to add description" }));
+
+    await waitFor(() => expect(screen.getByText("Acme Bench meter DMM-1")).toBeInTheDocument());
+    expect(screen.getByText("local")).toBeInTheDocument();
+    expect(screen.queryByText(/not set/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/new|changed|synced/i)).not.toBeInTheDocument();
+  });
+
   it("moves Tab from the final description input to the range column", async () => {
     const openRange = vi.fn();
     const RangeCellHarness = () => {
@@ -81,7 +125,9 @@ describe("inline instrument column navigation", () => {
     };
 
     render(<RangeHarness />);
-    fireEvent.click(screen.getByRole("button", { name: "Show all ranges" }));
+    const editRanges = screen.getByRole("button", { name: "Edit ranges" });
+    expect(editRanges).toHaveAttribute("title", "Edit ranges");
+    fireEvent.click(editRanges);
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText("min")).toHaveFocus();

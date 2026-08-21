@@ -122,13 +122,14 @@ function Analysis({
   setSelectedTablePointIds = () => {},
   activeRangeIndices,
   onRangeSelectionChange,
-  preferredAnalysisMode = "uncertaintyTool",
+  preferredAnalysisMode = "overview",
   onAnalysisModeChange = () => {},
   preferredShowContribution = false,
   onShowContributionChange = () => {},
   collapsedFunctionKeys,
   setCollapsedFunctionKeys,
   keyboardShortcutsEnabled = true,
+  scrollPositionsRef,
 }) {
   // =========================================================================
   // 1. STATE MANAGEMENT
@@ -139,10 +140,10 @@ function Analysis({
   // surfaced in the measurement-point sidebar — until the logic and design are
   // refined. The modes and their content stay wired so re-enabling is just a
   // matter of listing them here again.
-  const VISIBLE_ANALYSIS_MODES = ["uncertaintyTool", "notes"];
+  const VISIBLE_ANALYSIS_MODES = ["overview", "uncertaintyTool", "notes"];
   const analysisMode = VISIBLE_ANALYSIS_MODES.includes(preferredAnalysisMode)
     ? preferredAnalysisMode
-    : "uncertaintyTool";
+    : "overview";
   const showContribution = preferredShowContribution;
   const setShowContribution = useCallback(
     (nextValue) => {
@@ -171,6 +172,49 @@ function Analysis({
 
   // --- Selection State ---
   const [selectedTmdeIds, setSelectedTmdeIds] = useState([]);
+  const analysisContentRef = useRef(null);
+  const fallbackScrollPositionsRef = useRef({});
+  const tabScrollPositionsRef = scrollPositionsRef || fallbackScrollPositionsRef;
+  const scrollPositionKey = useCallback(
+    (mode) => `${sessionData?.id || "session"}:${mode}`,
+    [sessionData?.id],
+  );
+
+  const changeAnalysisMode = useCallback(
+    (nextMode) => {
+      if (analysisContentRef.current) {
+        tabScrollPositionsRef.current[scrollPositionKey(analysisMode)] =
+          analysisContentRef.current.scrollTop;
+      }
+      onAnalysisModeChange(nextMode);
+    },
+    [
+      analysisMode,
+      onAnalysisModeChange,
+      scrollPositionKey,
+      tabScrollPositionsRef,
+    ],
+  );
+
+  useEffect(() => {
+    const content = analysisContentRef.current;
+    if (!content) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      content.scrollTop =
+        tabScrollPositionsRef.current[scrollPositionKey(analysisMode)] || 0;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [analysisMode, scrollPositionKey, tabScrollPositionsRef]);
+
+  useEffect(
+    () => () => {
+      if (analysisContentRef.current) {
+        tabScrollPositionsRef.current[scrollPositionKey(analysisMode)] =
+          analysisContentRef.current.scrollTop;
+      }
+    },
+    [analysisMode, scrollPositionKey, tabScrollPositionsRef],
+  );
 
   // =========================================================================
   // 2. MEMOIZED DATA & LOOKUPS
@@ -932,10 +976,19 @@ function Analysis({
   // =========================================================================
 
   const analysisTabs = (
-    <div className="analysis-tabs">
+    <div className="analysis-tabs" data-tour="analysis-tabs">
       {VISIBLE_ANALYSIS_MODES.map((mode) => (
         <button
           key={mode}
+          data-tour={
+            mode === "overview"
+              ? "tab-overview"
+              : mode === "uncertaintyTool"
+                ? "tab-budget"
+                : mode === "notes"
+                  ? "tab-notes"
+                  : undefined
+          }
           className={analysisMode === mode ? "active" : ""}
           onClick={() => {
             if (mode === "riskmitigation") {
@@ -949,10 +1002,12 @@ function Analysis({
                 });
               }
             }
-            onAnalysisModeChange(mode);
+            changeAnalysisMode(mode);
           }}
         >
-          {mode === "uncertaintyTool"
+          {mode === "overview"
+            ? "Instrument Overview"
+            : mode === "uncertaintyTool"
             ? "Uncertainty Budget"
             : mode === "notes"
               ? "Notes"
@@ -1057,6 +1112,7 @@ function Analysis({
         <>
           {analysisTabs}
           <div
+            ref={analysisContentRef}
             className="analysis-content"
             style={{ flex: 1, overflowY: "auto", padding: "20px" }}
           >
@@ -1105,10 +1161,38 @@ function Analysis({
           {analysisTabs}
 
           <div
+            ref={analysisContentRef}
             className="analysis-content"
             style={{ flex: 1, overflowY: "auto", padding: "20px" }}
           >
             {analysisMode === "notes" && notesWorkspace}
+
+            {analysisMode === "overview" && (
+              <UncertaintyPanel
+                testPointData={{ viewMode: "session", id: sessionData.id }}
+                sessionData={sessionData}
+                onSessionSave={onSessionSave}
+                instruments={instruments}
+                onSaveInstrument={onSaveInstrument}
+                onInstrumentSynced={onInstrumentSynced}
+                setNotification={setNotification}
+                currentUutSelection={currentUutSelection}
+                selectedTablePointIds={selectedTablePointIds}
+                collapsedFunctionKeys={collapsedFunctionKeys}
+                setCollapsedFunctionKeys={setCollapsedFunctionKeys}
+                keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+                onDefineTestPoint={handleDefineTestPoint}
+                handleOpenSessionEditor={handleOpenSessionEditor}
+                onDeleteTestPoint={onDeleteTestPoint}
+                onSaveTestPoint={handleSaveTestPointInfo}
+                onSelectUut={onSelectUut}
+                onSelectTestPoint={onSelectTestPoint}
+                setSelectedTablePointIds={setSelectedTablePointIds}
+                setCurrentUutSelection={setCurrentUutSelection}
+                onDeleteUut={onDeleteUut}
+                onDeleteTmdeDefinition={onDeleteTmdeDefinition}
+              />
+            )}
 
             {analysisMode === "uncertaintyTool" && (
               <>

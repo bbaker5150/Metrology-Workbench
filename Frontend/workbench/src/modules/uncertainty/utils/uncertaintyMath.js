@@ -1283,9 +1283,10 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
     }
     const label = getUnitDisplayLabel(nominalUnit || "");
     const formatted = `${limitInNominalUnit.toPrecision(7)} ${label}`;
+    const rawLimit = String(limitInNominalUnit);
     return singleSided.direction === "low"
-      ? { low: formatted, high: "—" }
-      : { low: "—", high: formatted };
+      ? { low: formatted, high: "—", rawLow: rawLimit, rawHigh: "—" }
+      : { low: "—", high: formatted, rawLow: "—", rawHigh: rawLimit };
   }
 
   const { breakdown } = calculateUncertaintyFromToleranceObject(
@@ -1297,7 +1298,13 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
     const nominal = `${parseFloat(referencePoint.value).toPrecision(
       7,
     )} ${getUnitDisplayLabel(referencePoint.unit || "")}`;
-    return { high: nominal, low: nominal };
+    const rawNominal = String(parseFloat(referencePoint.value));
+    return {
+      high: nominal,
+      low: nominal,
+      rawHigh: rawNominal,
+      rawLow: rawNominal,
+    };
   }
 
   const nominalValue = parseFloat(referencePoint.value);
@@ -1330,6 +1337,8 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
   return {
     high: `${snappedHigh.toPrecision(7)} ${nominalUnitLabel}`,
     low: `${snappedLow.toPrecision(7)} ${nominalUnitLabel}`,
+    rawHigh: String(snappedHigh),
+    rawLow: String(snappedLow),
   };
 };
 
@@ -1594,10 +1603,11 @@ const describeDimensions = (dimensions) => {
   const known = knownLabels.find(([, candidate]) => dimensionsEqual(dimensions, candidate));
   if (known) return known[0];
 
-  return DIMENSION_KEYS
-    .filter((key) => Math.abs(dimensions[key]) > 1e-10)
-    .map((key) => `${key}${dimensions[key] === 1 ? "" : `^${dimensions[key]}`}`)
-    .join(" ") || "Dimensionless";
+  // Raw dimensional symbols such as "M L" are implementation details, not a
+  // useful instruction to someone fixing an equation. Known quantities above
+  // retain their friendly names; unknown combinations get a plain-language
+  // fallback.
+  return "incompatible units";
 };
 
 // 8.0 evaluates an Excel formula numerically; it does not require the user to
@@ -2291,7 +2301,10 @@ export const calculateDerivedUncertainty = (
           combinedUncertaintyNative: NaN,
           breakdown: [],
           nominalResult: NaN,
-          error: `Unit mismatch: the equation produces ${resultDescription}, but the target unit '${targetUnit}' is ${targetDescription}.${torqueHint}`,
+          error:
+            resultDescription === "incompatible units"
+              ? `Unit mismatch: equation units do not match the expected value for '${targetUnit}'.${torqueHint}`
+              : `Unit mismatch: the equation produces ${resultDescription}, but the target unit '${targetUnit}' is ${targetDescription}.${torqueHint}`,
           unitMismatch: {
             result: resultDescription,
             target: targetDescription,

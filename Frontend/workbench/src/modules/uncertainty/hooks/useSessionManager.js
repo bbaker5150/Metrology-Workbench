@@ -146,6 +146,7 @@ const useSessionManager = () => {
 
   // --- State ---
   const [sessions, setSessions] = useState([]);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [instruments, setInstruments] = useState([]);
   const [customEquations, setCustomEquations] = useState([]);
   const [bugReports, setBugReports] = useState([]);
@@ -282,6 +283,8 @@ const useSessionManager = () => {
       }
     } catch (err) {
       console.error("Failed to load sessions from backend", err);
+    } finally {
+      setSessionsLoaded(true);
     }
   }, [replaceSessions]);
 
@@ -550,7 +553,9 @@ const useSessionManager = () => {
   const deleteInstrument = useCallback(async (instrumentId) => {
     replaceInstruments((prev) => prev.filter((i) => i.id !== instrumentId));
     try {
-      await axios.delete(`${UNCERTAINTY_API}/instruments/${instrumentId}/`);
+      await axios.delete(`${UNCERTAINTY_API}/instruments/${instrumentId}/`, {
+        params: { owner: getDeviceKey() },
+      });
     } catch (e) {
       console.error("Failed to delete instrument from backend", e);
     }
@@ -1140,6 +1145,7 @@ const useSessionManager = () => {
 
   return {
     sessions,
+    sessionsLoaded,
     instruments,
     customEquations,
     saveCustomEquation,

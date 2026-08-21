@@ -56,22 +56,21 @@ const formatNumber = (value, sigFigs = 4) => {
   return n.toPrecision(sigFigs);
 };
 
-// Results cards are a calculation readout, not a compact table column. Keep
-// enough significant digits to expose the actual combined/expanded result
-// instead of making a value such as 0.0019992 look like 0.002000. Twelve
-// significant digits suppress normal binary floating-point noise while
-// preserving substantially more calculation precision than the table rows.
+// Result cards should expose useful precision without leaking floating-point
+// noise. Eight significant digits keeps small metrology values readable while
+// avoiding readouts such as 0.00999981624765.
 const formatCalculatedResult = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return "N/A";
   if (n === 0) return "0";
+  return String(Number(n.toPrecision(8)));
+};
 
-  const magnitude = Math.floor(Math.log10(Math.abs(n)));
-  const decimalPlaces = Math.min(20, Math.max(0, 12 - magnitude - 1));
-  return n
-    .toFixed(decimalPlaces)
-    .replace(/(\.\d*?[1-9])0+$/, "$1")
-    .replace(/\.0+$/, "");
+const fullPrecisionValue = (value) => {
+  if (value === undefined || value === null || value === "") return "N/A";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return numeric === Infinity ? "Infinity" : "N/A";
+  return String(value);
 };
 
 const simplifyBudgetLabel = (label = "") =>
@@ -265,7 +264,7 @@ const ManualValueCell = ({ component, onCommit, suffix }) => {
     return (
       <span
         className="budget-editable-value"
-        title="Click to edit the entered value"
+        title="Edit value"
         onClick={begin}
         style={{
           cursor: "pointer",
@@ -760,14 +759,20 @@ const ResultsCard = ({
       <div className="budget-results-title">
         {title}
       </div>
-      <div className="budget-results-row">
+      <div
+        className="budget-results-row"
+        title={fullPrecisionValue(results?.combined)}
+      >
         <span>Combined Uncertainty</span>
         <strong>
           {formatCalculatedResult(results?.combined)}
           {unitSuffix}
         </strong>
       </div>
-      <div className="budget-results-row">
+      <div
+        className="budget-results-row"
+        title={fullPrecisionValue(results?.effective_dof)}
+      >
         <span className="budget-results-dof-label">
           <label
             className="direction-toggle-switch"
@@ -784,11 +789,17 @@ const ResultsCard = ({
         </span>
         <strong>{effDofDisplay}</strong>
       </div>
-      <div className="budget-results-row">
+      <div
+        className="budget-results-row"
+        title={fullPrecisionValue(results?.k_value)}
+      >
         <span>Coverage Factor (k)</span>
         <strong>{formatNumber(results?.k_value, sigFigs)}</strong>
       </div>
-      <div className="budget-results-row">
+      <div
+        className="budget-results-row"
+        title={fullPrecisionValue(results?.expanded)}
+      >
         <span>Expanded Uncertainty</span>
         <strong>
           {formatCalculatedResult(results?.expanded)}
@@ -828,6 +839,7 @@ const UncertaintyBudgetTable = ({
   monteCarloTrials = 10000,
   onPropagationMethodChange,
   onMonteCarloTrialsChange,
+  rangeWarningsByGroup = {},
 }) => {
   // Effective DOF is toggled per (sub)budget. Persist the change as a patch to
   // the keyed map (variableType / "equation" / "final"). Default ON.
@@ -1519,7 +1531,6 @@ const UncertaintyBudgetTable = ({
                 <div className="budget-section-title-actions">
                   {group.kind === "final" && (
                     <>
-                      {!isDirect && renderPropagationControl()}
                       <button
                         type="button"
                         className={`budget-contribution-button${showContribution ? " is-active" : ""}`}
@@ -1532,12 +1543,25 @@ const UncertaintyBudgetTable = ({
                       </button>
                     </>
                   )}
+                  {group.kind === "equation" && !isDirect &&
+                    renderPropagationControl()}
                   {group.kind === "equation"
                     ? renderEquationActions()
                     : canAddTmdeForGroup(group) && (
+                      <>
+                        {(rangeWarningsByGroup[groupDofKey(group)] || []).length > 0 && (
+                          <span
+                            className="budget-range-warning"
+                            title="Selected range does not include the nominal"
+                            aria-label="Selected range does not include the nominal"
+                          >
+                            <FontAwesomeIcon icon={faExclamationTriangle} />
+                          </span>
+                        )}
                         <button
                           type="button"
                           className="btn-add-item"
+                          data-tour="budget-add-component"
                           title="Add component to budget"
                           aria-label="Add component to budget"
                           onClick={(event) =>
@@ -1546,6 +1570,7 @@ const UncertaintyBudgetTable = ({
                         >
                           <FontAwesomeIcon icon={faPlus} size="xs" />
                         </button>
+                      </>
                       )}
                 </div>
               </div>

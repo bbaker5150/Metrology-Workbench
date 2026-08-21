@@ -14,7 +14,7 @@
 //
 // Instruments and equations are genuinely row-shaped and are lists.
 
-import { SharePointError, spGet, spGetText, spPost } from './spContext';
+import { getCurrentUser, SharePointError, spGet, spGetText, spPost } from './spContext';
 
 export const LIST_TEMPLATE = { GENERIC: 100, LIBRARY: 101 };
 export const FIELD_TYPE = { TEXT: 2, NOTE: 3, NUMBER: 9 };
@@ -131,20 +131,113 @@ export function listTitle(prefix, key) {
 
 const listApi = (prefix, key) => `/_api/web/lists/getbytitle('${encodeURIComponent(listTitle(prefix, key))}')`;
 
+const formValuesFor = (fields = {}) =>
+  Object.entries(fields).map(([FieldName, value]) => ({
+    FieldName,
+    FieldValue: value === null || value === undefined ? '' : String(value),
+  }));
+
+const assertFormUpdateSucceeded = (result, context) => {
+  const rows = result?.value || result?.d?.ValidateUpdateListItem?.results || [];
+  const failures = rows.filter((row) => row?.HasException || row?.ErrorMessage);
+  if (failures.length === 0) return;
+
+  const detail = failures
+    .map((row) => `${row.FieldName || 'Field'}: ${row.ErrorMessage || 'update rejected'}`)
+    .join('; ');
+  throw new SharePointError(`${context} was rejected by SharePoint. ${detail}`, 400, detail);
+};
+
+function normalizeUser(user) {
+  const id = Number(user?.id ?? user?.Id);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new SharePointError('SharePoint returned an invalid signed-in user.', 401);
+  }
+  return {
+    id,
+    loginName: user?.loginName ?? user?.LoginName ?? '',
+    email: user?.email ?? user?.Email ?? '',
+    title: user?.title ?? user?.Title ?? '',
+  };
+}
+
+/** Stable owner identity used by the shared React code for local records. */
+export function sharePointInstrumentOwnerKey(user) {
+  const id = Number(user?.id ?? user?.Id);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new SharePointError('SharePoint returned an invalid signed-in user.', 401);
+  }
+  return `sharepoint-user:${id}`;
+}
+
 /**
  * SharePoint store. Constructed with the web URL and container prefix; `deps`
  * exists so tests can drive it with a fake fetch.
  */
 export class SharePointStore {
-  constructor({ webUrl, prefix = DEFAULT_PREFIX, fetchImpl = fetch } = {}) {
+  constructor({ webUrl, prefix = DEFAULT_PREFIX, fetchImpl = fetch, currentUser } = {}) {
     this.webUrl = String(webUrl || '').replace(/\/+$/, '');
     this.prefix = prefix;
     this.fetchImpl = fetchImpl;
     this._folderCache = null;
+    this._currentUser = currentUser ? normalizeUser(currentUser) : null;
+    this._currentUserPromise = null;
+    this._sessionFiles = new Map();
+    this._sessionMetadata = new Map();
+    this._imageFiles = new Map();
   }
 
   get = (path) => spGet(this.webUrl, path, this.fetchImpl);
   post = (path, options) => spPost(this.webUrl, path, options, this.fetchImpl);
+
+  async updateListItem(key, itemId, fields) {
+    const result = await this.post(
+      `${listApi(this.prefix, key)}/items(${itemId})/ValidateUpdateListItem()`,
+      {
+        body: {
+          formValues: formValuesFor(fields),
+          bNewDocumentUpdate: false,
+        },
+      },
+    );
+    assertFormUpdateSucceeded(result, `Updating ${listTitle(this.prefix, key)} item ${itemId}`);
+    return result;
+  }
+
+  async updateFileListItem(folder, name, fields) {
+    const itemPath =
+      `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')` +
+      '/ListItemAllFields?$select=Id';
+    const item = await this.get(itemPath);
+    const itemId = Number(item?.Id);
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+      throw new SharePointError(
+        `SharePoint returned no list item for session file ${name}.`,
+        500,
+      );
+    }
+    return this.updateListItem('sessions', itemId, fields);
+  }
+
+  async recycleListItem(key, itemId) {
+    return this.post(`${listApi(this.prefix, key)}/items(${itemId})/recycle()`, {});
+  }
+
+  async currentUser() {
+    if (this._currentUser) return this._currentUser;
+    if (!this._currentUserPromise) {
+      this._currentUserPromise = getCurrentUser(this.webUrl, this.fetchImpl)
+        .then((user) => {
+          this._currentUser = normalizeUser(user);
+          return this._currentUser;
+        })
+        .catch((error) => {
+          this._currentUserPromise = null;
+          throw error;
+        });
+    }
+    return this._currentUserPromise;
+  }
 
   // -- provisioning ---------------------------------------------------------
 
@@ -243,15 +336,84 @@ export class SharePointStore {
     return this._folderCache;
   }
 
-  fileName = (id) => `session-${id}.json`;
+  fileName = (id, userId) => `session-${userId}-${id}.json`;
+
+  imageFileName = (sessionId, imageId, userId) =>
+    `image-${userId}-${sessionId}-${imageId}.json`;
+
+  imageKey = (sessionId, imageId) => `${sessionId}:${imageId}`;
+
+  async sessionFileName(id) {
+    const cached = this._sessionFiles.get(Number(id));
+    if (cached) return cached;
+    const user = await this.currentUser();
+    return this.fileName(id, user.id);
+  }
+
+  async scopedImageFileName(sessionId, imageId) {
+    const cached = this._imageFiles.get(this.imageKey(sessionId, imageId));
+    if (cached) return cached;
+    const user = await this.currentUser();
+    return this.imageFileName(sessionId, imageId, user.id);
+  }
+
+  rememberImageFile(sessionId, imageId, name) {
+    this._imageFiles.set(this.imageKey(sessionId, imageId), name);
+  }
+
+  sessionMetadata(doc) {
+    return {
+      Title: doc.name || 'Untitled session',
+      SessionId: Number(doc.id),
+      SessionName: doc.name || 'Untitled session',
+      Analyst: doc.analyst || '',
+      Organization: doc.organization || '',
+      DocumentRef: doc.document || '',
+      DocumentDate: doc.documentDate || '',
+    };
+  }
+
+  sessionMetadataSignature(metadata) {
+    return JSON.stringify(metadata);
+  }
+
+  async listOwnedLibraryFileNames() {
+    const user = await this.currentUser();
+    const query =
+      '$select=FileLeafRef,AuthorId&' +
+      `$filter=AuthorId eq ${user.id}&$top=5000`;
+    const body = await this.get(`${listApi(this.prefix, 'sessions')}/items?${query}`);
+    return (body.value || []).map((item) => item.FileLeafRef).filter(Boolean);
+  }
 
   async listSessions() {
+    const user = await this.currentUser();
     const select =
-      '$select=SessionId,SessionName,Analyst,Organization,DocumentRef,DocumentDate,Modified' +
-      '&$orderby=Modified desc&$top=500';
+      '$select=SessionId,SessionName,Analyst,Organization,DocumentRef,DocumentDate,Modified,FileLeafRef,AuthorId' +
+      `&$filter=AuthorId eq ${user.id}&$orderby=Modified desc&$top=500`;
     const body = await this.get(`${listApi(this.prefix, 'sessions')}/items?${select}`);
+    const seen = new Set();
     return (body.value || [])
-      .filter((item) => item.SessionId !== null && item.SessionId !== undefined)
+      .filter((item) => {
+        if (item.SessionId === null || item.SessionId === undefined) return false;
+        const id = Number(item.SessionId);
+        if (seen.has(id)) return false;
+        seen.add(id);
+        if (item.FileLeafRef) this._sessionFiles.set(id, item.FileLeafRef);
+        this._sessionMetadata.set(
+          id,
+          this.sessionMetadataSignature({
+            Title: item.SessionName || 'Untitled session',
+            SessionId: id,
+            SessionName: item.SessionName || 'Untitled session',
+            Analyst: item.Analyst || '',
+            Organization: item.Organization || '',
+            DocumentRef: item.DocumentRef || '',
+            DocumentDate: item.DocumentDate || '',
+          }),
+        );
+        return true;
+      })
       .map((item) => ({
         id: Number(item.SessionId),
         name: item.SessionName || 'Untitled session',
@@ -265,7 +427,8 @@ export class SharePointStore {
 
   async getSession(id) {
     const folder = await this.libraryFolder();
-    const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${this.fileName(id)}`)}')/$value`;
+    const name = await this.sessionFileName(id);
+    const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/$value`;
     const text = await spGetText(this.webUrl, path, this.fetchImpl);
     try {
       return JSON.parse(text);
@@ -276,7 +439,7 @@ export class SharePointStore {
 
   async saveSession(doc) {
     const folder = await this.libraryFolder();
-    const name = this.fileName(doc.id);
+    const name = await this.sessionFileName(doc.id);
     const addPath =
       `/_api/web/getfolderbyserverrelativeurl('${encodeURIComponent(folder)}')` +
       `/files/add(url='${encodeURIComponent(name)}',overwrite=true)`;
@@ -287,34 +450,127 @@ export class SharePointStore {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    // Promote the picker's columns onto the file's list item.
-    const itemPath =
-      `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/ListItemAllFields`;
-    await this.post(itemPath, {
-      method: 'MERGE',
-      body: {
-        Title: doc.name || 'Untitled session',
-        SessionId: doc.id,
-        SessionName: doc.name || 'Untitled session',
-        Analyst: doc.analyst || '',
-        Organization: doc.organization || '',
-        DocumentRef: doc.document || '',
-        DocumentDate: doc.documentDate || '',
-      },
-    });
+    // Promote picker columns only when they actually changed. Budget edits
+    // rewrite the JSON frequently, while this small metadata set usually stays
+    // identical. ValidateUpdateListItem is a regular POST rather than a
+    // tunneled MERGE, so embedded SharePoint hosts do not interrupt users with
+    // a mutation-method confirmation for this already validated operation.
+    const metadata = this.sessionMetadata(doc);
+    const metadataSignature = this.sessionMetadataSignature(metadata);
+    if (this._sessionMetadata.get(Number(doc.id)) !== metadataSignature) {
+      await this.updateFileListItem(folder, name, metadata);
+      this._sessionMetadata.set(Number(doc.id), metadataSignature);
+    }
 
+    this._sessionFiles.set(Number(doc.id), name);
     return doc;
   }
 
   async deleteSession(id) {
     const folder = await this.libraryFolder();
+    const name = await this.sessionFileName(id);
     // recycle() rather than a hard delete, so a mistaken removal is
     // recoverable from the site recycle bin.
-    const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${this.fileName(id)}`)}')/recycle()`;
+    const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/recycle()`;
     await this.post(path, {});
+    this._sessionFiles.delete(Number(id));
+    this._sessionMetadata.delete(Number(id));
   }
 
   // -- generic record lists (instruments, equations, bug reports) ------------
+
+  async instrumentRows(recordId) {
+    const filter = recordId == null
+      ? ''
+      : `&$filter=RecordId eq '${String(recordId).replace(/'/g, "''")}'`;
+    const body = await this.get(
+      `${listApi(this.prefix, 'instruments')}/items?` +
+      `$select=Id,RecordId,PayloadJson,AuthorId${filter}&$top=5000`,
+    );
+    return (body.value || []).map((item) => ({
+      item,
+      record: this.parsePayload(item, 'instruments'),
+    })).filter(({ record }) => Boolean(record));
+  }
+
+  /**
+   * Return every validated/shared definition plus only the signed-in user's
+   * local definitions. AuthorId is the access boundary for legacy rows whose
+   * payload still carries an old per-browser owner key.
+   */
+  async listInstruments() {
+    const user = await this.currentUser();
+    const owner = sharePointInstrumentOwnerKey(user);
+    const rows = await this.instrumentRows();
+    return rows.flatMap(({ item, record }) => {
+      if (record.scope !== 'local') return [record];
+      if (Number(item.AuthorId) !== user.id) return [];
+      return [{ ...record, scope: 'local', owner }];
+    });
+  }
+
+  async saveInstrument(record) {
+    const recordId = String(record?.id ?? '');
+    if (!recordId) throw new Error('Cannot save an instruments record with no id.');
+
+    const user = await this.currentUser();
+    const scope = record.scope === 'validated' ? 'validated' : 'local';
+    const { password: _password, ...safeRecord } = record;
+    const canonical = scope === 'local'
+      ? { ...safeRecord, scope, owner: sharePointInstrumentOwnerKey(user) }
+      : { ...safeRecord, scope };
+    const rows = await this.instrumentRows(recordId);
+    const existing = rows.find(({ item, record: candidate }) =>
+      scope === 'local'
+        ? candidate.scope === 'local' && Number(item.AuthorId) === user.id
+        : candidate.scope !== 'local',
+    );
+    const fields = {
+      Title: String(canonical.name || canonical.description || canonical.model || recordId).slice(0, 255),
+      RecordId: recordId,
+      PayloadJson: JSON.stringify(canonical),
+    };
+
+    if (existing) {
+      await this.updateListItem('instruments', existing.item.Id, fields);
+    } else {
+      await this.post(`${listApi(this.prefix, 'instruments')}/items`, { body: fields });
+    }
+
+    // A successful sync replaces this user's linked local working copy while
+    // leaving every other user's local copy untouched.
+    if (scope === 'validated') {
+      const sourceId = String(canonical.sourceId || canonical.id);
+      // The local copy normally has its own RecordId, so search the whole
+      // instrument list by sourceId rather than only the shared record's id.
+      const cleanupRows = await this.instrumentRows();
+      const ownLinkedLocals = cleanupRows.filter(({ item, record: candidate }) =>
+        candidate.scope === 'local' &&
+        Number(item.AuthorId) === user.id &&
+        String(candidate.sourceId || '') === sourceId,
+      );
+      await Promise.all(
+        ownLinkedLocals.map(({ item }) =>
+          this.recycleListItem('instruments', item.Id),
+        ),
+      );
+    }
+    return canonical;
+  }
+
+  async deleteInstrument(recordId) {
+    const user = await this.currentUser();
+    const rows = await this.instrumentRows(recordId);
+    const ownLocal = rows.find(({ item, record }) =>
+      record.scope === 'local' && Number(item.AuthorId) === user.id,
+    );
+    const shared = rows.find(({ record }) => record.scope !== 'local');
+    const target = ownLocal || shared;
+    // Another user's local row is intentionally indistinguishable from an
+    // absent record and can never be deleted through the app.
+    if (!target) return;
+    await this.recycleListItem('instruments', target.item.Id);
+  }
 
   async listRecords(key) {
     const body = await this.get(`${listApi(this.prefix, key)}/items?$select=Id,RecordId,PayloadJson&$top=5000`);
@@ -350,7 +606,7 @@ export class SharePointStore {
     };
 
     if (existingId) {
-      await this.post(`${listApi(this.prefix, key)}/items(${existingId})`, { method: 'MERGE', body: fields });
+      await this.updateListItem(key, existingId, fields);
     } else {
       await this.post(`${listApi(this.prefix, key)}/items`, { body: fields });
     }
@@ -361,6 +617,6 @@ export class SharePointStore {
     const existingId = await this.findItemId(key, recordId);
     // Deleting something already gone is not an error worth surfacing.
     if (!existingId) return;
-    await this.post(`${listApi(this.prefix, key)}/items(${existingId})`, { method: 'DELETE' });
+    await this.recycleListItem(key, existingId);
   }
 }

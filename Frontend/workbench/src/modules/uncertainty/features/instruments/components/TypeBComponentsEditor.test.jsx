@@ -35,7 +35,7 @@ describe("TypeBComponentsEditor", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to edit tolerance"));
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
     expect(screen.getByText("Distribution")).toBeInTheDocument();
     const distribution = screen.getByLabelText("Spec distribution");
     expect(distribution.closest(".typeb-distribution-field")).not.toBeNull();
@@ -96,7 +96,7 @@ describe("TypeBComponentsEditor", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to edit tolerance"));
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
     fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
 
     await waitFor(() =>

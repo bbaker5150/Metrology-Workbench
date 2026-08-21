@@ -8,6 +8,15 @@ body,
   margin: 0;
 }
 
+/* Forge's runtime globals are retained for host compatibility, but its
+   developer console and test-recorder launchers are not end-user controls. */
+#pdc-open,
+#pdc-root,
+#test-recorder-launcher,
+#test-recorder-panel {
+  display: none !important;
+}
+
 /* The hosting web part may render this page in a frame sized to its container,
    so the app fills whatever box it is given rather than assuming the viewport. */
 #root {

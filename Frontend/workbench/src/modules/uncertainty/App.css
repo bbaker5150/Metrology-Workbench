@@ -1346,6 +1346,12 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 
 .sidebar-measurement-title-toggle {
   align-self: stretch;
+  cursor: default;
+}
+
+.sidebar-measurement-title-toggle:hover,
+.sidebar-measurement-title-toggle:hover .sidebar-section-title {
+  color: var(--text-color-muted);
 }
 
 .sidebar-measurement-accordion {
@@ -1450,6 +1456,15 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 
 .point-grid-item .point-section {
   cursor: text;
+}
+
+.point-grid-item .point-uut-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-color);
 }
 
 .point-grid-item .point-value {
@@ -1641,13 +1656,13 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 .sidebar-column-headers .sidebar-value-sticky {
   z-index: 8;
   background-color: var(--sidebar-sticky-surface);
-  box-shadow: 7px 0 8px -9px rgba(0, 0, 0, 0.5);
+  box-shadow: none;
 }
 
 .point-grid-item > .sidebar-value-sticky {
   z-index: 6;
   background-color: var(--sidebar-sticky-surface);
-  box-shadow: 7px 0 8px -9px rgba(0, 0, 0, 0.5);
+  box-shadow: none;
 }
 
 .point-grid-item:hover > .sidebar-value-sticky {
@@ -2616,7 +2631,7 @@ body.dark-mode .uncertainty-module .analysis-container > .analysis-tabs {
 }
 
 .industry-table tbody tr.instrument-area-section-row {
-  background: var(--background-color-secondary);
+  background: var(--content-background);
   pointer-events: none;
 }
 
@@ -4489,10 +4504,8 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   margin-top: 4px;
 }
 
-/* The add-to-budget picker is a stack of independent source groups. Keep the
-   ordering intentional even when one or more groups are absent: UUT
-   resolution is the first source, matching/primary TMDEs follow, and the
-   cross-unit "Other TMDEs" group is always last. */
+/* The add-to-budget picker is a stack of independent, usable source groups.
+   Keep the ordering intentional even when one or more groups are absent. */
 .budget-tmde-picker-menu > .budget-picker-heading {
   order: 0;
 }
@@ -4520,10 +4533,6 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 
 .budget-tmde-picker-menu > .budget-picker-section--typeb {
   order: 40;
-}
-
-.budget-tmde-picker-menu > .budget-picker-section--other {
-  order: 100;
 }
 
 .budget-settings-menu h5 {
@@ -4627,10 +4636,10 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   align-items: center;
   gap: 7px;
   min-height: 28px;
-  padding: 3px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface-sunken) 62%, transparent);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   box-sizing: border-box;
   white-space: nowrap;
 }
@@ -5240,18 +5249,18 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
   width: 72px;
   height: 24px;
   box-sizing: border-box;
-  padding: 2px 6px;
+  padding: 2px 4px;
   color: var(--text-color);
-  background: var(--input-background);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   font: inherit;
   font-variant-numeric: tabular-nums;
 }
 
 .budget-mc-trials input:focus {
-  border-color: var(--primary-color);
   outline: none;
+  background: color-mix(in srgb, var(--primary-color) 7%, transparent);
 }
 
 .budget-mc-trials.is-disabled {
@@ -5260,8 +5269,7 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
 
 .budget-mc-trials input:disabled {
   color: var(--text-color-muted);
-  background: color-mix(in srgb, var(--input-background) 55%, transparent);
-  border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+  background: transparent;
   opacity: 0.62;
   cursor: not-allowed;
 }
@@ -10457,7 +10465,8 @@ body.theme-cyberpunk .notification-window .window-header {
 }
 
 .measurement-equation-editor-stack {
-  width: min(100%, 760px);
+  width: min(100%, 42ch);
+  max-width: 760px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -10636,7 +10645,7 @@ body.theme-cyberpunk .notification-window .window-header {
   height: 30px;
   padding: 6px 10px;
   color: var(--text-color-muted);
-  background: color-mix(in srgb, var(--surface-sunken) 72%, transparent);
+  background: var(--content-background);
   border-bottom: 1px solid var(--border-color);
   font-size: 0.68rem;
   font-weight: 700;
@@ -10659,17 +10668,78 @@ body.theme-cyberpunk .notification-window .window-header {
 .measurement-input-symbol {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 7px;
-  border-radius: 6px;
-  color: var(--primary-color);
-  background: color-mix(in srgb, var(--primary-color) 9%, transparent);
-  font-family: "Cambria Math", "STIX Two Math", serif;
-  font-size: 0.98rem;
-  font-weight: 700;
+  justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-color);
+  background: transparent;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
   box-sizing: border-box;
+  cursor: text;
+}
+
+.budget-range-warning {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--status-warning, #e0a106);
+  font-size: 0.72rem;
+  cursor: help;
+}
+
+.bug-report-check-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--primary-color);
+  font-size: 0.78rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.bug-report-check-action:hover,
+.bug-report-check-action:focus-visible {
+  border: 0;
+  background: transparent;
+  color: var(--primary-color-dark, var(--primary-color));
+  outline: none;
+  transform: none;
+}
+
+.bug-report-check-action--complete {
+  color: var(--status-good);
+}
+
+.measurement-input-symbol:hover,
+.measurement-input-symbol:focus-visible {
+  border-color: var(--border-color);
+  background: transparent;
+  outline: none;
+}
+
+.measurement-input-symbol-input {
+  width: min(100%, 72px);
+  height: 28px;
+  padding: 3px 6px;
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: left;
 }
 
 .measurement-input-name,
@@ -10947,31 +11017,27 @@ body.theme-cyberpunk .notification-window .window-header {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 11px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--input-background);
-  color: var(--primary-color);
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
-  white-space: nowrap;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color-muted);
+  font-size: 0.8rem;
   cursor: pointer;
-  transition: opacity 0.15s ease, transform 0.15s ease,
-    box-shadow 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .equation-library-save-btn:hover:not(:disabled) {
-  border-color: var(--primary-color);
-  background: rgba(var(--primary-rgb), 0.06);
-  box-shadow: 0 2px 6px rgba(var(--primary-rgb), 0.1);
+  color: var(--text-color);
+  background: var(--primary-color-soft, var(--primary-color-light));
 }
 
 .equation-library-save-btn:disabled {
-  border-color: var(--border-color);
-  background: var(--background-color-secondary);
+  border-color: transparent;
+  background: transparent;
   color: var(--text-color-muted);
   cursor: not-allowed;
   opacity: 0.7;
@@ -11561,7 +11627,10 @@ body.theme-cyberpunk .notification-window .window-header {
 /* Description columns: bold, truncated with ellipsis */
 .instrument-summary-table td.cell-description {
   font-weight: 600;
-  vertical-align: top;
+  /* Keep the instrument identity visible beside tall collapsed range stacks.
+     A description pinned to the top is easy to lose when an instrument has
+     many ranges; the expanded-row path already centers this same cell. */
+  vertical-align: middle;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -12419,8 +12488,261 @@ input.inline-function-input:focus {
   position: sticky;
   right: 8px;
   z-index: 5;
-  background: color-mix(in srgb, var(--table-header-bg) 92%, transparent);
-  box-shadow: -10px 0 14px -13px rgba(0, 0, 0, 0.65);
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Compact correlation editor: the matrix is the content, with the same 28px
+   tool-button rhythm used by the budget-table header. */
+.correlation-matrix-modal {
+  padding: 0;
+  overflow: hidden;
+}
+
+.correlation-modal-toolbar {
+  min-height: 36px;
+  padding: 4px 6px 4px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--table-header-bg);
+  cursor: move;
+  user-select: none;
+}
+
+.correlation-modal-title {
+  color: var(--text-color-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.correlation-modal-body {
+  overflow: auto;
+  padding: 10px 14px 12px;
+}
+
+.correlation-modal-hint {
+  margin: 0 0 8px;
+  color: var(--text-color-muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.correlation-matrix-table {
+  margin: 0 auto;
+  border-collapse: collapse;
+}
+
+.correlation-modal-actions {
+  margin-top: 10px;
+  padding-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+
+.correlation-modal-icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.correlation-modal-icon-button:hover,
+.correlation-modal-icon-button:focus-visible {
+  color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.07);
+  outline: none;
+}
+
+.correlation-modal-icon-button.is-primary {
+  color: var(--primary-color);
+}
+
+.correlation-modal-icon-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+.repeatability-modal-body {
+  overflow: auto;
+  padding: 10px 14px 12px;
+}
+
+.repeatability-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(210px, 0.75fr);
+  gap: 14px;
+  min-height: 260px;
+}
+
+.repeatability-readings-panel,
+.repeatability-results {
+  min-width: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--content-background);
+}
+
+.repeatability-readings-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+}
+
+.repeatability-input-label {
+  margin-bottom: 5px;
+  color: var(--text-color-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.repeatability-input-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(120px, 0.85fr) 28px;
+  align-items: center;
+  gap: 7px;
+}
+
+.repeatability-input-row > input {
+  min-width: 0;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--input-background);
+  color: var(--text-color);
+}
+
+.repeatability-input-row > input:focus {
+  border-color: var(--primary-color);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.1);
+}
+
+.repeatability-unit-select {
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.repeatability-reading-list {
+  flex: 1;
+  min-height: 170px;
+  max-height: 230px;
+  margin-top: 9px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-color);
+}
+
+.repeatability-empty {
+  display: grid;
+  min-height: 150px;
+  place-items: center;
+  color: var(--text-color-muted);
+  font-size: 0.78rem;
+}
+
+.repeatability-reading {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0 2px 7px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 68%, transparent);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.repeatability-reading small {
+  display: inline-block;
+  min-width: 22px;
+  color: var(--text-color-muted);
+  font-size: 0.68rem;
+}
+
+.repeatability-reading .correlation-modal-icon-button:hover {
+  color: var(--status-bad);
+}
+
+.repeatability-results {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 14px;
+}
+
+.repeatability-primary-result {
+  display: grid;
+  justify-items: center;
+  padding: 8px 0 18px;
+  border-bottom: 1px solid var(--border-color);
+  text-align: center;
+}
+
+.repeatability-primary-result span,
+.repeatability-primary-result small,
+.repeatability-stat-grid dt {
+  color: var(--text-color-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.repeatability-primary-result strong {
+  margin: 5px 0 2px;
+  color: var(--primary-color);
+  font-size: 1.55rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.repeatability-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 10px;
+  margin: 16px 0 0;
+}
+
+.repeatability-stat-grid div {
+  min-width: 0;
+  text-align: center;
+}
+
+.repeatability-stat-grid dt,
+.repeatability-stat-grid dd {
+  margin: 0;
+}
+
+.repeatability-stat-grid dd {
+  margin-top: 3px;
+  font-size: 0.9rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .repeatability-workspace {
+    grid-template-columns: 1fr;
+  }
 }
 
 .function-header-collapse-btn:hover {
@@ -12575,9 +12897,38 @@ input.inline-function-input:focus {
 /* --- Collapsed range cell: clicking the active range opens the full editable
    list (add via ghost row; remove with the per-range hover action). --- */
 .range-collapsed-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: grid;
+  grid-auto-flow: row;
+  /* Compact rows stay 36px, but an inline editor must be allowed to grow to
+     its complete mode bar and full set of tolerance terms. */
+  grid-auto-rows: minmax(36px, auto);
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+}
+
+.range-collapsed-cell > .range-stack-row {
+  min-height: 36px;
+  height: 36px;
+  padding: 4px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--border-color) 72%, transparent);
+  overflow: hidden;
+}
+
+.range-collapsed-cell > .range-stack-row:has(.inline-tolerance-editor) {
+  height: auto;
+  overflow: visible;
+}
+
+.range-collapsed-cell > .range-stack-row:last-child {
+  border-bottom-color: transparent;
+}
+
+.range-collapsed-cell .inline-tolerance-readview,
+.range-collapsed-cell .inline-tolerance-summary,
+.range-collapsed-cell .range-cell-readview {
+  max-width: 100%;
   min-width: 0;
 }
 
@@ -14298,8 +14649,36 @@ body.theme-cyberpunk .range-header-container:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  cursor: pointer;
+  cursor: default;
   transition: all 0.15s ease;
+}
+
+.function-sidebar-collapse-button,
+.function-point-settings-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+}
+
+.function-sidebar-collapse-button {
+  margin-right: 1px;
+  font-size: 0.68rem;
+}
+
+.function-sidebar-collapse-button:hover,
+.function-point-settings-button:hover,
+.function-point-settings-button.is-active {
+  background: var(--primary-color-light);
+  color: var(--primary-color);
 }
 
 .area-label {
@@ -14308,11 +14687,185 @@ body.theme-cyberpunk .range-header-container:hover {
   text-transform: uppercase;
   letter-spacing: 0.8px;
   color: var(--text-color-muted);
-  flex-grow: 1;
+  flex: 0 1 auto;
+  min-width: 72px;
 }
 
-.area-header-sticky:hover .area-label {
+.function-point-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.function-point-uut-select {
+  width: min(150px, 24vw);
+  min-width: 82px;
+  height: 28px;
+  padding: 0 24px 0 7px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--input-background);
+  color: var(--text-color);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+}
+
+.function-point-settings {
+  position: relative;
+  display: inline-flex;
+  margin-left: -4px;
+}
+
+.function-point-settings-button {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+
+.area-header-sticky:hover .function-point-settings-button,
+.area-header-sticky:focus-within .function-point-settings-button,
+.function-point-settings.is-open .function-point-settings-button {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Every function header is sticky and therefore forms a stacking context.
+   Lift the header that owns an open settings menu above later function
+   headers and their sticky value cells so the dialog paints as one clean
+   surface instead of being sliced through by the next section. */
+.area-header-sticky:has(.function-point-settings.is-open) {
+  z-index: 100;
+}
+
+.function-point-settings-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  z-index: 80;
+  width: min(330px, calc(100vw - 28px));
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--content-background);
+  color: var(--text-color);
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.18);
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.function-point-settings-heading {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.function-point-settings-heading strong {
+  font-size: 0.78rem;
+}
+
+.function-point-settings-heading span,
+.function-point-setting-check small {
+  color: var(--text-color-muted);
+  font-size: 0.68rem;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.function-point-type-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 9px;
+  padding: 3px;
+  border-radius: 7px;
+  background: var(--surface-sunken, var(--background-color));
+}
+
+.function-point-type-options button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.function-point-type-options button.is-selected {
+  background: var(--content-background);
   color: var(--primary-color);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.function-point-setting-check {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: start;
+  gap: 8px;
+  padding: 8px 4px;
+  cursor: pointer;
+}
+
+.function-point-setting-check + .function-point-setting-check {
+  border-top: 1px solid var(--border-color);
+}
+
+.function-point-setting-check input {
+  margin: 2px 0 0;
+}
+
+.function-point-setting-check span {
+  display: grid;
+  gap: 2px;
+}
+
+.function-point-setting-check strong {
+  font-size: 0.72rem;
+}
+
+.function-point-add-button {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.function-point-unit-picker {
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  z-index: 40;
+}
+
+.sidebar-empty-uut-row {
+  display: grid;
+  align-items: center;
+  min-height: 34px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-color-muted);
+  cursor: pointer;
+}
+
+.sidebar-empty-uut-row:hover {
+  background: var(--input-background);
+}
+
+.sidebar-empty-uut-row .point-uut-name,
+.sidebar-empty-uut-copy {
+  min-width: 0;
+  padding: 6px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-empty-uut-copy {
+  font-size: 0.7rem;
+  font-style: italic;
 }
 
 /* Inline rename input — inherits the label's look so editing is seamless. */
@@ -14692,30 +15245,6 @@ body.theme-cyberpunk.dark-mode .point-grid-item.active .point-section {
   text-shadow: none;
 }
 
-/* =================================================================== */
-/* DRAG AND DROP & CONTEXT MENU STYLES                                 */
-/* =================================================================== */
-
-.point-grid-item[draggable="true"] {
-  cursor: grab;
-}
-
-.point-grid-item[draggable="true"]:active {
-  cursor: grabbing;
-}
-
-/* Drop Target Visuals */
-.uut-row.drag-over,
-.range-label-row.drag-over {
-  background-color: var(--primary-color-light) !important;
-  outline: 2px dashed var(--primary-color);
-  outline-offset: -2px;
-}
-
-.range-label-row.drag-over {
-  border-radius: 4px;
-}
-
 /* Context Menu Disabled State */
 .context-menu li.disabled {
   color: var(--text-color-muted);
@@ -14820,30 +15349,6 @@ body.uncertainty-active .toast-error .toast-icon {
     opacity: 1;
     transform: translate(-50%, 0);
   }
-}
-
-/* =================================================================== */
-/* DRAG AND DROP & CONTEXT MENU STYLES (Existing)                      */
-/* =================================================================== */
-
-.point-grid-item[draggable="true"] {
-  cursor: grab;
-}
-
-.point-grid-item[draggable="true"]:active {
-  cursor: grabbing;
-}
-
-/* Drop Target Visuals */
-.uut-row.drag-over,
-.range-label-row.drag-over {
-  background-color: var(--primary-color-light) !important;
-  outline: 2px dashed var(--primary-color);
-  outline-offset: -2px;
-}
-
-.range-label-row.drag-over {
-  border-radius: 4px;
 }
 
 /* Context Menu Disabled State */
@@ -15268,6 +15773,187 @@ body.theme-cyberpunk .industry-table tr.selected-row {
   margin-top: 2px;
   border-top: 1px solid var(--border-color);
   color: var(--text-color-muted, var(--text-color));
+}
+
+.function-point-instrument-picker {
+  min-width: min(240px, calc(100vw - 28px));
+}
+
+.function-point-instrument-picker button:not(.point-unit-picker-cancel) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Guided direct-measurement onboarding. The spotlight never captures pointer
+   input, so the highlighted control stays fully interactive while the coach
+   card provides navigation and context. */
+.guided-walkthrough-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  pointer-events: none;
+}
+
+.guided-walkthrough-highlight {
+  position: fixed;
+  z-index: 12001;
+  border: 2px solid var(--primary-color);
+  border-radius: 9px;
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--primary-color) 24%, transparent),
+    0 0 0 9999px rgba(5, 11, 24, 0.62);
+  pointer-events: none;
+  transition: inset 0.16s ease, width 0.16s ease, height 0.16s ease;
+}
+
+.guided-walkthrough-dim {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 11, 24, 0.62);
+}
+
+.guided-walkthrough-card {
+  position: fixed;
+  z-index: 12004;
+  display: grid;
+  gap: 10px;
+  max-height: calc(100vh - 24px);
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 34%, var(--border-color));
+  border-radius: 12px;
+  background: var(--content-background);
+  color: var(--text-color);
+  box-shadow: 0 20px 55px rgba(5, 11, 24, 0.38);
+  pointer-events: auto;
+}
+
+/* Menus opened by the highlighted control must remain above both the dimming
+   spotlight and the coach card. The walkthrough adds this class only while a
+   step's related menu is visible, including to any ancestor stacking contexts
+   that would otherwise trap the menu beneath the overlay. */
+.guided-walkthrough-elevated-surface {
+  z-index: 12005 !important;
+}
+
+.guided-walkthrough-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-color-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.guided-walkthrough-card-header button {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+}
+
+.guided-walkthrough-card-header button:hover {
+  background: var(--primary-color-light);
+  color: var(--primary-color);
+}
+
+.guided-walkthrough-card h3 {
+  margin: 0;
+  color: var(--text-color);
+  font-size: 1rem;
+}
+
+.guided-walkthrough-card p {
+  margin: 0;
+  color: var(--text-color-muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.guided-walkthrough-hint,
+.guided-walkthrough-waiting {
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: var(--primary-color-light);
+  color: var(--text-color);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.guided-walkthrough-waiting {
+  background: var(--input-background);
+  color: var(--text-color-muted);
+}
+
+.guided-walkthrough-progress {
+  display: flex;
+  gap: 3px;
+  min-width: 0;
+}
+
+.guided-walkthrough-progress span {
+  height: 3px;
+  min-width: 3px;
+  flex: 1;
+  border-radius: 999px;
+  background: var(--border-color);
+}
+
+.guided-walkthrough-progress span.is-complete {
+  background: var(--primary-color);
+}
+
+.guided-walkthrough-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.guided-walkthrough-actions button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.guided-walkthrough-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.guided-walkthrough-secondary {
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-color-muted);
+}
+
+.guided-walkthrough-primary {
+  margin-left: auto;
+  border: 1px solid var(--primary-color);
+  background: var(--primary-color);
+  color: #fff;
+}
+
+.session-empty-label {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  color: var(--text-color-muted);
+  font-size: 0.78rem;
+  font-style: italic;
 }
 
 /* =================================================================== */
@@ -16133,13 +16819,13 @@ body:not(.dark-mode)
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-color-muted);
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease,
     border-color 0.15s ease, transform 0.15s ease;
@@ -16163,6 +16849,14 @@ body:not(.dark-mode)
   color: var(--primary-color);
   background-color: var(--primary-color-soft, var(--primary-color-light));
   border-color: color-mix(in srgb, var(--primary-color) 35%, transparent);
+}
+
+/* Keep the Instrument Builder trigger reachable while its centered floating
+   window is open so the same control can toggle the window closed. */
+.uncertainty-module
+  .app-chrome-meta-icon[aria-label="Instrument builder"].is-active {
+  position: relative;
+  z-index: 2201;
 }
 
 /* --- AC-Shunt-aligned session selector row polish ------------------- */
@@ -16461,20 +17155,20 @@ body:not(.dark-mode)
 
 .uncertainty-module .sidebar-view-controls {
   gap: 2px;
-  height: 32px;
+  height: 26px;
   align-items: center;
   flex-shrink: 0;
 }
 
 .uncertainty-module .sidebar-view-controls .sidebar-action-button {
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   padding: 0;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-color-muted);
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   box-shadow: none;
   transform: none;
   transition: background-color 0.15s ease, color 0.15s ease,
@@ -16554,6 +17248,14 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   ) !important;
 }
 
+/* The variable labels belong to the measurement-input table body, so keep the
+   header on that same surface in every theme instead of inheriting the darker
+   generic instrument-table header gradient. */
+.uncertainty-module .measurement-inputs-table thead th {
+  background-color: var(--content-background);
+  background-image: none;
+}
+
 /* Final sticky-value geometry. The point row uses 5px vertical padding and an
    8px grid gap; extending the opaque value surface across both prevents the
    next metric from painting beneath the frozen value while horizontally
@@ -16577,7 +17279,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
     var(--primary-color) 8%,
     var(--sidebar-sticky-surface)
   ) !important;
-  box-shadow: 7px 0 8px -9px rgba(0, 0, 0, 0.5);
+  box-shadow: none;
 }
 
 .uncertainty-module
