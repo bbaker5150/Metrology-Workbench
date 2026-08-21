@@ -2621,6 +2621,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         # BRANCH 2: STANDARD SLIDING WINDOW (DC & High Freq AC)
         # =====================================================================
         else:
+            use_shared_5790_batches = bool(
+                target_tvc == 'BOTH'
+                and getattr(self, '_reader_switch', None) is None
+                and _shared_5790_reader_pair(
+                    std_reader_instrument,
+                    ti_reader_instrument,
+                )
+            )
+
             # Stability Logic Setup
             stability_method = measurement_params.get('stability_check_method', 'sliding_window')
             max_retries = measurement_params.get('max_attempts', 50)
@@ -2643,20 +2652,31 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             # and subsequent stages like "Cycle 2+" (bypasses lock to avoid thermal shock aborts).
             is_subsequent_char_stage = ('char' in reading_type_base) and (reading_type_base != 'char_plus1')
 
-            # When the operator has bypass-after-initial enabled and we're on
-            # any cycle past the first (or a subsequent char stage), skip the initial-stability search
-            # entirely...
+            # A shared 5790 must take one complete Standard role batch and one
+            # complete TI role batch per stage. Re-running the initial sliding
+            # gate would repeat the entire physical stage (STD/TI/STD/TI),
+            # despite the requested sample count already being satisfied.
+            # Continue calculating/reporting stability for that batch, but do
+            # not turn it into a second acquisition. The existing bypass-after-
+            # initial behavior remains unchanged for every other topology.
             skip_initial_check = (
                 stability_method == 'sliding_window'
-                and ignore_after_lock
                 and (
-                    (cycle_index is not None and cycle_index > 1) or
-                    is_subsequent_char_stage
+                    use_shared_5790_batches
+                    or (
+                        ignore_after_lock
+                        and (
+                            (cycle_index is not None and cycle_index > 1)
+                            or is_subsequent_char_stage
+                        )
+                    )
                 )
             )
 
             # --- LOGGING INSTRUMENTATION ---
-            if skip_initial_check:
+            if skip_initial_check and use_shared_5790_batches:
+                print(f"[STABILITY] Monitoring one shared-5790 role batch for stage: {reading_type_base} (Cycle: {cycle_index})", flush=True)
+            elif skip_initial_check:
                 print(f"[STABILITY] Bypassing search phase for stage: {reading_type_base} (Cycle: {cycle_index})", flush=True)
             else:
                 print(f"[STABILITY] Search phase ENABLED for stage: {reading_type_base} (Cycle: {cycle_index})", flush=True)
@@ -2699,14 +2719,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             # Replaces raw final_std_readings length with the dynamic targeted check
             pair_index = 0
             pending_reader_pairs = deque()
-            use_shared_5790_batches = bool(
-                target_tvc == 'BOTH'
-                and getattr(self, '_reader_switch', None) is None
-                and _shared_5790_reader_pair(
-                    std_reader_instrument,
-                    ti_reader_instrument,
-                )
-            )
             shared_5790_sample_delay = max(
                 0.0,
                 float(measurement_params.get('f5790_inter_sample_delay', 1.0)),
@@ -2896,7 +2908,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             'type': 'status_update',
                             'message': (
                                 f"Stdev: {ppm_text} "
-                                f"(cycle {cycle_index}, initial check skipped)"
+                                + (
+                                    "(complete shared-5790 role batch)"
+                                    if use_shared_5790_batches
+                                    else f"(cycle {cycle_index}, initial check skipped)"
+                                )
                             ),
                         }))
                     elif len(primary_candidates) >= window_size:

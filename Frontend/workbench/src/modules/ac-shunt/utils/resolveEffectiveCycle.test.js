@@ -55,6 +55,15 @@ describe("resolveEffectiveCycle", () => {
     expect(resolveEffectiveCycle(undefined, [1, 2])).toBe(2);
   });
 
+  it("uses the active live cycle before its first reading arrives", () => {
+    expect(resolveEffectiveCycle(null, [1], 2)).toBe(2);
+    expect(resolveEffectiveCycle(undefined, [], 3)).toBe(3);
+  });
+
+  it("keeps an explicit available user selection over the active cycle", () => {
+    expect(resolveEffectiveCycle(1, [1], 2)).toBe(1);
+  });
+
   it("falls back to cycle 1 when there is no data at all", () => {
     expect(resolveEffectiveCycle(null, [])).toBe(1);
     expect(resolveEffectiveCycle(7, [])).toBe(1);

@@ -2794,8 +2794,23 @@ function Calibration({
   // the chart about "what is the latest cycle right now."
   const stdAvailableCycles = listAvailableCycles(stdChartData);
   const tiAvailableCycles = listAvailableCycles(tiChartData);
-  const stdEffectiveCycle = resolveEffectiveCycle(stdChartCycle, stdAvailableCycles);
-  const tiEffectiveCycle = resolveEffectiveCycle(tiChartCycle, tiAvailableCycles);
+  const activeLiveCycle = (
+    isCurrentTPActive
+    && activeCollectionDetails?.cycle_index != null
+    && Number.isFinite(Number(activeCollectionDetails?.cycle_index))
+  )
+    ? Number(activeCollectionDetails.cycle_index)
+    : null;
+  const stdEffectiveCycle = resolveEffectiveCycle(
+    stdChartCycle,
+    stdAvailableCycles,
+    activeLiveCycle,
+  );
+  const tiEffectiveCycle = resolveEffectiveCycle(
+    tiChartCycle,
+    tiAvailableCycles,
+    activeLiveCycle,
+  );
   const showStdChart =
     isCurrentTPActive ||
     Object.values(historicalReadings).some((arr) => arr && arr.length > 0);
@@ -4253,6 +4268,7 @@ function Calibration({
                                   selectedCycle={stdChartCycle}
                                   onCycleChange={setStdChartCycle}
                                   activeStage={activeStageKey}
+                                  activeCycle={activeLiveCycle}
                                 />
                                 <LiveStabilityTracker
                                   title="Standard Instrument Stability"
@@ -4292,6 +4308,7 @@ function Calibration({
                                   selectedCycle={tiChartCycle}
                                   onCycleChange={setTiChartCycle}
                                   activeStage={activeStageKey}
+                                  activeCycle={activeLiveCycle}
                                 />
                                 <LiveStabilityTracker
                                   title="Test Instrument Stability"

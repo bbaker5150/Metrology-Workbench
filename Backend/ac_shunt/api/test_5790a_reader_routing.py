@@ -142,7 +142,7 @@ class ReaderSettingsApiTests(TestCase):
 
 
 class SequentialReaderStabilityTests(SimpleTestCase):
-    def test_measurement_uses_one_full_batch_per_shared_5790_role(self):
+    def test_shared_5790_uses_one_role_batch_even_when_initial_spread_is_high(self):
         class Source:
             def set_output(self, voltage, frequency):
                 self.last_output = (voltage, frequency)
@@ -164,7 +164,7 @@ class SequentialReaderStabilityTests(SimpleTestCase):
             batch = [
                 {"value": value, "timestamp": float(index), "is_stable": True}
                 for index, value in enumerate(
-                    [1.0, 1.000001, 0.999999],
+                    [1.0, 1.001, 0.999],
                     start=1,
                 )
             ]
@@ -253,17 +253,7 @@ class SequentialReaderStabilityTests(SimpleTestCase):
             if payload.get("type") == "dual_reading_update"
             and not payload.get("live_physical_sample")
         ]
-        self.assertEqual(len(processed_updates), 1)
-        self.assertIsNone(processed_updates[0]["std_reading"])
-        self.assertIsNone(processed_updates[0]["ti_reading"])
-        self.assertEqual(
-            len(processed_updates[0]["window_snapshot"]["std"]),
-            3,
-        )
-        self.assertEqual(
-            len(processed_updates[0]["window_snapshot"]["ti"]),
-            3,
-        )
+        self.assertEqual(processed_updates, [])
         saved = {
             call.args[0]: call.args[1]
             for call in consumer.save_readings_to_db.await_args_list
