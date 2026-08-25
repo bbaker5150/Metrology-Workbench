@@ -11606,7 +11606,7 @@ body.theme-cyberpunk .notification-window .window-header {
      own border in Chromium, so the bottom rule is drawn with a box-shadow. */
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: 20;
   box-shadow: inset 0 -1px 0 var(--border-color);
 }
 
@@ -11623,6 +11623,11 @@ body.theme-cyberpunk .notification-window .window-header {
 
 .instrument-summary-table tbody tr {
   transition: background-color 0.15s ease;
+}
+
+.instrument-summary-table th:not(:last-child),
+.instrument-summary-table td:not(:last-child) {
+  border-right: 1px solid color-mix(in srgb, var(--border-color) 82%, var(--text-color-muted));
 }
 
 /* Numeric/Value columns should NOT wrap - these are critical for readability */
@@ -12781,21 +12786,25 @@ input.inline-function-input:focus {
   width: 100%;
 }
 
-.point-uut-selector-cell select {
+.point-uut-selector-cell .inline-menu-select {
   width: 100%;
   min-width: 0;
+}
+
+.point-uut-selector-cell .inline-menu-select-trigger {
+  width: 100%;
   border: 1px solid transparent;
   border-radius: 3px;
   background: transparent;
   color: inherit;
   font: inherit;
   font-weight: 600;
-  padding: 1px 18px 1px 2px;
+  padding: 1px 4px 1px 2px;
   text-overflow: ellipsis;
 }
 
-.point-uut-selector-cell select:hover,
-.point-uut-selector-cell select:focus {
+.point-uut-selector-cell .inline-menu-select-trigger:hover,
+.point-uut-selector-cell .inline-menu-select-trigger:focus {
   border-color: var(--border-color);
   background: var(--input-background);
   outline: none;
@@ -12806,6 +12815,13 @@ input.inline-function-input:focus {
   gap: 5px;
   padding-inline: 7px;
   font-size: 0.72rem;
+}
+
+.panel-card-actions .btn-add-item:has(span),
+.function-header-action-btn:has(span) {
+  width: auto;
+  gap: 5px;
+  padding-inline: 7px;
 }
 
 .instrument-custom-field-cell {
@@ -12832,24 +12848,29 @@ input.inline-function-input:focus {
   outline: none;
 }
 
-/* Repeated table values read as a vertically merged block while remaining
-   individually editable: hovering the row reveals its actual control/value. */
-.point-grid-item .is-visually-merged:not(:hover),
-.point-grid-item .is-visually-merged:not(:hover) select {
-  color: transparent;
-  border-color: transparent;
+/* Adjacent repeated values are rendered as one uninterrupted vertical cell.
+   Covered rows retain their grid track while the first cell spans the run. */
+.point-grid-item .is-vertically-merged--covered {
+  visibility: hidden;
+  pointer-events: none;
 }
 
-.point-grid-item .is-visually-merged:not(:hover) select {
-  appearance: none;
+.point-grid-item .is-vertically-merged--start {
+  position: relative;
+  z-index: 4;
+  align-self: start;
+  display: flex;
+  align-items: center;
+  min-height: 100%;
+  box-sizing: border-box;
+  background: var(--sidebar-background, var(--content-background));
+  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  border-radius: 3px;
 }
 
-.point-grid-item:hover .is-visually-merged,
-.point-grid-item:hover .is-visually-merged select,
-.point-grid-item.active .is-visually-merged,
-.point-grid-item.active .is-visually-merged select {
-  color: inherit;
-  appearance: auto;
+.point-grid-item .point-section.is-vertically-merged--start,
+.point-grid-item .point-value.is-vertically-merged--start {
+  justify-content: center;
 }
 
 .range-inline-add-btn {
@@ -12925,7 +12946,7 @@ input.inline-function-input:focus {
 /* ------------------------------------------------------------------ */
 .industry-table tbody tr.inline-range-row > td {
   vertical-align: middle;
-  border-bottom: 1px dashed var(--border-color);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 75%, var(--text-color-muted));
 }
 
 /* Range controls are deliberately contained by their table cell. This keeps
@@ -13000,7 +13021,8 @@ input.inline-function-input:focus {
   min-width: 0;
 }
 
-.range-row-delete {
+.range-row-delete,
+.range-row-add {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -13015,6 +13037,11 @@ input.inline-function-input:focus {
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.range-row-add {
+  color: var(--primary-color);
+  opacity: 1;
 }
 
 /* Reveal the delete affordance only while the row is hovered or keyboard-focused. */
@@ -13033,11 +13060,80 @@ input.inline-function-input:focus {
   opacity: 0;
 }
 
+.range-row-add:hover {
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+}
+
 /* A range can be removed from the one-level-up range list. While its bound,
    unit, or prefix editor is open, remove the redundant action entirely so it
    cannot collide with the trailing prefix control. */
 .range-row-cell:has(.inline-range-editor.is-editing) > .range-row-delete {
   display: none;
+}
+
+.instrument-row-tools {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+
+.instrument-order-controls {
+  display: inline-flex;
+  gap: 1px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.instrument-summary-table tbody tr:hover .instrument-order-controls,
+.instrument-order-controls:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.instrument-order-controls button {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  color: var(--text-color-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.instrument-order-controls button:hover,
+.instrument-order-controls button:focus-visible {
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+}
+
+.instrument-custom-column-label,
+.instrument-custom-column-name-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px 4px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+
+.instrument-custom-column-label {
+  cursor: text;
+}
+
+.instrument-custom-column-name-input:focus {
+  border-color: var(--primary-color);
+  outline: none;
+  background: var(--input-background);
 }
 
 /* --- Collapsed range cell: clicking the active range opens the full editable
@@ -16190,8 +16286,8 @@ body.theme-cyberpunk .area-header-sticky {
 }
 
 .panel-table-container.instrument-panel-table-container {
-  max-height: none;
-  overflow-y: visible;
+  max-height: min(56vh, 560px);
+  overflow-y: auto;
   overflow-x: auto;
 }
 

@@ -17,6 +17,7 @@ const InlineMenuSelect = ({
   width = "72px",
   menuWidth = 220,
   className = "",
+  autoOpen = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [menuRect, setMenuRect] = useState(null);
@@ -46,6 +47,14 @@ const InlineMenuSelect = ({
   };
 
   useEffect(() => {
+    if (!autoOpen) return undefined;
+    const frame = requestAnimationFrame(openMenu);
+    return () => cancelAnimationFrame(frame);
+    // Mount-time handoff from a parent read view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen]);
+
+  useEffect(() => {
     if (!isOpen) return undefined;
     const onPointerDown = (event) => {
       const target = event.target;
@@ -63,7 +72,11 @@ const InlineMenuSelect = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    requestAnimationFrame(() => selectedRef.current?.scrollIntoView({ block: "nearest" }));
+    requestAnimationFrame(() => {
+      if (typeof selectedRef.current?.scrollIntoView === "function") {
+        selectedRef.current.scrollIntoView({ block: "nearest" });
+      }
+    });
   }, [isOpen, value]);
 
   const handleKeyDown = (event) => {

@@ -36,6 +36,8 @@ import {
   faFlask,
   faTimes,
   faRedo,
+  faArrowUp,
+  faArrowDown,
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
@@ -1793,6 +1795,8 @@ const getBandDistLabel = (tolerance = {}) => {
   );
 };
 const formatInstrumentIdentity = (source = {}, fallback = "Unnamed Instrument") => {
+  const nickname = String(source.nickname || "").trim();
+  if (nickname) return nickname;
   const instrument = source.instrument || source || {};
   const manufacturer = instrument.manufacturer || source.manufacturer || "";
   const hasStructuredIdentity =
@@ -2146,6 +2150,15 @@ export const EditableDescriptionCell = ({
       }
     },
     onMouseDown: (e) => e.stopPropagation(),
+    onDoubleClick: (e) => {
+      e.stopPropagation();
+      e.currentTarget.select();
+    },
+    draggable: false,
+    onDragStart: (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    },
     className: "inline-desc-input",
   });
 
@@ -2197,6 +2210,7 @@ export const EditableDescriptionCell = ({
   const combinedDescription =
     [local.make, local.model, local.name].filter(Boolean).join(" ") ||
     "Click to add description";
+  const displayDescription = String(local.nickname || "").trim() || combinedDescription;
   return (
     <div ref={anchorRef} className="inline-desc-cell">
       {editing ? (
@@ -2232,7 +2246,7 @@ export const EditableDescriptionCell = ({
             });
           }}
         >
-          {nickname ? `${combinedDescription} · ${nickname}` : combinedDescription}
+          {displayDescription}
         </button>
       )}
 
@@ -2324,28 +2338,148 @@ const RESOLUTION_DIST_DEFAULT = "3.464";
 
 const EditableCustomFieldCell = ({ value = "", onCommit }) => {
   const [draft, setDraft] = useState(value ?? "");
+  const [editing, setEditing] = useState(false);
   useEffect(() => setDraft(value ?? ""), [value]);
   const commit = () => {
     if (String(draft) !== String(value ?? "")) onCommit?.(draft);
+    setEditing(false);
   };
+  const cancel = () => {
+    setDraft(value ?? "");
+    setEditing(false);
+  };
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className={`inline-tolerance-summary${value ? "" : " is-empty"}`}
+        title="Edit field"
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          setEditing(true);
+        }}
+      >
+        {value || "Not Set"}
+      </button>
+    );
+  }
   return (
     <input
+      autoFocus
       className="instrument-custom-field-input"
       value={draft}
-      placeholder="—"
+      placeholder="Not Set"
       onChange={(event) => setDraft(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === "Enter") event.currentTarget.blur();
         if (event.key === "Escape") {
-          setDraft(value ?? "");
-          event.currentTarget.blur();
+          event.preventDefault();
+          cancel();
         }
       }}
       onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     />
   );
+};
+
+const EditableCustomColumnHeader = ({ column, editing, onCommit, onEdit }) => {
+  const [draft, setDraft] = useState(column.label || "Name");
+  useEffect(() => setDraft(column.label || "Name"), [column.label]);
+  const finish = () => onCommit(String(draft || "").trim() || "Name");
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="instrument-custom-column-label"
+        title="Edit column name"
+        onClick={(event) => {
+          event.stopPropagation();
+          onEdit(column.key);
+        }}
+      >
+        {column.label || "Name"}
+      </button>
+    );
+  }
+  return (
+    <input
+      autoFocus
+      className="instrument-custom-column-name-input"
+      value={draft}
+      aria-label="Column name"
+      onChange={(event) => setDraft(event.target.value)}
+      onFocus={(event) => event.currentTarget.select()}
+      onBlur={finish}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          setDraft(column.label || "Name");
+          event.currentTarget.blur();
+        }
+      }}
+      onClick={(event) => event.stopPropagation()}
+    />
+  );
+};
+
+const InstrumentOrderControls = ({ onMoveUp, onMoveDown }) => (
+  <span className="instrument-order-controls" aria-label="Instrument order">
+    <button
+      type="button"
+      title="Move instrument up"
+      aria-label="Move instrument up"
+      onClick={(event) => {
+        event.stopPropagation();
+        onMoveUp?.();
+      }}
+    >
+      <FontAwesomeIcon icon={faArrowUp} />
+    </button>
+    <button
+      type="button"
+      title="Move instrument down"
+      aria-label="Move instrument down"
+      onClick={(event) => {
+        event.stopPropagation();
+        onMoveDown?.();
+      }}
+    >
+      <FontAwesomeIcon icon={faArrowDown} />
+    </button>
+  </span>
+);
+
+const reorderInstrumentInSession = (
+  sessionData,
+  kind,
+  itemId,
+  functionKey,
+  direction,
+) => {
+  const listKey = kind === "uut" ? "uuts" : "tmdes";
+  const list = [...(sessionData[listKey] || [])];
+  const candidates = list
+    .map((item, index) =>
+      !functionKey || instrumentHasFunction(item, functionKey) ? index : -1,
+    )
+    .filter((index) => index >= 0);
+  const currentListIndex = list.findIndex(
+    (item) => String(item.id) === String(itemId),
+  );
+  const position = candidates.indexOf(currentListIndex);
+  const targetPosition = position + direction;
+  if (position < 0 || targetPosition < 0 || targetPosition >= candidates.length) {
+    return sessionData;
+  }
+  const targetListIndex = candidates[targetPosition];
+  [list[currentListIndex], list[targetListIndex]] = [
+    list[targetListIndex],
+    list[currentListIndex],
+  ];
+  return { ...sessionData, [listKey]: list };
 };
 
 const INLINE_COLUMN_CONTROL_SELECTOR =
@@ -2666,6 +2800,7 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
       }}
     >
       <InlineMenuSelect
+        autoOpen
         value={String(divisor || DISTRIBUTION_NOT_SET)}
         options={errorDistributions}
         ariaLabel="Spec band distribution"
@@ -3946,6 +4081,7 @@ export const RangeCell = ({
   onExpandAll,
   onEnsureInitialRange,
   onOpenTolerance,
+  onAdvanceRange,
   openRequested = false,
   onOpenRequestHandled,
   onRequestEditAfterExpand,
@@ -4045,20 +4181,6 @@ export const RangeCell = ({
           >
             {summary}
           </button>
-          {onExpandAll && (
-            <button
-              type="button"
-              className="range-inline-add-btn"
-              title="Add range"
-              aria-label="Add range"
-              onClick={(event) => {
-                event.stopPropagation();
-                onExpandAll();
-              }}
-            >
-              <FontAwesomeIcon icon={faPlus} size="xs" />
-            </button>
-          )}
         </div>
       </div>
     );
@@ -4095,6 +4217,11 @@ export const RangeCell = ({
     onPatchRange?.({ isSingleValue: true, value: raw, min: raw, max: raw });
   };
   const openToleranceFromUnit = () => {
+    if (onAdvanceRange) {
+      setIsEditing(false);
+      onAdvanceRange();
+      return;
+    }
     if (!onOpenTolerance) return;
     setIsEditing(false);
     onOpenTolerance();
@@ -5909,37 +6036,51 @@ const SummaryDashboard = ({
   collapsedFunctionKeys,
   setCollapsedFunctionKeys,
   keyboardShortcutsEnabled = true,
+  onInstrumentSelection = () => {},
 }) => {
+  const latestSessionDataRef = useRef(sessionData);
+  latestSessionDataRef.current = sessionData;
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
   // Add Function picker: null | "uut" | "tmde" (which table's button opened it).
   const [addFunctionMenu, setAddFunctionMenu] = useState(null);
   const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
+  const [editingCustomColumnKey, setEditingCustomColumnKey] = useState(null);
   const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
   const customColumnsFor = (kind) =>
     sessionData.instrumentCustomColumns?.[kind] || [];
   const requestCustomColumn = (kind) => {
-    setNotification?.({
-      title: `Add ${kind === "uut" ? "UUT" : "TMDE"} Column`,
-      message: "Name the optional session field to add to this table.",
-      inputLabel: "Column name",
-      inputPlaceholder: "e.g. ICP use code",
-      validateInput: (value) =>
-        value.trim() ? "" : "Enter a column name.",
-      onConfirm: (value) => {
-        const label = value.trim();
-        const key = `${makeFunctionKey(label) || "field"}-${uuidv4().slice(0, 8)}`;
-        const current = sessionData.instrumentCustomColumns || {};
-        onSessionSave({
-          ...sessionData,
-          instrumentCustomColumns: {
-            ...current,
-            [kind]: [...(current[kind] || []), { key, label }],
-          },
-        });
-        setNotification(null);
+    const key = `field-${uuidv4().slice(0, 8)}`;
+    const current = sessionData.instrumentCustomColumns || {};
+    onSessionSave?.({
+      ...sessionData,
+      instrumentCustomColumns: {
+        ...current,
+        [kind]: [...(current[kind] || []), { key, label: "Name" }],
       },
     });
+    setEditingCustomColumnKey(key);
   };
+  const updateCustomColumnLabel = (kind, key, label) => {
+    const current = sessionData.instrumentCustomColumns || {};
+    onSessionSave?.({
+      ...sessionData,
+      instrumentCustomColumns: {
+        ...current,
+        [kind]: (current[kind] || []).map((column) =>
+          column.key === key ? { ...column, label } : column,
+        ),
+      },
+    });
+    setEditingCustomColumnKey(null);
+  };
+  const renderCustomColumnHeader = (kind, column) => (
+    <EditableCustomColumnHeader
+      column={column}
+      editing={editingCustomColumnKey === column.key}
+      onEdit={setEditingCustomColumnKey}
+      onCommit={(label) => updateCustomColumnLabel(kind, column.key, label)}
+    />
+  );
   const updateCustomField = (kind, itemId, key, value) => {
     const listKey = kind === "uut" ? "uuts" : "tmdes";
     onSessionSave({
@@ -6169,15 +6310,16 @@ const SummaryDashboard = ({
   };
 
   const persistInlineItem = (kind, updatedItem, { maybePromptLocal = false } = {}) => {
+    const currentSession = latestSessionDataRef.current;
     const localizedItem = localizeSharedInstrumentEdit(updatedItem, instruments);
     const synchronized = synchronizeLocalInstrumentDefinitions(
-      sessionData,
+      currentSession,
       localizedItem,
       kind,
     );
-    let nextTestPoints = sessionData.testPoints || [];
+    let nextTestPoints = currentSession.testPoints || [];
     synchronized.uuts.forEach((nextItem) => {
-      const previousItem = (sessionData.uuts || []).find(
+      const previousItem = (currentSession.uuts || []).find(
         (item) => String(item.id) === String(nextItem.id),
       );
       if (previousItem && previousItem !== nextItem) {
@@ -6189,7 +6331,7 @@ const SummaryDashboard = ({
       }
     });
     synchronized.tmdes.forEach((nextItem) => {
-      const previousItem = (sessionData.tmdes || []).find(
+      const previousItem = (currentSession.tmdes || []).find(
         (item) => String(item.id) === String(nextItem.id),
       );
       if (previousItem && previousItem !== nextItem) {
@@ -6197,7 +6339,7 @@ const SummaryDashboard = ({
       }
     });
     const nextSession = {
-      ...sessionData,
+      ...currentSession,
       uuts: synchronized.uuts,
       tmdes: synchronized.tmdes,
       testPoints: nextTestPoints,
@@ -6205,6 +6347,7 @@ const SummaryDashboard = ({
     const synchronizedItem = (
       kind === "uut" ? synchronized.uuts : synchronized.tmdes
     ).find((item) => String(item.id) === String(localizedItem.id)) || localizedItem;
+    latestSessionDataRef.current = nextSession;
     onSessionSave(nextSession);
     if (
       onSaveInstrument &&
@@ -6873,6 +7016,22 @@ const SummaryDashboard = ({
       return next;
     });
   };
+  const handleAddBlankRange = (kind, item, activeRangeId) => {
+    if (!onSessionSave) return;
+    const currentSession = latestSessionDataRef.current;
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    const currentItem = (currentSession[listKey] || []).find(
+      (candidate) => String(candidate.id) === String(item.id),
+    ) || item;
+    const { item: updated, newRangeId } = addRangeToItem(
+      currentItem,
+      activeRangeId,
+    );
+    persistItem(kind, updated);
+    if (newRangeId) {
+      setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
+    }
+  };
   const handleDeleteSelectedRanges = () => {
     if (!onSessionSave) return;
     const entry = Object.entries(selectedRangeIds).find(
@@ -7159,6 +7318,7 @@ const SummaryDashboard = ({
         }}
       >
         <FontAwesomeIcon icon={faPlus} size="xs" />
+        <span>Add Instrument</span>
       </button>
     );
   };
@@ -7551,6 +7711,7 @@ const SummaryDashboard = ({
       canDeleteRange = true,
       rangeIndex = 0,
       totalRanges = 1,
+      nextRange = null,
     } = {},
   ) => {
     const setRangeIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
@@ -7583,11 +7744,32 @@ const SummaryDashboard = ({
               onPatchRange={(patch) => patchRange(kind, item, rangeKey, patch)}
               onClearRange={() => handleRemoveRange(kind, item, rangeKey)}
               onOpenTolerance={() => openRangeTolerance(kind, item, range)}
+              onAdvanceRange={
+                nextRange
+                  ? () =>
+                      setPendingRangeEditKey(
+                        `${itemStateKey(kind, item.id)}:${rangeIdOf(nextRange)}`,
+                      )
+                  : undefined
+              }
               openRequested={
                 pendingRangeEditKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
+            <button
+              type="button"
+              className="range-row-add"
+              title="Add range"
+              aria-label="Add range"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleAddBlankRange(kind, item, rangeKey);
+              }}
+            >
+              <FontAwesomeIcon icon={faPlus} />
+            </button>
             <button
               type="button"
               className="range-row-delete"
@@ -7786,7 +7968,7 @@ const SummaryDashboard = ({
       );
     } else if (viewMode === "uut") {
       const uut = uuts.find((u) => u.id === contextId);
-      displayTitle = uut?.description || "UUT Detail";
+      displayTitle = uut?.nickname || uut?.description || "UUT Detail";
       displaySubtitle = `${uut?.manufacturer || ""} ${uut?.model || ""}`;
       uuts = uut ? [uut] : [];
       points = points.filter(
@@ -7825,7 +8007,7 @@ const SummaryDashboard = ({
         return minMatch && maxMatch && unitMatch && functionIdMatch && funcMatch;
       });
       displayTitle = rangeData.label || "Range Detail";
-      displaySubtitle = `${uut?.description || "UUT"} (${uut?.model || ""})`;
+      displaySubtitle = `${uut?.nickname || uut?.description || "UUT"} (${uut?.model || ""})`;
     }
 
     return {
@@ -7916,6 +8098,7 @@ const SummaryDashboard = ({
   // Selection Handlers (Wrapped)
   const handleUutClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
+      onInstrumentSelection();
       setLastSelectionTarget("uut");
       setSelectedRangeIds({});
     }
@@ -7923,6 +8106,7 @@ const SummaryDashboard = ({
   };
   const handleTmdeClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
+      onInstrumentSelection();
       setLastSelectionTarget("tmde");
       setSelectedRangeIds({});
     }
@@ -8050,6 +8234,17 @@ const SummaryDashboard = ({
     instrumentClipboard = { kind, mode, item: JSON.parse(JSON.stringify(item)) };
   };
 
+  const moveInstrument = (kind, itemId, functionKey, direction) => {
+    const updated = reorderInstrumentInSession(
+      sessionData,
+      kind,
+      itemId,
+      functionKey,
+      direction,
+    );
+    if (updated !== sessionData) onSessionSave?.(updated);
+  };
+
   const pasteInstrument = (kind, targetAreaId) => {
     if (!onSessionSave || !instrumentClipboard) return;
     const clip = instrumentClipboard;
@@ -8071,7 +8266,7 @@ const SummaryDashboard = ({
       else setSelectedTmdeIds([clone.id]);
       onSessionSave({
         ...sessionData,
-        [listKey]: [clone, ...(sessionData[listKey] || [])],
+        [listKey]: [...(sessionData[listKey] || []), clone],
       });
     }
   };
@@ -8347,7 +8542,7 @@ const SummaryDashboard = ({
               aria-label="Add UUT column"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
-              <span>Column</span>
+              <span>Add Column</span>
             </button>
             <button
               className="btn-add-item"
@@ -8361,6 +8556,7 @@ const SummaryDashboard = ({
               title="Add Function"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
+              <span>Add Function</span>
             </button>
             {renderAddFunctionMenu("uut")}
           </div>
@@ -8376,13 +8572,13 @@ const SummaryDashboard = ({
           >
             <colgroup>
               <col style={{ width: "22%" }} />
-              <col style={{ width: "21%" }} />
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "30%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "35%" }} />
               {customColumnsFor("uut").map((column) => (
                 <col key={column.key} style={{ width: "140px" }} />
               ))}
-              <col style={{ width: "5%" }} />
+              <col style={{ width: "7%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -8395,7 +8591,7 @@ const SummaryDashboard = ({
                 <th>Tolerance</th>
                 <th>Resolution</th>
                 {customColumnsFor("uut").map((column) => (
-                  <th key={column.key}>{column.label}</th>
+                  <th key={column.key}>{renderCustomColumnHeader("uut", column)}</th>
                 ))}
                 <th className="cell-sync">Sync</th>
               </tr>
@@ -8491,7 +8687,7 @@ const SummaryDashboard = ({
                   // selects that range so the header +/-/tolerance buttons act on it.
                   if (showAllRanges) {
                     const n = visibleRangeRows.length;
-                    const spanRows = n + 1; // +1 for the trailing ghost add-row
+                    const spanRows = n;
                     const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={uutRowKey}>
@@ -8506,7 +8702,7 @@ const SummaryDashboard = ({
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "uut", uut, index, rangeIdOf(range), uutRowKey)
                               }
-                              draggable={i === 0 && !!onSessionSave}
+                              draggable={false}
                               onDragStart={
                                 i === 0
                                   ? handleInstrumentDragStart("uut", uut, uutFnKey)
@@ -8545,6 +8741,7 @@ const SummaryDashboard = ({
                                 canDeleteRange: true,
                                 rangeIndex: index,
                                 totalRanges: n,
+                                nextRange: visibleRangeRows[i + 1]?.range || null,
                               })}
                               {i === 0 && renderCustomCells("uut", uut, spanRows)}
                               {i === 0 && (
@@ -8553,15 +8750,17 @@ const SummaryDashboard = ({
                                   className="cell-sync"
                                   style={{ textAlign: "center" }}
                                 >
-                                  <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                  <div className="instrument-row-tools">
+                                    <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                    <InstrumentOrderControls
+                                      onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                                      onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                                    />
+                                  </div>
                                 </td>
                               )}
                             </tr>
                           );
-                        })}
-                        {renderGhostRangeRow("uut", uut, activeRange, {
-                          includeDistribution: false,
-                          stateId: uutRowKey,
                         })}
                       </React.Fragment>
                     );
@@ -8573,7 +8772,7 @@ const SummaryDashboard = ({
                         className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleUutClick(e, uut.id)}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
-                        draggable={!!onSessionSave}
+                        draggable={false}
                         onDragStart={handleInstrumentDragStart("uut", uut, uutFnKey)}
                         onDragEnd={handleInstrumentDragEnd}
                         onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
@@ -8787,7 +8986,13 @@ const SummaryDashboard = ({
                           className="cell-sync"
                           style={{ textAlign: "center" }}
                         >
-                          <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                          <div className="instrument-row-tools">
+                            <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                            <InstrumentOrderControls
+                              onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                              onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                            />
+                          </div>
                         </td>
                       </tr>
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
@@ -8843,7 +9048,7 @@ const SummaryDashboard = ({
               aria-label="Add TMDE column"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
-              <span>Column</span>
+              <span>Add Column</span>
             </button>
             <button
               className="btn-add-item"
@@ -8857,6 +9062,7 @@ const SummaryDashboard = ({
               title="Add Function"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
+              <span>Add Function</span>
             </button>
             {renderAddFunctionMenu("tmde")}
           </div>
@@ -8871,15 +9077,15 @@ const SummaryDashboard = ({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "19%" }} />
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "16%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: "28%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "14%" }} />
+              <col style={{ width: "12%" }} />
+              <col style={{ width: "31%" }} />
               {customColumnsFor("tmde").map((column) => (
                 <col key={column.key} style={{ width: "140px" }} />
               ))}
-              <col style={{ width: "5%" }} />
+              <col style={{ width: "7%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -8893,7 +9099,7 @@ const SummaryDashboard = ({
                 <th className="cell-distribution">Distribution</th>
                 <th>Resolution</th>
                 {customColumnsFor("tmde").map((column) => (
-                  <th key={column.key}>{column.label}</th>
+                  <th key={column.key}>{renderCustomColumnHeader("tmde", column)}</th>
                 ))}
                 <th className="cell-sync">Sync</th>
               </tr>
@@ -8949,7 +9155,7 @@ const SummaryDashboard = ({
                   // per-range cell.
                   if (showAllRanges) {
                     const n = visibleRangeRows.length;
-                    const spanRows = n + 1; // +1 for the trailing ghost add-row
+                    const spanRows = n;
                     const activeRangeIndex = tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={tmdeRowKey || idx}>
@@ -8964,7 +9170,7 @@ const SummaryDashboard = ({
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "tmde", tmde, index, rangeIdOf(range), tmdeRowKey)
                               }
-                              draggable={i === 0 && !!onSessionSave}
+                              draggable={false}
                               onDragStart={
                                 i === 0
                                   ? handleInstrumentDragStart("tmde", tmde, tmdeFnKey)
@@ -9003,6 +9209,7 @@ const SummaryDashboard = ({
                                 canDeleteRange: true,
                                 rangeIndex: index,
                                 totalRanges: n,
+                                nextRange: visibleRangeRows[i + 1]?.range || null,
                               })}
                               {i === 0 && renderCustomCells("tmde", tmde, spanRows)}
                               {i === 0 && (
@@ -9011,15 +9218,17 @@ const SummaryDashboard = ({
                                   className="cell-sync"
                                   style={{ textAlign: "center" }}
                                 >
-                                  <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                                  <div className="instrument-row-tools">
+                                    <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                                    <InstrumentOrderControls
+                                      onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
+                                      onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
+                                    />
+                                  </div>
                                 </td>
                               )}
                             </tr>
                           );
-                        })}
-                        {renderGhostRangeRow("tmde", tmde, activeRange, {
-                          includeDistribution: true,
-                          stateId: tmdeRowKey,
                         })}
                       </React.Fragment>
                     );
@@ -9031,7 +9240,7 @@ const SummaryDashboard = ({
                         className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleTmdeClick(e, tmde.id)}
                         onMouseEnter={() => setHoveredRowId(tmde.id)}
-                        draggable={!!onSessionSave}
+                        draggable={false}
                         onDragStart={handleInstrumentDragStart("tmde", tmde, tmdeFnKey)}
                         onDragEnd={handleInstrumentDragEnd}
                         onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
@@ -9072,7 +9281,7 @@ const SummaryDashboard = ({
                             />
                           ) : (
                             <>
-                              <div style={{ fontWeight: 600 }}>{tmde.name}</div>
+                              <div style={{ fontWeight: 600 }}>{tmde.nickname || tmde.name}</div>
                               {tmde.instrument && (
                                 <div
                                   style={{
@@ -9276,7 +9485,13 @@ const SummaryDashboard = ({
                           className="cell-sync"
                           style={{ textAlign: "center" }}
                         >
-                          <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                          <div className="instrument-row-tools">
+                            <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                            <InstrumentOrderControls
+                              onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
+                              onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
+                            />
+                          </div>
                         </td>
                       </tr>
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
@@ -9469,7 +9684,10 @@ function DetailedView({
   collapsedFunctionKeys,
   setCollapsedFunctionKeys,
   keyboardShortcutsEnabled = true,
+  onInstrumentSelection = () => {},
 }) {
+  const latestSessionDataRef = useRef(sessionData);
+  latestSessionDataRef.current = sessionData;
   const [isSymbolMenuOpen, setIsSymbolMenuOpen] = useState(false);
   const [symbolMenuPosition, setSymbolMenuPosition] = useState({
     top: 0,
@@ -9493,31 +9711,42 @@ function DetailedView({
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
   const [detailDraggingInstrumentId, setDetailDraggingInstrumentId] = useState(null);
   const [detailDragOverFunctionTarget, setDetailDragOverFunctionTarget] = useState(null);
+  const [editingCustomColumnKey, setEditingCustomColumnKey] = useState(null);
   const customColumnsFor = (kind) =>
     sessionData.instrumentCustomColumns?.[kind] || [];
   const requestCustomColumn = (kind) => {
-    setNotification?.({
-      title: `Add ${kind === "uut" ? "UUT" : "TMDE"} Column`,
-      message: "Name the optional session field to add to this table.",
-      inputLabel: "Column name",
-      inputPlaceholder: "e.g. NCE status",
-      validateInput: (value) =>
-        value.trim() ? "" : "Enter a column name.",
-      onConfirm: (value) => {
-        const label = value.trim();
-        const key = `${makeFunctionKey(label) || "field"}-${uuidv4().slice(0, 8)}`;
-        const current = sessionData.instrumentCustomColumns || {};
-        onSessionSave?.({
-          ...sessionData,
-          instrumentCustomColumns: {
-            ...current,
-            [kind]: [...(current[kind] || []), { key, label }],
-          },
-        });
-        setNotification(null);
+    const key = `field-${uuidv4().slice(0, 8)}`;
+    const current = sessionData.instrumentCustomColumns || {};
+    onSessionSave?.({
+      ...sessionData,
+      instrumentCustomColumns: {
+        ...current,
+        [kind]: [...(current[kind] || []), { key, label: "Name" }],
       },
     });
+    setEditingCustomColumnKey(key);
   };
+  const updateCustomColumnLabel = (kind, key, label) => {
+    const current = sessionData.instrumentCustomColumns || {};
+    onSessionSave?.({
+      ...sessionData,
+      instrumentCustomColumns: {
+        ...current,
+        [kind]: (current[kind] || []).map((column) =>
+          column.key === key ? { ...column, label } : column,
+        ),
+      },
+    });
+    setEditingCustomColumnKey(null);
+  };
+  const renderCustomColumnHeader = (kind, column) => (
+    <EditableCustomColumnHeader
+      column={column}
+      editing={editingCustomColumnKey === column.key}
+      onEdit={setEditingCustomColumnKey}
+      onCommit={(label) => updateCustomColumnLabel(kind, column.key, label)}
+    />
+  );
   const updateCustomField = (kind, itemId, key, value) => {
     const listKey = kind === "uut" ? "uuts" : "tmdes";
     onSessionSave?.({
@@ -9707,6 +9936,17 @@ function DetailedView({
   const copyInstrument = (kind, item, mode = "copy") => {
     instrumentClipboard = { kind, mode, item: JSON.parse(JSON.stringify(item)) };
   };
+
+  const moveInstrument = (kind, itemId, functionKey, direction) => {
+    const updated = reorderInstrumentInSession(
+      sessionData,
+      kind,
+      itemId,
+      functionKey,
+      direction,
+    );
+    if (updated !== sessionData) onSessionSave?.(updated);
+  };
   const pasteInstrument = (kind, targetAreaId) => {
     if (!onSessionSave || !instrumentClipboard) return;
     const clip = instrumentClipboard;
@@ -9728,7 +9968,7 @@ function DetailedView({
       else setSelectedTmdeIds([clone.id]);
       onSessionSave({
         ...sessionData,
-        [listKey]: [clone, ...(sessionData[listKey] || [])],
+        [listKey]: [...(sessionData[listKey] || []), clone],
       });
     }
   };
@@ -10130,20 +10370,23 @@ function DetailedView({
     { maybePromptLocal = false } = {},
   ) => {
     if (!onSessionSave) return;
+    const currentSession = latestSessionDataRef.current;
     const localizedItem = localizeSharedInstrumentEdit(updatedItem, instruments);
     const synchronized = synchronizeLocalInstrumentDefinitions(
-      sessionData,
+      currentSession,
       localizedItem,
       kind,
     );
     const synchronizedItem = (
       kind === "uut" ? synchronized.uuts : synchronized.tmdes
     ).find((item) => String(item.id) === String(localizedItem.id)) || localizedItem;
-    onSessionSave({
-      ...sessionData,
+    const nextSession = {
+      ...currentSession,
       uuts: synchronized.uuts,
       tmdes: synchronized.tmdes,
-    });
+    };
+    latestSessionDataRef.current = nextSession;
+    onSessionSave(nextSession);
     if (
       onSaveInstrument &&
       (synchronizedItem.instrument?.sourceId ||
@@ -10155,7 +10398,7 @@ function DetailedView({
       promptLocalLibrarySave(kind, synchronizedItem);
     }
     synchronized.tmdes.forEach((nextItem) => {
-      const previousItem = (sessionData.tmdes || []).find(
+      const previousItem = (currentSession.tmdes || []).find(
         (item) => String(item.id) === String(nextItem.id),
       );
       if (previousItem && previousItem !== nextItem) {
@@ -10182,7 +10425,9 @@ function DetailedView({
     (sessionData.uuts || []).forEach((u) => {
       if (u.id !== uutId) return;
       updatedItem =
-        field === "name"
+        field === "nickname"
+          ? { ...u, nickname: value }
+          : field === "name"
           ? {
               ...u,
               description: value,
@@ -10208,7 +10453,9 @@ function DetailedView({
     (sessionData.tmdes || []).forEach((t) => {
       if (t.id !== tmdeId) return;
       updatedItem =
-        field === "name"
+        field === "nickname"
+          ? { ...t, nickname: value }
+          : field === "name"
           ? {
               ...t,
               name: value,
@@ -10584,6 +10831,22 @@ function DetailedView({
       return next;
     });
   };
+  const handleAddBlankRangeDetail = (kind, item, activeRangeId) => {
+    if (!onSessionSave) return;
+    const currentSession = latestSessionDataRef.current;
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    const currentItem = (currentSession[listKey] || []).find(
+      (candidate) => String(candidate.id) === String(item.id),
+    ) || item;
+    const { item: updated, newRangeId } = addRangeToItem(
+      currentItem,
+      activeRangeId,
+    );
+    persistInlineItemDetail(kind, updated);
+    if (newRangeId) {
+      setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
+    }
+  };
   const handleDeleteSelectedRanges = () => {
     if (!onSessionSave) return;
     const entry = Object.entries(selectedRangeIds).find(
@@ -10821,6 +11084,7 @@ function DetailedView({
       canDeleteRange = true,
       rangeIndex = 0,
       totalRanges = 1,
+      nextRange = null,
     },
   ) => {
     const tableId = kind === "uut" ? "uut_det" : "tmde_det";
@@ -10852,11 +11116,32 @@ function DetailedView({
               onPatchRange={(patch) => patchRangeDetail(kind, item, rangeKey, patch)}
               onClearRange={() => handleRemoveRangeDetail(kind, item, rangeKey)}
               onOpenTolerance={() => openRangeToleranceDetail(kind, item, range)}
+              onAdvanceRange={
+                nextRange
+                  ? () =>
+                      setPendingRangeEditKey(
+                        `${itemStateKey(kind, item.id)}:${rangeIdOf(nextRange)}`,
+                      )
+                  : undefined
+              }
               openRequested={
                 pendingRangeEditKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
+            <button
+              type="button"
+              className="range-row-add"
+              title="Add range"
+              aria-label="Add range"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleAddBlankRangeDetail(kind, item, rangeKey);
+              }}
+            >
+              <FontAwesomeIcon icon={faPlus} />
+            </button>
             <button
               type="button"
               className="range-row-delete"
@@ -11056,6 +11341,7 @@ function DetailedView({
   // --- NEW: Row Selection Handlers ---
   const handleUutClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
+      onInstrumentSelection();
       setLastSelectionTarget("uut");
       setSelectedRangeIds({});
     }
@@ -11063,6 +11349,7 @@ function DetailedView({
   };
   const handleTmdeClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
+      onInstrumentSelection();
       setLastSelectionTarget("tmde");
       setSelectedRangeIds({});
     }
@@ -11562,6 +11849,7 @@ function DetailedView({
         }}
       >
         <FontAwesomeIcon icon={faPlus} size="xs" />
+        <span>Add Instrument</span>
       </button>
     ) : null;
 
@@ -13134,7 +13422,9 @@ function DetailedView({
     // how the TMDE table labels the row; fall back to the instrument identity.
     const masterId = tmde?.sourceId ?? tmde?.id;
     const master = (sessionData.tmdes || []).find((m) => m.id === masterId);
-    const name = String(master?.name ?? tmde?.name ?? "").trim();
+    const name = String(
+      master?.nickname ?? tmde?.nickname ?? master?.name ?? tmde?.name ?? "",
+    ).trim();
     return name || formatInstrumentIdentity(master || tmde, "Unnamed TMDE");
   };
 
@@ -14361,7 +14651,7 @@ function DetailedView({
               aria-label="Add UUT column"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
-              <span>Column</span>
+              <span>Add Column</span>
             </button>
             <button
               className="btn-add-item"
@@ -14375,6 +14665,7 @@ function DetailedView({
               title="Add Function"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
+              <span>Add Function</span>
             </button>
             {renderAddFunctionMenu("uut")}
           </div>
@@ -14390,13 +14681,13 @@ function DetailedView({
           >
             <colgroup>
               <col style={{ width: "22%" }} />
-              <col style={{ width: "21%" }} />
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "30%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "35%" }} />
               {customColumnsFor("uut").map((column) => (
                 <col key={column.key} style={{ width: "140px" }} />
               ))}
-              <col style={{ width: "5%" }} />
+              <col style={{ width: "7%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -14409,7 +14700,7 @@ function DetailedView({
                 <th>Tolerance</th>
                 <th>Resolution</th>
                 {customColumnsFor("uut").map((column) => (
-                  <th key={column.key}>{column.label}</th>
+                  <th key={column.key}>{renderCustomColumnHeader("uut", column)}</th>
                 ))}
                 <th className="cell-sync">Sync</th>
               </tr>
@@ -14459,7 +14750,7 @@ function DetailedView({
                   // columns line up (see the Session-Overview panel for rationale).
                   if (showAllRanges) {
                     const n = visibleRangeRows.length;
-                    const spanRows = n + 1; // +1 for the trailing ghost add-row
+                    const spanRows = n;
                     const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={uutRowKey}>
@@ -14480,7 +14771,7 @@ function DetailedView({
                                   handleRangeChange(uut.id, index, ranges, isActivePointUut);
                                 }
                               }}
-                              draggable={i === 0 && !!onSessionSave}
+                              draggable={false}
                               onDragStart={
                                 i === 0
                                   ? handleDetailInstrumentDragStart(
@@ -14540,6 +14831,7 @@ function DetailedView({
                                 canDeleteRange: true,
                                 rangeIndex: index,
                                 totalRanges: n,
+                                nextRange: visibleRangeRows[i + 1]?.range || null,
                               })}
                               {i === 0 && renderCustomCells("uut", uut, spanRows)}
                               {i === 0 && (
@@ -14548,16 +14840,17 @@ function DetailedView({
                                   className="cell-sync"
                                   style={{ textAlign: "center" }}
                                 >
-                                  <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                  <div className="instrument-row-tools">
+                                    <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                    <InstrumentOrderControls
+                                      onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                                      onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                                    />
+                                  </div>
                                 </td>
                               )}
                             </tr>
                           );
-                        })}
-                        {renderGhostRangeRowDetail("uut", uut, activeRange, {
-                          includeDistribution: false,
-                          stateId: uutRowKey,
-                          cols: { range: 1, tol: 2, res: 3 },
                         })}
                       </React.Fragment>
                     );
@@ -14574,7 +14867,7 @@ function DetailedView({
                             detailDraggingInstrumentId === uut.id ? 0.4 : undefined,
                         }}
                         onClick={(e) => handleUutClick(e, uut.id)}
-                        draggable={!!onSessionSave}
+                        draggable={false}
                         onDragStart={handleDetailInstrumentDragStart(
                           "uut",
                           uut,
@@ -14612,7 +14905,7 @@ function DetailedView({
                                 }
                               />
                             ) : (
-                              <span>{uut.description}</span>
+                              <span>{uut.nickname || uut.description}</span>
                             )}
                             {isActivePointUut && (
                               <span
@@ -14800,7 +15093,13 @@ function DetailedView({
                           className="cell-sync"
                           style={{ textAlign: "center" }}
                         >
-                          <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                          <div className="instrument-row-tools">
+                            <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                            <InstrumentOrderControls
+                              onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                              onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                            />
+                          </div>
                         </td>
                       </tr>
 
@@ -15141,7 +15440,7 @@ function DetailedView({
                 aria-label="Add TMDE column"
               >
                 <FontAwesomeIcon icon={faPlus} size="xs" />
-                <span>Column</span>
+                <span>Add Column</span>
               </button>
               <button
                 className="btn-add-item"
@@ -15155,6 +15454,7 @@ function DetailedView({
                 title="Add Function"
               >
                 <FontAwesomeIcon icon={faPlus} size="xs" />
+                <span>Add Function</span>
               </button>
               {renderAddFunctionMenu("tmde")}
             </div>
@@ -15170,15 +15470,15 @@ function DetailedView({
               style={{ tableLayout: "fixed" }}
             >
               <colgroup>
-                <col style={{ width: "19%" }} />
-                <col style={{ width: "22%" }} />
-                <col style={{ width: "16%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "28%" }} />
+                <col style={{ width: "18%" }} />
+                <col style={{ width: "18%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "12%" }} />
+                <col style={{ width: "31%" }} />
                 {customColumnsFor("tmde").map((column) => (
                   <col key={column.key} style={{ width: "140px" }} />
                 ))}
-                <col style={{ width: "5%" }} />
+                <col style={{ width: "7%" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -15192,7 +15492,7 @@ function DetailedView({
                   <th className="cell-distribution">Distribution</th>
                   <th>Resolution</th>
                   {customColumnsFor("tmde").map((column) => (
-                    <th key={column.key}>{column.label}</th>
+                    <th key={column.key}>{renderCustomColumnHeader("tmde", column)}</th>
                   ))}
                   <th className="cell-sync">Sync</th>
                 </tr>
@@ -15268,6 +15568,7 @@ function DetailedView({
                       );
 
                       const safeDescription =
+                        masterTmde.nickname ||
                         masterTmde.description ||
                         masterTmde.name ||
                         (masterTmde.instrument
@@ -15279,7 +15580,7 @@ function DetailedView({
                       // first range row.
                       if (showAllRanges) {
                         const n = visibleRangeRows.length;
-                        const spanRows = n + 1; // +1 for the trailing ghost add-row
+                        const spanRows = n;
                         const activeRangeIndex =
                           tmdeRangeIndices[rangeStateKey] ?? activeIndex;
                         return (
@@ -15306,7 +15607,7 @@ function DetailedView({
                                       );
                                     }
                                   }}
-                                  draggable={i === 0 && !!onSessionSave}
+                                  draggable={false}
                                   onDragStart={
                                     i === 0
                                       ? handleDetailInstrumentDragStart(
@@ -15366,6 +15667,7 @@ function DetailedView({
                                     canDeleteRange: true,
                                     rangeIndex: index,
                                     totalRanges: n,
+                                    nextRange: visibleRangeRows[i + 1]?.range || null,
                                   })}
                                   {i === 0 &&
                                     renderCustomCells("tmde", masterTmde, spanRows)}
@@ -15375,19 +15677,20 @@ function DetailedView({
                                       className="cell-sync"
                                       style={{ textAlign: "center" }}
                                     >
-                                      <SyncBadge
-                                        item={masterTmde}
-                                        onSync={() => handleSyncItem("tmde", masterTmde)}
-                                      />
+                                      <div className="instrument-row-tools">
+                                        <SyncBadge
+                                          item={masterTmde}
+                                          onSync={() => handleSyncItem("tmde", masterTmde)}
+                                        />
+                                        <InstrumentOrderControls
+                                          onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
+                                          onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
+                                        />
+                                      </div>
                                     </td>
                                   )}
                                 </tr>
                               );
-                            })}
-                            {renderGhostRangeRowDetail("tmde", masterTmde, activeRange, {
-                              includeDistribution: true,
-                              stateId: tmdeRowKey,
-                              cols: { range: 1, tol: 2, res: 4 },
                             })}
                           </React.Fragment>
                         );
@@ -15403,7 +15706,7 @@ function DetailedView({
                               cursor: "pointer",
                             }}
                             onClick={(e) => handleTmdeClick(e, masterTmde.id)}
-                            draggable={!!onSessionSave}
+                            draggable={false}
                             onDragStart={handleDetailInstrumentDragStart(
                               "tmde",
                               masterTmde,
@@ -15727,7 +16030,13 @@ function DetailedView({
                               className="cell-sync"
                               style={{ textAlign: "center" }}
                             >
-                              <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} />
+                              <div className="instrument-row-tools">
+                                <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} />
+                                <InstrumentOrderControls
+                                  onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
+                                  onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
+                                />
+                              </div>
                             </td>
                           </tr>
 
@@ -15927,6 +16236,7 @@ const UncertaintyPanel = (props) => {
         collapsedFunctionKeys={collapsedFunctionKeys}
         setCollapsedFunctionKeys={setCollapsedFunctionKeys}
         keyboardShortcutsEnabled={props.keyboardShortcutsEnabled}
+        onInstrumentSelection={props.onInstrumentSelection}
       />
     );
   }

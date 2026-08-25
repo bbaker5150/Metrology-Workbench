@@ -25,6 +25,7 @@ import UniversalInstrumentModal from "./features/instruments/components/Universa
 import UnresolvedToleranceModal from "./features/testPoints/components/UnresolvedToleranceModal";
 import BugReportModal from "./components/modals/BugReportModal";
 import GuidedWalkthrough from "./components/common/GuidedWalkthrough";
+import InlineMenuSelect from "./components/common/InlineMenuSelect";
 
 // --- Brand emblem (shared 3D medallion recipe) ---
 import HeaderEmblem from "./components/HeaderEmblem";
@@ -271,7 +272,7 @@ const formatInstrumentIdentity = (item = {}) => {
     ? name
     : `${prefix} ${name}`;
   const nickname = String(item.nickname || "").trim();
-  return nickname ? `${identity} · ${nickname}` : identity;
+  return nickname || identity;
 };
 
 const SCOPED_ZOOM_SURFACE_SELECTOR = [
@@ -509,6 +510,24 @@ export const SidebarPointItem = ({
     noGbMeasRel: false,
   },
 }) => {
+  const mergedClass = (field) => {
+    const state = mergedFields[field];
+    if (!state) return "";
+    return state.covered
+      ? " is-vertically-merged is-vertically-merged--covered"
+      : state.span > 1
+        ? " is-vertically-merged is-vertically-merged--start"
+        : "";
+  };
+  const mergedStyle = (field) =>
+    mergedFields[field]?.span > 1
+      ? {
+          "--merged-row-span": mergedFields[field].span,
+          height: `calc(${mergedFields[field].span * 100}% + ${
+            mergedFields[field].span - 1
+          }px)`,
+        }
+      : undefined;
   // 'section' | 'value' | 'qualifier' | null. A freshly quick-added point
   // mounts straight into value-edit (autoEditValue) so the user can just type.
   const [editingField, setEditingField] = useState(
@@ -785,26 +804,26 @@ export const SidebarPointItem = ({
     >
       {visibleColumns.uut && (
         <span
-          className={`point-uut-name point-uut-selector-cell${mergedFields.uut ? " is-visually-merged" : ""}`}
+          className={`point-uut-name point-uut-selector-cell${mergedClass("uut")}`}
+          style={mergedStyle("uut")}
           title={uutName}
         >
-          <select
+          <InlineMenuSelect
             value={currentUutId || ""}
-            aria-label="UUT"
+            ariaLabel="UUT"
             title={uutName}
-            onClick={(event) => event.stopPropagation()}
-            onChange={(event) => {
-              event.stopPropagation();
-              onUutChange?.(event.target.value || null);
-            }}
-          >
-            <option value="">Unassigned</option>
-            {uutOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            width="100%"
+            menuWidth={260}
+            className="point-uut-inline-select"
+            options={[
+              { value: "", label: "Unassigned" },
+              ...uutOptions.map((option) => ({
+                value: String(option.id),
+                label: option.label,
+              })),
+            ]}
+            onChange={(value) => onUutChange?.(value || null)}
+          />
         </span>
       )}
 
@@ -823,7 +842,8 @@ export const SidebarPointItem = ({
           />
         ) : (
           <span
-            className={`point-section${mergedFields.section ? " is-visually-merged" : ""}`}
+            className={`point-section${mergedClass("section")}`}
+            style={mergedStyle("section")}
             onClick={(e) => handleSingleClickEdit(e, "section", point.section)}
             title={String(point.section || "-")}
           >
@@ -884,7 +904,8 @@ export const SidebarPointItem = ({
           />
         ) : (
           <span
-            className={`point-value${mergedFields.qualifier ? " is-visually-merged" : ""}`}
+            className={`point-value${mergedClass("qualifier")}`}
+            style={mergedStyle("qualifier")}
             onClick={(e) =>
               handleSingleClickEdit(
                 e,
@@ -2569,10 +2590,7 @@ function App({ showThemeToggle = false }) {
         key === "z" &&
         !isTextEntry
       ) {
-        if (undoLastSessionChange()) {
-          e.preventDefault();
-          showToast("Undid the last change.");
-        }
+        if (undoLastSessionChange()) e.preventDefault();
         return;
       }
 
@@ -2594,14 +2612,6 @@ function App({ showThemeToggle = false }) {
             handleCopyPoint(points);
             handled = true;
           }
-        } else if (selectedTestPointId) {
-          const point = currentTestPoints.find(
-            (p) => p.id === selectedTestPointId,
-          );
-          if (point) {
-            handleCopyPoint(point);
-            handled = true;
-          }
         }
         if (handled) e.preventDefault();
       }
@@ -2617,11 +2627,6 @@ function App({ showThemeToggle = false }) {
           points = currentTestPoints.filter((point) =>
             selectedSidebarPointIds.includes(point.id),
           );
-        } else if (selectedTestPointId) {
-          const point = currentTestPoints.find(
-            (item) => item.id === selectedTestPointId,
-          );
-          if (point) points = [point];
         }
         if (points.length > 0) {
           e.preventDefault();
@@ -4224,7 +4229,7 @@ function App({ showThemeToggle = false }) {
 
   // Shared sidebar point-row markup (used under every UUT and the Unassigned
   // bucket). Extracted so the Function -> UUT -> Point tree stays readable.
-  const renderSidebarPointRow = (tp, fnGroup, previousPoint = null) => {
+  const renderSidebarPointRow = (tp, fnGroup, points = [], pointIndex = 0) => {
     const contextUutId = tp.associatedUutIds?.[0] || null;
     const functionUuts = (fnGroup?.uutGroups || []).filter(
       (group) => !group.isUnassigned,
@@ -4232,9 +4237,28 @@ function App({ showThemeToggle = false }) {
     const currentUut = (currentSessionData?.uuts || []).find(
       (uut) => String(uut.id) === String(contextUutId),
     );
-    const previousUutId = previousPoint?.associatedUutIds?.[0] || null;
-    const qualifier = tp.testPointInfo?.qualifier?.value ?? "";
-    const previousQualifier = previousPoint?.testPointInfo?.qualifier?.value ?? "";
+    const mergeStateFor = (valueOf) => {
+      const value = String(valueOf(tp) ?? "");
+      const previous = points[pointIndex - 1];
+      if (previous && String(valueOf(previous) ?? "") === value) {
+        return { covered: true, span: 0 };
+      }
+      let span = 1;
+      while (
+        pointIndex + span < points.length &&
+        String(valueOf(points[pointIndex + span]) ?? "") === value
+      ) {
+        span += 1;
+      }
+      return { covered: false, span };
+    };
+    const mergedFields = {
+      uut: mergeStateFor((point) => point.associatedUutIds?.[0] || ""),
+      section: mergeStateFor((point) => point.section || ""),
+      qualifier: mergeStateFor(
+        (point) => point.testPointInfo?.qualifier?.value ?? "",
+      ),
+    };
     return (
     <SidebarPointItem
       key={tp.id}
@@ -4247,25 +4271,34 @@ function App({ showThemeToggle = false }) {
         id: uut.id,
         label: formatInstrumentIdentity(uut),
       }))}
-      mergedFields={{
-        uut: previousPoint && String(previousUutId || "") === String(contextUutId || ""),
-        section: previousPoint && String(previousPoint.section || "") === String(tp.section || ""),
-        qualifier: previousPoint && String(previousQualifier) === String(qualifier),
-      }}
+      mergedFields={mergedFields}
       onUutChange={(nextUutId) => {
         const nextUut = (currentSessionData?.uuts || []).find(
           (uut) => String(uut.id) === String(nextUutId),
         );
         const parameter = tp.testPointInfo?.parameter || {};
-        const nextPoint = {
-          ...tp,
-          associatedUutIds: nextUut ? [nextUut.id] : [],
-          measurementAreaId: nextUut?.measurementAreaId || null,
-          uutTolerance: nextUut
-            ? findMatchingRange(nextUut, parameter.value, parameter.unit)
-            : null,
-        };
-        handleInlinePointUpdate(nextPoint);
+        const runPointIds = new Set(
+          points
+            .slice(pointIndex, pointIndex + Math.max(1, mergedFields.uut.span))
+            .map((point) => String(point.id)),
+        );
+        const nextPoints = (currentSessionData?.testPoints || []).map((point) => {
+          if (!runPointIds.has(String(point.id))) return point;
+          const pointParameter = point.testPointInfo?.parameter || parameter;
+          return {
+            ...point,
+            associatedUutIds: nextUut ? [nextUut.id] : [],
+            measurementAreaId: nextUut?.measurementAreaId || null,
+            uutTolerance: nextUut
+              ? findMatchingRange(
+                  nextUut,
+                  pointParameter.value,
+                  pointParameter.unit,
+                )
+              : null,
+          };
+        });
+        updateSession({ ...currentSessionData, testPoints: nextPoints });
         setSelectedTestPointContextUutId(nextUut?.id || null);
       }}
       valueColumnWidth={sidebarValueColumnWidth}
@@ -5264,7 +5297,7 @@ function App({ showThemeToggle = false }) {
                               <div className="sidebar-points-scroll-wrapper">
                                 {renderSidebarColumnHeaders()}
                                 {pts.map((tp, index) =>
-                                  renderSidebarPointRow(tp, fnGroup, pts[index - 1] || null),
+                                  renderSidebarPointRow(tp, fnGroup, pts, index),
                                 )}
                               </div>
                             </div>
@@ -5324,11 +5357,7 @@ function App({ showThemeToggle = false }) {
                                   );
                                 }
                                 return points.map((tp, index) =>
-                                  renderSidebarPointRow(
-                                    tp,
-                                    fnGroup,
-                                    points[index - 1] || null,
-                                  ),
+                                  renderSidebarPointRow(tp, fnGroup, points, index),
                                 );
                               })()}
                             </div>
@@ -5384,6 +5413,11 @@ function App({ showThemeToggle = false }) {
                     onRangeSelectionChange={setActiveRangeIndices}
                     selectedTablePointIds={selectedTablePointIds}
                     setSelectedTablePointIds={setSelectedTablePointIds}
+                    onInstrumentSelection={() => {
+                      setSelectedSidebarPointIds([]);
+                      setSelectedTablePointIds([]);
+                      setSelectedUutId(null);
+                    }}
                     preferredAnalysisMode={analysisMode}
                     onAnalysisModeChange={handleAnalysisModeChange}
                     preferredShowContribution={showContribution}

@@ -120,6 +120,7 @@ function Analysis({
   setCurrentUutSelection,
   selectedTablePointIds = [],
   setSelectedTablePointIds = () => {},
+  onInstrumentSelection = () => {},
   activeRangeIndices,
   onRangeSelectionChange,
   preferredAnalysisMode = "overview",
@@ -1131,6 +1132,7 @@ function Analysis({
             collapsedFunctionKeys={collapsedFunctionKeys}
             setCollapsedFunctionKeys={setCollapsedFunctionKeys}
             keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+            onInstrumentSelection={onInstrumentSelection}
             // Actions & Navigation
             onDefineTestPoint={handleDefineTestPoint}
             handleOpenSessionEditor={handleOpenSessionEditor}
@@ -1181,6 +1183,7 @@ function Analysis({
                 collapsedFunctionKeys={collapsedFunctionKeys}
                 setCollapsedFunctionKeys={setCollapsedFunctionKeys}
                 keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+                onInstrumentSelection={onInstrumentSelection}
                 onDefineTestPoint={handleDefineTestPoint}
                 handleOpenSessionEditor={handleOpenSessionEditor}
                 onDeleteTestPoint={onDeleteTestPoint}
@@ -1262,6 +1265,7 @@ function Analysis({
                 setNotification={setNotification}
                 activeRangeIndices={activeRangeIndices}
                 onRangeSelectionChange={onRangeSelectionChange}
+                onInstrumentSelection={onInstrumentSelection}
               />
               </>
             )}

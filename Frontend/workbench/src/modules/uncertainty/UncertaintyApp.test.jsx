@@ -227,12 +227,13 @@ describe("UncertaintyApp", () => {
       screen.queryByRole("combobox", { name: /UUT for new Voltage measurement point/i }),
     ).not.toBeInTheDocument();
     fireEvent.click(addPoint);
-    const uutSelect = await screen.findByRole("combobox", { name: "UUT" });
-    expect(uutSelect).toHaveValue("");
-    expect(within(uutSelect).getByRole("option", { name: /Mock 100 Primary DMM/i })).toBeInTheDocument();
-    expect(within(uutSelect).getByRole("option", { name: /Mock 200 Backup DMM/i })).toBeInTheDocument();
-    fireEvent.change(uutSelect, { target: { value: "uut-one" } });
-    await waitFor(() => expect(uutSelect).toHaveValue("uut-one"));
+    const uutSelect = await screen.findByRole("button", { name: "UUT" });
+    fireEvent.click(uutSelect);
+    const uutList = await screen.findByRole("listbox", { name: "UUT" });
+    expect(within(uutList).getByRole("option", { name: /Mock 100 Primary DMM/i })).toBeInTheDocument();
+    expect(within(uutList).getByRole("option", { name: /Mock 200 Backup DMM/i })).toBeInTheDocument();
+    fireEvent.click(within(uutList).getByRole("option", { name: /Mock 100 Primary DMM/i }));
+    await waitFor(() => expect(uutSelect).toHaveTextContent(/Mock 100 Primary DMM/i));
     expect(
       screen.queryByText("Ready for your first measurement point"),
     ).not.toBeInTheDocument();
@@ -292,11 +293,11 @@ describe("UncertaintyApp", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Add UUT column" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "Add UUT Column" });
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Column name" }), {
+    const columnName = await screen.findByRole("textbox", { name: "Column name" });
+    fireEvent.change(columnName, {
       target: { value: "ICP use code" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "OK" }));
+    fireEvent.keyDown(columnName, { key: "Enter" });
     expect(await screen.findByRole("columnheader", { name: "ICP use code" })).toBeInTheDocument();
   });
 
@@ -847,9 +848,11 @@ describe("UncertaintyApp", () => {
     fireEvent.click(
       within(functionHeader).getByRole("button", { name: "Expand function" }),
     );
-    const uutSelect = await screen.findByRole("combobox", { name: "UUT" });
+    const uutSelect = await screen.findByRole("button", { name: "UUT" });
+    fireEvent.click(uutSelect);
+    const uutList = await screen.findByRole("listbox", { name: "UUT" });
     expect(
-      within(uutSelect).getByRole("option", { name: /Fluke 700G Pressure Standard/i }),
+      within(uutList).getByRole("option", { name: /Fluke 700G Pressure Standard/i }),
     ).toBeInTheDocument();
     expect(document.querySelector(".uut-row")).not.toBeInTheDocument();
     expect(
