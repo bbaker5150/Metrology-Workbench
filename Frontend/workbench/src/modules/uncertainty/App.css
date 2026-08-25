@@ -11831,29 +11831,17 @@ input.inline-desc-subinput:focus-visible {
 .instrument-summary-table th.cell-sync,
 .instrument-summary-table td.cell-sync,
 .industry-table th.cell-sync,
-.industry-table td.cell-sync,
-.instrument-summary-table th.cell-order,
-.instrument-summary-table td.cell-order,
-.industry-table th.cell-order,
-.industry-table td.cell-order {
-  width: 52px;
-  min-width: 52px;
-  max-width: 52px;
+.industry-table td.cell-sync {
+  width: 88px;
+  min-width: 88px;
   text-align: center;
   padding-left: 6px;
   padding-right: 6px;
 }
 
 .instrument-summary-table td.cell-sync,
-.industry-table td.cell-sync,
-.instrument-summary-table td.cell-order,
-.industry-table td.cell-order {
+.industry-table td.cell-sync {
   vertical-align: middle;
-}
-
-.instrument-summary-table td.cell-order,
-.industry-table td.cell-order {
-  text-align: center;
 }
 
 .instrument-summary-table td.cell-sync .inline-sync-badge,
@@ -12964,6 +12952,16 @@ input.inline-function-input:focus {
   color: var(--text-color-muted);
   background: transparent;
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, color 0.12s ease, background-color 0.12s ease;
+}
+
+.uncertainty-budget-table tr:hover .budget-row-move,
+.uncertainty-budget-table tr:focus-within .budget-row-move,
+.uncertainty-budget-table .budget-row-actions:focus-within .budget-row-move {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .budget-row-move:hover,
@@ -13007,8 +13005,7 @@ input.inline-function-input:focus {
 
 /* rowSpan Description / Sync cells stay vertically centered over the group. */
 .industry-table tbody tr.inline-range-row--first > td.cell-description,
-.industry-table tbody tr.inline-range-row--first > td.cell-sync,
-.industry-table tbody tr.inline-range-row--first > td.cell-order {
+.industry-table tbody tr.inline-range-row--first > td.cell-sync {
   vertical-align: middle;
 }
 
@@ -13016,8 +13013,7 @@ input.inline-function-input:focus {
 /* so the user can see which instrument owns the active range, WITHOUT      */
 /* repainting every range row (which read as "whole instrument selected").  */
 .industry-table tbody tr.inline-range-row.instrument-selected > td.cell-description,
-.industry-table tbody tr.inline-range-row.instrument-selected > td.cell-sync,
-.industry-table tbody tr.inline-range-row.instrument-selected > td.cell-order {
+.industry-table tbody tr.inline-range-row.instrument-selected > td.cell-sync {
   background-color: rgba(var(--primary-rgb), 0.04);
 }
 
@@ -13031,8 +13027,7 @@ input.inline-function-input:focus {
 
 /* Don't double-tint the rowSpan cells; keep the accent on the range cells. */
 .industry-table tbody tr.inline-range-row.is-active-range > td.cell-description,
-.industry-table tbody tr.inline-range-row.is-active-range > td.cell-sync,
-.industry-table tbody tr.inline-range-row.is-active-range > td.cell-order {
+.industry-table tbody tr.inline-range-row.is-active-range > td.cell-sync {
   box-shadow: none;
 }
 
@@ -13121,6 +13116,7 @@ input.inline-function-input:focus {
   align-items: center;
   justify-content: center;
   gap: 3px;
+  width: 100%;
 }
 
 .instrument-order-controls {
@@ -13132,6 +13128,10 @@ input.inline-function-input:focus {
 }
 
 .instrument-summary-table tbody tr:hover .instrument-order-controls,
+.industry-table tbody tr:hover .instrument-order-controls,
+.industry-table tbody tr.row-hovered .instrument-order-controls,
+.instrument-summary-table tbody tr:focus-within .instrument-order-controls,
+.industry-table tbody tr:focus-within .instrument-order-controls,
 .instrument-order-controls:focus-within {
   opacity: 1;
   pointer-events: auto;

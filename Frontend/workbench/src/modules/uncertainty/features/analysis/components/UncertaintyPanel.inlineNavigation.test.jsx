@@ -22,6 +22,72 @@ describe("inline instrument column navigation", () => {
     expect(screen.queryByText("Not Set")).not.toBeInTheDocument();
   });
 
+  it("advances from a completed range when Tab leaves its unit", () => {
+    const onAdvanceRange = vi.fn();
+    const range = { id: "range-1", min: "0", max: "10", unit: "V" };
+    render(
+      <RangeCell
+        ranges={[range]}
+        activeIndex={0}
+        activeRange={range}
+        editable
+        onEditBound={vi.fn()}
+        onEditUnit={vi.fn()}
+        onAdvanceRange={onAdvanceRange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "0 to 10 V" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Range unit prefix" }), {
+      key: "Tab",
+    });
+
+    expect(onAdvanceRange).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a staged blank row editable while its bounds are completed", async () => {
+    const onAdvanceRange = vi.fn();
+    const RangeHarness = () => {
+      const [range, setRange] = useState({
+        id: "blank-range",
+        min: "",
+        max: "",
+        unit: "V",
+      });
+      return (
+        <RangeCell
+          ranges={[range]}
+          activeIndex={0}
+          activeRange={range}
+          editable
+          editBlankByDefault
+          onEditBound={(field, value) =>
+            setRange((current) => ({ ...current, [field]: value }))
+          }
+          onEditUnit={(unit) => setRange((current) => ({ ...current, unit }))}
+          onAdvanceRange={onAdvanceRange}
+        />
+      );
+    };
+
+    render(<RangeHarness />);
+    const min = screen.getByPlaceholderText("min");
+    const max = screen.getByPlaceholderText("max");
+    const prefix = screen.getByRole("button", { name: "Range unit prefix" });
+
+    fireEvent.change(min, { target: { value: "0" } });
+    fireEvent.blur(min, { relatedTarget: max });
+    fireEvent.change(max, { target: { value: "10" } });
+    fireEvent.blur(max, { relatedTarget: prefix });
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("max")).toBeInTheDocument();
+    });
+    fireEvent.keyDown(prefix, { key: "Tab" });
+    expect(onAdvanceRange).toHaveBeenCalledOnce();
+  });
+
   it("commits a nickname on the first outside click", async () => {
     const onCommit = vi.fn();
     render(
