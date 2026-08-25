@@ -12872,6 +12872,8 @@ input.inline-function-input:focus {
   color: var(--text-color-muted);
   font-size: 0.72rem;
   cursor: pointer;
+  position: relative;
+  top: -1px;
 }
 
 .function-header-action-btn.btn-add-item:hover,
@@ -12903,31 +12905,6 @@ input.inline-function-input:focus {
   border-color: var(--border-color);
   background: var(--input-background);
   outline: none;
-}
-
-/* Adjacent repeated values are rendered as one uninterrupted vertical cell.
-   Covered rows retain their grid track while the first cell spans the run. */
-.point-grid-item .is-vertically-merged--covered {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.point-grid-item .is-vertically-merged--start {
-  position: relative;
-  z-index: 4;
-  align-self: start;
-  display: flex;
-  align-items: center;
-  min-height: 100%;
-  box-sizing: border-box;
-  background: var(--sidebar-background, var(--content-background));
-  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
-  border-radius: 3px;
-}
-
-.point-grid-item .point-section.is-vertically-merged--start,
-.point-grid-item .point-value.is-vertically-merged--start {
-  justify-content: center;
 }
 
 .range-inline-add-btn {
@@ -13067,18 +13044,25 @@ input.inline-function-input:focus {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 55%, transparent);
 }
 
-/* Range cell: editor fills the row, delete tucks to the right edge. */
+/* Expanded range rows reserve their controls on a separate line so the
+   min/max/unit inputs always retain their full readable width. */
 .range-row-cell {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   width: 100%;
   min-width: 0;
 }
 
 .range-row-cell > .inline-range-editor {
-  flex: 1 1 auto;
+  grid-column: 1;
+  width: 100%;
   min-width: 0;
+}
+
+.industry-table tbody tr.inline-range-row > td[data-range-cell="true"] {
+  min-width: 270px;
 }
 
 .range-row-delete,
@@ -13100,8 +13084,16 @@ input.inline-function-input:focus {
 }
 
 .range-row-add {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  justify-self: start;
   color: var(--primary-color);
   opacity: 1;
+}
+
+.range-row-delete {
+  grid-column: 2;
+  grid-row: 1;
 }
 
 /* Reveal the delete affordance only while the row is hovered or keyboard-focused. */
@@ -13122,13 +13114,6 @@ input.inline-function-input:focus {
 
 .range-row-add:hover {
   background: color-mix(in srgb, var(--primary-color) 12%, transparent);
-}
-
-/* A range can be removed from the one-level-up range list. While its bound,
-   unit, or prefix editor is open, remove the redundant action entirely so it
-   cannot collide with the trailing prefix control. */
-.range-row-cell:has(.inline-range-editor.is-editing) > .range-row-delete {
-  display: none;
 }
 
 .instrument-row-tools {
@@ -13188,6 +13173,51 @@ input.inline-function-input:focus {
 
 .instrument-custom-column-label {
   cursor: text;
+}
+
+.instrument-custom-column-header {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.instrument-custom-column-header .instrument-custom-column-label {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.instrument-custom-column-delete {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-color-muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+
+.instrument-custom-column-header:hover .instrument-custom-column-delete,
+.instrument-custom-column-header:focus-within .instrument-custom-column-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.instrument-custom-column-delete:hover,
+.instrument-custom-column-delete:focus-visible {
+  color: var(--status-bad);
+  background: rgba(255, 82, 82, 0.12);
+  outline: none;
 }
 
 .instrument-custom-column-name-input:focus {
@@ -13591,6 +13621,15 @@ input.inline-function-input:focus {
   border-radius: 0;
   white-space: nowrap;
   box-sizing: border-box;
+}
+
+.inline-tolerance-editor--all
+  > .inline-tolerance-term-group
+  + .inline-tolerance-term-group {
+  margin-top: 3px;
+  padding-top: 6px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--border-color) 88%, var(--text-color-muted));
 }
 
 /* Shared Type B cards use the same compact tolerance summary/read view as the

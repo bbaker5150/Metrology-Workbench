@@ -4,6 +4,24 @@ import { describe, expect, it, vi } from "vitest";
 import { EditableDescriptionCell, RangeCell } from "./UncertaintyPanel";
 
 describe("inline instrument column navigation", () => {
+  it("renders an added blank range as an editable row immediately", () => {
+    render(
+      <RangeCell
+        ranges={[{ id: "blank-range", min: "", max: "", unit: "V" }]}
+        activeIndex={0}
+        activeRange={{ id: "blank-range", min: "", max: "", unit: "V" }}
+        editable
+        editBlankByDefault
+        onEditBound={vi.fn()}
+        onEditUnit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("max")).toBeInTheDocument();
+    expect(screen.queryByText("Not Set")).not.toBeInTheDocument();
+  });
+
   it("commits a nickname on the first outside click", async () => {
     const onCommit = vi.fn();
     render(

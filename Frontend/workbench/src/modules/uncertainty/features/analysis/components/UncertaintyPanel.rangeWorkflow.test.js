@@ -12,6 +12,7 @@ import {
   localizeSharedInstrumentEdit,
   rangeIsBlank,
   removeRangeFromItem,
+  removeInstrumentCustomColumn,
   removeSelectedRangesFromItem,
   resolveUutRangeHelper,
   sortRangesAscending,
@@ -114,6 +115,35 @@ describe("budget range warnings", () => {
 });
 
 describe("shared instrument inline editing", () => {
+  it("removes a custom column definition and its saved row values", () => {
+    const next = removeInstrumentCustomColumn(
+      {
+        instrumentCustomColumns: {
+          uut: [
+            { key: "owner", label: "Owner" },
+            { key: "location", label: "Location" },
+          ],
+          tmde: [{ key: "lab", label: "Lab" }],
+        },
+        uuts: [
+          { id: "uut-1", customFields: { owner: "A", location: "North" } },
+        ],
+        tmdes: [{ id: "tmde-1", customFields: { lab: "Primary" } }],
+      },
+      "uut",
+      "owner",
+    );
+
+    expect(next.instrumentCustomColumns.uut).toEqual([
+      { key: "location", label: "Location" },
+    ]);
+    expect(next.uuts[0].customFields).toEqual({ location: "North" });
+    expect(next.instrumentCustomColumns.tmde).toEqual([
+      { key: "lab", label: "Lab" },
+    ]);
+    expect(next.tmdes[0].customFields).toEqual({ lab: "Primary" });
+  });
+
   it("creates any number of blank ranges without requiring intermediate values", () => {
     const item = {
       id: "uut-row",

@@ -461,20 +461,12 @@ const getPointTmdeLimitSortValue = (point, key) => {
 };
 
 export const getUutReassignmentPointIds = ({
-  points = [],
-  pointIndex = 0,
-  span = 1,
   selectedPointIds = [],
   currentPointId,
 }) => {
-  const selectedIds = new Set(selectedPointIds.map(String));
-  const selectedRunIds = points
-    .slice(pointIndex, pointIndex + Math.max(1, span))
-    .map((point) => String(point.id))
-    .filter((id) => selectedIds.has(id));
-  return selectedRunIds.length > 0
-    ? selectedRunIds
-    : [String(currentPointId)];
+  const currentId = String(currentPointId);
+  const selectedIds = selectedPointIds.map(String);
+  return selectedIds.includes(currentId) ? selectedIds : [currentId];
 };
 
 // --- HELPER COMPONENT: Sidebar Point Item (Supports Inline Editing) ---
@@ -484,7 +476,6 @@ export const SidebarPointItem = ({
   currentUutId = "",
   uutOptions = [],
   onUutChange,
-  mergedFields = {},
   valueColumnWidth = "80px",
   isSelected,
   isActivePoint = false,
@@ -527,24 +518,6 @@ export const SidebarPointItem = ({
     noGbMeasRel: false,
   },
 }) => {
-  const mergedClass = (field) => {
-    const state = mergedFields[field];
-    if (!state) return "";
-    return state.covered
-      ? " is-vertically-merged is-vertically-merged--covered"
-      : state.span > 1
-        ? " is-vertically-merged is-vertically-merged--start"
-        : "";
-  };
-  const mergedStyle = (field) =>
-    mergedFields[field]?.span > 1
-      ? {
-          "--merged-row-span": mergedFields[field].span,
-          height: `calc(${mergedFields[field].span * 100}% + ${
-            mergedFields[field].span - 1
-          }px)`,
-        }
-      : undefined;
   // 'section' | 'value' | 'qualifier' | null. A freshly quick-added point
   // mounts straight into value-edit (autoEditValue) so the user can just type.
   const [editingField, setEditingField] = useState(
@@ -822,8 +795,7 @@ export const SidebarPointItem = ({
     >
       {visibleColumns.uut && (
         <span
-          className={`point-uut-name point-uut-selector-cell${mergedClass("uut")}`}
-          style={mergedStyle("uut")}
+          className="point-uut-name point-uut-selector-cell"
           title={uutName}
         >
           {editingUut ? (
@@ -884,8 +856,7 @@ export const SidebarPointItem = ({
           />
         ) : (
           <span
-            className={`point-section${mergedClass("section")}`}
-            style={mergedStyle("section")}
+            className="point-section"
             onClick={(e) => handleSingleClickEdit(e, "section", point.section)}
             title={String(point.section || "-")}
           >
@@ -914,8 +885,7 @@ export const SidebarPointItem = ({
           </div>
         ) : (
           <span
-            className={`point-value point-value-with-unit sidebar-value-sticky${mergedClass("value")}`}
-            style={mergedStyle("value")}
+            className="point-value point-value-with-unit sidebar-value-sticky"
             onClick={(e) => handleSingleClickEdit(e, "value", displayValue)}
             title={`${displayValue ?? "-"}${
               displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
@@ -947,8 +917,7 @@ export const SidebarPointItem = ({
           />
         ) : (
           <span
-            className={`point-value${mergedClass("qualifier")}`}
-            style={mergedStyle("qualifier")}
+            className="point-value"
             onClick={(e) =>
               handleSingleClickEdit(
                 e,
@@ -967,8 +936,7 @@ export const SidebarPointItem = ({
       {/* Col 3: Tolerance */}
       {visibleColumns.tolerance && (
         <span
-          className={`point-metric${mergedClass("tolerance")}`}
-          style={mergedStyle("tolerance")}
+          className="point-metric"
           title={toleranceSummary}
         >
           {toleranceSummary !== "Not Set" &&
@@ -981,8 +949,7 @@ export const SidebarPointItem = ({
       {/* Col 4: Low Limit */}
       {visibleColumns.lowLimit && (
         <span
-          className={`point-metric${mergedClass("lowLimit")}`}
-          style={mergedStyle("lowLimit")}
+          className="point-metric"
           title={limitsData.fullLow}
         >
           {limitsData.low}
@@ -992,8 +959,7 @@ export const SidebarPointItem = ({
       {/* Col 5: High Limit */}
       {visibleColumns.highLimit && (
         <span
-          className={`point-metric${mergedClass("highLimit")}`}
-          style={mergedStyle("highLimit")}
+          className="point-metric"
           title={limitsData.fullHigh}
         >
           {limitsData.high}
@@ -1004,8 +970,7 @@ export const SidebarPointItem = ({
           calculated uncertainty columns numeric, matching the low/high cells. */}
       {visibleColumns.standardUncertainty && (
         <span
-          className={`point-metric point-uncertainty-metric${mergedClass("standardUncertainty")}`}
-          style={mergedStyle("standardUncertainty")}
+          className="point-metric point-uncertainty-metric"
           title={formatSidebarUncertaintyFull(point, "combined")}
         >
           {formatSidebarUncertainty(point, "combined")}
@@ -1013,8 +978,7 @@ export const SidebarPointItem = ({
       )}
       {visibleColumns.measurementUncertainty && (
         <span
-          className={`point-metric point-uncertainty-metric${mergedClass("measurementUncertainty")}`}
-          style={mergedStyle("measurementUncertainty")}
+          className="point-metric point-uncertainty-metric"
           title={formatSidebarUncertaintyFull(point, "expanded")}
         >
           {formatSidebarUncertainty(point, "expanded")}
@@ -1024,10 +988,9 @@ export const SidebarPointItem = ({
       {/* TMDE Low Limit */}
       {visibleColumns.tmdeLow && (
         <span
-          className={`point-metric${mergedClass("tmdeLow")} ${
+          className={`point-metric ${
             tmdeLimitsData.entries.length > 0 ? "point-metric-list" : ""
           }`}
-          style={mergedStyle("tmdeLow")}
           title={tmdeLimitsTitle || tmdeLimitsData.low}
         >
           {tmdeLimitsData.entries.length > 0
@@ -1047,10 +1010,9 @@ export const SidebarPointItem = ({
       {/* TMDE High Limit */}
       {visibleColumns.tmdeHigh && (
         <span
-          className={`point-metric${mergedClass("tmdeHigh")} ${
+          className={`point-metric ${
             tmdeLimitsData.entries.length > 0 ? "point-metric-list" : ""
           }`}
-          style={mergedStyle("tmdeHigh")}
           title={tmdeLimitsTitle || tmdeLimitsData.high}
         >
           {tmdeLimitsData.entries.length > 0
@@ -4288,7 +4250,7 @@ function App({ showThemeToggle = false }) {
 
   // Shared sidebar point-row markup (used under every UUT and the Unassigned
   // bucket). Extracted so the Function -> UUT -> Point tree stays readable.
-  const renderSidebarPointRow = (tp, fnGroup, points = [], pointIndex = 0) => {
+  const renderSidebarPointRow = (tp, fnGroup) => {
     const contextUutId = tp.associatedUutIds?.[0] || null;
     const functionUuts = (fnGroup?.uutGroups || []).filter(
       (group) => !group.isUnassigned,
@@ -4296,43 +4258,6 @@ function App({ showThemeToggle = false }) {
     const currentUut = (currentSessionData?.uuts || []).find(
       (uut) => String(uut.id) === String(contextUutId),
     );
-    const mergeStateFor = (valueOf) => {
-      const value = String(valueOf(tp) ?? "");
-      const previous = points[pointIndex - 1];
-      if (previous && String(valueOf(previous) ?? "") === value) {
-        return { covered: true, span: 0 };
-      }
-      let span = 1;
-      while (
-        pointIndex + span < points.length &&
-        String(valueOf(points[pointIndex + span]) ?? "") === value
-      ) {
-        span += 1;
-      }
-      return { covered: false, span };
-    };
-    const mergedFields = {
-      uut: mergeStateFor((point) => point.associatedUutIds?.[0] || ""),
-      section: mergeStateFor((point) => point.section || ""),
-      value: mergeStateFor((point) => {
-        const parameter = point.testPointInfo?.parameter || {};
-        return `${parameter.value ?? ""}::${parameter.unit || ""}`;
-      }),
-      tolerance: mergeStateFor((point) => JSON.stringify(point.uutTolerance || null)),
-      lowLimit: mergeStateFor((point) => getPointLimitSortValue(point, "lowLimit")),
-      highLimit: mergeStateFor((point) => getPointLimitSortValue(point, "highLimit")),
-      standardUncertainty: mergeStateFor((point) =>
-        formatSidebarUncertaintyFull(point, "combined"),
-      ),
-      measurementUncertainty: mergeStateFor((point) =>
-        formatSidebarUncertaintyFull(point, "expanded"),
-      ),
-      tmdeLow: mergeStateFor((point) => getPointTmdeLimitSortValue(point, "tmdeLow")),
-      tmdeHigh: mergeStateFor((point) => getPointTmdeLimitSortValue(point, "tmdeHigh")),
-      qualifier: mergeStateFor(
-        (point) => point.testPointInfo?.qualifier?.value ?? "",
-      ),
-    };
     return (
     <SidebarPointItem
       key={tp.id}
@@ -4345,7 +4270,6 @@ function App({ showThemeToggle = false }) {
         id: uut.id,
         label: formatInstrumentIdentity(uut),
       }))}
-      mergedFields={mergedFields}
       onUutChange={(nextUutId) => {
         const nextUut = (currentSessionData?.uuts || []).find(
           (uut) => String(uut.id) === String(nextUutId),
@@ -4353,9 +4277,6 @@ function App({ showThemeToggle = false }) {
         const parameter = tp.testPointInfo?.parameter || {};
         const runPointIds = new Set(
           getUutReassignmentPointIds({
-            points,
-            pointIndex,
-            span: mergedFields.uut.span,
             selectedPointIds: selectedSidebarPointIds,
             currentPointId: tp.id,
           }),

@@ -33,23 +33,16 @@ describe("measurement-point value editing", () => {
     expect(onUutChange).toHaveBeenCalledWith("uut-2");
   });
 
-  test("reassigns selected points within a shared UUT cell and leaves the rest grouped", () => {
-    const points = ["p1", "p2", "p3", "p4"].map((id) => ({ id }));
+  test("reassigns all selected point rows from a selected UUT cell", () => {
     expect(
       getUutReassignmentPointIds({
-        points,
-        pointIndex: 0,
-        span: 4,
         selectedPointIds: ["p2", "p3"],
-        currentPointId: "p1",
+        currentPointId: "p2",
       }),
     ).toEqual(["p2", "p3"]);
     expect(
       getUutReassignmentPointIds({
-        points,
-        pointIndex: 0,
-        span: 4,
-        selectedPointIds: [],
+        selectedPointIds: ["p2", "p3"],
         currentPointId: "p1",
       }),
     ).toEqual(["p1"]);

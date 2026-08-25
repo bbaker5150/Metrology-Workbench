@@ -2419,23 +2419,63 @@ const EditableCustomFieldCell = ({ value = "", onCommit }) => {
   );
 };
 
-const EditableCustomColumnHeader = ({ column, editing, onCommit, onEdit }) => {
+export const removeInstrumentCustomColumn = (sessionData = {}, kind, key) => {
+  const listKey = kind === "uut" ? "uuts" : "tmdes";
+  const columns = sessionData.instrumentCustomColumns || {};
+  return {
+    ...sessionData,
+    instrumentCustomColumns: {
+      ...columns,
+      [kind]: (columns[kind] || []).filter((column) => column.key !== key),
+    },
+    [listKey]: (sessionData[listKey] || []).map((item) => {
+      if (!Object.prototype.hasOwnProperty.call(item.customFields || {}, key)) {
+        return item;
+      }
+      const customFields = { ...(item.customFields || {}) };
+      delete customFields[key];
+      return { ...item, customFields };
+    }),
+  };
+};
+
+const EditableCustomColumnHeader = ({
+  column,
+  editing,
+  onCommit,
+  onEdit,
+  onDelete,
+}) => {
   const [draft, setDraft] = useState(column.label || "Name");
   useEffect(() => setDraft(column.label || "Name"), [column.label]);
   const finish = () => onCommit(String(draft || "").trim() || "Name");
   if (!editing) {
     return (
-      <button
-        type="button"
-        className="instrument-custom-column-label"
-        title="Edit column name"
-        onClick={(event) => {
-          event.stopPropagation();
-          onEdit(column.key);
-        }}
-      >
-        {column.label || "Name"}
-      </button>
+      <span className="instrument-custom-column-header">
+        <button
+          type="button"
+          className="instrument-custom-column-label"
+          title="Edit column name"
+          onClick={(event) => {
+            event.stopPropagation();
+            onEdit(column.key);
+          }}
+        >
+          {column.label || "Name"}
+        </button>
+        <button
+          type="button"
+          className="instrument-custom-column-delete"
+          title={`Delete ${column.label || "custom"} column`}
+          aria-label={`Delete ${column.label || "custom"} column`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete?.();
+          }}
+        >
+          ×
+        </button>
+      </span>
     );
   }
   return (
@@ -4120,10 +4160,14 @@ export const RangeCell = ({
   onOpenRequestHandled,
   onRequestEditAfterExpand,
   allowSingleToggle = false,
+  editBlankByDefault = false,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const containerRef = useRef(null);
   const openAfterInitialRangeRef = useRef(false);
+  const showEditor =
+    isEditing ||
+    (editBlankByDefault && Boolean(rangeIdOf(activeRange)) && !formatRangeSummary(activeRange));
 
   // Creating the first real range updates the parent row. Wait for that stable
   // id before mounting the inputs; otherwise React replaces the min/max inputs
@@ -4175,7 +4219,7 @@ export const RangeCell = ({
     );
   }
 
-  if (!isEditing) {
+  if (!showEditor) {
     const rangeSummary = formatRangeSummary(activeRange);
     // Use the same blank-cell affordance as an unentered range in the expanded
     // editor. `rangeSummary` remains the source of truth for expand-vs-edit.
@@ -6107,12 +6151,30 @@ const SummaryDashboard = ({
     });
     setEditingCustomColumnKey(null);
   };
+  const requestDeleteCustomColumn = (kind, column) => {
+    confirmViaNotification(setNotification, {
+      title: `Delete ${column.label || "Custom"} Column`,
+      message: `Delete the “${column.label || "Custom"}” column? All values saved in this column will also be removed.`,
+      confirmText: "Delete",
+      onConfirm: () => {
+        const nextSession = removeInstrumentCustomColumn(
+          latestSessionDataRef.current,
+          kind,
+          column.key,
+        );
+        latestSessionDataRef.current = nextSession;
+        onSessionSave?.(nextSession);
+        setEditingCustomColumnKey(null);
+      },
+    });
+  };
   const renderCustomColumnHeader = (kind, column) => (
     <EditableCustomColumnHeader
       column={column}
       editing={editingCustomColumnKey === column.key}
       onEdit={setEditingCustomColumnKey}
       onCommit={(label) => updateCustomColumnLabel(kind, column.key, label)}
+      onDelete={() => requestDeleteCustomColumn(kind, column)}
     />
   );
   const updateCustomField = (kind, itemId, key, value) => {
@@ -7080,18 +7142,26 @@ const SummaryDashboard = ({
       return next;
     });
   };
-  const handleAddBlankRange = (kind, item, activeRangeId) => {
+  const handleAddBlankRange = (
+    kind,
+    item,
+    activeRangeId,
+    { focusNew = false } = {},
+  ) => {
     if (!onSessionSave) return;
     const currentSession = latestSessionDataRef.current;
     const listKey = kind === "uut" ? "uuts" : "tmdes";
     const currentItem = (currentSession[listKey] || []).find(
       (candidate) => String(candidate.id) === String(item.id),
     ) || item;
-    const { item: updated } = addRangeToItem(
+    const { item: updated, newRangeId } = addRangeToItem(
       currentItem,
       activeRangeId,
     );
     persistItem(kind, updated);
+    if (focusNew && newRangeId) {
+      setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
+    }
   };
   const handleDeleteSelectedRanges = () => {
     if (!onSessionSave) return;
@@ -7796,6 +7866,7 @@ const SummaryDashboard = ({
               activeRange={range}
               editable
               allowSingleToggle
+              editBlankByDefault
               onSelect={(idx) => setRangeIdx((prev) => ({ ...prev, [item.id]: idx }))}
               onEditBound={(field, value) =>
                 handleEditRangeBound(kind, item, rangeKey, field, value)
@@ -7810,14 +7881,19 @@ const SummaryDashboard = ({
                       setPendingRangeEditKey(
                         `${itemStateKey(kind, item.id)}:${rangeIdOf(nextRange)}`,
                       )
-                  : undefined
+                  : !formatRangeSummary(range)
+                    ? () =>
+                        handleAddBlankRange(kind, item, rangeKey, {
+                          focusNew: true,
+                        })
+                    : undefined
               }
               openRequested={
                 pendingRangeEditKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
-            {rangeIndex === 0 && (
+            {rangeIndex === totalRanges - 1 && (
               <button
                 type="button"
                 className="range-row-add"
@@ -8652,7 +8728,9 @@ const SummaryDashboard = ({
                 <th>Tolerance</th>
                 <th>Resolution</th>
                 {customColumnsFor("uut").map((column) => (
-                  <th key={column.key}>{renderCustomColumnHeader("uut", column)}</th>
+                  <th key={column.key} aria-label={column.label || "Name"}>
+                    {renderCustomColumnHeader("uut", column)}
+                  </th>
                 ))}
                 <th className="cell-sync">Sync</th>
                 <th className="cell-order">Order</th>
@@ -9162,7 +9240,9 @@ const SummaryDashboard = ({
                 <th className="cell-distribution">Distribution</th>
                 <th>Resolution</th>
                 {customColumnsFor("tmde").map((column) => (
-                  <th key={column.key}>{renderCustomColumnHeader("tmde", column)}</th>
+                  <th key={column.key} aria-label={column.label || "Name"}>
+                    {renderCustomColumnHeader("tmde", column)}
+                  </th>
                 ))}
                 <th className="cell-sync">Sync</th>
                 <th className="cell-order">Order</th>
@@ -9805,12 +9885,30 @@ function DetailedView({
     });
     setEditingCustomColumnKey(null);
   };
+  const requestDeleteCustomColumn = (kind, column) => {
+    confirmViaNotification(setNotification, {
+      title: `Delete ${column.label || "Custom"} Column`,
+      message: `Delete the “${column.label || "Custom"}” column? All values saved in this column will also be removed.`,
+      confirmText: "Delete",
+      onConfirm: () => {
+        const nextSession = removeInstrumentCustomColumn(
+          latestSessionDataRef.current,
+          kind,
+          column.key,
+        );
+        latestSessionDataRef.current = nextSession;
+        onSessionSave?.(nextSession);
+        setEditingCustomColumnKey(null);
+      },
+    });
+  };
   const renderCustomColumnHeader = (kind, column) => (
     <EditableCustomColumnHeader
       column={column}
       editing={editingCustomColumnKey === column.key}
       onEdit={setEditingCustomColumnKey}
       onCommit={(label) => updateCustomColumnLabel(kind, column.key, label)}
+      onDelete={() => requestDeleteCustomColumn(kind, column)}
     />
   );
   const updateCustomField = (kind, itemId, key, value) => {
@@ -10928,18 +11026,26 @@ function DetailedView({
       return next;
     });
   };
-  const handleAddBlankRangeDetail = (kind, item, activeRangeId) => {
+  const handleAddBlankRangeDetail = (
+    kind,
+    item,
+    activeRangeId,
+    { focusNew = false } = {},
+  ) => {
     if (!onSessionSave) return;
     const currentSession = latestSessionDataRef.current;
     const listKey = kind === "uut" ? "uuts" : "tmdes";
     const currentItem = (currentSession[listKey] || []).find(
       (candidate) => String(candidate.id) === String(item.id),
     ) || item;
-    const { item: updated } = addRangeToItem(
+    const { item: updated, newRangeId } = addRangeToItem(
       currentItem,
       activeRangeId,
     );
     persistInlineItemDetail(kind, updated);
+    if (focusNew && newRangeId) {
+      setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
+    }
   };
   const handleDeleteSelectedRanges = () => {
     if (!onSessionSave) return;
@@ -11202,6 +11308,7 @@ function DetailedView({
               activeRange={range}
               editable
               allowSingleToggle
+              editBlankByDefault
               onSelect={() => {}}
               onEditBound={(field, value) =>
                 handleEditRangeBoundDetail(kind, item, rangeKey, field, value)
@@ -11216,14 +11323,19 @@ function DetailedView({
                       setPendingRangeEditKey(
                         `${itemStateKey(kind, item.id)}:${rangeIdOf(nextRange)}`,
                       )
-                  : undefined
+                  : !formatRangeSummary(range)
+                    ? () =>
+                        handleAddBlankRangeDetail(kind, item, rangeKey, {
+                          focusNew: true,
+                        })
+                    : undefined
               }
               openRequested={
                 pendingRangeEditKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
-            {rangeIndex === 0 && (
+            {rangeIndex === totalRanges - 1 && (
               <button
                 type="button"
                 className="range-row-add"
@@ -14794,7 +14906,9 @@ function DetailedView({
                 <th>Tolerance</th>
                 <th>Resolution</th>
                 {customColumnsFor("uut").map((column) => (
-                  <th key={column.key}>{renderCustomColumnHeader("uut", column)}</th>
+                  <th key={column.key} aria-label={column.label || "Name"}>
+                    {renderCustomColumnHeader("uut", column)}
+                  </th>
                 ))}
                 <th className="cell-sync">Sync</th>
                 <th className="cell-order">Order</th>
@@ -15588,7 +15702,9 @@ function DetailedView({
                   <th className="cell-distribution">Distribution</th>
                   <th>Resolution</th>
                   {customColumnsFor("tmde").map((column) => (
-                    <th key={column.key}>{renderCustomColumnHeader("tmde", column)}</th>
+                    <th key={column.key} aria-label={column.label || "Name"}>
+                      {renderCustomColumnHeader("tmde", column)}
+                    </th>
                   ))}
                   <th className="cell-sync">Sync</th>
                   <th className="cell-order">Order</th>
