@@ -8292,7 +8292,7 @@ const SummaryDashboard = ({
               {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={5}>
-                    No UUTs found in this context.
+                    Add a UUT using the + icon in the top-right.
                   </td>
                 </tr>
               ) : (
@@ -8765,7 +8765,9 @@ const SummaryDashboard = ({
             <tbody>
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={6}>No TMDEs found in session.</td>
+                  <td colSpan={6}>
+                    Add a TMDE using the + icon in the top-right.
+                  </td>
                 </tr>
               ) : (
                 groupedTmdeRows.map((row) => {
@@ -14185,7 +14187,9 @@ function DetailedView({
             <tbody>
               {visibleDetailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan="5">No UUTs found in this context.</td>
+                  <td colSpan="5">
+                    Add a UUT using the + icon in the top-right.
+                  </td>
                 </tr>
               ) : (
                 visibleDetailUutRows.map((row) => {
@@ -14942,7 +14946,9 @@ function DetailedView({
               <tbody>
                 {visibleDetailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan="6">No TMDEs found in session.</td>
+                    <td colSpan="6">
+                      Add a TMDE using the + icon in the top-right.
+                    </td>
                   </tr>
                 ) : (
                   visibleDetailTmdeRows.map((row) => {

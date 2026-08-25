@@ -304,8 +304,9 @@ const SubNav = ({ activeTab, setActiveTab }) => (
 // alive across unmount/remount for the app session without any persistence.
 let rememberedCalSubTab = "settings";
 
-// Readings sub-tab: stacked vs. side-by-side chart layout (session only).
-let rememberedReadingsChartLayout = "stacked";
+// Readings sub-tab: side-by-side is the default, while an explicit user
+// choice is still remembered for the rest of the app session.
+let rememberedReadingsChartLayout = "sideBySide";
 
 const LINE_FREQUENCY_HZ = 60;
 const CYCLE_CLEAN_TOLERANCE = 1e-6;
@@ -750,12 +751,14 @@ function Calibration({
     } else if (collectionStatus === "error") {
       if (collectionPromise.current) {
         collectionPromise.current.reject(
-          new Error("Collection failed with an error.")
+          new Error(
+            lastMessage?.message || "Collection failed with an error."
+          )
         );
         collectionPromise.current = null;
       }
     }
-  }, [collectionStatus]);
+  }, [collectionStatus, lastMessage]);
 
   // useEffect(() => {
   //   if (lastMessage?.type === "warning") {
@@ -1727,6 +1730,9 @@ function Calibration({
     if (!validateInstrumentAssignments("start batch calibration")) {
       return;
     }
+    // The primary action-bar play button starts a live run. Put the operator
+    // where the incoming Standard and TI samples are visible immediately.
+    setActiveTab("readings");
     setFailedTPKeys(new Set());
 
     const runBatchSequence = async () => {
@@ -2794,8 +2800,23 @@ function Calibration({
   // the chart about "what is the latest cycle right now."
   const stdAvailableCycles = listAvailableCycles(stdChartData);
   const tiAvailableCycles = listAvailableCycles(tiChartData);
-  const stdEffectiveCycle = resolveEffectiveCycle(stdChartCycle, stdAvailableCycles);
-  const tiEffectiveCycle = resolveEffectiveCycle(tiChartCycle, tiAvailableCycles);
+  const activeLiveCycle = (
+    isCurrentTPActive
+    && activeCollectionDetails?.cycle_index != null
+    && Number.isFinite(Number(activeCollectionDetails?.cycle_index))
+  )
+    ? Number(activeCollectionDetails.cycle_index)
+    : null;
+  const stdEffectiveCycle = resolveEffectiveCycle(
+    stdChartCycle,
+    stdAvailableCycles,
+    activeLiveCycle,
+  );
+  const tiEffectiveCycle = resolveEffectiveCycle(
+    tiChartCycle,
+    tiAvailableCycles,
+    activeLiveCycle,
+  );
   const showStdChart =
     isCurrentTPActive ||
     Object.values(historicalReadings).some((arr) => arr && arr.length > 0);
@@ -4253,6 +4274,7 @@ function Calibration({
                                   selectedCycle={stdChartCycle}
                                   onCycleChange={setStdChartCycle}
                                   activeStage={activeStageKey}
+                                  activeCycle={activeLiveCycle}
                                 />
                                 <LiveStabilityTracker
                                   title="Standard Instrument Stability"
@@ -4292,6 +4314,7 @@ function Calibration({
                                   selectedCycle={tiChartCycle}
                                   onCycleChange={setTiChartCycle}
                                   activeStage={activeStageKey}
+                                  activeCycle={activeLiveCycle}
                                 />
                                 <LiveStabilityTracker
                                   title="Test Instrument Stability"

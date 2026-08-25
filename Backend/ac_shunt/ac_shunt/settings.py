@@ -343,6 +343,11 @@ CALIBRATION_GRACE_WINDOW_SECONDS = 30
 # brief host disconnect mid-run never lets another session steal the bench.
 CALIBRATION_RUNLOCK_STALE_SECONDS = 90
 
+# Stable physical-host identity used when a local/Electron calibration session
+# has no explicit Workstation assignment. Hostname is the default; deployments
+# with cloned hostnames can override it per machine.
+AC_SHUNT_WORKSTATION_ID = os.environ.get('AC_SHUNT_WORKSTATION_ID', '').strip()
+
 # ---------------------------------------------------------
 # 5. LOGGING CONFIGURATION
 # ---------------------------------------------------------

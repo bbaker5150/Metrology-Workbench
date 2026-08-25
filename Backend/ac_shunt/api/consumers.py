@@ -184,6 +184,66 @@ def _shared_5790_reader_pair(std_reader, ti_reader):
     )
 
 
+def _source_drive_voltage_for_test_point(
+    test_point_data,
+    amplifier_range=None,
+    *,
+    infer_range=False,
+):
+    """Return the 5730A drive voltage for an AC-shunt test point.
+
+    A normal 8100 signal path must use its explicitly selected current range.
+    A shared dual-input 5790 quick setup has no 8100 assignment, so it uses
+    the smallest supported 8100-equivalent range containing the point. This
+    preserves the established 0-to-2 V source scaling without requiring a
+    fictitious amplifier assignment in the session.
+    """
+
+    try:
+        current = abs(float((test_point_data or {}).get('current')))
+    except (TypeError, ValueError):
+        raise ValueError(
+            "The selected test point does not contain a valid source-current value."
+        )
+    if not math.isfinite(current) or current <= 0:
+        raise ValueError("The selected test-point current must be greater than 0.")
+
+    try:
+        selected_range = float(amplifier_range)
+    except (TypeError, ValueError):
+        selected_range = None
+
+    if selected_range is None and infer_range:
+        selected_range = next(
+            (
+                value
+                for value in (0.002, 0.02, 0.2, 2.0, 20.0, 100.0)
+                if current <= value
+            ),
+            None,
+        )
+
+    if selected_range is None:
+        raise ValueError(
+            "An amplifier range is required for the AC Shunt signal path."
+        )
+    if (
+        not math.isfinite(selected_range)
+        or selected_range <= 0
+        or current > selected_range
+    ):
+        raise ValueError(
+            "The selected test point is outside its available source-current range."
+        )
+
+    voltage = (current / selected_range) * 2.0
+    if not math.isfinite(voltage) or voltage <= 0 or voltage > 1000:
+        raise ValueError(
+            "The source drive voltage must be greater than 0 V and no more than 1000 V."
+        )
+    return voltage
+
+
 def _5790_profile_settings(measurement_params):
     params = measurement_params or {}
     mode = str(params.get('f5790_filter_mode') or 'MEDIUM').upper()
@@ -1000,6 +1060,108 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             thread_sensitive=True,
         )()
 
+    async def _take_5790_input_batch(
+        self,
+        instrument,
+        input_name,
+        role,
+        sample_count,
+        *,
+        inter_sample_delay=1.0,
+        on_sample=None,
+    ):
+        """Acquire a complete role batch without changing 5790 inputs.
+
+        A shared 5790 has one measurement engine.  Keeping one input selected
+        for the operator-requested sample count avoids restarting its filter
+        and input-settling cycle between every Standard/TI reading.  The short
+        inter-sample dwell is event-loop based so Stop remains responsive.
+        """
+        sample_count = max(0, int(sample_count or 0))
+        inter_sample_delay = max(0.0, float(inter_sample_delay or 0.0))
+        input_name = str(input_name or 'INPUT2').strip().upper()
+        points = []
+
+        await self.broadcast(text_data=json.dumps({
+            'type': 'status_update',
+            'message': (
+                f"Acquiring {sample_count} {role} sample"
+                f"{'s' if sample_count != 1 else ''} on {input_name}..."
+            ),
+        }))
+        for sample_index in range(sample_count):
+            if self.stop_event.is_set():
+                raise asyncio.CancelledError
+            value = await self._take_5790_input_reading(
+                instrument,
+                input_name,
+                role,
+            )
+            point = {
+                'value': value,
+                'timestamp': time.time(),
+                'is_stable': True,
+            }
+            points.append(point)
+            if on_sample is not None:
+                await on_sample(point, sample_index + 1)
+            if sample_index < sample_count - 1 and inter_sample_delay:
+                if not await self._wait_for_stop_or_timeout(inter_sample_delay):
+                    raise asyncio.CancelledError
+        return points
+
+    async def _take_shared_5790_batches(
+        self,
+        std_reader,
+        ti_reader,
+        sample_count,
+        *,
+        inter_sample_delay=1.0,
+        on_sample=None,
+    ):
+        """Read Standard N times, switch once, then read TI N times."""
+        if not _shared_5790_reader_pair(std_reader, ti_reader):
+            raise ValueError("Shared 5790 batch acquisition requires one physical 5790")
+
+        std_input = getattr(
+            std_reader,
+            'standard_role_input',
+            getattr(self, '_standard_reader_input', 'INPUT1'),
+        )
+        ti_input = getattr(
+            ti_reader,
+            'test_role_input',
+            getattr(self, '_test_reader_input', 'INPUT2'),
+        )
+
+        async def publish_role_sample(role, point, sample_index):
+            if on_sample is not None:
+                await on_sample(role, point, sample_index)
+
+        async def publish_standard_sample(point, sample_index):
+            await publish_role_sample('std', point, sample_index)
+
+        async def publish_test_sample(point, sample_index):
+            await publish_role_sample('ti', point, sample_index)
+
+        standard_points = await self._take_5790_input_batch(
+            std_reader,
+            std_input,
+            'Standard',
+            sample_count,
+            inter_sample_delay=inter_sample_delay,
+            on_sample=publish_standard_sample,
+        )
+        test_points = await self._take_5790_input_batch(
+            ti_reader,
+            ti_input,
+            'Test instrument',
+            sample_count,
+            inter_sample_delay=inter_sample_delay,
+            on_sample=publish_test_sample,
+        )
+        return standard_points, test_points
+
     async def _initialize_reader_switch(self, session_details):
         """Open and bind the optional switch dedicated to instrument routing.
 
@@ -1640,8 +1802,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             print("[CONFIGURE_SOURCES] Warning: No valid test point data provided. Skipping.")
             return
 
-        input_current = float(config_point.get('current'))
-        voltage = (input_current / float(amplifier_range)) * 2
+        measurement_params = measurement_params or {}
+        voltage = _source_drive_voltage_for_test_point(
+            config_point,
+            amplifier_range,
+            infer_range=bool(
+                measurement_params.get('_direct_5790_source_mode', False)
+            ),
+        )
 
         if ac_source:
             frequency = float(config_point.get('frequency', 0))
@@ -1662,6 +1830,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         measurement_params = dict(data.get('measurement_params') or {})
         measurement_params.pop('direct_source_test_mode', None)
         measurement_params.pop('direct_source_voltage', None)
+        measurement_params.pop('_direct_5790_source_mode', None)
         data['measurement_params'] = measurement_params
 
         details = session_details or {}
@@ -1702,6 +1871,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 raise RuntimeError(
                     "Assign a shared 5790 Standard and Test role to opposite INPUT1/INPUT2 inputs."
                 )
+
+        # The shared dual-input 5790 quick workflow intentionally has no 8100.
+        # Mark it server-side so a client cannot opt another topology into
+        # inferred source scaling merely by adding a payload flag.
+        measurement_params['_direct_5790_source_mode'] = bool(
+            shared_5790
+            and not instrument_switch_address
+            and not details.get('amplifier_address')
+        )
 
         std_is_8508 = '8508' in str(details.get('std_reader_model') or '').upper()
         ti_is_8508 = '8508' in str(details.get('ti_reader_model') or '').upper()
@@ -1891,11 +2069,18 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     data.get('bypass_tvc'),
                     data.get('amplifier_range'),
                     ac_source=ac_source,
-                    dc_source=dc_source
+                    dc_source=dc_source,
+                    measurement_params=data.get('measurement_params'),
                 )
             else:
                 configure_kwargs = {'ac_source': ac_source} if char_source_kind == 'AC' else {'dc_source': dc_source}
-                await self._configure_sources(original_tp, data.get('bypass_tvc'), data.get('amplifier_range'), **configure_kwargs)
+                await self._configure_sources(
+                    original_tp,
+                    data.get('bypass_tvc'),
+                    data.get('amplifier_range'),
+                    measurement_params=data.get('measurement_params'),
+                    **configure_kwargs,
+                )
 
             if session_details.get('amplifier_address'):
                 amplifier = await sync_to_async(_inst, thread_sensitive=True)(
@@ -2246,12 +2431,18 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         target_tvc = test_point_data.get('target_tvc', 'BOTH')
         
         # --- 1. Calculate Source Drive Voltage ---
-        input_current = float(test_point_data.get('current'))
-        if amplifier_range is None:
-            raise ValueError(
-                "An amplifier range is required for the AC Shunt signal path."
+        direct_5790_source_mode = bool(
+            amplifier_instrument is None
+            and _shared_5790_reader_pair(
+                std_reader_instrument,
+                ti_reader_instrument,
             )
-        source_drive_voltage = (input_current / float(amplifier_range)) * 2
+        )
+        source_drive_voltage = _source_drive_voltage_for_test_point(
+            test_point_data,
+            amplifier_range,
+            infer_range=direct_5790_source_mode,
+        )
         if 'neg' in reading_type_base: 
             source_drive_voltage = -source_drive_voltage
         
@@ -2519,6 +2710,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         # BRANCH 2: STANDARD SLIDING WINDOW (DC & High Freq AC)
         # =====================================================================
         else:
+            use_shared_5790_batches = bool(
+                target_tvc == 'BOTH'
+                and getattr(self, '_reader_switch', None) is None
+                and _shared_5790_reader_pair(
+                    std_reader_instrument,
+                    ti_reader_instrument,
+                )
+            )
+
             # Stability Logic Setup
             stability_method = measurement_params.get('stability_check_method', 'sliding_window')
             max_retries = measurement_params.get('max_attempts', 50)
@@ -2541,20 +2741,31 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             # and subsequent stages like "Cycle 2+" (bypasses lock to avoid thermal shock aborts).
             is_subsequent_char_stage = ('char' in reading_type_base) and (reading_type_base != 'char_plus1')
 
-            # When the operator has bypass-after-initial enabled and we're on
-            # any cycle past the first (or a subsequent char stage), skip the initial-stability search
-            # entirely...
+            # A shared 5790 must take one complete Standard role batch and one
+            # complete TI role batch per stage. Re-running the initial sliding
+            # gate would repeat the entire physical stage (STD/TI/STD/TI),
+            # despite the requested sample count already being satisfied.
+            # Continue calculating/reporting stability for that batch, but do
+            # not turn it into a second acquisition. The existing bypass-after-
+            # initial behavior remains unchanged for every other topology.
             skip_initial_check = (
                 stability_method == 'sliding_window'
-                and ignore_after_lock
                 and (
-                    (cycle_index is not None and cycle_index > 1) or
-                    is_subsequent_char_stage
+                    use_shared_5790_batches
+                    or (
+                        ignore_after_lock
+                        and (
+                            (cycle_index is not None and cycle_index > 1)
+                            or is_subsequent_char_stage
+                        )
+                    )
                 )
             )
 
             # --- LOGGING INSTRUMENTATION ---
-            if skip_initial_check:
+            if skip_initial_check and use_shared_5790_batches:
+                print(f"[STABILITY] Monitoring one shared-5790 role batch for stage: {reading_type_base} (Cycle: {cycle_index})", flush=True)
+            elif skip_initial_check:
                 print(f"[STABILITY] Bypassing search phase for stage: {reading_type_base} (Cycle: {cycle_index})", flush=True)
             else:
                 print(f"[STABILITY] Search phase ENABLED for stage: {reading_type_base} (Cycle: {cycle_index})", flush=True)
@@ -2596,6 +2807,37 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             # Replaces raw final_std_readings length with the dynamic targeted check
             pair_index = 0
+            pending_reader_pairs = deque()
+            shared_5790_sample_delay = max(
+                0.0,
+                float(measurement_params.get('f5790_inter_sample_delay', 1.0)),
+            )
+
+            async def stream_shared_5790_sample(role, point, sample_index):
+                """Publish a physical shared-5790 reading as soon as it arrives."""
+                std_point = point if role == 'std' else None
+                ti_point = point if role == 'ti' else None
+                self._buffer_append_sample(
+                    reading_type_base,
+                    std_point,
+                    ti_point,
+                    sample_index,
+                    num_samples,
+                    cycle_index=cycle_index,
+                )
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'dual_reading_update',
+                    'std_reading': std_point,
+                    'ti_reading': ti_point,
+                    'count': sample_index,
+                    'stable_count': get_target_length(),
+                    'total': num_samples,
+                    'stage': reading_type_base,
+                    'cycle_index': cycle_index,
+                    'reader_role': role,
+                    'live_physical_sample': True,
+                }))
+
             while get_target_length() < num_samples and not self.stop_event.is_set():
                 # 1. Global Abort Check (Applies to both Search and Collection phases)
                 if instability_events >= max_retries:
@@ -2610,19 +2852,31 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     return False
 
                 # 2. Take Readings (Targeted Instrument Querying)
-                std_reading_val, ti_reading_val = await self._take_reader_pair(
-                    std_reader_instrument,
-                    ti_reader_instrument,
-                    target_tvc,
-                    reverse_order=bool(pair_index % 2),
-                )
-                pair_index += 1
-                
-                timestamp = time.time()
-                
-                # None creation protects downstream arrays from bloating with fake points
-                std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True} if std_reading_val is not None else None
-                ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
+                if use_shared_5790_batches:
+                    if not pending_reader_pairs:
+                        std_batch, ti_batch = await self._take_shared_5790_batches(
+                            std_reader_instrument,
+                            ti_reader_instrument,
+                            num_samples,
+                            inter_sample_delay=shared_5790_sample_delay,
+                            on_sample=stream_shared_5790_sample,
+                        )
+                        pending_reader_pairs.extend(zip(std_batch, ti_batch))
+                    std_point, ti_point = pending_reader_pairs.popleft()
+                else:
+                    std_reading_val, ti_reading_val = await self._take_reader_pair(
+                        std_reader_instrument,
+                        ti_reader_instrument,
+                        target_tvc,
+                        reverse_order=bool(pair_index % 2),
+                    )
+                    pair_index += 1
+
+                    timestamp = time.time()
+
+                    # None creation protects downstream arrays from bloating with fake points
+                    std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True} if std_reading_val is not None else None
+                    ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
                 just_locked_initial_window = False
 
                 if stability_method == 'sliding_window':
@@ -2743,7 +2997,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             'type': 'status_update',
                             'message': (
                                 f"Stdev: {ppm_text} "
-                                f"(cycle {cycle_index}, initial check skipped)"
+                                + (
+                                    "(complete shared-5790 role batch)"
+                                    if use_shared_5790_batches
+                                    else f"(cycle {cycle_index}, initial check skipped)"
+                                )
                             ),
                         }))
                     elif len(primary_candidates) >= window_size:
@@ -2903,17 +3161,33 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         cycle_index=cycle_index,
                     )
 
-                await self.broadcast(text_data=json.dumps({
-                    'type': 'dual_reading_update',
-                    'std_reading': std_point,
-                    'ti_reading': ti_point,
-                    'count': current_count,
-                    'stable_count': get_target_length(),
-                    'total': num_samples,
-                    'stage': reading_type_base,
-                    'cycle_index': cycle_index,
-                    'window_snapshot': search_window_snapshot,
-                }))
+                # Shared-5790 points were already published at the exact time
+                # each physical reading arrived. Re-broadcasting reconstructed
+                # pairs here made both charts appear to fill all at once. The
+                # only follow-up this path needs is a final search-window
+                # snapshot when stability evaluation changed point flags.
+                should_publish_processed_pair = not use_shared_5790_batches
+                should_publish_shared_snapshot = bool(
+                    use_shared_5790_batches
+                    and search_window_snapshot is not None
+                    and not pending_reader_pairs
+                )
+                if should_publish_processed_pair or should_publish_shared_snapshot:
+                    await self.broadcast(text_data=json.dumps({
+                        'type': 'dual_reading_update',
+                        'std_reading': (
+                            None if use_shared_5790_batches else std_point
+                        ),
+                        'ti_reading': (
+                            None if use_shared_5790_batches else ti_point
+                        ),
+                        'count': current_count,
+                        'stable_count': get_target_length(),
+                        'total': num_samples,
+                        'stage': reading_type_base,
+                        'cycle_index': cycle_index,
+                        'window_snapshot': search_window_snapshot,
+                    }))
 
                 await asyncio.sleep(0.05)
         

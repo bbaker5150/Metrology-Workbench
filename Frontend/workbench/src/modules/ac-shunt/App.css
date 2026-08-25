@@ -3789,14 +3789,17 @@ input:checked+.slider:before {
    modal header's close button. */
 .corrections-subprompt-overlay {
   position: absolute;
-  inset: 0;
+  /* Keep the nested prompt's hit-testing region below the modal chrome.
+     The header also has the higher stacking level, but excluding it from the
+     overlay altogether guarantees that the close control remains clickable. */
+  inset: 69px 0 0;
   z-index: 4;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
   background: rgba(15, 23, 42, 0.5);
-  border-radius: 14px;
+  border-radius: 0 0 14px 14px;
 }
 
 body.dark-mode .corrections-subprompt-overlay {
@@ -3815,6 +3818,12 @@ body.dark-mode .corrections-subprompt-overlay {
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
+}
+
+.corrections-modal-close {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
 }
 
 /* Compact pill toggle used in the modal header (denser than in-body version) */

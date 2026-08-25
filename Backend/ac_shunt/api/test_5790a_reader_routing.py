@@ -13,6 +13,7 @@ from .consumers import (
     _clear_live_state,
     _get_live_state,
     _5790_profile_settings,
+    _source_drive_voltage_for_test_point,
 )
 from .models import (
     CalibrationSession,
@@ -142,6 +143,127 @@ class ReaderSettingsApiTests(TestCase):
 
 
 class SequentialReaderStabilityTests(SimpleTestCase):
+    def test_shared_5790_uses_one_role_batch_even_when_initial_spread_is_high(self):
+        class Source:
+            def set_output(self, voltage, frequency):
+                self.last_output = (voltage, frequency)
+
+        async def run_measurement():
+            consumer = CalibrationConsumer()
+            consumer.stop_event.clear()
+            consumer.broadcast = AsyncMock()
+            consumer.save_readings_to_db = AsyncMock()
+            consumer._buffer_append_sample = Mock()
+            consumer._buffer_replace_search_window = Mock()
+            consumer._take_reader_pair = AsyncMock()
+
+            instrument = Instrument5790A.__new__(Instrument5790A)
+            instrument.gpib = "GPIB0::16::INSTR"
+            instrument.standard_role_input = "INPUT1"
+            instrument.test_role_input = "INPUT2"
+            instrument.configure_acquisition = Mock()
+            batch = [
+                {"value": value, "timestamp": float(index), "is_stable": True}
+                for index, value in enumerate(
+                    [1.0, 1.001, 0.999],
+                    start=1,
+                )
+            ]
+            ti_batch = [
+                {**point, "value": point["value"] * 2}
+                for point in batch
+            ]
+            async def take_shared_batches(
+                std_reader,
+                ti_reader,
+                sample_count,
+                *,
+                inter_sample_delay,
+                on_sample,
+            ):
+                for sample_index, point in enumerate(batch, start=1):
+                    await on_sample("std", point, sample_index)
+                for sample_index, point in enumerate(ti_batch, start=1):
+                    await on_sample("ti", point, sample_index)
+                return batch, ti_batch
+
+            consumer._take_shared_5790_batches = AsyncMock(
+                side_effect=take_shared_batches,
+            )
+
+            source = Source()
+            with patch("api.consumers.asyncio.sleep", new=AsyncMock()):
+                success = await consumer._perform_single_measurement(
+                    "ac_open",
+                    3,
+                    {"current": 0.1, "frequency": 60, "target_tvc": "BOTH"},
+                    False,
+                    None,
+                    source,
+                    instrument,
+                    instrument,
+                    settling_time=0,
+                    measurement_params={
+                        "stability_check_method": "sliding_window",
+                        "window": 3,
+                        "threshold_ppm": 10,
+                        "max_attempts": 10,
+                        "f5790_inter_sample_delay": 0,
+                    },
+                )
+            return consumer, success, instrument, source
+
+        consumer, success, instrument, source = asyncio.run(run_measurement())
+
+        self.assertTrue(success)
+        self.assertEqual(source.last_output, (1.0, 60.0))
+        consumer._take_shared_5790_batches.assert_awaited_once()
+        batch_call = consumer._take_shared_5790_batches.await_args
+        self.assertEqual(batch_call.args, (instrument, instrument, 3))
+        self.assertEqual(batch_call.kwargs["inter_sample_delay"], 0.0)
+        self.assertTrue(callable(batch_call.kwargs["on_sample"]))
+        consumer._take_reader_pair.assert_not_awaited()
+
+        broadcasts = [
+            json.loads(call.kwargs["text_data"])
+            for call in consumer.broadcast.await_args_list
+        ]
+        live_samples = [
+            payload for payload in broadcasts
+            if payload.get("live_physical_sample")
+        ]
+        self.assertEqual(
+            [payload["reader_role"] for payload in live_samples],
+            ["std", "std", "std", "ti", "ti", "ti"],
+        )
+        self.assertEqual(
+            [payload["count"] for payload in live_samples],
+            [1, 2, 3, 1, 2, 3],
+        )
+        self.assertTrue(all(
+            payload["std_reading"] is not None
+            and payload["ti_reading"] is None
+            for payload in live_samples[:3]
+        ))
+        self.assertTrue(all(
+            payload["std_reading"] is None
+            and payload["ti_reading"] is not None
+            for payload in live_samples[3:]
+        ))
+
+        processed_updates = [
+            payload for payload in broadcasts
+            if payload.get("type") == "dual_reading_update"
+            and not payload.get("live_physical_sample")
+        ]
+        self.assertEqual(processed_updates, [])
+        saved = {
+            call.args[0]: call.args[1]
+            for call in consumer.save_readings_to_db.await_args_list
+        }
+        self.assertEqual(len(saved["std_ac_open"]), 3)
+        self.assertEqual(len(saved["ti_ac_open"]), 3)
+
     def test_initial_paired_window_is_retained_without_chart_reset(self):
         class Source:
             def set_output(self, voltage, frequency):
@@ -349,6 +471,75 @@ class SafeShutdownTests(SimpleTestCase):
 
 
 class ReaderSwitchMappingTests(SimpleTestCase):
+    def test_no_amplifier_shared_5790_infers_source_drive_range(self):
+        data = {
+            "measurement_params": {
+                "_direct_5790_source_mode": False,
+            },
+        }
+        details = {
+            "ac_source_address": "GPIB0::11::INSTR",
+            "dc_source_address": "GPIB0::4::INSTR",
+            "std_reader_address": "GPIB0::14::INSTR",
+            "ti_reader_address": "GPIB0::14::INSTR",
+            "std_reader_model": "5790B",
+            "ti_reader_model": "5790B",
+            "std_reader_input": "INPUT2",
+            "ti_reader_input": "INPUT1",
+            "amplifier_address": None,
+            "switch_driver_address": None,
+            "reader_switch_driver_address": None,
+        }
+
+        CalibrationConsumer._validate_reader_assignments(data, details)
+
+        self.assertTrue(
+            data["measurement_params"]["_direct_5790_source_mode"]
+        )
+
+    def test_inferred_source_drive_uses_smallest_supported_range(self):
+        self.assertEqual(
+            _source_drive_voltage_for_test_point(
+                {"current": 0.1},
+                infer_range=True,
+            ),
+            1.0,
+        )
+        with self.assertRaisesRegex(ValueError, "amplifier range is required"):
+            _source_drive_voltage_for_test_point({"current": 0.1})
+
+    def test_quick_setup_configures_both_sources_without_amplifier_range(self):
+        class Source:
+            def __init__(self):
+                self.outputs = []
+                self.transfer_states = []
+
+            def set_output(self, voltage, frequency):
+                self.outputs.append((voltage, frequency))
+
+            def set_ac_transfer(self, enabled):
+                self.transfer_states.append(enabled)
+
+        async def configure():
+            consumer = CalibrationConsumer()
+            ac_source = Source()
+            dc_source = Source()
+            await consumer._configure_sources(
+                {"current": 0.1, "frequency": 60},
+                False,
+                None,
+                ac_source=ac_source,
+                dc_source=dc_source,
+                measurement_params={"_direct_5790_source_mode": True},
+            )
+            return ac_source, dc_source
+
+        ac_source, dc_source = asyncio.run(configure())
+
+        self.assertEqual(ac_source.outputs, [(1.0, 60.0)])
+        self.assertEqual(ac_source.transfer_states, [False])
+        self.assertEqual(dc_source.outputs, [(1.0, 0)])
+
     def test_shared_5790_requires_opposite_main_inputs(self):
         details = {
             "std_reader_address": "GPIB0::16::INSTR",
@@ -486,6 +677,67 @@ class ReaderTopologySerializerTests(SimpleTestCase):
 
 
 class SequentialReaderAcquisitionTests(SimpleTestCase):
+    def test_shared_5790_batches_standard_then_ti_with_one_switch_per_role(self):
+        events = []
+        instrument = Instrument5790A.__new__(Instrument5790A)
+        instrument.gpib = "GPIB0::16::INSTR"
+        instrument.active_input = None
+        instrument.input_switch_delay = 0
+        instrument.standard_role_input = "INPUT1"
+        instrument.test_role_input = "INPUT2"
+
+        def set_input(input_name):
+            instrument.active_input = input_name
+            events.append(f"select:{input_name}")
+
+        def read_instrument():
+            events.append(f"read:{instrument.active_input}")
+            return 1.0 if instrument.active_input == "INPUT1" else 2.0
+
+        instrument.set_input = set_input
+        instrument.read_instrument = read_instrument
+
+        async def exercise():
+            consumer = CalibrationConsumer()
+            consumer.broadcast = AsyncMock()
+            consumer._wait_for_stop_or_timeout = AsyncMock(return_value=True)
+            on_sample = AsyncMock()
+            return await consumer._take_shared_5790_batches(
+                instrument,
+                instrument,
+                3,
+                inter_sample_delay=1.0,
+                on_sample=on_sample,
+            ), consumer, on_sample
+
+        (standard, test), consumer, on_sample = asyncio.run(exercise())
+
+        self.assertEqual([point["value"] for point in standard], [1.0, 1.0, 1.0])
+        self.assertEqual([point["value"] for point in test], [2.0, 2.0, 2.0])
+        self.assertEqual(events, [
+            "select:INPUT1",
+            "read:INPUT1",
+            "read:INPUT1",
+            "read:INPUT1",
+            "select:INPUT2",
+            "read:INPUT2",
+            "read:INPUT2",
+            "read:INPUT2",
+        ])
+        self.assertEqual(
+            [call.args[0] for call in on_sample.await_args_list],
+            ["std", "std", "std", "ti", "ti", "ti"],
+        )
+        self.assertEqual(
+            [call.args[2] for call in on_sample.await_args_list],
+            [1, 2, 3, 1, 2, 3],
+        )
+        sample_dwells = [
+            call for call in consumer._wait_for_stop_or_timeout.await_args_list
+            if call.args == (1.0,)
+        ]
+        self.assertEqual(len(sample_dwells), 4)
+
     def test_shared_5790_reads_ti_then_standard_on_opposite_inputs(self):
         events = []
 

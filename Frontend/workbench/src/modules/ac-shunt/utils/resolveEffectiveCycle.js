@@ -27,14 +27,21 @@ export function listAvailableCycles(chartData) {
 /**
  * Resolve the cycle the chart will actually display:
  *   - explicit user selection wins (if still present in availableCycles)
- *   - otherwise: latest available cycle (during a live run that's the
- *     currently-running one, since earlier cycles are already complete
- *     and later ones don't exist yet)
+ *   - otherwise: the explicitly supplied active live cycle, even before its
+ *     first reading arrives
+ *   - otherwise: latest available cycle
  *   - falls back to 1 when there is no data at all
  */
-export function resolveEffectiveCycle(selectedCycle, availableCycles) {
+export function resolveEffectiveCycle(
+  selectedCycle,
+  availableCycles,
+  activeCycle = null,
+) {
   if (selectedCycle != null && availableCycles.includes(selectedCycle)) {
     return selectedCycle;
+  }
+  if (Number.isFinite(activeCycle)) {
+    return Number(activeCycle);
   }
   return availableCycles.length
     ? availableCycles[availableCycles.length - 1]
