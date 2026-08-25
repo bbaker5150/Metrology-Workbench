@@ -18,6 +18,8 @@ const InlineMenuSelect = ({
   menuWidth = 220,
   className = "",
   autoOpen = false,
+  showOptionMeta = true,
+  onOpenChange,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [menuRect, setMenuRect] = useState(null);
@@ -29,7 +31,10 @@ const InlineMenuSelect = ({
   );
   const displayValue = selectedOption?.shortLabel || selectedOption?.label || value || "Select";
 
-  const closeMenu = () => setIsOpen(false);
+  const closeMenu = () => {
+    setIsOpen(false);
+    onOpenChange?.(false);
+  };
   const openMenu = () => {
     const rect = rootRef.current?.getBoundingClientRect();
     if (rect) {
@@ -44,6 +49,7 @@ const InlineMenuSelect = ({
       }));
     }
     setIsOpen(true);
+    onOpenChange?.(true);
   };
 
   useEffect(() => {
@@ -154,9 +160,10 @@ const InlineMenuSelect = ({
                     }}
                   >
                     <span>{option.label}</span>
-                    {(option.shortLabel || option.value !== option.label) && (
+                    {showOptionMeta &&
+                      (option.shortLabel || option.value !== option.label) && (
                       <small>{option.shortLabel || option.value}</small>
-                    )}
+                      )}
                   </button>
                 );
               })}

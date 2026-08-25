@@ -1221,7 +1221,7 @@ const blankToleranceFrom = (sourceTol = {}) => {
 
 // Add a blank range alongside the active range (same function), or remove one.
 // Returns { item, newRangeId? }. At least one range is always kept.
-const addRangeToItem = (item, activeRangeId) => {
+export const addRangeToItem = (item, activeRangeId) => {
   const inst = item?.instrument || {};
   const activeRange = findItemRange(item, activeRangeId);
   const seededTolerances = blankToleranceFrom(getItemRangeTolerance(item, activeRangeId));
@@ -1818,6 +1818,45 @@ const formatInstrumentIdentity = (source = {}, fallback = "Unnamed Instrument") 
   return parts.join(" ") || source.description || source.name || fallback;
 };
 
+export const applyTmdeIdentityToPoints = (points = [], tmde = {}) => {
+  const identity = formatInstrumentIdentity(tmde);
+  const ids = new Set(
+    [tmde.id, tmde.sourceId, tmde.instrument?.id, tmde.instrument?.sourceId]
+      .filter((value) => value !== undefined && value !== null && value !== "")
+      .map(String),
+  );
+  const componentMatches = (component = {}) =>
+    [component.sourceTmdeId, component.tmdeBudgetSourceId]
+      .filter((value) => value !== undefined && value !== null && value !== "")
+      .some((value) => ids.has(String(value)));
+
+  return points.map((point) => {
+    let changed = false;
+    const tmdeTolerances = (point.tmdeTolerances || []).map((instance) => {
+      if (!tmdeInstanceMatchesMaster(instance, tmde)) return instance;
+      changed = true;
+      return { ...instance, nickname: tmde.nickname || "" };
+    });
+    const components = (point.components || []).map((component) => {
+      if (!componentMatches(component)) return component;
+      changed = true;
+      const suffix =
+        component.tmdeBudgetComponentKind ||
+        String(component.name || "Accuracy").split(" - ").slice(-1)[0];
+      const pointSuffix = String(component.sourcePointLabel || "").includes(" · ")
+        ? ` · ${String(component.sourcePointLabel).split(" · ").slice(1).join(" · ")}`
+        : "";
+      return {
+        ...component,
+        name: `${identity} - ${suffix}`,
+        tmdeIdentity: identity,
+        sourcePointLabel: `${identity}${pointSuffix}`,
+      };
+    });
+    return changed ? { ...point, tmdeTolerances, components } : point;
+  });
+};
+
 const findRangeForFunction = (source = {}, functionKey = null) => {
   const ranges = getInstrumentRangeRows(source);
   if (!ranges.length) return null;
@@ -2058,11 +2097,6 @@ export const EditableDescriptionCell = ({
     setEditing(false);
     setOpen(false);
   }, [make, model, name, nickname]);
-  useInlineColumnDismiss({
-    expanded: editing,
-    rootRef: anchorRef,
-    onDismiss: dismissDescriptionEditor,
-  });
 
   // Live library matches as the user types (make/model/name). Token-AND search
   // over the user's local + shared library (the `instruments` prop).
@@ -6338,6 +6372,9 @@ const SummaryDashboard = ({
         nextTestPoints = refreshSessionPointsForTmde(nextItem, nextTestPoints);
       }
     });
+    if (kind === "tmde") {
+      nextTestPoints = applyTmdeIdentityToPoints(nextTestPoints, localizedItem);
+    }
     const nextSession = {
       ...currentSession,
       uuts: synchronized.uuts,
@@ -6363,13 +6400,21 @@ const SummaryDashboard = ({
 
   const handleUutDescriptionEdit = (uutId, field, value) => {
     if (!onSessionSave) return;
+    if (field === "nickname") {
+      const currentSession = latestSessionDataRef.current;
+      const nextItems = (currentSession.uuts || []).map((item) =>
+        sameId(item.id, uutId) ? { ...item, nickname: value } : item,
+      );
+      const nextSession = { ...currentSession, uuts: nextItems };
+      latestSessionDataRef.current = nextSession;
+      onSessionSave(nextSession);
+      return;
+    }
     let updatedItem = null;
-    (sessionData.uuts || []).forEach((u) => {
+    (latestSessionDataRef.current.uuts || []).forEach((u) => {
       if (u.id !== uutId) return;
       updatedItem =
-        field === "nickname"
-          ? { ...u, nickname: value }
-          : field === "name"
+        field === "name"
           ? {
               ...u,
               description: value,
@@ -6388,13 +6433,32 @@ const SummaryDashboard = ({
 
   const handleTmdeDescriptionEdit = (tmdeId, field, value) => {
     if (!onSessionSave) return;
+    if (field === "nickname") {
+      const currentSession = latestSessionDataRef.current;
+      let updatedItem = null;
+      const nextItems = (currentSession.tmdes || []).map((item) => {
+        if (!sameId(item.id, tmdeId)) return item;
+        updatedItem = { ...item, nickname: value };
+        return updatedItem;
+      });
+      if (!updatedItem) return;
+      const nextSession = {
+        ...currentSession,
+        tmdes: nextItems,
+        testPoints: applyTmdeIdentityToPoints(
+          currentSession.testPoints || [],
+          updatedItem,
+        ),
+      };
+      latestSessionDataRef.current = nextSession;
+      onSessionSave(nextSession);
+      return;
+    }
     let updatedItem = null;
-    (sessionData.tmdes || []).forEach((t) => {
+    (latestSessionDataRef.current.tmdes || []).forEach((t) => {
       if (t.id !== tmdeId) return;
       updatedItem =
-        field === "nickname"
-          ? { ...t, nickname: value }
-          : field === "name"
+        field === "name"
           ? {
               ...t,
               name: value,
@@ -7023,14 +7087,11 @@ const SummaryDashboard = ({
     const currentItem = (currentSession[listKey] || []).find(
       (candidate) => String(candidate.id) === String(item.id),
     ) || item;
-    const { item: updated, newRangeId } = addRangeToItem(
+    const { item: updated } = addRangeToItem(
       currentItem,
       activeRangeId,
     );
     persistItem(kind, updated);
-    if (newRangeId) {
-      setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
-    }
   };
   const handleDeleteSelectedRanges = () => {
     if (!onSessionSave) return;
@@ -7308,7 +7369,7 @@ const SummaryDashboard = ({
     return (
       <button
         type="button"
-        className="range-header-action-btn range-header-action-btn--add function-header-action-btn"
+        className="btn-add-item btn-add-column function-header-action-btn"
         data-tour={`${kind}-add-instrument`}
         title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
@@ -7317,7 +7378,6 @@ const SummaryDashboard = ({
           handleAddInstrumentToFunction(kind, fn);
         }}
       >
-        <FontAwesomeIcon icon={faPlus} size="xs" />
         <span>Add Instrument</span>
       </button>
     );
@@ -7757,19 +7817,21 @@ const SummaryDashboard = ({
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
-            <button
-              type="button"
-              className="range-row-add"
-              title="Add range"
-              aria-label="Add range"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleAddBlankRange(kind, item, rangeKey);
-              }}
-            >
-              <FontAwesomeIcon icon={faPlus} />
-            </button>
+            {rangeIndex === 0 && (
+              <button
+                type="button"
+                className="range-row-add"
+                title="Add range"
+                aria-label="Add range"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAddBlankRange(kind, item, rangeKey);
+                }}
+              >
+                <FontAwesomeIcon icon={faPlus} />
+              </button>
+            )}
             <button
               type="button"
               className="range-row-delete"
@@ -8541,11 +8603,10 @@ const SummaryDashboard = ({
               title="Add UUT column"
               aria-label="Add UUT column"
             >
-              <FontAwesomeIcon icon={faPlus} size="xs" />
               <span>Add Column</span>
             </button>
             <button
-              className="btn-add-item"
+              className="btn-add-item btn-add-column"
               data-tour="uut-add-function"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -8555,7 +8616,6 @@ const SummaryDashboard = ({
               }}
               title="Add Function"
             >
-              <FontAwesomeIcon icon={faPlus} size="xs" />
               <span>Add Function</span>
             </button>
             {renderAddFunctionMenu("uut")}
@@ -8574,11 +8634,12 @@ const SummaryDashboard = ({
               <col style={{ width: "22%" }} />
               <col style={{ width: "18%" }} />
               <col style={{ width: "18%" }} />
-              <col style={{ width: "35%" }} />
+              <col style={{ width: "32%" }} />
               {customColumnsFor("uut").map((column) => (
                 <col key={column.key} style={{ width: "140px" }} />
               ))}
-              <col style={{ width: "7%" }} />
+              <col style={{ width: "5%" }} />
+              <col style={{ width: "5%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -8594,13 +8655,14 @@ const SummaryDashboard = ({
                   <th key={column.key}>{renderCustomColumnHeader("uut", column)}</th>
                 ))}
                 <th className="cell-sync">Sync</th>
+                <th className="cell-order">Order</th>
               </tr>
             </thead>
             <tbody>
               {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={5 + customColumnsFor("uut").length}>
-                    Add a UUT using the + icon in the top-right.
+                  <td colSpan={6 + customColumnsFor("uut").length}>
+                    Add a UUT using Add Instrument in the function header.
                   </td>
                 </tr>
               ) : (
@@ -8609,7 +8671,7 @@ const SummaryDashboard = ({
                     return renderFunctionHeaderRow(
                       "uut",
                       row.fn,
-                      5 + customColumnsFor("uut").length,
+                      6 + customColumnsFor("uut").length,
                     );
                   }
 
@@ -8750,13 +8812,15 @@ const SummaryDashboard = ({
                                   className="cell-sync"
                                   style={{ textAlign: "center" }}
                                 >
-                                  <div className="instrument-row-tools">
-                                    <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
-                                    <InstrumentOrderControls
-                                      onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
-                                      onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
-                                    />
-                                  </div>
+                                  <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                </td>
+                              )}
+                              {i === 0 && (
+                                <td rowSpan={spanRows} className="cell-order">
+                                  <InstrumentOrderControls
+                                    onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                                    onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                                  />
                                 </td>
                               )}
                             </tr>
@@ -8986,13 +9050,13 @@ const SummaryDashboard = ({
                           className="cell-sync"
                           style={{ textAlign: "center" }}
                         >
-                          <div className="instrument-row-tools">
-                            <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
-                            <InstrumentOrderControls
-                              onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
-                              onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
-                            />
-                          </div>
+                          <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                        </td>
+                        <td rowSpan={rowSpan} className="cell-order">
+                          <InstrumentOrderControls
+                            onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                            onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                          />
                         </td>
                       </tr>
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
@@ -9047,11 +9111,10 @@ const SummaryDashboard = ({
               title="Add TMDE column"
               aria-label="Add TMDE column"
             >
-              <FontAwesomeIcon icon={faPlus} size="xs" />
               <span>Add Column</span>
             </button>
             <button
-              className="btn-add-item"
+              className="btn-add-item btn-add-column"
               data-tour="tmde-add-function"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -9061,7 +9124,6 @@ const SummaryDashboard = ({
               }}
               title="Add Function"
             >
-              <FontAwesomeIcon icon={faPlus} size="xs" />
               <span>Add Function</span>
             </button>
             {renderAddFunctionMenu("tmde")}
@@ -9081,11 +9143,12 @@ const SummaryDashboard = ({
               <col style={{ width: "18%" }} />
               <col style={{ width: "14%" }} />
               <col style={{ width: "12%" }} />
-              <col style={{ width: "31%" }} />
+              <col style={{ width: "28%" }} />
               {customColumnsFor("tmde").map((column) => (
                 <col key={column.key} style={{ width: "140px" }} />
               ))}
-              <col style={{ width: "7%" }} />
+              <col style={{ width: "5%" }} />
+              <col style={{ width: "5%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -9102,13 +9165,14 @@ const SummaryDashboard = ({
                   <th key={column.key}>{renderCustomColumnHeader("tmde", column)}</th>
                 ))}
                 <th className="cell-sync">Sync</th>
+                <th className="cell-order">Order</th>
               </tr>
             </thead>
             <tbody>
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={6 + customColumnsFor("tmde").length}>
-                    Add a TMDE using the + icon in the top-right.
+                  <td colSpan={7 + customColumnsFor("tmde").length}>
+                    Add a TMDE using Add Instrument in the function header.
                   </td>
                 </tr>
               ) : (
@@ -9117,7 +9181,7 @@ const SummaryDashboard = ({
                     return renderFunctionHeaderRow(
                       "tmde",
                       row.fn,
-                      6 + customColumnsFor("tmde").length,
+                      7 + customColumnsFor("tmde").length,
                     );
                   }
 
@@ -9218,13 +9282,15 @@ const SummaryDashboard = ({
                                   className="cell-sync"
                                   style={{ textAlign: "center" }}
                                 >
-                                  <div className="instrument-row-tools">
-                                    <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
-                                    <InstrumentOrderControls
-                                      onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
-                                      onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
-                                    />
-                                  </div>
+                                  <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                                </td>
+                              )}
+                              {i === 0 && (
+                                <td rowSpan={spanRows} className="cell-order">
+                                  <InstrumentOrderControls
+                                    onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
+                                    onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
+                                  />
                                 </td>
                               )}
                             </tr>
@@ -9485,13 +9551,13 @@ const SummaryDashboard = ({
                           className="cell-sync"
                           style={{ textAlign: "center" }}
                         >
-                          <div className="instrument-row-tools">
-                            <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
-                            <InstrumentOrderControls
-                              onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
-                              onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
-                            />
-                          </div>
+                          <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                        </td>
+                        <td rowSpan={rowSpan} className="cell-order">
+                          <InstrumentOrderControls
+                            onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
+                            onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
+                          />
                         </td>
                       </tr>
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
@@ -10384,6 +10450,10 @@ function DetailedView({
       ...currentSession,
       uuts: synchronized.uuts,
       tmdes: synchronized.tmdes,
+      testPoints:
+        kind === "tmde"
+          ? applyTmdeIdentityToPoints(currentSession.testPoints || [], localizedItem)
+          : currentSession.testPoints || [],
     };
     latestSessionDataRef.current = nextSession;
     onSessionSave(nextSession);
@@ -10421,13 +10491,21 @@ function DetailedView({
 
   const handleDetailUutDescEdit = (uutId, field, value) => {
     if (!onSessionSave) return;
+    if (field === "nickname") {
+      const currentSession = latestSessionDataRef.current;
+      const nextItems = (currentSession.uuts || []).map((item) =>
+        sameId(item.id, uutId) ? { ...item, nickname: value } : item,
+      );
+      const nextSession = { ...currentSession, uuts: nextItems };
+      latestSessionDataRef.current = nextSession;
+      onSessionSave(nextSession);
+      return;
+    }
     let updatedItem = null;
-    (sessionData.uuts || []).forEach((u) => {
+    (latestSessionDataRef.current.uuts || []).forEach((u) => {
       if (u.id !== uutId) return;
       updatedItem =
-        field === "nickname"
-          ? { ...u, nickname: value }
-          : field === "name"
+        field === "name"
           ? {
               ...u,
               description: value,
@@ -10449,13 +10527,32 @@ function DetailedView({
   };
   const handleDetailTmdeDescEdit = (tmdeId, field, value) => {
     if (!onSessionSave) return;
+    if (field === "nickname") {
+      const currentSession = latestSessionDataRef.current;
+      let updatedItem = null;
+      const nextItems = (currentSession.tmdes || []).map((item) => {
+        if (!sameId(item.id, tmdeId)) return item;
+        updatedItem = { ...item, nickname: value };
+        return updatedItem;
+      });
+      if (!updatedItem) return;
+      const nextSession = {
+        ...currentSession,
+        tmdes: nextItems,
+        testPoints: applyTmdeIdentityToPoints(
+          currentSession.testPoints || [],
+          updatedItem,
+        ),
+      };
+      latestSessionDataRef.current = nextSession;
+      onSessionSave(nextSession);
+      return;
+    }
     let updatedItem = null;
-    (sessionData.tmdes || []).forEach((t) => {
+    (latestSessionDataRef.current.tmdes || []).forEach((t) => {
       if (t.id !== tmdeId) return;
       updatedItem =
-        field === "nickname"
-          ? { ...t, nickname: value }
-          : field === "name"
+        field === "name"
           ? {
               ...t,
               name: value,
@@ -10838,14 +10935,11 @@ function DetailedView({
     const currentItem = (currentSession[listKey] || []).find(
       (candidate) => String(candidate.id) === String(item.id),
     ) || item;
-    const { item: updated, newRangeId } = addRangeToItem(
+    const { item: updated } = addRangeToItem(
       currentItem,
       activeRangeId,
     );
     persistInlineItemDetail(kind, updated);
-    if (newRangeId) {
-      setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
-    }
   };
   const handleDeleteSelectedRanges = () => {
     if (!onSessionSave) return;
@@ -11129,19 +11223,21 @@ function DetailedView({
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
-            <button
-              type="button"
-              className="range-row-add"
-              title="Add range"
-              aria-label="Add range"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleAddBlankRangeDetail(kind, item, rangeKey);
-              }}
-            >
-              <FontAwesomeIcon icon={faPlus} />
-            </button>
+            {rangeIndex === 0 && (
+              <button
+                type="button"
+                className="range-row-add"
+                title="Add range"
+                aria-label="Add range"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAddBlankRangeDetail(kind, item, rangeKey);
+                }}
+              >
+                <FontAwesomeIcon icon={faPlus} />
+              </button>
+            )}
             <button
               type="button"
               className="range-row-delete"
@@ -11839,7 +11935,7 @@ function DetailedView({
     onSessionSave ? (
       <button
         type="button"
-        className="range-header-action-btn range-header-action-btn--add function-header-action-btn"
+        className="btn-add-item btn-add-column function-header-action-btn"
         data-tour={`${kind}-add-instrument`}
         title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
@@ -11848,7 +11944,6 @@ function DetailedView({
           handleAddInstrumentToFunction(kind, fn);
         }}
       >
-        <FontAwesomeIcon icon={faPlus} size="xs" />
         <span>Add Instrument</span>
       </button>
     ) : null;
@@ -14650,11 +14745,10 @@ function DetailedView({
               title="Add UUT column"
               aria-label="Add UUT column"
             >
-              <FontAwesomeIcon icon={faPlus} size="xs" />
               <span>Add Column</span>
             </button>
             <button
-              className="btn-add-item"
+              className="btn-add-item btn-add-column"
               data-tour="uut-add-function"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -14664,7 +14758,6 @@ function DetailedView({
               }}
               title="Add Function"
             >
-              <FontAwesomeIcon icon={faPlus} size="xs" />
               <span>Add Function</span>
             </button>
             {renderAddFunctionMenu("uut")}
@@ -14683,11 +14776,12 @@ function DetailedView({
               <col style={{ width: "22%" }} />
               <col style={{ width: "18%" }} />
               <col style={{ width: "18%" }} />
-              <col style={{ width: "35%" }} />
+              <col style={{ width: "32%" }} />
               {customColumnsFor("uut").map((column) => (
                 <col key={column.key} style={{ width: "140px" }} />
               ))}
-              <col style={{ width: "7%" }} />
+              <col style={{ width: "5%" }} />
+              <col style={{ width: "5%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -14703,13 +14797,14 @@ function DetailedView({
                   <th key={column.key}>{renderCustomColumnHeader("uut", column)}</th>
                 ))}
                 <th className="cell-sync">Sync</th>
+                <th className="cell-order">Order</th>
               </tr>
             </thead>
             <tbody>
               {visibleDetailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={5 + customColumnsFor("uut").length}>
-                    Add a UUT using the + icon in the top-right.
+                  <td colSpan={6 + customColumnsFor("uut").length}>
+                    Add a UUT using Add Instrument in the function header.
                   </td>
                 </tr>
               ) : (
@@ -14718,7 +14813,7 @@ function DetailedView({
                     return renderFunctionHeaderRow(
                       "uut",
                       row.fn,
-                      5 + customColumnsFor("uut").length,
+                      6 + customColumnsFor("uut").length,
                     );
                   }
                   const uut = row.item;
@@ -14840,13 +14935,15 @@ function DetailedView({
                                   className="cell-sync"
                                   style={{ textAlign: "center" }}
                                 >
-                                  <div className="instrument-row-tools">
-                                    <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
-                                    <InstrumentOrderControls
-                                      onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
-                                      onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
-                                    />
-                                  </div>
+                                  <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                </td>
+                              )}
+                              {i === 0 && (
+                                <td rowSpan={spanRows} className="cell-order">
+                                  <InstrumentOrderControls
+                                    onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                                    onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                                  />
                                 </td>
                               )}
                             </tr>
@@ -15093,13 +15190,13 @@ function DetailedView({
                           className="cell-sync"
                           style={{ textAlign: "center" }}
                         >
-                          <div className="instrument-row-tools">
-                            <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
-                            <InstrumentOrderControls
-                              onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
-                              onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
-                            />
-                          </div>
+                          <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                        </td>
+                        <td rowSpan={rowSpan} className="cell-order">
+                          <InstrumentOrderControls
+                            onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                            onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                          />
                         </td>
                       </tr>
 
@@ -15439,11 +15536,10 @@ function DetailedView({
                 title="Add TMDE column"
                 aria-label="Add TMDE column"
               >
-                <FontAwesomeIcon icon={faPlus} size="xs" />
                 <span>Add Column</span>
               </button>
               <button
-                className="btn-add-item"
+                className="btn-add-item btn-add-column"
                 data-tour="tmde-add-function"
                 onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
@@ -15453,7 +15549,6 @@ function DetailedView({
                 }}
                 title="Add Function"
               >
-                <FontAwesomeIcon icon={faPlus} size="xs" />
                 <span>Add Function</span>
               </button>
               {renderAddFunctionMenu("tmde")}
@@ -15474,11 +15569,12 @@ function DetailedView({
                 <col style={{ width: "18%" }} />
                 <col style={{ width: "14%" }} />
                 <col style={{ width: "12%" }} />
-                <col style={{ width: "31%" }} />
+                <col style={{ width: "28%" }} />
                 {customColumnsFor("tmde").map((column) => (
                   <col key={column.key} style={{ width: "140px" }} />
                 ))}
-                <col style={{ width: "7%" }} />
+                <col style={{ width: "5%" }} />
+                <col style={{ width: "5%" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -15495,13 +15591,14 @@ function DetailedView({
                     <th key={column.key}>{renderCustomColumnHeader("tmde", column)}</th>
                   ))}
                   <th className="cell-sync">Sync</th>
+                  <th className="cell-order">Order</th>
                 </tr>
               </thead>
               <tbody>
                 {visibleDetailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan={6 + customColumnsFor("tmde").length}>
-                      Add a TMDE using the + icon in the top-right.
+                  <td colSpan={7 + customColumnsFor("tmde").length}>
+                    Add a TMDE using Add Instrument in the function header.
                     </td>
                   </tr>
                 ) : (
@@ -15510,7 +15607,7 @@ function DetailedView({
                       return renderFunctionHeaderRow(
                         "tmde",
                         row.fn,
-                        6 + customColumnsFor("tmde").length,
+                      7 + customColumnsFor("tmde").length,
                       );
                     }
                     const masterTmde = row.item;
@@ -15677,16 +15774,18 @@ function DetailedView({
                                       className="cell-sync"
                                       style={{ textAlign: "center" }}
                                     >
-                                      <div className="instrument-row-tools">
-                                        <SyncBadge
-                                          item={masterTmde}
-                                          onSync={() => handleSyncItem("tmde", masterTmde)}
-                                        />
-                                        <InstrumentOrderControls
-                                          onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
-                                          onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
-                                        />
-                                      </div>
+                                      <SyncBadge
+                                        item={masterTmde}
+                                        onSync={() => handleSyncItem("tmde", masterTmde)}
+                                      />
+                                    </td>
+                                  )}
+                                  {i === 0 && (
+                                    <td rowSpan={spanRows} className="cell-order">
+                                      <InstrumentOrderControls
+                                        onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
+                                        onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
+                                      />
                                     </td>
                                   )}
                                 </tr>
@@ -16030,13 +16129,13 @@ function DetailedView({
                               className="cell-sync"
                               style={{ textAlign: "center" }}
                             >
-                              <div className="instrument-row-tools">
-                                <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} />
-                                <InstrumentOrderControls
-                                  onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
-                                  onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
-                                />
-                              </div>
+                              <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} />
+                            </td>
+                            <td rowSpan={rowSpan} className="cell-order">
+                              <InstrumentOrderControls
+                                onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
+                                onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
+                              />
                             </td>
                           </tr>
 

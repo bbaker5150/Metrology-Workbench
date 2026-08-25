@@ -233,7 +233,11 @@ describe("UncertaintyApp", () => {
     expect(within(uutList).getByRole("option", { name: /Mock 100 Primary DMM/i })).toBeInTheDocument();
     expect(within(uutList).getByRole("option", { name: /Mock 200 Backup DMM/i })).toBeInTheDocument();
     fireEvent.click(within(uutList).getByRole("option", { name: /Mock 100 Primary DMM/i }));
-    await waitFor(() => expect(uutSelect).toHaveTextContent(/Mock 100 Primary DMM/i));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "UUT" })).toHaveTextContent(
+        /Mock 100 Primary DMM/i,
+      ),
+    );
     expect(
       screen.queryByText("Ready for your first measurement point"),
     ).not.toBeInTheDocument();
@@ -458,10 +462,10 @@ describe("UncertaintyApp", () => {
       screen.getByText(/Add Measurement Points to define the exact test values/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Add a UUT using the + icon in the top-right."),
+      screen.getByText("Add a UUT using Add Instrument in the function header."),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Add a TMDE using the + icon in the top-right."),
+      screen.getByText("Add a TMDE using Add Instrument in the function header."),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Risk Inputs/i }));

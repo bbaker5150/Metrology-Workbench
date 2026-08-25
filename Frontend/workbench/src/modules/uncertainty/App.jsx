@@ -460,6 +460,23 @@ const getPointTmdeLimitSortValue = (point, key) => {
   return parseSortableNumber(key === "tmdeLow" ? limits.low : limits.high);
 };
 
+export const getUutReassignmentPointIds = ({
+  points = [],
+  pointIndex = 0,
+  span = 1,
+  selectedPointIds = [],
+  currentPointId,
+}) => {
+  const selectedIds = new Set(selectedPointIds.map(String));
+  const selectedRunIds = points
+    .slice(pointIndex, pointIndex + Math.max(1, span))
+    .map((point) => String(point.id))
+    .filter((id) => selectedIds.has(id));
+  return selectedRunIds.length > 0
+    ? selectedRunIds
+    : [String(currentPointId)];
+};
+
 // --- HELPER COMPONENT: Sidebar Point Item (Supports Inline Editing) ---
 export const SidebarPointItem = ({
   point,
@@ -533,6 +550,7 @@ export const SidebarPointItem = ({
   const [editingField, setEditingField] = useState(
     autoEditValue ? "value" : null,
   );
+  const [editingUut, setEditingUut] = useState(false);
   const [tempValue, setTempValue] = useState(
     autoEditValue ? point.testPointInfo?.parameter?.value ?? "" : "",
   );
@@ -808,22 +826,46 @@ export const SidebarPointItem = ({
           style={mergedStyle("uut")}
           title={uutName}
         >
-          <InlineMenuSelect
-            value={currentUutId || ""}
-            ariaLabel="UUT"
-            title={uutName}
-            width="100%"
-            menuWidth={260}
-            className="point-uut-inline-select"
-            options={[
-              { value: "", label: "Unassigned" },
-              ...uutOptions.map((option) => ({
-                value: String(option.id),
-                label: option.label,
-              })),
-            ]}
-            onChange={(value) => onUutChange?.(value || null)}
-          />
+          {editingUut ? (
+            <InlineMenuSelect
+              value={currentUutId || ""}
+              ariaLabel="UUT"
+              title={uutName}
+              width="100%"
+              menuWidth={260}
+              className="point-uut-inline-select"
+              autoOpen
+              showOptionMeta={false}
+              options={[
+                { value: "", label: "Unassigned" },
+                ...uutOptions.map((option) => ({
+                  value: String(option.id),
+                  label: option.label,
+                })),
+              ]}
+              onOpenChange={(isOpen) => {
+                if (!isOpen) setEditingUut(false);
+              }}
+              onChange={(value) => {
+                onUutChange?.(value || null);
+                setEditingUut(false);
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              className="point-uut-summary"
+              aria-label="UUT"
+              title="Edit UUT"
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                setEditingUut(true);
+              }}
+            >
+              {uutName}
+            </button>
+          )}
         </span>
       )}
 
@@ -872,7 +914,8 @@ export const SidebarPointItem = ({
           </div>
         ) : (
           <span
-            className="point-value point-value-with-unit sidebar-value-sticky"
+            className={`point-value point-value-with-unit sidebar-value-sticky${mergedClass("value")}`}
+            style={mergedStyle("value")}
             onClick={(e) => handleSingleClickEdit(e, "value", displayValue)}
             title={`${displayValue ?? "-"}${
               displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
@@ -923,7 +966,11 @@ export const SidebarPointItem = ({
 
       {/* Col 3: Tolerance */}
       {visibleColumns.tolerance && (
-        <span className="point-metric" title={toleranceSummary}>
+        <span
+          className={`point-metric${mergedClass("tolerance")}`}
+          style={mergedStyle("tolerance")}
+          title={toleranceSummary}
+        >
           {toleranceSummary !== "Not Set" &&
           toleranceSummary !== "Not Calculated"
             ? toleranceSummary
@@ -933,14 +980,22 @@ export const SidebarPointItem = ({
 
       {/* Col 4: Low Limit */}
       {visibleColumns.lowLimit && (
-        <span className="point-metric" title={limitsData.fullLow}>
+        <span
+          className={`point-metric${mergedClass("lowLimit")}`}
+          style={mergedStyle("lowLimit")}
+          title={limitsData.fullLow}
+        >
           {limitsData.low}
         </span>
       )}
 
       {/* Col 5: High Limit */}
       {visibleColumns.highLimit && (
-        <span className="point-metric" title={limitsData.fullHigh}>
+        <span
+          className={`point-metric${mergedClass("highLimit")}`}
+          style={mergedStyle("highLimit")}
+          title={limitsData.fullHigh}
+        >
           {limitsData.high}
         </span>
       )}
@@ -949,7 +1004,8 @@ export const SidebarPointItem = ({
           calculated uncertainty columns numeric, matching the low/high cells. */}
       {visibleColumns.standardUncertainty && (
         <span
-          className="point-metric point-uncertainty-metric"
+          className={`point-metric point-uncertainty-metric${mergedClass("standardUncertainty")}`}
+          style={mergedStyle("standardUncertainty")}
           title={formatSidebarUncertaintyFull(point, "combined")}
         >
           {formatSidebarUncertainty(point, "combined")}
@@ -957,7 +1013,8 @@ export const SidebarPointItem = ({
       )}
       {visibleColumns.measurementUncertainty && (
         <span
-          className="point-metric point-uncertainty-metric"
+          className={`point-metric point-uncertainty-metric${mergedClass("measurementUncertainty")}`}
+          style={mergedStyle("measurementUncertainty")}
           title={formatSidebarUncertaintyFull(point, "expanded")}
         >
           {formatSidebarUncertainty(point, "expanded")}
@@ -967,9 +1024,10 @@ export const SidebarPointItem = ({
       {/* TMDE Low Limit */}
       {visibleColumns.tmdeLow && (
         <span
-          className={`point-metric ${
+          className={`point-metric${mergedClass("tmdeLow")} ${
             tmdeLimitsData.entries.length > 0 ? "point-metric-list" : ""
           }`}
+          style={mergedStyle("tmdeLow")}
           title={tmdeLimitsTitle || tmdeLimitsData.low}
         >
           {tmdeLimitsData.entries.length > 0
@@ -989,9 +1047,10 @@ export const SidebarPointItem = ({
       {/* TMDE High Limit */}
       {visibleColumns.tmdeHigh && (
         <span
-          className={`point-metric ${
+          className={`point-metric${mergedClass("tmdeHigh")} ${
             tmdeLimitsData.entries.length > 0 ? "point-metric-list" : ""
           }`}
+          style={mergedStyle("tmdeHigh")}
           title={tmdeLimitsTitle || tmdeLimitsData.high}
         >
           {tmdeLimitsData.entries.length > 0
@@ -4255,6 +4314,21 @@ function App({ showThemeToggle = false }) {
     const mergedFields = {
       uut: mergeStateFor((point) => point.associatedUutIds?.[0] || ""),
       section: mergeStateFor((point) => point.section || ""),
+      value: mergeStateFor((point) => {
+        const parameter = point.testPointInfo?.parameter || {};
+        return `${parameter.value ?? ""}::${parameter.unit || ""}`;
+      }),
+      tolerance: mergeStateFor((point) => JSON.stringify(point.uutTolerance || null)),
+      lowLimit: mergeStateFor((point) => getPointLimitSortValue(point, "lowLimit")),
+      highLimit: mergeStateFor((point) => getPointLimitSortValue(point, "highLimit")),
+      standardUncertainty: mergeStateFor((point) =>
+        formatSidebarUncertaintyFull(point, "combined"),
+      ),
+      measurementUncertainty: mergeStateFor((point) =>
+        formatSidebarUncertaintyFull(point, "expanded"),
+      ),
+      tmdeLow: mergeStateFor((point) => getPointTmdeLimitSortValue(point, "tmdeLow")),
+      tmdeHigh: mergeStateFor((point) => getPointTmdeLimitSortValue(point, "tmdeHigh")),
       qualifier: mergeStateFor(
         (point) => point.testPointInfo?.qualifier?.value ?? "",
       ),
@@ -4278,9 +4352,13 @@ function App({ showThemeToggle = false }) {
         );
         const parameter = tp.testPointInfo?.parameter || {};
         const runPointIds = new Set(
-          points
-            .slice(pointIndex, pointIndex + Math.max(1, mergedFields.uut.span))
-            .map((point) => String(point.id)),
+          getUutReassignmentPointIds({
+            points,
+            pointIndex,
+            span: mergedFields.uut.span,
+            selectedPointIds: selectedSidebarPointIds,
+            currentPointId: tp.id,
+          }),
         );
         const nextPoints = (currentSessionData?.testPoints || []).map((point) => {
           if (!runPointIds.has(String(point.id))) return point;

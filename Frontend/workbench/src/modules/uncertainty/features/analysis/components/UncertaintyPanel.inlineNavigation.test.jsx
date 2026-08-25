@@ -4,6 +4,30 @@ import { describe, expect, it, vi } from "vitest";
 import { EditableDescriptionCell, RangeCell } from "./UncertaintyPanel";
 
 describe("inline instrument column navigation", () => {
+  it("commits a nickname on the first outside click", async () => {
+    const onCommit = vi.fn();
+    render(
+      <EditableDescriptionCell
+        make="Acme"
+        model="DMM-1"
+        name="Bench meter"
+        nickname=""
+        onCommit={onCommit}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Acme DMM-1 Bench meter" }));
+    const nickname = screen.getByPlaceholderText("Tag / nickname");
+    fireEvent.change(nickname, { target: { value: "Primary" } });
+    fireEvent.mouseDown(document.body);
+    fireEvent.blur(nickname, { relatedTarget: document.body });
+
+    await waitFor(() =>
+      expect(onCommit).toHaveBeenCalledWith("nickname", "Primary"),
+    );
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps library suggestions concise and omits unset metadata", async () => {
     render(
       <EditableDescriptionCell

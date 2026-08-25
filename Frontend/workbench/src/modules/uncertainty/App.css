@@ -11831,7 +11831,11 @@ input.inline-desc-subinput:focus-visible {
 .instrument-summary-table th.cell-sync,
 .instrument-summary-table td.cell-sync,
 .industry-table th.cell-sync,
-.industry-table td.cell-sync {
+.industry-table td.cell-sync,
+.instrument-summary-table th.cell-order,
+.instrument-summary-table td.cell-order,
+.industry-table th.cell-order,
+.industry-table td.cell-order {
   width: 52px;
   min-width: 52px;
   max-width: 52px;
@@ -11841,8 +11845,15 @@ input.inline-desc-subinput:focus-visible {
 }
 
 .instrument-summary-table td.cell-sync,
-.industry-table td.cell-sync {
+.industry-table td.cell-sync,
+.instrument-summary-table td.cell-order,
+.industry-table td.cell-order {
   vertical-align: middle;
+}
+
+.instrument-summary-table td.cell-order,
+.industry-table td.cell-order {
+  text-align: center;
 }
 
 .instrument-summary-table td.cell-sync .inline-sync-badge,
@@ -12791,6 +12802,31 @@ input.inline-function-input:focus {
   min-width: 0;
 }
 
+.point-uut-summary {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 1px 2px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.point-uut-summary:hover,
+.point-uut-summary:focus-visible {
+  border-color: var(--border-color);
+  background: var(--input-background);
+  outline: none;
+}
+
 .point-uut-selector-cell .inline-menu-select-trigger {
   width: 100%;
   border: 1px solid transparent;
@@ -12822,6 +12858,27 @@ input.inline-function-input:focus {
   width: auto;
   gap: 5px;
   padding-inline: 7px;
+}
+
+.function-header-action-btn.btn-add-item {
+  height: 28px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.function-header-action-btn.btn-add-item:hover,
+.function-header-action-btn.btn-add-item:focus-visible {
+  color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.06);
+  outline: none;
 }
 
 .instrument-custom-field-cell {
@@ -12973,7 +13030,8 @@ input.inline-function-input:focus {
 
 /* rowSpan Description / Sync cells stay vertically centered over the group. */
 .industry-table tbody tr.inline-range-row--first > td.cell-description,
-.industry-table tbody tr.inline-range-row--first > td.cell-sync {
+.industry-table tbody tr.inline-range-row--first > td.cell-sync,
+.industry-table tbody tr.inline-range-row--first > td.cell-order {
   vertical-align: middle;
 }
 
@@ -12981,7 +13039,8 @@ input.inline-function-input:focus {
 /* so the user can see which instrument owns the active range, WITHOUT      */
 /* repainting every range row (which read as "whole instrument selected").  */
 .industry-table tbody tr.inline-range-row.instrument-selected > td.cell-description,
-.industry-table tbody tr.inline-range-row.instrument-selected > td.cell-sync {
+.industry-table tbody tr.inline-range-row.instrument-selected > td.cell-sync,
+.industry-table tbody tr.inline-range-row.instrument-selected > td.cell-order {
   background-color: rgba(var(--primary-rgb), 0.04);
 }
 
@@ -12995,7 +13054,8 @@ input.inline-function-input:focus {
 
 /* Don't double-tint the rowSpan cells; keep the accent on the range cells. */
 .industry-table tbody tr.inline-range-row.is-active-range > td.cell-description,
-.industry-table tbody tr.inline-range-row.is-active-range > td.cell-sync {
+.industry-table tbody tr.inline-range-row.is-active-range > td.cell-sync,
+.industry-table tbody tr.inline-range-row.is-active-range > td.cell-order {
   box-shadow: none;
 }
 
@@ -13154,7 +13214,7 @@ input.inline-function-input:focus {
   min-height: 36px;
   height: 36px;
   padding: 4px 0;
-  border-bottom: 1px dashed color-mix(in srgb, var(--border-color) 72%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 88%, var(--text-color-muted));
   overflow: hidden;
 }
 

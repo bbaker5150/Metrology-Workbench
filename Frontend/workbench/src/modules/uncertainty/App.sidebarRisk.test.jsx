@@ -1,11 +1,60 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import { SidebarPointItem } from "./App";
+import { getUutReassignmentPointIds, SidebarPointItem } from "./App";
 
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test("opens the simplified UUT cell on demand without exposing database ids", async () => {
+    const onUutChange = vi.fn();
+    render(
+      <SidebarPointItem
+        point={{ id: "point-uut", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
+        uutName="Bench DMM"
+        currentUutId="uut-1"
+        uutOptions={[
+          { id: "uut-1", label: "Bench DMM" },
+          { id: "uut-2", label: "Backup DMM" },
+        ]}
+        onUutChange={onUutChange}
+        isSelected
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true }}
+      />,
+    );
+
+    expect(screen.queryByRole("listbox", { name: "UUT" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "UUT" }));
+    const list = await screen.findByRole("listbox", { name: "UUT" });
+    expect(list.querySelector("small")).toBeNull();
+    fireEvent.click(within(list).getByRole("option", { name: "Backup DMM" }));
+    expect(onUutChange).toHaveBeenCalledWith("uut-2");
+  });
+
+  test("reassigns selected points within a shared UUT cell and leaves the rest grouped", () => {
+    const points = ["p1", "p2", "p3", "p4"].map((id) => ({ id }));
+    expect(
+      getUutReassignmentPointIds({
+        points,
+        pointIndex: 0,
+        span: 4,
+        selectedPointIds: ["p2", "p3"],
+        currentPointId: "p1",
+      }),
+    ).toEqual(["p2", "p3"]);
+    expect(
+      getUutReassignmentPointIds({
+        points,
+        pointIndex: 0,
+        span: 4,
+        selectedPointIds: [],
+        currentPointId: "p1",
+      }),
+    ).toEqual(["p1"]);
+  });
+
   test("does not expose obsolete drag behavior on measurement-point rows", () => {
     const { container } = render(
       <SidebarPointItem
