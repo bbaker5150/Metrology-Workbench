@@ -22,7 +22,7 @@ describe("calibration settings scopes", () => {
     f5790_filter_mode: "FAST",
     f5790_filter_restart: "COARSE",
     f5790_hires_enabled: false,
-    f5790_range_mode: "POINT",
+    f5790_range_mode: "0.22",
     f5790_input_switch_settling_time: 1,
   };
 
@@ -47,7 +47,7 @@ describe("calibration settings scopes", () => {
       f5790_filter_mode: "FAST",
       f5790_filter_restart: "COARSE",
       f5790_hires_enabled: false,
-      f5790_range_mode: "POINT",
+      f5790_range_mode: "0.22",
       f5790_input_switch_settling_time: 1,
     });
     expect(Object.keys(select5790PointSettings(settings))).toHaveLength(

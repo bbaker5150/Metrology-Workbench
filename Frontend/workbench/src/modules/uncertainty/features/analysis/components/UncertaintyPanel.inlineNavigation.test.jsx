@@ -42,7 +42,7 @@ describe("inline instrument column navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Click to add description" }));
 
-    await waitFor(() => expect(screen.getByText("Acme Bench meter DMM-1")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Acme DMM-1 Bench meter")).toBeInTheDocument());
     expect(screen.getByText("local")).toBeInTheDocument();
     expect(screen.queryByText(/not set/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/new|changed|synced/i)).not.toBeInTheDocument();

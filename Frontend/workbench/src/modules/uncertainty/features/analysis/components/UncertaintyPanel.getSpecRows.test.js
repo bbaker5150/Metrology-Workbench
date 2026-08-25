@@ -147,9 +147,9 @@ describe("toleranceTermMode", () => {
     expect(toleranceTermMode({})).toBe("symmetric");
   });
 
-  it("classifies a unilateral +n/-0 or +0/-n as single-sided", () => {
-    expect(toleranceTermMode({ high: "1", low: "0" })).toBe("single");
-    expect(toleranceTermMode({ high: "0", low: "-1" })).toBe("single");
+  it("keeps +n/-0 or +0/-n tolerances explicitly asymmetric", () => {
+    expect(toleranceTermMode({ high: "1", low: "0" })).toBe("asymmetric");
+    expect(toleranceTermMode({ high: "0", low: "-1" })).toBe("asymmetric");
   });
 
   it("classifies two unequal non-zero limits as asymmetric", () => {

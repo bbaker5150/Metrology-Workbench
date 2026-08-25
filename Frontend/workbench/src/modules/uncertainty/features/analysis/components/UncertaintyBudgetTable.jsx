@@ -27,6 +27,8 @@ import {
   faProjectDiagram,
   faExclamationTriangle,
   faChartBar,
+  faArrowUp,
+  faArrowDown,
 } from "@fortawesome/free-solid-svg-icons";
 
 const DIST_OPTIONS = [
@@ -829,6 +831,7 @@ const UncertaintyBudgetTable = ({
   onOpenRepeatability,
   setNotification,
   onComponentUpdate,
+  onMoveComponent,
   ToleranceEditorComponent,
   applyToleranceChange,
   formatToleranceSummary,
@@ -1002,6 +1005,16 @@ const UncertaintyBudgetTable = ({
     if (component.isResolution) {
       return (
         <div className="budget-row-actions">
+          {onMoveComponent && (
+            <>
+              <button type="button" className="budget-row-move" onClick={() => onMoveComponent(component.id, -1)} title="Move component up" aria-label="Move component up">
+                <FontAwesomeIcon icon={faArrowUp} />
+              </button>
+              <button type="button" className="budget-row-move" onClick={() => onMoveComponent(component.id, 1)} title="Move component down" aria-label="Move component down">
+                <FontAwesomeIcon icon={faArrowDown} />
+              </button>
+            </>
+          )}
           <span
             onClick={() => onRemove?.(component.id, component)}
             className="delete-action"
@@ -1022,6 +1035,28 @@ const UncertaintyBudgetTable = ({
       !isStandaloneManualComponent(component);
     return (
       <div className="budget-row-actions">
+        {onMoveComponent && (
+          <>
+            <button
+              type="button"
+              className="budget-row-move"
+              onClick={() => onMoveComponent(component.id, -1)}
+              title="Move component up"
+              aria-label="Move component up"
+            >
+              <FontAwesomeIcon icon={faArrowUp} />
+            </button>
+            <button
+              type="button"
+              className="budget-row-move"
+              onClick={() => onMoveComponent(component.id, 1)}
+              title="Move component down"
+              aria-label="Move component down"
+            >
+              <FontAwesomeIcon icon={faArrowDown} />
+            </button>
+          </>
+        )}
         {showEdit && (
           <span
             onClick={(e) => onEdit?.(e, component)}

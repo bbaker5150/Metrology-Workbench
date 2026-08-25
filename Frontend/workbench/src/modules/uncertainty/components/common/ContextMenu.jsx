@@ -1,9 +1,22 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 const ContextMenu = ({ menu, onClose }) => {
     const menuRef = useRef(null);
+    const [position, setPosition] = useState({ x: menu?.x || 0, y: menu?.y || 0 });
+
+    useLayoutEffect(() => {
+        if (!menu || !menuRef.current) return;
+        const bounds = menuRef.current.getBoundingClientRect();
+        const margin = 8;
+        const viewportX = Number(menu.x || 0) - window.scrollX;
+        const viewportY = Number(menu.y || 0) - window.scrollY;
+        setPosition({
+            x: Math.max(margin, Math.min(viewportX, window.innerWidth - bounds.width - margin)),
+            y: Math.max(margin, Math.min(viewportY, window.innerHeight - bounds.height - margin)),
+        });
+    }, [menu]);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -20,8 +33,8 @@ const ContextMenu = ({ menu, onClose }) => {
     if (!menu) return null;
 
     const style = {
-        top: `${menu.y}px`,
-        left: `${menu.x}px`,
+        top: `${position.y}px`,
+        left: `${position.x}px`,
     };
 
     return ReactDOM.createPortal(

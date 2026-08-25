@@ -181,7 +181,7 @@ describe("UncertaintyApp", () => {
     expect(screen.getByText("Start an analysis session")).toBeInTheDocument();
   });
 
-  test("asks which UUT to use only after adding a point to a multi-instrument function", async () => {
+  test("adds points chronologically and assigns the UUT from the row", async () => {
     const voltageFunction = {
       id: "fn-voltage",
       name: "Voltage",
@@ -227,24 +227,12 @@ describe("UncertaintyApp", () => {
       screen.queryByRole("combobox", { name: /UUT for new Voltage measurement point/i }),
     ).not.toBeInTheDocument();
     fireEvent.click(addPoint);
-
-    const picker = screen.getByRole("menu", {
-      name: "Choose UUT for new Voltage measurement point",
-    });
-    const primaryInstrument = within(picker).getByRole("menuitem", {
-      name: /Mock 100 Primary DMM/i,
-    });
-    expect(primaryInstrument).toBeInTheDocument();
-    expect(within(picker).getByRole("menuitem", { name: /Mock 200 Backup DMM/i })).toBeInTheDocument();
-
-    fireEvent.click(primaryInstrument);
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("menu", {
-          name: "Choose UUT for new Voltage measurement point",
-        }),
-      ).not.toBeInTheDocument(),
-    );
+    const uutSelect = await screen.findByRole("combobox", { name: "UUT" });
+    expect(uutSelect).toHaveValue("");
+    expect(within(uutSelect).getByRole("option", { name: /Mock 100 Primary DMM/i })).toBeInTheDocument();
+    expect(within(uutSelect).getByRole("option", { name: /Mock 200 Backup DMM/i })).toBeInTheDocument();
+    fireEvent.change(uutSelect, { target: { value: "uut-one" } });
+    await waitFor(() => expect(uutSelect).toHaveValue("uut-one"));
     expect(
       screen.queryByText("Ready for your first measurement point"),
     ).not.toBeInTheDocument();
@@ -269,6 +257,47 @@ describe("UncertaintyApp", () => {
 
     fireEvent.click(builderButton);
     expect(screen.queryByText("Select Instrument from Library")).not.toBeInTheDocument();
+  });
+
+  test("adds an optional UUT column to the current session", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 109,
+        name: "Custom Columns",
+        measurementAreas: [],
+        functionGroups: [{ name: "Voltage", unit: "V", kind: "uut" }],
+        uuts: [
+          {
+            id: "uut-custom-column",
+            description: "Custom UUT",
+            instrument: {
+              functions: [{ name: "Voltage", unit: "V", ranges: [] }],
+            },
+          },
+        ],
+        tmdes: [],
+        testPoints: [],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add UUT column" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Add UUT Column" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Column name" }), {
+      target: { value: "ICP use code" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "OK" }));
+    expect(await screen.findByRole("columnheader", { name: "ICP use code" })).toBeInTheDocument();
   });
 
   test("mounts the ported Uncertalytics app under the workbench shell", async () => {
@@ -764,13 +793,10 @@ describe("UncertaintyApp", () => {
     fireEvent.click(
       within(functionHeader).getByRole("button", { name: "Expand function" }),
     );
-    const emptyUutRow = await waitFor(() => {
-      const row = document.querySelector(".sidebar-empty-uut-row");
-      expect(row).toBeInTheDocument();
-      return row;
-    });
-    expect(emptyUutRow).toHaveTextContent(/Pressure Standard/);
-    expect(emptyUutRow).toHaveTextContent("No measurement points");
+    const uutSelect = await screen.findByRole("combobox", { name: "UUT" });
+    expect(
+      within(uutSelect).getByRole("option", { name: /Fluke 700G Pressure Standard/i }),
+    ).toBeInTheDocument();
     expect(document.querySelector(".uut-row")).not.toBeInTheDocument();
     expect(
       within(functionHeader).getByRole("button", { name: "Add direct point" }),
@@ -1113,6 +1139,9 @@ describe("UncertaintyApp", () => {
     expect(
       screen.getByRole("button", { name: "Add derived point" }),
     ).toBeInTheDocument();
+    // Function settings update existing points too; switch back so this test
+    // can continue through the direct-point budget workflow below.
+    fireEvent.click(screen.getByRole("radio", { name: "Direct" }));
 
     const pointRow = document.querySelector(".point-grid-item");
     const columnHeader = document.querySelector(".sidebar-column-headers");

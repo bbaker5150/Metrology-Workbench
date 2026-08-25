@@ -178,26 +178,26 @@ class Instrument5790B(FlukeInstrument):
         filter_restart="MEDIUM",
         hires=True,
         hires_enabled=None,
-        range_mode="AUTO",
+        range_mode="2.2",
         point_value=None,
         input_switch_delay=30.0,
     ):
         """Apply the operator-selected 5790A/B reading profile.
 
-        The Alpha and Bravo share this command surface.  ``POINT`` locks the
-        range from the current test-point drive; ``AUTO`` leaves autoranging
-        enabled.  Slow digital filtering can take more than 60 seconds below
-        200 Hz, so the VISA timeout is raised to avoid a false timeout.
+        The Alpha and Bravo share this command surface. ``range_mode`` is one
+        of the five physical Y5020 ranges expressed in volts. Slow digital
+        filtering can take more than 60 seconds below 200 Hz, so the VISA
+        timeout is raised to avoid a false timeout.
         """
         mode = str(filter_mode or "MEDIUM").strip().upper()
         restart = str(filter_restart or "MEDIUM").strip().upper()
-        range_mode = str(range_mode or "AUTO").strip().upper()
+        range_mode = str(range_mode or "2.2").strip().upper()
         if mode not in self.VALID_FILTER_MODES:
             raise ValueError("5790 filter mode must be OFF, FAST, MEDIUM, or SLOW")
         if restart not in self.VALID_FILTER_RESTARTS:
             raise ValueError("5790 filter restart must be FINE, MEDIUM, or COARSE")
-        if range_mode not in {"AUTO", "POINT"}:
-            raise ValueError("5790 range mode must be AUTO or POINT")
+        if range_mode not in {"0.022", "0.07", "0.22", "0.7", "2.2"}:
+            raise ValueError("5790 range must be 22 mV, 70 mV, 220 mV, 700 mV, or 2.2 V")
 
         if mode == "OFF":
             self.resource.write("DFILT OFF")
@@ -210,10 +210,7 @@ class Instrument5790B(FlukeInstrument):
         if hires_enabled is not None:
             hires = hires_enabled
         self.set_hires(bool(hires))
-        if range_mode == "AUTO":
-            self.set_auto_range()
-        elif point_value is not None:
-            self.set_range(abs(float(point_value)))
+        self.set_range(float(range_mode))
 
         delay = float(input_switch_delay or 0)
         if delay < 0 or delay > 300:

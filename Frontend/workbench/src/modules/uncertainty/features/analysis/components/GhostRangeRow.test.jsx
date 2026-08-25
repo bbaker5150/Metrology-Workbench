@@ -339,9 +339,9 @@ describe("inline resolution distribution", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "0.001 V" }));
     fireEvent.click(screen.getByRole("button", { name: "Resolution distribution" }));
-    expect(screen.getByRole("option", { name: /Triangular\s+2\.449/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Normal \(95%\)/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("option", { name: /Triangular\s+2\.449/ }));
+    fireEvent.click(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ }));
 
     expect(onCommitDistribution).toHaveBeenCalledWith("2.449");
   });
@@ -355,11 +355,11 @@ describe("inline resolution distribution", () => {
     fireEvent.click(screen.getByRole("button", { name: /Rectangular/ }));
     fireEvent.click(screen.getByRole("button", { name: "Spec band distribution" }));
 
-    expect(screen.getByRole("option", { name: /Triangular\s+2\.449/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /U-Shaped/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Rayleigh/ })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("option", { name: /Triangular\s+2\.449/ }));
+    fireEvent.click(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ }));
     expect(onChange).toHaveBeenCalledWith("2.449");
   });
 
@@ -381,7 +381,7 @@ describe("inline resolution distribution", () => {
     expect(unsetDistribution).toHaveClass("inline-tolerance-summary", "is-empty");
     fireEvent.click(unsetDistribution);
     fireEvent.click(screen.getByRole("button", { name: "Spec band distribution" }));
-    const option = screen.getByRole("option", { name: /Triangular\s+2\.449/ });
+    const option = screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ });
     const trigger = screen.getByRole("button", { name: "Spec band distribution" });
 
     // In Chromium the trigger blurs before the portaled option receives its
@@ -409,7 +409,7 @@ describe("inline resolution distribution", () => {
     fireEvent.click(screen.getByRole("button", { name: "0.001 V" }));
     fireEvent.click(screen.getByRole("button", { name: "Resolution distribution" }));
     const option = screen.getByRole("option", {
-      name: /Triangular \(resolution\)\s+4\.899/,
+      name: /Triangular \(resolution\)\s+k = 4\.899/,
     });
     expect(option).toBeInTheDocument();
     fireEvent.click(option);

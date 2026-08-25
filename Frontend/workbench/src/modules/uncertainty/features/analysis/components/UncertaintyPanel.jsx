@@ -1804,7 +1804,7 @@ const formatInstrumentIdentity = (source = {}, fallback = "Unnamed Instrument") 
     (!hasStructuredIdentity ? source.name : "");
   const model = instrument.model || source.model || "";
   const parts = [];
-  [manufacturer, make, model].forEach((part) => {
+  [manufacturer, model, make].forEach((part) => {
     const value = String(part || "").trim();
     if (!value) return;
     if (!parts.some((existing) => existing.toLowerCase() === value.toLowerCase())) {
@@ -2035,24 +2035,25 @@ export const EditableDescriptionCell = ({
   make = "",
   model = "",
   name = "",
+  nickname = "",
   functionKey = null,
   onCommit,
   instruments = [],
   onPickLibrary,
 }) => {
-  const [local, setLocal] = useState({ make, model, name });
+  const [local, setLocal] = useState({ make, model, name, nickname });
   const [editing, setEditing] = useState(false);
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
   useEffect(() => {
-    setLocal({ make, model, name });
-  }, [make, model, name]);
+    setLocal({ make, model, name, nickname });
+  }, [make, model, name, nickname]);
 
   const dismissDescriptionEditor = useCallback(() => {
-    setLocal({ make, model, name });
+    setLocal({ make, model, name, nickname });
     setEditing(false);
     setOpen(false);
-  }, [make, model, name]);
+  }, [make, model, name, nickname]);
   useInlineColumnDismiss({
     expanded: editing,
     rootRef: anchorRef,
@@ -2121,7 +2122,7 @@ export const EditableDescriptionCell = ({
     // missed when focus moves in the same tick as the last keystroke.
     onBlur: (e) => {
       const next = e.target.value || "";
-      const baseline = { make, model, name }[field] || "";
+      const baseline = { make, model, name, nickname }[field] || "";
       if (next !== baseline) onCommit(field, next);
       // Delay so an onMouseDown pick on a dropdown row registers first.
       setTimeout(() => {
@@ -2212,6 +2213,10 @@ export const EditableDescriptionCell = ({
             <input {...props("name")} placeholder="Name" className="inline-desc-subinput" />
             <span>Name</span>
           </label>
+          <label className="inline-desc-field inline-desc-field--nickname">
+            <input {...props("nickname")} placeholder="Tag / nickname" className="inline-desc-subinput" />
+            <span>Tag</span>
+          </label>
         </div>
       ) : (
         <button
@@ -2227,7 +2232,7 @@ export const EditableDescriptionCell = ({
             });
           }}
         >
-          {combinedDescription}
+          {nickname ? `${combinedDescription} · ${nickname}` : combinedDescription}
         </button>
       )}
 
@@ -2316,6 +2321,32 @@ export const EditableDescriptionCell = ({
 // Default divisor for a resolution's rounding distribution — rectangular, the
 // standard assumption for a least-significant-digit / quantization error.
 const RESOLUTION_DIST_DEFAULT = "3.464";
+
+const EditableCustomFieldCell = ({ value = "", onCommit }) => {
+  const [draft, setDraft] = useState(value ?? "");
+  useEffect(() => setDraft(value ?? ""), [value]);
+  const commit = () => {
+    if (String(draft) !== String(value ?? "")) onCommit?.(draft);
+  };
+  return (
+    <input
+      className="instrument-custom-field-input"
+      value={draft}
+      placeholder="—"
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          setDraft(value ?? "");
+          event.currentTarget.blur();
+        }
+      }}
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    />
+  );
+};
 
 const INLINE_COLUMN_CONTROL_SELECTOR =
   'input:not([disabled]):not([type="hidden"]), select:not([disabled]), button.inline-unit-combobox:not([disabled]), button.inline-menu-select-trigger:not([disabled])';
@@ -2710,7 +2741,8 @@ const pruneBlankToleranceTerms = (tolerance = {}) => {
   TOLERANCE_TYPE_OPTIONS.forEach(({ key }) => {
     if (
       Object.prototype.hasOwnProperty.call(next, key) &&
-      !toleranceComponentHasNumericValue(key, next[key])
+      !toleranceComponentHasNumericValue(key, next[key]) &&
+      !next[key]?._unitExplicit
     ) {
       delete next[key];
     }
@@ -2947,9 +2979,9 @@ export const toleranceTermMode = (component = {}) => {
   const hZero = Math.abs(high) < 1e-12;
   const lZero = Math.abs(low) < 1e-12;
   if (hZero && lZero) return "symmetric";
-  // Legacy "+n/-0" data (one side pinned to 0) is migrated to a true
-  // single-sided threshold: the zero side is the unbounded direction.
-  if (hZero || lZero) return "single";
+  // A zero bound remains a real asymmetric limit (+0/-n or +n/-0). Only the
+  // explicit thresholdSide marker represents an unbounded side.
+  if (hZero || lZero) return "asymmetric";
   return Math.abs(Math.abs(high) - Math.abs(low)) > 1e-9 ? "asymmetric" : "symmetric";
 };
 
@@ -3225,7 +3257,7 @@ const ToleranceTermEditor = ({
   const commitUnit = (unit) => {
     setUnitMenuRect(null);
     if (unit === activeComponentUnit) return;
-    commit({ unit });
+    commit({ unit, _unitExplicit: true });
   };
   // Flip a single-sided term between + (high) and − (low) direction, keeping the
   // magnitude and pinning the other limit to 0.
@@ -3386,6 +3418,18 @@ const ToleranceTermEditor = ({
         )}
         {termMode === "asymmetric" && (
           <>
+            <span className="inline-tolerance-symbol">−</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={lowValue}
+              placeholder="0"
+              onChange={(e) => setLowValue(e.target.value)}
+              onBlur={(e) => commitLimit("low", e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              className="inline-tolerance-input"
+              style={toleranceInputStyleFor(lowValue)}
+            />
             {showHighSign && <span className="inline-tolerance-symbol">+</span>}
             <input
               type="text"
@@ -3397,18 +3441,6 @@ const ToleranceTermEditor = ({
               onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
               className="inline-tolerance-input"
               style={toleranceInputStyleFor(highValue)}
-            />
-            <span className="inline-tolerance-symbol">-</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={lowValue}
-              placeholder="0"
-              onChange={(e) => setLowValue(e.target.value)}
-              onBlur={(e) => commitLimit("low", e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-              className="inline-tolerance-input"
-              style={toleranceInputStyleFor(lowValue)}
             />
           </>
         )}
@@ -3461,7 +3493,7 @@ const ToleranceTermEditor = ({
           <UnitSelect
             value={component.unit || activeRange?.unit || ""}
             ariaLabel="Tolerance unit"
-            onChange={(unit) => commit({ unit })}
+            onChange={(unit) => commit({ unit, _unitExplicit: true })}
             width="82px"
           />
         ) : (
@@ -4013,6 +4045,20 @@ export const RangeCell = ({
           >
             {summary}
           </button>
+          {onExpandAll && (
+            <button
+              type="button"
+              className="range-inline-add-btn"
+              title="Add range"
+              aria-label="Add range"
+              onClick={(event) => {
+                event.stopPropagation();
+                onExpandAll();
+              }}
+            >
+              <FontAwesomeIcon icon={faPlus} size="xs" />
+            </button>
+          )}
         </div>
       </div>
     );
@@ -4974,11 +5020,9 @@ export const buildFunctionGroupedRows = (
     })
     .flatMap((group) => [
       group,
-      ...group.items.sort((a, b) => {
-        const aLabel = (a.item.description || a.item.name || "").toLowerCase();
-        const bLabel = (b.item.description || b.item.name || "").toLowerCase();
-        return aLabel.localeCompare(bLabel);
-      }),
+      // Preserve session array order so newly-added instruments append at the
+      // bottom and drag/drop reordering remains visible.
+      ...group.items,
     ]);
 };
 
@@ -5871,6 +5915,54 @@ const SummaryDashboard = ({
   const [addFunctionMenu, setAddFunctionMenu] = useState(null);
   const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
   const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
+  const customColumnsFor = (kind) =>
+    sessionData.instrumentCustomColumns?.[kind] || [];
+  const requestCustomColumn = (kind) => {
+    setNotification?.({
+      title: `Add ${kind === "uut" ? "UUT" : "TMDE"} Column`,
+      message: "Name the optional session field to add to this table.",
+      inputLabel: "Column name",
+      inputPlaceholder: "e.g. ICP use code",
+      validateInput: (value) =>
+        value.trim() ? "" : "Enter a column name.",
+      onConfirm: (value) => {
+        const label = value.trim();
+        const key = `${makeFunctionKey(label) || "field"}-${uuidv4().slice(0, 8)}`;
+        const current = sessionData.instrumentCustomColumns || {};
+        onSessionSave({
+          ...sessionData,
+          instrumentCustomColumns: {
+            ...current,
+            [kind]: [...(current[kind] || []), { key, label }],
+          },
+        });
+        setNotification(null);
+      },
+    });
+  };
+  const updateCustomField = (kind, itemId, key, value) => {
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    onSessionSave({
+      ...sessionData,
+      [listKey]: (sessionData[listKey] || []).map((item) =>
+        String(item.id) === String(itemId)
+          ? {
+              ...item,
+              customFields: { ...(item.customFields || {}), [key]: value },
+            }
+          : item,
+      ),
+    });
+  };
+  const renderCustomCells = (kind, item, rowSpan = 1) =>
+    customColumnsFor(kind).map((column) => (
+      <td key={column.key} rowSpan={rowSpan} className="instrument-custom-field-cell">
+        <EditableCustomFieldCell
+          value={item.customFields?.[column.key] || ""}
+          onCommit={(value) => updateCustomField(kind, item.id, column.key, value)}
+        />
+      </td>
+    ));
 
   // Inline make/model/name edits from the Description cell. `name` is the
   // session label (uut.description / tmde.name); make+model live on the nested
@@ -6132,7 +6224,9 @@ const SummaryDashboard = ({
     (sessionData.uuts || []).forEach((u) => {
       if (u.id !== uutId) return;
       updatedItem =
-        field === "name"
+        field === "nickname"
+          ? { ...u, nickname: value }
+          : field === "name"
           ? {
               ...u,
               description: value,
@@ -6155,7 +6249,9 @@ const SummaryDashboard = ({
     (sessionData.tmdes || []).forEach((t) => {
       if (t.id !== tmdeId) return;
       updatedItem =
-        field === "name"
+        field === "nickname"
+          ? { ...t, nickname: value }
+          : field === "name"
           ? {
               ...t,
               name: value,
@@ -6627,7 +6723,7 @@ const SummaryDashboard = ({
     if (kind === "uut") {
       const newUut = { id: uuidv4(), name: "", description: "", instrument };
       setSelectedUutIds([newUut.id]);
-      onSessionSave({ ...sessionData, uuts: [newUut, ...(sessionData.uuts || [])] });
+      onSessionSave({ ...sessionData, uuts: [...(sessionData.uuts || []), newUut] });
     } else {
       const newTmde = {
         id: uuidv4(),
@@ -6638,7 +6734,7 @@ const SummaryDashboard = ({
         instrument,
       };
       setSelectedTmdeIds([newTmde.id]);
-      onSessionSave({ ...sessionData, tmdes: [newTmde, ...(sessionData.tmdes || [])] });
+      onSessionSave({ ...sessionData, tmdes: [...(sessionData.tmdes || []), newTmde] });
     }
   };
 
@@ -8244,6 +8340,16 @@ const SummaryDashboard = ({
               </button>
             )}
             <button
+              type="button"
+              className="btn-add-item btn-add-column"
+              onClick={() => requestCustomColumn("uut")}
+              title="Add UUT column"
+              aria-label="Add UUT column"
+            >
+              <FontAwesomeIcon icon={faPlus} size="xs" />
+              <span>Column</span>
+            </button>
+            <button
               className="btn-add-item"
               data-tour="uut-add-function"
               onClick={(e) => {
@@ -8271,8 +8377,11 @@ const SummaryDashboard = ({
             <colgroup>
               <col style={{ width: "22%" }} />
               <col style={{ width: "21%" }} />
-              <col style={{ width: "29%" }} />
-              <col style={{ width: "23%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "30%" }} />
+              {customColumnsFor("uut").map((column) => (
+                <col key={column.key} style={{ width: "140px" }} />
+              ))}
               <col style={{ width: "5%" }} />
             </colgroup>
             <thead>
@@ -8285,20 +8394,27 @@ const SummaryDashboard = ({
                 </th>
                 <th>Tolerance</th>
                 <th>Resolution</th>
+                {customColumnsFor("uut").map((column) => (
+                  <th key={column.key}>{column.label}</th>
+                ))}
                 <th className="cell-sync">Sync</th>
               </tr>
             </thead>
             <tbody>
               {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={5}>
+                  <td colSpan={5 + customColumnsFor("uut").length}>
                     Add a UUT using the + icon in the top-right.
                   </td>
                 </tr>
               ) : (
                 groupedUutRows.map((row) => {
                   if (row.type === "function") {
-                    return renderFunctionHeaderRow("uut", row.fn, 5);
+                    return renderFunctionHeaderRow(
+                      "uut",
+                      row.fn,
+                      5 + customColumnsFor("uut").length,
+                    );
                   }
 
                   const uut = row.item;
@@ -8410,6 +8526,7 @@ const SummaryDashboard = ({
                                 >
                                   <EditableDescriptionCell
                                     name={uut.description}
+                                    nickname={uut.nickname}
                                     make={uut.instrument?.manufacturer}
                                     model={uut.instrument?.model}
                                     functionKey={uutFnKey}
@@ -8429,6 +8546,7 @@ const SummaryDashboard = ({
                                 rangeIndex: index,
                                 totalRanges: n,
                               })}
+                              {i === 0 && renderCustomCells("uut", uut, spanRows)}
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
@@ -8482,6 +8600,7 @@ const SummaryDashboard = ({
                           {onSessionSave ? (
                             <EditableDescriptionCell
                               name={uut.description}
+                              nickname={uut.nickname}
                               make={uut.instrument?.manufacturer}
                               model={uut.instrument?.model}
                               functionKey={uutFnKey}
@@ -8662,6 +8781,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
+                        {renderCustomCells("uut", uut, rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className="cell-sync"
@@ -8716,6 +8836,16 @@ const SummaryDashboard = ({
               </button>
             )}
             <button
+              type="button"
+              className="btn-add-item btn-add-column"
+              onClick={() => requestCustomColumn("tmde")}
+              title="Add TMDE column"
+              aria-label="Add TMDE column"
+            >
+              <FontAwesomeIcon icon={faPlus} size="xs" />
+              <span>Column</span>
+            </button>
+            <button
               className="btn-add-item"
               data-tour="tmde-add-function"
               onClick={(e) => {
@@ -8743,9 +8873,12 @@ const SummaryDashboard = ({
             <colgroup>
               <col style={{ width: "19%" }} />
               <col style={{ width: "22%" }} />
-              <col style={{ width: "20%" }} />
+              <col style={{ width: "16%" }} />
               <col style={{ width: "10%" }} />
-              <col style={{ width: "24%" }} />
+              <col style={{ width: "28%" }} />
+              {customColumnsFor("tmde").map((column) => (
+                <col key={column.key} style={{ width: "140px" }} />
+              ))}
               <col style={{ width: "5%" }} />
             </colgroup>
             <thead>
@@ -8759,20 +8892,27 @@ const SummaryDashboard = ({
                 <th>Error Limit</th>
                 <th className="cell-distribution">Distribution</th>
                 <th>Resolution</th>
+                {customColumnsFor("tmde").map((column) => (
+                  <th key={column.key}>{column.label}</th>
+                ))}
                 <th className="cell-sync">Sync</th>
               </tr>
             </thead>
             <tbody>
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={6}>
+                  <td colSpan={6 + customColumnsFor("tmde").length}>
                     Add a TMDE using the + icon in the top-right.
                   </td>
                 </tr>
               ) : (
                 groupedTmdeRows.map((row) => {
                   if (row.type === "function") {
-                    return renderFunctionHeaderRow("tmde", row.fn, 6);
+                    return renderFunctionHeaderRow(
+                      "tmde",
+                      row.fn,
+                      6 + customColumnsFor("tmde").length,
+                    );
                   }
 
                   const tmde = row.item;
@@ -8844,6 +8984,7 @@ const SummaryDashboard = ({
                                 >
                                   <EditableDescriptionCell
                                     name={tmde.name}
+                                    nickname={tmde.nickname}
                                     make={tmde.instrument?.manufacturer}
                                     model={tmde.instrument?.model}
                                     functionKey={tmdeFnKey}
@@ -8863,6 +9004,7 @@ const SummaryDashboard = ({
                                 rangeIndex: index,
                                 totalRanges: n,
                               })}
+                              {i === 0 && renderCustomCells("tmde", tmde, spanRows)}
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
@@ -8916,6 +9058,7 @@ const SummaryDashboard = ({
                           {onSessionSave ? (
                             <EditableDescriptionCell
                               name={tmde.name}
+                              nickname={tmde.nickname}
                               make={tmde.instrument?.manufacturer}
                               model={tmde.instrument?.model}
                               functionKey={tmdeFnKey}
@@ -9127,6 +9270,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
+                        {renderCustomCells("tmde", tmde, rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className="cell-sync"
@@ -9349,6 +9493,54 @@ function DetailedView({
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
   const [detailDraggingInstrumentId, setDetailDraggingInstrumentId] = useState(null);
   const [detailDragOverFunctionTarget, setDetailDragOverFunctionTarget] = useState(null);
+  const customColumnsFor = (kind) =>
+    sessionData.instrumentCustomColumns?.[kind] || [];
+  const requestCustomColumn = (kind) => {
+    setNotification?.({
+      title: `Add ${kind === "uut" ? "UUT" : "TMDE"} Column`,
+      message: "Name the optional session field to add to this table.",
+      inputLabel: "Column name",
+      inputPlaceholder: "e.g. NCE status",
+      validateInput: (value) =>
+        value.trim() ? "" : "Enter a column name.",
+      onConfirm: (value) => {
+        const label = value.trim();
+        const key = `${makeFunctionKey(label) || "field"}-${uuidv4().slice(0, 8)}`;
+        const current = sessionData.instrumentCustomColumns || {};
+        onSessionSave?.({
+          ...sessionData,
+          instrumentCustomColumns: {
+            ...current,
+            [kind]: [...(current[kind] || []), { key, label }],
+          },
+        });
+        setNotification(null);
+      },
+    });
+  };
+  const updateCustomField = (kind, itemId, key, value) => {
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    onSessionSave?.({
+      ...sessionData,
+      [listKey]: (sessionData[listKey] || []).map((item) =>
+        String(item.id) === String(itemId)
+          ? {
+              ...item,
+              customFields: { ...(item.customFields || {}), [key]: value },
+            }
+          : item,
+      ),
+    });
+  };
+  const renderCustomCells = (kind, item, rowSpan = 1) =>
+    customColumnsFor(kind).map((column) => (
+      <td key={column.key} rowSpan={rowSpan} className="instrument-custom-field-cell">
+        <EditableCustomFieldCell
+          value={item.customFields?.[column.key] || ""}
+          onCommit={(value) => updateCustomField(kind, item.id, column.key, value)}
+        />
+      </td>
+    ));
   const [collapsedDetailSections, setCollapsedDetailSections] = useState(
     () => new Set(sessionData.detailCollapsedSections || []),
   );
@@ -11244,7 +11436,7 @@ function DetailedView({
         instrument,
       };
       setSelectedUutIds([newUut.id]);
-      onSessionSave({ ...sessionData, uuts: [newUut, ...(sessionData.uuts || [])] });
+      onSessionSave({ ...sessionData, uuts: [...(sessionData.uuts || []), newUut] });
     } else {
       const newTmde = {
         id: uuidv4(),
@@ -11255,7 +11447,7 @@ function DetailedView({
         instrument,
       };
       setSelectedTmdeIds([newTmde.id]);
-      onSessionSave({ ...sessionData, tmdes: [newTmde, ...(sessionData.tmdes || [])] });
+      onSessionSave({ ...sessionData, tmdes: [...(sessionData.tmdes || []), newTmde] });
     }
   };
 
@@ -12409,6 +12601,14 @@ function DetailedView({
               )
             : uutNominal),
       });
+      if (!updated.inlineValidation && Number(updated.value) <= 0) {
+        onUpdateTestPoint({
+          components: currentManualComponents.filter(
+            (componentItem) => componentItem.id !== id,
+          ),
+        });
+        return;
+      }
       onUpdateTestPoint({
         components: currentManualComponents.map((componentItem) =>
           componentItem.id === id ? updated : componentItem,
@@ -12477,6 +12677,18 @@ function DetailedView({
       onUpdateTestPoint({ tmdeTolerances: updatedTmdes });
     }
   };
+
+  const moveBudgetComponent = useCallback((componentId, direction) => {
+    const components = [...(testPointData.components || [])];
+    const index = components.findIndex(
+      (component) => String(component.id) === String(componentId),
+    );
+    if (index < 0) return;
+    const target = index + direction;
+    if (target < 0 || target >= components.length) return;
+    [components[index], components[target]] = [components[target], components[index]];
+    onUpdateTestPoint?.({ components });
+  }, [onUpdateTestPoint, testPointData.components]);
 
   const inferVariableUnit = useCallback(
     (variableName) => {
@@ -13285,7 +13497,7 @@ function DetailedView({
         components: [...(testPointData.components || []), ...tmdeComponents],
       });
     }
-    setBudgetTmdePicker(null);
+    // Keep the picker open so several ranges/components can be added in one pass.
   };
 
   // Add the UUT's measuring resolution to this point's budget by opting it in on
@@ -13311,7 +13523,7 @@ function DetailedView({
         ],
       });
     }
-    setBudgetTmdePicker(null);
+    // Keep the picker open for consecutive component additions.
   };
 
   // Add a TMDE's measuring resolution to this budget by opting it in on that
@@ -13389,7 +13601,7 @@ function DetailedView({
         ],
       });
     }
-    setBudgetTmdePicker(null);
+    // Keep the picker open for consecutive component additions.
   };
 
   // Add an instrument-associated Type B (e.g. head pressure) to this budget as a
@@ -13453,7 +13665,7 @@ function DetailedView({
     onUpdateTestPoint?.({
       components: [...(testPointData.components || []), pointComponent],
     });
-    setBudgetTmdePicker(null);
+    // Keep the picker open for consecutive component additions.
   };
 
   const renderBudgetTmdePicker = () => {
@@ -13631,7 +13843,16 @@ function DetailedView({
                   requireFunctionMatch: !isDerived,
                 },
               );
-              return choices.map((range, rangeIndex) => {
+              return (
+                <div
+                  key={`tmde-group-${tmde.id ?? tmde.sourceId}`}
+                  className="budget-tmde-picker-instrument"
+                >
+                  <div className="budget-tmde-picker-instrument-name">
+                    <FontAwesomeIcon icon={faTools} />
+                    <span>{getEquationTmdeLabel(tmde)}</span>
+                  </div>
+                  {choices.map((range, rangeIndex) => {
                 const detail = getBudgetTmdeDetail(tmde, range);
                 const functionLabel = range?.functionName
                   ? `${range.functionName} · `
@@ -13649,7 +13870,7 @@ function DetailedView({
                     (e.currentTarget.style.background = "transparent")
                   }
                 >
-                  <FontAwesomeIcon icon={faTools} style={{ marginTop: "2px" }} />
+                  <span className="budget-tmde-picker-range-mark" aria-hidden="true" />
                   <span
                     style={{
                       display: "flex",
@@ -13658,15 +13879,6 @@ function DetailedView({
                       minWidth: 0,
                     }}
                   >
-                    <span
-                      style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {getEquationTmdeLabel(tmde)}
-                    </span>
                     {detail && (
                       <span
                         style={{
@@ -13683,7 +13895,9 @@ function DetailedView({
                   </span>
                 </button>
                 );
-              });
+                  })}
+                </div>
+              );
             };
             return (
               <>
@@ -14140,6 +14354,16 @@ function DetailedView({
               </button>
             )}
             <button
+              type="button"
+              className="btn-add-item btn-add-column"
+              onClick={() => requestCustomColumn("uut")}
+              title="Add UUT column"
+              aria-label="Add UUT column"
+            >
+              <FontAwesomeIcon icon={faPlus} size="xs" />
+              <span>Column</span>
+            </button>
+            <button
               className="btn-add-item"
               data-tour="uut-add-function"
               onClick={(e) => {
@@ -14167,8 +14391,11 @@ function DetailedView({
             <colgroup>
               <col style={{ width: "22%" }} />
               <col style={{ width: "21%" }} />
-              <col style={{ width: "29%" }} />
-              <col style={{ width: "23%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "30%" }} />
+              {customColumnsFor("uut").map((column) => (
+                <col key={column.key} style={{ width: "140px" }} />
+              ))}
               <col style={{ width: "5%" }} />
             </colgroup>
             <thead>
@@ -14181,20 +14408,27 @@ function DetailedView({
                 </th>
                 <th>Tolerance</th>
                 <th>Resolution</th>
+                {customColumnsFor("uut").map((column) => (
+                  <th key={column.key}>{column.label}</th>
+                ))}
                 <th className="cell-sync">Sync</th>
               </tr>
             </thead>
             <tbody>
               {visibleDetailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan="5">
+                  <td colSpan={5 + customColumnsFor("uut").length}>
                     Add a UUT using the + icon in the top-right.
                   </td>
                 </tr>
               ) : (
                 visibleDetailUutRows.map((row) => {
                   if (row.type === "function") {
-                    return renderFunctionHeaderRow("uut", row.fn, 5);
+                    return renderFunctionHeaderRow(
+                      "uut",
+                      row.fn,
+                      5 + customColumnsFor("uut").length,
+                    );
                   }
                   const uut = row.item;
                   const uutRowKey = row.rowKey ?? uut.id;
@@ -14277,6 +14511,7 @@ function DetailedView({
                                   <div className="uut-description-content">
                                     <EditableDescriptionCell
                                       name={uut.description}
+                                      nickname={uut.nickname}
                                       make={uut.instrument?.manufacturer}
                                       model={uut.instrument?.model}
                                       functionKey={uutFnKey}
@@ -14306,6 +14541,7 @@ function DetailedView({
                                 rangeIndex: index,
                                 totalRanges: n,
                               })}
+                              {i === 0 && renderCustomCells("uut", uut, spanRows)}
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
@@ -14363,6 +14599,7 @@ function DetailedView({
                             {onSessionSave ? (
                               <EditableDescriptionCell
                                 name={uut.description}
+                                nickname={uut.nickname}
                                 make={uut.instrument?.manufacturer}
                                 model={uut.instrument?.model}
                                 functionKey={uutFnKey}
@@ -14557,6 +14794,7 @@ function DetailedView({
                             ))}
                           </div>
                         </td>
+                        {renderCustomCells("uut", uut, rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className="cell-sync"
@@ -14896,6 +15134,16 @@ function DetailedView({
                 </button>
               )}
               <button
+                type="button"
+                className="btn-add-item btn-add-column"
+                onClick={() => requestCustomColumn("tmde")}
+                title="Add TMDE column"
+                aria-label="Add TMDE column"
+              >
+                <FontAwesomeIcon icon={faPlus} size="xs" />
+                <span>Column</span>
+              </button>
+              <button
                 className="btn-add-item"
                 data-tour="tmde-add-function"
                 onClick={(e) => {
@@ -14924,9 +15172,12 @@ function DetailedView({
               <colgroup>
                 <col style={{ width: "19%" }} />
                 <col style={{ width: "22%" }} />
-                <col style={{ width: "20%" }} />
+                <col style={{ width: "16%" }} />
                 <col style={{ width: "10%" }} />
-                <col style={{ width: "24%" }} />
+                <col style={{ width: "28%" }} />
+                {customColumnsFor("tmde").map((column) => (
+                  <col key={column.key} style={{ width: "140px" }} />
+                ))}
                 <col style={{ width: "5%" }} />
               </colgroup>
               <thead>
@@ -14940,20 +15191,27 @@ function DetailedView({
                   <th>Error Limit</th>
                   <th className="cell-distribution">Distribution</th>
                   <th>Resolution</th>
+                  {customColumnsFor("tmde").map((column) => (
+                    <th key={column.key}>{column.label}</th>
+                  ))}
                   <th className="cell-sync">Sync</th>
                 </tr>
               </thead>
               <tbody>
                 {visibleDetailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan="6">
+                    <td colSpan={6 + customColumnsFor("tmde").length}>
                       Add a TMDE using the + icon in the top-right.
                     </td>
                   </tr>
                 ) : (
                   visibleDetailTmdeRows.map((row) => {
                     if (row.type === "function") {
-                      return renderFunctionHeaderRow("tmde", row.fn, 6);
+                      return renderFunctionHeaderRow(
+                        "tmde",
+                        row.fn,
+                        6 + customColumnsFor("tmde").length,
+                      );
                     }
                     const masterTmde = row.item;
                     const tmdeRowKey = row.rowKey ?? masterTmde.id;
@@ -15079,6 +15337,7 @@ function DetailedView({
                                       <div className="uut-description-content">
                                         <EditableDescriptionCell
                                           name={masterTmde.name}
+                                          nickname={masterTmde.nickname}
                                           make={masterTmde.instrument?.manufacturer}
                                           model={masterTmde.instrument?.model}
                                           functionKey={tmdeFnKey}
@@ -15108,6 +15367,8 @@ function DetailedView({
                                     rangeIndex: index,
                                     totalRanges: n,
                                   })}
+                                  {i === 0 &&
+                                    renderCustomCells("tmde", masterTmde, spanRows)}
                                   {i === 0 && (
                                     <td
                                       rowSpan={spanRows}
@@ -15165,6 +15426,7 @@ function DetailedView({
                                 {onSessionSave ? (
                                   <EditableDescriptionCell
                                     name={masterTmde.name}
+                                    nickname={masterTmde.nickname}
                                     make={masterTmde.instrument?.manufacturer}
                                     model={masterTmde.instrument?.model}
                                     functionKey={tmdeFnKey}
@@ -15459,6 +15721,7 @@ function DetailedView({
                                 })}
                               </div>
                             </td>
+                            {renderCustomCells("tmde", masterTmde, rowSpan)}
                             <td
                               rowSpan={rowSpan}
                               className="cell-sync"
@@ -15531,6 +15794,7 @@ function DetailedView({
               components={calcResults?.calculatedBudgetComponents || []}
               onRemove={onRemoveComponent}
               onComponentUpdate={handleComponentUpdate}
+              onMoveComponent={moveBudgetComponent}
               ToleranceEditorComponent={InlineToleranceCell}
               applyToleranceChange={applyToleranceCaseChange}
               formatToleranceSummary={getSpecRows}

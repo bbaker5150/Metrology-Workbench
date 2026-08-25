@@ -599,18 +599,18 @@ export const DISTRIBUTION_NOT_SET = "not_set";
 
 export const errorDistributions = [
   { value: DISTRIBUTION_NOT_SET, label: "Not Set" },
-  { value: "1.732", label: "Rectangular" },
-  { value: "3.464", label: "Rectangular (resolution)" },
-  { value: "2.449", label: "Triangular" },
-  { value: "4.899", label: "Triangular (resolution)" },
-  { value: "1.414", label: "U-Shaped" },
-  { value: "1.645", label: "Normal (90%)" },
-  { value: "1.960", label: "Normal (95%)" },
-  { value: "2.000", label: "Normal (95.45%)" },
-  { value: "2.576", label: "Normal (99%)" },
-  { value: "3.000", label: "Normal (99.73%)" },
-  { value: "4.179", label: "Rayleigh" },
-  { value: "1.000", label: "Normal (k=1)" },
+  { value: "1.732", label: "Rectangular", shortLabel: "k = 1.732" },
+  { value: "3.464", label: "Rectangular (resolution)", shortLabel: "k = 3.464" },
+  { value: "2.449", label: "Triangular", shortLabel: "k = 2.449" },
+  { value: "4.899", label: "Triangular (resolution)", shortLabel: "k = 4.899" },
+  { value: "1.414", label: "U-Shaped", shortLabel: "k = 1.414" },
+  { value: "1.645", label: "Normal (90%)", shortLabel: "k = 1.645" },
+  { value: "1.960", label: "Normal (95%)", shortLabel: "k = 1.960" },
+  { value: "2.000", label: "Normal (95.45%)", shortLabel: "k = 2.000" },
+  { value: "2.576", label: "Normal (99%)", shortLabel: "k = 2.576" },
+  { value: "3.000", label: "Normal (99.73%)", shortLabel: "k = 3.000" },
+  { value: "4.179", label: "Rayleigh", shortLabel: "k = 4.179" },
+  { value: "1.000", label: "Normal", shortLabel: "k = 1.000" },
 ];
 
 // The UI and persisted instrument schema intentionally retain the historical
@@ -1256,7 +1256,13 @@ export const getToleranceErrorSummary = (toleranceObject, referencePoint) => {
 };
 
 export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
-  if (!toleranceObject || !referencePoint || !referencePoint.value) {
+  if (
+    !toleranceObject ||
+    !referencePoint ||
+    referencePoint.value === "" ||
+    referencePoint.value === null ||
+    referencePoint.value === undefined
+  ) {
     return { high: "N/A", low: "N/A" };
   }
 

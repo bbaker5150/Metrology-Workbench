@@ -263,11 +263,15 @@ const formatInstrumentIdentity = (item = {}) => {
       "",
   ).trim();
   const prefix = [make, model].filter(Boolean).join(" ");
-  if (!prefix) return name || "Instrument";
-  if (!name) return prefix;
-  return name.toLowerCase().startsWith(prefix.toLowerCase())
+  const identity = !prefix
+    ? name || "Instrument"
+    : !name
+      ? prefix
+      : name.toLowerCase().startsWith(prefix.toLowerCase())
     ? name
     : `${prefix} ${name}`;
+  const nickname = String(item.nickname || "").trim();
+  return nickname ? `${identity} · ${nickname}` : identity;
 };
 
 const SCOPED_ZOOM_SURFACE_SELECTOR = [
@@ -312,7 +316,8 @@ const DEFAULT_SIDEBAR_COLUMNS = {
   noGbCalInt: false,
   noGbMeasRel: false,
 };
-const DEFAULT_SIDEBAR_SORT = { key: "section", direction: "asc" };
+// Preserve authored chronology until the user explicitly selects a column sort.
+const DEFAULT_SIDEBAR_SORT = { key: "", direction: "asc" };
 
 const getUiPreferencesStorageKey = (sessionId) =>
   `${UNCERTAINTY_UI_PREFERENCES_PREFIX}:${sessionId}`;
@@ -458,6 +463,10 @@ const getPointTmdeLimitSortValue = (point, key) => {
 export const SidebarPointItem = ({
   point,
   uutName = "Unassigned",
+  currentUutId = "",
+  uutOptions = [],
+  onUutChange,
+  mergedFields = {},
   valueColumnWidth = "80px",
   isSelected,
   isActivePoint = false,
@@ -775,8 +784,27 @@ export const SidebarPointItem = ({
       onContextMenu={(e) => onContextMenu(e, point)}
     >
       {visibleColumns.uut && (
-        <span className="point-uut-name" title={uutName}>
-          {uutName}
+        <span
+          className={`point-uut-name point-uut-selector-cell${mergedFields.uut ? " is-visually-merged" : ""}`}
+          title={uutName}
+        >
+          <select
+            value={currentUutId || ""}
+            aria-label="UUT"
+            title={uutName}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => {
+              event.stopPropagation();
+              onUutChange?.(event.target.value || null);
+            }}
+          >
+            <option value="">Unassigned</option>
+            {uutOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </span>
       )}
 
@@ -795,7 +823,7 @@ export const SidebarPointItem = ({
           />
         ) : (
           <span
-            className="point-section"
+            className={`point-section${mergedFields.section ? " is-visually-merged" : ""}`}
             onClick={(e) => handleSingleClickEdit(e, "section", point.section)}
             title={String(point.section || "-")}
           >
@@ -856,7 +884,7 @@ export const SidebarPointItem = ({
           />
         ) : (
           <span
-            className="point-value"
+            className={`point-value${mergedFields.qualifier ? " is-visually-merged" : ""}`}
             onClick={(e) =>
               handleSingleClickEdit(
                 e,
@@ -1335,6 +1363,11 @@ const SidebarSessionHeader = ({
         ) : (
           <div
             onClick={(e) => startEdit(e, field, value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") startEdit(e, field, value);
+            }}
+            role="button"
+            tabIndex={0}
             className="session-header-value"
             title={helpText}
           >
@@ -1388,6 +1421,13 @@ const SidebarSessionHeader = ({
               ) : (
                 <div
                   onClick={(e) => startEdit(e, "name", sessionData.name)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      startEdit(e, "name", sessionData.name);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                   className="session-header-value session-header-name"
                   title="Edit Session Name"
                 >
@@ -1857,6 +1897,7 @@ function App({ showThemeToggle = false }) {
 
   const sortSidebarPoints = useCallback(
     (points) => {
+      if (!sidebarSort.key) return [...points];
       const directionMultiplier = sidebarSort.direction === "asc" ? 1 : -1;
       return [...points].sort((a, b) => {
         const aValue = getSidebarSortValue(a, sidebarSort.key);
@@ -2055,11 +2096,6 @@ function App({ showThemeToggle = false }) {
   // into value-edit. SidebarPointItem consumes it on mount, then App clears it.
   const [pendingValueEditPointId, setPendingValueEditPointId] = useState(null);
   // Function headers own point creation now that UUT folder rows are gone.
-  // When several UUTs implement the function, this remembers the most recent
-  // choice after the add-button instrument picker closes.
-  const [quickAddUutByFunction, setQuickAddUutByFunction] = useState({});
-  const [pendingPointInstrumentChoice, setPendingPointInstrumentChoice] =
-    useState(null);
   // When a function exposes more than one range unit, the quick-add button
   // pauses here so the new direct/derived point can be attached to an explicit
   // unit instead of silently choosing the first range.
@@ -2067,15 +2103,14 @@ function App({ showThemeToggle = false }) {
   const [openFunctionSettingsId, setOpenFunctionSettingsId] = useState(null);
 
   useEffect(() => {
-    if (!pendingPointUnitChoice && !pendingPointInstrumentChoice) return undefined;
+    if (!pendingPointUnitChoice) return undefined;
     const closePicker = (event) => {
       if (event.target?.closest?.(".point-unit-picker")) return;
       setPendingPointUnitChoice(null);
-      setPendingPointInstrumentChoice(null);
     };
     document.addEventListener("pointerdown", closePicker);
     return () => document.removeEventListener("pointerdown", closePicker);
-  }, [pendingPointInstrumentChoice, pendingPointUnitChoice]);
+  }, [pendingPointUnitChoice]);
 
   useEffect(() => {
     if (!openFunctionSettingsId) return undefined;
@@ -2318,13 +2353,16 @@ function App({ showThemeToggle = false }) {
       ? pointOrPoints
       : [pointOrPoints];
     setClipboardPoint(points);
-    setClipboardPointMode("cut");
+    // Cut is a copy-then-delete operation. Keep the snapshots reusable so the
+    // same point set can be pasted more than once after it leaves the source.
+    setClipboardPointMode("copy");
     setClipboardKind("point");
+    handleDeleteTestPoint(points.map((point) => point.id), true);
     showToast(
-      `${points.length} measurement point${points.length > 1 ? "s" : ""} cut. Select a destination UUT or range and paste.`,
+      `${points.length} measurement point${points.length > 1 ? "s" : ""} cut and copied. Select a destination UUT or range to paste.`,
     );
     setContextMenu(null);
-  }, []);
+  }, [handleDeleteTestPoint]);
 
   const handlePastePoint = useCallback(
     (targetUutId, targetAreaId, targetRange = null) => {
@@ -3432,6 +3470,7 @@ function App({ showThemeToggle = false }) {
       const finalData = { ...point };
 
       if (
+        !finalData._skipUutAutofill &&
         (!finalData.associatedUutIds ||
           finalData.associatedUutIds.length === 0) &&
         currentUutSelection.length > 0
@@ -3453,6 +3492,7 @@ function App({ showThemeToggle = false }) {
         return resolvePointForUut(finalData, finalData.associatedUutIds[0]);
       }
 
+      delete finalData._skipUutAutofill;
       return finalData;
     };
 
@@ -3505,7 +3545,14 @@ function App({ showThemeToggle = false }) {
         },
       });
     }
-    updateSession({ ...currentSessionData, functionGroups: next });
+    const testPoints = patch.mode
+      ? (currentSessionData.testPoints || []).map((point) =>
+          functionKeyOf(point) === fnGroup.id
+            ? { ...point, measurementType: patch.mode }
+            : point,
+        )
+      : currentSessionData.testPoints;
+    updateSession({ ...currentSessionData, functionGroups: next, testPoints });
   };
 
   const applyFunctionPointTemplate = (point, fnGroup, settings) => {
@@ -3575,7 +3622,8 @@ function App({ showThemeToggle = false }) {
       "";
     return applyFunctionPointTemplate({
       measurementAreaId: null,
-      associatedUutIds: [uutId],
+      associatedUutIds: uutId ? [uutId] : [],
+      _skipUutAutofill: !uutId,
       measurementType: settings.mode,
       uutTolerance: fnRange || null,
       testPointInfo: { parameter: { name: functionName, value: "", unit } },
@@ -3602,11 +3650,10 @@ function App({ showThemeToggle = false }) {
     settings,
     selectedUnit = "",
   ) => {
-    if (!uutId) return;
     const newId = handleSaveTestPoint(
       buildBlankPoint(uutId, fnGroup, settings, selectedUnit),
     );
-    setSelectedTestPointContextUutId(uutId);
+    setSelectedTestPointContextUutId(uutId || null);
     setPendingPointUnitChoice(null);
     if (newId != null) {
       setPendingValueEditPointId(newId);
@@ -3816,6 +3863,7 @@ function App({ showThemeToggle = false }) {
           unit: unit || units?.[0] || "",
           units: Array.from(new Set([...(units || []), unit].filter(Boolean))),
           uutMap: new Map(),
+          points: [],
         });
       } else {
         const existing = functionMap.get(key);
@@ -3845,34 +3893,35 @@ function App({ showThemeToggle = false }) {
       });
     });
 
-    // 2. Place each point under its own function -> owning UUT.
+    // 2. Keep points directly under their function in authored order. The UUT
+    // is a per-row assignment, not a grouping/sort key; this allows workflows
+    // that intentionally alternate between UUTs chronologically.
     const unassignedPoints = [];
     points.forEach((tp) => {
+      const fnNode = ensureFunction(functionLabelOf(tp));
+      fnNode.points.push(tp);
       const ownerId = (tp.associatedUutIds || [])
         .map((id) => String(id))
         .find((id) => uutById.has(id));
       if (!ownerId) {
-        unassignedPoints.push(tp);
+        // A legacy point with no meaningful function still belongs in the
+        // explicit Unassigned bucket; ordinary unassigned rows remain within
+        // their named function so the row-level UUT dropdown can resolve them.
+        if (fnNode.id === UNASSIGNED_FUNCTION_ID) unassignedPoints.push(tp);
         return;
       }
-      const uutNode = ensureUut(
-        ensureFunction(functionLabelOf(tp)),
-        uutById.get(ownerId),
-      );
+      const uutNode = ensureUut(fnNode, uutById.get(ownerId));
       uutNode.points.push(tp);
     });
 
     const result = Array.from(functionMap.values())
-      .sort(
-        (a, b) =>
-          a.name.localeCompare(b.name) || a.unit.localeCompare(b.unit),
-      )
       .map((node) => ({
         id: node.id,
         name: node.name,
         unit: node.unit,
         units: node.units || (node.unit ? [node.unit] : []),
         color: functionColorByKey.get(node.id) || null,
+        points: node.points || [],
         uutGroups: Array.from(node.uutMap.values()),
       }));
 
@@ -4143,15 +4192,50 @@ function App({ showThemeToggle = false }) {
 
   // Shared sidebar point-row markup (used under every UUT and the Unassigned
   // bucket). Extracted so the Function -> UUT -> Point tree stays readable.
-  const renderSidebarPointRow = (tp, contextUutId) => (
+  const renderSidebarPointRow = (tp, fnGroup, previousPoint = null) => {
+    const contextUutId = tp.associatedUutIds?.[0] || null;
+    const functionUuts = (fnGroup?.uutGroups || []).filter(
+      (group) => !group.isUnassigned,
+    );
+    const currentUut = (currentSessionData?.uuts || []).find(
+      (uut) => String(uut.id) === String(contextUutId),
+    );
+    const previousUutId = previousPoint?.associatedUutIds?.[0] || null;
+    const qualifier = tp.testPointInfo?.qualifier?.value ?? "";
+    const previousQualifier = previousPoint?.testPointInfo?.qualifier?.value ?? "";
+    return (
     <SidebarPointItem
       key={tp.id}
       point={tp}
+      currentUutId={contextUutId || ""}
       uutName={formatInstrumentIdentity(
-        (currentSessionData?.uuts || []).find(
-          (uut) => String(uut.id) === String(contextUutId),
-        ) || { name: "Unassigned" },
+        currentUut || { name: "Unassigned" },
       )}
+      uutOptions={functionUuts.map((uut) => ({
+        id: uut.id,
+        label: formatInstrumentIdentity(uut),
+      }))}
+      mergedFields={{
+        uut: previousPoint && String(previousUutId || "") === String(contextUutId || ""),
+        section: previousPoint && String(previousPoint.section || "") === String(tp.section || ""),
+        qualifier: previousPoint && String(previousQualifier) === String(qualifier),
+      }}
+      onUutChange={(nextUutId) => {
+        const nextUut = (currentSessionData?.uuts || []).find(
+          (uut) => String(uut.id) === String(nextUutId),
+        );
+        const parameter = tp.testPointInfo?.parameter || {};
+        const nextPoint = {
+          ...tp,
+          associatedUutIds: nextUut ? [nextUut.id] : [],
+          measurementAreaId: nextUut?.measurementAreaId || null,
+          uutTolerance: nextUut
+            ? findMatchingRange(nextUut, parameter.value, parameter.unit)
+            : null,
+        };
+        handleInlinePointUpdate(nextPoint);
+        setSelectedTestPointContextUutId(nextUut?.id || null);
+      }}
       valueColumnWidth={sidebarValueColumnWidth}
       visibleColumns={visibleSidebarColumns}
       isSelected={selectedSidebarPointIds.includes(tp.id)}
@@ -4189,6 +4273,15 @@ function App({ showThemeToggle = false }) {
                 ),
               icon: faCut,
             },
+            ...(clipboardKind === "point" && clipboardPoint
+              ? [
+                  {
+                    label: "Paste Point",
+                    action: () => handlePastePoint(contextUutId, null, null),
+                    icon: faPaste,
+                  },
+                ]
+              : []),
             {
               label: "Delete Point",
               action: () => handleDeleteTestPoint(p.id),
@@ -4199,7 +4292,8 @@ function App({ showThemeToggle = false }) {
         });
       }}
     />
-  );
+    );
+  };
 
   const renderEmptySidebarUutRow = (group, fnGroup) => {
     const uutKey = `${fnGroup.id}::${group.id}`;
@@ -4387,11 +4481,6 @@ function App({ showThemeToggle = false }) {
     );
     if (uutOptions.length === 0) return null;
 
-    const requestedUutId = quickAddUutByFunction[fnGroup.id];
-    const targetUut =
-      uutOptions.find(
-        (group) => String(group.id) === String(requestedUutId),
-      ) || uutOptions[0];
     const settings = getFunctionPointSettings(currentSessionData, fnGroup.id);
     const settingsOpen = openFunctionSettingsId === fnGroup.id;
 
@@ -4491,14 +4580,7 @@ function App({ showThemeToggle = false }) {
                 new Set(previous).add(fnGroup.id),
               );
               setPendingPointUnitChoice(null);
-              if (uutOptions.length > 1) {
-                setPendingPointInstrumentChoice({
-                  functionId: fnGroup.id,
-                  settings,
-                });
-              } else {
-                openQuickAddPoint(fnGroup, targetUut.id, settings);
-              }
+              openQuickAddPoint(fnGroup, null, settings);
             }}
             title={
               settings.mode === "derived"
@@ -4513,47 +4595,7 @@ function App({ showThemeToggle = false }) {
           >
             <FontAwesomeIcon icon={faPlus} size="xs" />
           </button>
-          {pendingPointInstrumentChoice?.functionId === fnGroup.id && (
-            <div
-              className="budget-settings-menu point-unit-picker function-point-instrument-picker"
-              data-tour="measurement-point-menu"
-              role="menu"
-              aria-label={`Choose UUT for new ${fnGroup.name} measurement point`}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <h5 className="point-unit-picker-title">Choose instrument</h5>
-              {uutOptions.map((group) => (
-                <button
-                  key={group.id}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setQuickAddUutByFunction((previous) => ({
-                      ...previous,
-                      [fnGroup.id]: group.id,
-                    }));
-                    setPendingPointInstrumentChoice(null);
-                    openQuickAddPoint(
-                      fnGroup,
-                      group.id,
-                      pendingPointInstrumentChoice.settings,
-                    );
-                  }}
-                >
-                  {formatInstrumentIdentity(group)}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="point-unit-picker-cancel"
-                onClick={() => setPendingPointInstrumentChoice(null)}
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-          {pendingPointUnitChoice?.functionId === fnGroup.id &&
-            pendingPointUnitChoice?.uutId === targetUut.id && (
+          {pendingPointUnitChoice?.functionId === fnGroup.id && (
               <div
                 className="budget-settings-menu point-unit-picker function-point-unit-picker"
                 data-tour="measurement-point-menu"
@@ -4570,7 +4612,7 @@ function App({ showThemeToggle = false }) {
                     onClick={() =>
                       handleQuickAddPoint(
                         fnGroup,
-                        targetUut.id,
+                        pendingPointUnitChoice.uutId,
                         pendingPointUnitChoice.settings,
                         unit,
                       )
@@ -5189,8 +5231,8 @@ function App({ showThemeToggle = false }) {
                             <div className="tree-branch">
                               <div className="sidebar-points-scroll-wrapper">
                                 {renderSidebarColumnHeaders()}
-                                {pts.map((tp) =>
-                                  renderSidebarPointRow(tp, null),
+                                {pts.map((tp, index) =>
+                                  renderSidebarPointRow(tp, fnGroup, pts[index - 1] || null),
                                 )}
                               </div>
                             </div>
@@ -5242,16 +5284,21 @@ function App({ showThemeToggle = false }) {
                           <div className="tree-branch">
                             <div className="sidebar-points-scroll-wrapper">
                               {renderSidebarColumnHeaders()}
-                              {fnGroup.uutGroups.flatMap((group) => {
-                                const points = sortSidebarPoints(
-                                  group.points || [],
+                              {(() => {
+                                const points = sortSidebarPoints(fnGroup.points || []);
+                                if (points.length === 0) {
+                                  return fnGroup.uutGroups.map((group) =>
+                                    renderEmptySidebarUutRow(group, fnGroup),
+                                  );
+                                }
+                                return points.map((tp, index) =>
+                                  renderSidebarPointRow(
+                                    tp,
+                                    fnGroup,
+                                    points[index - 1] || null,
+                                  ),
                                 );
-                                return points.length > 0
-                                  ? points.map((tp) =>
-                                      renderSidebarPointRow(tp, group.id),
-                                    )
-                                  : [renderEmptySidebarUutRow(group, fnGroup)];
-                              })}
+                              })()}
                             </div>
                           </div>
                         )}

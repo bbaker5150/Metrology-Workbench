@@ -142,8 +142,8 @@ body.uncertainty-active {
   --heading-color: #2c3e50;
 
   /* Table Highlighting (Industry Grade) */
-  --table-hover-row-bg: rgba(33, 37, 41, 0.03);
-  --table-hover-col-bg: rgba(33, 37, 41, 0.02);
+  --table-hover-row-bg: rgba(37, 99, 235, 0.055);
+  --table-hover-col-bg: rgba(37, 99, 235, 0.04);
   --table-selected-row-bg: rgba(0, 123, 255, 0.12);
   --table-selected-border: var(--primary-color);
 }
@@ -7849,7 +7849,7 @@ body.dark-mode .analyzed-components-title {
 }
 
 .context-menu {
-  position: absolute;
+  position: fixed;
   background-color: var(--content-background);
   border: 1px solid var(--border-color);
   border-radius: 8px;
@@ -12779,6 +12779,142 @@ input.inline-function-input:focus {
 .range-stack-row > .inline-resolution-editor,
 .range-stack-row > .session-selector {
   width: 100%;
+}
+
+.point-uut-selector-cell select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  padding: 1px 18px 1px 2px;
+  text-overflow: ellipsis;
+}
+
+.point-uut-selector-cell select:hover,
+.point-uut-selector-cell select:focus {
+  border-color: var(--border-color);
+  background: var(--input-background);
+  outline: none;
+}
+
+.btn-add-column {
+  width: auto;
+  gap: 5px;
+  padding-inline: 7px;
+  font-size: 0.72rem;
+}
+
+.instrument-custom-field-cell {
+  min-width: 120px;
+  vertical-align: middle;
+}
+
+.instrument-custom-field-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  padding: 4px 6px;
+}
+
+.instrument-custom-field-input:hover,
+.instrument-custom-field-input:focus {
+  border-color: var(--border-color);
+  background: var(--input-background);
+  outline: none;
+}
+
+/* Repeated table values read as a vertically merged block while remaining
+   individually editable: hovering the row reveals its actual control/value. */
+.point-grid-item .is-visually-merged:not(:hover),
+.point-grid-item .is-visually-merged:not(:hover) select {
+  color: transparent;
+  border-color: transparent;
+}
+
+.point-grid-item .is-visually-merged:not(:hover) select {
+  appearance: none;
+}
+
+.point-grid-item:hover .is-visually-merged,
+.point-grid-item:hover .is-visually-merged select,
+.point-grid-item.active .is-visually-merged,
+.point-grid-item.active .is-visually-merged select {
+  color: inherit;
+  appearance: auto;
+}
+
+.range-inline-add-btn {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--primary-color);
+  background: transparent;
+  cursor: pointer;
+}
+
+.range-inline-add-btn:hover,
+.range-inline-add-btn:focus-visible {
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+}
+
+.budget-tmde-picker-instrument + .budget-tmde-picker-instrument {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-color);
+}
+
+.budget-tmde-picker-instrument-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px 2px;
+  color: var(--text-color);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.budget-tmde-picker-range-mark {
+  width: 8px;
+  height: 8px;
+  margin-left: 4px;
+  border-left: 1px solid var(--border-color-strong);
+  border-bottom: 1px solid var(--border-color-strong);
+  flex: 0 0 auto;
+}
+
+.budget-row-move {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text-color-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.budget-row-move:hover,
+.budget-row-move:focus-visible {
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 10%, transparent);
 }
 
 /* ------------------------------------------------------------------ */

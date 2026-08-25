@@ -8171,7 +8171,6 @@ body.dark-mode .chart-options-form-group.checkbox-group:hover {
 .stat-card.active {
   border-left-color: var(--primary-color);
   box-shadow: 0 4px 12px rgba(0, 123, 255, 0.1);
-  transform: scale(1.02);
 }
 
 .stat-card h6 {
@@ -8179,6 +8178,16 @@ body.dark-mode .chart-options-form-group.checkbox-group:hover {
   font-size: 0.9rem;
   font-weight: 500;
   color: var(--text-color);
+}
+
+.stat-card--drift {
+  border-left-color: var(--warning-color, #d69e2e);
+}
+
+.stat-card--drift .stat-details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .stat-details {

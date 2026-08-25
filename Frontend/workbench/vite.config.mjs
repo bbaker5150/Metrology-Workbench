@@ -2,6 +2,33 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
+// Some managed lab networks probe every listening HTTP server and may abort
+// the socket mid-request. Node treats an unhandled client socket error as
+// fatal; in Electron development that also makes `concurrently` stop the
+// backend and desktop shell. Keep malformed/aborted probes isolated to their
+// own connection while allowing real Vite errors to surface normally.
+const tolerateAbortedClientSockets = () => ({
+  name: 'tolerate-aborted-client-sockets',
+  configureServer(server) {
+    server.httpServer?.on('clientError', (error, socket) => {
+      if (!socket.destroyed && socket.writable) {
+        socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+      }
+      socket.destroy();
+      if (!['ECONNRESET', 'EPIPE', 'HPE_INVALID_METHOD', 'HPE_INVALID_URL'].includes(error?.code)) {
+        server.config.logger.warn(`Rejected malformed client connection: ${error?.message || error}`);
+      }
+    });
+    server.httpServer?.on('connection', (socket) => {
+      socket.on('error', (error) => {
+        if (!['ECONNRESET', 'EPIPE', 'ETIMEDOUT'].includes(error?.code)) {
+          server.config.logger.warn(`Client socket error: ${error?.message || error}`);
+        }
+      });
+    });
+  },
+});
+
 // Vite config for the AC Shunt React frontend.
 // - base: './' so the built index.html loads assets via relative URLs
 //   when Electron opens it through file://.
@@ -13,7 +40,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: './',
-    plugins: [react()],
+    plugins: [react(), tolerateAbortedClientSockets()],
     server: {
       host: '0.0.0.0',
       allowedHosts: ['.trycloudflare.com'],
