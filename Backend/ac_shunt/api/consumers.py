@@ -184,6 +184,66 @@ def _shared_5790_reader_pair(std_reader, ti_reader):
     )
 
 
+def _source_drive_voltage_for_test_point(
+    test_point_data,
+    amplifier_range=None,
+    *,
+    infer_range=False,
+):
+    """Return the 5730A drive voltage for an AC-shunt test point.
+
+    A normal 8100 signal path must use its explicitly selected current range.
+    A shared dual-input 5790 quick setup has no 8100 assignment, so it uses
+    the smallest supported 8100-equivalent range containing the point. This
+    preserves the established 0-to-2 V source scaling without requiring a
+    fictitious amplifier assignment in the session.
+    """
+
+    try:
+        current = abs(float((test_point_data or {}).get('current')))
+    except (TypeError, ValueError):
+        raise ValueError(
+            "The selected test point does not contain a valid source-current value."
+        )
+    if not math.isfinite(current) or current <= 0:
+        raise ValueError("The selected test-point current must be greater than 0.")
+
+    try:
+        selected_range = float(amplifier_range)
+    except (TypeError, ValueError):
+        selected_range = None
+
+    if selected_range is None and infer_range:
+        selected_range = next(
+            (
+                value
+                for value in (0.002, 0.02, 0.2, 2.0, 20.0, 100.0)
+                if current <= value
+            ),
+            None,
+        )
+
+    if selected_range is None:
+        raise ValueError(
+            "An amplifier range is required for the AC Shunt signal path."
+        )
+    if (
+        not math.isfinite(selected_range)
+        or selected_range <= 0
+        or current > selected_range
+    ):
+        raise ValueError(
+            "The selected test point is outside its available source-current range."
+        )
+
+    voltage = (current / selected_range) * 2.0
+    if not math.isfinite(voltage) or voltage <= 0 or voltage > 1000:
+        raise ValueError(
+            "The source drive voltage must be greater than 0 V and no more than 1000 V."
+        )
+    return voltage
+
+
 def _5790_profile_settings(measurement_params):
     params = measurement_params or {}
     mode = str(params.get('f5790_filter_mode') or 'MEDIUM').upper()
@@ -1742,8 +1802,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             print("[CONFIGURE_SOURCES] Warning: No valid test point data provided. Skipping.")
             return
 
-        input_current = float(config_point.get('current'))
-        voltage = (input_current / float(amplifier_range)) * 2
+        measurement_params = measurement_params or {}
+        voltage = _source_drive_voltage_for_test_point(
+            config_point,
+            amplifier_range,
+            infer_range=bool(
+                measurement_params.get('_direct_5790_source_mode', False)
+            ),
+        )
 
         if ac_source:
             frequency = float(config_point.get('frequency', 0))
@@ -1764,6 +1830,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         measurement_params = dict(data.get('measurement_params') or {})
         measurement_params.pop('direct_source_test_mode', None)
         measurement_params.pop('direct_source_voltage', None)
+        measurement_params.pop('_direct_5790_source_mode', None)
         data['measurement_params'] = measurement_params
 
         details = session_details or {}
@@ -1804,6 +1871,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 raise RuntimeError(
                     "Assign a shared 5790 Standard and Test role to opposite INPUT1/INPUT2 inputs."
                 )
+
+        # The shared dual-input 5790 quick workflow intentionally has no 8100.
+        # Mark it server-side so a client cannot opt another topology into
+        # inferred source scaling merely by adding a payload flag.
+        measurement_params['_direct_5790_source_mode'] = bool(
+            shared_5790
+            and not instrument_switch_address
+            and not details.get('amplifier_address')
+        )
 
         std_is_8508 = '8508' in str(details.get('std_reader_model') or '').upper()
         ti_is_8508 = '8508' in str(details.get('ti_reader_model') or '').upper()
@@ -1993,11 +2069,18 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     data.get('bypass_tvc'),
                     data.get('amplifier_range'),
                     ac_source=ac_source,
-                    dc_source=dc_source
+                    dc_source=dc_source,
+                    measurement_params=data.get('measurement_params'),
                 )
             else:
                 configure_kwargs = {'ac_source': ac_source} if char_source_kind == 'AC' else {'dc_source': dc_source}
-                await self._configure_sources(original_tp, data.get('bypass_tvc'), data.get('amplifier_range'), **configure_kwargs)
+                await self._configure_sources(
+                    original_tp,
+                    data.get('bypass_tvc'),
+                    data.get('amplifier_range'),
+                    measurement_params=data.get('measurement_params'),
+                    **configure_kwargs,
+                )
 
             if session_details.get('amplifier_address'):
                 amplifier = await sync_to_async(_inst, thread_sensitive=True)(
@@ -2348,12 +2431,18 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         target_tvc = test_point_data.get('target_tvc', 'BOTH')
         
         # --- 1. Calculate Source Drive Voltage ---
-        input_current = float(test_point_data.get('current'))
-        if amplifier_range is None:
-            raise ValueError(
-                "An amplifier range is required for the AC Shunt signal path."
+        direct_5790_source_mode = bool(
+            amplifier_instrument is None
+            and _shared_5790_reader_pair(
+                std_reader_instrument,
+                ti_reader_instrument,
             )
-        source_drive_voltage = (input_current / float(amplifier_range)) * 2
+        )
+        source_drive_voltage = _source_drive_voltage_for_test_point(
+            test_point_data,
+            amplifier_range,
+            infer_range=direct_5790_source_mode,
+        )
         if 'neg' in reading_type_base: 
             source_drive_voltage = -source_drive_voltage
         

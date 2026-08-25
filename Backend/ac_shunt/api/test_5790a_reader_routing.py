@@ -13,6 +13,7 @@ from .consumers import (
     _clear_live_state,
     _get_live_state,
     _5790_profile_settings,
+    _source_drive_voltage_for_test_point,
 )
 from .models import (
     CalibrationSession,
@@ -190,14 +191,15 @@ class SequentialReaderStabilityTests(SimpleTestCase):
                 side_effect=take_shared_batches,
             )
 
+            source = Source()
             with patch("api.consumers.asyncio.sleep", new=AsyncMock()):
                 success = await consumer._perform_single_measurement(
                     "ac_open",
                     3,
                     {"current": 0.1, "frequency": 60, "target_tvc": "BOTH"},
                     False,
-                    1.0,
-                    Source(),
+                    None,
+                    source,
                     instrument,
                     instrument,
                     settling_time=0,
@@ -209,11 +211,12 @@ class SequentialReaderStabilityTests(SimpleTestCase):
                         "f5790_inter_sample_delay": 0,
                     },
                 )
-            return consumer, success, instrument
+            return consumer, success, instrument, source
 
-        consumer, success, instrument = asyncio.run(run_measurement())
+        consumer, success, instrument, source = asyncio.run(run_measurement())
 
         self.assertTrue(success)
+        self.assertEqual(source.last_output, (1.0, 60.0))
         consumer._take_shared_5790_batches.assert_awaited_once()
         batch_call = consumer._take_shared_5790_batches.await_args
         self.assertEqual(batch_call.args, (instrument, instrument, 3))
@@ -468,6 +471,75 @@ class SafeShutdownTests(SimpleTestCase):
 
 
 class ReaderSwitchMappingTests(SimpleTestCase):
+    def test_no_amplifier_shared_5790_infers_source_drive_range(self):
+        data = {
+            "measurement_params": {
+                "_direct_5790_source_mode": False,
+            },
+        }
+        details = {
+            "ac_source_address": "GPIB0::11::INSTR",
+            "dc_source_address": "GPIB0::4::INSTR",
+            "std_reader_address": "GPIB0::14::INSTR",
+            "ti_reader_address": "GPIB0::14::INSTR",
+            "std_reader_model": "5790B",
+            "ti_reader_model": "5790B",
+            "std_reader_input": "INPUT2",
+            "ti_reader_input": "INPUT1",
+            "amplifier_address": None,
+            "switch_driver_address": None,
+            "reader_switch_driver_address": None,
+        }
+
+        CalibrationConsumer._validate_reader_assignments(data, details)
+
+        self.assertTrue(
+            data["measurement_params"]["_direct_5790_source_mode"]
+        )
+
+    def test_inferred_source_drive_uses_smallest_supported_range(self):
+        self.assertEqual(
+            _source_drive_voltage_for_test_point(
+                {"current": 0.1},
+                infer_range=True,
+            ),
+            1.0,
+        )
+        with self.assertRaisesRegex(ValueError, "amplifier range is required"):
+            _source_drive_voltage_for_test_point({"current": 0.1})
+
+    def test_quick_setup_configures_both_sources_without_amplifier_range(self):
+        class Source:
+            def __init__(self):
+                self.outputs = []
+                self.transfer_states = []
+
+            def set_output(self, voltage, frequency):
+                self.outputs.append((voltage, frequency))
+
+            def set_ac_transfer(self, enabled):
+                self.transfer_states.append(enabled)
+
+        async def configure():
+            consumer = CalibrationConsumer()
+            ac_source = Source()
+            dc_source = Source()
+            await consumer._configure_sources(
+                {"current": 0.1, "frequency": 60},
+                False,
+                None,
+                ac_source=ac_source,
+                dc_source=dc_source,
+                measurement_params={"_direct_5790_source_mode": True},
+            )
+            return ac_source, dc_source
+
+        ac_source, dc_source = asyncio.run(configure())
+
+        self.assertEqual(ac_source.outputs, [(1.0, 60.0)])
+        self.assertEqual(ac_source.transfer_states, [False])
+        self.assertEqual(dc_source.outputs, [(1.0, 0)])
+
     def test_shared_5790_requires_opposite_main_inputs(self):
         details = {
             "std_reader_address": "GPIB0::16::INSTR",

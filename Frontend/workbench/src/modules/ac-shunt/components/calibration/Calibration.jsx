@@ -751,12 +751,14 @@ function Calibration({
     } else if (collectionStatus === "error") {
       if (collectionPromise.current) {
         collectionPromise.current.reject(
-          new Error("Collection failed with an error.")
+          new Error(
+            lastMessage?.message || "Collection failed with an error."
+          )
         );
         collectionPromise.current = null;
       }
     }
-  }, [collectionStatus]);
+  }, [collectionStatus, lastMessage]);
 
   // useEffect(() => {
   //   if (lastMessage?.type === "warning") {
