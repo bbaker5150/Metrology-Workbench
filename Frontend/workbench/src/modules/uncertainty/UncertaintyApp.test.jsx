@@ -481,6 +481,60 @@ describe("UncertaintyApp", () => {
     expect(screen.getByText("PFA Required")).toBeInTheDocument();
   });
 
+  test("tabs directly through the editable Session Info fields", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 102,
+        name: "Keyboard Session",
+        analyst: "",
+        organization: "",
+        document: "",
+        documentDate: "",
+        measurementAreas: [],
+        uuts: [],
+        tmdes: [],
+        testPoints: [],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const nameDisplay = await screen.findByTitle("Edit Session Name");
+    fireEvent.focus(nameDisplay);
+    const nameInput = screen.getByRole("textbox", { name: "Session Name" });
+    expect(nameInput).toHaveFocus();
+
+    fireEvent.change(nameInput, { target: { value: "Updated Session" } });
+    fireEvent.keyDown(nameInput, { key: "Tab" });
+    const organizationInput = screen.getByRole("textbox", { name: "Organization" });
+    expect(organizationInput).toHaveFocus();
+
+    fireEvent.keyDown(organizationInput, { key: "Tab" });
+    const analystInput = screen.getByRole("textbox", { name: "Analyst" });
+    expect(analystInput).toHaveFocus();
+
+    fireEvent.keyDown(analystInput, { key: "Tab" });
+    const documentInput = screen.getByRole("textbox", { name: "Doc ID" });
+    expect(documentInput).toHaveFocus();
+
+    fireEvent.keyDown(documentInput, { key: "Tab" });
+    const dateInput = screen.getByLabelText("Document Date");
+    expect(dateInput).toHaveFocus();
+
+    fireEvent.keyDown(dateInput, { key: "Tab" });
+    const confidenceInput = screen.getByRole("spinbutton", { name: "Confidence (%)" });
+    expect(confidenceInput).toHaveFocus();
+  });
+
   test("keeps measurement-point actions visible without a redundant accordion", async () => {
     render(
       <ThemeProvider>

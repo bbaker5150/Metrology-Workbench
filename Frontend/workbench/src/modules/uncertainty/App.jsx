@@ -1286,22 +1286,53 @@ const SidebarSessionHeader = ({
 
   if (!sessionData) return null;
 
+  const requirements = sessionData.uncReq || {};
+  const editableFieldOrder = [
+    "name",
+    "organization",
+    "analyst",
+    "document",
+    "documentDate",
+    ...(isRiskInputsOpen
+      ? RISK_INPUT_FIELDS.map((field) => `uncReq.${field.name}`)
+      : []),
+    ...(isMitigationInputsOpen
+      ? MITIGATION_INPUT_FIELDS.map((field) => `uncReq.${field.name}`)
+      : []),
+  ];
+
+  const valueForField = (field) =>
+    field.startsWith("uncReq.")
+      ? requirements[field.slice("uncReq.".length)]
+      : sessionData[field];
+
   const startEdit = (e, field, val) => {
     e.stopPropagation();
     setEditingField(field);
     setTempValue(val || "");
   };
 
-  const commitEdit = () => {
+  const commitEdit = (nextField = null) => {
     if (editingField) {
       if (!editingField.startsWith("uncReq.")) {
         onUpdate({ ...sessionData, [editingField]: tempValue });
       }
-      setEditingField(null);
     }
+    setEditingField(nextField);
+    if (nextField) setTempValue(valueForField(nextField) ?? "");
   };
 
   const handleKeyDown = (e) => {
+    if (e.key === "Tab") {
+      const currentIndex = editableFieldOrder.indexOf(editingField);
+      const nextIndex = currentIndex + (e.shiftKey ? -1 : 1);
+      const nextField = editableFieldOrder[nextIndex];
+      if (nextField) {
+        e.preventDefault();
+        commitEdit(nextField);
+      }
+      return;
+    }
     if (e.key === "Enter") {
       commitEdit();
     }
@@ -1363,6 +1394,7 @@ const SidebarSessionHeader = ({
         ) : (
           <div
             onClick={(e) => startEdit(e, field, value)}
+            onFocus={(e) => startEdit(e, field, value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") startEdit(e, field, value);
             }}
@@ -1377,8 +1409,6 @@ const SidebarSessionHeader = ({
       </div>
     );
   };
-
-  const requirements = sessionData.uncReq || {};
 
   return (
     <div className="sidebar-session-header-organic" data-tour="session-information">
@@ -1410,6 +1440,7 @@ const SidebarSessionHeader = ({
               {editingField === "name" ? (
                 <input
                   autoFocus
+                  aria-label="Session Name"
                   value={tempValue}
                   onChange={(e) => setTempValue(e.target.value)}
                   onBlur={commitEdit}
@@ -1421,6 +1452,7 @@ const SidebarSessionHeader = ({
               ) : (
                 <div
                   onClick={(e) => startEdit(e, "name", sessionData.name)}
+                  onFocus={(e) => startEdit(e, "name", sessionData.name)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       startEdit(e, "name", sessionData.name);
