@@ -169,14 +169,62 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
         : src.instrument,
     };
   }
-  return {
+  const copiedRowId = uuidv4();
+  const sourceDefinition = src.instrument || null;
+  const sourceDefinitionId = sourceDefinition?.id;
+  const copiedDefinitionId = sourceDefinition ? uuidv4() : null;
+  const isLocalCopy = !sourceDefinition || sourceDefinition.scope !== "validated";
+  const copiedRow = {
     ...src,
-    id: uuidv4(),
+    id: copiedRowId,
     ...areaFields,
-    instrument: src.instrument
-      ? { ...src.instrument, id: uuidv4(), ...nestedArea }
-      : src.instrument,
+    instrument: sourceDefinition
+      ? { ...sourceDefinition, id: copiedDefinitionId, ...nestedArea }
+      : sourceDefinition,
   };
+
+  // Session rows and older imports often use self-referential aliases. Carrying
+  // those aliases into a copied row makes reconciliation treat the original and
+  // copy as one instrument even though their row/definition ids are different.
+  if (String(src.sourceId ?? "") === String(src.id ?? "")) {
+    copiedRow.sourceId = copiedRowId;
+  }
+  ["definitionId", "instrumentId", "sourceInstrumentId"].forEach((key) => {
+    if (
+      sourceDefinitionId !== undefined &&
+      sourceDefinitionId !== null &&
+      String(src[key] ?? "") === String(sourceDefinitionId)
+    ) {
+      copiedRow[key] = copiedDefinitionId;
+    }
+  });
+  if (
+    copiedRow.sourceInstrument &&
+    sourceDefinitionId !== undefined &&
+    String(copiedRow.sourceInstrument.id ?? "") === String(sourceDefinitionId)
+  ) {
+    copiedRow.sourceInstrument = {
+      ...copiedRow.sourceInstrument,
+      id: copiedDefinitionId,
+    };
+  }
+  if (
+    copiedRow.instrument &&
+    sourceDefinitionId !== undefined &&
+    String(copiedRow.instrument.sourceId ?? "") === String(sourceDefinitionId)
+  ) {
+    copiedRow.instrument.sourceId = copiedDefinitionId;
+  }
+
+  // A copied local instrument is a new local library record, not another row
+  // for the original record. Preserve shared sourceId lineage for future sync,
+  // but remove the local record aliases used to synchronize session roles.
+  if (isLocalCopy) {
+    delete copiedRow.libraryInstrumentId;
+    if (copiedRow.instrument) delete copiedRow.instrument.libraryInstrumentId;
+  }
+
+  return copiedRow;
 };
 
 export const scopeLibraryInstrumentToFunction = (
