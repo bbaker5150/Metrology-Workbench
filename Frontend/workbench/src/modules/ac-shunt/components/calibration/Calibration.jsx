@@ -3870,7 +3870,6 @@ function Calibration({
                                 </section>
                                 <section className="reader-profile-card" aria-labelledby="reader-profile-5790-range-title">
                                   <div className="reader-profile-card-header">
-                                    <strong id="reader-profile-5790-range-title">Acquisition</strong>
                                   </div>
                                   <div className="form-section-group">
                                     <div className="form-section reader-setting-tooltip-trigger">

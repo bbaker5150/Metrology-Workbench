@@ -535,7 +535,7 @@ function AppContent() {
 
   const sessionInfoPanelTitle =
     selectedSessionName ||
-    (selectedSessionId != null ? `Session #${selectedSessionId}` : "—");
+    (selectedSessionId != null ? `#${selectedSessionId}` : "—");
 
   const showChromeStatusCluster =
     Boolean(dbInfo) ||
