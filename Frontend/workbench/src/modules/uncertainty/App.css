@@ -13234,10 +13234,7 @@ input.inline-function-input:focus {
 
 .instrument-summary-table tbody tr:hover .instrument-order-controls,
 .industry-table tbody tr:hover .instrument-order-controls,
-.industry-table tbody tr.row-hovered .instrument-order-controls,
-.instrument-summary-table tbody tr:focus-within .instrument-order-controls,
-.industry-table tbody tr:focus-within .instrument-order-controls,
-.instrument-order-controls:focus-within {
+.instrument-order-controls:has(button:focus-visible) {
   opacity: 1;
   pointer-events: auto;
 }
