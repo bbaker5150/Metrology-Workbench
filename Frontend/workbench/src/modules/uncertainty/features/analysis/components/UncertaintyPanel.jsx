@@ -2550,23 +2550,29 @@ const EditableCustomColumnHeader = ({
 const INSTRUMENT_COLUMN_RESIZE_EVENT = "uncert-size-instrument-column";
 const INSTRUMENT_COLUMN_DEFAULTS = {
   uut: {
-    description: 220,
+    description: 240,
     range: 300,
-    tolerance: 260,
-    resolution: 220,
+    tolerance: 288,
+    resolution: 300,
     sync: 72,
   },
   tmde: {
-    description: 220,
-    range: 300,
+    description: 216,
+    range: 264,
     tolerance: 240,
-    distribution: 140,
-    resolution: 220,
-    sync: 72,
+    distribution: 150,
+    resolution: 270,
+    sync: 60,
   },
 };
 
 const instrumentColumnKey = (column) => `custom:${column.key}`;
+
+const uutTableTitle = (count) =>
+  Number(count) > 1 ? "Units Under Test" : "Unit Under Test";
+
+const selectedInstrumentDeleteLabel = (count) =>
+  `Delete Selected Instrument${Number(count) === 1 ? "" : "s"}`;
 
 const useInstrumentColumnWidths = (kind, customColumns = []) => {
   const customSignature = customColumns.map((column) => column.key).join("|");
@@ -2579,7 +2585,9 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
     // customSignature intentionally represents the dynamic column set.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, customSignature]);
-  const storageKey = `uncertalytics:${kind}:instrument-column-widths`;
+  // v2 stores proportional weights. The previous absolute-pixel values could
+  // leave blank space at the right edge when the table grew to its container.
+  const storageKey = `uncertalytics:${kind}:instrument-column-widths:v2`;
   const instanceIdRef = useRef(uuidv4());
   const [widths, setWidths] = useState(() => {
     try {
@@ -2613,27 +2621,71 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
     return 120;
   }, []);
 
-  const updateWidth = useCallback(
-    (key, nextWidth) => {
+  const keys = useMemo(() => Object.keys(defaults), [defaults]);
+  const resolvedWidths = useMemo(
+    () =>
+      Object.fromEntries(
+        keys.map((key) => [key, widths[key] || defaults[key] || 160]),
+      ),
+    [defaults, keys, widths],
+  );
+  const totalWidth = keys.reduce(
+    (sum, key) => sum + resolvedWidths[key],
+    0,
+  );
+
+  const saveWidths = useCallback(
+    (next) => {
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {
+        // Column sizing remains available for this view when storage is blocked.
+      }
+      window.dispatchEvent(
+        new CustomEvent(INSTRUMENT_COLUMN_RESIZE_EVENT, {
+          detail: { kind, widths: next, source: instanceIdRef.current },
+        }),
+      );
+    },
+    [kind, storageKey],
+  );
+
+  const resizePair = useCallback(
+    (key, deltaPixels, tablePixelWidth, sourceWidths = null) => {
+      const index = keys.indexOf(key);
+      if (index < 0 || keys.length < 2) return;
+      const neighborKey = keys[index === keys.length - 1 ? index - 1 : index + 1];
+      const tableWidth = Math.max(1, tablePixelWidth || 1200);
+
       setWidths((current) => {
+        const base = sourceWidths || current;
+        const currentKeyWidth = base[key] || defaults[key] || 160;
+        const currentNeighborWidth =
+          base[neighborKey] || defaults[neighborKey] || 160;
+        const pairTotal = currentKeyWidth + currentNeighborWidth;
+        const currentTotal = keys.reduce(
+          (sum, columnKey) =>
+            sum + (base[columnKey] || defaults[columnKey] || 160),
+          0,
+        );
+        const deltaWeight = (deltaPixels / tableWidth) * currentTotal;
+        const keyMinimum = (minimumWidth(key) / tableWidth) * currentTotal;
+        const neighborMinimum =
+          (minimumWidth(neighborKey) / tableWidth) * currentTotal;
+        const nextKeyWidth = Math.min(
+          pairTotal - neighborMinimum,
+          Math.max(keyMinimum, currentKeyWidth + deltaWeight),
+        );
         const next = {
           ...current,
-          [key]: Math.max(minimumWidth(key), Math.round(nextWidth)),
+          [key]: nextKeyWidth,
+          [neighborKey]: pairTotal - nextKeyWidth,
         };
-        try {
-          window.localStorage.setItem(storageKey, JSON.stringify(next));
-        } catch {
-          // Column sizing remains available for this view when storage is blocked.
-        }
-        window.dispatchEvent(
-          new CustomEvent(INSTRUMENT_COLUMN_RESIZE_EVENT, {
-            detail: { kind, widths: next, source: instanceIdRef.current },
-          }),
-        );
+        saveWidths(next);
         return next;
       });
     },
-    [kind, minimumWidth, storageKey],
+    [defaults, keys, minimumWidth, saveWidths],
   );
 
   const startResize = useCallback(
@@ -2641,14 +2693,22 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
       event.preventDefault();
       event.stopPropagation();
       const startX = event.clientX;
-      const startWidth = widths[key] || defaults[key] || 160;
+      const tablePixelWidth =
+        event.currentTarget.closest("table")?.getBoundingClientRect().width ||
+        1200;
+      const startWidths = { ...resolvedWidths };
       const previousCursor = document.body.style.cursor;
       const previousUserSelect = document.body.style.userSelect;
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
 
       const handleMove = (moveEvent) => {
-        updateWidth(key, startWidth + moveEvent.clientX - startX);
+        resizePair(
+          key,
+          moveEvent.clientX - startX,
+          tablePixelWidth,
+          startWidths,
+        );
       };
       const handleUp = () => {
         document.removeEventListener("pointermove", handleMove);
@@ -2659,20 +2719,20 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
       document.addEventListener("pointermove", handleMove);
       document.addEventListener("pointerup", handleUp, { once: true });
     },
-    [defaults, updateWidth, widths],
+    [resizePair, resolvedWidths],
   );
 
-  const keys = Object.keys(defaults);
   return {
-    widthFor: (key) => widths[key] || defaults[key] || 160,
-    tableWidth: keys.reduce(
-      (sum, key) => sum + (widths[key] || defaults[key] || 160),
-      0,
-    ),
+    widthFor: (key) =>
+      `${((resolvedWidths[key] || 160) / totalWidth) * 100}%`,
+    minimumTableWidth: 1200 + customColumns.length * 160,
     startResize,
-    resizeBy: (key, delta) =>
-      updateWidth(key, (widths[key] || defaults[key] || 160) + delta),
-    resetWidth: (key) => updateWidth(key, defaults[key] || 160),
+    resizeBy: (key, delta, tablePixelWidth) =>
+      resizePair(key, delta, tablePixelWidth),
+    resetWidths: () => {
+      setWidths(defaults);
+      saveWidths(defaults);
+    },
   };
 };
 
@@ -2694,11 +2754,15 @@ const ResizableInstrumentHeader = ({
       title={`Drag to resize ${label} column`}
       aria-label={`Resize ${label} column`}
       onPointerDown={(event) => columns.startResize(event, columnKey)}
-      onDoubleClick={() => columns.resetWidth(columnKey)}
+      onDoubleClick={() => columns.resetWidths()}
       onKeyDown={(event) => {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault();
-        columns.resizeBy(columnKey, event.key === "ArrowLeft" ? -12 : 12);
+        columns.resizeBy(
+          columnKey,
+          event.key === "ArrowLeft" ? -12 : 12,
+          event.currentTarget.closest("table")?.getBoundingClientRect().width,
+        );
       }}
     />
   </th>
@@ -2988,7 +3052,7 @@ export const ResolutionCellInput = ({
           title="Distribution used when this resolution enters the budget"
           ariaLabel="Resolution distribution"
           onChange={onCommitDistribution}
-          width="72px"
+          width="116px"
           menuWidth={220}
           className="inline-resolution-dist inline-unit-like-selector inline-distribution-select"
         />
@@ -7754,12 +7818,18 @@ const SummaryDashboard = ({
     >
       <td colSpan={colSpan}>
         <div className="function-header-row">
-          {renderFunctionColorSwatch(fn)}
-          {renderFunctionNameEditor(fn)}
-          {renderFunctionUnitChip(fn)}
-          {renderFunctionAddButton(kind, fn)}
-          {renderFunctionDeleteButton(fn)}
-          {renderFunctionCollapseButton(kind, fn)}
+          <div className="function-header-leading">
+            {renderFunctionCollapseButton(kind, fn)}
+          </div>
+          <div className="function-header-identity">
+            {renderFunctionColorSwatch(fn)}
+            {renderFunctionNameEditor(fn)}
+            {renderFunctionUnitChip(fn)}
+          </div>
+          <div className="function-header-actions">
+            {renderFunctionDeleteButton(fn)}
+            {renderFunctionAddButton(kind, fn)}
+          </div>
         </div>
       </td>
     </tr>
@@ -8894,19 +8964,21 @@ const SummaryDashboard = ({
 
       {/* UUT TABLE */}
       <div className="panel-card">
-        <div className="panel-card-header">
+        <div className="panel-card-header instrument-panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faMicroscope} />
-            <span>Units Under Test</span>
+            <span>{uutTableTitle(sessionData.uuts?.length)}</span>
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
             {selectedUutIds.length > 0 && (
               <button
-                className="btn-delete-selection"
+                type="button"
+                className="btn-add-item btn-add-column btn-delete-selection"
                 onClick={handleDeleteSelectedUuts}
-                title={`Delete ${selectedUutIds.length} Selected UUTs`}
+                title={selectedInstrumentDeleteLabel(selectedUutIds.length)}
+                aria-label={selectedInstrumentDeleteLabel(selectedUutIds.length)}
               >
-                <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+                <span>{selectedInstrumentDeleteLabel(selectedUutIds.length)}</span>
               </button>
             )}
             <button
@@ -8943,22 +9015,22 @@ const SummaryDashboard = ({
             }}
             style={{
               tableLayout: "fixed",
-              width: `${uutTableColumns.tableWidth}px`,
-              minWidth: "100%",
+              width: "100%",
+              minWidth: `${uutTableColumns.minimumTableWidth}px`,
             }}
           >
             <colgroup>
-              <col style={{ width: `${uutTableColumns.widthFor("description")}px` }} />
-              <col style={{ width: `${uutTableColumns.widthFor("range")}px` }} />
-              <col style={{ width: `${uutTableColumns.widthFor("tolerance")}px` }} />
-              <col style={{ width: `${uutTableColumns.widthFor("resolution")}px` }} />
+              <col style={{ width: uutTableColumns.widthFor("description") }} />
+              <col style={{ width: uutTableColumns.widthFor("range") }} />
+              <col style={{ width: uutTableColumns.widthFor("tolerance") }} />
+              <col style={{ width: uutTableColumns.widthFor("resolution") }} />
               {customColumnsFor("uut").map((column) => (
                 <col
                   key={column.key}
-                  style={{ width: `${uutTableColumns.widthFor(instrumentColumnKey(column))}px` }}
+                  style={{ width: uutTableColumns.widthFor(instrumentColumnKey(column)) }}
                 />
               ))}
-              <col style={{ width: `${uutTableColumns.widthFor("sync")}px` }} />
+              <col style={{ width: uutTableColumns.widthFor("sync") }} />
             </colgroup>
             <thead>
               <tr>
@@ -9432,7 +9504,7 @@ const SummaryDashboard = ({
 
       {/* TMDE TABLE */}
       <div className="panel-card">
-        <div className="panel-card-header">
+        <div className="panel-card-header instrument-panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faTools} />
             <span>Test Measurement Device Equipment</span>
@@ -9440,11 +9512,13 @@ const SummaryDashboard = ({
           <div className="panel-card-actions" style={{ position: "relative" }}>
             {selectedTmdeIds.length > 0 && (
               <button
-                className="btn-delete-selection"
+                type="button"
+                className="btn-add-item btn-add-column btn-delete-selection"
                 onClick={handleDeleteSelectedTmdes}
-                title={`Delete ${selectedTmdeIds.length} Selected TMDEs`}
+                title={selectedInstrumentDeleteLabel(selectedTmdeIds.length)}
+                aria-label={selectedInstrumentDeleteLabel(selectedTmdeIds.length)}
               >
-                <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+                <span>{selectedInstrumentDeleteLabel(selectedTmdeIds.length)}</span>
               </button>
             )}
             <button
@@ -9481,23 +9555,23 @@ const SummaryDashboard = ({
             }}
             style={{
               tableLayout: "fixed",
-              width: `${tmdeTableColumns.tableWidth}px`,
-              minWidth: "100%",
+              width: "100%",
+              minWidth: `${tmdeTableColumns.minimumTableWidth}px`,
             }}
           >
             <colgroup>
-              <col style={{ width: `${tmdeTableColumns.widthFor("description")}px` }} />
-              <col style={{ width: `${tmdeTableColumns.widthFor("range")}px` }} />
-              <col style={{ width: `${tmdeTableColumns.widthFor("tolerance")}px` }} />
-              <col style={{ width: `${tmdeTableColumns.widthFor("distribution")}px` }} />
-              <col style={{ width: `${tmdeTableColumns.widthFor("resolution")}px` }} />
+              <col style={{ width: tmdeTableColumns.widthFor("description") }} />
+              <col style={{ width: tmdeTableColumns.widthFor("range") }} />
+              <col style={{ width: tmdeTableColumns.widthFor("tolerance") }} />
+              <col style={{ width: tmdeTableColumns.widthFor("distribution") }} />
+              <col style={{ width: tmdeTableColumns.widthFor("resolution") }} />
               {customColumnsFor("tmde").map((column) => (
                 <col
                   key={column.key}
-                  style={{ width: `${tmdeTableColumns.widthFor(instrumentColumnKey(column))}px` }}
+                  style={{ width: tmdeTableColumns.widthFor(instrumentColumnKey(column)) }}
                 />
               ))}
-              <col style={{ width: `${tmdeTableColumns.widthFor("sync")}px` }} />
+              <col style={{ width: tmdeTableColumns.widthFor("sync") }} />
             </colgroup>
             <thead>
               <tr>
@@ -12428,12 +12502,18 @@ function DetailedView({
     >
       <td colSpan={colSpan}>
         <div className="function-header-row">
-          {renderFunctionColorSwatch(fn)}
-          {renderFunctionNameEditor(fn)}
-          {renderFunctionUnitChip(fn)}
-          {renderFunctionAddButton(kind, fn)}
-          {renderFunctionDeleteButton(fn)}
-          {renderFunctionCollapseButton(kind, fn)}
+          <div className="function-header-leading">
+            {renderFunctionCollapseButton(kind, fn)}
+          </div>
+          <div className="function-header-identity">
+            {renderFunctionColorSwatch(fn)}
+            {renderFunctionNameEditor(fn)}
+            {renderFunctionUnitChip(fn)}
+          </div>
+          <div className="function-header-actions">
+            {renderFunctionDeleteButton(fn)}
+            {renderFunctionAddButton(kind, fn)}
+          </div>
         </div>
       </td>
     </tr>
@@ -15136,19 +15216,21 @@ function DetailedView({
       >
         {/* 1. UUT INFORMATION */}
         <div className="panel-card uut-detail-card">
-        <div className="panel-card-header">
+        <div className="panel-card-header instrument-panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faMicroscope} />
-            <span>Units Under Test</span>
+            <span>{uutTableTitle(sessionData.uuts?.length)}</span>
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
             {selectedUutIds.length > 0 && (
               <button
-                className="btn-delete-selection"
+                type="button"
+                className="btn-add-item btn-add-column btn-delete-selection"
                 onClick={handleDeleteSelectedUuts}
-                title={`Delete ${selectedUutIds.length} Selected UUTs`}
+                title={selectedInstrumentDeleteLabel(selectedUutIds.length)}
+                aria-label={selectedInstrumentDeleteLabel(selectedUutIds.length)}
               >
-                <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+                <span>{selectedInstrumentDeleteLabel(selectedUutIds.length)}</span>
               </button>
             )}
             <button
@@ -15185,22 +15267,22 @@ function DetailedView({
             }}
             style={{
               tableLayout: "fixed",
-              width: `${uutTableColumns.tableWidth}px`,
-              minWidth: "100%",
+              width: "100%",
+              minWidth: `${uutTableColumns.minimumTableWidth}px`,
             }}
           >
             <colgroup>
-              <col style={{ width: `${uutTableColumns.widthFor("description")}px` }} />
-              <col style={{ width: `${uutTableColumns.widthFor("range")}px` }} />
-              <col style={{ width: `${uutTableColumns.widthFor("tolerance")}px` }} />
-              <col style={{ width: `${uutTableColumns.widthFor("resolution")}px` }} />
+              <col style={{ width: uutTableColumns.widthFor("description") }} />
+              <col style={{ width: uutTableColumns.widthFor("range") }} />
+              <col style={{ width: uutTableColumns.widthFor("tolerance") }} />
+              <col style={{ width: uutTableColumns.widthFor("resolution") }} />
               {customColumnsFor("uut").map((column) => (
                 <col
                   key={column.key}
-                  style={{ width: `${uutTableColumns.widthFor(instrumentColumnKey(column))}px` }}
+                  style={{ width: uutTableColumns.widthFor(instrumentColumnKey(column)) }}
                 />
               ))}
-              <col style={{ width: `${uutTableColumns.widthFor("sync")}px` }} />
+              <col style={{ width: uutTableColumns.widthFor("sync") }} />
             </colgroup>
             <thead>
               <tr>
@@ -15961,7 +16043,7 @@ function DetailedView({
         style={detailSectionStyle("instruments", 2)}
       >
         <div className="panel-card">
-          <div className="panel-card-header">
+          <div className="panel-card-header instrument-panel-card-header">
             <div className="panel-card-title">
               <FontAwesomeIcon icon={faTools} />
               <span>Test Measurement Device Equipment</span>
@@ -15969,11 +16051,13 @@ function DetailedView({
             <div className="panel-card-actions" style={{ position: "relative" }}>
               {selectedTmdeIds.length > 0 && (
                 <button
-                  className="btn-delete-selection"
+                  type="button"
+                  className="btn-add-item btn-add-column btn-delete-selection"
                   onClick={handleDeleteSelectedTmdes}
-                  title={`Delete ${selectedTmdeIds.length} Selected TMDEs`}
+                  title={selectedInstrumentDeleteLabel(selectedTmdeIds.length)}
+                  aria-label={selectedInstrumentDeleteLabel(selectedTmdeIds.length)}
                 >
-                  <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+                  <span>{selectedInstrumentDeleteLabel(selectedTmdeIds.length)}</span>
                 </button>
               )}
               <button
@@ -16011,23 +16095,23 @@ function DetailedView({
               }}
               style={{
                 tableLayout: "fixed",
-                width: `${tmdeTableColumns.tableWidth}px`,
-                minWidth: "100%",
+                width: "100%",
+                minWidth: `${tmdeTableColumns.minimumTableWidth}px`,
               }}
             >
               <colgroup>
-                <col style={{ width: `${tmdeTableColumns.widthFor("description")}px` }} />
-                <col style={{ width: `${tmdeTableColumns.widthFor("range")}px` }} />
-                <col style={{ width: `${tmdeTableColumns.widthFor("tolerance")}px` }} />
-                <col style={{ width: `${tmdeTableColumns.widthFor("distribution")}px` }} />
-                <col style={{ width: `${tmdeTableColumns.widthFor("resolution")}px` }} />
+                <col style={{ width: tmdeTableColumns.widthFor("description") }} />
+                <col style={{ width: tmdeTableColumns.widthFor("range") }} />
+                <col style={{ width: tmdeTableColumns.widthFor("tolerance") }} />
+                <col style={{ width: tmdeTableColumns.widthFor("distribution") }} />
+                <col style={{ width: tmdeTableColumns.widthFor("resolution") }} />
                 {customColumnsFor("tmde").map((column) => (
                   <col
                     key={column.key}
-                    style={{ width: `${tmdeTableColumns.widthFor(instrumentColumnKey(column))}px` }}
+                    style={{ width: tmdeTableColumns.widthFor(instrumentColumnKey(column)) }}
                   />
                 ))}
-                <col style={{ width: `${tmdeTableColumns.widthFor("sync")}px` }} />
+                <col style={{ width: tmdeTableColumns.widthFor("sync") }} />
               </colgroup>
               <thead>
                 <tr>

@@ -11451,6 +11451,23 @@ body.theme-cyberpunk .notification-window .window-header {
   gap: 10px;
 }
 
+/* Instrument table titles remain mathematically centered while their actions
+   stay aligned to the far-right edge. */
+.panel-card-header.instrument-panel-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.instrument-panel-card-header .panel-card-title {
+  grid-column: 2;
+  justify-self: center;
+}
+
+.instrument-panel-card-header .panel-card-actions {
+  grid-column: 3;
+  justify-self: end;
+}
+
 /* Section titles inside paneled views */
 .panel-section-title {
   margin: 0 0 8px 0;
@@ -11472,9 +11489,9 @@ body.theme-cyberpunk .notification-window .window-header {
 /* Delete button in card headers */
 .panel-card-header .btn-delete-selection {
   color: var(--status-bad);
-  width: 28px;
   height: 28px;
-  padding: 0;
+  width: auto;
+  padding: 0 7px;
   border-radius: 8px;
   border: 1px solid transparent;
   background: transparent;
@@ -11482,6 +11499,8 @@ body.theme-cyberpunk .notification-window .window-header {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 5px;
+  font-size: 0.72rem;
   box-shadow: none;
   transform: none;
   transition: color 0.15s ease, background-color 0.15s ease;
@@ -12287,17 +12306,46 @@ input.inline-function-input:focus {
   opacity: 0.4;
 }
 
-/* Function subsection header: color swatch, editable name, unit, and the
-   add/delete controls — kept on one tidy baseline-aligned row. */
+/* Function subsection header: the function identity is centered and more
+   prominent, while collapse and edit actions occupy symmetrical edge tracks. */
 .function-header-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 4px;
+  gap: 10px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
+}
+
+.function-header-leading {
+  grid-column: 1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+}
+
+.function-header-identity {
+  grid-column: 2;
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 0.92rem;
+  font-weight: 800;
   white-space: normal;
-  flex-wrap: wrap;
+}
+
+.function-header-actions {
+  grid-column: 3;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
 }
 
 .function-header-name {
@@ -12348,7 +12396,7 @@ input.inline-function-input:focus {
 }
 
 .function-header-action-btn:first-of-type {
-  margin-left: 4px;
+  margin-left: 0;
 }
 
 /* Destructive function actions stay visually quiet until the user is working
@@ -12867,7 +12915,7 @@ input.inline-function-input:focus {
   font-size: 0.72rem;
   cursor: pointer;
   position: relative;
-  top: -1px;
+  top: 0;
 }
 
 .function-header-action-btn.btn-add-item:hover,
@@ -13682,15 +13730,15 @@ input.inline-function-input:focus {
   box-sizing: border-box;
 }
 
-/* Resolution's distribution control is the same compact, 72px control as the
-   adjacent unit selector; keep the table-wide select minimum from stretching
-   it back into the next column. */
+/* Keep the resolution distribution's complete short label visible while
+   preventing the table-wide select minimum from stretching it into the next
+   column. */
 .uncertainty-module .instrument-summary-table .inline-resolution-editor
   > .inline-resolution-dist.inline-unit-like-selector {
-  flex: 0 0 var(--inline-unit-width, 72px);
-  width: var(--inline-unit-width, 72px);
-  min-width: var(--inline-unit-width, 72px);
-  max-width: var(--inline-unit-width, 72px);
+  flex: 0 0 var(--inline-unit-width, 116px);
+  width: var(--inline-unit-width, 116px);
+  min-width: var(--inline-unit-width, 116px);
+  max-width: var(--inline-unit-width, 116px);
 }
 
 .inline-tolerance-single-sided-row .inline-tolerance-limits {
@@ -14162,12 +14210,12 @@ input.inline-resolution-input {
 }
 
 /* Resolution-cell distribution picker (its rounding distribution for the
-   budget). Compact so the value + unit + distribution fit one editing row. */
+   budget). Wide enough for the complete "k = 1.732" short label. */
 .inline-menu-select.inline-resolution-dist.inline-unit-like-selector {
-  flex: 0 0 var(--inline-unit-width, 72px);
-  width: var(--inline-unit-width, 72px);
-  min-width: var(--inline-unit-width, 72px);
-  max-width: var(--inline-unit-width, 72px);
+  flex: 0 0 var(--inline-unit-width, 116px);
+  width: var(--inline-unit-width, 116px);
+  min-width: var(--inline-unit-width, 116px);
+  max-width: var(--inline-unit-width, 116px);
   height: 24px;
   min-height: 24px;
   max-height: 24px;

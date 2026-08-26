@@ -338,7 +338,16 @@ describe("inline resolution distribution", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "0.001 V" }));
-    fireEvent.click(screen.getByRole("button", { name: "Resolution distribution" }));
+    const distributionTrigger = screen.getByRole("button", {
+      name: "Resolution distribution",
+    });
+    expect(distributionTrigger).toHaveTextContent("k = 1.732");
+    expect(
+      distributionTrigger.closest(".inline-menu-select").style.getPropertyValue(
+        "--inline-unit-width",
+      ),
+    ).toBe("116px");
+    fireEvent.click(distributionTrigger);
     expect(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Normal \(95%\)/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ }));

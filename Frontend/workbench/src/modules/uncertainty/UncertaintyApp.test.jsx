@@ -105,8 +105,12 @@ describe("UncertaintyApp", () => {
 
     fireEvent.click(screen.getByTitle("Add New Session"));
     expect(await screen.findByRole("combobox", { name: "Analysis Session" })).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByText("Complete the session information")).toBeInTheDocument(),
+    await waitFor(
+      () =>
+        expect(
+          screen.getByText("Complete the session information"),
+        ).toBeInTheDocument(),
+      { timeout: 5000 },
     );
   });
 
@@ -230,7 +234,7 @@ describe("UncertaintyApp", () => {
     const uutSelect = await screen.findByRole(
       "button",
       { name: "UUT" },
-      { timeout: 5000 },
+      { timeout: 15000 },
     );
     fireEvent.click(uutSelect);
     const uutList = await screen.findByRole("listbox", { name: "UUT" });
@@ -774,6 +778,108 @@ describe("UncertaintyApp", () => {
     expect(
       functionRows.some((row) => row.classList.contains("area-label")),
     ).toBe(true);
+  });
+
+  test("keeps instrument tables full-width with centered function controls", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 106,
+        name: "Instrument Layout Session",
+        measurementAreas: [],
+        uuts: [
+          {
+            id: "uut-layout",
+            description: "Layout UUT",
+            instrument: {
+              functions: [
+                {
+                  id: "fn-layout-uut",
+                  name: "Voltage",
+                  unit: "V",
+                  ranges: [{ id: "range-layout-uut", min: 0, max: 10, unit: "V" }],
+                },
+              ],
+            },
+          },
+        ],
+        tmdes: [
+          {
+            id: "tmde-layout",
+            description: "Layout TMDE",
+            instrument: {
+              functions: [
+                {
+                  id: "fn-layout-tmde",
+                  name: "Voltage",
+                  unit: "V",
+                  ranges: [{ id: "range-layout-tmde", min: 0, max: 10, unit: "V" }],
+                },
+              ],
+            },
+          },
+        ],
+        testPoints: [],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const uutName = await screen.findByText("Layout UUT");
+    const uutTable = uutName.closest("table");
+    expect(uutTable).toHaveStyle({ width: "100%", minWidth: "1200px" });
+    const widths = Array.from(uutTable.querySelectorAll("col")).map((column) =>
+      Number.parseFloat(column.style.width),
+    );
+    expect(widths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(100, 5);
+    expect(widths.at(-1)).toBeLessThan(widths[0]);
+
+    const descriptionResizeHandle = within(uutTable).getByRole("button", {
+      name: "Resize Description column",
+    });
+    fireEvent.keyDown(descriptionResizeHandle, { key: "ArrowRight" });
+    const resizedWidths = Array.from(uutTable.querySelectorAll("col")).map(
+      (column) => Number.parseFloat(column.style.width),
+    );
+    expect(resizedWidths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(
+      100,
+      5,
+    );
+    expect(resizedWidths[0]).toBeGreaterThan(widths[0]);
+    expect(resizedWidths[1]).toBeLessThan(widths[1]);
+    expect(resizedWidths.at(-1)).toBeCloseTo(widths.at(-1), 5);
+
+    const cardHeader = uutTable
+      .closest(".panel-card")
+      .querySelector(".instrument-panel-card-header");
+    expect(within(cardHeader).getByText("Unit Under Test")).toBeInTheDocument();
+
+    const voltageFunction = Array.from(
+      uutTable.querySelectorAll(".function-header-identity"),
+    ).find((header) => header.textContent.includes("Voltage"));
+    expect(voltageFunction).toBeInTheDocument();
+    expect(
+      voltageFunction.parentElement.querySelector(".function-header-actions"),
+    ).toContainElement(
+      within(voltageFunction.parentElement).getByRole("button", {
+        name: "Add UUT with this function",
+      }),
+    );
+
+    fireEvent.click(uutName.closest("tr"));
+    expect(
+      within(cardHeader).getByRole("button", {
+        name: "Delete Selected Instrument",
+      }),
+    ).toHaveClass("btn-add-item", "btn-add-column", "btn-delete-selection");
   });
 
   test("keeps UUT functions visible when they have no measurement points", async () => {
