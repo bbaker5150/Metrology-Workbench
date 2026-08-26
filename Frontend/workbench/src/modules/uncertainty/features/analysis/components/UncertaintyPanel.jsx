@@ -598,6 +598,7 @@ const UnitSelect = ({
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [menuRect, setMenuRect] = useState(null);
+  const [menuAccentColor, setMenuAccentColor] = useState("");
   const [activeBase, setActiveBase] = useState("");
   const rootRef = useRef(null);
   const searchRef = useRef(null);
@@ -669,6 +670,13 @@ const UnitSelect = ({
   const prefixSelectWidth = selectedModel ? (compact ? "52px" : "74px") : "58px";
   const openMenu = (initialQuery = "") => {
     const rect = rootRef.current?.getBoundingClientRect();
+    const accentColor = rootRef.current
+      ? window
+          .getComputedStyle(rootRef.current)
+          .getPropertyValue("--function-input-accent")
+          .trim()
+      : "";
+    setMenuAccentColor(accentColor);
     if (rect) {
       setMenuRect({
         top: rect.bottom + 4,
@@ -817,6 +825,9 @@ const UnitSelect = ({
               top: menuRect.top,
               left: menuRect.left,
               width: menuRect.width,
+              ...(menuAccentColor
+                ? { "--function-input-accent": menuAccentColor }
+                : {}),
             }}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}

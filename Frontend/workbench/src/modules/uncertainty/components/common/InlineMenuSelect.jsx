@@ -24,6 +24,7 @@ const InlineMenuSelect = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [menuRect, setMenuRect] = useState(null);
+  const [menuAccentColor, setMenuAccentColor] = useState("");
   const rootRef = useRef(null);
   const selectedRef = useRef(null);
 
@@ -44,6 +45,13 @@ const InlineMenuSelect = ({
   };
   const openMenu = () => {
     const rect = rootRef.current?.getBoundingClientRect();
+    const accentColor = rootRef.current
+      ? window
+          .getComputedStyle(rootRef.current)
+          .getPropertyValue("--function-input-accent")
+          .trim()
+      : "";
+    setMenuAccentColor(accentColor);
     if (rect) {
       const visualViewport = window.visualViewport;
       setMenuRect(getAnchoredMenuPlacement({
@@ -141,6 +149,9 @@ const InlineMenuSelect = ({
               left: menuRect.left,
               width: menuRect.width,
               maxHeight: menuRect.maxHeight,
+              ...(menuAccentColor
+                ? { "--function-input-accent": menuAccentColor }
+                : {}),
             }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
