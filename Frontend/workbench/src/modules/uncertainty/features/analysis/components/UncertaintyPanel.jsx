@@ -2547,8 +2547,168 @@ const EditableCustomColumnHeader = ({
   );
 };
 
+const INSTRUMENT_COLUMN_RESIZE_EVENT = "uncert-size-instrument-column";
+const INSTRUMENT_COLUMN_DEFAULTS = {
+  uut: {
+    description: 220,
+    range: 300,
+    tolerance: 260,
+    resolution: 220,
+    sync: 72,
+  },
+  tmde: {
+    description: 220,
+    range: 300,
+    tolerance: 240,
+    distribution: 140,
+    resolution: 220,
+    sync: 72,
+  },
+};
+
+const instrumentColumnKey = (column) => `custom:${column.key}`;
+
+const useInstrumentColumnWidths = (kind, customColumns = []) => {
+  const customSignature = customColumns.map((column) => column.key).join("|");
+  const defaults = useMemo(() => {
+    const base = { ...(INSTRUMENT_COLUMN_DEFAULTS[kind] || {}) };
+    customColumns.forEach((column) => {
+      base[instrumentColumnKey(column)] = 160;
+    });
+    return base;
+    // customSignature intentionally represents the dynamic column set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, customSignature]);
+  const storageKey = `uncertalytics:${kind}:instrument-column-widths`;
+  const instanceIdRef = useRef(uuidv4());
+  const [widths, setWidths] = useState(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(storageKey) || "{}");
+      return { ...defaults, ...saved };
+    } catch {
+      return defaults;
+    }
+  });
+
+  useEffect(() => {
+    const syncWidths = (event) => {
+      if (
+        event.detail?.kind !== kind ||
+        event.detail?.source === instanceIdRef.current
+      ) {
+        return;
+      }
+      setWidths((current) => ({ ...current, ...event.detail.widths }));
+    };
+    window.addEventListener(INSTRUMENT_COLUMN_RESIZE_EVENT, syncWidths);
+    return () =>
+      window.removeEventListener(INSTRUMENT_COLUMN_RESIZE_EVENT, syncWidths);
+  }, [kind]);
+
+  const minimumWidth = useCallback((key) => {
+    if (key === "sync") return 60;
+    if (key === "distribution") return 110;
+    if (key === "range") return 220;
+    if (key === "tolerance" || key === "resolution") return 170;
+    return 120;
+  }, []);
+
+  const updateWidth = useCallback(
+    (key, nextWidth) => {
+      setWidths((current) => {
+        const next = {
+          ...current,
+          [key]: Math.max(minimumWidth(key), Math.round(nextWidth)),
+        };
+        try {
+          window.localStorage.setItem(storageKey, JSON.stringify(next));
+        } catch {
+          // Column sizing remains available for this view when storage is blocked.
+        }
+        window.dispatchEvent(
+          new CustomEvent(INSTRUMENT_COLUMN_RESIZE_EVENT, {
+            detail: { kind, widths: next, source: instanceIdRef.current },
+          }),
+        );
+        return next;
+      });
+    },
+    [kind, minimumWidth, storageKey],
+  );
+
+  const startResize = useCallback(
+    (event, key) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      const startWidth = widths[key] || defaults[key] || 160;
+      const previousCursor = document.body.style.cursor;
+      const previousUserSelect = document.body.style.userSelect;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const handleMove = (moveEvent) => {
+        updateWidth(key, startWidth + moveEvent.clientX - startX);
+      };
+      const handleUp = () => {
+        document.removeEventListener("pointermove", handleMove);
+        document.removeEventListener("pointerup", handleUp);
+        document.body.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
+      };
+      document.addEventListener("pointermove", handleMove);
+      document.addEventListener("pointerup", handleUp, { once: true });
+    },
+    [defaults, updateWidth, widths],
+  );
+
+  const keys = Object.keys(defaults);
+  return {
+    widthFor: (key) => widths[key] || defaults[key] || 160,
+    tableWidth: keys.reduce(
+      (sum, key) => sum + (widths[key] || defaults[key] || 160),
+      0,
+    ),
+    startResize,
+    resizeBy: (key, delta) =>
+      updateWidth(key, (widths[key] || defaults[key] || 160) + delta),
+    resetWidth: (key) => updateWidth(key, defaults[key] || 160),
+  };
+};
+
+const ResizableInstrumentHeader = ({
+  children,
+  columnKey,
+  label,
+  columns,
+  className = "",
+}) => (
+  <th
+    className={`instrument-resizable-header ${className}`.trim()}
+    aria-label={label}
+  >
+    <span className="instrument-resizable-header-content">{children}</span>
+    <button
+      type="button"
+      className="instrument-column-resize-handle"
+      title={`Drag to resize ${label} column`}
+      aria-label={`Resize ${label} column`}
+      onPointerDown={(event) => columns.startResize(event, columnKey)}
+      onDoubleClick={() => columns.resetWidth(columnKey)}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        columns.resizeBy(columnKey, event.key === "ArrowLeft" ? -12 : 12);
+      }}
+    />
+  </th>
+);
+
 const InstrumentOrderControls = ({ onMoveUp, onMoveDown }) => (
-  <span className="instrument-order-controls" aria-label="Instrument order">
+  <span
+    className="instrument-order-controls instrument-order-controls--gutter"
+    aria-label="Instrument order"
+  >
     <button
       type="button"
       title="Move instrument up"
@@ -4202,6 +4362,7 @@ export const RangeCell = ({
   onClearRange,
   onExpandAll,
   onEnsureInitialRange,
+  onAddRange,
   onOpenTolerance,
   onAdvanceRange,
   openRequested = false,
@@ -4432,6 +4593,21 @@ export const RangeCell = ({
           width="72px"
           compact
         />
+        {onAddRange && (
+          <button
+            type="button"
+            className="range-row-add range-row-add--inline"
+            title="Add range"
+            aria-label="Add range"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddRange();
+            }}
+          >
+            <FontAwesomeIcon icon={faPlus} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -6181,6 +6357,14 @@ const SummaryDashboard = ({
   const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
   const customColumnsFor = (kind) =>
     sessionData.instrumentCustomColumns?.[kind] || [];
+  const uutTableColumns = useInstrumentColumnWidths(
+    "uut",
+    customColumnsFor("uut"),
+  );
+  const tmdeTableColumns = useInstrumentColumnWidths(
+    "tmde",
+    customColumnsFor("tmde"),
+  );
   const requestCustomColumn = (kind) => {
     const key = `field-${uuidv4().slice(0, 8)}`;
     const current = sessionData.instrumentCustomColumns || {};
@@ -8757,34 +8941,54 @@ const SummaryDashboard = ({
               setHoveredCell({ tableId: null, colIndex: null });
               setHoveredRowId(null);
             }}
-            style={{ tableLayout: "fixed" }}
+            style={{
+              tableLayout: "fixed",
+              width: `${uutTableColumns.tableWidth}px`,
+              minWidth: "100%",
+            }}
           >
             <colgroup>
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "18%" }} />
-              <col style={{ width: "18%" }} />
-              <col style={{ width: "32%" }} />
+              <col style={{ width: `${uutTableColumns.widthFor("description")}px` }} />
+              <col style={{ width: `${uutTableColumns.widthFor("range")}px` }} />
+              <col style={{ width: `${uutTableColumns.widthFor("tolerance")}px` }} />
+              <col style={{ width: `${uutTableColumns.widthFor("resolution")}px` }} />
               {customColumnsFor("uut").map((column) => (
-                <col key={column.key} style={{ width: "140px" }} />
+                <col
+                  key={column.key}
+                  style={{ width: `${uutTableColumns.widthFor(instrumentColumnKey(column))}px` }}
+                />
               ))}
-              <col style={{ width: "10%" }} />
+              <col style={{ width: `${uutTableColumns.widthFor("sync")}px` }} />
             </colgroup>
             <thead>
               <tr>
-                <th>Description</th>
-                <th>
+                <ResizableInstrumentHeader columnKey="description" label="Description" columns={uutTableColumns}>
+                  Description
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="range" label="Range" columns={uutTableColumns}>
                   <span className="range-header-cell">
                     <span>Range</span>
                   </span>
-                </th>
-                <th>Tolerance</th>
-                <th>Resolution</th>
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="tolerance" label="Tolerance" columns={uutTableColumns}>
+                  Tolerance
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="resolution" label="Resolution" columns={uutTableColumns}>
+                  Resolution
+                </ResizableInstrumentHeader>
                 {customColumnsFor("uut").map((column) => (
-                  <th key={column.key} aria-label={column.label || "Name"}>
+                  <ResizableInstrumentHeader
+                    key={column.key}
+                    columnKey={instrumentColumnKey(column)}
+                    label={column.label || "Name"}
+                    columns={uutTableColumns}
+                  >
                     {renderCustomColumnHeader("uut", column)}
-                  </th>
+                  </ResizableInstrumentHeader>
                 ))}
-                <th className="cell-sync">Sync</th>
+                <ResizableInstrumentHeader columnKey="sync" label="Sync" columns={uutTableColumns} className="cell-sync">
+                  Sync
+                </ResizableInstrumentHeader>
               </tr>
             </thead>
             <tbody>
@@ -8905,12 +9109,16 @@ const SummaryDashboard = ({
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className={`cell-description ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                  className={`cell-description has-order-controls ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                   onMouseEnter={() =>
                                     setHoveredCell({ tableId: "uut", colIndex: 0 })
                                   }
                                   title={uut.description}
                                 >
+                                  <InstrumentOrderControls
+                                    onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                                    onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                                  />
                                   <EditableDescriptionCell
                                     name={uut.description}
                                     nickname={uut.nickname}
@@ -8943,10 +9151,6 @@ const SummaryDashboard = ({
                                 >
                                   <div className="instrument-row-tools">
                                     <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
-                                    <InstrumentOrderControls
-                                      onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
-                                      onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
-                                    />
                                   </div>
                                 </td>
                               )}
@@ -8981,12 +9185,16 @@ const SummaryDashboard = ({
                       >
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-description ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                          className={`cell-description has-order-controls ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut", colIndex: 0 })
                           }
                           title={uut.description}
                         >
+                          <InstrumentOrderControls
+                            onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                            onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                          />
                           {onSessionSave ? (
                             <EditableDescriptionCell
                               name={uut.description}
@@ -9059,6 +9267,18 @@ const SummaryDashboard = ({
                                   }
                                   onEnsureInitialRange={() =>
                                     ensureInitialRange("uut", uut)
+                                  }
+                                  onAddRange={
+                                    index === 0
+                                      ? () => {
+                                          handleAddBlankRange("uut", uut, rangeKey);
+                                          setExpandedRangeKeys((previous) =>
+                                            new Set(previous).add(
+                                              itemStateKey("uut", uutRowKey),
+                                            ),
+                                          );
+                                        }
+                                      : undefined
                                   }
                                   onOpenTolerance={() =>
                                     openRangeTolerance("uut", uut, range)
@@ -9179,10 +9399,6 @@ const SummaryDashboard = ({
                         >
                           <div className="instrument-row-tools">
                             <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
-                            <InstrumentOrderControls
-                              onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
-                              onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
-                            />
                           </div>
                         </td>
                       </tr>
@@ -9263,36 +9479,58 @@ const SummaryDashboard = ({
               setHoveredCell({ tableId: null, colIndex: null });
               setHoveredRowId(null);
             }}
-            style={{ tableLayout: "fixed" }}
+            style={{
+              tableLayout: "fixed",
+              width: `${tmdeTableColumns.tableWidth}px`,
+              minWidth: "100%",
+            }}
           >
             <colgroup>
-              <col style={{ width: "18%" }} />
-              <col style={{ width: "18%" }} />
-              <col style={{ width: "14%" }} />
-              <col style={{ width: "12%" }} />
-              <col style={{ width: "28%" }} />
+              <col style={{ width: `${tmdeTableColumns.widthFor("description")}px` }} />
+              <col style={{ width: `${tmdeTableColumns.widthFor("range")}px` }} />
+              <col style={{ width: `${tmdeTableColumns.widthFor("tolerance")}px` }} />
+              <col style={{ width: `${tmdeTableColumns.widthFor("distribution")}px` }} />
+              <col style={{ width: `${tmdeTableColumns.widthFor("resolution")}px` }} />
               {customColumnsFor("tmde").map((column) => (
-                <col key={column.key} style={{ width: "140px" }} />
+                <col
+                  key={column.key}
+                  style={{ width: `${tmdeTableColumns.widthFor(instrumentColumnKey(column))}px` }}
+                />
               ))}
-              <col style={{ width: "10%" }} />
+              <col style={{ width: `${tmdeTableColumns.widthFor("sync")}px` }} />
             </colgroup>
             <thead>
               <tr>
-                <th>Description</th>
-                <th>
+                <ResizableInstrumentHeader columnKey="description" label="Description" columns={tmdeTableColumns}>
+                  Description
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="range" label="Range" columns={tmdeTableColumns}>
                   <span className="range-header-cell">
                     <span>Range</span>
                   </span>
-                </th>
-                <th>Error Limit</th>
-                <th className="cell-distribution">Distribution</th>
-                <th>Resolution</th>
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="tolerance" label="Error Limit" columns={tmdeTableColumns}>
+                  Error Limit
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="distribution" label="Distribution" columns={tmdeTableColumns} className="cell-distribution">
+                  Distribution
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="resolution" label="Resolution" columns={tmdeTableColumns}>
+                  Resolution
+                </ResizableInstrumentHeader>
                 {customColumnsFor("tmde").map((column) => (
-                  <th key={column.key} aria-label={column.label || "Name"}>
+                  <ResizableInstrumentHeader
+                    key={column.key}
+                    columnKey={instrumentColumnKey(column)}
+                    label={column.label || "Name"}
+                    columns={tmdeTableColumns}
+                  >
                     {renderCustomColumnHeader("tmde", column)}
-                  </th>
+                  </ResizableInstrumentHeader>
                 ))}
-                <th className="cell-sync">Sync</th>
+                <ResizableInstrumentHeader columnKey="sync" label="Sync" columns={tmdeTableColumns} className="cell-sync">
+                  Sync
+                </ResizableInstrumentHeader>
               </tr>
             </thead>
             <tbody>
@@ -9373,12 +9611,16 @@ const SummaryDashboard = ({
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className={`cell-description ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                  className={`cell-description has-order-controls ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                   onMouseEnter={() =>
                                     setHoveredCell({ tableId: "tmde", colIndex: 0 })
                                   }
                                   title={tmde.name}
                                 >
+                                  <InstrumentOrderControls
+                                    onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
+                                    onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
+                                  />
                                   <EditableDescriptionCell
                                     name={tmde.name}
                                     nickname={tmde.nickname}
@@ -9411,10 +9653,6 @@ const SummaryDashboard = ({
                                 >
                                   <div className="instrument-row-tools">
                                     <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
-                                    <InstrumentOrderControls
-                                      onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
-                                      onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
-                                    />
                                   </div>
                                 </td>
                               )}
@@ -9449,12 +9687,16 @@ const SummaryDashboard = ({
                       >
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-description ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                          className={`cell-description has-order-controls ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "tmde", colIndex: 0 })
                           }
                           title={tmde.name}
                         >
+                          <InstrumentOrderControls
+                            onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
+                            onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
+                          />
                           {onSessionSave ? (
                             <EditableDescriptionCell
                               name={tmde.name}
@@ -9538,6 +9780,18 @@ const SummaryDashboard = ({
                                   }
                                   onEnsureInitialRange={() =>
                                     ensureInitialRange("tmde", tmde)
+                                  }
+                                  onAddRange={
+                                    index === 0
+                                      ? () => {
+                                          handleAddBlankRange("tmde", tmde, rangeKey);
+                                          setExpandedRangeKeys((previous) =>
+                                            new Set(previous).add(
+                                              itemStateKey("tmde", tmdeRowKey),
+                                            ),
+                                          );
+                                        }
+                                      : undefined
                                   }
                                   onOpenTolerance={() =>
                                     openRangeTolerance("tmde", tmde, range)
@@ -9678,10 +9932,6 @@ const SummaryDashboard = ({
                         >
                           <div className="instrument-row-tools">
                             <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
-                            <InstrumentOrderControls
-                              onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
-                              onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
-                            />
                           </div>
                         </td>
                       </tr>
@@ -9905,6 +10155,14 @@ function DetailedView({
   const [editingCustomColumnKey, setEditingCustomColumnKey] = useState(null);
   const customColumnsFor = (kind) =>
     sessionData.instrumentCustomColumns?.[kind] || [];
+  const uutTableColumns = useInstrumentColumnWidths(
+    "uut",
+    customColumnsFor("uut"),
+  );
+  const tmdeTableColumns = useInstrumentColumnWidths(
+    "tmde",
+    customColumnsFor("tmde"),
+  );
   const requestCustomColumn = (kind) => {
     const key = `field-${uuidv4().slice(0, 8)}`;
     const current = sessionData.instrumentCustomColumns || {};
@@ -14925,34 +15183,54 @@ function DetailedView({
               setHoveredCell({ tableId: null, colIndex: null });
               setHoveredRowId(null);
             }}
-            style={{ tableLayout: "fixed" }}
+            style={{
+              tableLayout: "fixed",
+              width: `${uutTableColumns.tableWidth}px`,
+              minWidth: "100%",
+            }}
           >
             <colgroup>
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "18%" }} />
-              <col style={{ width: "18%" }} />
-              <col style={{ width: "32%" }} />
+              <col style={{ width: `${uutTableColumns.widthFor("description")}px` }} />
+              <col style={{ width: `${uutTableColumns.widthFor("range")}px` }} />
+              <col style={{ width: `${uutTableColumns.widthFor("tolerance")}px` }} />
+              <col style={{ width: `${uutTableColumns.widthFor("resolution")}px` }} />
               {customColumnsFor("uut").map((column) => (
-                <col key={column.key} style={{ width: "140px" }} />
+                <col
+                  key={column.key}
+                  style={{ width: `${uutTableColumns.widthFor(instrumentColumnKey(column))}px` }}
+                />
               ))}
-              <col style={{ width: "10%" }} />
+              <col style={{ width: `${uutTableColumns.widthFor("sync")}px` }} />
             </colgroup>
             <thead>
               <tr>
-                <th>Description</th>
-                <th>
+                <ResizableInstrumentHeader columnKey="description" label="Description" columns={uutTableColumns}>
+                  Description
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="range" label="Range" columns={uutTableColumns}>
                   <span className="range-header-cell">
                     <span>Range</span>
                   </span>
-                </th>
-                <th>Tolerance</th>
-                <th>Resolution</th>
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="tolerance" label="Tolerance" columns={uutTableColumns}>
+                  Tolerance
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="resolution" label="Resolution" columns={uutTableColumns}>
+                  Resolution
+                </ResizableInstrumentHeader>
                 {customColumnsFor("uut").map((column) => (
-                  <th key={column.key} aria-label={column.label || "Name"}>
+                  <ResizableInstrumentHeader
+                    key={column.key}
+                    columnKey={instrumentColumnKey(column)}
+                    label={column.label || "Name"}
+                    columns={uutTableColumns}
+                  >
                     {renderCustomColumnHeader("uut", column)}
-                  </th>
+                  </ResizableInstrumentHeader>
                 ))}
-                <th className="cell-sync">Sync</th>
+                <ResizableInstrumentHeader columnKey="sync" label="Sync" columns={uutTableColumns} className="cell-sync">
+                  Sync
+                </ResizableInstrumentHeader>
               </tr>
             </thead>
             <tbody>
@@ -15039,7 +15317,7 @@ function DetailedView({
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className={`cell-description ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                  className={`cell-description has-order-controls ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                   onMouseEnter={() =>
                                     setHoveredCell({ tableId: "uut_det", colIndex: 0 })
                                   }
@@ -15049,6 +15327,10 @@ function DetailedView({
                                       : undefined,
                                   }}
                                 >
+                                  <InstrumentOrderControls
+                                    onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                                    onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                                  />
                                   <div className="uut-description-content">
                                     <EditableDescriptionCell
                                       name={uut.description}
@@ -15092,10 +15374,6 @@ function DetailedView({
                                 >
                                   <div className="instrument-row-tools">
                                     <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
-                                    <InstrumentOrderControls
-                                      onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
-                                      onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
-                                    />
                                   </div>
                                 </td>
                               )}
@@ -15128,7 +15406,7 @@ function DetailedView({
                       >
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-description ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                          className={`cell-description has-order-controls ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut_det", colIndex: 0 })
                           }
@@ -15138,6 +15416,10 @@ function DetailedView({
                               : undefined,
                           }}
                         >
+                          <InstrumentOrderControls
+                            onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                            onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                          />
                           <div className="uut-description-content">
                             {onSessionSave ? (
                               <EditableDescriptionCell
@@ -15225,6 +15507,22 @@ function DetailedView({
                                   }
                                   onEnsureInitialRange={() =>
                                     ensureInitialRangeDetail("uut", uut)
+                                  }
+                                  onAddRange={
+                                    index === 0
+                                      ? () => {
+                                          handleAddBlankRangeDetail(
+                                            "uut",
+                                            uut,
+                                            rangeIdOf(range),
+                                          );
+                                          setExpandedRangeKeys((previous) =>
+                                            new Set(previous).add(
+                                              itemStateKey("uut", uutRowKey),
+                                            ),
+                                          );
+                                        }
+                                      : undefined
                                   }
                                   onOpenTolerance={() =>
                                     openRangeToleranceDetail("uut", uut, range)
@@ -15345,10 +15643,6 @@ function DetailedView({
                         >
                           <div className="instrument-row-tools">
                             <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
-                            <InstrumentOrderControls
-                              onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
-                              onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
-                            />
                           </div>
                         </td>
                       </tr>
@@ -15715,36 +16009,58 @@ function DetailedView({
                 setHoveredCell({ tableId: null, colIndex: null });
                 setHoveredRowId(null);
               }}
-              style={{ tableLayout: "fixed" }}
+              style={{
+                tableLayout: "fixed",
+                width: `${tmdeTableColumns.tableWidth}px`,
+                minWidth: "100%",
+              }}
             >
               <colgroup>
-                <col style={{ width: "18%" }} />
-                <col style={{ width: "18%" }} />
-                <col style={{ width: "14%" }} />
-                <col style={{ width: "12%" }} />
-                <col style={{ width: "28%" }} />
+                <col style={{ width: `${tmdeTableColumns.widthFor("description")}px` }} />
+                <col style={{ width: `${tmdeTableColumns.widthFor("range")}px` }} />
+                <col style={{ width: `${tmdeTableColumns.widthFor("tolerance")}px` }} />
+                <col style={{ width: `${tmdeTableColumns.widthFor("distribution")}px` }} />
+                <col style={{ width: `${tmdeTableColumns.widthFor("resolution")}px` }} />
                 {customColumnsFor("tmde").map((column) => (
-                  <col key={column.key} style={{ width: "140px" }} />
+                  <col
+                    key={column.key}
+                    style={{ width: `${tmdeTableColumns.widthFor(instrumentColumnKey(column))}px` }}
+                  />
                 ))}
-                <col style={{ width: "10%" }} />
+                <col style={{ width: `${tmdeTableColumns.widthFor("sync")}px` }} />
               </colgroup>
               <thead>
                 <tr>
-                  <th>Description</th>
-                  <th>
+                  <ResizableInstrumentHeader columnKey="description" label="Description" columns={tmdeTableColumns}>
+                    Description
+                  </ResizableInstrumentHeader>
+                  <ResizableInstrumentHeader columnKey="range" label="Range" columns={tmdeTableColumns}>
                     <span className="range-header-cell">
                       <span>Range</span>
                     </span>
-                  </th>
-                  <th>Error Limit</th>
-                  <th className="cell-distribution">Distribution</th>
-                  <th>Resolution</th>
+                  </ResizableInstrumentHeader>
+                  <ResizableInstrumentHeader columnKey="tolerance" label="Error Limit" columns={tmdeTableColumns}>
+                    Error Limit
+                  </ResizableInstrumentHeader>
+                  <ResizableInstrumentHeader columnKey="distribution" label="Distribution" columns={tmdeTableColumns} className="cell-distribution">
+                    Distribution
+                  </ResizableInstrumentHeader>
+                  <ResizableInstrumentHeader columnKey="resolution" label="Resolution" columns={tmdeTableColumns}>
+                    Resolution
+                  </ResizableInstrumentHeader>
                   {customColumnsFor("tmde").map((column) => (
-                    <th key={column.key} aria-label={column.label || "Name"}>
+                    <ResizableInstrumentHeader
+                      key={column.key}
+                      columnKey={instrumentColumnKey(column)}
+                      label={column.label || "Name"}
+                      columns={tmdeTableColumns}
+                    >
                       {renderCustomColumnHeader("tmde", column)}
-                    </th>
+                    </ResizableInstrumentHeader>
                   ))}
-                  <th className="cell-sync">Sync</th>
+                  <ResizableInstrumentHeader columnKey="sync" label="Sync" columns={tmdeTableColumns} className="cell-sync">
+                    Sync
+                  </ResizableInstrumentHeader>
                 </tr>
               </thead>
               <tbody>
@@ -15880,11 +16196,15 @@ function DetailedView({
                                   {i === 0 && (
                                     <td
                                       rowSpan={spanRows}
-                                      className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                      className={`cell-description has-order-controls ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                       onMouseEnter={() =>
                                         setHoveredCell({ tableId: "tmde_det", colIndex: 0 })
                                       }
                                     >
+                                      <InstrumentOrderControls
+                                        onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
+                                        onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
+                                      />
                                       <div className="uut-description-content">
                                         <EditableDescriptionCell
                                           name={masterTmde.name}
@@ -15932,10 +16252,6 @@ function DetailedView({
                                           item={masterTmde}
                                           onSync={() => handleSyncItem("tmde", masterTmde)}
                                         />
-                                        <InstrumentOrderControls
-                                          onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
-                                          onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
-                                        />
                                       </div>
                                     </td>
                                   )}
@@ -15967,7 +16283,7 @@ function DetailedView({
                           >
                             <td
                               rowSpan={rowSpan}
-                              className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                              className={`cell-description has-order-controls ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                               onMouseEnter={() =>
                                 setHoveredCell({
                                   tableId: "tmde_det",
@@ -15975,6 +16291,10 @@ function DetailedView({
                                 })
                               }
                             >
+                              <InstrumentOrderControls
+                                onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
+                                onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
+                              />
                               <div className="uut-description-content">
                                 {onSessionSave ? (
                                   <EditableDescriptionCell
@@ -16089,6 +16409,22 @@ function DetailedView({
                                       }
                                       onEnsureInitialRange={() =>
                                         ensureInitialRangeDetail("tmde", masterTmde)
+                                      }
+                                      onAddRange={
+                                        index === 0
+                                          ? () => {
+                                              handleAddBlankRangeDetail(
+                                                "tmde",
+                                                masterTmde,
+                                                rangeKey,
+                                              );
+                                              setExpandedRangeKeys((previous) =>
+                                                new Set(previous).add(
+                                                  itemStateKey("tmde", tmdeRowKey),
+                                                ),
+                                              );
+                                            }
+                                          : undefined
                                       }
                                       onOpenTolerance={() =>
                                         openRangeToleranceDetail("tmde", masterTmde, range)
@@ -16282,10 +16618,6 @@ function DetailedView({
                             >
                               <div className="instrument-row-tools">
                                 <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} />
-                                <InstrumentOrderControls
-                                  onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
-                                  onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
-                                />
                               </div>
                             </td>
                           </tr>

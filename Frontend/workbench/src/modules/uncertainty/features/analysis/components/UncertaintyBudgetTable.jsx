@@ -75,6 +75,33 @@ const fullPrecisionValue = (value) => {
   return String(value);
 };
 
+const BudgetOrderControls = ({ onMoveUp, onMoveDown }) => (
+  <span className="budget-order-controls" aria-label="Component order">
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onMoveUp?.();
+      }}
+      title="Move component up"
+      aria-label="Move component up"
+    >
+      <FontAwesomeIcon icon={faArrowUp} />
+    </button>
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onMoveDown?.();
+      }}
+      title="Move component down"
+      aria-label="Move component down"
+    >
+      <FontAwesomeIcon icon={faArrowDown} />
+    </button>
+  </span>
+);
+
 const simplifyBudgetLabel = (label = "") =>
   String(label).replace(
     /^(.+?)\s+\([^)]*\)(\s+Uncertainty Budget)$/i,
@@ -313,6 +340,8 @@ const InlineManualComponentRow = ({
   formatToleranceSummary,
   onCommit,
   onRemove,
+  onMoveUp,
+  onMoveDown,
 }) => {
   const rowRef = useRef(null);
   const nameInputRef = useRef(null);
@@ -523,7 +552,8 @@ const InlineManualComponentRow = ({
         }
         onClick={() => setEditing(true)}
       >
-        <td>
+        <td className="budget-source-cell has-order-controls">
+          <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
           {component.name || (
             <span className="inline-tolerance-summary is-empty budget-inline-not-set">
               Not Set
@@ -587,7 +617,8 @@ const InlineManualComponentRow = ({
       className="budget-inline-manual-row is-editing"
       onKeyDown={handleRowKeyDown}
     >
-      <td>
+      <td className="budget-source-cell has-order-controls">
+        <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
         <input
           ref={nameInputRef}
           type="text"
@@ -1005,16 +1036,6 @@ const UncertaintyBudgetTable = ({
     if (component.isResolution) {
       return (
         <div className="budget-row-actions">
-          {onMoveComponent && (
-            <>
-              <button type="button" className="budget-row-move" onClick={() => onMoveComponent(component.id, -1)} title="Move component up" aria-label="Move component up">
-                <FontAwesomeIcon icon={faArrowUp} />
-              </button>
-              <button type="button" className="budget-row-move" onClick={() => onMoveComponent(component.id, 1)} title="Move component down" aria-label="Move component down">
-                <FontAwesomeIcon icon={faArrowDown} />
-              </button>
-            </>
-          )}
           <span
             onClick={() => onRemove?.(component.id, component)}
             className="delete-action"
@@ -1035,28 +1056,6 @@ const UncertaintyBudgetTable = ({
       !isStandaloneManualComponent(component);
     return (
       <div className="budget-row-actions">
-        {onMoveComponent && (
-          <>
-            <button
-              type="button"
-              className="budget-row-move"
-              onClick={() => onMoveComponent(component.id, -1)}
-              title="Move component up"
-              aria-label="Move component up"
-            >
-              <FontAwesomeIcon icon={faArrowUp} />
-            </button>
-            <button
-              type="button"
-              className="budget-row-move"
-              onClick={() => onMoveComponent(component.id, 1)}
-              title="Move component down"
-              aria-label="Move component down"
-            >
-              <FontAwesomeIcon icon={faArrowDown} />
-            </button>
-          </>
-        )}
         {showEdit && (
           <span
             onClick={(e) => onEdit?.(e, component)}
@@ -1136,6 +1135,8 @@ const UncertaintyBudgetTable = ({
                   )
                 }
                 onRemove={onRemove}
+                onMoveUp={() => onMoveComponent?.(component.id, -1)}
+                onMoveDown={() => onMoveComponent?.(component.id, 1)}
               />
             );
           }
@@ -1155,7 +1156,19 @@ const UncertaintyBudgetTable = ({
               key={component.id}
               onContextMenu={(e) => onRowContextMenu?.(e, component)}
             >
-              <td>
+              <td
+                className={`budget-source-cell${
+                  onMoveComponent && !component.isPropagationSummary
+                    ? " has-order-controls"
+                    : ""
+                }`}
+              >
+                {onMoveComponent && !component.isPropagationSummary && (
+                  <BudgetOrderControls
+                    onMoveUp={() => onMoveComponent(component.id, -1)}
+                    onMoveDown={() => onMoveComponent(component.id, 1)}
+                  />
+                )}
                 {displayName}
                 <DeviationFlag component={component} />
               </td>

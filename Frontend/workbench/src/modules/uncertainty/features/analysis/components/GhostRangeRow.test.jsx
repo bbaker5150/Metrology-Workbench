@@ -484,6 +484,26 @@ describe("inline range editing", () => {
     expect(screen.getByPlaceholderText("max")).toBeInTheDocument();
   });
 
+  it("offers add range from the first blank editor before bounds are entered", () => {
+    const onAddRange = vi.fn();
+    render(
+      <RangeCell
+        ranges={[{ id: "range-1", min: "", max: "", unit: "V" }]}
+        activeRange={{ id: "range-1", min: "", max: "", unit: "V" }}
+        editable
+        onAddRange={onAddRange}
+        onEditBound={vi.fn()}
+        onEditUnit={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Add range" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Set range"));
+    fireEvent.click(screen.getByRole("button", { name: "Add range" }));
+
+    expect(onAddRange).toHaveBeenCalledOnce();
+  });
+
   it("does not render a clear/delete control beside the unit while editing", () => {
     render(
       <RangeCell

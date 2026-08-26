@@ -317,7 +317,7 @@ export default function SessionNotesFloatingPanel({
   if (!isOpen || typeof document === "undefined") return null;
 
   const subtitle = selectedSessionId
-    ? selectedSessionName || `Session ${selectedSessionId}`
+    ? selectedSessionName || `#${selectedSessionId}`
     : "No session selected";
 
   return createPortal(

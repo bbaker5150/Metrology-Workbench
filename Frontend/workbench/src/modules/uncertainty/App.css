@@ -82,6 +82,11 @@ body.uncertainty-active {
   /* UI Elements */
   --border-color: #e2e8f0;
   --border-color-strong: #cbd5e1;
+  --table-divider-color: color-mix(
+    in srgb,
+    var(--border-color) 88%,
+    var(--text-color-muted)
+  );
   --border-width: 1px;
   --border-radius: 6px;
   --modal-radius: 16px;
@@ -2637,7 +2642,7 @@ body.dark-mode .uncertainty-module .analysis-container > .analysis-tabs {
 /* Multi-row Spec Handling */
 /* 1. Default: Dashed border for sub-rows (separator) */
 .industry-table tr.spec-row td {
-  border-top: 1px dashed var(--border-color);
+  border-top: 1px dashed var(--table-divider-color);
 }
 
 .industry-table tbody tr.instrument-area-section-row {
@@ -4324,7 +4329,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   padding: 10px 12px;
   text-align: left;
   vertical-align: middle;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--table-divider-color);
 }
 
 .uncertainty-budget-table thead th {
@@ -10656,7 +10661,7 @@ body.theme-cyberpunk .notification-window .window-header {
   padding: 6px 10px;
   color: var(--text-color-muted);
   background: var(--content-background);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--table-divider-color);
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -10667,7 +10672,7 @@ body.theme-cyberpunk .notification-window .window-header {
 .measurement-inputs-table td {
   height: 42px;
   padding: 5px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
+  border-bottom: 1px solid var(--table-divider-color);
   vertical-align: middle;
 }
 
@@ -11583,7 +11588,7 @@ body.theme-cyberpunk .notification-window .window-header {
   letter-spacing: normal;
   padding: 10px 12px;
   text-align: left;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--table-divider-color);
   font-size: 0.9rem;
   border-top: 1px solid var(--border-color);
   white-space: nowrap; /* Headers should never wrap */
@@ -11607,12 +11612,12 @@ body.theme-cyberpunk .notification-window .window-header {
   position: sticky;
   top: 0;
   z-index: 20;
-  box-shadow: inset 0 -1px 0 var(--border-color);
+  box-shadow: inset 0 -1px 0 var(--table-divider-color);
 }
 
 .instrument-summary-table td {
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--table-divider-color);
   color: var(--text-color);
   vertical-align: middle;
   font-family: inherit;
@@ -11627,7 +11632,7 @@ body.theme-cyberpunk .notification-window .window-header {
 
 .instrument-summary-table th:not(:last-child),
 .instrument-summary-table td:not(:last-child) {
-  border-right: 1px solid color-mix(in srgb, var(--border-color) 82%, var(--text-color-muted));
+  border-right: 1px solid var(--table-divider-color);
 }
 
 /* Numeric/Value columns should NOT wrap - these are critical for readability */
@@ -11741,7 +11746,8 @@ body.theme-cyberpunk .notification-window .window-header {
 }
 
 .inline-desc-combined {
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
   min-height: 54px;
   display: flex;
   align-items: center;
@@ -11832,8 +11838,8 @@ input.inline-desc-subinput:focus-visible {
 .instrument-summary-table td.cell-sync,
 .industry-table th.cell-sync,
 .industry-table td.cell-sync {
-  width: 88px;
-  min-width: 88px;
+  width: auto;
+  min-width: 0;
   text-align: center;
   padding-left: 6px;
   padding-right: 6px;
@@ -12940,7 +12946,26 @@ input.inline-function-input:focus {
   flex: 0 0 auto;
 }
 
-.budget-row-move {
+.budget-order-controls {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.budget-source-cell.has-order-controls {
+  position: relative;
+  padding-left: 58px;
+}
+
+.budget-order-controls button {
   width: 22px;
   height: 22px;
   display: inline-flex;
@@ -12952,22 +12977,21 @@ input.inline-function-input:focus {
   color: var(--text-color-muted);
   background: transparent;
   cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.12s ease, color 0.12s ease, background-color 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease;
 }
 
-.uncertainty-budget-table tr:hover .budget-row-move,
-.uncertainty-budget-table tr:focus-within .budget-row-move,
-.uncertainty-budget-table .budget-row-actions:focus-within .budget-row-move {
+.uncertainty-budget-table tr:hover .budget-order-controls,
+.uncertainty-budget-table tr:focus-within .budget-order-controls,
+.budget-order-controls:focus-within {
   opacity: 1;
   pointer-events: auto;
 }
 
-.budget-row-move:hover,
-.budget-row-move:focus-visible {
+.budget-order-controls button:hover,
+.budget-order-controls button:focus-visible {
   color: var(--primary-color);
   background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+  outline: none;
 }
 
 /* ------------------------------------------------------------------ */
@@ -12978,7 +13002,7 @@ input.inline-function-input:focus {
 /* ------------------------------------------------------------------ */
 .industry-table tbody tr.inline-range-row > td {
   vertical-align: middle;
-  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 75%, var(--text-color-muted));
+  border-bottom: 1px solid var(--table-divider-color);
 }
 
 /* Range controls are deliberately contained by their table cell. This keeps
@@ -12996,11 +13020,11 @@ input.inline-function-input:focus {
 
 /* Separate one instrument's range block from the next with a solid rule. */
 .industry-table tbody tr.inline-range-row--first > td {
-  border-top: 1px solid var(--border-color-strong);
+  border-top: 1px solid var(--table-divider-color);
 }
 
 .industry-table tbody tr.inline-range-row--last > td {
-  border-bottom: 1px solid var(--border-color-strong);
+  border-bottom: 1px solid var(--table-divider-color);
 }
 
 /* rowSpan Description / Sync cells stay vertically centered over the group. */
@@ -13083,7 +13107,7 @@ input.inline-function-input:focus {
   grid-row: 1;
   justify-self: center;
   color: var(--primary-color);
-  opacity: 1;
+  opacity: 0;
 }
 
 .range-row-delete {
@@ -13091,9 +13115,13 @@ input.inline-function-input:focus {
   grid-row: 1;
 }
 
-/* Reveal the delete affordance only while the row is hovered or keyboard-focused. */
+/* Reveal row actions only while the row is hovered or keyboard-focused. */
 .industry-table tbody tr.inline-range-row:hover .range-row-delete,
-.range-row-delete:focus-visible {
+.industry-table tbody tr.inline-range-row:hover .range-row-add,
+.industry-table tbody tr.inline-range-row:focus-within .range-row-delete,
+.industry-table tbody tr.inline-range-row:focus-within .range-row-add,
+.range-row-delete:focus-visible,
+.range-row-add:focus-visible {
   opacity: 1;
 }
 
@@ -13111,6 +13139,17 @@ input.inline-function-input:focus {
   background: color-mix(in srgb, var(--primary-color) 12%, transparent);
 }
 
+.range-row-add--inline {
+  flex: 0 0 24px;
+  grid-column: auto;
+  grid-row: auto;
+}
+
+.inline-range-editor.is-editing:hover .range-row-add--inline,
+.inline-range-editor.is-editing:focus-within .range-row-add--inline {
+  opacity: 1;
+}
+
 .instrument-row-tools {
   display: inline-flex;
   align-items: center;
@@ -13125,6 +13164,19 @@ input.inline-function-input:focus {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s ease;
+}
+
+.instrument-summary-table td.cell-description.has-order-controls {
+  position: relative;
+  padding-left: 56px;
+}
+
+.instrument-order-controls--gutter {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  z-index: 2;
+  transform: translateY(-50%);
 }
 
 .instrument-summary-table tbody tr:hover .instrument-order-controls,
@@ -13155,6 +13207,52 @@ input.inline-function-input:focus {
 .instrument-order-controls button:focus-visible {
   color: var(--primary-color);
   background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+}
+
+.instrument-resizable-header {
+  position: sticky;
+  padding-right: 13px !important;
+}
+
+.instrument-resizable-header-content {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.instrument-column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  z-index: 3;
+  width: 9px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.instrument-column-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 22%;
+  bottom: 22%;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background-color 0.12s ease;
+}
+
+.instrument-column-resize-handle:hover::after,
+.instrument-column-resize-handle:focus-visible::after {
+  background: var(--primary-color);
+}
+
+.instrument-column-resize-handle:focus-visible {
+  outline: none;
 }
 
 .instrument-custom-column-label,
@@ -13244,7 +13342,7 @@ input.inline-function-input:focus {
   min-height: 36px;
   height: 36px;
   padding: 4px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 88%, var(--text-color-muted));
+  border-bottom: 1px solid var(--table-divider-color);
   overflow: hidden;
 }
 
@@ -13362,7 +13460,7 @@ input.inline-function-input:focus {
   gap: 6px;
   min-height: 24px;
   padding: 0 5px 3px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  border-bottom: 1px solid var(--table-divider-color);
 }
 
 .inline-tolerance-mini-toggle {
@@ -13434,8 +13532,8 @@ input.inline-function-input:focus {
   /* Horizontal negative margin keeps the hover background flush with the cell
      without shifting the text; vertical margin stays 0 so the summary lines up
      with the adjacent distribution dropdown (cell is vertical-align:middle). */
-  padding: 2px 6px;
-  margin: 0 -6px;
+  padding: 2px 5px;
+  margin: 0;
   border-radius: 5px;
   white-space: nowrap;
   transition:
@@ -13454,7 +13552,9 @@ input.inline-function-input:focus {
 .inline-tolerance-summary.is-empty {
   color: var(--text-color-muted);
   font-style: italic;
-  min-width: 100%;
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
   min-height: 24px;
 }
 
@@ -13623,13 +13723,29 @@ input.inline-function-input:focus {
   box-sizing: border-box;
 }
 
+/* Read-view hit areas hug the visible label instead of filling the table cell. */
+.inline-range-editor:not(.is-editing) {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.inline-range-editor:not(.is-editing) .inline-range-main {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.inline-range-editor:not(.is-editing) .inline-tolerance-summary {
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .inline-tolerance-editor--all
   > .inline-tolerance-term-group
   + .inline-tolerance-term-group {
   margin-top: 3px;
   padding-top: 6px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--border-color) 88%, var(--text-color-muted));
+  border-top: 1px solid var(--table-divider-color);
 }
 
 /* Shared Type B cards use the same compact tolerance summary/read view as the
@@ -15894,7 +16010,7 @@ body.theme-cyberpunk .uut-row::before {
 /* 7. Multi-row Spec Handling */
 /* Default: Dashed border for sub-rows (separator) */
 .industry-table tr.spec-row td {
-  border-top: 1px dashed var(--border-color);
+  border-top: 1px dashed var(--table-divider-color);
 }
 
 /* Continue hover through every row belonging to the same instrument. */

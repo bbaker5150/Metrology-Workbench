@@ -33,7 +33,7 @@ export const formatSessionDate = (date = new Date()) => new Intl.DateTimeFormat(
 }).format(date).replace(/\//g, "-");
 
 export const formatDefaultSessionName = (sessionNumber, model, serial, date = new Date()) =>
-  `(Session ${sessionNumber}), ${model.trim() || "TI Model"}, ${serial.trim() || "TI Serial"}, (${formatSessionDate(date)})`;
+  `#${sessionNumber}, ${model.trim() || "TI Model"}, ${serial.trim() || "TI Serial"}, (${formatSessionDate(date)})`;
 
 const initialFormData = {
   sessionName: "",

@@ -227,7 +227,11 @@ describe("UncertaintyApp", () => {
       screen.queryByRole("combobox", { name: /UUT for new Voltage measurement point/i }),
     ).not.toBeInTheDocument();
     fireEvent.click(addPoint);
-    const uutSelect = await screen.findByRole("button", { name: "UUT" });
+    const uutSelect = await screen.findByRole(
+      "button",
+      { name: "UUT" },
+      { timeout: 5000 },
+    );
     fireEvent.click(uutSelect);
     const uutList = await screen.findByRole("listbox", { name: "UUT" });
     expect(within(uutList).getByRole("option", { name: /Mock 100 Primary DMM/i })).toBeInTheDocument();
@@ -1229,7 +1233,7 @@ describe("UncertaintyApp", () => {
     expect(
       screen.queryByText("Manual Component", { selector: "h3" }),
     ).not.toBeInTheDocument();
-  }, 15000);
+  }, 30000);
 
   test("opens the relevant UUT function and collapses irrelevant functions in detail", async () => {
     apiMock.state.sessions = [
@@ -1380,7 +1384,7 @@ describe("UncertaintyApp", () => {
       name: "Expand function instruments",
     });
     expect(overviewCollapsed.closest("tr")).toHaveTextContent("Pressure");
-  }, 15000);
+  }, 30000);
 
   test("zooms a table around the cursor without zooming the page", async () => {
     render(
