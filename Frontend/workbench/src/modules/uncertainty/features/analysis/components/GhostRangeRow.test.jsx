@@ -341,12 +341,13 @@ describe("inline resolution distribution", () => {
     const distributionTrigger = screen.getByRole("button", {
       name: "Resolution distribution",
     });
-    expect(distributionTrigger).toHaveTextContent("k = 1.732");
+    expect(distributionTrigger).toHaveTextContent("Rectangular");
+    expect(distributionTrigger).not.toHaveTextContent("k =");
     expect(
       distributionTrigger.closest(".inline-menu-select").style.getPropertyValue(
         "--inline-unit-width",
       ),
-    ).toBe("116px");
+    ).toBe("144px");
     fireEvent.click(distributionTrigger);
     expect(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Normal \(95%\)/ })).toBeInTheDocument();

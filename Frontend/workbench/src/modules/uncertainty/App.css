@@ -11486,33 +11486,6 @@ body.theme-cyberpunk .notification-window .window-header {
   flex: 1;
 }
 
-/* Delete button in card headers */
-.panel-card-header .btn-delete-selection {
-  color: var(--status-bad);
-  height: 28px;
-  width: auto;
-  padding: 0 7px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  font-size: 0.72rem;
-  box-shadow: none;
-  transform: none;
-  transition: color 0.15s ease, background-color 0.15s ease;
-}
-
-.panel-card-header .btn-delete-selection:hover {
-  background: rgba(255, 82, 82, 0.1);
-  border-color: transparent;
-  box-shadow: none;
-  transform: none;
-}
-
 /* Add button in card headers */
 .panel-card-header .btn-add-item {
   width: 28px;
@@ -12346,6 +12319,39 @@ input.inline-function-input:focus {
   justify-content: flex-end;
   gap: 4px;
   min-width: 0;
+}
+
+.function-header-destructive-btn {
+  width: auto;
+  height: 28px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--status-bad) 42%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--status-bad) 10%, transparent);
+  color: var(--status-bad);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: none;
+  transform: none;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.function-header-destructive-btn:hover,
+.function-header-destructive-btn:focus-visible {
+  border-color: color-mix(in srgb, var(--status-bad) 68%, transparent);
+  background: color-mix(in srgb, var(--status-bad) 18%, transparent);
+  color: var(--status-bad);
+  outline: none;
+  box-shadow: none;
+  transform: none;
 }
 
 .function-header-name {
@@ -13730,15 +13736,15 @@ input.inline-function-input:focus {
   box-sizing: border-box;
 }
 
-/* Keep the resolution distribution's complete short label visible while
+/* Keep the resolution distribution's complete type name visible while
    preventing the table-wide select minimum from stretching it into the next
    column. */
 .uncertainty-module .instrument-summary-table .inline-resolution-editor
   > .inline-resolution-dist.inline-unit-like-selector {
-  flex: 0 0 var(--inline-unit-width, 116px);
-  width: var(--inline-unit-width, 116px);
-  min-width: var(--inline-unit-width, 116px);
-  max-width: var(--inline-unit-width, 116px);
+  flex: 0 0 var(--inline-unit-width, 144px);
+  width: var(--inline-unit-width, 144px);
+  min-width: var(--inline-unit-width, 144px);
+  max-width: var(--inline-unit-width, 144px);
 }
 
 .inline-tolerance-single-sided-row .inline-tolerance-limits {
@@ -14210,12 +14216,12 @@ input.inline-resolution-input {
 }
 
 /* Resolution-cell distribution picker (its rounding distribution for the
-   budget). Wide enough for the complete "k = 1.732" short label. */
+   budget). Wide enough for complete distribution names. */
 .inline-menu-select.inline-resolution-dist.inline-unit-like-selector {
-  flex: 0 0 var(--inline-unit-width, 116px);
-  width: var(--inline-unit-width, 116px);
-  min-width: var(--inline-unit-width, 116px);
-  max-width: var(--inline-unit-width, 116px);
+  flex: 0 0 var(--inline-unit-width, 144px);
+  width: var(--inline-unit-width, 144px);
+  min-width: var(--inline-unit-width, 144px);
+  max-width: var(--inline-unit-width, 144px);
   height: 24px;
   min-height: 24px;
   max-height: 24px;

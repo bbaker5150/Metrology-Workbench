@@ -866,20 +866,31 @@ describe("UncertaintyApp", () => {
       uutTable.querySelectorAll(".function-header-identity"),
     ).find((header) => header.textContent.includes("Voltage"));
     expect(voltageFunction).toBeInTheDocument();
+    const functionActions = voltageFunction.parentElement.querySelector(
+      ".function-header-actions",
+    );
     expect(
-      voltageFunction.parentElement.querySelector(".function-header-actions"),
+      functionActions,
     ).toContainElement(
       within(voltageFunction.parentElement).getByRole("button", {
         name: "Add UUT with this function",
       }),
     );
+    expect(
+      within(functionActions).getByRole("button", { name: "Delete Function" }),
+    ).toHaveClass("function-header-destructive-btn");
 
     fireEvent.click(uutName.closest("tr"));
     expect(
-      within(cardHeader).getByRole("button", {
+      within(functionActions).getByRole("button", {
         name: "Delete Selected Instrument",
       }),
-    ).toHaveClass("btn-add-item", "btn-add-column", "btn-delete-selection");
+    ).toHaveClass("function-header-destructive-btn", "btn-delete-selection");
+    expect(
+      within(cardHeader).queryByRole("button", {
+        name: "Delete Selected Instrument",
+      }),
+    ).not.toBeInTheDocument();
   });
 
   test("keeps UUT functions visible when they have no measurement points", async () => {

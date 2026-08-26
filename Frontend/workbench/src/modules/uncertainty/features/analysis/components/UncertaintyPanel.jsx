@@ -2557,11 +2557,11 @@ const INSTRUMENT_COLUMN_DEFAULTS = {
     sync: 72,
   },
   tmde: {
-    description: 216,
-    range: 264,
-    tolerance: 240,
+    description: 210,
+    range: 252,
+    tolerance: 228,
     distribution: 150,
-    resolution: 270,
+    resolution: 300,
     sync: 60,
   },
 };
@@ -2573,6 +2573,9 @@ const uutTableTitle = (count) =>
 
 const selectedInstrumentDeleteLabel = (count) =>
   `Delete Selected Instrument${Number(count) === 1 ? "" : "s"}`;
+
+const resolutionDistributionDisplayLabel = (option) =>
+  String(option?.label || "").replace(/\s+\(resolution\)$/i, "");
 
 const useInstrumentColumnWidths = (kind, customColumns = []) => {
   const customSignature = customColumns.map((column) => column.key).join("|");
@@ -3052,9 +3055,10 @@ export const ResolutionCellInput = ({
           title="Distribution used when this resolution enters the budget"
           ariaLabel="Resolution distribution"
           onChange={onCommitDistribution}
-          width="116px"
+          width="144px"
           menuWidth={220}
           className="inline-resolution-dist inline-unit-like-selector inline-distribution-select"
+          getDisplayLabel={resolutionDistributionDisplayLabel}
         />
       )}
     </span>
@@ -7756,21 +7760,51 @@ const SummaryDashboard = ({
     );
   };
 
+  const renderSelectedInstrumentDeleteButton = (kind, fn) => {
+    const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
+    const instrumentsForKind =
+      kind === "uut" ? sessionData.uuts || [] : sessionData.tmdes || [];
+    const hasSelectionInFunction = selectedIds.some((selectedId) =>
+      instrumentsForKind.some(
+        (instrument) =>
+          sameId(instrument.id, selectedId) &&
+          instrumentHasFunction(instrument, fn.key),
+      ),
+    );
+    if (!onSessionSave || !hasSelectionInFunction) return null;
+    const label = selectedInstrumentDeleteLabel(selectedIds.length);
+    return (
+      <button
+        type="button"
+        className="function-header-destructive-btn btn-delete-selection"
+        title={label}
+        aria-label={label}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (kind === "uut") handleDeleteSelectedUuts();
+          else handleDeleteSelectedTmdes();
+        }}
+      >
+        <span>{label}</span>
+      </button>
+    );
+  };
+
   // Per-subsection delete (only acts on an unused function).
   const renderFunctionDeleteButton = (fn) => {
     if (!onSessionSave) return null;
     return (
       <button
         type="button"
-        className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
-        title="Delete function"
-        aria-label="Delete function"
+        className="function-header-destructive-btn"
+        title="Delete Function"
+        aria-label="Delete Function"
         onClick={(e) => {
           e.stopPropagation();
           handleDeleteFunction(fn);
         }}
       >
-        <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+        <span>Delete Function</span>
       </button>
     );
   };
@@ -7827,6 +7861,7 @@ const SummaryDashboard = ({
             {renderFunctionUnitChip(fn)}
           </div>
           <div className="function-header-actions">
+            {renderSelectedInstrumentDeleteButton(kind, fn)}
             {renderFunctionDeleteButton(fn)}
             {renderFunctionAddButton(kind, fn)}
           </div>
@@ -8970,17 +9005,6 @@ const SummaryDashboard = ({
             <span>{uutTableTitle(sessionData.uuts?.length)}</span>
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
-            {selectedUutIds.length > 0 && (
-              <button
-                type="button"
-                className="btn-add-item btn-add-column btn-delete-selection"
-                onClick={handleDeleteSelectedUuts}
-                title={selectedInstrumentDeleteLabel(selectedUutIds.length)}
-                aria-label={selectedInstrumentDeleteLabel(selectedUutIds.length)}
-              >
-                <span>{selectedInstrumentDeleteLabel(selectedUutIds.length)}</span>
-              </button>
-            )}
             <button
               type="button"
               className="btn-add-item btn-add-column"
@@ -9510,17 +9534,6 @@ const SummaryDashboard = ({
             <span>Test Measurement Device Equipment</span>
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
-            {selectedTmdeIds.length > 0 && (
-              <button
-                type="button"
-                className="btn-add-item btn-add-column btn-delete-selection"
-                onClick={handleDeleteSelectedTmdes}
-                title={selectedInstrumentDeleteLabel(selectedTmdeIds.length)}
-                aria-label={selectedInstrumentDeleteLabel(selectedTmdeIds.length)}
-              >
-                <span>{selectedInstrumentDeleteLabel(selectedTmdeIds.length)}</span>
-              </button>
-            )}
             <button
               type="button"
               className="btn-add-item btn-add-column"
@@ -12435,19 +12448,49 @@ function DetailedView({
       </button>
     ) : null;
 
+  const renderSelectedInstrumentDeleteButton = (kind, fn) => {
+    const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
+    const instrumentsForKind =
+      kind === "uut" ? sessionData.uuts || [] : sessionData.tmdes || [];
+    const hasSelectionInFunction = selectedIds.some((selectedId) =>
+      instrumentsForKind.some(
+        (instrument) =>
+          sameId(instrument.id, selectedId) &&
+          instrumentHasFunction(instrument, fn.key),
+      ),
+    );
+    if (!onSessionSave || !hasSelectionInFunction) return null;
+    const label = selectedInstrumentDeleteLabel(selectedIds.length);
+    return (
+      <button
+        type="button"
+        className="function-header-destructive-btn btn-delete-selection"
+        title={label}
+        aria-label={label}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (kind === "uut") handleDeleteSelectedUuts();
+          else handleDeleteSelectedTmdes();
+        }}
+      >
+        <span>{label}</span>
+      </button>
+    );
+  };
+
   const renderFunctionDeleteButton = (fn) =>
     onSessionSave ? (
       <button
         type="button"
-        className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
-        title="Delete function"
-        aria-label="Delete function"
+        className="function-header-destructive-btn"
+        title="Delete Function"
+        aria-label="Delete Function"
         onClick={(e) => {
           e.stopPropagation();
           handleDeleteFunction(fn);
         }}
       >
-        <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+        <span>Delete Function</span>
       </button>
     ) : null;
 
@@ -12511,6 +12554,7 @@ function DetailedView({
             {renderFunctionUnitChip(fn)}
           </div>
           <div className="function-header-actions">
+            {renderSelectedInstrumentDeleteButton(kind, fn)}
             {renderFunctionDeleteButton(fn)}
             {renderFunctionAddButton(kind, fn)}
           </div>
@@ -15222,17 +15266,6 @@ function DetailedView({
             <span>{uutTableTitle(sessionData.uuts?.length)}</span>
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
-            {selectedUutIds.length > 0 && (
-              <button
-                type="button"
-                className="btn-add-item btn-add-column btn-delete-selection"
-                onClick={handleDeleteSelectedUuts}
-                title={selectedInstrumentDeleteLabel(selectedUutIds.length)}
-                aria-label={selectedInstrumentDeleteLabel(selectedUutIds.length)}
-              >
-                <span>{selectedInstrumentDeleteLabel(selectedUutIds.length)}</span>
-              </button>
-            )}
             <button
               type="button"
               className="btn-add-item btn-add-column"
@@ -16049,17 +16082,6 @@ function DetailedView({
               <span>Test Measurement Device Equipment</span>
             </div>
             <div className="panel-card-actions" style={{ position: "relative" }}>
-              {selectedTmdeIds.length > 0 && (
-                <button
-                  type="button"
-                  className="btn-add-item btn-add-column btn-delete-selection"
-                  onClick={handleDeleteSelectedTmdes}
-                  title={selectedInstrumentDeleteLabel(selectedTmdeIds.length)}
-                  aria-label={selectedInstrumentDeleteLabel(selectedTmdeIds.length)}
-                >
-                  <span>{selectedInstrumentDeleteLabel(selectedTmdeIds.length)}</span>
-                </button>
-              )}
               <button
                 type="button"
                 className="btn-add-item btn-add-column"

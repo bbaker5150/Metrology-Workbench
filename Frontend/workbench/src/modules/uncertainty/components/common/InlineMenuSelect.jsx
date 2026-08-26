@@ -20,6 +20,7 @@ const InlineMenuSelect = ({
   autoOpen = false,
   showOptionMeta = true,
   onOpenChange,
+  getDisplayLabel,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [menuRect, setMenuRect] = useState(null);
@@ -29,7 +30,13 @@ const InlineMenuSelect = ({
   const selectedOption = options.find(
     (option) => String(option.value) === String(value),
   );
-  const displayValue = selectedOption?.shortLabel || selectedOption?.label || value || "Select";
+  const customDisplayValue = getDisplayLabel?.(selectedOption);
+  const displayValue =
+    customDisplayValue ||
+    selectedOption?.shortLabel ||
+    selectedOption?.label ||
+    value ||
+    "Select";
 
   const closeMenu = () => {
     setIsOpen(false);
