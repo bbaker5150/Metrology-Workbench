@@ -871,6 +871,11 @@ describe("UncertaintyApp", () => {
       uutTable.querySelectorAll(".function-header-identity"),
     ).find((header) => header.textContent.includes("Voltage"));
     expect(voltageFunction).toBeInTheDocument();
+    expect(
+      voltageFunction
+        .closest("tr")
+        .style.getPropertyValue("--instrument-function-color"),
+    ).toBe(uutRow.style.getPropertyValue("--instrument-function-color"));
     const functionActions = voltageFunction.parentElement.querySelector(
       ".function-header-actions",
     );

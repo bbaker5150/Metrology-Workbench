@@ -7861,6 +7861,7 @@ const SummaryDashboard = ({
           ? " is-function-drop-target"
           : ""
       }`}
+      style={functionRowStyle(fn.key)}
       onDragOver={handleInstrumentDragOverFunction(kind, fn)}
       onDragLeave={() => setDragOverFunctionTarget(null)}
       onDrop={handleInstrumentDropOnFunction(kind, fn)}
@@ -12558,6 +12559,7 @@ function DetailedView({
           ? " is-function-drop-target"
           : ""
       }`}
+      style={functionBadgeStyle(fn.key)}
       onDragOver={(event) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";

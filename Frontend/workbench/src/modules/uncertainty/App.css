@@ -18074,6 +18074,18 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 .uncertainty-module
   .industry-table
   tbody
+  tr.instrument-area-section-row
+  > td {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 22%,
+    var(--content-background)
+  ) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
   tr.instrument-function-row {
   background-color: color-mix(
     in srgb,
