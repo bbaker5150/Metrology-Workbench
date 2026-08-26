@@ -12329,9 +12329,9 @@ input.inline-function-input:focus {
   align-items: center;
   justify-content: center;
   padding: 0 7px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--status-bad) 10%, transparent);
+  background: transparent;
   color: var(--status-bad);
   font: inherit;
   font-size: 0.72rem;
@@ -12346,7 +12346,7 @@ input.inline-function-input:focus {
 
 .function-header-destructive-btn:hover,
 .function-header-destructive-btn:focus-visible {
-  background: color-mix(in srgb, var(--status-bad) 18%, transparent);
+  background: color-mix(in srgb, var(--status-bad) 6%, transparent);
   color: var(--status-bad);
   outline: none;
   box-shadow: none;
