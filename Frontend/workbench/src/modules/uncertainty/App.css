@@ -12279,11 +12279,11 @@ input.inline-function-input:focus {
   opacity: 0.4;
 }
 
-/* Function subsection header: the function identity is centered and more
-   prominent, while collapse and edit actions occupy symmetrical edge tracks. */
+/* Function subsection header: keep the identity anchored at the start so it
+   reads as the label for the rows below, while actions remain at the far edge. */
 .function-header-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   width: 100%;
@@ -12300,10 +12300,10 @@ input.inline-function-input:focus {
 
 .function-header-identity {
   grid-column: 2;
-  justify-self: center;
+  justify-self: start;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   min-width: 0;
   max-width: 100%;
   font-size: 0.92rem;
@@ -18066,6 +18066,110 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   border-radius: 6px;
   color: var(--text-color-muted);
   font-size: 0.74rem;
+}
+
+/* Function-colored instrument groups. The restrained base wash connects each
+   row to its function header without competing with editable values; selection
+   stays in the same color family and becomes deliberately more substantial. */
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 7%,
+    var(--content-background)
+  ) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row
+  > td {
+  background-color: transparent;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row:not(.selected-row):not(.instrument-selected):not(.selected-spec-row):hover,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.row-hovered:not(.selected-row):not(.instrument-selected),
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.hovered-spec-row:not(.selected-spec-row) {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 12%,
+    var(--content-background)
+  ) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-row,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.instrument-selected,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-spec-row,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-row:hover,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.instrument-selected:hover,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-spec-row:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 22%,
+    var(--content-background)
+  ) !important;
+  border-left: 0 !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-row
+  > td,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.instrument-selected
+  > td,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-spec-row
+  > td {
+  background-color: transparent !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-row
+  > td:first-child,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.inline-range-row--first.instrument-selected
+  > td:first-child {
+  box-shadow: inset 4px 0 0 var(--instrument-function-color) !important;
 }
 
 .risk-viz-header h3 .method-chip {

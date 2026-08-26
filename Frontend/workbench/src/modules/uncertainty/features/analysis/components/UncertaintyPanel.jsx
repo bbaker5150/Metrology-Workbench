@@ -6422,6 +6422,21 @@ const SummaryDashboard = ({
   const [addFunctionMenu, setAddFunctionMenu] = useState(null);
   const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
   const [editingCustomColumnKey, setEditingCustomColumnKey] = useState(null);
+  const summaryFunctionColorByKey = useMemo(
+    () =>
+      new Map(
+        resolveSessionFunctions(sessionData).map((fn) => [fn.key, fn.color]),
+      ),
+    [sessionData],
+  );
+  const functionRowStyle = useCallback(
+    (functionKey, extra = {}) => ({
+      ...extra,
+      "--instrument-function-color":
+        summaryFunctionColorByKey.get(functionKey) || "var(--primary-color)",
+    }),
+    [summaryFunctionColorByKey],
+  );
   const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
   const customColumnsFor = (kind) =>
     sessionData.instrumentCustomColumns?.[kind] || [];
@@ -9188,7 +9203,7 @@ const SummaryDashboard = ({
                             <tr
                               key={key}
                               data-range-group={itemStateKey("uut", uutRowKey)}
-                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "uut", uut, index, rangeIdOf(range), uutRowKey)
@@ -9200,7 +9215,9 @@ const SummaryDashboard = ({
                                   : undefined
                               }
                               onDragEnd={i === 0 ? handleInstrumentDragEnd : undefined}
-                              style={{ cursor: "pointer" }}
+                              style={functionRowStyle(uutFnKey, {
+                                cursor: "pointer",
+                              })}
                             >
                               {i === 0 && (
                                 <td
@@ -9260,7 +9277,7 @@ const SummaryDashboard = ({
                   return (
                     <React.Fragment key={uutRowKey}>
                       <tr
-                        className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                        className={`instrument-function-row ${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleUutClick(e, uut.id)}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
                         draggable={false}
@@ -9272,12 +9289,12 @@ const SummaryDashboard = ({
                             ? handleInstrumentDropOnArea("uut", resolveItemAreaId("uut", uut))
                             : undefined
                         }
-                        style={{
+                        style={functionRowStyle(uutFnKey, {
                           cursor: "pointer",
                           opacity: draggingInstrumentId === uut.id ? 0.4 : undefined,
                           borderBottom:
                             specRows.length > 1 ? "none" : undefined,
-                        }}
+                        })}
                       >
                         <td
                           rowSpan={rowSpan}
@@ -9501,9 +9518,11 @@ const SummaryDashboard = ({
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${uut.id}-spec-${sIdx}`}
-                          className={`spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
+                          className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
-                          style={{ cursor: "pointer" }}
+                          style={functionRowStyle(uutFnKey, {
+                            cursor: "pointer",
+                          })}
                           onClick={(e) => handleUutClick(e, uut.id)}
                         >
                           <td
@@ -9681,7 +9700,7 @@ const SummaryDashboard = ({
                             <tr
                               key={key}
                               data-range-group={itemStateKey("tmde", tmdeRowKey)}
-                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", tmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
+                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", tmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(tmde.id)}
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "tmde", tmde, index, rangeIdOf(range), tmdeRowKey)
@@ -9693,7 +9712,9 @@ const SummaryDashboard = ({
                                   : undefined
                               }
                               onDragEnd={i === 0 ? handleInstrumentDragEnd : undefined}
-                              style={{ cursor: "pointer" }}
+                              style={functionRowStyle(tmdeFnKey, {
+                                cursor: "pointer",
+                              })}
                             >
                               {i === 0 && (
                                 <td
@@ -9753,7 +9774,7 @@ const SummaryDashboard = ({
                   return (
                     <React.Fragment key={tmdeRowKey || idx}>
                       <tr
-                        className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
+                        className={`instrument-function-row ${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleTmdeClick(e, tmde.id)}
                         onMouseEnter={() => setHoveredRowId(tmde.id)}
                         draggable={false}
@@ -9765,12 +9786,12 @@ const SummaryDashboard = ({
                             ? handleInstrumentDropOnArea("tmde", resolveItemAreaId("tmde", tmde))
                             : undefined
                         }
-                        style={{
+                        style={functionRowStyle(tmdeFnKey, {
                           cursor: "pointer",
                           opacity: draggingInstrumentId === tmde.id ? 0.4 : undefined,
                           borderBottom:
                             specRows.length > 1 ? "none" : undefined,
-                        }}
+                        })}
                       >
                         <td
                           rowSpan={rowSpan}
@@ -10025,8 +10046,10 @@ const SummaryDashboard = ({
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${tmde.id}-spec-${sIdx}`}
-                          className={`spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === tmde.id ? "hovered-spec-row" : ""}`}
-                          style={{ cursor: "pointer" }}
+                          className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === tmde.id ? "hovered-spec-row" : ""}`}
+                          style={functionRowStyle(tmdeFnKey, {
+                            cursor: "pointer",
+                          })}
                           onClick={(e) => handleTmdeClick(e, tmde.id)}
                           onMouseEnter={() => setHoveredRowId(tmde.id)}
                         >
@@ -15403,7 +15426,7 @@ function DetailedView({
                             <tr
                               key={key}
                               data-range-group={itemStateKey("uut", uutRowKey)}
-                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onMouseDownCapture={(e) => {
                                 selectRangeRowDetail(e, "uut", uut, index, rangeIdOf(range), uutRowKey);
@@ -15427,7 +15450,10 @@ function DetailedView({
                               onDragEnd={
                                 i === 0 ? handleDetailInstrumentDragEnd : undefined
                               }
-                              style={{ cursor: "pointer" }}
+                              style={{
+                                ...functionBadgeStyle(uutFnKey),
+                                cursor: "pointer",
+                              }}
                             >
                               {i === 0 && (
                                 <td
@@ -15502,9 +15528,10 @@ function DetailedView({
                   return (
                     <React.Fragment key={uutRowKey}>
                       <tr
-                        className={`${isSelected ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                        className={`instrument-function-row ${isSelected ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
                         style={{
+                          ...functionBadgeStyle(uutFnKey),
                           cursor: "pointer",
                           opacity:
                             detailDraggingInstrumentId === uut.id ? 0.4 : undefined,
@@ -15765,9 +15792,10 @@ function DetailedView({
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${uutRowKey}-spec-${sIdx}`}
-                          className={`spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
+                          className={`instrument-function-row spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           style={{
+                            ...functionBadgeStyle(uutFnKey),
                             cursor: "pointer",
                           }}
                         >
@@ -16263,7 +16291,7 @@ function DetailedView({
                                 <tr
                                   key={key}
                                   data-range-group={itemStateKey("tmde", tmdeRowKey)}
-                                  className={`tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", masterTmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                                  className={`instrument-function-row tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", masterTmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                                   onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                                   onMouseDownCapture={(e) => {
                                     selectRangeRowDetail(e, "tmde", masterTmde, index, rangeIdOf(range), tmdeRowKey);
@@ -16295,6 +16323,7 @@ function DetailedView({
                                       : undefined
                                   }
                                   style={{
+                                    ...functionBadgeStyle(tmdeFnKey),
                                     opacity: isSelectedRow ? 1 : 0.85,
                                     cursor: "pointer",
                                   }}
@@ -16371,9 +16400,10 @@ function DetailedView({
                       return (
                         <React.Fragment key={`${tmdeRowKey}-${idx}`}>
                           <tr
-                            className={`tmde-row ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                            className={`instrument-function-row tmde-row ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                             onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                             style={{
+                              ...functionBadgeStyle(tmdeFnKey),
                               opacity: isSelectedRow ? 1 : 0.85,
                               cursor: "pointer",
                             }}
@@ -16731,7 +16761,8 @@ function DetailedView({
                           {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                             <tr
                               key={`${tmdeRowKey}-${idx}-spec-${sIdx}`}
-                              className={`spec-row ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "hovered-spec-row" : ""}`}
+                              className={`instrument-function-row spec-row ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "hovered-spec-row" : ""}`}
+                              style={functionBadgeStyle(tmdeFnKey)}
                               onMouseEnter={() =>
                                 setHoveredRowId(masterTmde.id)
                               }

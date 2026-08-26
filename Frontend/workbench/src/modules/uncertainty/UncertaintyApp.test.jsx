@@ -780,7 +780,7 @@ describe("UncertaintyApp", () => {
     ).toBe(true);
   });
 
-  test("keeps instrument tables full-width with centered function controls", async () => {
+  test("keeps instrument tables full-width with left-aligned function controls", async () => {
     apiMock.state.sessions = [
       {
         id: 106,
@@ -835,6 +835,11 @@ describe("UncertaintyApp", () => {
 
     const uutName = await screen.findByText("Layout UUT");
     const uutTable = uutName.closest("table");
+    const uutRow = uutName.closest("tr");
+    expect(uutRow).toHaveClass("instrument-function-row");
+    expect(
+      uutRow.style.getPropertyValue("--instrument-function-color"),
+    ).not.toBe("");
     expect(uutTable).toHaveStyle({ width: "100%", minWidth: "1200px" });
     const widths = Array.from(uutTable.querySelectorAll("col")).map((column) =>
       Number.parseFloat(column.style.width),
@@ -880,7 +885,8 @@ describe("UncertaintyApp", () => {
       within(functionActions).getByRole("button", { name: "Delete Function" }),
     ).toHaveClass("function-header-destructive-btn");
 
-    fireEvent.click(uutName.closest("tr"));
+    fireEvent.click(uutRow);
+    expect(uutRow).toHaveClass("selected-row");
     expect(
       within(functionActions).getByRole("button", {
         name: "Delete Selected Instrument",
