@@ -18471,12 +18471,13 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   background-color: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 12%,
-    var(--sidebar-background)
+    var(--sidebar-sticky-surface)
   ) !important;
 }
 
-/* The generic sticky fallback is white in light mode. Keep the frozen Value
-   header on the same opaque function surface as the rest of its header row. */
+/* Keep the frozen Value header on the same opaque function surface as the
+   rest of its header row. An opaque base is important here: repainting a
+   translucent inherited tint on a sticky child compounds the function color. */
 .uncertainty-module
   .measurement-group-container
   .sidebar-column-headers
@@ -18502,7 +18503,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   background: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 12%,
-    var(--sidebar-background)
+    var(--sidebar-sticky-surface)
   ) !important;
   border-color: transparent !important;
   color: var(--text-color) !important;
@@ -18516,7 +18517,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   background: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 16%,
-    var(--sidebar-background)
+    var(--sidebar-sticky-surface)
   ) !important;
 }
 
@@ -18528,7 +18529,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   background: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 22%,
-    var(--sidebar-background)
+    var(--sidebar-sticky-surface)
   ) !important;
   color: var(--sidebar-function-color, var(--primary-color)) !important;
   box-shadow: inset 3px 0 0
@@ -18684,7 +18685,7 @@ body.dark-mode
   background: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 22%,
-    var(--sidebar-background)
+    var(--sidebar-sticky-surface)
   ) !important;
   border-color: transparent !important;
   color: var(--sidebar-function-color, var(--primary-color)) !important;
