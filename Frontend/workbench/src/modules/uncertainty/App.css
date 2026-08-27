@@ -18457,7 +18457,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   background-color: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 12%,
-    var(--sidebar-sticky-surface)
+    var(--sidebar-background)
   ) !important;
 }
 
@@ -18468,7 +18468,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   background-color: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 16%,
-    var(--sidebar-sticky-surface)
+    var(--sidebar-background)
   ) !important;
 }
 
@@ -18479,7 +18479,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   background-color: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 22%,
-    var(--sidebar-sticky-surface)
+    var(--sidebar-background)
   ) !important;
 }
 
@@ -18614,7 +18614,7 @@ body.dark-mode
   background-color: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 22%,
-    var(--sidebar-sticky-surface)
+    var(--sidebar-background)
   ) !important;
 }
 
