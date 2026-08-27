@@ -13318,6 +13318,46 @@ input.inline-function-input:focus {
   outline: none;
 }
 
+.instrument-table-height-resize-handle {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid transparent;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.instrument-table-height-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: 34px;
+  height: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 34%, transparent);
+  transform: translateX(-50%);
+  transition:
+    width 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.instrument-table-height-resize-handle:hover::after,
+.instrument-table-height-resize-handle:focus-visible::after {
+  width: 46px;
+  background: var(--primary-color);
+}
+
+.instrument-table-height-resize-handle:focus-visible {
+  outline: none;
+}
+
 .instrument-custom-column-label,
 .instrument-custom-column-name-input {
   width: 100%;
@@ -18519,4 +18559,70 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 
 .risk-viz-header h3 .method-chip {
   vertical-align: 3px;
+}
+
+/* Keep column hover uniform, including Description, after function-colored
+   row surfaces are applied. Selected rows retain their stronger full-row cue. */
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row:not(.selected-row):not(.instrument-selected):not(.selected-spec-row)
+  > td.col-hovered {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 20%,
+    var(--content-background)
+  ) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row:is(.selected-row, .instrument-selected, .selected-spec-row)
+  > td.col-hovered {
+  background-color: transparent !important;
+}
+
+/* The earlier theme-specific active-point rule uses the application blue and
+   has greater specificity than the function rule. Reassert the point's own
+   function color for dark themes. */
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point),
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item.active-point:hover {
+  background: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 22%,
+    var(--sidebar-background)
+  ) !important;
+  border-color: transparent !important;
+  color: var(--sidebar-function-color, var(--primary-color)) !important;
+  box-shadow: inset 3px 0 0
+    var(--sidebar-function-color, var(--primary-color)) !important;
+  text-shadow: none !important;
+}
+
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)
+  > .sidebar-value-sticky {
+  background-color: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 22%,
+    var(--sidebar-sticky-surface)
+  ) !important;
+}
+
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)
+  :is(.point-section, .point-value) {
+  color: var(--sidebar-function-color, var(--primary-color)) !important;
+  text-shadow: none !important;
 }

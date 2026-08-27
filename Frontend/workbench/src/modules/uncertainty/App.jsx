@@ -286,6 +286,16 @@ const SCOPED_ZOOM_SURFACE_SELECTOR = [
 ].join(", ");
 
 const UNCERTAINTY_UI_PREFERENCES_PREFIX = "uncertalytics.uiPreferences.v1";
+const UNCERTAINTY_UI_SIZING_KEY = "uncertalytics.uiSizing.v1";
+const INSTRUMENT_SIZE_RESET_EVENT = "uncert-reset-ui-sizes";
+const INSTRUMENT_SIZE_STORAGE_KEYS = [
+  "uncertalytics:uut:instrument-column-widths:v2",
+  "uncertalytics:tmde:instrument-column-widths:v2",
+  "uncertalytics:overview:uut:instrument-table-height:v1",
+  "uncertalytics:overview:tmde:instrument-table-height:v1",
+  "uncertalytics:detail:uut:instrument-table-height:v1",
+  "uncertalytics:detail:tmde:instrument-table-height:v1",
+];
 const DEFAULT_SIDEBAR_COLUMNS = {
   uut: true,
   section: false,
@@ -458,6 +468,25 @@ const getPointTmdeLimitSortValue = (point, key) => {
   );
   if (!limits || limits.low === "N/A") return null;
   return parseSortableNumber(key === "tmdeLow" ? limits.low : limits.high);
+};
+
+const readUiSizingPreferences = () => {
+  try {
+    return JSON.parse(
+      window.localStorage.getItem(UNCERTAINTY_UI_SIZING_KEY) || "{}",
+    );
+  } catch (error) {
+    console.warn("Unable to read uncertainty sizing preferences", error);
+    return {};
+  }
+};
+
+const hasStoredUiSizingPreferences = () => {
+  try {
+    return window.localStorage.getItem(UNCERTAINTY_UI_SIZING_KEY) !== null;
+  } catch {
+    return false;
+  }
 };
 
 export const getUutReassignmentPointIds = ({
@@ -1809,7 +1838,11 @@ function App({ showThemeToggle = false }) {
   // and its riskResults are computed, then clears this.
   const [pendingRiskBreakdown, setPendingRiskBreakdown] = useState(null);
 
-  const [sidebarWidth, setSidebarWidth] = useState(550);
+  const [hadStoredUiSizingAtMount] = useState(hasStoredUiSizingPreferences);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = readUiSizingPreferences().sidebarWidth;
+    return Number.isFinite(saved) ? saved : 550;
+  });
   const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(true);
   const [isRiskInputsOpen, setIsRiskInputsOpen] = useState(true);
   const [isMitigationInputsOpen, setIsMitigationInputsOpen] = useState(true);
@@ -1817,7 +1850,9 @@ function App({ showThemeToggle = false }) {
   const analysisScrollPositionsRef = useRef({});
   const lastSelectedPointBySessionRef = useRef({});
   const [showContribution, setShowContribution] = useState(false);
-  const [scopedZoomLevels, setScopedZoomLevels] = useState({});
+  const [scopedZoomLevels, setScopedZoomLevels] = useState(
+    () => readUiSizingPreferences().scopedZoomLevels || {},
+  );
   const [loadedPreferencesSessionId, setLoadedPreferencesSessionId] =
     useState(null);
   const isResizingRef = useRef(false);
@@ -2203,6 +2238,7 @@ function App({ showThemeToggle = false }) {
     }
 
     const preferences = readUiPreferences(selectedSessionId);
+    const sizingPreferences = readUiSizingPreferences();
     setSidebarColumns({
       ...DEFAULT_SIDEBAR_COLUMNS,
       ...(preferences.sidebarColumns || {}),
@@ -2212,9 +2248,11 @@ function App({ showThemeToggle = false }) {
       ...(preferences.sidebarSort || {}),
     });
     setSidebarWidth(
-      Number.isFinite(preferences.sidebarWidth)
-        ? preferences.sidebarWidth
-        : 550,
+      Number.isFinite(sizingPreferences.sidebarWidth)
+        ? sizingPreferences.sidebarWidth
+        : Number.isFinite(preferences.sidebarWidth)
+          ? preferences.sidebarWidth
+          : 550,
     );
     setIsSessionInfoOpen(preferences.isSessionInfoOpen ?? true);
     const legacyRequirementsOpen = preferences.isRequirementsOpen ?? true;
@@ -2231,7 +2269,9 @@ function App({ showThemeToggle = false }) {
     setActiveRangeIndices(preferences.activeRangeIndices || {});
     setAnalysisMode(preferences.analysisMode || "overview");
     setShowContribution(preferences.showContribution ?? false);
-    setScopedZoomLevels(preferences.scopedZoomLevels || {});
+    setScopedZoomLevels(
+      sizingPreferences.scopedZoomLevels || preferences.scopedZoomLevels || {},
+    );
     setLoadedPreferencesSessionId(selectedSessionId);
   }, [selectedSessionId]);
 
@@ -2246,7 +2286,6 @@ function App({ showThemeToggle = false }) {
     const preferences = {
       sidebarColumns,
       sidebarSort,
-      sidebarWidth,
       isSessionInfoOpen,
       isRiskInputsOpen,
       isMitigationInputsOpen,
@@ -2259,7 +2298,6 @@ function App({ showThemeToggle = false }) {
       activeRangeIndices,
       analysisMode,
       showContribution,
-      scopedZoomLevels,
     };
 
     try {
@@ -2281,13 +2319,25 @@ function App({ showThemeToggle = false }) {
     isMitigationInputsOpen,
     isSessionInfoOpen,
     loadedPreferencesSessionId,
-    scopedZoomLevels,
     selectedSessionId,
     showContribution,
     sidebarColumns,
     sidebarSort,
-    sidebarWidth,
   ]);
+
+  useEffect(() => {
+    // Give an existing session-scoped layout one chance to migrate into the
+    // new user-wide store before writing defaults on first launch.
+    if (!hadStoredUiSizingAtMount && !loadedPreferencesSessionId) return;
+    try {
+      window.localStorage.setItem(
+        UNCERTAINTY_UI_SIZING_KEY,
+        JSON.stringify({ sidebarWidth, scopedZoomLevels }),
+      );
+    } catch (error) {
+      console.warn("Unable to save uncertainty sizing preferences", error);
+    }
+  }, [hadStoredUiSizingAtMount, loadedPreferencesSessionId, sidebarWidth, scopedZoomLevels]);
 
   useEffect(() => {
     const root = resultsContainerRef.current;
@@ -2600,6 +2650,31 @@ function App({ showThemeToggle = false }) {
         document.activeElement?.tagName === "INPUT" ||
         document.activeElement?.tagName === "TEXTAREA" ||
         document.activeElement?.isContentEditable;
+
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        key === "0"
+      ) {
+        e.preventDefault();
+        setSidebarWidth(550);
+        setScopedZoomLevels({});
+        try {
+          window.localStorage.setItem(
+            UNCERTAINTY_UI_SIZING_KEY,
+            JSON.stringify({ sidebarWidth: 550, scopedZoomLevels: {} }),
+          );
+          INSTRUMENT_SIZE_STORAGE_KEYS.forEach((storageKey) =>
+            window.localStorage.removeItem(storageKey),
+          );
+        } catch {
+          // The visible layout still resets when browser storage is blocked.
+        }
+        window.dispatchEvent(new CustomEvent(INSTRUMENT_SIZE_RESET_EVENT));
+        showToast("Layout sizes reset");
+        return;
+      }
 
       if (
         (e.ctrlKey || e.metaKey) &&

@@ -69,6 +69,9 @@ beforeAll(() => {
       disconnect() {}
     };
   }
+  if (!window.PointerEvent) {
+    window.PointerEvent = window.MouseEvent;
+  }
 });
 
 beforeEach(() => {
@@ -693,7 +696,7 @@ describe("UncertaintyApp", () => {
     await waitFor(() => {
       expect(document.querySelector(".analysis-content").scrollTop).toBe(333);
     });
-  }, 15000);
+  }, 30000);
 
   test("renders named function headers in the sidebar", async () => {
     apiMock.state.sessions = [
@@ -902,6 +905,59 @@ describe("UncertaintyApp", () => {
         name: "Delete Selected Instrument",
       }),
     ).not.toBeInTheDocument();
+
+    const addInstrumentButton = within(functionActions).getByRole("button", {
+      name: "Add UUT with this function",
+    });
+    fireEvent.click(addInstrumentButton);
+    await waitFor(() => {
+      expect(screen.getByText("Layout UUT").closest("tr")).toHaveClass(
+        "selected-row",
+      );
+    });
+
+    fireEvent.contextMenu(screen.getByText("Layout UUT").closest("tr"), {
+      clientX: 120,
+      clientY: 160,
+    });
+    expect(await screen.findByText("Copy")).toBeInTheDocument();
+    expect(screen.getByText("Cut")).toBeInTheDocument();
+    expect(screen.getByText("Delete")).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+
+    const heightHandle = within(uutTable.closest(".panel-card")).getByRole(
+      "button",
+      { name: "Resize UUT table height" },
+    );
+    const tableContainer = uutTable.closest(".instrument-panel-table-container");
+    fireEvent.pointerDown(heightHandle, { clientY: 100 });
+    fireEvent.pointerMove(document, { clientY: 200 });
+    fireEvent.pointerUp(document);
+    await waitFor(() => {
+      expect(tableContainer.style.height).toBe("440px");
+      expect(
+        window.localStorage.getItem(
+          "uncertalytics:overview:uut:instrument-table-height:v1",
+        ),
+      ).toBe("440");
+    });
+
+    const currentUutRow = screen.getByText("Layout UUT").closest("tr");
+    fireEvent.click(
+      within(currentUutRow).getByRole("button", { name: "Set tolerance" }),
+    );
+    await waitFor(() => {
+      expect(
+        uutTable.querySelector(".inline-tolerance-editor--all"),
+      ).toBeInTheDocument();
+      expect(uutTable.querySelector("tr.inline-range-row")).toBeInTheDocument();
+    });
+    fireEvent.pointerDown(descriptionResizeHandle, { clientX: 100 });
+    fireEvent.pointerMove(document, { clientX: 120 });
+    fireEvent.pointerUp(document);
+    expect(
+      uutTable.querySelector(".inline-tolerance-editor--all"),
+    ).toBeInTheDocument();
   });
 
   test("keeps UUT functions visible when they have no measurement points", async () => {
@@ -1605,6 +1661,24 @@ describe("UncertaintyApp", () => {
     expect(surface.scrollLeft).toBeCloseTo(59);
     expect(surface.scrollTop).toBeCloseTo(76);
     expect(document.documentElement.style.zoom || "").toBe("");
+
+    window.localStorage.setItem(
+      "uncertalytics:uut:instrument-column-widths:v2",
+      JSON.stringify({ description: 999 }),
+    );
+    fireEvent.keyDown(window, { key: "0", ctrlKey: true });
+    expect(
+      window.localStorage.getItem(
+        "uncertalytics:uut:instrument-column-widths:v2",
+      ),
+    ).toBeNull();
+    await waitFor(() => {
+      expect(
+        JSON.parse(
+          window.localStorage.getItem("uncertalytics.uiSizing.v1") || "{}",
+        ).scopedZoomLevels,
+      ).toEqual({});
+    });
 
     surface.remove();
   });

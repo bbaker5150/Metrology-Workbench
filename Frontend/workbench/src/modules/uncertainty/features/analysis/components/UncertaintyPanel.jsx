@@ -2054,6 +2054,12 @@ const useInlineColumnDismiss = ({
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (rootRef.current?.contains(target)) return;
+      if (
+        target instanceof Element &&
+        target.closest(".instrument-size-control")
+      ) {
+        return;
+      }
       if (target instanceof Element && target.closest(portalSelector)) return;
       window.setTimeout(() => onDismiss(), 0);
     };
@@ -2559,6 +2565,7 @@ const EditableCustomColumnHeader = ({
 };
 
 const INSTRUMENT_COLUMN_RESIZE_EVENT = "uncert-size-instrument-column";
+export const INSTRUMENT_SIZE_RESET_EVENT = "uncert-reset-ui-sizes";
 const INSTRUMENT_COLUMN_DEFAULTS = {
   uut: {
     description: 240,
@@ -2626,6 +2633,20 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
     return () =>
       window.removeEventListener(INSTRUMENT_COLUMN_RESIZE_EVENT, syncWidths);
   }, [kind]);
+
+  useEffect(() => {
+    const resetWidths = () => {
+      setWidths(defaults);
+      try {
+        window.localStorage.removeItem(storageKey);
+      } catch {
+        // Reset still applies to the current view when storage is blocked.
+      }
+    };
+    window.addEventListener(INSTRUMENT_SIZE_RESET_EVENT, resetWidths);
+    return () =>
+      window.removeEventListener(INSTRUMENT_SIZE_RESET_EVENT, resetWidths);
+  }, [defaults, storageKey]);
 
   const minimumWidth = useCallback((key) => {
     if (key === "sync") return 60;
@@ -2764,7 +2785,7 @@ const ResizableInstrumentHeader = ({
     <span className="instrument-resizable-header-content">{children}</span>
     <button
       type="button"
-      className="instrument-column-resize-handle"
+      className="instrument-column-resize-handle instrument-size-control"
       title={`Drag to resize ${label} column`}
       aria-label={`Resize ${label} column`}
       onPointerDown={(event) => columns.startResize(event, columnKey)}
@@ -2780,6 +2801,90 @@ const ResizableInstrumentHeader = ({
       }}
     />
   </th>
+);
+
+const useInstrumentTableHeight = (view, kind) => {
+  const storageKey = `uncertalytics:${view}:${kind}:instrument-table-height:v1`;
+  const containerRef = useRef(null);
+  const [height, setHeight] = useState(() => {
+    try {
+      const saved = Number(window.localStorage.getItem(storageKey));
+      return Number.isFinite(saved) && saved > 0 ? saved : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const resetHeight = useCallback(() => {
+    setHeight(null);
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch {
+      // Reset still applies to the current view when storage is blocked.
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    window.addEventListener(INSTRUMENT_SIZE_RESET_EVENT, resetHeight);
+    return () =>
+      window.removeEventListener(INSTRUMENT_SIZE_RESET_EVENT, resetHeight);
+  }, [resetHeight]);
+
+  const startResize = useCallback(
+    (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const startY = event.clientY;
+      const startHeight =
+        containerRef.current?.getBoundingClientRect().height || height || 340;
+      const previousCursor = document.body.style.cursor;
+      const previousUserSelect = document.body.style.userSelect;
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+
+      const handleMove = (moveEvent) => {
+        const nextHeight = Math.max(
+          180,
+          Math.min(1600, Math.round(startHeight + moveEvent.clientY - startY)),
+        );
+        setHeight(nextHeight);
+        try {
+          window.localStorage.setItem(storageKey, String(nextHeight));
+        } catch {
+          // Resizing remains available for this view when storage is blocked.
+        }
+      };
+      const handleUp = () => {
+        document.removeEventListener("pointermove", handleMove);
+        document.removeEventListener("pointerup", handleUp);
+        document.body.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
+      };
+      document.addEventListener("pointermove", handleMove);
+      document.addEventListener("pointerup", handleUp, { once: true });
+    },
+    [height, storageKey],
+  );
+
+  return {
+    containerRef,
+    containerStyle: height
+      ? { height: `${height}px`, maxHeight: "none" }
+      : undefined,
+    startResize,
+    resetHeight,
+  };
+};
+
+const InstrumentTableHeightHandle = ({ kind, sizing }) => (
+  <button
+    type="button"
+    className="instrument-table-height-resize-handle instrument-size-control"
+    title={`Drag to resize ${kind.toUpperCase()} table height; double-click to reset`}
+    aria-label={`Resize ${kind.toUpperCase()} table height`}
+    onPointerDown={sizing.startResize}
+    onDoubleClick={sizing.resetHeight}
+  />
 );
 
 const InstrumentOrderControls = ({ onMoveUp, onMoveDown }) => (
@@ -4209,6 +4314,7 @@ export const InlineToleranceCell = ({
   onCommit,
   openRequested = false,
   onOpenRequestHandled,
+  onEditingChange,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const containerRef = useRef(null);
@@ -4227,6 +4333,10 @@ export const InlineToleranceCell = ({
     setIsEditing(true);
     onOpenRequestHandled?.();
   }, [openRequested, onOpenRequestHandled]);
+
+  useEffect(() => {
+    onEditingChange?.(isEditing);
+  }, [isEditing, onEditingChange]);
 
   // Put focus in the first field when the editor opens so a later click-away
   // reliably produces a focusout (and commits the in-progress value).
@@ -6458,6 +6568,8 @@ const SummaryDashboard = ({
     "tmde",
     customColumnsFor("tmde"),
   );
+  const uutTableHeight = useInstrumentTableHeight("overview", "uut");
+  const tmdeTableHeight = useInstrumentTableHeight("overview", "tmde");
   const requestCustomColumn = (kind) => {
     const key = `field-${uuidv4().slice(0, 8)}`;
     const current = sessionData.instrumentCustomColumns || {};
@@ -7323,7 +7435,6 @@ const SummaryDashboard = ({
     };
     if (kind === "uut") {
       const newUut = { id: uuidv4(), name: "", description: "", instrument };
-      setSelectedUutIds([newUut.id]);
       onSessionSave({ ...sessionData, uuts: [...(sessionData.uuts || []), newUut] });
     } else {
       const newTmde = {
@@ -7334,7 +7445,6 @@ const SummaryDashboard = ({
         isInstrumentBased: false,
         instrument,
       };
-      setSelectedTmdeIds([newTmde.id]);
       onSessionSave({ ...sessionData, tmdes: [...(sessionData.tmdes || []), newTmde] });
     }
   };
@@ -8045,6 +8155,21 @@ const SummaryDashboard = ({
   const [selectedRangeIds, setSelectedRangeIds] = useState({});
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
 
+  // Keep the current selection through Add and through a delete confirmation.
+  // Prune it only after the backing session rows have actually disappeared.
+  useEffect(() => {
+    const validUutIds = new Set((sessionData.uuts || []).map((item) => String(item.id)));
+    const validTmdeIds = new Set((sessionData.tmdes || []).map((item) => String(item.id)));
+    setSelectedUutIds((current) => {
+      const next = current.filter((id) => validUutIds.has(String(id)));
+      return next.length === current.length ? current : next;
+    });
+    setSelectedTmdeIds((current) => {
+      const next = current.filter((id) => validTmdeIds.has(String(id)));
+      return next.length === current.length ? current : next;
+    });
+  }, [sessionData.uuts, sessionData.tmdes, setSelectedUutIds]);
+
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
@@ -8061,6 +8186,8 @@ const SummaryDashboard = ({
       rangeClickGroupRef.current = getRangeColumnClickContext(e.target);
     };
     const onDown = (e) => {
+      // Resizing is a layout action, not a click-away from the active editor.
+      if (e.target?.closest?.(".instrument-size-control")) return;
       // UnitSelect renders its options in a body-level portal. Selecting an
       // option is still an interaction with this range group, not a click-away
       // that should collapse the expanded table.
@@ -8587,7 +8714,6 @@ const SummaryDashboard = ({
   const handleDeleteSelectedUuts = useCallback(() => {
     if (onDeleteUut && selectedUutIds.length > 0) {
       onDeleteUut(selectedUutIds);
-      setSelectedUutIds([]);
     }
   }, [onDeleteUut, selectedUutIds]);
 
@@ -8595,7 +8721,6 @@ const SummaryDashboard = ({
   const handleDeleteSelectedTmdes = useCallback(() => {
     if (onDeleteTmdeDefinition && selectedTmdeIds.length > 0) {
       onDeleteTmdeDefinition(selectedTmdeIds);
-      setSelectedTmdeIds([]);
     }
   }, [onDeleteTmdeDefinition, selectedTmdeIds]);
 
@@ -9020,7 +9145,12 @@ const SummaryDashboard = ({
             {renderAddFunctionMenu("uut")}
           </div>
         </div>
-        <div className="panel-table-container instrument-panel-table-container" data-tour="uut-table">
+        <div
+          ref={uutTableHeight.containerRef}
+          className="panel-table-container instrument-panel-table-container"
+          data-tour="uut-table"
+          style={uutTableHeight.containerStyle}
+        >
           <table
             className="instrument-summary-table industry-table instrument-equipment-table"
             onMouseLeave={() => {
@@ -9180,6 +9310,9 @@ const SummaryDashboard = ({
                               data-range-group={itemStateKey("uut", uutRowKey)}
                               className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
+                              onContextMenu={(event) =>
+                                openInstrumentRowMenu(event, "uut", uut)
+                              }
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "uut", uut, index, rangeIdOf(range), uutRowKey)
                               }
@@ -9254,6 +9387,9 @@ const SummaryDashboard = ({
                       <tr
                         className={`instrument-function-row ${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleUutClick(e, uut.id)}
+                        onContextMenu={(event) =>
+                          openInstrumentRowMenu(event, "uut", uut)
+                        }
                         onMouseEnter={() => setHoveredRowId(uut.id)}
                         draggable={false}
                         onDragStart={handleInstrumentDragStart("uut", uut, uutFnKey)}
@@ -9402,6 +9538,17 @@ const SummaryDashboard = ({
                                       activeRange={range}
                                       editable={!!onSessionSave}
                                       showMeasurementStatus
+                                      onEditingChange={(editing) => {
+                                        if (!editing) return;
+                                        setPendingToleranceRangeKey(
+                                          `${itemStateKey("uut", uut.id)}:${rangeKey}`,
+                                        );
+                                        setExpandedRangeKeys((previous) =>
+                                          new Set(previous).add(
+                                            itemStateKey("uut", uutRowKey),
+                                          ),
+                                        );
+                                      }}
                                       openRequested={
                                         pendingToleranceRangeKey ===
                                         `${itemStateKey("uut", uut.id)}:${rangeKey}`
@@ -9518,6 +9665,7 @@ const SummaryDashboard = ({
             </tbody>
           </table>
         </div>
+        <InstrumentTableHeightHandle kind="uut" sizing={uutTableHeight} />
       </div>
 
       {/* TMDE TABLE */}
@@ -9553,7 +9701,12 @@ const SummaryDashboard = ({
             {renderAddFunctionMenu("tmde")}
           </div>
         </div>
-        <div className="panel-table-container instrument-panel-table-container" data-tour="tmde-table">
+        <div
+          ref={tmdeTableHeight.containerRef}
+          className="panel-table-container instrument-panel-table-container"
+          data-tour="tmde-table"
+          style={tmdeTableHeight.containerStyle}
+        >
           <table
             className="instrument-summary-table industry-table equipment-summary-table instrument-equipment-table"
             onMouseLeave={() => {
@@ -9677,6 +9830,9 @@ const SummaryDashboard = ({
                               data-range-group={itemStateKey("tmde", tmdeRowKey)}
                               className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", tmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(tmde.id)}
+                              onContextMenu={(event) =>
+                                openInstrumentRowMenu(event, "tmde", tmde)
+                              }
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "tmde", tmde, index, rangeIdOf(range), tmdeRowKey)
                               }
@@ -9751,6 +9907,9 @@ const SummaryDashboard = ({
                       <tr
                         className={`instrument-function-row ${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleTmdeClick(e, tmde.id)}
+                        onContextMenu={(event) =>
+                          openInstrumentRowMenu(event, "tmde", tmde)
+                        }
                         onMouseEnter={() => setHoveredRowId(tmde.id)}
                         draggable={false}
                         onDragStart={handleInstrumentDragStart("tmde", tmde, tmdeFnKey)}
@@ -9909,6 +10068,17 @@ const SummaryDashboard = ({
                                       tolerance={tolerance}
                                       activeRange={range}
                                       editable={!!onSessionSave}
+                                      onEditingChange={(editing) => {
+                                        if (!editing) return;
+                                        setPendingToleranceRangeKey(
+                                          `${itemStateKey("tmde", tmde.id)}:${rangeKey}`,
+                                        );
+                                        setExpandedRangeKeys((previous) =>
+                                          new Set(previous).add(
+                                            itemStateKey("tmde", tmdeRowKey),
+                                          ),
+                                        );
+                                      }}
                                       openRequested={
                                         pendingToleranceRangeKey ===
                                         `${itemStateKey("tmde", tmde.id)}:${rangeKey}`
@@ -10046,6 +10216,7 @@ const SummaryDashboard = ({
             </tbody>
           </table>
         </div>
+        <InstrumentTableHeightHandle kind="tmde" sizing={tmdeTableHeight} />
       </div>
 
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
@@ -10235,6 +10406,19 @@ function DetailedView({
   const [selectedRangeIds, setSelectedRangeIds] = useState({});
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
+
+  useEffect(() => {
+    const validUutIds = new Set((sessionData.uuts || []).map((item) => String(item.id)));
+    const validTmdeIds = new Set((sessionData.tmdes || []).map((item) => String(item.id)));
+    setSelectedUutIds((current) => {
+      const next = current.filter((id) => validUutIds.has(String(id)));
+      return next.length === current.length ? current : next;
+    });
+    setSelectedTmdeIds((current) => {
+      const next = current.filter((id) => validTmdeIds.has(String(id)));
+      return next.length === current.length ? current : next;
+    });
+  }, [sessionData.uuts, sessionData.tmdes]);
   const [detailDraggingInstrumentId, setDetailDraggingInstrumentId] = useState(null);
   const [detailDragOverFunctionTarget, setDetailDragOverFunctionTarget] = useState(null);
   const [editingCustomColumnKey, setEditingCustomColumnKey] = useState(null);
@@ -10248,6 +10432,8 @@ function DetailedView({
     "tmde",
     customColumnsFor("tmde"),
   );
+  const uutTableHeight = useInstrumentTableHeight("detail", "uut");
+  const tmdeTableHeight = useInstrumentTableHeight("detail", "tmde");
   const requestCustomColumn = (kind) => {
     const key = `field-${uuidv4().slice(0, 8)}`;
     const current = sessionData.instrumentCustomColumns || {};
@@ -11524,6 +11710,8 @@ function DetailedView({
       rangeClickGroupRef.current = getRangeColumnClickContext(e.target);
     };
     const onDown = (e) => {
+      // Resizing is a layout action, not a click-away from the active editor.
+      if (e.target?.closest?.(".instrument-size-control")) return;
       // UnitSelect renders its options in a body-level portal. Selecting an
       // option is still an interaction with this range group, not a click-away
       // that should collapse the expanded table.
@@ -11953,14 +12141,12 @@ function DetailedView({
   const handleDeleteSelectedUuts = () => {
     if (onDeleteUut && selectedUutIds.length > 0) {
       onDeleteUut(selectedUutIds);
-      setSelectedUutIds([]);
     }
   };
 
   const handleDeleteSelectedTmdes = () => {
     if (onDeleteTmdeDefinition && selectedTmdeIds.length > 0) {
       onDeleteTmdeDefinition(selectedTmdeIds);
-      setSelectedTmdeIds([]);
     }
   };
 
@@ -12316,7 +12502,6 @@ function DetailedView({
         measurementAreaColor: activeMeasurementArea?.color || "",
         instrument,
       };
-      setSelectedUutIds([newUut.id]);
       onSessionSave({ ...sessionData, uuts: [...(sessionData.uuts || []), newUut] });
     } else {
       const newTmde = {
@@ -12327,7 +12512,6 @@ function DetailedView({
         isInstrumentBased: false,
         instrument,
       };
-      setSelectedTmdeIds([newTmde.id]);
       onSessionSave({ ...sessionData, tmdes: [...(sessionData.tmdes || []), newTmde] });
     }
   };
@@ -15290,7 +15474,12 @@ function DetailedView({
             {renderAddFunctionMenu("uut")}
           </div>
         </div>
-        <div className="panel-table-container instrument-panel-table-container" data-tour="uut-table">
+        <div
+          ref={uutTableHeight.containerRef}
+          className="panel-table-container instrument-panel-table-container"
+          data-tour="uut-table"
+          style={uutTableHeight.containerStyle}
+        >
           <table
             className="instrument-summary-table industry-table instrument-equipment-table"
             onMouseLeave={() => {
@@ -15404,6 +15593,9 @@ function DetailedView({
                               data-range-group={itemStateKey("uut", uutRowKey)}
                               className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
+                              onContextMenu={(event) =>
+                                openInstrumentRowMenu(event, "uut", uut)
+                              }
                               onMouseDownCapture={(e) => {
                                 selectRangeRowDetail(e, "uut", uut, index, rangeIdOf(range), uutRowKey);
                                 // With the in-cell range switcher removed, clicking a
@@ -15506,6 +15698,9 @@ function DetailedView({
                       <tr
                         className={`instrument-function-row ${isSelected ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
+                        onContextMenu={(event) =>
+                          openInstrumentRowMenu(event, "uut", uut)
+                        }
                         style={{
                           ...functionBadgeStyle(uutFnKey),
                           cursor: "pointer",
@@ -15682,6 +15877,17 @@ function DetailedView({
                                       activeRange={range}
                                       editable={!!onSessionSave}
                                       showMeasurementStatus
+                                      onEditingChange={(editing) => {
+                                        if (!editing) return;
+                                        setPendingToleranceRangeKey(
+                                          `${itemStateKey("uut", uut.id)}:${rangeKey}`,
+                                        );
+                                        setExpandedRangeKeys((previous) =>
+                                          new Set(previous).add(
+                                            itemStateKey("uut", uutRowKey),
+                                          ),
+                                        );
+                                      }}
                                       openRequested={
                                         pendingToleranceRangeKey ===
                                         `${itemStateKey("uut", uut.id)}:${rangeIdOf(range)}`
@@ -15799,6 +16005,7 @@ function DetailedView({
             </tbody>
           </table>
         </div>
+        <InstrumentTableHeightHandle kind="uut" sizing={uutTableHeight} />
         </div>
 
       </div>
@@ -16112,7 +16319,12 @@ function DetailedView({
             </div>
           </div>
 
-          <div className="panel-table-container instrument-panel-table-container" data-tour="tmde-table">
+          <div
+            ref={tmdeTableHeight.containerRef}
+            className="panel-table-container instrument-panel-table-container"
+            data-tour="tmde-table"
+            style={tmdeTableHeight.containerStyle}
+          >
             <table
               className="instrument-summary-table industry-table equipment-detail-table instrument-equipment-table"
               onMouseLeave={() => {
@@ -16269,6 +16481,9 @@ function DetailedView({
                                   data-range-group={itemStateKey("tmde", tmdeRowKey)}
                                   className={`instrument-function-row tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", masterTmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                                   onMouseEnter={() => setHoveredRowId(masterTmde.id)}
+                                  onContextMenu={(event) =>
+                                    openInstrumentRowMenu(event, "tmde", masterTmde)
+                                  }
                                   onMouseDownCapture={(e) => {
                                     selectRangeRowDetail(e, "tmde", masterTmde, index, rangeIdOf(range), tmdeRowKey);
                                     // Range switcher removed: activating a range row
@@ -16378,6 +16593,9 @@ function DetailedView({
                           <tr
                             className={`instrument-function-row tmde-row ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                             onMouseEnter={() => setHoveredRowId(masterTmde.id)}
+                            onContextMenu={(event) =>
+                              openInstrumentRowMenu(event, "tmde", masterTmde)
+                            }
                             style={{
                               ...functionBadgeStyle(tmdeFnKey),
                               opacity: isSelectedRow ? 1 : 0.85,
@@ -16589,6 +16807,17 @@ function DetailedView({
                                           tolerance={tolerance}
                                           activeRange={range}
                                           editable={!!onSessionSave}
+                                          onEditingChange={(editing) => {
+                                            if (!editing) return;
+                                            setPendingToleranceRangeKey(
+                                              `${itemStateKey("tmde", masterTmde.id)}:${rangeKey}`,
+                                            );
+                                            setExpandedRangeKeys((previous) =>
+                                              new Set(previous).add(
+                                                itemStateKey("tmde", tmdeRowKey),
+                                              ),
+                                            );
+                                          }}
                                           openRequested={
                                             pendingToleranceRangeKey ===
                                             `${itemStateKey("tmde", masterTmde.id)}:${rangeKey}`
@@ -16768,6 +16997,7 @@ function DetailedView({
               </tbody>
             </table>
           </div>
+          <InstrumentTableHeightHandle kind="tmde" sizing={tmdeTableHeight} />
         </div>
       </div>
 
