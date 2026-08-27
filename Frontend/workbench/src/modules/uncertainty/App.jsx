@@ -408,7 +408,36 @@ const getScopedZoomTarget = (eventTarget) => {
 
   const table = eventTarget.closest("table");
   if (!table || !surface.contains(table)) return null;
-  return { surface, content: table };
+  const linkedContents = surface.classList.contains(
+    "instrument-panel-table-container",
+  )
+    ? [
+        surface.parentElement?.querySelector(
+          ":scope > .instrument-panel-card-header",
+        ),
+      ].filter(Boolean)
+    : [];
+  return { surface, content: table, linkedContents };
+};
+
+const getScopedZoomContents = (surface) => {
+  if (
+    surface.classList.contains("measurement-point-list") ||
+    surface.classList.contains("measurement-equation-zoom-surface")
+  ) {
+    const content = surface.querySelector(":scope > .scoped-zoom-content");
+    return content ? [content] : [];
+  }
+
+  const table = surface.querySelector(":scope > table");
+  if (!table) return [];
+  if (!surface.classList.contains("instrument-panel-table-container")) {
+    return [table];
+  }
+  const header = surface.parentElement?.querySelector(
+    ":scope > .instrument-panel-card-header",
+  );
+  return header ? [table, header] : [table];
 };
 
 const parseSortableNumber = (value) => {
@@ -2347,15 +2376,13 @@ function App({ showThemeToggle = false }) {
       root.querySelectorAll(SCOPED_ZOOM_SURFACE_SELECTOR).forEach((surface) => {
         const key = getScopedZoomKey(surface);
         const zoom = scopedZoomLevels[key] || getDefaultScopedZoom(key);
-        const content =
-          surface.classList.contains("measurement-point-list") ||
-          surface.classList.contains("measurement-equation-zoom-surface")
-          ? surface.querySelector(":scope > .scoped-zoom-content")
-          : surface.querySelector(":scope > table");
-        if (!content) return;
+        const contents = getScopedZoomContents(surface);
+        if (contents.length === 0) return;
 
         surface.dataset.zoomLevel = String(zoom);
-        content.style.zoom = String(zoom);
+        contents.forEach((content) => {
+          content.style.zoom = String(zoom);
+        });
       });
     };
 
@@ -2799,7 +2826,7 @@ function App({ showThemeToggle = false }) {
 
       e.preventDefault();
 
-      const { surface, content } = zoomTarget;
+      const { surface, content, linkedContents = [] } = zoomTarget;
       // The applied default is written to dataset.zoomLevel by applyZoomLevels;
       // fall back to 1 only for surfaces that haven't been initialized yet.
       const currentZoom = parseFloat(surface.dataset.zoomLevel || "1");
@@ -2818,6 +2845,9 @@ function App({ showThemeToggle = false }) {
 
       surface.dataset.zoomLevel = String(nextZoom);
       content.style.zoom = String(nextZoom);
+      linkedContents.forEach((linkedContent) => {
+        linkedContent.style.zoom = String(nextZoom);
+      });
       const zoomKey = getScopedZoomKey(surface);
       if (zoomKey) {
         setScopedZoomLevels((current) => ({

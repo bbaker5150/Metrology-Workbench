@@ -2855,6 +2855,7 @@ const useInstrumentTableHeight = (view, kind) => {
         // wait for a React render before showing the new table height.
         container.style.height = `${nextHeight}px`;
         container.style.maxHeight = "none";
+        container.style.flex = "0 0 auto";
       };
       const handleUp = () => {
         window.removeEventListener("pointermove", handleMove);
@@ -2879,7 +2880,7 @@ const useInstrumentTableHeight = (view, kind) => {
   return {
     containerRef,
     containerStyle: height
-      ? { height: `${height}px`, maxHeight: "none" }
+      ? { height: `${height}px`, maxHeight: "none", flex: "0 0 auto" }
       : undefined,
     startResize,
     resetHeight,
@@ -4328,6 +4329,7 @@ export const InlineToleranceCell = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const containerRef = useRef(null);
+  const onEditingChangeRef = useRef(onEditingChange);
   const inferredMode = inferToleranceEditorMode(tolerance);
   const [shapeMode, setShapeMode] = useState(inferredMode.shape);
   const [sidedness, setSidedness] = useState(inferredMode.sidedness);
@@ -4345,8 +4347,12 @@ export const InlineToleranceCell = ({
   }, [openRequested, onOpenRequestHandled]);
 
   useEffect(() => {
-    onEditingChange?.(isEditing);
-  }, [isEditing, onEditingChange]);
+    onEditingChangeRef.current = onEditingChange;
+  }, [onEditingChange]);
+
+  useEffect(() => {
+    onEditingChangeRef.current?.(isEditing);
+  }, [isEditing]);
 
   // Put focus in the first field when the editor opens so a later click-away
   // reliably produces a focusout (and commits the in-progress value).
@@ -4579,12 +4585,17 @@ export const RangeCell = ({
       !formatRangeSummary(activeRange),
   );
   const containerRef = useRef(null);
+  const onEditingChangeRef = useRef(onEditingChange);
   const openAfterInitialRangeRef = useRef(false);
   const showEditor = isEditing || isStagedBlankOpen;
 
   useEffect(() => {
-    onEditingChange?.(showEditor);
-  }, [onEditingChange, showEditor]);
+    onEditingChangeRef.current = onEditingChange;
+  }, [onEditingChange]);
+
+  useEffect(() => {
+    onEditingChangeRef.current?.(showEditor);
+  }, [showEditor]);
 
   // Creating the first real range updates the parent row. Wait for that stable
   // id before mounting the inputs; otherwise React replaces the min/max inputs
@@ -8219,20 +8230,34 @@ const SummaryDashboard = ({
       // focused inline editor, so its onBlur commit — new range, tolerance edit,
       // clear-to-delete — would never run before the list collapses. Force the
       // focused editor to blur first so its commit lands.
-      const clickedRangeKey = rangeClickGroupRef.current?.key || null;
+      const liveClickContext = getRangeColumnClickContext(e.target);
+      const clickContext = liveClickContext.key
+        ? liveClickContext
+        : rangeClickGroupRef.current;
+      const clickedRangeKey = clickContext?.key || null;
       const clickedInsideRangeColumn =
-        Boolean(clickedRangeKey) && rangeClickGroupRef.current?.inRangeColumn;
-      const toleranceKey = rangeClickGroupRef.current?.toleranceKey || null;
-      if (toleranceKey) setPendingToleranceRangeKey(toleranceKey);
-      if (!clickedInsideRangeColumn) {
+        Boolean(clickedRangeKey) && clickContext?.inRangeColumn;
+      const clickedInsideRangeGroup = Boolean(clickedRangeKey);
+      if (!clickedInsideRangeGroup) {
         const ae = document.activeElement;
         if (ae && typeof ae.blur === "function" && ae.closest?.("[data-range-group]")) {
           ae.blur();
         }
       }
+      // A lateral click is an editor handoff within this instrument. Keep its
+      // physical range rows mounted so the newly clicked column can open on
+      // that same first click, while hiding Range-only add/delete controls.
+      if (clickedInsideRangeGroup && !clickedInsideRangeColumn) {
+        setRangeEditingKeys((prev) => {
+          if (!prev.has(clickedRangeKey)) return prev;
+          const next = new Set(prev);
+          next.delete(clickedRangeKey);
+          return next;
+        });
+      }
       const keysToCollapse = [];
       expandedRangeKeys.forEach((key) => {
-        const inside = clickedInsideRangeColumn && clickedRangeKey === key;
+        const inside = clickedInsideRangeGroup && clickedRangeKey === key;
         if (!inside) keysToCollapse.push(key);
       });
       if (keysToCollapse.length === 0) return;
@@ -11793,20 +11818,31 @@ function DetailedView({
       // focused inline editor, so its onBlur commit — new range, tolerance edit,
       // clear-to-delete — would never run before the list collapses. Force the
       // focused editor to blur first so its commit lands.
-      const clickedRangeKey = rangeClickGroupRef.current?.key || null;
+      const liveClickContext = getRangeColumnClickContext(e.target);
+      const clickContext = liveClickContext.key
+        ? liveClickContext
+        : rangeClickGroupRef.current;
+      const clickedRangeKey = clickContext?.key || null;
       const clickedInsideRangeColumn =
-        Boolean(clickedRangeKey) && rangeClickGroupRef.current?.inRangeColumn;
-      const toleranceKey = rangeClickGroupRef.current?.toleranceKey || null;
-      if (toleranceKey) setPendingToleranceRangeKey(toleranceKey);
-      if (!clickedInsideRangeColumn) {
+        Boolean(clickedRangeKey) && clickContext?.inRangeColumn;
+      const clickedInsideRangeGroup = Boolean(clickedRangeKey);
+      if (!clickedInsideRangeGroup) {
         const ae = document.activeElement;
         if (ae && typeof ae.blur === "function" && ae.closest?.("[data-range-group]")) {
           ae.blur();
         }
       }
+      if (clickedInsideRangeGroup && !clickedInsideRangeColumn) {
+        setRangeEditingKeys((prev) => {
+          if (!prev.has(clickedRangeKey)) return prev;
+          const next = new Set(prev);
+          next.delete(clickedRangeKey);
+          return next;
+        });
+      }
       const keysToCollapse = [];
       expandedRangeKeys.forEach((key) => {
-        const inside = clickedInsideRangeColumn && clickedRangeKey === key;
+        const inside = clickedInsideRangeGroup && clickedRangeKey === key;
         if (!inside) keysToCollapse.push(key);
       });
       if (keysToCollapse.length === 0) return;

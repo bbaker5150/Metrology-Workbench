@@ -1,9 +1,49 @@
 import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { EditableDescriptionCell, RangeCell } from "./UncertaintyPanel";
+import {
+  EditableDescriptionCell,
+  InlineToleranceCell,
+  RangeCell,
+} from "./UncertaintyPanel";
 
 describe("inline instrument column navigation", () => {
+  it("keeps tolerance editing stable across parent rerenders and mode changes", async () => {
+    const editingChanges = vi.fn();
+    const Harness = () => {
+      const [tolerance, setTolerance] = useState({});
+      const [parentRevision, setParentRevision] = useState(0);
+      return (
+        <InlineToleranceCell
+          tolerance={tolerance}
+          activeRange={{ id: "range-tolerance", min: 0, max: 10, unit: "V" }}
+          editable
+          onEditingChange={(editing) => {
+            editingChanges(editing);
+            if (editing && parentRevision === 0) setParentRevision(1);
+          }}
+          onCommit={(typeKey, component) => {
+            if (typeKey === "__replace__") setTolerance(component);
+          }}
+        />
+      );
+    };
+
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Set tolerance" }));
+    await waitFor(() => {
+      expect(screen.getByTitle("Asymmetric tolerance")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
+    fireEvent.click(screen.getByTitle("Double-sided tolerance"));
+
+    expect(screen.getByTitle("Asymmetric tolerance")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(editingChanges.mock.calls.filter(([editing]) => editing)).toHaveLength(1);
+  });
+
   it("renders an added blank range as an editable row immediately", () => {
     render(
       <RangeCell

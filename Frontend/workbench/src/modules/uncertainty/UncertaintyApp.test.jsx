@@ -935,6 +935,7 @@ describe("UncertaintyApp", () => {
     fireEvent.pointerUp(document);
     await waitFor(() => {
       expect(tableContainer.style.height).toBe("440px");
+      expect(tableContainer.style.flex).toBe("0 0 auto");
       expect(
         window.localStorage.getItem(
           "uncertalytics:overview:uut:instrument-table-height:v1",
@@ -960,6 +961,40 @@ describe("UncertaintyApp", () => {
     expect(
       uutTable.querySelector(".inline-tolerance-editor--all"),
     ).toBeInTheDocument();
+
+    const rangeSummaryButton = within(uutTable).getByRole("button", {
+      name: "0 to 10 V",
+    });
+    fireEvent.pointerDown(rangeSummaryButton);
+    fireEvent.click(rangeSummaryButton);
+    await waitFor(() => {
+      expect(within(uutTable).getByPlaceholderText("min")).toBeInTheDocument();
+      expect(
+        uutTable.querySelector(".inline-tolerance-editor--all"),
+      ).not.toBeInTheDocument();
+    });
+
+    const activeRangeRow = within(uutTable)
+      .getByPlaceholderText("min")
+      .closest("tr");
+    const toleranceSummaryButton = within(activeRangeRow).getByRole("button", {
+      name: "Set tolerance",
+    });
+    fireEvent.pointerDown(toleranceSummaryButton);
+    fireEvent.click(toleranceSummaryButton);
+    await waitFor(() => {
+      expect(
+        uutTable.querySelector(".inline-tolerance-editor--all"),
+      ).toBeInTheDocument();
+      expect(within(uutTable).queryByPlaceholderText("min")).not.toBeInTheDocument();
+      expect(
+        within(uutTable).getByTitle("Asymmetric tolerance"),
+      ).toBeInTheDocument();
+    });
+    fireEvent.click(within(uutTable).getByTitle("Asymmetric tolerance"));
+    expect(
+      within(uutTable).getByTitle("Asymmetric tolerance"),
+    ).toHaveAttribute("aria-pressed", "true");
 
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => {
@@ -1644,8 +1679,13 @@ describe("UncertaintyApp", () => {
     );
     await screen.findByText(/No Session Available/i);
 
+    const card = document.createElement("div");
+    card.className = "panel-card";
+    const header = document.createElement("div");
+    header.className = "panel-card-header instrument-panel-card-header";
     const surface = document.createElement("div");
-    surface.className = "panel-table-container";
+    surface.className =
+      "panel-table-container instrument-panel-table-container";
     surface.scrollLeft = 40;
     surface.scrollTop = 60;
     surface.getBoundingClientRect = () => ({
@@ -1664,7 +1704,9 @@ describe("UncertaintyApp", () => {
     const cell = document.createElement("td");
     table.appendChild(cell);
     surface.appendChild(table);
-    document.body.appendChild(surface);
+    card.appendChild(header);
+    card.appendChild(surface);
+    document.body.appendChild(card);
 
     fireEvent.wheel(cell, {
       ctrlKey: true,
@@ -1675,6 +1717,7 @@ describe("UncertaintyApp", () => {
 
     expect(surface.dataset.zoomLevel).toBe("1.1");
     expect(table.style.zoom).toBe("1.1");
+    expect(header.style.zoom).toBe("1.1");
     expect(surface.scrollLeft).toBeCloseTo(59);
     expect(surface.scrollTop).toBeCloseTo(76);
     expect(document.documentElement.style.zoom || "").toBe("");
@@ -1697,7 +1740,7 @@ describe("UncertaintyApp", () => {
       ).toEqual({});
     });
 
-    surface.remove();
+    card.remove();
   });
 
   test("zooms the measurement equation area around the cursor", async () => {
