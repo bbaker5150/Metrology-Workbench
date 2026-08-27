@@ -1,5 +1,6 @@
 import { describe, test, expect, vi, beforeAll, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 
 // The analysis tree transitively imports the full Plotly bundle; stub it so the
@@ -930,17 +931,28 @@ describe("UncertaintyApp", () => {
       { name: "Resize UUT table height" },
     );
     const tableContainer = uutTable.closest(".instrument-panel-table-container");
+    uutTable.getBoundingClientRect = () => ({
+      top: 0,
+      right: 1200,
+      bottom: 390,
+      left: 0,
+      width: 1200,
+      height: 390,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
     fireEvent.pointerDown(heightHandle, { clientY: 100 });
     fireEvent.pointerMove(document, { clientY: 200 });
     fireEvent.pointerUp(document);
     await waitFor(() => {
-      expect(tableContainer.style.height).toBe("440px");
+      expect(tableContainer.style.height).toBe("390px");
       expect(tableContainer.style.flex).toBe("0 0 auto");
       expect(
         window.localStorage.getItem(
           "uncertalytics:overview:uut:instrument-table-height:v1",
         ),
-      ).toBe("440");
+      ).toBe("390");
     });
 
     const currentUutRow = screen.getByText("Layout UUT").closest("tr");
@@ -965,14 +977,15 @@ describe("UncertaintyApp", () => {
     const rangeSummaryButton = within(uutTable).getByRole("button", {
       name: "0 to 10 V",
     });
-    fireEvent.pointerDown(rangeSummaryButton);
-    fireEvent.click(rangeSummaryButton);
+    userEvent.click(rangeSummaryButton);
     await waitFor(() => {
       expect(within(uutTable).getByPlaceholderText("min")).toBeInTheDocument();
       expect(
         uutTable.querySelector(".inline-tolerance-editor--all"),
       ).not.toBeInTheDocument();
     });
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+    expect(within(uutTable).getByPlaceholderText("min")).toBeInTheDocument();
 
     const activeRangeRow = within(uutTable)
       .getByPlaceholderText("min")
@@ -980,8 +993,7 @@ describe("UncertaintyApp", () => {
     const toleranceSummaryButton = within(activeRangeRow).getByRole("button", {
       name: "Set tolerance",
     });
-    fireEvent.pointerDown(toleranceSummaryButton);
-    fireEvent.click(toleranceSummaryButton);
+    userEvent.click(toleranceSummaryButton);
     await waitFor(() => {
       expect(
         uutTable.querySelector(".inline-tolerance-editor--all"),
@@ -991,6 +1003,7 @@ describe("UncertaintyApp", () => {
         within(uutTable).getByTitle("Asymmetric tolerance"),
       ).toBeInTheDocument();
     });
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
     fireEvent.click(within(uutTable).getByTitle("Asymmetric tolerance"));
     expect(
       within(uutTable).getByTitle("Asymmetric tolerance"),
@@ -1650,6 +1663,40 @@ describe("UncertaintyApp", () => {
       name: "Expand function instruments",
     });
     expect(firstPointCollapsed.closest("tr")).toHaveTextContent("Pressure");
+
+    const activeUutRow = document.querySelector("tr.active-point-uut-row");
+    const activeUutTable = activeUutRow?.closest("table");
+    const toleranceButton = activeUutRow?.querySelector(
+      "td.cell-tolerance button.inline-tolerance-summary",
+    );
+    expect(toleranceButton).toBeInTheDocument();
+    userEvent.click(toleranceButton);
+    await waitFor(() => {
+      expect(
+        activeUutTable.querySelector(".inline-tolerance-editor--all"),
+      ).toBeInTheDocument();
+    });
+    const rangeButton = activeUutTable.querySelector(
+      "td[data-range-cell] button.inline-tolerance-summary",
+    );
+    expect(rangeButton).toBeInTheDocument();
+    userEvent.click(rangeButton);
+    await waitFor(() => {
+      expect(
+        activeUutTable.querySelector(
+          "td[data-range-cell] .inline-range-editor.is-editing",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        activeUutTable.querySelector(".inline-tolerance-editor--all"),
+      ).not.toBeInTheDocument();
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+    expect(
+      activeUutTable.querySelector(
+        "td[data-range-cell] .inline-range-editor.is-editing",
+      ),
+    ).toBeInTheDocument();
 
     await waitFor(() => {
       expect(document.querySelectorAll(".point-grid-item")).toHaveLength(2);

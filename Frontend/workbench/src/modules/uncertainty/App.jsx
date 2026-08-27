@@ -949,14 +949,16 @@ export const SidebarPointItem = ({
               displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
             }`}
           >
-            <span className="point-value-number">
-              {displayValue || <span className="point-placeholder">-</span>}
-            </span>
-            {displayUnit && (
-              <span className="point-value-unit">
-                {getUnitDisplayLabel(displayUnit)}
+            <span className="point-value-edit-affordance">
+              <span className="point-value-number">
+                {displayValue || <span className="point-placeholder">-</span>}
               </span>
-            )}
+              {displayUnit && (
+                <span className="point-value-unit">
+                  {getUnitDisplayLabel(displayUnit)}
+                </span>
+              )}
+            </span>
           </span>
         ))}
 

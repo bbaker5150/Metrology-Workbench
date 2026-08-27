@@ -15691,11 +15691,25 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
    different range units remain immediately distinguishable in the sidebar. */
 .point-value-with-unit {
   display: flex;
-  align-items: baseline;
-  gap: 4px;
-  min-width: max-content;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
   width: 100%;
   overflow: visible;
+}
+
+.point-value-edit-affordance {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  width: 100%;
+  min-width: max-content;
+  padding: 1px 2px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  transition: border-color 0.1s ease, background-color 0.1s ease,
+    box-shadow 0.1s ease;
 }
 
 .point-value-number {
@@ -18343,7 +18357,6 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .industry-table
   :is(tr.instrument-area-section-row, tr.instrument-function-row)
   :is(
-    .inline-tolerance-mini-toggle button.is-active,
     .inline-tolerance-mode-btn.is-active,
     .inline-tolerance-shape-button.is-open,
     .inline-tolerance-chip--button.is-open
@@ -18365,6 +18378,27 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
     var(--function-input-accent) 9%,
     transparent
   );
+}
+
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  .inline-tolerance-mini-toggle
+  button {
+  color: var(--text-color-muted) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  .inline-tolerance-mini-toggle
+  button.is-active {
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent) 18%,
+    transparent
+  ) !important;
+  color: var(--text-color-muted) !important;
 }
 
 .uncertainty-module
@@ -18424,15 +18458,11 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   color: var(--function-input-accent, var(--primary-color));
 }
 
-/* Measurement-point sections inherit the same function identity as their
-   instrument tables. Function headers use the stronger selected surface;
-   point rows and column bands use the quieter member surface. */
+/* Measurement-point rows inherit the function identity used by their
+   instrument tables. The function header stays neutral because its label and
+   point rows already communicate that identity clearly. */
 .uncertainty-module .measurement-group-container .area-header-sticky {
-  background-color: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 22%,
-    var(--sidebar-background)
-  ) !important;
+  background-color: var(--sidebar-background) !important;
 }
 
 .uncertainty-module
@@ -18451,11 +18481,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .measurement-group-container
   .sidebar-column-headers
   > .sidebar-value-sticky {
-  background-color: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 12%,
-    var(--sidebar-background)
-  ) !important;
+  background-color: inherit !important;
 }
 
 .uncertainty-module
@@ -18513,33 +18539,21 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .measurement-group-container
   .point-grid-item
   > .sidebar-value-sticky {
-  background-color: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 12%,
-    var(--sidebar-background)
-  ) !important;
+  background-color: inherit !important;
 }
 
 .uncertainty-module
   .measurement-group-container
   .point-grid-item:hover
   > .sidebar-value-sticky {
-  background-color: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 16%,
-    var(--sidebar-background)
-  ) !important;
+  background-color: inherit !important;
 }
 
 .uncertainty-module
   .measurement-group-container
   :is(.point-grid-item.active, .point-grid-item.active-point)
   > .sidebar-value-sticky {
-  background-color: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 22%,
-    var(--sidebar-background)
-  ) !important;
+  background-color: inherit !important;
 }
 
 .uncertainty-module
@@ -18608,6 +18622,20 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 
 .uncertainty-module
   .measurement-group-container
+  .point-value-with-unit:hover
+  .point-value-edit-affordance {
+  border-color: var(--sidebar-function-color, var(--primary-color));
+  background: var(--input-background);
+  box-shadow: 0 0 0 2px
+    color-mix(
+      in srgb,
+      var(--sidebar-function-color, var(--primary-color)) 18%,
+      transparent
+    );
+}
+
+.uncertainty-module
+  .measurement-group-container
   :is(input, textarea, [contenteditable="true"])::selection {
   background: color-mix(
     in srgb,
@@ -18670,11 +18698,7 @@ body.dark-mode
   .measurement-group-container
   .point-grid-item:is(.active, .active-point)
   > .sidebar-value-sticky {
-  background-color: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 22%,
-    var(--sidebar-background)
-  ) !important;
+  background-color: inherit !important;
 }
 
 body.dark-mode

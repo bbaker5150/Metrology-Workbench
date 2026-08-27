@@ -2803,6 +2803,51 @@ const ResizableInstrumentHeader = ({
   </th>
 );
 
+const getInstrumentTableContentHeight = (container) => {
+  const table = container?.querySelector?.(":scope > table");
+  if (!table) return null;
+
+  const tableHeight =
+    table.getBoundingClientRect?.().height ||
+    table.scrollHeight ||
+    table.offsetHeight;
+  if (!Number.isFinite(tableHeight) || tableHeight <= 0) return null;
+
+  const style = window.getComputedStyle?.(container);
+  const numberOf = (value) => Number.parseFloat(value || "0") || 0;
+  const verticalChrome = style
+    ? numberOf(style.paddingTop) +
+      numberOf(style.paddingBottom) +
+      numberOf(style.borderTopWidth) +
+      numberOf(style.borderBottomWidth)
+    : 0;
+  const measuredScrollbar = Math.max(
+    0,
+    (container.offsetHeight || 0) -
+      (container.clientHeight || 0) -
+      (style
+        ? numberOf(style.borderTopWidth) + numberOf(style.borderBottomWidth)
+        : 0),
+  );
+  const horizontalScrollbar =
+    container.scrollWidth > container.clientWidth ? measuredScrollbar : 0;
+
+  return Math.ceil(tableHeight + verticalChrome + horizontalScrollbar);
+};
+
+const clampInstrumentTableHeight = (requestedHeight, contentHeight = null) => {
+  const absoluteMaximum = 1600;
+  const maximum =
+    Number.isFinite(contentHeight) && contentHeight > 0
+      ? Math.min(absoluteMaximum, contentHeight)
+      : absoluteMaximum;
+  const minimum = Math.min(180, maximum);
+  return Math.max(
+    minimum,
+    Math.min(maximum, Math.round(requestedHeight)),
+  );
+};
+
 const useInstrumentTableHeight = (view, kind) => {
   const storageKey = `uncertalytics:${view}:${kind}:instrument-table-height:v1`;
   const containerRef = useRef(null);
@@ -2830,6 +2875,31 @@ const useInstrumentTableHeight = (view, kind) => {
       window.removeEventListener(INSTRUMENT_SIZE_RESET_EVENT, resetHeight);
   }, [resetHeight]);
 
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container || !height) return undefined;
+
+    const clampToContent = () => {
+      const contentHeight = getInstrumentTableContentHeight(container);
+      if (!contentHeight) return;
+      const nextHeight = clampInstrumentTableHeight(height, contentHeight);
+      if (nextHeight === height) return;
+      setHeight(nextHeight);
+      try {
+        window.localStorage.setItem(storageKey, String(nextHeight));
+      } catch {
+        // The visible table still clamps when preference storage is blocked.
+      }
+    };
+
+    clampToContent();
+    const table = container.querySelector(":scope > table");
+    if (!table || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(clampToContent);
+    observer.observe(table);
+    return () => observer.disconnect();
+  }, [height, storageKey]);
+
   const startResize = useCallback(
     (event) => {
       event.preventDefault();
@@ -2847,9 +2917,9 @@ const useInstrumentTableHeight = (view, kind) => {
 
       const handleMove = (moveEvent) => {
         if (!Number.isFinite(moveEvent.clientY)) return;
-        nextHeight = Math.max(
-          180,
-          Math.min(1600, Math.round(startHeight + moveEvent.clientY - startY)),
+        nextHeight = clampInstrumentTableHeight(
+          startHeight + moveEvent.clientY - startY,
+          getInstrumentTableContentHeight(container),
         );
         // Update the actual scroller during the drag so Electron never has to
         // wait for a React render before showing the new table height.
@@ -4324,6 +4394,7 @@ export const InlineToleranceCell = ({
   showMeasurementStatus = false,
   onCommit,
   openRequested = false,
+  onOpenRequest,
   onOpenRequestHandled,
   onEditingChange,
 }) => {
@@ -4392,6 +4463,10 @@ export const InlineToleranceCell = ({
           className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}`}
           title={hasValue ? "Edit tolerance" : "Set tolerance"}
           aria-label={hasValue ? undefined : "Set tolerance"}
+          onMouseDown={(event) => {
+            event.stopPropagation();
+            onOpenRequest?.();
+          }}
           onClick={openEditor}
         >
           {hasValue ? summary : "Not Set"}
@@ -4686,6 +4761,10 @@ export const RangeCell = ({
             className={`inline-tolerance-summary${rangeSummary ? "" : " is-empty"}`}
             title={rangeSummary ? (onExpandAll ? "Edit ranges" : "Edit range") : "Set range"}
             aria-label={onExpandAll && rangeSummary ? "Edit ranges" : undefined}
+            onMouseDown={(event) => {
+              event.stopPropagation();
+              if (rangeSummary) onRequestEditAfterExpand?.();
+            }}
             onClick={openEditor}
           >
             {summary}
@@ -8452,6 +8531,11 @@ const SummaryDashboard = ({
               openRequested={
                 pendingRangeEditKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
               }
+              onRequestEditAfterExpand={() =>
+                setPendingRangeEditKey(
+                  `${itemStateKey(kind, item.id)}:${rangeKey}`,
+                )
+              }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
             {showRangeActions && rangeIndex === 0 && (
@@ -8501,6 +8585,11 @@ const SummaryDashboard = ({
             showMeasurementStatus={kind === "uut"}
             openRequested={
               pendingToleranceRangeKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
+            }
+            onOpenRequest={() =>
+              setPendingToleranceRangeKey(
+                `${itemStateKey(kind, item.id)}:${rangeKey}`,
+              )
             }
             onOpenRequestHandled={() => setPendingToleranceRangeKey(null)}
             onCommit={(nextTypeKey, component) =>
@@ -9632,6 +9721,9 @@ const SummaryDashboard = ({
                                         pendingToleranceRangeKey ===
                                         `${itemStateKey("uut", uut.id)}:${rangeKey}`
                                       }
+                                      onOpenRequest={() =>
+                                        openRangeTolerance("uut", uut, range)
+                                      }
                                       onOpenRequestHandled={() =>
                                         setPendingToleranceRangeKey(null)
                                       }
@@ -10172,6 +10264,9 @@ const SummaryDashboard = ({
                                       openRequested={
                                         pendingToleranceRangeKey ===
                                         `${itemStateKey("tmde", tmde.id)}:${rangeKey}`
+                                      }
+                                      onOpenRequest={() =>
+                                        openRangeTolerance("tmde", tmde, range)
                                       }
                                       onOpenRequestHandled={() =>
                                         setPendingToleranceRangeKey(null)
@@ -12034,6 +12129,11 @@ function DetailedView({
               openRequested={
                 pendingRangeEditKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
               }
+              onRequestEditAfterExpand={() =>
+                setPendingRangeEditKey(
+                  `${itemStateKey(kind, item.id)}:${rangeKey}`,
+                )
+              }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
             {showRangeActions && rangeIndex === 0 && (
@@ -12083,6 +12183,11 @@ function DetailedView({
             showMeasurementStatus={kind === "uut"}
             openRequested={
               pendingToleranceRangeKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
+            }
+            onOpenRequest={() =>
+              setPendingToleranceRangeKey(
+                `${itemStateKey(kind, item.id)}:${rangeKey}`,
+              )
             }
             onOpenRequestHandled={() => setPendingToleranceRangeKey(null)}
             onCommit={(nextTypeKey, component) =>
@@ -16000,8 +16105,9 @@ function DetailedView({
                         >
                           <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => {
+                              const rangeKey = rangeIdOf(range);
                               const tolerance =
-                                getItemRangeTolerance(uut, rangeIdOf(range)) ||
+                                getItemRangeTolerance(uut, rangeKey) ||
                                 range ||
                                 {};
                               return (
@@ -16030,7 +16136,10 @@ function DetailedView({
                                       }}
                                       openRequested={
                                         pendingToleranceRangeKey ===
-                                        `${itemStateKey("uut", uut.id)}:${rangeIdOf(range)}`
+                                        `${itemStateKey("uut", uut.id)}:${rangeKey}`
+                                      }
+                                      onOpenRequest={() =>
+                                        openRangeToleranceDetail("uut", uut, range)
                                       }
                                       onOpenRequestHandled={() =>
                                         setPendingToleranceRangeKey(null)
@@ -16974,6 +17083,13 @@ function DetailedView({
                                           openRequested={
                                             pendingToleranceRangeKey ===
                                             `${itemStateKey("tmde", masterTmde.id)}:${rangeKey}`
+                                          }
+                                          onOpenRequest={() =>
+                                            openRangeToleranceDetail(
+                                              "tmde",
+                                              masterTmde,
+                                              range,
+                                            )
                                           }
                                           onOpenRequestHandled={() =>
                                             setPendingToleranceRangeKey(null)
