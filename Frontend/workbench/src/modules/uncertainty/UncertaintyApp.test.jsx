@@ -1650,7 +1650,11 @@ describe("UncertaintyApp", () => {
     const collapseButtons = await screen.findAllByRole("button", {
       name: "Collapse function instruments",
     });
-    fireEvent.click(collapseButtons[0]);
+    const voltageOverviewCollapse = collapseButtons.find((button) =>
+      button.closest("tr")?.textContent.includes("Voltage"),
+    );
+    expect(voltageOverviewCollapse).toBeDefined();
+    fireEvent.click(voltageOverviewCollapse);
     expect(
       screen.getByRole("button", { name: "Expand function instruments" }),
     ).toBeInTheDocument();
@@ -1711,7 +1715,14 @@ describe("UncertaintyApp", () => {
     const overviewCollapsed = await screen.findByRole("button", {
       name: "Expand function instruments",
     });
-    expect(overviewCollapsed.closest("tr")).toHaveTextContent("Pressure");
+    expect(overviewCollapsed.closest("tr")).toHaveTextContent("Voltage");
+    expect(
+      screen
+        .getAllByRole("button", { name: "Collapse function instruments" })
+        .some((button) =>
+          button.closest("tr")?.textContent.includes("Pressure"),
+        ),
+    ).toBe(true);
   }, 30000);
 
   test("zooms a table around the cursor without zooming the page", async () => {

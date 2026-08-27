@@ -2040,12 +2040,14 @@ const confirmViaNotification = (
 // collapses it from anywhere in the editor, and a pointer press outside the
 // active column collapses it after blur-driven commits have run. Unit and
 // tolerance menus are portaled to <body>, so they remain part of the editor.
+const INLINE_EDITOR_PORTAL_SELECTOR =
+  ".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search";
+
 const useInlineColumnDismiss = ({
   expanded,
   rootRef,
   onDismiss,
-  portalSelector =
-    ".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search",
+  portalSelector = INLINE_EDITOR_PORTAL_SELECTOR,
 }) => {
   useEffect(() => {
     if (!expanded) return undefined;
@@ -2848,7 +2850,29 @@ const clampInstrumentTableHeight = (requestedHeight, contentHeight = null) => {
   );
 };
 
-const useInstrumentTableHeight = (view, kind) => {
+export const getAutoGrownInstrumentTableHeight = ({
+  currentHeight,
+  contentHeight,
+  instrumentCount,
+}) => {
+  if (
+    instrumentCount < 1 ||
+    instrumentCount > 3 ||
+    !Number.isFinite(contentHeight) ||
+    contentHeight <= 0
+  ) {
+    return currentHeight;
+  }
+  const requiredHeight = clampInstrumentTableHeight(
+    contentHeight,
+    contentHeight,
+  );
+  return Number.isFinite(currentHeight) && currentHeight >= requiredHeight
+    ? currentHeight
+    : requiredHeight;
+};
+
+const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
   const storageKey = `uncertalytics:${view}:${kind}:instrument-table-height:v1`;
   const containerRef = useRef(null);
   const [height, setHeight] = useState(() => {
@@ -2877,28 +2901,42 @@ const useInstrumentTableHeight = (view, kind) => {
 
   useLayoutEffect(() => {
     const container = containerRef.current;
-    if (!container || !height) return undefined;
+    if (!container || instrumentCount < 1 || instrumentCount > 3) {
+      return undefined;
+    }
 
-    const clampToContent = () => {
+    const growToContent = () => {
       const contentHeight = getInstrumentTableContentHeight(container);
       if (!contentHeight) return;
-      const nextHeight = clampInstrumentTableHeight(height, contentHeight);
-      if (nextHeight === height) return;
-      setHeight(nextHeight);
-      try {
-        window.localStorage.setItem(storageKey, String(nextHeight));
-      } catch {
-        // The visible table still clamps when preference storage is blocked.
-      }
+      setHeight((currentHeight) => {
+        const nextHeight = getAutoGrownInstrumentTableHeight({
+          currentHeight,
+          contentHeight,
+          instrumentCount,
+        });
+        // Content collapsing (for example, Detailed View hiding irrelevant
+        // functions) must not overwrite the height the user established.
+        // Automatic sizing only grows while the table contains its first three
+        // instruments; later instruments scroll within that established frame.
+        if (nextHeight === currentHeight) {
+          return currentHeight;
+        }
+        try {
+          window.localStorage.setItem(storageKey, String(nextHeight));
+        } catch {
+          // Automatic growth remains visible when preference storage is blocked.
+        }
+        return nextHeight;
+      });
     };
 
-    clampToContent();
+    growToContent();
     const table = container.querySelector(":scope > table");
     if (!table || typeof ResizeObserver === "undefined") return undefined;
-    const observer = new ResizeObserver(clampToContent);
+    const observer = new ResizeObserver(growToContent);
     observer.observe(table);
     return () => observer.disconnect();
-  }, [height, storageKey]);
+  }, [instrumentCount, storageKey]);
 
   const startResize = useCallback(
     (event) => {
@@ -3772,9 +3810,6 @@ const ToleranceTermEditor = ({
   const [mode, setMode] = useState(() => toleranceTermMode(component));
   const [shapeMenuRect, setShapeMenuRect] = useState(null);
   const shapeButtonRef = useRef(null);
-  // Relative IV and Range/FS unit pickers are anchored like the shape menu.
-  const [unitMenuRect, setUnitMenuRect] = useState(null);
-  const unitButtonRef = useRef(null);
   // For single-sided: true when the magnitude is on the − side (high pinned 0).
   const [singleNeg, setSingleNeg] = useState(
     () =>
@@ -3922,14 +3957,6 @@ const ToleranceTermEditor = ({
     const rect = shapeButtonRef.current?.getBoundingClientRect();
     if (rect) setShapeMenuRect(rect);
   };
-  const toggleUnitMenu = () => {
-    if (unitMenuRect) {
-      setUnitMenuRect(null);
-      return;
-    }
-    const rect = unitButtonRef.current?.getBoundingClientRect();
-    if (rect) setUnitMenuRect(rect);
-  };
   const readingUnitOptions = [
     { value: "%", label: "%" },
     { value: "ppm", label: "ppm" },
@@ -3937,7 +3964,6 @@ const ToleranceTermEditor = ({
   ];
   const activeComponentUnit = component.unit || "%";
   const commitUnit = (unit) => {
-    setUnitMenuRect(null);
     if (unit === activeComponentUnit) return;
     commit({ unit, _unitExplicit: true });
   };
@@ -3992,48 +4018,6 @@ const ToleranceTermEditor = ({
                   <span className="inline-tolerance-shape-option-copy">
                     <span>{option.label}</span>
                     <small>{option.detail}</small>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </>,
-          document.body,
-        )
-      : null;
-
-  const unitMenu =
-    (typeKey === "reading" || typeKey === "range") && unitMenuRect
-      ? ReactDOM.createPortal(
-          <>
-            <div
-              className="inline-tolerance-shape-backdrop"
-              onMouseDown={() => setUnitMenuRect(null)}
-            />
-            <div
-              className="inline-tolerance-shape-menu"
-              style={{
-                top: `${Math.min(unitMenuRect.bottom + 6, window.innerHeight - 132)}px`,
-                left: `${Math.max(
-                  8,
-                  Math.min(unitMenuRect.right - 132, window.innerWidth - 140),
-                )}px`,
-              }}
-              onMouseDown={(e) => e.preventDefault()}
-              role="menu"
-            >
-              {readingUnitOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`inline-tolerance-shape-option${
-                    option.value === activeComponentUnit ? " is-active" : ""
-                  }`}
-                  onClick={() => commitUnit(option.value)}
-                  role="menuitemradio"
-                  aria-checked={option.value === activeComponentUnit}
-                >
-                  <span className="inline-tolerance-shape-option-copy">
-                    <span>{option.label}</span>
                   </span>
                 </button>
               ))}
@@ -4149,28 +4133,22 @@ const ToleranceTermEditor = ({
       </span>
       {typeLabel &&
         (typeKey === "reading" || typeKey === "range" ? (
-          <>
-            <button
-              ref={unitButtonRef}
-              type="button"
-              className={`inline-tolerance-chip inline-tolerance-chip--in-cell inline-tolerance-chip--button${
-                unitMenuRect ? " is-open" : ""
-              }`}
-              title={`Change ${typeKey === "reading" ? "IV" : "range/FS"} unit`}
-              aria-haspopup="menu"
-              aria-expanded={Boolean(unitMenuRect)}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={toggleUnitMenu}
-            >
-              <span>{
-                typeKey === "reading"
-                  ? `IV ${activeComponentUnit}`
-                  : `${activeComponentUnit} FS`
-              }</span>
-              <FontAwesomeIcon icon={faChevronDown} size="xs" />
-            </button>
-            {unitMenu}
-          </>
+          <InlineMenuSelect
+            value={activeComponentUnit}
+            options={readingUnitOptions}
+            ariaLabel={`${typeKey === "reading" ? "IV" : "Range/FS"} tolerance unit`}
+            title={`Change ${typeKey === "reading" ? "IV" : "range/FS"} unit`}
+            onChange={commitUnit}
+            width="82px"
+            menuWidth={132}
+            className="inline-tolerance-unit-select"
+            showOptionMeta={false}
+            getDisplayLabel={() =>
+              typeKey === "reading"
+                ? `IV ${activeComponentUnit}`
+                : `${activeComponentUnit} FS`
+            }
+          />
         ) : typeKey === "floor" ? (
           <UnitSelect
             value={component.unit || activeRange?.unit || ""}
@@ -6673,8 +6651,16 @@ const SummaryDashboard = ({
     "tmde",
     customColumnsFor("tmde"),
   );
-  const uutTableHeight = useInstrumentTableHeight("overview", "uut");
-  const tmdeTableHeight = useInstrumentTableHeight("overview", "tmde");
+  const uutTableHeight = useInstrumentTableHeight(
+    "overview",
+    "uut",
+    (sessionData.uuts || []).length,
+  );
+  const tmdeTableHeight = useInstrumentTableHeight(
+    "overview",
+    "tmde",
+    (sessionData.tmdes || []).length,
+  );
   const requestCustomColumn = (kind) => {
     const key = `field-${uuidv4().slice(0, 8)}`;
     const current = sessionData.instrumentCustomColumns || {};
@@ -8304,7 +8290,7 @@ const SummaryDashboard = ({
       // UnitSelect renders its options in a body-level portal. Selecting an
       // option is still an interaction with this range group, not a click-away
       // that should collapse the expanded table.
-      if (e.target?.closest?.(".inline-unit-menu")) return;
+      if (e.target?.closest?.(INLINE_EDITOR_PORTAL_SELECTOR)) return;
       // Clicking a non-focusable area (a plain cell/background) does NOT blur a
       // focused inline editor, so its onBlur commit — new range, tolerance edit,
       // clear-to-delete — would never run before the list collapses. Force the
@@ -10618,8 +10604,16 @@ function DetailedView({
     "tmde",
     customColumnsFor("tmde"),
   );
-  const uutTableHeight = useInstrumentTableHeight("detail", "uut");
-  const tmdeTableHeight = useInstrumentTableHeight("detail", "tmde");
+  const uutTableHeight = useInstrumentTableHeight(
+    "detail",
+    "uut",
+    (sessionData.uuts || []).length,
+  );
+  const tmdeTableHeight = useInstrumentTableHeight(
+    "detail",
+    "tmde",
+    (sessionData.tmdes || []).length,
+  );
   const requestCustomColumn = (kind) => {
     const key = `field-${uuidv4().slice(0, 8)}`;
     const current = sessionData.instrumentCustomColumns || {};
@@ -11908,7 +11902,7 @@ function DetailedView({
       // UnitSelect renders its options in a body-level portal. Selecting an
       // option is still an interaction with this range group, not a click-away
       // that should collapse the expanded table.
-      if (e.target?.closest?.(".inline-unit-menu")) return;
+      if (e.target?.closest?.(INLINE_EDITOR_PORTAL_SELECTOR)) return;
       // Clicking a non-focusable area (a plain cell/background) does NOT blur a
       // focused inline editor, so its onBlur commit — new range, tolerance edit,
       // clear-to-delete — would never run before the list collapses. Force the

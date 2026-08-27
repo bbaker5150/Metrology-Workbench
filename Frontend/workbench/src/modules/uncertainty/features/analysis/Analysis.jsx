@@ -127,6 +127,12 @@ function Analysis({
   onAnalysisModeChange = () => {},
   preferredShowContribution = false,
   onShowContributionChange = () => {},
+  overviewCollapsedFunctionKeys,
+  setOverviewCollapsedFunctionKeys,
+  detailCollapsedFunctionKeys,
+  setDetailCollapsedFunctionKeys,
+  // Legacy aliases keep direct Analysis consumers working while App now owns
+  // distinct overview/detail accordion state.
   collapsedFunctionKeys,
   setCollapsedFunctionKeys,
   keyboardShortcutsEnabled = true,
@@ -145,6 +151,14 @@ function Analysis({
   const analysisMode = VISIBLE_ANALYSIS_MODES.includes(preferredAnalysisMode)
     ? preferredAnalysisMode
     : "overview";
+  const resolvedOverviewCollapsedFunctionKeys =
+    overviewCollapsedFunctionKeys ?? collapsedFunctionKeys;
+  const resolvedSetOverviewCollapsedFunctionKeys =
+    setOverviewCollapsedFunctionKeys ?? setCollapsedFunctionKeys;
+  const resolvedDetailCollapsedFunctionKeys =
+    detailCollapsedFunctionKeys ?? collapsedFunctionKeys;
+  const resolvedSetDetailCollapsedFunctionKeys =
+    setDetailCollapsedFunctionKeys ?? setCollapsedFunctionKeys;
   const showContribution = preferredShowContribution;
   const setShowContribution = useCallback(
     (nextValue) => {
@@ -1129,8 +1143,8 @@ function Analysis({
             setNotification={setNotification}
             currentUutSelection={currentUutSelection}
             selectedTablePointIds={selectedTablePointIds}
-            collapsedFunctionKeys={collapsedFunctionKeys}
-            setCollapsedFunctionKeys={setCollapsedFunctionKeys}
+            collapsedFunctionKeys={resolvedOverviewCollapsedFunctionKeys}
+            setCollapsedFunctionKeys={resolvedSetOverviewCollapsedFunctionKeys}
             keyboardShortcutsEnabled={keyboardShortcutsEnabled}
             onInstrumentSelection={onInstrumentSelection}
             // Actions & Navigation
@@ -1180,8 +1194,8 @@ function Analysis({
                 setNotification={setNotification}
                 currentUutSelection={currentUutSelection}
                 selectedTablePointIds={selectedTablePointIds}
-                collapsedFunctionKeys={collapsedFunctionKeys}
-                setCollapsedFunctionKeys={setCollapsedFunctionKeys}
+                collapsedFunctionKeys={resolvedOverviewCollapsedFunctionKeys}
+                setCollapsedFunctionKeys={resolvedSetOverviewCollapsedFunctionKeys}
                 keyboardShortcutsEnabled={keyboardShortcutsEnabled}
                 onInstrumentSelection={onInstrumentSelection}
                 onDefineTestPoint={handleDefineTestPoint}
@@ -1216,8 +1230,8 @@ function Analysis({
                 // UI State
                 showContribution={showContribution}
                 setShowContribution={setShowContribution}
-                collapsedFunctionKeys={collapsedFunctionKeys}
-                setCollapsedFunctionKeys={setCollapsedFunctionKeys}
+                collapsedFunctionKeys={resolvedDetailCollapsedFunctionKeys}
+                setCollapsedFunctionKeys={resolvedSetDetailCollapsedFunctionKeys}
                 keyboardShortcutsEnabled={keyboardShortcutsEnabled}
                 // Handlers: Components
                 onAddManualComponent={handleAddInlineManualComponent}

@@ -55,7 +55,6 @@ import {
   faQuestionCircle,
   faLayerGroup,
   faMicroscope,
-  faCube,
   faRadio,
   faHistory,
   faRightLeft,
@@ -2211,11 +2210,19 @@ function App({ showThemeToggle = false }) {
   // independently.
   const [expandedFunctions, setExpandedFunctions] = useState(new Set());
   const [expandedUuts, setExpandedUuts] = useState(new Set());
-  // Shared by the session overview and every detailed measurement-point view.
-  // This state lives above TestPointDetailView's keyed remount boundary so a
-  // point/view change cannot reset the UUT/TMDE function accordions.
-  const [collapsedInstrumentFunctionKeys, setCollapsedInstrumentFunctionKeys] =
-    useState(new Set());
+  // Instrument Overview and a point's Detailed View intentionally remember
+  // independent function accordion state. Detailed View may collapse unrelated
+  // functions automatically; that must never leak back into the overview.
+  // Both states live above TestPointDetailView's keyed remount boundary so they
+  // survive point and tab navigation.
+  const [
+    collapsedOverviewInstrumentFunctionKeys,
+    setCollapsedOverviewInstrumentFunctionKeys,
+  ] = useState(new Set());
+  const [
+    collapsedDetailInstrumentFunctionKeys,
+    setCollapsedDetailInstrumentFunctionKeys,
+  ] = useState(new Set());
 
   // Tracks which UUT "folder" was clicked in the sidebar to enforce context
   const [selectedTestPointContextUutId, setSelectedTestPointContextUutId] =
@@ -2294,8 +2301,11 @@ function App({ showThemeToggle = false }) {
     setIsGlobalExpanded(preferences.isGlobalExpanded ?? false);
     setExpandedFunctions(new Set(preferences.expandedFunctions || []));
     setExpandedUuts(new Set(preferences.expandedUuts || []));
-    setCollapsedInstrumentFunctionKeys(
-      new Set(preferences.collapsedInstrumentFunctionKeys || []),
+    setCollapsedOverviewInstrumentFunctionKeys(
+      new Set(preferences.collapsedOverviewInstrumentFunctionKeys || []),
+    );
+    setCollapsedDetailInstrumentFunctionKeys(
+      new Set(preferences.collapsedDetailInstrumentFunctionKeys || []),
     );
     setActiveRangeIndices(preferences.activeRangeIndices || {});
     setAnalysisMode(preferences.analysisMode || "overview");
@@ -2323,8 +2333,11 @@ function App({ showThemeToggle = false }) {
       isGlobalExpanded,
       expandedFunctions: Array.from(expandedFunctions),
       expandedUuts: Array.from(expandedUuts),
-      collapsedInstrumentFunctionKeys: Array.from(
-        collapsedInstrumentFunctionKeys,
+      collapsedOverviewInstrumentFunctionKeys: Array.from(
+        collapsedOverviewInstrumentFunctionKeys,
+      ),
+      collapsedDetailInstrumentFunctionKeys: Array.from(
+        collapsedDetailInstrumentFunctionKeys,
       ),
       activeRangeIndices,
       analysisMode,
@@ -2342,7 +2355,8 @@ function App({ showThemeToggle = false }) {
   }, [
     activeRangeIndices,
     analysisMode,
-    collapsedInstrumentFunctionKeys,
+    collapsedDetailInstrumentFunctionKeys,
+    collapsedOverviewInstrumentFunctionKeys,
     expandedFunctions,
     expandedUuts,
     isGlobalExpanded,
@@ -5391,15 +5405,6 @@ function App({ showThemeToggle = false }) {
                               icon={isFnExpanded ? faChevronDown : faChevronRight}
                             />
                           </button>
-                          <FontAwesomeIcon
-                            icon={faCube}
-                            style={{
-                              color:
-                                fnGroup.color || "var(--primary-color)",
-                              opacity: 0.7,
-                            }}
-                            size="sm"
-                          />
                           <span
                             className="area-label"
                             style={{
@@ -5481,8 +5486,10 @@ function App({ showThemeToggle = false }) {
                     onAnalysisModeChange={handleAnalysisModeChange}
                     preferredShowContribution={showContribution}
                     onShowContributionChange={setShowContribution}
-                    collapsedFunctionKeys={collapsedInstrumentFunctionKeys}
-                    setCollapsedFunctionKeys={setCollapsedInstrumentFunctionKeys}
+                    overviewCollapsedFunctionKeys={collapsedOverviewInstrumentFunctionKeys}
+                    setOverviewCollapsedFunctionKeys={setCollapsedOverviewInstrumentFunctionKeys}
+                    detailCollapsedFunctionKeys={collapsedDetailInstrumentFunctionKeys}
+                    setDetailCollapsedFunctionKeys={setCollapsedDetailInstrumentFunctionKeys}
                     keyboardShortcutsEnabled={!isInstrumentBuilderOpen}
                     scrollPositionsRef={analysisScrollPositionsRef}
                     onSelectUut={handleSelectUut}

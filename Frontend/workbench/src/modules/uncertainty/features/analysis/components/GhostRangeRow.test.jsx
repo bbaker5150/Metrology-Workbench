@@ -10,6 +10,7 @@ import {
   handoffMaterializedRangeToTolerance,
   getBudgetRangeChoices,
   getVisibleRangeRows,
+  getAutoGrownInstrumentTableHeight,
   removeRangeFromItem,
 } from "./UncertaintyPanel";
 
@@ -31,6 +32,32 @@ const renderGhost = (onMaterialize, unit = "V") =>
       </tbody>
     </table>,
   );
+
+describe("instrument table automatic height", () => {
+  it("grows for the first three instruments without shrinking on collapse", () => {
+    expect(
+      getAutoGrownInstrumentTableHeight({
+        currentHeight: 260,
+        contentHeight: 420,
+        instrumentCount: 3,
+      }),
+    ).toBe(420);
+    expect(
+      getAutoGrownInstrumentTableHeight({
+        currentHeight: 420,
+        contentHeight: 180,
+        instrumentCount: 3,
+      }),
+    ).toBe(420);
+    expect(
+      getAutoGrownInstrumentTableHeight({
+        currentHeight: 420,
+        contentHeight: 620,
+        instrumentCount: 4,
+      }),
+    ).toBe(420);
+  });
+});
 
 describe("GhostRangeRow", () => {
   it("marks its blank inputs as part of the expanded range column", () => {
@@ -911,13 +938,15 @@ describe("inline range editing", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
-    fireEvent.click(screen.getByRole("button", { name: "IV %" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "IV tolerance unit" }),
+    );
 
-    expect(screen.getByRole("menuitemradio", { name: "%" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitemradio", { name: "ppm" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitemradio", { name: "ppb" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "%" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "ppm" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "ppb" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "ppm" }));
+    fireEvent.click(screen.getByRole("option", { name: "ppm" }));
     expect(onCommit).toHaveBeenLastCalledWith(
       "reading",
       expect.objectContaining({ unit: "ppm" }),
@@ -936,16 +965,41 @@ describe("inline range editing", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
-    fireEvent.click(screen.getByRole("button", { name: "% FS" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Range/FS tolerance unit" }),
+    );
 
-    expect(screen.getByRole("menuitemradio", { name: "%" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitemradio", { name: "ppm" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitemradio", { name: "ppb" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "%" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "ppm" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "ppb" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "ppb" }));
+    fireEvent.click(screen.getByRole("option", { name: "ppb" }));
     expect(onCommit).toHaveBeenLastCalledWith(
       "range",
       expect.objectContaining({ unit: "ppb" }),
+    );
+  });
+
+  it("retains a floor unit selected before a floor magnitude is entered", () => {
+    const onCommit = vi.fn();
+    render(
+      <InlineToleranceCell
+        tolerance={{}}
+        activeRange={{ id: "range-1", min: 0, max: 10, unit: "V" }}
+        editable
+        onCommit={onCommit}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Tolerance unit base unit" }),
+    );
+    fireEvent.click(screen.getByRole("option", { name: "% %" }));
+
+    expect(onCommit).toHaveBeenLastCalledWith(
+      "floor",
+      expect.objectContaining({ unit: "%", _unitExplicit: true }),
     );
   });
 });

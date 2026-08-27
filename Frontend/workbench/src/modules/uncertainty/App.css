@@ -14351,6 +14351,18 @@ input.inline-resolution-input {
   background: rgba(var(--primary-rgb), 0.06);
 }
 
+/* IV and Range/FS use the same compact trigger and portaled option surface as
+   the other inline table selectors. */
+.inline-tolerance-unit-select,
+.inline-tolerance-unit-select .inline-unit-combobox {
+  height: 24px;
+  font-size: 0.7rem;
+}
+
+.inline-tolerance-unit-select .inline-unit-combobox {
+  color: var(--text-color-muted);
+}
+
 .inline-tolerance-chip.is-pending {
   border-style: dashed;
   opacity: 0.72;
