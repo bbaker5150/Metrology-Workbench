@@ -6399,7 +6399,6 @@ const QuickAddRow = ({
 const SummaryDashboard = ({
   viewMode,
   contextId,
-  contextName,
   sessionData,
   onDeleteTestPoint,
   rangeData,
@@ -8451,28 +8450,6 @@ const SummaryDashboard = ({
         );
         return inferredAreaIds.size === 0 || inferredAreaIds.has(contextId);
       });
-    } else if (viewMode === "function") {
-      // contextId is a function key (see utils/functionGrouping). Scope to the
-      // points of that function and the instruments that declare it. Keep a
-      // point-owner fallback for legacy UUTs whose function metadata is missing.
-      const fnPoints = points.filter((tp) => functionKeyOf(tp) === contextId);
-      const ownerIds = new Set(
-        fnPoints.flatMap((tp) => (tp.associatedUutIds || []).map(String)),
-      );
-      displayTitle =
-        fnPoints[0]?.testPointInfo?.parameter?.name ||
-        contextName ||
-        "Function";
-      displaySubtitle = "Function Summary";
-      points = fnPoints;
-      uuts = uuts.filter(
-        (u) =>
-          matchingInstrumentFunctionKey(u, contextId) ||
-          ownerIds.has(String(u.id)),
-      );
-      tmdes = tmdes.filter((tmde) =>
-        matchingInstrumentFunctionKey(tmde, contextId),
-      );
     } else if (viewMode === "uut") {
       const uut = uuts.find((u) => u.id === contextId);
       displayTitle = uut?.nickname || uut?.description || "UUT Detail";
@@ -8525,7 +8502,7 @@ const SummaryDashboard = ({
       subtitle: displaySubtitle,
       showAreaColumn: isSessionView,
     };
-  }, [viewMode, contextId, contextName, sessionData, rangeData, uutId]);
+  }, [viewMode, contextId, sessionData, rangeData, uutId]);
 
   const getGroupedInstrumentRows = useCallback(
     (items = [], source = "session", pinnedIds = [], kind = null) => {
@@ -8534,20 +8511,10 @@ const SummaryDashboard = ({
       const groupedItems = [];
 
       items.forEach((item, index) => {
-        const isFunctionView = viewMode === "function" && contextId;
-        const functionKey = isFunctionView
-          ? matchingInstrumentFunctionKey(item, contextId) || contextId
-          : null;
         const row = {
           type: "item",
           item,
           index,
-          ...(isFunctionView
-            ? {
-                functionKey,
-                rowKey: `${functionKey}::${item.id}`,
-              }
-            : {}),
         };
         if (pinnedSet.has(item.id)) {
           pinnedRows.push(row);
@@ -8556,17 +8523,13 @@ const SummaryDashboard = ({
         }
       });
 
-      if (viewMode === "function" && contextId) {
-        return [...pinnedRows, ...groupedItems];
-      }
-
       if (!showAreaColumn) {
         return [...pinnedRows, ...groupedItems];
       }
 
       return [...pinnedRows, ...buildFunctionGroupedRows(groupedItems, sessionData, kind)];
     },
-    [contextId, sessionData, showAreaColumn, viewMode],
+    [sessionData, showAreaColumn],
   );
 
   const groupedUutRows = useMemo(
@@ -16941,7 +16904,6 @@ const UncertaintyPanel = (props) => {
       <SummaryDashboard
         viewMode={viewMode}
         contextId={testPointData.id}
-        contextName={testPointData.functionName}
         rangeData={testPointData.rangeData}
         uutId={testPointData.uutId}
         sessionData={sessionData}

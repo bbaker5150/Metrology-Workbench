@@ -2135,9 +2135,6 @@ function App({ showThemeToggle = false }) {
   }, []);
 
   // --- SELECTION & VIRTUAL STATE ---
-  // The sidebar tree is organized Function -> UUT -> Point. `selectedFunctionId`
-  // is a function key (see utils/functionGrouping) rather than a measurement area.
-  const [selectedFunctionId, setSelectedFunctionId] = useState(null);
   const [selectedUutId, setSelectedUutId] = useState(null);
   const [virtualPoint, setVirtualPoint] = useState(null);
   const [activeRangeIndices, setActiveRangeIndices] = useState({});
@@ -2779,7 +2776,6 @@ function App({ showThemeToggle = false }) {
     setRiskResults(null);
     setSelectedSessionId(newId);
     setSelectedTestPointId(null);
-    setSelectedFunctionId(null);
     setSelectedUutId(null);
     setVirtualPoint(null);
     setSelectedTestPointContextUutId(null);
@@ -2822,7 +2818,6 @@ function App({ showThemeToggle = false }) {
     const point = resolveFunctionPoint(functionKey, uutId);
 
     setSelectedUutId(uutId);
-    setSelectedFunctionId(functionKey);
     setSelectedTestPointId(point?.id || null);
     setSelectedTestPointContextUutId(uutId);
     setCurrentUutSelection([uutId]);
@@ -2877,8 +2872,6 @@ function App({ showThemeToggle = false }) {
       setSelectedTestPointId(tpId);
     }
 
-    const selectedPoint = currentTestPoints.find((point) => point.id === tpId);
-    setSelectedFunctionId(selectedPoint ? functionKeyOf(selectedPoint) : null);
     setSelectedUutId(null);
     setVirtualPoint(null);
     setSelectedTestPointContextUutId(contextUutId);
@@ -4069,7 +4062,6 @@ function App({ showThemeToggle = false }) {
         occurrence?.contextUutId || point.associatedUutIds?.[0] || null;
       setSelectedTestPointId(point.id);
       setSelectedTestPointContextUutId(contextUutId);
-      setSelectedFunctionId(functionKeyOf(point));
       setSelectedUutId(null);
       setSelectedSidebarPointIds([point.id]);
       setSidebarSelectionAnchor({ pointId: point.id, contextUutId });
@@ -4221,16 +4213,6 @@ function App({ showThemeToggle = false }) {
       return { viewMode: "uut", id: selectedUutId };
     }
 
-    if (selectedFunctionId) {
-      const fnNode = sidebarData.find((fn) => fn.id === selectedFunctionId);
-      return {
-        viewMode: "function",
-        id: selectedFunctionId,
-        functionName: fnNode?.name || "",
-        functionUnit: fnNode?.unit || "",
-      };
-    }
-
     if (selectedSessionId) {
       return { viewMode: "session", id: selectedSessionId };
     }
@@ -4243,9 +4225,7 @@ function App({ showThemeToggle = false }) {
     virtualPoint,
     selectedTestPointContextUutId,
     selectedUutId,
-    selectedFunctionId,
     selectedSessionId,
-    sidebarData,
   ]);
 
   // Shared sidebar point-row markup (used under every UUT and the Unassigned
@@ -4356,38 +4336,6 @@ function App({ showThemeToggle = false }) {
         });
       }}
     />
-    );
-  };
-
-  const renderEmptySidebarUutRow = (group, fnGroup) => {
-    const uutKey = `${fnGroup.id}::${group.id}`;
-    const gridTemplateColumns = getSidebarGridTemplate(
-      visibleSidebarColumns,
-      sidebarValueColumnWidth,
-    );
-    const identity = formatInstrumentIdentity(group);
-    return (
-      <div
-        key={`empty-${uutKey}`}
-        className="sidebar-empty-uut-row"
-        style={{ gridTemplateColumns }}
-        aria-label={`${identity}: no measurement points`}
-        onClick={() => handleSelectUut(group.id, fnGroup.id)}
-      >
-        {visibleSidebarColumns.uut && (
-          <span className="point-uut-name" title={identity}>
-            {identity}
-          </span>
-        )}
-        <span
-          className="sidebar-empty-uut-copy"
-          style={{
-            gridColumn: visibleSidebarColumns.uut ? "2 / -1" : "1 / -1",
-          }}
-        >
-          No measurement points
-        </span>
-      </div>
     );
   };
 
@@ -5270,6 +5218,12 @@ function App({ showThemeToggle = false }) {
                         <div
                           key={fnGroup.id}
                           className="measurement-group-container"
+                          style={{
+                            "--sidebar-function-color":
+                              fnGroup.color || "var(--primary-color)",
+                            "--function-input-accent":
+                              fnGroup.color || "var(--primary-color)",
+                          }}
                         >
                           <div className="area-header-sticky">
                             <button
@@ -5291,7 +5245,7 @@ function App({ showThemeToggle = false }) {
                             />
                             <span className="area-label">{fnGroup.name}</span>
                           </div>
-                          {isFnExpanded && (
+                          {isFnExpanded && pts.length > 0 && (
                             <div className="tree-branch">
                               <div className="sidebar-points-scroll-wrapper">
                                 {renderSidebarColumnHeaders()}
@@ -5305,10 +5259,17 @@ function App({ showThemeToggle = false }) {
                       );
                     }
 
+                    const points = sortSidebarPoints(fnGroup.points || []);
                     return (
                       <div
                         key={fnGroup.id}
                         className="measurement-group-container"
+                        style={{
+                          "--sidebar-function-color":
+                            fnGroup.color || "var(--primary-color)",
+                          "--function-input-accent":
+                            fnGroup.color || "var(--primary-color)",
+                        }}
                       >
                         <div className="area-header-sticky">
                           <button
@@ -5344,21 +5305,13 @@ function App({ showThemeToggle = false }) {
                           {renderFunctionPointActions(fnGroup)}
                         </div>
 
-                        {isFnExpanded && (
+                        {isFnExpanded && points.length > 0 && (
                           <div className="tree-branch">
                             <div className="sidebar-points-scroll-wrapper">
                               {renderSidebarColumnHeaders()}
-                              {(() => {
-                                const points = sortSidebarPoints(fnGroup.points || []);
-                                if (points.length === 0) {
-                                  return fnGroup.uutGroups.map((group) =>
-                                    renderEmptySidebarUutRow(group, fnGroup),
-                                  );
-                                }
-                                return points.map((tp, index) =>
-                                  renderSidebarPointRow(tp, fnGroup, points, index),
-                                );
-                              })()}
+                              {points.map((tp, index) =>
+                                renderSidebarPointRow(tp, fnGroup, points, index),
+                              )}
                             </div>
                           </div>
                         )}

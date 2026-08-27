@@ -12323,19 +12323,19 @@ input.inline-function-input:focus {
 
 .function-header-destructive-btn {
   width: auto;
-  height: 28px;
+  height: 24px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 7px;
+  padding: 0 6px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--status-bad);
   font: inherit;
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: 0.68rem;
+  font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
   pointer-events: auto;
@@ -12819,9 +12819,17 @@ input.inline-function-input:focus {
 }
 
 .function-header-collapse-btn:hover {
-  color: var(--text-color);
-  border-color: var(--border-color);
-  background: var(--input-background);
+  color: var(--function-input-accent, var(--primary-color));
+  border-color: color-mix(
+    in srgb,
+    var(--function-input-accent, var(--primary-color)) 42%,
+    transparent
+  );
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent, var(--primary-color)) 12%,
+    transparent
+  );
 }
 
 .range-stack {
@@ -12904,20 +12912,21 @@ input.inline-function-input:focus {
 .function-header-action-btn:has(span) {
   width: auto;
   gap: 5px;
-  padding-inline: 7px;
+  padding-inline: 6px;
 }
 
 .function-header-action-btn.btn-add-item {
-  height: 28px;
+  height: 24px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-color-muted);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
+  font-weight: 600;
   cursor: pointer;
   position: relative;
   top: 0;
@@ -13255,8 +13264,12 @@ input.inline-function-input:focus {
 
 .instrument-order-controls button:hover,
 .instrument-order-controls button:focus-visible {
-  color: var(--primary-color);
-  background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+  color: var(--function-input-accent, var(--primary-color));
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent, var(--primary-color)) 14%,
+    transparent
+  );
 }
 
 .instrument-resizable-header {
@@ -15346,19 +15359,6 @@ body.theme-cyberpunk .range-header-container:hover {
   right: 0;
   left: auto;
   z-index: 40;
-}
-
-.sidebar-empty-uut-row {
-  display: grid;
-  align-items: center;
-  min-height: 34px;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-color-muted);
-  cursor: pointer;
-}
-
-.sidebar-empty-uut-row:hover {
-  background: var(--input-background);
 }
 
 .sidebar-empty-uut-row .point-uut-name,
@@ -18342,6 +18342,179 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
     transparent
   );
   color: var(--function-input-accent, var(--primary-color));
+}
+
+/* Measurement-point sections inherit the same function identity as their
+   instrument tables. Function headers use the stronger selected surface;
+   point rows and column bands use the quieter member surface. */
+.uncertainty-module .measurement-group-container .area-header-sticky {
+  background-color: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 22%,
+    var(--sidebar-background)
+  ) !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(.sidebar-column-header-stack, .sidebar-column-groups, .sidebar-column-headers) {
+  background-color: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 12%,
+    var(--sidebar-background)
+  ) !important;
+}
+
+.uncertainty-module .measurement-group-container .sidebar-column-group {
+  border-bottom-color: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 46%,
+    transparent
+  );
+}
+
+.uncertainty-module .measurement-group-container .point-grid-item {
+  background: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 12%,
+    var(--sidebar-background)
+  ) !important;
+  border-color: transparent !important;
+  color: var(--text-color) !important;
+  text-shadow: none !important;
+}
+
+.uncertainty-module .measurement-group-container .point-grid-item:hover,
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item.table-highlight:not(.active) {
+  background: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 16%,
+    var(--sidebar-background)
+  ) !important;
+}
+
+.uncertainty-module .measurement-group-container .point-grid-item.active,
+.uncertainty-module .measurement-group-container .point-grid-item.active-point,
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item.active-point:hover {
+  background: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 22%,
+    var(--sidebar-background)
+  ) !important;
+  color: var(--sidebar-function-color, var(--primary-color)) !important;
+  box-shadow: inset 3px 0 0
+    var(--sidebar-function-color, var(--primary-color)) !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  > .sidebar-value-sticky {
+  background-color: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 12%,
+    var(--sidebar-sticky-surface)
+  ) !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:hover
+  > .sidebar-value-sticky {
+  background-color: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 16%,
+    var(--sidebar-sticky-surface)
+  ) !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(.point-grid-item.active, .point-grid-item.active-point)
+  > .sidebar-value-sticky {
+  background-color: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 22%,
+    var(--sidebar-sticky-surface)
+  ) !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(.point-grid-item.active, .point-grid-item.active-point)
+  :is(.point-section, .point-value) {
+  color: var(--sidebar-function-color, var(--primary-color)) !important;
+  text-shadow: none !important;
+}
+
+/* Keep sidebar controls and editors tied to their function instead of the
+   application-wide blue accent. */
+.uncertainty-module
+  .measurement-group-container
+  :is(
+    .function-sidebar-collapse-button,
+    .function-point-settings-button,
+    .function-point-add-button
+  ):is(:hover, :focus-visible),
+.uncertainty-module
+  .measurement-group-container
+  .function-point-settings-button.is-active {
+  background: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 14%,
+    transparent
+  ) !important;
+  color: var(--sidebar-function-color, var(--primary-color)) !important;
+  outline: none;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .function-point-type-options
+  button.is-selected {
+  color: var(--sidebar-function-color, var(--primary-color));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--sidebar-function-color, var(--primary-color));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(input, select, textarea, [contenteditable="true"]) {
+  caret-color: var(--sidebar-function-color, var(--primary-color));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(input, select, textarea, [contenteditable="true"]):is(:focus, :focus-visible),
+.uncertainty-module
+  .measurement-group-container
+  :is(.point-uut-summary, .inline-menu-select-trigger):is(:hover, :focus, :focus-visible) {
+  border-color: var(--sidebar-function-color, var(--primary-color)) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px
+    color-mix(
+      in srgb,
+      var(--sidebar-function-color, var(--primary-color)) 18%,
+      transparent
+    ) !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(input, textarea, [contenteditable="true"])::selection {
+  background: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 34%,
+    transparent
+  );
 }
 
 .risk-viz-header h3 .method-chip {

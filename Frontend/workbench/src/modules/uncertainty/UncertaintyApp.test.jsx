@@ -947,6 +947,22 @@ describe("UncertaintyApp", () => {
               ],
             },
           },
+          {
+            id: "uut-empty-temperature",
+            description: "Temperature Standard",
+            instrument: {
+              manufacturer: "Fluke",
+              model: "1524",
+              functions: [
+                {
+                  id: "fn-temperature",
+                  name: "Temperature",
+                  unit: "degC",
+                  ranges: [],
+                },
+              ],
+            },
+          },
         ],
         tmdes: [],
         testPoints: [
@@ -978,12 +994,17 @@ describe("UncertaintyApp", () => {
     expect(
       functionRows.some((row) => row.classList.contains("area-label")),
     ).toBe(true);
-    const functionHeader = functionRows
-      .find((row) => row.classList.contains("area-label"))
-      .closest(".area-header-sticky");
-    fireEvent.click(
-      within(functionHeader).getByRole("button", { name: "Expand function" }),
-    );
+    const functionHeaders = functionRows
+      .filter((row) => row.classList.contains("area-label"))
+      .map((row) => row.closest(".area-header-sticky"));
+    functionHeaders.forEach((header) => {
+      const toggle = within(header).getByRole("button", {
+        name: /^(Expand|Collapse) function$/,
+      });
+      if (toggle.getAttribute("aria-expanded") === "false") {
+        fireEvent.click(toggle);
+      }
+    });
     const uutSelect = await screen.findByRole("button", { name: "UUT" });
     fireEvent.click(uutSelect);
     const uutList = await screen.findByRole("listbox", { name: "UUT" });
@@ -992,8 +1013,23 @@ describe("UncertaintyApp", () => {
     ).toBeInTheDocument();
     expect(document.querySelector(".uut-row")).not.toBeInTheDocument();
     expect(
-      within(functionHeader).getByRole("button", { name: "Add direct point" }),
+      screen.getAllByRole("button", { name: "Add direct point" })[0],
     ).toBeInTheDocument();
+    const emptyFunctionGroup = (await screen.findAllByText("Temperature"))
+      .find((row) => row.classList.contains("area-label"))
+      .closest(".measurement-group-container");
+    const emptyFunctionToggle = within(emptyFunctionGroup).getByRole("button", {
+      name: /^(Expand|Collapse) function$/,
+    });
+    if (emptyFunctionToggle.getAttribute("aria-expanded") === "false") {
+      fireEvent.click(emptyFunctionToggle);
+    }
+    expect(emptyFunctionToggle).toHaveAttribute("aria-expanded", "true");
+    expect(
+      emptyFunctionGroup.querySelector(".sidebar-column-header-stack"),
+    ).toBeNull();
+    expect(emptyFunctionGroup.querySelector(".point-grid-item")).toBeNull();
+    expect(screen.queryByText("No measurement points")).not.toBeInTheDocument();
   });
 
   test("applies persistent function settings when adding subsequent points", async () => {
@@ -1338,6 +1374,15 @@ describe("UncertaintyApp", () => {
 
     const pointRow = document.querySelector(".point-grid-item");
     const columnHeader = document.querySelector(".sidebar-column-headers");
+    const pointFunctionGroup = pointRow.closest(".measurement-group-container");
+    expect(
+      pointFunctionGroup.style.getPropertyValue("--sidebar-function-color"),
+    ).not.toBe("");
+    expect(
+      pointFunctionGroup.style.getPropertyValue("--function-input-accent"),
+    ).toBe(
+      pointFunctionGroup.style.getPropertyValue("--sidebar-function-color"),
+    );
     expect(pointRow.style.gridTemplateColumns).toBe(
       columnHeader.style.gridTemplateColumns,
     );
