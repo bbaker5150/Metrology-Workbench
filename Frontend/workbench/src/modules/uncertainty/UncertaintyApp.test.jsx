@@ -952,12 +952,29 @@ describe("UncertaintyApp", () => {
       ).toBeInTheDocument();
       expect(uutTable.querySelector("tr.inline-range-row")).toBeInTheDocument();
     });
+    expect(uutTable.querySelector(".range-row-add")).not.toBeInTheDocument();
+    expect(uutTable.querySelector(".range-row-delete")).not.toBeInTheDocument();
     fireEvent.pointerDown(descriptionResizeHandle, { clientX: 100 });
     fireEvent.pointerMove(document, { clientX: 120 });
     fireEvent.pointerUp(document);
     expect(
       uutTable.querySelector(".inline-tolerance-editor--all"),
     ).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => {
+      expect(
+        uutTable.querySelector(".inline-tolerance-editor--all"),
+      ).not.toBeInTheDocument();
+    });
+    const collapsedUutRow = screen.getByText("Layout UUT").closest("tr");
+    fireEvent.click(
+      within(collapsedUutRow).getByRole("button", { name: "Edit ranges" }),
+    );
+    await waitFor(() => {
+      expect(uutTable.querySelector(".range-row-add")).toBeInTheDocument();
+      expect(uutTable.querySelector(".range-row-delete")).toBeInTheDocument();
+    });
   });
 
   test("keeps UUT functions visible when they have no measurement points", async () => {

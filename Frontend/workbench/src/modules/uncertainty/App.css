@@ -11758,8 +11758,8 @@ body.theme-cyberpunk .notification-window .window-header {
 }
 
 .inline-desc-combined:hover {
-  border-color: var(--border-color);
-  background: rgba(var(--primary-rgb), 0.04);
+  border-color: transparent;
+  background: transparent;
 }
 
 .inline-desc-combined.is-empty {
@@ -13248,6 +13248,10 @@ input.inline-function-input:focus {
   pointer-events: auto;
 }
 
+.range-row-cell.range-row-cell--without-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .instrument-order-controls button {
   width: 20px;
   height: 20px;
@@ -13322,12 +13326,13 @@ input.inline-function-input:focus {
   position: relative;
   display: block;
   width: 100%;
-  height: 12px;
+  flex: 0 0 16px;
+  height: 16px;
   margin: 0;
   padding: 0;
   border: 0;
-  border-top: 1px solid transparent;
-  background: transparent;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  background: color-mix(in srgb, var(--table-header-bg) 34%, transparent);
   color: var(--text-color-muted);
   cursor: row-resize;
   touch-action: none;
@@ -13336,10 +13341,10 @@ input.inline-function-input:focus {
 .instrument-table-height-resize-handle::after {
   content: "";
   position: absolute;
-  top: 4px;
+  top: 6px;
   left: 50%;
   width: 34px;
-  height: 2px;
+  height: 3px;
   border-radius: 999px;
   background: color-mix(in srgb, currentColor 34%, transparent);
   transform: translateX(-50%);

@@ -2835,18 +2835,33 @@ const useInstrumentTableHeight = (view, kind) => {
       event.preventDefault();
       event.stopPropagation();
       const startY = event.clientY;
-      const startHeight =
-        containerRef.current?.getBoundingClientRect().height || height || 340;
+      const container = containerRef.current;
+      if (!container || !Number.isFinite(startY)) return;
+      const startHeight = container.getBoundingClientRect().height || height || 340;
+      let nextHeight = startHeight;
       const previousCursor = document.body.style.cursor;
       const previousUserSelect = document.body.style.userSelect;
       document.body.style.cursor = "row-resize";
       document.body.style.userSelect = "none";
+      event.currentTarget.setPointerCapture?.(event.pointerId);
 
       const handleMove = (moveEvent) => {
-        const nextHeight = Math.max(
+        if (!Number.isFinite(moveEvent.clientY)) return;
+        nextHeight = Math.max(
           180,
           Math.min(1600, Math.round(startHeight + moveEvent.clientY - startY)),
         );
+        // Update the actual scroller during the drag so Electron never has to
+        // wait for a React render before showing the new table height.
+        container.style.height = `${nextHeight}px`;
+        container.style.maxHeight = "none";
+      };
+      const handleUp = () => {
+        window.removeEventListener("pointermove", handleMove);
+        window.removeEventListener("pointerup", handleUp);
+        window.removeEventListener("pointercancel", handleUp);
+        document.body.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
         setHeight(nextHeight);
         try {
           window.localStorage.setItem(storageKey, String(nextHeight));
@@ -2854,14 +2869,9 @@ const useInstrumentTableHeight = (view, kind) => {
           // Resizing remains available for this view when storage is blocked.
         }
       };
-      const handleUp = () => {
-        document.removeEventListener("pointermove", handleMove);
-        document.removeEventListener("pointerup", handleUp);
-        document.body.style.cursor = previousCursor;
-        document.body.style.userSelect = previousUserSelect;
-      };
-      document.addEventListener("pointermove", handleMove);
-      document.addEventListener("pointerup", handleUp, { once: true });
+      window.addEventListener("pointermove", handleMove);
+      window.addEventListener("pointerup", handleUp, { once: true });
+      window.addEventListener("pointercancel", handleUp, { once: true });
     },
     [height, storageKey],
   );
@@ -4557,6 +4567,7 @@ export const RangeCell = ({
   openRequested = false,
   onOpenRequestHandled,
   onRequestEditAfterExpand,
+  onEditingChange,
   allowSingleToggle = false,
   editBlankByDefault = false,
 }) => {
@@ -4570,6 +4581,10 @@ export const RangeCell = ({
   const containerRef = useRef(null);
   const openAfterInitialRangeRef = useRef(false);
   const showEditor = isEditing || isStagedBlankOpen;
+
+  useEffect(() => {
+    onEditingChange?.(showEditor);
+  }, [onEditingChange, showEditor]);
 
   // Creating the first real range updates the parent row. Wait for that stable
   // id before mounting the inputs; otherwise React replaces the min/max inputs
@@ -7650,9 +7665,16 @@ const SummaryDashboard = ({
 
   const toggleShowAllRanges = (kind, stateId, itemId = stateId) => {
     const key = itemStateKey(kind, stateId);
-    if (expandedRangeKeys.has(key)) {
+    const isExpanded = expandedRangeKeys.has(key);
+    if (isExpanded) {
       sortAndPersistRangeGroup(itemStateKey(kind, itemId));
     }
+    setRangeEditingKeys((previous) => {
+      const next = new Set(previous);
+      if (isExpanded) next.delete(key);
+      else next.add(key);
+      return next;
+    });
     setExpandedRangeKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -8173,6 +8195,7 @@ const SummaryDashboard = ({
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
+  const [rangeEditingKeys, setRangeEditingKeys] = useState(() => new Set());
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
   const [pendingResolutionRangeKey, setPendingResolutionRangeKey] = useState(null);
   const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
@@ -8218,11 +8241,17 @@ const SummaryDashboard = ({
         keysToCollapse.forEach((key) => next.delete(key));
         return next;
       });
+      setRangeEditingKeys((prev) => {
+        const next = new Set(prev);
+        keysToCollapse.forEach((key) => next.delete(key));
+        return next;
+      });
     };
     const onKeyDown = (e) => {
       if (e.key !== "Escape") return;
       document.activeElement?.blur?.();
       setExpandedRangeKeys(new Set());
+      setRangeEditingKeys(new Set());
     };
     // Listen on "click" (fires after mousedown -> blur -> mouseup) so any
     // in-progress editor commits its onBlur BEFORE the list collapses and
@@ -8339,12 +8368,15 @@ const SummaryDashboard = ({
       rangeIndex = 0,
       totalRanges = 1,
       nextRange = null,
+      stateId = item.id,
     } = {},
   ) => {
     const setRangeIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const tableId = kind;
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range;
+    const rangeGroupKey = itemStateKey(kind, stateId);
+    const showRangeActions = rangeEditingKeys.has(rangeGroupKey);
 
     return (
       <>
@@ -8356,14 +8388,23 @@ const SummaryDashboard = ({
             openRangeRowMenu(event, kind, item, range, rangeIndex, totalRanges)
           }
         >
-          <div className="range-row-cell">
+          <div
+            className={`range-row-cell${showRangeActions ? "" : " range-row-cell--without-actions"}`}
+          >
             <RangeCell
               ranges={[range]}
               activeIndex={0}
               activeRange={range}
               editable
               allowSingleToggle
-              editBlankByDefault
+              editBlankByDefault={showRangeActions}
+              onEditingChange={(editing) => {
+                if (!editing) return;
+                setRangeEditingKeys((previous) => {
+                  if (previous.has(rangeGroupKey)) return previous;
+                  return new Set(previous).add(rangeGroupKey);
+                });
+              }}
               onSelect={(idx) => setRangeIdx((prev) => ({ ...prev, [item.id]: idx }))}
               onEditBound={(field, value) =>
                 handleEditRangeBound(kind, item, rangeKey, field, value)
@@ -8388,7 +8429,7 @@ const SummaryDashboard = ({
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
-            {rangeIndex === 0 && (
+            {showRangeActions && rangeIndex === 0 && (
               <button
                 type="button"
                 className="range-row-add"
@@ -8403,20 +8444,22 @@ const SummaryDashboard = ({
                 <FontAwesomeIcon icon={faPlus} />
               </button>
             )}
-            <button
-              type="button"
-              className="range-row-delete"
-              title="Delete range"
-              aria-label="Delete range"
-              disabled={!canDeleteRange}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRemoveRange(kind, item, rangeKey);
-              }}
-            >
-              x
-            </button>
+            {showRangeActions && (
+              <button
+                type="button"
+                className="range-row-delete"
+                title="Delete range"
+                aria-label="Delete range"
+                disabled={!canDeleteRange}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveRange(kind, item, rangeKey);
+                }}
+              >
+                x
+              </button>
+            )}
           </div>
         </td>
 
@@ -9358,6 +9401,7 @@ const SummaryDashboard = ({
                               )}
                               {renderRangeRowCells("uut", uut, range, {
                                 includeDistribution: false,
+                                stateId: uutRowKey,
                                 canDeleteRange: true,
                                 rangeIndex: index,
                                 totalRanges: n,
@@ -9496,6 +9540,11 @@ const SummaryDashboard = ({
                                     index === 0
                                       ? () => {
                                           handleAddBlankRange("uut", uut, rangeKey);
+                                          setRangeEditingKeys((previous) =>
+                                            new Set(previous).add(
+                                              itemStateKey("uut", uutRowKey),
+                                            ),
+                                          );
                                           setExpandedRangeKeys((previous) =>
                                             new Set(previous).add(
                                               itemStateKey("uut", uutRowKey),
@@ -9540,6 +9589,11 @@ const SummaryDashboard = ({
                                       showMeasurementStatus
                                       onEditingChange={(editing) => {
                                         if (!editing) return;
+                                        setRangeEditingKeys((previous) => {
+                                          const next = new Set(previous);
+                                          next.delete(itemStateKey("uut", uutRowKey));
+                                          return next;
+                                        });
                                         setPendingToleranceRangeKey(
                                           `${itemStateKey("uut", uut.id)}:${rangeKey}`,
                                         );
@@ -9878,6 +9932,7 @@ const SummaryDashboard = ({
                               )}
                               {renderRangeRowCells("tmde", tmde, range, {
                                 includeDistribution: true,
+                                stateId: tmdeRowKey,
                                 canDeleteRange: true,
                                 rangeIndex: index,
                                 totalRanges: n,
@@ -10027,6 +10082,11 @@ const SummaryDashboard = ({
                                     index === 0
                                       ? () => {
                                           handleAddBlankRange("tmde", tmde, rangeKey);
+                                          setRangeEditingKeys((previous) =>
+                                            new Set(previous).add(
+                                              itemStateKey("tmde", tmdeRowKey),
+                                            ),
+                                          );
                                           setExpandedRangeKeys((previous) =>
                                             new Set(previous).add(
                                               itemStateKey("tmde", tmdeRowKey),
@@ -10070,6 +10130,11 @@ const SummaryDashboard = ({
                                       editable={!!onSessionSave}
                                       onEditingChange={(editing) => {
                                         if (!editing) return;
+                                        setRangeEditingKeys((previous) => {
+                                          const next = new Set(previous);
+                                          next.delete(itemStateKey("tmde", tmdeRowKey));
+                                          return next;
+                                        });
                                         setPendingToleranceRangeKey(
                                           `${itemStateKey("tmde", tmde.id)}:${rangeKey}`,
                                         );
@@ -10396,6 +10461,7 @@ function DetailedView({
   // the deps array hits a temporal dead zone during render.
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
+  const [rangeEditingKeys, setRangeEditingKeys] = useState(() => new Set());
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
   const [pendingResolutionRangeKey, setPendingResolutionRangeKey] = useState(null);
   const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
@@ -11689,9 +11755,16 @@ function DetailedView({
 
   const toggleShowAllRangesDetail = (kind, stateId, itemId = stateId) => {
     const key = itemStateKey(kind, stateId);
-    if (expandedRangeKeys.has(key)) {
+    const isExpanded = expandedRangeKeys.has(key);
+    if (isExpanded) {
       sortAndPersistRangeGroupDetail(itemStateKey(kind, itemId));
     }
+    setRangeEditingKeys((previous) => {
+      const next = new Set(previous);
+      if (isExpanded) next.delete(key);
+      else next.add(key);
+      return next;
+    });
     setExpandedRangeKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -11742,11 +11815,17 @@ function DetailedView({
         keysToCollapse.forEach((key) => next.delete(key));
         return next;
       });
+      setRangeEditingKeys((prev) => {
+        const next = new Set(prev);
+        keysToCollapse.forEach((key) => next.delete(key));
+        return next;
+      });
     };
     const onKeyDown = (e) => {
       if (e.key !== "Escape") return;
       document.activeElement?.blur?.();
       setExpandedRangeKeys(new Set());
+      setRangeEditingKeys(new Set());
     };
     // Listen on "click" (fires after mousedown -> blur -> mouseup) so any
     // in-progress editor commits its onBlur BEFORE the list collapses and
@@ -11861,11 +11940,14 @@ function DetailedView({
       rangeIndex = 0,
       totalRanges = 1,
       nextRange = null,
+      stateId = item.id,
     },
   ) => {
     const tableId = kind === "uut" ? "uut_det" : "tmde_det";
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range || {};
+    const rangeGroupKey = itemStateKey(kind, stateId);
+    const showRangeActions = rangeEditingKeys.has(rangeGroupKey);
 
     return (
       <>
@@ -11877,14 +11959,23 @@ function DetailedView({
             openRangeRowMenu(event, kind, item, range, rangeIndex, totalRanges)
           }
         >
-          <div className="range-row-cell">
+          <div
+            className={`range-row-cell${showRangeActions ? "" : " range-row-cell--without-actions"}`}
+          >
             <RangeCell
               ranges={[range]}
               activeIndex={0}
               activeRange={range}
               editable
               allowSingleToggle
-              editBlankByDefault
+              editBlankByDefault={showRangeActions}
+              onEditingChange={(editing) => {
+                if (!editing) return;
+                setRangeEditingKeys((previous) => {
+                  if (previous.has(rangeGroupKey)) return previous;
+                  return new Set(previous).add(rangeGroupKey);
+                });
+              }}
               onSelect={() => {}}
               onEditBound={(field, value) =>
                 handleEditRangeBoundDetail(kind, item, rangeKey, field, value)
@@ -11909,7 +12000,7 @@ function DetailedView({
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
-            {rangeIndex === 0 && (
+            {showRangeActions && rangeIndex === 0 && (
               <button
                 type="button"
                 className="range-row-add"
@@ -11924,20 +12015,22 @@ function DetailedView({
                 <FontAwesomeIcon icon={faPlus} />
               </button>
             )}
-            <button
-              type="button"
-              className="range-row-delete"
-              title="Delete range"
-              aria-label="Delete range"
-              disabled={!canDeleteRange}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRemoveRangeDetail(kind, item, rangeKey);
-              }}
-            >
-              x
-            </button>
+            {showRangeActions && (
+              <button
+                type="button"
+                className="range-row-delete"
+                title="Delete range"
+                aria-label="Delete range"
+                disabled={!canDeleteRange}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveRangeDetail(kind, item, rangeKey);
+                }}
+              >
+                x
+              </button>
+            )}
           </div>
         </td>
 
@@ -15668,6 +15761,7 @@ function DetailedView({
                               )}
                               {renderRangeRowCellsDetail("uut", uut, range, {
                                 includeDistribution: false,
+                                stateId: uutRowKey,
                                 cols: { range: 1, tol: 2, res: 3 },
                                 canDeleteRange: true,
                                 rangeIndex: index,
@@ -15829,6 +15923,11 @@ function DetailedView({
                                             uut,
                                             rangeIdOf(range),
                                           );
+                                          setRangeEditingKeys((previous) =>
+                                            new Set(previous).add(
+                                              itemStateKey("uut", uutRowKey),
+                                            ),
+                                          );
                                           setExpandedRangeKeys((previous) =>
                                             new Set(previous).add(
                                               itemStateKey("uut", uutRowKey),
@@ -15879,6 +15978,11 @@ function DetailedView({
                                       showMeasurementStatus
                                       onEditingChange={(editing) => {
                                         if (!editing) return;
+                                        setRangeEditingKeys((previous) => {
+                                          const next = new Set(previous);
+                                          next.delete(itemStateKey("uut", uutRowKey));
+                                          return next;
+                                        });
                                         setPendingToleranceRangeKey(
                                           `${itemStateKey("uut", uut.id)}:${rangeKey}`,
                                         );
@@ -16559,6 +16663,7 @@ function DetailedView({
                                   )}
                                   {renderRangeRowCellsDetail("tmde", masterTmde, range, {
                                     includeDistribution: true,
+                                    stateId: tmdeRowKey,
                                     cols: { range: 1, tol: 2, res: 4 },
                                     canDeleteRange: true,
                                     rangeIndex: index,
@@ -16748,6 +16853,11 @@ function DetailedView({
                                                 masterTmde,
                                                 rangeKey,
                                               );
+                                              setRangeEditingKeys((previous) =>
+                                                new Set(previous).add(
+                                                  itemStateKey("tmde", tmdeRowKey),
+                                                ),
+                                              );
                                               setExpandedRangeKeys((previous) =>
                                                 new Set(previous).add(
                                                   itemStateKey("tmde", tmdeRowKey),
@@ -16809,6 +16919,13 @@ function DetailedView({
                                           editable={!!onSessionSave}
                                           onEditingChange={(editing) => {
                                             if (!editing) return;
+                                            setRangeEditingKeys((previous) => {
+                                              const next = new Set(previous);
+                                              next.delete(
+                                                itemStateKey("tmde", tmdeRowKey),
+                                              );
+                                              return next;
+                                            });
                                             setPendingToleranceRangeKey(
                                               `${itemStateKey("tmde", masterTmde.id)}:${rangeKey}`,
                                             );
