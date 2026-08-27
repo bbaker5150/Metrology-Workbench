@@ -18487,8 +18487,14 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 
 .uncertainty-module
   .measurement-group-container
-  .sidebar-sort-header:is(:hover, .active) {
+  .sidebar-sort-header:hover {
   color: var(--sidebar-function-color, var(--primary-color));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .sidebar-sort-header.active:not(:hover) {
+  color: inherit;
 }
 
 .uncertainty-module .measurement-group-container .sidebar-column-group {
@@ -18560,8 +18566,19 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 .uncertainty-module
   .measurement-group-container
   :is(.point-grid-item.active, .point-grid-item.active-point)
-  :is(.point-section, .point-value) {
+  .point-section {
   color: var(--sidebar-function-color, var(--primary-color)) !important;
+  text-shadow: none !important;
+}
+
+/* Selection is already communicated by the row surface and left rail. Keep
+   measurement values consistent with the other result columns instead of
+   turning the frozen Value column into a second function label. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-value {
+  color: var(--text-color) !important;
   text-shadow: none !important;
 }
 
@@ -18706,7 +18723,7 @@ body.dark-mode
   .uncertainty-module
   .measurement-group-container
   .point-grid-item:is(.active, .active-point)
-  :is(.point-section, .point-value) {
+  .point-section {
   color: var(--sidebar-function-color, var(--primary-color)) !important;
   text-shadow: none !important;
 }
