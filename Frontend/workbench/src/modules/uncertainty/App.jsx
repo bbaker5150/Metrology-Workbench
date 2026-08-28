@@ -1028,9 +1028,15 @@ export const SidebarPointItem = ({
       .join("\n");
   }, [tmdeLimitsData]);
 
+  const hasHighlightedSharedCell =
+    (isSelected || isActivePoint || isTableSelected) &&
+    [cellGroups.uut, cellGroups.section, cellGroups.qualifier].some(
+      (group) => group?.span > 1,
+    );
+
   return (
     <div
-      className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
+      className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""} ${hasHighlightedSharedCell ? "shared-cell-highlight-active" : ""}`}
       style={{ gridTemplateColumns: getSidebarGridTemplate(visibleColumns, valueColumnWidth) }}
       onClick={(e) => {
         if (!editingField) {

@@ -18912,3 +18912,18 @@ body.dark-mode
   color: var(--sidebar-function-color, var(--primary-color)) !important;
   text-shadow: none !important;
 }
+
+/* The merged cell already carries the continuous selection rail. Avoid a
+   second, one-row rail at the far left of the selected measurement point. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item.shared-cell-highlight-active,
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item.shared-cell-highlight-active,
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item.shared-cell-highlight-active:hover {
+  box-shadow: none !important;
+}
