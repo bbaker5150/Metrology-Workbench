@@ -33,6 +33,28 @@ describe("measurement-point value editing", () => {
     ).toEqual({ isStart: false, span: 2, pointIds: ["p1", "p2"] });
   });
 
+  test("keeps a selected point visible inside a vertically grouped UUT cell", () => {
+    const groupedUut = { isStart: false, span: 2, pointIds: ["p1", "p2"] };
+    const { container } = render(
+      <SidebarPointItem
+        point={{ id: "p2", testPointInfo: { parameter: { value: 2, unit: "V" } } }}
+        uutName="Bench DMM"
+        currentUutId="uut-1"
+        cellGroups={{ uut: groupedUut }}
+        isSelected
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true, value: true }}
+      />,
+    );
+
+    const marker = container.querySelector(
+      ".point-grouped-cell-selection-overlay",
+    );
+    expect(marker).toBeInTheDocument();
+    expect(marker).toHaveStyle({ gridColumn: "1", gridRow: "1" });
+  });
+
   test("copies and replaces only uncertainty-budget fields", () => {
     const source = {
       id: "source",

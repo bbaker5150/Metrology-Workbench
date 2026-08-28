@@ -5,6 +5,7 @@ import React, {
   useState,
   useMemo,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   lazy,
@@ -652,6 +653,8 @@ export const SidebarPointItem = ({
   const [tempValue, setTempValue] = useState(
     autoEditValue ? point.testPointInfo?.parameter?.value ?? "" : "",
   );
+  const groupedCellRefs = useRef({});
+  const [groupedCellHeights, setGroupedCellHeights] = useState({});
 
   // Consume both mount-time and later focus requests. Pre-created blank rows
   // are already mounted, so relying only on the useState initializer prevented
@@ -764,14 +767,129 @@ export const SidebarPointItem = ({
   // Safe Accessors
   const displayValue = point.testPointInfo?.parameter?.value;
   const displayUnit = point.testPointInfo?.parameter?.unit || "";
+
+  // A categorical cell can span rows whose height grows for multi-line
+  // metrics.  Measure its actual consecutive rows rather than relying only on
+  // the compact default row height, keeping the one visible label centered
+  // after sorting or when any neighboring column expands.
+  useLayoutEffect(() => {
+    const measure = () => {
+      const nextHeights = {};
+      ["uut", "section", "qualifier"].forEach((column) => {
+        const group = cellGroups[column];
+        const cell = groupedCellRefs.current[column];
+        if (!group?.isStart || group.span < 2 || !cell) return;
+
+        let row = cell.closest(".point-grid-item");
+        let height = 0;
+        for (let offset = 0; offset < group.span && row; offset += 1) {
+          const rect = row.getBoundingClientRect();
+          if (rect.height <= 0) return;
+          height += rect.height;
+          if (offset < group.span - 1) {
+            height += Number.parseFloat(getComputedStyle(row).marginBottom) || 0;
+          }
+          row = row.nextElementSibling;
+        }
+        if (height > 0) nextHeights[column] = `${Math.round(height)}px`;
+      });
+
+      setGroupedCellHeights((current) => {
+        const currentKeys = Object.keys(current);
+        const nextKeys = Object.keys(nextHeights);
+        const unchanged =
+          currentKeys.length === nextKeys.length &&
+          nextKeys.every((key) => current[key] === nextHeights[key]);
+        return unchanged ? current : nextHeights;
+      });
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    Object.values(groupedCellRefs.current).forEach((cell) => {
+      const row = cell?.closest(".point-grid-item");
+      if (row) observer.observe(row.parentElement || row);
+    });
+    return () => observer.disconnect();
+  }, [
+    cellGroups.uut?.isStart,
+    cellGroups.uut?.span,
+    cellGroups.section?.isStart,
+    cellGroups.section?.span,
+    cellGroups.qualifier?.isStart,
+    cellGroups.qualifier?.span,
+  ]);
+
   const groupedCellClass = (group) =>
     group?.span > 1
       ? ` point-grouped-cell point-grouped-cell--${group.isStart ? "start" : "continuation"}`
       : "";
-  const groupedCellStyle = (group) =>
+  const groupedCellStyle = (group, column) =>
     group?.span > 1 && group.isStart
-      ? { "--point-cell-group-height": `${group.span * 29 - 1}px` }
+      ? {
+          "--point-cell-group-height":
+            groupedCellHeights[column] || `${group.span * 29 - 1}px`,
+        }
       : undefined;
+  const setGroupedCellRef = (column) => (node) => {
+    groupedCellRefs.current[column] = node;
+  };
+  const groupedSelectionOverlay = (group, column) => {
+    if (
+      !group?.span ||
+      group.span < 2 ||
+      (!isSelected && !isActivePoint)
+    ) {
+      return null;
+    }
+
+    // The first categorical cell visually spans the following rows.  Give an
+    // individually selected row its own translucent layer so its membership
+    // remains evident even when the UUT/section/qualifier label is rendered
+    // once for the full run.
+    const visibleColumnOrder = [
+      "uut",
+      "section",
+      "value",
+      "qualifier",
+      "tolerance",
+      "lowLimit",
+      "highLimit",
+      "standardUncertainty",
+      "measurementUncertainty",
+      "tmdeLow",
+      "tmdeHigh",
+      "tur",
+      "tar",
+      "observedReop",
+      "pfa",
+      "pfr",
+      "maxReop",
+      "trueReop",
+      "gbMult",
+      "gbLow",
+      "gbHigh",
+      "gbPfa",
+      "gbPfr",
+      "gbCalInt",
+      "gbMeasRel",
+      "noGbPfa",
+      "noGbPfr",
+      "noGbCalInt",
+      "noGbMeasRel",
+    ].filter((key) => visibleColumns[key]);
+    const gridColumn = visibleColumnOrder.indexOf(column) + 1;
+    if (gridColumn < 1) return null;
+
+    return (
+      <span
+        aria-hidden="true"
+        className="point-grouped-cell-selection-overlay"
+        style={{ gridColumn, gridRow: 1 }}
+      />
+    );
+  };
   // Prefer the live, reactively-computed metrics (always current with the
   // session inputs); fall back to the persisted backend snapshot only if the
   // point can't currently be evaluated (#1).
@@ -952,87 +1070,96 @@ export const SidebarPointItem = ({
       onContextMenu={(e) => onContextMenu(e, point)}
     >
       {visibleColumns.uut && (
-        <span
-          className={`point-uut-name point-uut-selector-cell${groupedCellClass(cellGroups.uut)}`}
-          style={groupedCellStyle(cellGroups.uut)}
-          title={uutName}
-        >
-          {!cellGroups.uut?.isStart && cellGroups.uut?.span > 1 ? null : editingUut ? (
-            <InlineMenuSelect
-              value={currentUutId || ""}
-              ariaLabel="UUT"
-              title={uutName}
-              width="100%"
-              menuWidth={260}
-              className="point-uut-inline-select"
-              autoOpen
-              showOptionMeta={false}
-              options={[
-                { value: "", label: "Unassigned" },
-                ...uutOptions.map((option) => ({
-                  value: String(option.id),
-                  label: option.label,
-                })),
-              ]}
-              onOpenChange={(isOpen) => {
-                if (!isOpen) setEditingUut(false);
-              }}
-              onChange={(value) => {
-                if (cellGroups.uut?.pointIds) {
-                  onUutChange?.(value || null, cellGroups.uut.pointIds);
-                } else {
-                  onUutChange?.(value || null);
-                }
-                setEditingUut(false);
-              }}
-            />
-          ) : (
-            <button
-              type="button"
-              className="point-uut-summary"
-              aria-label="UUT"
-              title="Edit UUT"
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                setEditingUut(true);
-              }}
-            >
-              {uutName}
-            </button>
-          )}
-        </span>
+        <>
+          <span
+            ref={setGroupedCellRef("uut")}
+            className={`point-uut-name point-uut-selector-cell${groupedCellClass(cellGroups.uut)}`}
+            style={groupedCellStyle(cellGroups.uut, "uut")}
+            title={uutName}
+          >
+            {!cellGroups.uut?.isStart && cellGroups.uut?.span > 1 ? null : editingUut ? (
+              <InlineMenuSelect
+                value={currentUutId || ""}
+                ariaLabel="UUT"
+                title={uutName}
+                width="100%"
+                menuWidth={260}
+                className="point-uut-inline-select"
+                autoOpen
+                showOptionMeta={false}
+                options={[
+                  { value: "", label: "Unassigned" },
+                  ...uutOptions.map((option) => ({
+                    value: String(option.id),
+                    label: option.label,
+                  })),
+                ]}
+                onOpenChange={(isOpen) => {
+                  if (!isOpen) setEditingUut(false);
+                }}
+                onChange={(value) => {
+                  if (cellGroups.uut?.pointIds) {
+                    onUutChange?.(value || null, cellGroups.uut.pointIds);
+                  } else {
+                    onUutChange?.(value || null);
+                  }
+                  setEditingUut(false);
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                className="point-uut-summary"
+                aria-label="UUT"
+                title="Edit UUT"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setEditingUut(true);
+                }}
+              >
+                {uutName}
+              </button>
+            )}
+          </span>
+          {groupedSelectionOverlay(cellGroups.uut, "uut")}
+        </>
       )}
 
       {/* Section */}
       {visibleColumns.section &&
-        (!cellGroups.section?.isStart && cellGroups.section?.span > 1 ? (
-          <span
-            className={`point-section${groupedCellClass(cellGroups.section)}`}
-            aria-hidden="true"
-          />
-        ) : editingField === "section" ? (
-          <input
-            autoFocus
-            className={`sidebar-inline-input section${groupedCellClass(cellGroups.section)}`}
-            style={groupedCellStyle(cellGroups.section)}
-            value={tempValue}
-            onChange={(e) => setTempValue(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={handleKeyDown}
-            onClick={(e) => e.stopPropagation()}
-            placeholder="-"
-          />
-        ) : (
-          <span
-            className={`point-section${groupedCellClass(cellGroups.section)}`}
-            style={groupedCellStyle(cellGroups.section)}
-            onClick={(e) => handleSingleClickEdit(e, "section", point.section)}
-            title={String(point.section || "-")}
-          >
-            {point.section || "-"}
-          </span>
-        ))}
+        <>
+          {!cellGroups.section?.isStart && cellGroups.section?.span > 1 ? (
+            <span
+              className={`point-section${groupedCellClass(cellGroups.section)}`}
+              aria-hidden="true"
+            />
+          ) : editingField === "section" ? (
+            <input
+              ref={setGroupedCellRef("section")}
+              autoFocus
+              className={`sidebar-inline-input section${groupedCellClass(cellGroups.section)}`}
+              style={groupedCellStyle(cellGroups.section, "section")}
+              value={tempValue}
+              onChange={(e) => setTempValue(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={handleKeyDown}
+              onClick={(e) => e.stopPropagation()}
+              placeholder="-"
+            />
+          ) : (
+            <span
+              ref={setGroupedCellRef("section")}
+              className={`point-section${groupedCellClass(cellGroups.section)}`}
+              style={groupedCellStyle(cellGroups.section, "section")}
+              onClick={(e) => handleSingleClickEdit(e, "section", point.section)}
+              title={String(point.section || "-")}
+            >
+              {point.section || "-"}
+            </span>
+          )}
+          {groupedSelectionOverlay(cellGroups.section, "section")}
+        </>}
 
       {/* Col 2: Value */}
       {visibleColumns.value &&
@@ -1076,41 +1203,46 @@ export const SidebarPointItem = ({
 
       {/* Optional Qualifier column (e.g. Frequency) — hidden by default. */}
       {visibleColumns.qualifier &&
-        (!cellGroups.qualifier?.isStart && cellGroups.qualifier?.span > 1 ? (
-          <span
-            className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
-            aria-hidden="true"
-          />
-        ) : editingField === "qualifier" ? (
-          <input
-            autoFocus
-            className={`sidebar-inline-input value${groupedCellClass(cellGroups.qualifier)}`}
-            style={groupedCellStyle(cellGroups.qualifier)}
-            value={tempValue}
-            onChange={(e) => setTempValue(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={handleKeyDown}
-            onClick={(e) => e.stopPropagation()}
-            placeholder="-"
-          />
-        ) : (
-          <span
-            className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
-            style={groupedCellStyle(cellGroups.qualifier)}
-            onClick={(e) =>
-              handleSingleClickEdit(
-                e,
-                "qualifier",
-                point.testPointInfo?.qualifier?.value,
-              )
-            }
-            title={String(point.testPointInfo?.qualifier?.value ?? "-")}
-          >
-            {point.testPointInfo?.qualifier?.value || (
-              <span className="point-placeholder">-</span>
-            )}
-          </span>
-        ))}
+        <>
+          {!cellGroups.qualifier?.isStart && cellGroups.qualifier?.span > 1 ? (
+            <span
+              className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
+              aria-hidden="true"
+            />
+          ) : editingField === "qualifier" ? (
+            <input
+              ref={setGroupedCellRef("qualifier")}
+              autoFocus
+              className={`sidebar-inline-input value${groupedCellClass(cellGroups.qualifier)}`}
+              style={groupedCellStyle(cellGroups.qualifier, "qualifier")}
+              value={tempValue}
+              onChange={(e) => setTempValue(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={handleKeyDown}
+              onClick={(e) => e.stopPropagation()}
+              placeholder="-"
+            />
+          ) : (
+            <span
+              ref={setGroupedCellRef("qualifier")}
+              className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
+              style={groupedCellStyle(cellGroups.qualifier, "qualifier")}
+              onClick={(e) =>
+                handleSingleClickEdit(
+                  e,
+                  "qualifier",
+                  point.testPointInfo?.qualifier?.value,
+                )
+              }
+              title={String(point.testPointInfo?.qualifier?.value ?? "-")}
+            >
+              {point.testPointInfo?.qualifier?.value || (
+                <span className="point-placeholder">-</span>
+              )}
+            </span>
+          )}
+          {groupedSelectionOverlay(cellGroups.qualifier, "qualifier")}
+        </>}
 
       {/* Col 3: Tolerance */}
       {visibleColumns.tolerance && (
