@@ -18816,6 +18816,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
     var(--sidebar-sticky-surface)
   );
   color: var(--sidebar-function-color, var(--primary-color));
+  width: calc(100% + 8px);
   box-shadow: none;
 }
 
@@ -18823,6 +18824,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .measurement-group-container
   .point-grid-item
   .point-grouped-cell-content.is-highlighted.is-leading-column {
+  width: calc(100% + 18px);
   box-shadow: inset 3px 0 0
     var(--sidebar-function-color, var(--primary-color));
 }

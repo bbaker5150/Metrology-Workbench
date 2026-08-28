@@ -1137,6 +1137,7 @@ export const SidebarPointItem = ({
             />
           ) : (
             <span
+              ref={setGroupedCellRef("section")}
               className={`point-section${groupedCellClass(cellGroups.section)}`}
               title={String(point.section || "-")}
             >
@@ -1220,6 +1221,7 @@ export const SidebarPointItem = ({
             />
           ) : (
             <span
+              ref={setGroupedCellRef("qualifier")}
               className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
               title={String(point.testPointInfo?.qualifier?.value ?? "-")}
             >
