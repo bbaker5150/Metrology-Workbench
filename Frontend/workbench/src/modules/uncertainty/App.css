@@ -18816,6 +18816,13 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
     var(--sidebar-sticky-surface)
   );
   color: var(--sidebar-function-color, var(--primary-color));
+  box-shadow: none;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell-content.is-highlighted.is-leading-column {
   box-shadow: inset 3px 0 0
     var(--sidebar-function-color, var(--primary-color));
 }
@@ -18839,8 +18846,15 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 .uncertainty-module
   .point-grid-item
   .point-section
+  .point-grouped-cell-content {
+  justify-content: center;
+}
+
+.uncertainty-module
+  .point-grid-item
+  .point-section
   .point-grouped-cell-label {
-  text-align: right;
+  text-align: center;
 }
 
 .uncertainty-module .point-grid-item .point-grouped-cell--continuation {
