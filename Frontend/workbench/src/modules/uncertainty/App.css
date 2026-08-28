@@ -18823,6 +18823,15 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   box-shadow: none;
 }
 
+/* A merged cell can extend through later sibling rows. Raise its originating
+   row as a unit so those later row surfaces cannot cut through an even-span
+   label that is centered directly on their shared boundary. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:has(.point-grouped-cell-content.is-highlighted) {
+  z-index: 7;
+}
+
 .uncertainty-module
   .measurement-group-container
   .point-grid-item
