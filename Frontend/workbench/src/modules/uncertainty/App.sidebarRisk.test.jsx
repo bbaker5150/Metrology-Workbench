@@ -55,6 +55,26 @@ describe("measurement-point value editing", () => {
     expect(marker).toHaveStyle({ gridColumn: "1", gridRow: "1" });
   });
 
+  test("centers a grouped label without increasing the point row height", () => {
+    const groupedUut = { isStart: true, span: 4, pointIds: ["p1", "p2", "p3", "p4"] };
+    const { container } = render(
+      <SidebarPointItem
+        point={{ id: "p1", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
+        uutName="Bench DMM"
+        currentUutId="uut-1"
+        cellGroups={{ uut: groupedUut }}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true, value: true }}
+      />,
+    );
+
+    const cell = container.querySelector(".point-uut-selector-cell");
+    const content = container.querySelector(".point-grouped-cell-content");
+    expect(cell).not.toHaveStyle({ height: "115px" });
+    expect(content).toHaveStyle({ "--point-cell-group-height": "115px" });
+  });
+
   test("copies and replaces only uncertainty-budget fields", () => {
     const source = {
       id: "source",

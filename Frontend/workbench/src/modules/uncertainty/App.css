@@ -18768,23 +18768,54 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 }
 
 /* Consecutive categorical values are presented as one vertically merged cell.
-   Point rows use a fixed compact rhythm (28px row + 1px divider), allowing the
-   first cell to span the run while continuation cells retain grid alignment. */
+   The outer grid cell keeps the first point row at its normal height. Its
+   absolutely positioned content spans the run, so the shared value is centered
+   without enlarging the first row or feeding back into the list height. */
 .uncertainty-module .point-grid-item .point-grouped-cell--start {
-  align-self: start;
-  /* This cell must extend over following rows, but it stays below the
-     selected-row marker so a point never appears detached from its UUT. */
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  min-height: 28px;
-  height: var(--point-cell-group-height);
-  box-sizing: border-box;
-  overflow: hidden;
+  position: relative;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
 }
 
-.uncertainty-module .point-grid-item .point-section.point-grouped-cell--start {
-  justify-content: flex-end;
+.uncertainty-module .point-grid-item .point-grouped-cell-content {
+  position: absolute;
+  top: -5px;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--point-cell-group-height);
+  min-width: 0;
+  padding-block: 5px;
+  box-sizing: border-box;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.uncertainty-module
+  .point-grid-item
+  .point-grouped-cell-content
+  > * {
+  pointer-events: auto;
+}
+
+.uncertainty-module .point-grid-item .point-grouped-cell-label {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uncertainty-module
+  .point-grid-item
+  .point-section
+  .point-grouped-cell-label {
+  text-align: right;
 }
 
 .uncertainty-module .point-grid-item .point-grouped-cell--continuation {

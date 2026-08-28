@@ -775,6 +775,17 @@ export const SidebarPointItem = ({
           "--point-cell-group-height": `${group.span * 29 - 1}px`,
         }
       : undefined;
+  const wrapGroupedCellContent = (group, content) =>
+    group?.span > 1 && group.isStart ? (
+      <span
+        className="point-grouped-cell-content"
+        style={groupedCellStyle(group)}
+      >
+        {content}
+      </span>
+    ) : (
+      content
+    );
   const groupedSelectionOverlay = (group, column) => {
     if (
       !group?.span ||
@@ -1013,53 +1024,57 @@ export const SidebarPointItem = ({
         <>
           <span
             className={`point-uut-name point-uut-selector-cell${groupedCellClass(cellGroups.uut)}`}
-            style={groupedCellStyle(cellGroups.uut)}
             title={uutName}
           >
-            {!cellGroups.uut?.isStart && cellGroups.uut?.span > 1 ? null : editingUut ? (
-              <InlineMenuSelect
-                value={currentUutId || ""}
-                ariaLabel="UUT"
-                title={uutName}
-                width="100%"
-                menuWidth={260}
-                className="point-uut-inline-select"
-                autoOpen
-                showOptionMeta={false}
-                options={[
-                  { value: "", label: "Unassigned" },
-                  ...uutOptions.map((option) => ({
-                    value: String(option.id),
-                    label: option.label,
-                  })),
-                ]}
-                onOpenChange={(isOpen) => {
-                  if (!isOpen) setEditingUut(false);
-                }}
-                onChange={(value) => {
-                  if (cellGroups.uut?.pointIds) {
-                    onUutChange?.(value || null, cellGroups.uut.pointIds);
-                  } else {
-                    onUutChange?.(value || null);
-                  }
-                  setEditingUut(false);
-                }}
-              />
-            ) : (
-              <button
-                type="button"
-                className="point-uut-summary"
-                aria-label="UUT"
-                title="Edit UUT"
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setEditingUut(true);
-                }}
-              >
-                {uutName}
-              </button>
-            )}
+            {!cellGroups.uut?.isStart && cellGroups.uut?.span > 1
+              ? null
+              : wrapGroupedCellContent(
+                  cellGroups.uut,
+                  editingUut ? (
+                    <InlineMenuSelect
+                      value={currentUutId || ""}
+                      ariaLabel="UUT"
+                      title={uutName}
+                      width="100%"
+                      menuWidth={260}
+                      className="point-uut-inline-select"
+                      autoOpen
+                      showOptionMeta={false}
+                      options={[
+                        { value: "", label: "Unassigned" },
+                        ...uutOptions.map((option) => ({
+                          value: String(option.id),
+                          label: option.label,
+                        })),
+                      ]}
+                      onOpenChange={(isOpen) => {
+                        if (!isOpen) setEditingUut(false);
+                      }}
+                      onChange={(value) => {
+                        if (cellGroups.uut?.pointIds) {
+                          onUutChange?.(value || null, cellGroups.uut.pointIds);
+                        } else {
+                          onUutChange?.(value || null);
+                        }
+                        setEditingUut(false);
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="point-uut-summary"
+                      aria-label="UUT"
+                      title="Edit UUT"
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditingUut(true);
+                      }}
+                    >
+                      {uutName}
+                    </button>
+                  ),
+                )}
           </span>
           {groupedSelectionOverlay(cellGroups.uut, "uut")}
         </>
@@ -1073,26 +1088,35 @@ export const SidebarPointItem = ({
               className={`point-section${groupedCellClass(cellGroups.section)}`}
               aria-hidden="true"
             />
-          ) : editingField === "section" ? (
-            <input
-              autoFocus
-              className={`sidebar-inline-input section${groupedCellClass(cellGroups.section)}`}
-              style={groupedCellStyle(cellGroups.section)}
-              value={tempValue}
-              onChange={(e) => setTempValue(e.target.value)}
-              onBlur={commitEdit}
-              onKeyDown={handleKeyDown}
-              onClick={(e) => e.stopPropagation()}
-              placeholder="-"
-            />
           ) : (
             <span
               className={`point-section${groupedCellClass(cellGroups.section)}`}
-              style={groupedCellStyle(cellGroups.section)}
-              onClick={(e) => handleSingleClickEdit(e, "section", point.section)}
               title={String(point.section || "-")}
             >
-              {point.section || "-"}
+              {wrapGroupedCellContent(
+                cellGroups.section,
+                editingField === "section" ? (
+                  <input
+                    autoFocus
+                    className="sidebar-inline-input section"
+                    value={tempValue}
+                    onChange={(e) => setTempValue(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={handleKeyDown}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="-"
+                  />
+                ) : (
+                  <span
+                    className="point-grouped-cell-label"
+                    onClick={(e) =>
+                      handleSingleClickEdit(e, "section", point.section)
+                    }
+                  >
+                    {point.section || "-"}
+                  </span>
+                ),
+              )}
             </span>
           )}
           {groupedSelectionOverlay(cellGroups.section, "section")}
@@ -1146,33 +1170,40 @@ export const SidebarPointItem = ({
               className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
               aria-hidden="true"
             />
-          ) : editingField === "qualifier" ? (
-            <input
-              autoFocus
-              className={`sidebar-inline-input value${groupedCellClass(cellGroups.qualifier)}`}
-              style={groupedCellStyle(cellGroups.qualifier)}
-              value={tempValue}
-              onChange={(e) => setTempValue(e.target.value)}
-              onBlur={commitEdit}
-              onKeyDown={handleKeyDown}
-              onClick={(e) => e.stopPropagation()}
-              placeholder="-"
-            />
           ) : (
             <span
               className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
-              style={groupedCellStyle(cellGroups.qualifier)}
-              onClick={(e) =>
-                handleSingleClickEdit(
-                  e,
-                  "qualifier",
-                  point.testPointInfo?.qualifier?.value,
-                )
-              }
               title={String(point.testPointInfo?.qualifier?.value ?? "-")}
             >
-              {point.testPointInfo?.qualifier?.value || (
-                <span className="point-placeholder">-</span>
+              {wrapGroupedCellContent(
+                cellGroups.qualifier,
+                editingField === "qualifier" ? (
+                  <input
+                    autoFocus
+                    className="sidebar-inline-input value"
+                    value={tempValue}
+                    onChange={(e) => setTempValue(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={handleKeyDown}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="-"
+                  />
+                ) : (
+                  <span
+                    className="point-grouped-cell-label"
+                    onClick={(e) =>
+                      handleSingleClickEdit(
+                        e,
+                        "qualifier",
+                        point.testPointInfo?.qualifier?.value,
+                      )
+                    }
+                  >
+                    {point.testPointInfo?.qualifier?.value || (
+                      <span className="point-placeholder">-</span>
+                    )}
+                  </span>
+                ),
               )}
             </span>
           )}
