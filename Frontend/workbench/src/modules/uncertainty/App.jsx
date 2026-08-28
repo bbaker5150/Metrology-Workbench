@@ -5,7 +5,6 @@ import React, {
   useState,
   useMemo,
   useEffect,
-  useLayoutEffect,
   useCallback,
   useRef,
   lazy,
@@ -653,8 +652,6 @@ export const SidebarPointItem = ({
   const [tempValue, setTempValue] = useState(
     autoEditValue ? point.testPointInfo?.parameter?.value ?? "" : "",
   );
-  const groupedCellRefs = useRef({});
-  const [groupedCellHeights, setGroupedCellHeights] = useState({});
 
   // Consume both mount-time and later focus requests. Pre-created blank rows
   // are already mounted, so relying only on the useState initializer prevented
@@ -768,73 +765,16 @@ export const SidebarPointItem = ({
   const displayValue = point.testPointInfo?.parameter?.value;
   const displayUnit = point.testPointInfo?.parameter?.unit || "";
 
-  // A categorical cell can span rows whose height grows for multi-line
-  // metrics.  Measure its actual consecutive rows rather than relying only on
-  // the compact default row height, keeping the one visible label centered
-  // after sorting or when any neighboring column expands.
-  useLayoutEffect(() => {
-    const measure = () => {
-      const nextHeights = {};
-      ["uut", "section", "qualifier"].forEach((column) => {
-        const group = cellGroups[column];
-        const cell = groupedCellRefs.current[column];
-        if (!group?.isStart || group.span < 2 || !cell) return;
-
-        let row = cell.closest(".point-grid-item");
-        let height = 0;
-        for (let offset = 0; offset < group.span && row; offset += 1) {
-          const rect = row.getBoundingClientRect();
-          if (rect.height <= 0) return;
-          height += rect.height;
-          if (offset < group.span - 1) {
-            height += Number.parseFloat(getComputedStyle(row).marginBottom) || 0;
-          }
-          row = row.nextElementSibling;
-        }
-        if (height > 0) nextHeights[column] = `${Math.round(height)}px`;
-      });
-
-      setGroupedCellHeights((current) => {
-        const currentKeys = Object.keys(current);
-        const nextKeys = Object.keys(nextHeights);
-        const unchanged =
-          currentKeys.length === nextKeys.length &&
-          nextKeys.every((key) => current[key] === nextHeights[key]);
-        return unchanged ? current : nextHeights;
-      });
-    };
-
-    measure();
-    if (typeof ResizeObserver === "undefined") return undefined;
-    const observer = new ResizeObserver(measure);
-    Object.values(groupedCellRefs.current).forEach((cell) => {
-      const row = cell?.closest(".point-grid-item");
-      if (row) observer.observe(row.parentElement || row);
-    });
-    return () => observer.disconnect();
-  }, [
-    cellGroups.uut?.isStart,
-    cellGroups.uut?.span,
-    cellGroups.section?.isStart,
-    cellGroups.section?.span,
-    cellGroups.qualifier?.isStart,
-    cellGroups.qualifier?.span,
-  ]);
-
   const groupedCellClass = (group) =>
     group?.span > 1
       ? ` point-grouped-cell point-grouped-cell--${group.isStart ? "start" : "continuation"}`
       : "";
-  const groupedCellStyle = (group, column) =>
+  const groupedCellStyle = (group) =>
     group?.span > 1 && group.isStart
       ? {
-          "--point-cell-group-height":
-            groupedCellHeights[column] || `${group.span * 29 - 1}px`,
+          "--point-cell-group-height": `${group.span * 29 - 1}px`,
         }
       : undefined;
-  const setGroupedCellRef = (column) => (node) => {
-    groupedCellRefs.current[column] = node;
-  };
   const groupedSelectionOverlay = (group, column) => {
     if (
       !group?.span ||
@@ -1072,9 +1012,8 @@ export const SidebarPointItem = ({
       {visibleColumns.uut && (
         <>
           <span
-            ref={setGroupedCellRef("uut")}
             className={`point-uut-name point-uut-selector-cell${groupedCellClass(cellGroups.uut)}`}
-            style={groupedCellStyle(cellGroups.uut, "uut")}
+            style={groupedCellStyle(cellGroups.uut)}
             title={uutName}
           >
             {!cellGroups.uut?.isStart && cellGroups.uut?.span > 1 ? null : editingUut ? (
@@ -1136,10 +1075,9 @@ export const SidebarPointItem = ({
             />
           ) : editingField === "section" ? (
             <input
-              ref={setGroupedCellRef("section")}
               autoFocus
               className={`sidebar-inline-input section${groupedCellClass(cellGroups.section)}`}
-              style={groupedCellStyle(cellGroups.section, "section")}
+              style={groupedCellStyle(cellGroups.section)}
               value={tempValue}
               onChange={(e) => setTempValue(e.target.value)}
               onBlur={commitEdit}
@@ -1149,9 +1087,8 @@ export const SidebarPointItem = ({
             />
           ) : (
             <span
-              ref={setGroupedCellRef("section")}
               className={`point-section${groupedCellClass(cellGroups.section)}`}
-              style={groupedCellStyle(cellGroups.section, "section")}
+              style={groupedCellStyle(cellGroups.section)}
               onClick={(e) => handleSingleClickEdit(e, "section", point.section)}
               title={String(point.section || "-")}
             >
@@ -1211,10 +1148,9 @@ export const SidebarPointItem = ({
             />
           ) : editingField === "qualifier" ? (
             <input
-              ref={setGroupedCellRef("qualifier")}
               autoFocus
               className={`sidebar-inline-input value${groupedCellClass(cellGroups.qualifier)}`}
-              style={groupedCellStyle(cellGroups.qualifier, "qualifier")}
+              style={groupedCellStyle(cellGroups.qualifier)}
               value={tempValue}
               onChange={(e) => setTempValue(e.target.value)}
               onBlur={commitEdit}
@@ -1224,9 +1160,8 @@ export const SidebarPointItem = ({
             />
           ) : (
             <span
-              ref={setGroupedCellRef("qualifier")}
               className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
-              style={groupedCellStyle(cellGroups.qualifier, "qualifier")}
+              style={groupedCellStyle(cellGroups.qualifier)}
               onClick={(e) =>
                 handleSingleClickEdit(
                   e,
