@@ -73,6 +73,8 @@ describe("measurement-point value editing", () => {
     const cell = container.querySelector(".point-uut-selector-cell");
     const content = container.querySelector(".point-grouped-cell-content");
     expect(cell).not.toHaveStyle({ height: "115px" });
+    expect(content).toHaveClass("point-grouped-cell-content--uut");
+    expect(content).toHaveClass("is-leading-column");
     expect(content).toHaveStyle({
       "--point-cell-group-top": "-5px",
       "--point-cell-group-height": "115px",

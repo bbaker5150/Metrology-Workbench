@@ -858,10 +858,21 @@ export const SidebarPointItem = ({
   const setGroupedCellRef = (column) => (node) => {
     groupedCellRefs.current[column] = node;
   };
+  const leadingVisibleColumn = [
+    "uut",
+    "section",
+    "value",
+    "qualifier",
+    "tolerance",
+    "lowLimit",
+    "highLimit",
+    "standardUncertainty",
+    "measurementUncertainty",
+  ].find((column) => visibleColumns[column]);
   const wrapGroupedCellContent = (group, column, content) =>
     group?.span > 1 && group.isStart ? (
       <span
-        className={`point-grouped-cell-content${groupIsHighlighted(group) ? " is-highlighted" : ""}`}
+        className={`point-grouped-cell-content point-grouped-cell-content--${column}${column === leadingVisibleColumn ? " is-leading-column" : ""}${groupIsHighlighted(group) ? " is-highlighted" : ""}`}
         style={groupedCellStyle(group, column)}
       >
         {content}

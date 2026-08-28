@@ -18795,6 +18795,17 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   pointer-events: none;
 }
 
+/* The grid row has 10px horizontal padding before its first column. Extend a
+   leading merged cell through that inset so its selection rail aligns with the
+   point-row edge, while padding its label back to the original text position. */
+.uncertainty-module
+  .point-grid-item
+  .point-grouped-cell-content.is-leading-column {
+  left: -10px;
+  width: calc(100% + 10px);
+  padding-left: 10px;
+}
+
 .uncertainty-module
   .measurement-group-container
   .point-grid-item
