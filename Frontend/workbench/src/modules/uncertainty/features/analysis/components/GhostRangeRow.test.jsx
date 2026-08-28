@@ -11,6 +11,8 @@ import {
   getBudgetRangeChoices,
   getVisibleRangeRows,
   getAutoGrownInstrumentTableHeight,
+  getDisplayedInstrumentTableHeight,
+  applyToleranceCaseChange,
   removeRangeFromItem,
 } from "./UncertaintyPanel";
 
@@ -54,6 +56,18 @@ describe("instrument table automatic height", () => {
         currentHeight: 420,
         contentHeight: 620,
         instrumentCount: 4,
+      }),
+    ).toBe(420);
+    expect(
+      getDisplayedInstrumentTableHeight({
+        preferredHeight: 420,
+        contentHeight: 180,
+      }),
+    ).toBe(180);
+    expect(
+      getDisplayedInstrumentTableHeight({
+        preferredHeight: 420,
+        contentHeight: 620,
       }),
     ).toBe(420);
   });
@@ -456,6 +470,18 @@ describe("inline resolution distribution", () => {
 });
 
 describe("inline range editing", () => {
+  it("removes a zero-only tolerance term when editing ends", () => {
+    expect(
+      applyToleranceCaseChange({}, "reading", {
+        value: "0",
+        high: "0",
+        low: "0",
+        unit: "%",
+        _unitExplicit: true,
+      }),
+    ).toEqual({});
+  });
+
   it("labels an all-values range as Not Set", () => {
     render(
       <RangeCell
@@ -712,6 +738,29 @@ describe("inline range editing", () => {
 
     expect(onEditBound).toHaveBeenCalledWith("max", "10");
     expect(onOpenTolerance).toHaveBeenCalledOnce();
+  });
+
+  it("returns focus to the range unit after selecting it with Enter", async () => {
+    render(
+      <RangeCell
+        ranges={[{ id: "range-1", min: 0, max: 10, unit: "V" }]}
+        activeRange={{ id: "range-1", min: 0, max: 10, unit: "V" }}
+        editable
+        onEditBound={vi.fn()}
+        onEditUnit={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle("Edit range"));
+    const unitBase = screen.getByRole("button", {
+      name: "Range unit base unit",
+    });
+    fireEvent.click(unitBase);
+    fireEvent.keyDown(screen.getByPlaceholderText("Search units..."), {
+      key: "Enter",
+    });
+
+    await waitFor(() => expect(document.activeElement).toBe(unitBase));
   });
 
   it("removes a range together with its tolerance and resolution data", () => {

@@ -689,6 +689,13 @@ const UnitSelect = ({
     setIsOpen(true);
   };
   const closeMenu = () => setIsOpen(false);
+  const focusBaseControl = () => {
+    requestAnimationFrame(() => {
+      rootRef.current
+        ?.querySelector(".inline-unit-base-button")
+        ?.focus();
+    });
+  };
   const chooseBaseUnit = (option) => {
     if (option.scalable) {
       const model = scalableByBase.get(option.value);
@@ -697,6 +704,10 @@ const UnitSelect = ({
       onChange(option.unit || option.value);
     }
     closeMenu();
+    // The option list is portaled to <body>. Once it unmounts, explicitly
+    // return keyboard focus to the unit trigger so Tab continues the range
+    // entry chain instead of falling back to the document body.
+    focusBaseControl();
   };
   const choosePrefix = (prefix) => {
     if (!selectedModel) return;
@@ -2872,9 +2883,21 @@ export const getAutoGrownInstrumentTableHeight = ({
     : requiredHeight;
 };
 
+export const getDisplayedInstrumentTableHeight = ({
+  preferredHeight,
+  contentHeight,
+}) => {
+  if (!Number.isFinite(preferredHeight) || preferredHeight <= 0) return null;
+  if (!Number.isFinite(contentHeight) || contentHeight <= 0) {
+    return preferredHeight;
+  }
+  return Math.min(preferredHeight, contentHeight);
+};
+
 const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
   const storageKey = `uncertalytics:${view}:${kind}:instrument-table-height:v1`;
   const containerRef = useRef(null);
+  const [contentHeight, setContentHeight] = useState(null);
   const [height, setHeight] = useState(() => {
     try {
       const saved = Number(window.localStorage.getItem(storageKey));
@@ -2901,17 +2924,19 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
 
   useLayoutEffect(() => {
     const container = containerRef.current;
-    if (!container || instrumentCount < 1 || instrumentCount > 3) {
-      return undefined;
-    }
+    if (!container) return undefined;
 
-    const growToContent = () => {
-      const contentHeight = getInstrumentTableContentHeight(container);
-      if (!contentHeight) return;
+    const syncToContent = () => {
+      const measuredContentHeight = getInstrumentTableContentHeight(container);
+      if (!measuredContentHeight) return;
+      setContentHeight((current) =>
+        current === measuredContentHeight ? current : measuredContentHeight,
+      );
+      if (instrumentCount < 1 || instrumentCount > 3) return;
       setHeight((currentHeight) => {
         const nextHeight = getAutoGrownInstrumentTableHeight({
           currentHeight,
-          contentHeight,
+          contentHeight: measuredContentHeight,
           instrumentCount,
         });
         // Content collapsing (for example, Detailed View hiding irrelevant
@@ -2930,10 +2955,10 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
       });
     };
 
-    growToContent();
+    syncToContent();
     const table = container.querySelector(":scope > table");
     if (!table || typeof ResizeObserver === "undefined") return undefined;
-    const observer = new ResizeObserver(growToContent);
+    const observer = new ResizeObserver(syncToContent);
     observer.observe(table);
     return () => observer.disconnect();
   }, [instrumentCount, storageKey]);
@@ -2985,10 +3010,19 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
     [height, storageKey],
   );
 
+  const displayedHeight = getDisplayedInstrumentTableHeight({
+    preferredHeight: height,
+    contentHeight,
+  });
+
   return {
     containerRef,
-    containerStyle: height
-      ? { height: `${height}px`, maxHeight: "none", flex: "0 0 auto" }
+    containerStyle: displayedHeight
+      ? {
+          height: `${displayedHeight}px`,
+          maxHeight: "none",
+          flex: "0 0 auto",
+        }
       : undefined,
     startResize,
     resetHeight,
@@ -3437,14 +3471,34 @@ const firstToleranceType = (tolerance = {}) =>
 // tolerance cell closes — blank terms are excluded so the clean summary stays
 // tidy. For %FS the magnitude is the high/low percent, NOT the FS reference
 // value, so a range term with only an FS value still counts as blank.
-const toleranceComponentHasNumericValue = (typeKey, component) => {
+const toleranceComponentHasNumericEntry = (typeKey, component) => {
   if (!component) return false;
-  const finite = (x) => Number.isFinite(parseFloat(x));
+  const finite = (x) =>
+    x !== undefined &&
+    x !== null &&
+    x !== "" &&
+    Number.isFinite(parseFloat(x));
   if (typeKey === "singleSided") return finite(component.limit);
   if (typeKey === "reading") {
-    return finite(component.value) || finite(component.high) || finite(component.low);
+    return (
+      finite(component.value) || finite(component.high) || finite(component.low)
+    );
   }
   return finite(component.high) || finite(component.low);
+};
+const toleranceComponentHasNumericValue = (typeKey, component) => {
+  if (!component) return false;
+  const nonZero = (x) =>
+    Number.isFinite(parseFloat(x)) && parseFloat(x) !== 0;
+  if (typeKey === "singleSided") return nonZero(component.limit);
+  if (typeKey === "reading") {
+    return (
+      nonZero(component.value) ||
+      nonZero(component.high) ||
+      nonZero(component.low)
+    );
+  }
+  return nonZero(component.high) || nonZero(component.low);
 };
 // Does this tolerance have at least one term with a real value? Drives the
 // "Set tolerance…" placeholder vs. the compact summary in the read view.
@@ -3462,7 +3516,8 @@ const pruneBlankToleranceTerms = (tolerance = {}) => {
     if (
       Object.prototype.hasOwnProperty.call(next, key) &&
       !toleranceComponentHasNumericValue(key, next[key]) &&
-      !next[key]?._unitExplicit
+      (!next[key]?._unitExplicit ||
+        toleranceComponentHasNumericEntry(key, next[key]))
     ) {
       delete next[key];
     }

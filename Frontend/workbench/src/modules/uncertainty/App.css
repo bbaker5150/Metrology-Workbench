@@ -18310,6 +18310,41 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   );
 }
 
+/* Function-header editing and actions use the same function-colored hover and
+   focus language as every inline instrument field. */
+.uncertainty-module
+  .industry-table
+  tr.instrument-area-section-row
+  .function-header-name:is(:hover, :focus, :focus-visible),
+.uncertainty-module
+  .industry-table
+  tr.instrument-area-section-row
+  :is(.function-header-action-btn, .function-header-destructive-btn):is(
+    :hover,
+    :focus-visible
+  ) {
+  border-color: var(--function-input-accent) !important;
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent) 10%,
+    transparent
+  ) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px
+    color-mix(
+      in srgb,
+      var(--function-input-accent) 18%,
+      transparent
+    ) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tr.instrument-area-section-row
+  .function-header-action-btn:is(:hover, :focus-visible) {
+  color: var(--function-input-accent) !important;
+}
+
 .uncertainty-module
   .industry-table
   :is(tr.instrument-area-section-row, tr.instrument-function-row)
@@ -18662,6 +18697,28 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
       var(--sidebar-function-color, var(--primary-color)) 18%,
       transparent
     );
+}
+
+/* Consecutive categorical values are presented as one vertically merged cell.
+   Point rows use a fixed compact rhythm (28px row + 1px divider), allowing the
+   first cell to span the run while continuation cells retain grid alignment. */
+.uncertainty-module .point-grid-item .point-grouped-cell--start {
+  align-self: start;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  height: var(--point-cell-group-height);
+  overflow: hidden;
+}
+
+.uncertainty-module .point-grid-item .point-section.point-grouped-cell--start {
+  justify-content: flex-end;
+}
+
+.uncertainty-module .point-grid-item .point-grouped-cell--continuation {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .uncertainty-module

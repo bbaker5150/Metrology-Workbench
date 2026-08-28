@@ -1,11 +1,66 @@
 import React from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import { getUutReassignmentPointIds, SidebarPointItem } from "./App";
+import {
+  copyPointBudget,
+  getConsecutiveSidebarCellGroup,
+  getUutReassignmentPointIds,
+  pastePointBudget,
+  SidebarPointItem,
+} from "./App";
 
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test("groups consecutive repeated categorical cells", () => {
+    const points = [
+      { id: "p1", section: "4.2.11" },
+      { id: "p2", section: "4.2.11" },
+      { id: "p3", section: "4.2.12" },
+    ];
+
+    expect(
+      getConsecutiveSidebarCellGroup(points, 0, (point) => point.section),
+    ).toEqual({ isStart: true, span: 2, pointIds: ["p1", "p2"] });
+    expect(
+      getConsecutiveSidebarCellGroup(points, 1, (point) => point.section),
+    ).toEqual({ isStart: false, span: 2, pointIds: ["p1", "p2"] });
+  });
+
+  test("copies and replaces only uncertainty-budget fields", () => {
+    const source = {
+      id: "source",
+      components: [{ id: "component-1", name: "Repeatability" }],
+      tmdeTolerances: [{ id: "tmde-1" }],
+      inputCorrelations: { a: { b: 0.5 } },
+      equationString: "a+b",
+    };
+    const target = {
+      id: "target",
+      components: [{ id: "old" }],
+      coverageFactorMode: "manual",
+      equationString: "x*y",
+      testPointInfo: { parameter: { value: 10, unit: "V" } },
+    };
+
+    const budget = copyPointBudget(source);
+    const pasted = pastePointBudget(target, budget);
+
+    expect(pasted.components).toEqual(source.components);
+    expect(pasted.components).not.toBe(source.components);
+    expect(pasted.tmdeTolerances).toEqual(source.tmdeTolerances);
+    expect(pasted.inputCorrelations).toEqual(source.inputCorrelations);
+    expect(pasted).not.toHaveProperty("coverageFactorMode");
+    expect(pasted.equationString).toBe("x*y");
+    expect(pasted.testPointInfo).toEqual(target.testPointInfo);
+  });
+
   test("opens the simplified UUT cell on demand without exposing database ids", async () => {
     const onUutChange = vi.fn();
     render(
@@ -107,6 +162,62 @@ describe("measurement-point value editing", () => {
     const input = document.querySelector(".sidebar-inline-input.value");
     expect(input).toHaveValue("25");
     expect(input).toHaveFocus();
+  });
+
+  test("advances value entry after Enter commits the current point", async () => {
+    const onSave = vi.fn();
+    const onAdvanceValue = vi.fn();
+    render(
+      <SidebarPointItem
+        point={{
+          id: "point-enter",
+          testPointInfo: { parameter: { value: "", unit: "V" } },
+        }}
+        isSelected
+        onSelect={vi.fn()}
+        onSave={onSave}
+        onAdvanceValue={onAdvanceValue}
+        visibleColumns={{ value: true }}
+      />,
+    );
+
+    fireEvent.click(document.querySelector(".point-value"));
+    const input = document.querySelector(".sidebar-inline-input.value");
+    fireEvent.change(input, { target: { value: "10" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        testPointInfo: expect.objectContaining({
+          parameter: expect.objectContaining({ value: "10" }),
+        }),
+      }),
+    );
+    await waitFor(() => expect(onAdvanceValue).toHaveBeenCalledOnce());
+  });
+
+  test("opens an already-mounted blank row when value focus advances", async () => {
+    const common = {
+      point: {
+        id: "point-precreated",
+        testPointInfo: { parameter: { value: "", unit: "V" } },
+      },
+      isSelected: false,
+      onSelect: vi.fn(),
+      onSave: vi.fn(),
+      onAutoEditConsumed: vi.fn(),
+      visibleColumns: { value: true },
+    };
+    const { rerender } = render(
+      <SidebarPointItem {...common} autoEditValue={false} />,
+    );
+
+    rerender(<SidebarPointItem {...common} autoEditValue />);
+
+    await waitFor(() =>
+      expect(document.querySelector(".sidebar-inline-input.value")).toHaveFocus(),
+    );
+    expect(common.onAutoEditConsumed).toHaveBeenCalledOnce();
   });
 });
 

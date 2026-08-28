@@ -147,6 +147,71 @@ const clonePointSettingValue = (value) => {
   return value;
 };
 
+const POINT_BUDGET_FIELDS = [
+  "components",
+  "tmdeTolerances",
+  "inputCorrelations",
+  "coverageFactorMode",
+  "coverageFactorOverride",
+  "budgetPropagationMethod",
+  "monteCarloTrials",
+  "useEffectiveDofByGroup",
+];
+
+export const copyPointBudget = (point = {}) =>
+  Object.fromEntries(
+    POINT_BUDGET_FIELDS.filter((field) =>
+      Object.prototype.hasOwnProperty.call(point, field),
+    ).map((field) => [field, clonePointSettingValue(point[field])]),
+  );
+
+export const pastePointBudget = (point = {}, budget = {}) => {
+  const next = { ...point };
+  POINT_BUDGET_FIELDS.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(budget, field)) {
+      next[field] = clonePointSettingValue(budget[field]);
+    } else {
+      delete next[field];
+    }
+  });
+  return next;
+};
+
+const normalizedGroupedCellValue = (value) => {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+};
+
+export const getConsecutiveSidebarCellGroup = (
+  points = [],
+  index,
+  valueForPoint,
+) => {
+  const value = normalizedGroupedCellValue(valueForPoint(points[index]));
+  if (!value) {
+    return { isStart: true, span: 1, pointIds: [points[index]?.id] };
+  }
+  let start = index;
+  let end = index;
+  while (
+    start > 0 &&
+    normalizedGroupedCellValue(valueForPoint(points[start - 1])) === value
+  ) {
+    start -= 1;
+  }
+  while (
+    end + 1 < points.length &&
+    normalizedGroupedCellValue(valueForPoint(points[end + 1])) === value
+  ) {
+    end += 1;
+  }
+  return {
+    isStart: start === index,
+    span: end - start + 1,
+    pointIds: points.slice(start, end + 1).map((point) => point.id),
+  };
+};
+
 const getFunctionPointSettings = (sessionData, functionId) => {
   const stored = (sessionData?.functionGroups || []).find(
     (group) =>
@@ -533,6 +598,8 @@ export const SidebarPointItem = ({
   currentUutId = "",
   uutOptions = [],
   onUutChange,
+  cellGroups = {},
+  onGroupedFieldSave,
   valueColumnWidth = "80px",
   isSelected,
   isActivePoint = false,
@@ -546,6 +613,7 @@ export const SidebarPointItem = ({
   onShowRiskBreakdown,
   autoEditValue = false,
   onAutoEditConsumed,
+  onAdvanceValue,
   visibleColumns = {
     uut: true,
     section: true,
@@ -585,11 +653,15 @@ export const SidebarPointItem = ({
     autoEditValue ? point.testPointInfo?.parameter?.value ?? "" : "",
   );
 
-  // Clear the parent's one-shot auto-edit flag once we've consumed it.
+  // Consume both mount-time and later focus requests. Pre-created blank rows
+  // are already mounted, so relying only on the useState initializer prevented
+  // Enter from advancing into the next row's value field.
   useEffect(() => {
-    if (autoEditValue) onAutoEditConsumed?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!autoEditValue) return;
+    setEditingField("value");
+    setTempValue(point.testPointInfo?.parameter?.value ?? "");
+    onAutoEditConsumed?.();
+  }, [autoEditValue, onAutoEditConsumed, point.testPointInfo]);
 
   const startEdit = (e, field, currentVal) => {
     e.stopPropagation();
@@ -634,7 +706,15 @@ export const SidebarPointItem = ({
 
   const commitEdit = () => {
     if (editingField === "section") {
-      onSave({ ...point, section: tempValue });
+      if (cellGroups.section?.span > 1) {
+        onGroupedFieldSave?.(
+          "section",
+          tempValue,
+          cellGroups.section.pointIds,
+        );
+      } else {
+        onSave({ ...point, section: tempValue });
+      }
     } else if (editingField === "value") {
       const prevInfo = point.testPointInfo || {};
       const prevParam = prevInfo.parameter || {};
@@ -656,14 +736,27 @@ export const SidebarPointItem = ({
           value: tempValue,
         },
       };
-      onSave({ ...point, testPointInfo: newInfo });
+      if (cellGroups.qualifier?.span > 1) {
+        onGroupedFieldSave?.(
+          "qualifier",
+          tempValue,
+          cellGroups.qualifier.pointIds,
+        );
+      } else {
+        onSave({ ...point, testPointInfo: newInfo });
+      }
     }
     setEditingField(null);
   };
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
+      e.preventDefault();
+      const shouldAdvance = editingField === "value";
       e.target.blur(); // Triggers onBlur which commits
+      if (shouldAdvance) {
+        requestAnimationFrame(() => onAdvanceValue?.());
+      }
     }
     if (e.key === "Escape") cancelEdit();
   };
@@ -671,6 +764,14 @@ export const SidebarPointItem = ({
   // Safe Accessors
   const displayValue = point.testPointInfo?.parameter?.value;
   const displayUnit = point.testPointInfo?.parameter?.unit || "";
+  const groupedCellClass = (group) =>
+    group?.span > 1
+      ? ` point-grouped-cell point-grouped-cell--${group.isStart ? "start" : "continuation"}`
+      : "";
+  const groupedCellStyle = (group) =>
+    group?.span > 1 && group.isStart
+      ? { "--point-cell-group-height": `${group.span * 29 - 1}px` }
+      : undefined;
   // Prefer the live, reactively-computed metrics (always current with the
   // session inputs); fall back to the persisted backend snapshot only if the
   // point can't currently be evaluated (#1).
@@ -852,10 +953,11 @@ export const SidebarPointItem = ({
     >
       {visibleColumns.uut && (
         <span
-          className="point-uut-name point-uut-selector-cell"
+          className={`point-uut-name point-uut-selector-cell${groupedCellClass(cellGroups.uut)}`}
+          style={groupedCellStyle(cellGroups.uut)}
           title={uutName}
         >
-          {editingUut ? (
+          {!cellGroups.uut?.isStart && cellGroups.uut?.span > 1 ? null : editingUut ? (
             <InlineMenuSelect
               value={currentUutId || ""}
               ariaLabel="UUT"
@@ -876,7 +978,11 @@ export const SidebarPointItem = ({
                 if (!isOpen) setEditingUut(false);
               }}
               onChange={(value) => {
-                onUutChange?.(value || null);
+                if (cellGroups.uut?.pointIds) {
+                  onUutChange?.(value || null, cellGroups.uut.pointIds);
+                } else {
+                  onUutChange?.(value || null);
+                }
                 setEditingUut(false);
               }}
             />
@@ -900,10 +1006,16 @@ export const SidebarPointItem = ({
 
       {/* Section */}
       {visibleColumns.section &&
-        (editingField === "section" ? (
+        (!cellGroups.section?.isStart && cellGroups.section?.span > 1 ? (
+          <span
+            className={`point-section${groupedCellClass(cellGroups.section)}`}
+            aria-hidden="true"
+          />
+        ) : editingField === "section" ? (
           <input
             autoFocus
-            className="sidebar-inline-input section"
+            className={`sidebar-inline-input section${groupedCellClass(cellGroups.section)}`}
+            style={groupedCellStyle(cellGroups.section)}
             value={tempValue}
             onChange={(e) => setTempValue(e.target.value)}
             onBlur={commitEdit}
@@ -913,7 +1025,8 @@ export const SidebarPointItem = ({
           />
         ) : (
           <span
-            className="point-section"
+            className={`point-section${groupedCellClass(cellGroups.section)}`}
+            style={groupedCellStyle(cellGroups.section)}
             onClick={(e) => handleSingleClickEdit(e, "section", point.section)}
             title={String(point.section || "-")}
           >
@@ -963,10 +1076,16 @@ export const SidebarPointItem = ({
 
       {/* Optional Qualifier column (e.g. Frequency) — hidden by default. */}
       {visibleColumns.qualifier &&
-        (editingField === "qualifier" ? (
+        (!cellGroups.qualifier?.isStart && cellGroups.qualifier?.span > 1 ? (
+          <span
+            className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
+            aria-hidden="true"
+          />
+        ) : editingField === "qualifier" ? (
           <input
             autoFocus
-            className="sidebar-inline-input value"
+            className={`sidebar-inline-input value${groupedCellClass(cellGroups.qualifier)}`}
+            style={groupedCellStyle(cellGroups.qualifier)}
             value={tempValue}
             onChange={(e) => setTempValue(e.target.value)}
             onBlur={commitEdit}
@@ -976,7 +1095,8 @@ export const SidebarPointItem = ({
           />
         ) : (
           <span
-            className="point-value"
+            className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
+            style={groupedCellStyle(cellGroups.qualifier)}
             onClick={(e) =>
               handleSingleClickEdit(
                 e,
@@ -2239,6 +2359,7 @@ function App({ showThemeToggle = false }) {
   // Id of a just-quick-added direct point whose sidebar row should open straight
   // into value-edit. SidebarPointItem consumes it on mount, then App clears it.
   const [pendingValueEditPointId, setPendingValueEditPointId] = useState(null);
+  const [pendingPointValueAdvance, setPendingPointValueAdvance] = useState(null);
   // Function headers own point creation now that UUT folder rows are gone.
   // When a function exposes more than one range unit, the quick-add button
   // pauses here so the new direct/derived point can be attached to an explicit
@@ -2411,6 +2532,7 @@ function App({ showThemeToggle = false }) {
   // --- CLIPBOARD STATE ---
   const [clipboardPoint, setClipboardPoint] = useState(null);
   const [clipboardUut, setClipboardUut] = useState(null);
+  const [clipboardBudget, setClipboardBudget] = useState(null);
   const [clipboardPointMode, setClipboardPointMode] = useState("copy");
   const [clipboardKind, setClipboardKind] = useState(null);
 
@@ -2646,6 +2768,45 @@ function App({ showThemeToggle = false }) {
     ],
   );
 
+  const handleCopyBudget = useCallback((point) => {
+    if (!point) return;
+    setClipboardBudget(copyPointBudget(point));
+    setClipboardKind("budget");
+    showToast("Measurement point budget copied");
+    setContextMenu(null);
+  }, [showToast]);
+
+  const handlePasteBudget = useCallback(
+    (targetPointIds) => {
+      if (
+        clipboardKind !== "budget" ||
+        !clipboardBudget ||
+        !currentSessionData
+      ) {
+        return;
+      }
+      const ids = new Set((targetPointIds || []).map(String));
+      if (ids.size === 0) return;
+      const nextPoints = (currentSessionData.testPoints || []).map((point) =>
+        ids.has(String(point.id))
+          ? pastePointBudget(point, clipboardBudget)
+          : point,
+      );
+      updateSession({ ...currentSessionData, testPoints: nextPoints });
+      showToast(
+        `Budget pasted into ${ids.size} measurement point${ids.size === 1 ? "" : "s"}`,
+      );
+      setContextMenu(null);
+    },
+    [
+      clipboardBudget,
+      clipboardKind,
+      currentSessionData,
+      showToast,
+      updateSession,
+    ],
+  );
+
   const handleCopyUut = useCallback((uut) => {
     setClipboardUut(uut);
     setClipboardKind("uut");
@@ -2723,6 +2884,25 @@ function App({ showThemeToggle = false }) {
         (e.ctrlKey || e.metaKey) &&
         !e.altKey &&
         !e.shiftKey &&
+        key === "b" &&
+        !isTextEntry
+      ) {
+        e.preventDefault();
+        if (selectedSidebarPointIds.length === 1) {
+          const point = currentTestPoints.find(
+            (candidate) => candidate.id === selectedSidebarPointIds[0],
+          );
+          if (point) {
+            handleCopyBudget(point);
+          }
+        }
+        return;
+      }
+
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
         key === "z" &&
         !isTextEntry
       ) {
@@ -2771,7 +2951,22 @@ function App({ showThemeToggle = false }) {
       }
 
       if ((e.ctrlKey || e.metaKey) && key === "v" && !isTextEntry) {
-        if (clipboardKind === "point" && clipboardPoint) {
+        if (clipboardKind === "budget" && clipboardBudget) {
+          const targetIds = selectedSidebarPointIds.length
+            ? selectedSidebarPointIds
+            : selectedTestPointId
+              ? [selectedTestPointId]
+              : [];
+          if (targetIds.length > 0) {
+            e.preventDefault();
+            handlePasteBudget(targetIds);
+          } else {
+            showToast(
+              "Select one or more measurement points before pasting a budget.",
+              "error",
+            );
+          }
+        } else if (clipboardKind === "point" && clipboardPoint) {
           e.preventDefault();
           let targetUutId = null;
 
@@ -2816,15 +3011,18 @@ function App({ showThemeToggle = false }) {
     selectedSidebarPointIds,
     selectedTestPointContextUutId,
     clipboardKind,
+    clipboardBudget,
     clipboardPoint,
     clipboardUut,
     currentTestPoints,
     currentSessionData,
     handleCopyPoint,
+    handleCopyBudget,
     handleCopyUut,
     handleCutPoint,
     handleDeleteTestPoint,
     handlePastePoint,
+    handlePasteBudget,
     handlePasteUut,
     showToast,
     undoLastSessionChange,
@@ -3746,16 +3944,7 @@ function App({ showThemeToggle = false }) {
       });
     }
     if (settings.reuseBudget) {
-      [
-        "components",
-        "tmdeTolerances",
-        "inputCorrelations",
-        "coverageFactorMode",
-        "coverageFactorOverride",
-        "budgetPropagationMethod",
-        "monteCarloTrials",
-        "useEffectiveDofByGroup",
-      ].forEach((field) => {
+      POINT_BUDGET_FIELDS.forEach((field) => {
         const value = clonePointSettingValue(template[field]);
         if (value !== undefined) next[field] = value;
       });
@@ -3830,6 +4019,7 @@ function App({ showThemeToggle = false }) {
     if (newId != null) {
       setPendingValueEditPointId(newId);
     }
+    return newId;
   };
 
   const openQuickAddPoint = (fnGroup, uutId, settings) => {
@@ -4119,6 +4309,45 @@ function App({ showThemeToggle = false }) {
     return result;
   }, [currentSessionData, currentTestPoints]);
 
+  useEffect(() => {
+    if (!pendingPointValueAdvance) return;
+    const { functionId, uutId, unit, nextPointId } = pendingPointValueAdvance;
+    const fnGroup = sidebarData.find((group) => group.id === functionId);
+    if (!fnGroup) {
+      setPendingPointValueAdvance(null);
+      return;
+    }
+    const nextPoint = nextPointId
+      ? currentTestPoints.find((point) => point.id === nextPointId)
+      : null;
+    if (nextPoint) {
+      const nextUutId = nextPoint.associatedUutIds?.[0] || null;
+      setSelectedSidebarPointIds([nextPoint.id]);
+      setSelectedTestPointId(nextPoint.id);
+      setSelectedTestPointContextUutId(nextUutId);
+      setPendingValueEditPointId(nextPoint.id);
+    } else {
+      const settings = getFunctionPointSettings(currentSessionData, fnGroup.id);
+      const newId = handleQuickAddPoint(
+        fnGroup,
+        uutId,
+        settings,
+        unit || fnGroup.unit || "",
+      );
+      if (newId != null) {
+        setSelectedSidebarPointIds([newId]);
+        setSelectedTestPointId(newId);
+        setSelectedTestPointContextUutId(uutId || null);
+      }
+    }
+    setPendingPointValueAdvance(null);
+  }, [
+    currentSessionData,
+    currentTestPoints,
+    pendingPointValueAdvance,
+    sidebarData,
+  ]);
+
   const sidebarValueColumnWidth = useMemo(
     () => getSidebarValueColumnWidth(currentTestPoints),
     [currentTestPoints],
@@ -4351,7 +4580,7 @@ function App({ showThemeToggle = false }) {
 
   // Shared sidebar point-row markup (used under every UUT and the Unassigned
   // bucket). Extracted so the Function -> UUT -> Point tree stays readable.
-  const renderSidebarPointRow = (tp, fnGroup) => {
+  const renderSidebarPointRow = (tp, fnGroup, points = [], index = 0) => {
     const contextUutId = tp.associatedUutIds?.[0] || null;
     const functionUuts = (fnGroup?.uutGroups || []).filter(
       (group) => !group.isUnassigned,
@@ -4359,6 +4588,23 @@ function App({ showThemeToggle = false }) {
     const currentUut = (currentSessionData?.uuts || []).find(
       (uut) => String(uut.id) === String(contextUutId),
     );
+    const cellGroups = {
+      uut: getConsecutiveSidebarCellGroup(
+        points,
+        index,
+        (point) => point.associatedUutIds?.[0] || "__unassigned__",
+      ),
+      section: getConsecutiveSidebarCellGroup(
+        points,
+        index,
+        (point) => point.section || "",
+      ),
+      qualifier: getConsecutiveSidebarCellGroup(
+        points,
+        index,
+        (point) => point.testPointInfo?.qualifier?.value || "",
+      ),
+    };
     return (
     <SidebarPointItem
       key={tp.id}
@@ -4371,16 +4617,20 @@ function App({ showThemeToggle = false }) {
         id: uut.id,
         label: formatInstrumentIdentity(uut),
       }))}
-      onUutChange={(nextUutId) => {
+      cellGroups={cellGroups}
+      onUutChange={(nextUutId, groupedPointIds = [tp.id]) => {
         const nextUut = (currentSessionData?.uuts || []).find(
           (uut) => String(uut.id) === String(nextUutId),
         );
         const parameter = tp.testPointInfo?.parameter || {};
+        const groupedIds = new Set(groupedPointIds.map(String));
+        const selectedGroupedIds = selectedSidebarPointIds.filter((id) =>
+          groupedIds.has(String(id)),
+        );
         const runPointIds = new Set(
-          getUutReassignmentPointIds({
-            selectedPointIds: selectedSidebarPointIds,
-            currentPointId: tp.id,
-          }),
+          (selectedGroupedIds.length > 0 ? selectedGroupedIds : [tp.id]).map(
+            String,
+          ),
         );
         const nextPoints = (currentSessionData?.testPoints || []).map((point) => {
           if (!runPointIds.has(String(point.id))) return point;
@@ -4401,6 +4651,28 @@ function App({ showThemeToggle = false }) {
         updateSession({ ...currentSessionData, testPoints: nextPoints });
         setSelectedTestPointContextUutId(nextUut?.id || null);
       }}
+      onGroupedFieldSave={(field, value, groupedPointIds) => {
+        const ids = new Set((groupedPointIds || []).map(String));
+        const nextPoints = (currentSessionData?.testPoints || []).map((point) => {
+          if (!ids.has(String(point.id))) return point;
+          if (field === "section") return { ...point, section: value };
+          const info = point.testPointInfo || {};
+          const qualifier = info.qualifier || {};
+          return {
+            ...point,
+            testPointInfo: {
+              ...info,
+              qualifier: {
+                name: qualifier.name || "Qualifier",
+                unit: qualifier.unit || "",
+                ...qualifier,
+                value,
+              },
+            },
+          };
+        });
+        updateSession({ ...currentSessionData, testPoints: nextPoints });
+      }}
       valueColumnWidth={sidebarValueColumnWidth}
       visibleColumns={visibleSidebarColumns}
       isSelected={selectedSidebarPointIds.includes(tp.id)}
@@ -4413,6 +4685,14 @@ function App({ showThemeToggle = false }) {
       onShowRiskBreakdown={(key) => setPendingRiskBreakdown(key)}
       autoEditValue={pendingValueEditPointId === tp.id}
       onAutoEditConsumed={() => setPendingValueEditPointId(null)}
+      onAdvanceValue={() =>
+        setPendingPointValueAdvance({
+          functionId: fnGroup.id,
+          uutId: contextUutId,
+          unit: tp.testPointInfo?.parameter?.unit || fnGroup.unit || "",
+          nextPointId: points[index + 1]?.id || null,
+        })
+      }
       onSave={handleInlinePointUpdate}
       onContextMenu={(e, p) => {
         e.preventDefault();
@@ -4443,6 +4723,29 @@ function App({ showThemeToggle = false }) {
                   {
                     label: "Paste Point",
                     action: () => handlePastePoint(contextUutId, null, null),
+                    icon: faPaste,
+                  },
+                ]
+              : []),
+            ...(selectedSidebarPointIds.length <= 1
+              ? [
+                  {
+                    label: "Copy Budget",
+                    action: () => handleCopyBudget(p),
+                    icon: faCopy,
+                  },
+                ]
+              : []),
+            ...(clipboardKind === "budget" && clipboardBudget
+              ? [
+                  {
+                    label: "Paste Budget",
+                    action: () =>
+                      handlePasteBudget(
+                        selectedSidebarPointIds.includes(p.id)
+                          ? selectedSidebarPointIds
+                          : [p.id],
+                      ),
                     icon: faPaste,
                   },
                 ]
