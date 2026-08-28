@@ -18781,7 +18781,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 
 .uncertainty-module .point-grid-item .point-grouped-cell-content {
   position: absolute;
-  top: -5px;
+  top: var(--point-cell-group-top, -5px);
   left: 0;
   z-index: 3;
   display: flex;
@@ -18793,6 +18793,20 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   box-sizing: border-box;
   overflow: visible;
   pointer-events: none;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell-content.is-highlighted {
+  background: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 22%,
+    var(--sidebar-sticky-surface)
+  );
+  color: var(--sidebar-function-color, var(--primary-color));
+  box-shadow: inset 3px 0 0
+    var(--sidebar-function-color, var(--primary-color));
 }
 
 .uncertainty-module
@@ -18821,25 +18835,6 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 .uncertainty-module .point-grid-item .point-grouped-cell--continuation {
   visibility: hidden;
   pointer-events: none;
-}
-
-/* A vertically merged categorical cell covers several compact point rows.
-   Selection remains per point, so this marker restores the selected row's
-   color cue beneath the merged UUT, section, or qualifier label. */
-.uncertainty-module .point-grid-item .point-grouped-cell-selection-overlay {
-  align-self: stretch;
-  min-width: 0;
-  min-height: 0;
-  pointer-events: none;
-  z-index: 2;
-  border-radius: 2px;
-  background: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 17%,
-    transparent
-  );
-  box-shadow: inset 2px 0 0
-    var(--sidebar-function-color, var(--primary-color));
 }
 
 .uncertainty-module

@@ -33,26 +33,27 @@ describe("measurement-point value editing", () => {
     ).toEqual({ isStart: false, span: 2, pointIds: ["p1", "p2"] });
   });
 
-  test("keeps a selected point visible inside a vertically grouped UUT cell", () => {
-    const groupedUut = { isStart: false, span: 2, pointIds: ["p1", "p2"] };
+  test("highlights the whole grouped UUT cell when any member point is selected", () => {
+    const groupedUut = { isStart: true, span: 2, pointIds: ["p1", "p2"] };
     const { container } = render(
       <SidebarPointItem
-        point={{ id: "p2", testPointInfo: { parameter: { value: 2, unit: "V" } } }}
+        point={{ id: "p1", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
         uutName="Bench DMM"
         currentUutId="uut-1"
         cellGroups={{ uut: groupedUut }}
-        isSelected
+        highlightedPointIds={["p2"]}
         onSelect={vi.fn()}
         onSave={vi.fn()}
         visibleColumns={{ uut: true, value: true }}
       />,
     );
 
-    const marker = container.querySelector(
-      ".point-grouped-cell-selection-overlay",
-    );
-    expect(marker).toBeInTheDocument();
-    expect(marker).toHaveStyle({ gridColumn: "1", gridRow: "1" });
+    expect(
+      container.querySelector(".point-grouped-cell-content"),
+    ).toHaveClass("is-highlighted");
+    expect(
+      container.querySelector(".point-grouped-cell-selection-overlay"),
+    ).not.toBeInTheDocument();
   });
 
   test("centers a grouped label without increasing the point row height", () => {
@@ -72,7 +73,10 @@ describe("measurement-point value editing", () => {
     const cell = container.querySelector(".point-uut-selector-cell");
     const content = container.querySelector(".point-grouped-cell-content");
     expect(cell).not.toHaveStyle({ height: "115px" });
-    expect(content).toHaveStyle({ "--point-cell-group-height": "115px" });
+    expect(content).toHaveStyle({
+      "--point-cell-group-top": "-5px",
+      "--point-cell-group-height": "115px",
+    });
   });
 
   test("copies and replaces only uncertainty-budget fields", () => {

@@ -5,6 +5,7 @@ import React, {
   useState,
   useMemo,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   lazy,
@@ -599,6 +600,7 @@ export const SidebarPointItem = ({
   uutOptions = [],
   onUutChange,
   cellGroups = {},
+  highlightedPointIds = [],
   onGroupedFieldSave,
   valueColumnWidth = "80px",
   isSelected,
@@ -652,6 +654,8 @@ export const SidebarPointItem = ({
   const [tempValue, setTempValue] = useState(
     autoEditValue ? point.testPointInfo?.parameter?.value ?? "" : "",
   );
+  const groupedCellRefs = useRef({});
+  const [groupedCellGeometry, setGroupedCellGeometry] = useState({});
 
   // Consume both mount-time and later focus requests. Pre-created blank rows
   // are already mounted, so relying only on the useState initializer prevented
@@ -765,82 +769,106 @@ export const SidebarPointItem = ({
   const displayValue = point.testPointInfo?.parameter?.value;
   const displayUnit = point.testPointInfo?.parameter?.unit || "";
 
+  // The spanning content is absolutely positioned, so measuring it cannot
+  // enlarge the point rows. Use the real rendered row bounds to keep merged
+  // labels centered when zoom or taller metrics change the row rhythm.
+  useLayoutEffect(() => {
+    const measure = () => {
+      const nextGeometry = {};
+      ["uut", "section", "qualifier"].forEach((column) => {
+        const group = cellGroups[column];
+        const cell = groupedCellRefs.current[column];
+        if (!group?.isStart || group.span < 2 || !cell) return;
+
+        const firstRow = cell.closest(".point-grid-item");
+        if (!firstRow) return;
+        let lastRow = firstRow;
+        for (let offset = 1; offset < group.span; offset += 1) {
+          const nextRow = lastRow.nextElementSibling;
+          if (!nextRow?.classList.contains("point-grid-item")) break;
+          lastRow = nextRow;
+        }
+
+        // offset* values stay in the list's local CSS coordinate system. That
+        // avoids applying scoped CSS zoom twice, which would shift the merged
+        // label away from the true midpoint.
+        const height =
+          lastRow.offsetTop + lastRow.offsetHeight - firstRow.offsetTop;
+        if (height <= 0) return;
+        nextGeometry[column] = {
+          top: `${-cell.offsetTop}px`,
+          height: `${Math.round(height)}px`,
+        };
+      });
+
+      setGroupedCellGeometry((current) =>
+        JSON.stringify(current) === JSON.stringify(nextGeometry)
+          ? current
+          : nextGeometry,
+      );
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    ["uut", "section", "qualifier"].forEach((column) => {
+      const group = cellGroups[column];
+      const cell = groupedCellRefs.current[column];
+      if (!group?.isStart || group.span < 2 || !cell) return;
+      let row = cell.closest(".point-grid-item");
+      for (let offset = 0; offset < group.span && row; offset += 1) {
+        observer.observe(row);
+        row = row.nextElementSibling;
+      }
+    });
+    return () => observer.disconnect();
+  }, [
+    cellGroups.uut?.isStart,
+    cellGroups.uut?.span,
+    cellGroups.uut?.pointIds?.join("|"),
+    cellGroups.section?.isStart,
+    cellGroups.section?.span,
+    cellGroups.section?.pointIds?.join("|"),
+    cellGroups.qualifier?.isStart,
+    cellGroups.qualifier?.span,
+    cellGroups.qualifier?.pointIds?.join("|"),
+    visibleColumns.uut,
+    visibleColumns.section,
+    visibleColumns.qualifier,
+  ]);
+
   const groupedCellClass = (group) =>
     group?.span > 1
       ? ` point-grouped-cell point-grouped-cell--${group.isStart ? "start" : "continuation"}`
       : "";
-  const groupedCellStyle = (group) =>
+  const groupedCellStyle = (group, column) =>
     group?.span > 1 && group.isStart
       ? {
-          "--point-cell-group-height": `${group.span * 29 - 1}px`,
+          "--point-cell-group-top":
+            groupedCellGeometry[column]?.top || "-5px",
+          "--point-cell-group-height":
+            groupedCellGeometry[column]?.height || `${group.span * 29 - 1}px`,
         }
       : undefined;
-  const wrapGroupedCellContent = (group, content) =>
+  const highlightedPointIdSet = new Set(
+    (highlightedPointIds || []).filter(Boolean).map(String),
+  );
+  const groupIsHighlighted = (group) =>
+    group?.pointIds?.some((id) => highlightedPointIdSet.has(String(id)));
+  const setGroupedCellRef = (column) => (node) => {
+    groupedCellRefs.current[column] = node;
+  };
+  const wrapGroupedCellContent = (group, column, content) =>
     group?.span > 1 && group.isStart ? (
       <span
-        className="point-grouped-cell-content"
-        style={groupedCellStyle(group)}
+        className={`point-grouped-cell-content${groupIsHighlighted(group) ? " is-highlighted" : ""}`}
+        style={groupedCellStyle(group, column)}
       >
         {content}
       </span>
     ) : (
       content
     );
-  const groupedSelectionOverlay = (group, column) => {
-    if (
-      !group?.span ||
-      group.span < 2 ||
-      (!isSelected && !isActivePoint)
-    ) {
-      return null;
-    }
-
-    // The first categorical cell visually spans the following rows.  Give an
-    // individually selected row its own translucent layer so its membership
-    // remains evident even when the UUT/section/qualifier label is rendered
-    // once for the full run.
-    const visibleColumnOrder = [
-      "uut",
-      "section",
-      "value",
-      "qualifier",
-      "tolerance",
-      "lowLimit",
-      "highLimit",
-      "standardUncertainty",
-      "measurementUncertainty",
-      "tmdeLow",
-      "tmdeHigh",
-      "tur",
-      "tar",
-      "observedReop",
-      "pfa",
-      "pfr",
-      "maxReop",
-      "trueReop",
-      "gbMult",
-      "gbLow",
-      "gbHigh",
-      "gbPfa",
-      "gbPfr",
-      "gbCalInt",
-      "gbMeasRel",
-      "noGbPfa",
-      "noGbPfr",
-      "noGbCalInt",
-      "noGbMeasRel",
-    ].filter((key) => visibleColumns[key]);
-    const gridColumn = visibleColumnOrder.indexOf(column) + 1;
-    if (gridColumn < 1) return null;
-
-    return (
-      <span
-        aria-hidden="true"
-        className="point-grouped-cell-selection-overlay"
-        style={{ gridColumn, gridRow: 1 }}
-      />
-    );
-  };
   // Prefer the live, reactively-computed metrics (always current with the
   // session inputs); fall back to the persisted backend snapshot only if the
   // point can't currently be evaluated (#1).
@@ -1023,6 +1051,7 @@ export const SidebarPointItem = ({
       {visibleColumns.uut && (
         <>
           <span
+            ref={setGroupedCellRef("uut")}
             className={`point-uut-name point-uut-selector-cell${groupedCellClass(cellGroups.uut)}`}
             title={uutName}
           >
@@ -1030,6 +1059,7 @@ export const SidebarPointItem = ({
               ? null
               : wrapGroupedCellContent(
                   cellGroups.uut,
+                  "uut",
                   editingUut ? (
                     <InlineMenuSelect
                       value={currentUutId || ""}
@@ -1076,7 +1106,6 @@ export const SidebarPointItem = ({
                   ),
                 )}
           </span>
-          {groupedSelectionOverlay(cellGroups.uut, "uut")}
         </>
       )}
 
@@ -1085,6 +1114,7 @@ export const SidebarPointItem = ({
         <>
           {!cellGroups.section?.isStart && cellGroups.section?.span > 1 ? (
             <span
+              ref={setGroupedCellRef("section")}
               className={`point-section${groupedCellClass(cellGroups.section)}`}
               aria-hidden="true"
             />
@@ -1095,6 +1125,7 @@ export const SidebarPointItem = ({
             >
               {wrapGroupedCellContent(
                 cellGroups.section,
+                "section",
                 editingField === "section" ? (
                   <input
                     autoFocus
@@ -1119,7 +1150,6 @@ export const SidebarPointItem = ({
               )}
             </span>
           )}
-          {groupedSelectionOverlay(cellGroups.section, "section")}
         </>}
 
       {/* Col 2: Value */}
@@ -1167,6 +1197,7 @@ export const SidebarPointItem = ({
         <>
           {!cellGroups.qualifier?.isStart && cellGroups.qualifier?.span > 1 ? (
             <span
+              ref={setGroupedCellRef("qualifier")}
               className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
               aria-hidden="true"
             />
@@ -1177,6 +1208,7 @@ export const SidebarPointItem = ({
             >
               {wrapGroupedCellContent(
                 cellGroups.qualifier,
+                "qualifier",
                 editingField === "qualifier" ? (
                   <input
                     autoFocus
@@ -1207,7 +1239,6 @@ export const SidebarPointItem = ({
               )}
             </span>
           )}
-          {groupedSelectionOverlay(cellGroups.qualifier, "qualifier")}
         </>}
 
       {/* Col 3: Tolerance */}
@@ -4716,6 +4747,11 @@ function App({ showThemeToggle = false }) {
         label: formatInstrumentIdentity(uut),
       }))}
       cellGroups={cellGroups}
+      highlightedPointIds={[
+        ...selectedSidebarPointIds,
+        selectedTestPointId,
+        ...selectedTablePointIds,
+      ]}
       onUutChange={(nextUutId, groupedPointIds = [tp.id]) => {
         const nextUut = (currentSessionData?.uuts || []).find(
           (uut) => String(uut.id) === String(nextUutId),
