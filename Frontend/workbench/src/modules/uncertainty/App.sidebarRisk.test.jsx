@@ -8,7 +8,6 @@ import {
 } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import {
-  buildSidebarSelectionContour,
   copyPointBudget,
   DEFAULT_SIDEBAR_COLUMN_ORDER,
   getConsecutiveSidebarCellGroup,
@@ -62,35 +61,6 @@ describe("measurement-point value editing", () => {
         )
         .map((cell) => cell.dataset.sidebarColumn),
     ).toEqual(["value", "uut", "section"]);
-  });
-
-  test("builds only exposed contour edges for a row and its shared cells", () => {
-    const contour = buildSidebarSelectionContour([
-      { left: 0, top: 20, right: 100, bottom: 30 },
-      { left: 0, top: 0, right: 20, bottom: 50 },
-      { left: 20, top: 10, right: 40, bottom: 30 },
-      { left: 50, top: 20, right: 70, bottom: 40 },
-    ]);
-
-    expect(contour).not.toContain("M 20 20 L 20 30");
-    expect(contour).not.toContain("M 20 20 L 40 20");
-  });
-
-  test("does not bridge gaps between overlapping shared-column runs", () => {
-    const contour = buildSidebarSelectionContour([
-      // The selected final point row.
-      { left: 0, top: 120, right: 500, bottom: 150 },
-      // UUT shared by all five points.
-      { left: 0, top: 0, right: 150, bottom: 150 },
-      // Section and Qualifier shared only by the last two points.
-      { left: 150, top: 90, right: 190, bottom: 150 },
-      { left: 260, top: 90, right: 330, bottom: 150 },
-    ]);
-
-    expect(contour).toContain("M 150 90 L 190 90");
-    expect(contour).toContain("M 260 90 L 330 90");
-    expect(contour).not.toContain("M 150 90 L 330 90");
-    expect(contour).not.toContain("M 190 90 L 260 90");
   });
 
   test("groups consecutive repeated categorical cells", () => {
@@ -151,6 +121,7 @@ describe("measurement-point value editing", () => {
     expect(
       container.querySelector(".point-grouped-cell-content"),
     ).not.toHaveClass("is-highlighted");
+    expect(container.querySelector(".point-selection-contour")).toBeNull();
   });
 
   test("leaves an unshared merged run unhighlighted", () => {

@@ -66,6 +66,7 @@ import {
   faPaste,
   faCheckCircle,
   faSlidersH,
+  faColumns,
   faChevronDown,
   faChevronUp,
   faChevronRight,
@@ -218,125 +219,6 @@ export const getConsecutiveSidebarCellGroup = (
     span: end - start + 1,
     pointIds: points.slice(start, end + 1).map((point) => point.id),
   };
-};
-
-// Build the exposed orthogonal edges around the union of the selected point
-// row and every vertically shared cell that belongs to it. Each rectangle is
-// decomposed on the combined x/y grid; only edges with empty space on the
-// other side survive. Keeping those exposed edges as independent SVG subpaths
-// is deliberate: at a concave corner two perimeter loops can share a vertex,
-// and greedily joining them can draw a false bridge across an unselected cell.
-export const buildSidebarSelectionContour = (rectangles = []) => {
-  const rects = rectangles
-    .map((rect) => ({
-      left: Number(rect.left),
-      top: Number(rect.top),
-      right: Number(rect.right),
-      bottom: Number(rect.bottom),
-    }))
-    .filter(
-      (rect) =>
-        [rect.left, rect.top, rect.right, rect.bottom].every(Number.isFinite) &&
-        rect.right > rect.left &&
-        rect.bottom > rect.top,
-    );
-  if (rects.length === 0) return "";
-
-  const uniqueSorted = (values) =>
-    [...new Set(values.map((value) => Math.round(value * 100) / 100))].sort(
-      (a, b) => a - b,
-    );
-  const xs = uniqueSorted(rects.flatMap((rect) => [rect.left, rect.right]));
-  const ys = uniqueSorted(rects.flatMap((rect) => [rect.top, rect.bottom]));
-  const occupied = new Set();
-
-  for (let yIndex = 0; yIndex < ys.length - 1; yIndex += 1) {
-    for (let xIndex = 0; xIndex < xs.length - 1; xIndex += 1) {
-      const x = (xs[xIndex] + xs[xIndex + 1]) / 2;
-      const y = (ys[yIndex] + ys[yIndex + 1]) / 2;
-      if (
-        rects.some(
-          (rect) =>
-            x >= rect.left &&
-            x <= rect.right &&
-            y >= rect.top &&
-            y <= rect.bottom,
-        )
-      ) {
-        occupied.add(`${xIndex}:${yIndex}`);
-      }
-    }
-  }
-
-  const hasCell = (xIndex, yIndex) =>
-    occupied.has(`${xIndex}:${yIndex}`);
-  const edges = [];
-  occupied.forEach((cellKey) => {
-    const [xIndex, yIndex] = cellKey.split(":").map(Number);
-    const left = xs[xIndex];
-    const right = xs[xIndex + 1];
-    const top = ys[yIndex];
-    const bottom = ys[yIndex + 1];
-    if (!hasCell(xIndex, yIndex - 1)) {
-      edges.push([[left, top], [right, top]]);
-    }
-    if (!hasCell(xIndex + 1, yIndex)) {
-      edges.push([[right, top], [right, bottom]]);
-    }
-    if (!hasCell(xIndex, yIndex + 1)) {
-      edges.push([[right, bottom], [left, bottom]]);
-    }
-    if (!hasCell(xIndex - 1, yIndex)) {
-      edges.push([[left, bottom], [left, top]]);
-    }
-  });
-
-  const lineGroups = new Map();
-  edges.forEach(([[startX, startY], [endX, endY]]) => {
-    const horizontal = startY === endY;
-    const fixed = horizontal ? startY : startX;
-    const start = Math.min(
-      horizontal ? startX : startY,
-      horizontal ? endX : endY,
-    );
-    const end = Math.max(
-      horizontal ? startX : startY,
-      horizontal ? endX : endY,
-    );
-    const key = `${horizontal ? "h" : "v"}:${fixed}`;
-    if (!lineGroups.has(key)) lineGroups.set(key, []);
-    lineGroups.get(key).push([start, end]);
-  });
-
-  const mergedEdges = [];
-  lineGroups.forEach((intervals, key) => {
-    const [orientation, fixedValue] = key.split(":");
-    const fixed = Number(fixedValue);
-    const sorted = intervals.sort((a, b) => a[0] - b[0]);
-    const merged = [];
-    sorted.forEach(([start, end]) => {
-      const current = merged[merged.length - 1];
-      if (current && start <= current[1]) {
-        current[1] = Math.max(current[1], end);
-      } else {
-        merged.push([start, end]);
-      }
-    });
-    merged.forEach(([start, end]) => {
-      mergedEdges.push(
-        orientation === "h"
-          ? [[start, fixed], [end, fixed]]
-          : [[fixed, start], [fixed, end]],
-      );
-    });
-  });
-
-  return mergedEdges
-    .map(
-      ([[startX, startY], [endX, endY]]) =>
-        `M ${startX} ${startY} L ${endX} ${endY}`,
-    )
-    .join(" ");
 };
 
 const getFunctionPointSettings = (sessionData, functionId) => {
@@ -854,7 +736,6 @@ export const SidebarPointItem = ({
   const groupedCellRefs = useRef({});
   const pointRowRef = useRef(null);
   const [groupedCellGeometry, setGroupedCellGeometry] = useState({});
-  const [selectionContour, setSelectionContour] = useState(null);
   const orderedVisibleColumns = getVisibleSidebarColumnOrder(
     visibleColumns,
     columnOrder,
@@ -871,9 +752,7 @@ export const SidebarPointItem = ({
     const renderedKeys = DEFAULT_SIDEBAR_COLUMN_ORDER.filter((key) =>
       Boolean(visibleColumns[key]),
     );
-    const cells = [...row.children].filter(
-      (child) => !child.classList.contains("point-selection-contour"),
-    );
+    const cells = [...row.children];
     cells.forEach((cell, index) => {
       const key = renderedKeys[index];
       if (!key) return;
@@ -1091,117 +970,6 @@ export const SidebarPointItem = ({
     visibleColumns.uut,
     visibleColumns.section,
     visibleColumns.qualifier,
-  ]);
-
-  useLayoutEffect(() => {
-    if (!isSelected && !isActivePoint) {
-      setSelectionContour(null);
-      return undefined;
-    }
-
-    const row = pointRowRef.current;
-    const list = row?.closest?.(".sidebar-points-scroll-wrapper");
-    if (!row || !list) return undefined;
-
-    const measure = () => {
-      const rowBounds = row.getBoundingClientRect();
-      if (!row.offsetWidth || !row.offsetHeight || !rowBounds.width) return;
-      const rectangles = [
-        {
-          left: 0,
-          top: 0,
-          right: row.offsetWidth,
-          bottom: row.offsetHeight,
-        },
-      ];
-      ["uut", "section", "qualifier"].forEach((column) => {
-        const group = cellGroups[column];
-        const runKey = groupedCellRunKey(group, column);
-        if (!runKey || group?.span < 2) return;
-        const cells = [...list.querySelectorAll("[data-run]")].filter(
-          (cell) => cell.dataset.run === runKey,
-        );
-        if (cells.length === 0) return;
-
-        const pointRows = cells
-          .map((cell) => cell.closest(".point-grid-item"))
-          .filter(Boolean);
-        rectangles.push({
-          left: Math.min(...cells.map((cell) => cell.offsetLeft)),
-          top: Math.min(
-            ...pointRows.map(
-              (pointRow) => pointRow.offsetTop - row.offsetTop,
-            ),
-          ),
-          right: Math.max(
-            ...cells.map((cell) => cell.offsetLeft + cell.offsetWidth),
-          ),
-          bottom: Math.max(
-            ...pointRows.map(
-              (pointRow) =>
-                pointRow.offsetTop + pointRow.offsetHeight - row.offsetTop,
-            ),
-          ),
-        });
-      });
-
-      const path = buildSidebarSelectionContour(rectangles);
-      if (!path) return;
-      const padding = 9;
-      const left = Math.min(...rectangles.map((rect) => rect.left));
-      const top = Math.min(...rectangles.map((rect) => rect.top));
-      const right = Math.max(...rectangles.map((rect) => rect.right));
-      const bottom = Math.max(...rectangles.map((rect) => rect.bottom));
-      const nextContour = {
-        path,
-        left: left - padding,
-        top: top - padding,
-        width: right - left + padding * 2,
-        height: bottom - top + padding * 2,
-        viewBox: `${left - padding} ${top - padding} ${right - left + padding * 2} ${bottom - top + padding * 2}`,
-      };
-      setSelectionContour((current) => {
-        return current &&
-          JSON.stringify(current) === JSON.stringify(nextContour)
-          ? current
-          : nextContour;
-      });
-    };
-
-    measure();
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(measure);
-    observer?.observe(row);
-    ["uut", "section", "qualifier"].forEach((column) => {
-      const runKey = groupedCellRunKey(cellGroups[column], column);
-      if (!runKey) return;
-      [...list.querySelectorAll("[data-run]")]
-        .filter((cell) => cell.dataset.run === runKey)
-        .forEach((cell) => {
-          const pointRow = cell.closest(".point-grid-item");
-          if (pointRow) observer?.observe(pointRow);
-        });
-    });
-    window.addEventListener("resize", measure);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [
-    isSelected,
-    isActivePoint,
-    cellGroups.uut?.span,
-    cellGroups.uut?.pointIds?.join("|"),
-    cellGroups.section?.span,
-    cellGroups.section?.pointIds?.join("|"),
-    cellGroups.qualifier?.span,
-    cellGroups.qualifier?.pointIds?.join("|"),
-    visibleColumns.uut,
-    visibleColumns.section,
-    visibleColumns.qualifier,
-    orderedVisibleColumnsKey,
   ]);
 
   const highlightedPointIdSet = new Set(
@@ -1462,22 +1230,6 @@ export const SidebarPointItem = ({
       }}
       onContextMenu={(e) => onContextMenu(e, point)}
     >
-      {selectionContour && (
-        <svg
-          className="point-selection-contour"
-          aria-hidden="true"
-          focusable="false"
-          viewBox={selectionContour.viewBox}
-          style={{
-            left: `${selectionContour.left}px`,
-            top: `${selectionContour.top}px`,
-            width: `${selectionContour.width}px`,
-            height: `${selectionContour.height}px`,
-          }}
-        >
-          <path d={selectionContour.path} />
-        </svg>
-      )}
       {visibleColumns.uut && (
         <>
           <span
@@ -2966,7 +2718,9 @@ function App({ showThemeToggle = false }) {
   };
 
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
+  const [isColumnOrderMenuOpen, setIsColumnOrderMenuOpen] = useState(false);
   const columnMenuRef = useRef(null);
+  const columnOrderMenuRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -2975,6 +2729,12 @@ function App({ showThemeToggle = false }) {
         !columnMenuRef.current.contains(event.target)
       ) {
         setIsColumnMenuOpen(false);
+      }
+      if (
+        columnOrderMenuRef.current &&
+        !columnOrderMenuRef.current.contains(event.target)
+      ) {
+        setIsColumnOrderMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -6111,18 +5871,25 @@ function App({ showThemeToggle = false }) {
                           />
                         </button>
 
-                        {/* Column Filter Menu */}
-                        <div className="sidebar-column-menu" ref={columnMenuRef}>
+                        {/* Column Order Menu */}
+                        <div
+                          className="sidebar-column-menu"
+                          ref={columnOrderMenuRef}
+                        >
                           <button
-                            onClick={() => setIsColumnMenuOpen(!isColumnMenuOpen)}
-                            title="Filter visible columns"
-                            className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
+                            onClick={() => {
+                              setIsColumnOrderMenuOpen((open) => !open);
+                              setIsColumnMenuOpen(false);
+                            }}
+                            title="Reorder columns"
+                            aria-label="Reorder columns"
+                            className={`sidebar-action-btn-organic ${isColumnOrderMenuOpen ? "active" : ""}`}
                           >
-                            <FontAwesomeIcon icon={faSlidersH} />
+                            <FontAwesomeIcon icon={faColumns} />
                           </button>
 
-                          {isColumnMenuOpen && (
-                            <div className="sidebar-filter-dropdown">
+                          {isColumnOrderMenuOpen && (
+                            <div className="sidebar-column-order-dropdown">
                               <div className="sidebar-column-order-panel">
                                 <div className="sidebar-column-order-heading">
                                   <span>Column order</span>
@@ -6172,6 +5939,25 @@ function App({ showThemeToggle = false }) {
                                   ))}
                                 </div>
                               </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Column Filter Menu */}
+                        <div className="sidebar-column-menu" ref={columnMenuRef}>
+                          <button
+                            onClick={() => {
+                              setIsColumnMenuOpen((open) => !open);
+                              setIsColumnOrderMenuOpen(false);
+                            }}
+                            title="Filter visible columns"
+                            className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
+                          >
+                            <FontAwesomeIcon icon={faSlidersH} />
+                          </button>
+
+                          {isColumnMenuOpen && (
+                            <div className="sidebar-filter-dropdown">
                               {[
                             {
                               group: "Measurement",

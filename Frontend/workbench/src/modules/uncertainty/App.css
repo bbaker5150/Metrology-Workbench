@@ -18686,8 +18686,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .point-grid-item.active-point:hover {
   background: var(--sidebar-point-surface-selected) !important;
   color: var(--sidebar-function-color, var(--primary-color)) !important;
-  box-shadow: inset 3px 0 0
-    var(--sidebar-function-color, var(--primary-color)) !important;
+  box-shadow: none !important;
 }
 
 .uncertainty-module
@@ -19142,8 +19141,7 @@ body.dark-mode
   background: var(--sidebar-point-surface-selected) !important;
   border-color: transparent !important;
   color: var(--sidebar-function-color, var(--primary-color)) !important;
-  box-shadow: inset 3px 0 0
-    var(--sidebar-function-color, var(--primary-color)) !important;
+  box-shadow: none !important;
   text-shadow: none !important;
 }
 
@@ -19350,7 +19348,8 @@ body.dark-mode
   .measurement-group-container
   .point-grid-item
   .point-grouped-cell--highlighted::after {
-  border: 0;
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
 .uncertainty-module
@@ -19425,56 +19424,28 @@ body.dark-mode
   z-index: 7;
 }
 
-/* Final selection treatment: one SVG draws the exposed boundary of the union
-   (selected row + all shared cells it references). Disable every earlier
-   per-row/per-cell perimeter so no internal or overlapping lines remain. */
+/* Selection uses the shared-cell and row fill only. Disable all legacy
+   per-row/per-cell perimeter styles so shared runs remain visually clean. */
 .uncertainty-module
   .measurement-group-container
   .point-grid-item
   .point-grouped-cell--highlighted.point-grouped-cell--start
   > .point-grouped-cell-content {
-  border: 0;
-  box-shadow: none;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point) {
+  border-color: transparent !important;
+  outline: 0 !important;
+  box-shadow: none !important;
 }
 
 .uncertainty-module
   .measurement-group-container
   .point-grid-item:is(.active, .active-point)::after {
-  content: none;
-}
-
-.uncertainty-module .point-grid-item > .point-selection-contour {
-  position: absolute;
-  /* The generic grid-divider rule makes every non-final row child relative.
-     Keep the contour out of grid layout so its measured union can never
-     enlarge a measurement-point row. */
-  z-index: 12;
-  display: block;
-  max-width: none;
-  overflow: visible;
-  pointer-events: none;
-  filter: drop-shadow(
-    0 0 4px
-      color-mix(
-        in srgb,
-        var(--sidebar-function-color, var(--primary-color)) 58%,
-        transparent
-      )
-  );
-}
-
-.uncertainty-module .point-selection-contour path {
-  fill: none;
-  stroke: var(--sidebar-function-color, var(--primary-color));
-  stroke-width: 1.6;
-  stroke-linecap: square;
-  stroke-linejoin: miter;
-  vector-effect: non-scaling-stroke;
-}
-
-/* The contour is inserted first so the real final data cell remains the last
-   grid child (and therefore does not gain a trailing divider). */
-.uncertainty-module .point-selection-contour::before {
   content: none !important;
 }
 
@@ -19518,9 +19489,23 @@ body.dark-mode
   left: auto;
 }
 
+.sidebar-column-order-dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  width: min(290px, calc(100vw - 24px));
+  max-height: min(520px, calc(100vh - 100px));
+  overflow: hidden;
+  background: var(--content-background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+  z-index: 3000;
+  animation: filterDropdownIn 0.12s ease-out;
+}
+
 .sidebar-column-order-panel {
   padding: 8px 10px 10px;
-  border-bottom: 1px solid var(--border-color);
 }
 
 .sidebar-column-order-heading,
@@ -19552,7 +19537,7 @@ body.dark-mode
 }
 
 .sidebar-column-order-list {
-  max-height: 190px;
+  max-height: min(440px, calc(100vh - 160px));
   overflow-y: auto;
 }
 
