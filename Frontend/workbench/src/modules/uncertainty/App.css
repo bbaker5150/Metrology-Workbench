@@ -19172,3 +19172,160 @@ body.dark-mode
   color: var(--text-color) !important;
   text-shadow: none !important;
 }
+
+/* --- 31 Aug round 2: shared point cells and table-scale consistency ---- */
+
+/* Qualifiers use the same centered treatment as Sections, including their
+   merged label and their temporary per-point editor. */
+.uncertainty-module .point-grid-item .point-qualifier,
+.uncertainty-module
+  .point-grid-item
+  .point-qualifier
+  .point-grouped-cell-label {
+  text-align: center;
+}
+
+.uncertainty-module
+  .point-grid-item
+  .point-qualifier
+  .point-grouped-cell-content,
+.uncertainty-module .point-grid-item .point-qualifier .point-edit-affordance {
+  justify-content: center;
+}
+
+/* A continuation row normally contributes only its slice of a merged cell.
+   When that exact point is being edited, reveal its own control without
+   stretching it across the rest of the shared run. */
+.uncertainty-module
+  .point-grid-item
+  .point-grouped-cell--continuation.point-grouped-cell--editing-member {
+  pointer-events: auto;
+}
+
+.uncertainty-module
+  .point-grid-item
+  .point-grouped-cell--continuation.point-grouped-cell--editing-member
+  > * {
+  visibility: visible;
+}
+
+/* Vertical rules sit in the center of the existing column gap and use the
+   same one-pixel divider token as horizontal row rules. Their layer is above
+   grouped-cell fills but below content and resize handles. */
+.uncertainty-module .sidebar-column-header-cell:not(:last-child)::before,
+.uncertainty-module .point-grid-item > :not(:last-child)::before {
+  content: "";
+  position: absolute;
+  right: calc(-1 * var(--sidebar-point-column-gap) / 2);
+  width: 1px;
+  background: var(--table-divider-color);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.uncertainty-module .sidebar-column-header-cell:not(:last-child)::before {
+  top: 0;
+  bottom: 0;
+}
+
+.uncertainty-module .point-grid-item > :not(:last-child) {
+  position: relative;
+}
+
+.uncertainty-module .point-grid-item > :not(:last-child)::before {
+  top: calc(-1 * var(--sidebar-point-row-inset));
+  bottom: calc(-1 * var(--sidebar-point-row-inset));
+}
+
+/* Selected rows and every shared cell they intersect get one function-colored
+   perimeter. The row glow makes the selected point unmistakable; grouped
+   cells add only their outer edges so adjacent rows never create extra bars. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point) {
+  box-shadow:
+    inset 0 0 0 1px var(--sidebar-function-color, var(--primary-color)),
+    0 0 6px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 48%,
+        transparent
+      ) !important;
+}
+
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point),
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item.active-point:hover {
+  box-shadow:
+    inset 0 0 0 1px var(--sidebar-function-color, var(--primary-color)),
+    0 0 7px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 58%,
+        transparent
+      ) !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted::after {
+  border-left: 1px solid var(--sidebar-function-color, var(--primary-color));
+  border-right: 1px solid var(--sidebar-function-color, var(--primary-color));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted.point-grouped-cell--start::after {
+  border-top: 1px solid var(--sidebar-function-color, var(--primary-color));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted:not(.point-grouped-cell--has-next)::after {
+  border-bottom: 1px solid var(--sidebar-function-color, var(--primary-color));
+}
+
+/* Collapsed measurement-input controls should highlight only the content the
+   user can edit, not the full remaining width of a fixed table cell. */
+.uncertainty-module .measurement-input-symbol,
+.uncertainty-module .measurement-input-summary {
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* Measurement inputs, budget tables and propagation/approximation tables now
+   share the same default typography and cell rhythm as UUT/TMDE tables. All
+   of these wrappers are already scoped-zoom surfaces, so Ctrl+wheel adjusts
+   the table under the pointer without changing the rest of the workspace. */
+.uncertainty-module .measurement-inputs-table,
+.uncertainty-module .uncertainty-budget-table {
+  font-size: 0.9rem;
+}
+
+.uncertainty-module .measurement-inputs-table th {
+  height: auto;
+  padding: 10px 12px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.uncertainty-module .measurement-inputs-table td {
+  height: auto;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.uncertainty-module .measurement-input-symbol,
+.uncertainty-module .measurement-input-summary {
+  min-height: 32px;
+  font-size: 0.9rem;
+}

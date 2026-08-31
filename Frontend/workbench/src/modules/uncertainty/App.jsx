@@ -627,7 +627,6 @@ export const SidebarPointItem = ({
   cellGroups = {},
   columnWidths = {},
   highlightedPointIds = [],
-  onGroupedFieldSave,
   valueColumnWidth = "80px",
   isSelected,
   isActivePoint = false,
@@ -640,7 +639,11 @@ export const SidebarPointItem = ({
   onContextMenu,
   onShowRiskBreakdown,
   autoEditValue = false,
+  autoEditField = null,
   onAutoEditConsumed,
+  onAutoEditFieldConsumed,
+  preferredSharedEditPointId = null,
+  onRequestSharedMemberEdit,
   onAdvanceValue,
   visibleColumns = {
     uut: true,
@@ -693,6 +696,28 @@ export const SidebarPointItem = ({
     onAutoEditConsumed?.();
   }, [autoEditValue, onAutoEditConsumed, point.testPointInfo]);
 
+  // Shared Section and Qualifier labels are rendered once at the start of a
+  // run, but the editor belongs to the point the user actually selected. The
+  // start row forwards that request here so a continuation row can temporarily
+  // expose its own editor and split only itself from the shared run on save.
+  useEffect(() => {
+    if (!autoEditField || !["section", "qualifier"].includes(autoEditField)) {
+      return;
+    }
+    setEditingField(autoEditField);
+    setTempValue(
+      autoEditField === "section"
+        ? point.section ?? ""
+        : point.testPointInfo?.qualifier?.value ?? "",
+    );
+    onAutoEditFieldConsumed?.();
+  }, [
+    autoEditField,
+    onAutoEditFieldConsumed,
+    point.section,
+    point.testPointInfo?.qualifier?.value,
+  ]);
+
   const startEdit = (e, field, currentVal) => {
     e.stopPropagation();
     e.preventDefault();
@@ -711,6 +736,27 @@ export const SidebarPointItem = ({
     if (isSelected || isPlainValueClick) {
       startEdit(e, field, currentVal);
     }
+  };
+
+  const handleSharedFieldClick = (e, field, currentVal, group) => {
+    const preferredId = String(preferredSharedEditPointId ?? "");
+    const pointId = String(point.id);
+    const preferredBelongsToGroup =
+      group?.span > 1 &&
+      preferredId &&
+      group.pointIds?.some((id) => String(id) === preferredId);
+
+    if (preferredBelongsToGroup) {
+      if (preferredId !== pointId) {
+        e.stopPropagation();
+        e.preventDefault();
+        onRequestSharedMemberEdit?.(preferredSharedEditPointId, field);
+        return;
+      }
+      startEdit(e, field, currentVal);
+      return;
+    }
+    handleSingleClickEdit(e, field, currentVal);
   };
 
   // A plain click on a risk metric just selects the point (what users usually
@@ -736,15 +782,7 @@ export const SidebarPointItem = ({
 
   const commitEdit = () => {
     if (editingField === "section") {
-      if (cellGroups.section?.span > 1) {
-        onGroupedFieldSave?.(
-          "section",
-          tempValue,
-          cellGroups.section.pointIds,
-        );
-      } else {
-        onSave({ ...point, section: tempValue });
-      }
+      onSave({ ...point, section: tempValue });
     } else if (editingField === "value") {
       const prevInfo = point.testPointInfo || {};
       const prevParam = prevInfo.parameter || {};
@@ -766,15 +804,7 @@ export const SidebarPointItem = ({
           value: tempValue,
         },
       };
-      if (cellGroups.qualifier?.span > 1) {
-        onGroupedFieldSave?.(
-          "qualifier",
-          tempValue,
-          cellGroups.qualifier.pointIds,
-        );
-      } else {
-        onSave({ ...point, testPointInfo: newInfo });
-      }
+      onSave({ ...point, testPointInfo: newInfo });
     }
     setEditingField(null);
   };
@@ -882,7 +912,7 @@ export const SidebarPointItem = ({
           group.isEnd ? "" : " point-grouped-cell--has-next"
         }${column === leadingVisibleColumn ? " point-grouped-cell--leading" : ""}${
           groupIsHighlighted(group) ? " point-grouped-cell--highlighted" : ""
-        }`
+        }${editingField === column ? " point-grouped-cell--editing-member" : ""}`
       : "";
   const groupedCellStyle = (group, column) =>
     group?.span > 1 && group.isStart
@@ -908,7 +938,7 @@ export const SidebarPointItem = ({
     "measurementUncertainty",
   ].find((column) => visibleColumns[column]);
   const wrapGroupedCellContent = (group, column, content) =>
-    group?.span > 1 && group.isStart ? (
+    group?.span > 1 && group.isStart && editingField !== column ? (
       <span
         className={`point-grouped-cell-content point-grouped-cell-content--${column}${column === leadingVisibleColumn ? " is-leading-column" : ""}`}
         style={groupedCellStyle(group, column)}
@@ -1193,7 +1223,9 @@ export const SidebarPointItem = ({
       {/* Section */}
       {visibleColumns.section &&
         <>
-          {!cellGroups.section?.isStart && cellGroups.section?.span > 1 ? (
+          {!cellGroups.section?.isStart &&
+          cellGroups.section?.span > 1 &&
+          editingField !== "section" ? (
             <span
               ref={setGroupedCellRef("section")}
               className={`point-section${groupedCellClass(cellGroups.section, "section")}`}
@@ -1226,7 +1258,12 @@ export const SidebarPointItem = ({
                     <span
                       className="point-grouped-cell-label"
                       onClick={(e) =>
-                        handleSingleClickEdit(e, "section", point.section)
+                        handleSharedFieldClick(
+                          e,
+                          "section",
+                          point.section,
+                          cellGroups.section,
+                        )
                       }
                     >
                       {point.section || (
@@ -1283,17 +1320,19 @@ export const SidebarPointItem = ({
       {/* Optional Qualifier column (e.g. Frequency) — hidden by default. */}
       {visibleColumns.qualifier &&
         <>
-          {!cellGroups.qualifier?.isStart && cellGroups.qualifier?.span > 1 ? (
+          {!cellGroups.qualifier?.isStart &&
+          cellGroups.qualifier?.span > 1 &&
+          editingField !== "qualifier" ? (
             <span
               ref={setGroupedCellRef("qualifier")}
-              className={`point-value${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
+              className={`point-value point-qualifier${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
               data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
               aria-hidden="true"
             />
           ) : (
             <span
               ref={setGroupedCellRef("qualifier")}
-              className={`point-value${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
+              className={`point-value point-qualifier${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
               data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
               title={String(point.testPointInfo?.qualifier?.value ?? "-")}
             >
@@ -1316,10 +1355,11 @@ export const SidebarPointItem = ({
                     <span
                       className="point-grouped-cell-label"
                       onClick={(e) =>
-                        handleSingleClickEdit(
+                        handleSharedFieldClick(
                           e,
                           "qualifier",
                           point.testPointInfo?.qualifier?.value,
+                          cellGroups.qualifier,
                         )
                       }
                     >
@@ -2647,6 +2687,7 @@ function App({ showThemeToggle = false }) {
   // Id of a just-quick-added direct point whose sidebar row should open straight
   // into value-edit. SidebarPointItem consumes it on mount, then App clears it.
   const [pendingValueEditPointId, setPendingValueEditPointId] = useState(null);
+  const [pendingSharedFieldEdit, setPendingSharedFieldEdit] = useState(null);
   const [pendingPointValueAdvance, setPendingPointValueAdvance] = useState(null);
   // Function headers own point creation now that UUT folder rows are gone.
   // When a function exposes more than one range unit, the quick-add button
@@ -4923,6 +4964,10 @@ function App({ showThemeToggle = false }) {
         selectedTestPointId,
         ...selectedTablePointIds,
       ]}
+      preferredSharedEditPointId={selectedTestPointId}
+      onRequestSharedMemberEdit={(pointId, field) =>
+        setPendingSharedFieldEdit({ pointId, field })
+      }
       onUutChange={(nextUutId, groupedPointIds = [tp.id]) => {
         const nextUut = (currentSessionData?.uuts || []).find(
           (uut) => String(uut.id) === String(nextUutId),
@@ -4956,28 +5001,6 @@ function App({ showThemeToggle = false }) {
         updateSession({ ...currentSessionData, testPoints: nextPoints });
         setSelectedTestPointContextUutId(nextUut?.id || null);
       }}
-      onGroupedFieldSave={(field, value, groupedPointIds) => {
-        const ids = new Set((groupedPointIds || []).map(String));
-        const nextPoints = (currentSessionData?.testPoints || []).map((point) => {
-          if (!ids.has(String(point.id))) return point;
-          if (field === "section") return { ...point, section: value };
-          const info = point.testPointInfo || {};
-          const qualifier = info.qualifier || {};
-          return {
-            ...point,
-            testPointInfo: {
-              ...info,
-              qualifier: {
-                name: qualifier.name || "Qualifier",
-                unit: qualifier.unit || "",
-                ...qualifier,
-                value,
-              },
-            },
-          };
-        });
-        updateSession({ ...currentSessionData, testPoints: nextPoints });
-      }}
       valueColumnWidth={sidebarValueColumnWidth}
       visibleColumns={visibleSidebarColumns}
       isSelected={selectedSidebarPointIds.includes(tp.id)}
@@ -4989,7 +5012,13 @@ function App({ showThemeToggle = false }) {
       onSelect={(e) => handleSelectTestPoint(e, tp.id, contextUutId)}
       onShowRiskBreakdown={(key) => setPendingRiskBreakdown(key)}
       autoEditValue={pendingValueEditPointId === tp.id}
+      autoEditField={
+        String(pendingSharedFieldEdit?.pointId ?? "") === String(tp.id)
+          ? pendingSharedFieldEdit.field
+          : null
+      }
       onAutoEditConsumed={() => setPendingValueEditPointId(null)}
+      onAutoEditFieldConsumed={() => setPendingSharedFieldEdit(null)}
       onAdvanceValue={() =>
         setPendingPointValueAdvance({
           functionId: fnGroup.id,

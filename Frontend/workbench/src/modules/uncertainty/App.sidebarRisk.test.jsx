@@ -193,6 +193,115 @@ describe("measurement-point value editing", () => {
     });
   });
 
+  test("routes a shared Section click to the selected member of the run", () => {
+    const onRequestSharedMemberEdit = vi.fn();
+    render(
+      <SidebarPointItem
+        point={{
+          id: "p1",
+          section: "3.1.2",
+          testPointInfo: { parameter: { value: 1, unit: "V" } },
+        }}
+        cellGroups={{
+          section: {
+            isStart: true,
+            isEnd: false,
+            span: 2,
+            pointIds: ["p1", "p2"],
+          },
+        }}
+        preferredSharedEditPointId="p2"
+        onRequestSharedMemberEdit={onRequestSharedMemberEdit}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ section: true, value: true }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("3.1.2"));
+    expect(onRequestSharedMemberEdit).toHaveBeenCalledWith("p2", "section");
+  });
+
+  test("edits only a selected continuation member of a shared Section", () => {
+    const onSave = vi.fn();
+    const onAutoEditFieldConsumed = vi.fn();
+    const { container } = render(
+      <SidebarPointItem
+        point={{
+          id: "p2",
+          section: "3.1.2",
+          testPointInfo: { parameter: { value: 2, unit: "V" } },
+        }}
+        cellGroups={{
+          section: {
+            isStart: false,
+            isEnd: true,
+            span: 2,
+            pointIds: ["p1", "p2"],
+          },
+        }}
+        autoEditField="section"
+        onAutoEditFieldConsumed={onAutoEditFieldConsumed}
+        onSelect={vi.fn()}
+        onSave={onSave}
+        visibleColumns={{ section: true, value: true }}
+      />,
+    );
+
+    const editor = screen.getByDisplayValue("3.1.2");
+    expect(
+      container.querySelector(".point-grouped-cell--editing-member"),
+    ).toBeInTheDocument();
+    expect(onAutoEditFieldConsumed).toHaveBeenCalled();
+
+    fireEvent.change(editor, { target: { value: "3.1.3" } });
+    fireEvent.blur(editor);
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "p2", section: "3.1.3" }),
+    );
+  });
+
+  test("edits only a selected continuation member of a shared Qualifier", () => {
+    const onSave = vi.fn();
+    const { container } = render(
+      <SidebarPointItem
+        point={{
+          id: "p2",
+          testPointInfo: {
+            parameter: { value: 2, unit: "V" },
+            qualifier: { name: "Frequency", unit: "Hz", value: "60" },
+          },
+        }}
+        cellGroups={{
+          qualifier: {
+            isStart: false,
+            isEnd: true,
+            span: 2,
+            pointIds: ["p1", "p2"],
+          },
+        }}
+        autoEditField="qualifier"
+        onAutoEditFieldConsumed={vi.fn()}
+        onSelect={vi.fn()}
+        onSave={onSave}
+        visibleColumns={{ qualifier: true, value: true }}
+      />,
+    );
+
+    expect(container.querySelector(".point-qualifier")).toBeInTheDocument();
+    const editor = screen.getByDisplayValue("60");
+    fireEvent.change(editor, { target: { value: "400" } });
+    fireEvent.blur(editor);
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "p2",
+        testPointInfo: expect.objectContaining({
+          qualifier: expect.objectContaining({ value: "400" }),
+        }),
+      }),
+    );
+  });
+
   test("copies and replaces only uncertainty-budget fields", () => {
     const source = {
       id: "source",
