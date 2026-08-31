@@ -12,6 +12,7 @@ import {
   DEFAULT_SIDEBAR_COLUMN_ORDER,
   getConsecutiveSidebarCellGroup,
   getConsecutiveSidebarCellGroupDuringEdit,
+  getSidebarColumnMinWidth,
   getUutReassignmentPointIds,
   normalizeSidebarColumnOrder,
   pastePointBudget,
@@ -34,6 +35,12 @@ describe("measurement-point value editing", () => {
     expect(normalized).toEqual(
       expect.arrayContaining(DEFAULT_SIDEBAR_COLUMN_ORDER),
     );
+  });
+
+  test("keeps UUT limit columns wide enough for full-precision values", () => {
+    expect(getSidebarColumnMinWidth("lowLimit")).toBe(82);
+    expect(getSidebarColumnMinWidth("highLimit")).toBe(82);
+    expect(getSidebarColumnMinWidth("section")).toBe(44);
   });
 
   test("places point cells into the saved visual column order", () => {

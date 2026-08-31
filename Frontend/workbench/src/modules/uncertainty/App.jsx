@@ -308,8 +308,8 @@ const SIDEBAR_COLUMN_TRACKS = {
   value: "80px",
   qualifier: "80px",
   tolerance: "minmax(80px, 1fr)",
-  lowLimit: "minmax(60px, 0.8fr)",
-  highLimit: "minmax(60px, 0.8fr)",
+  lowLimit: "minmax(82px, 0.8fr)",
+  highLimit: "minmax(82px, 0.8fr)",
   standardUncertainty: SIDEBAR_UNCERTAINTY_COLUMN,
   measurementUncertainty: SIDEBAR_UNCERTAINTY_COLUMN,
   tmdeLow: "minmax(90px, 1fr)",
@@ -386,6 +386,13 @@ const getVisibleSidebarColumnOrder = (visibleColumns, columnOrder) =>
 // A column the user has dragged is pinned to that exact width; everything else
 // keeps its default track sizing.
 export const SIDEBAR_COLUMN_MIN_WIDTH = 44;
+const SIDEBAR_COLUMN_MIN_WIDTHS = {
+  lowLimit: 82,
+  highLimit: 82,
+};
+
+export const getSidebarColumnMinWidth = (key) =>
+  SIDEBAR_COLUMN_MIN_WIDTHS[key] || SIDEBAR_COLUMN_MIN_WIDTH;
 
 const getSidebarGridTemplate = (
   visibleColumns,
@@ -403,7 +410,7 @@ const getSidebarGridTemplate = (
   ).map((key) => {
     const custom = Number(columnWidths?.[key]);
     return Number.isFinite(custom) && custom > 0
-      ? `${Math.max(SIDEBAR_COLUMN_MIN_WIDTH, Math.round(custom))}px`
+      ? `${Math.max(getSidebarColumnMinWidth(key), Math.round(custom))}px`
       : tracks[key];
   });
 
@@ -2555,7 +2562,7 @@ function App({ showThemeToggle = false }) {
     event.stopPropagation();
     const cell = event.currentTarget.closest(".sidebar-column-header-cell");
     const startWidth =
-      cell?.getBoundingClientRect().width || SIDEBAR_COLUMN_MIN_WIDTH;
+      cell?.getBoundingClientRect().width || getSidebarColumnMinWidth(key);
     const startX = event.clientX;
     const previousCursor = document.body.style.cursor;
     const previousUserSelect = document.body.style.userSelect;
@@ -2564,7 +2571,7 @@ function App({ showThemeToggle = false }) {
 
     const handleMove = (moveEvent) => {
       const next = Math.max(
-        SIDEBAR_COLUMN_MIN_WIDTH,
+        getSidebarColumnMinWidth(key),
         Math.round(startWidth + (moveEvent.clientX - startX)),
       );
       setSidebarColumnWidths((current) =>
