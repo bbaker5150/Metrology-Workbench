@@ -600,7 +600,6 @@ export const SidebarPointItem = ({
   uutOptions = [],
   onUutChange,
   cellGroups = {},
-  highlightedPointIds = [],
   onGroupedFieldSave,
   valueColumnWidth = "80px",
   isSelected,
@@ -837,9 +836,11 @@ export const SidebarPointItem = ({
     visibleColumns.qualifier,
   ]);
 
-  const groupedCellClass = (group) =>
+  const groupedCellClass = (group, column) =>
     group?.span > 1
-      ? ` point-grouped-cell point-grouped-cell--${group.isStart ? "start" : "continuation"}`
+      ? ` point-grouped-cell point-grouped-cell--${group.isStart ? "start" : "continuation"}${
+          column === leadingVisibleColumn ? " point-grouped-cell--leading" : ""
+        }`
       : "";
   const groupedCellStyle = (group, column) =>
     group?.span > 1 && group.isStart
@@ -850,11 +851,6 @@ export const SidebarPointItem = ({
             groupedCellGeometry[column]?.height || `${group.span * 29 - 1}px`,
         }
       : undefined;
-  const highlightedPointIdSet = new Set(
-    (highlightedPointIds || []).filter(Boolean).map(String),
-  );
-  const groupIsHighlighted = (group) =>
-    group?.pointIds?.some((id) => highlightedPointIdSet.has(String(id)));
   const setGroupedCellRef = (column) => (node) => {
     groupedCellRefs.current[column] = node;
   };
@@ -872,7 +868,7 @@ export const SidebarPointItem = ({
   const wrapGroupedCellContent = (group, column, content) =>
     group?.span > 1 && group.isStart ? (
       <span
-        className={`point-grouped-cell-content point-grouped-cell-content--${column}${column === leadingVisibleColumn ? " is-leading-column" : ""}${groupIsHighlighted(group) ? " is-highlighted" : ""}`}
+        className={`point-grouped-cell-content point-grouped-cell-content--${column}${column === leadingVisibleColumn ? " is-leading-column" : ""}`}
         style={groupedCellStyle(group, column)}
       >
         {content}
@@ -1039,15 +1035,9 @@ export const SidebarPointItem = ({
       .join("\n");
   }, [tmdeLimitsData]);
 
-  const hasHighlightedSharedCell =
-    (isSelected || isActivePoint || isTableSelected) &&
-    [cellGroups.uut, cellGroups.section, cellGroups.qualifier].some(
-      (group) => group?.span > 1,
-    );
-
   return (
     <div
-      className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""} ${hasHighlightedSharedCell ? "shared-cell-highlight-active" : ""}`}
+      className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
       style={{ gridTemplateColumns: getSidebarGridTemplate(visibleColumns, valueColumnWidth) }}
       onClick={(e) => {
         if (!editingField) {
@@ -1069,7 +1059,7 @@ export const SidebarPointItem = ({
         <>
           <span
             ref={setGroupedCellRef("uut")}
-            className={`point-uut-name point-uut-selector-cell${groupedCellClass(cellGroups.uut)}`}
+            className={`point-uut-name point-uut-selector-cell${groupedCellClass(cellGroups.uut, "uut")}`}
             title={uutName}
           >
             {!cellGroups.uut?.isStart && cellGroups.uut?.span > 1
@@ -1132,13 +1122,13 @@ export const SidebarPointItem = ({
           {!cellGroups.section?.isStart && cellGroups.section?.span > 1 ? (
             <span
               ref={setGroupedCellRef("section")}
-              className={`point-section${groupedCellClass(cellGroups.section)}`}
+              className={`point-section${groupedCellClass(cellGroups.section, "section")}`}
               aria-hidden="true"
             />
           ) : (
             <span
               ref={setGroupedCellRef("section")}
-              className={`point-section${groupedCellClass(cellGroups.section)}`}
+              className={`point-section${groupedCellClass(cellGroups.section, "section")}`}
               title={String(point.section || "-")}
             >
               {wrapGroupedCellContent(
@@ -1216,13 +1206,13 @@ export const SidebarPointItem = ({
           {!cellGroups.qualifier?.isStart && cellGroups.qualifier?.span > 1 ? (
             <span
               ref={setGroupedCellRef("qualifier")}
-              className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
+              className={`point-value${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
               aria-hidden="true"
             />
           ) : (
             <span
               ref={setGroupedCellRef("qualifier")}
-              className={`point-value${groupedCellClass(cellGroups.qualifier)}`}
+              className={`point-value${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
               title={String(point.testPointInfo?.qualifier?.value ?? "-")}
             >
               {wrapGroupedCellContent(
@@ -4766,11 +4756,6 @@ function App({ showThemeToggle = false }) {
         label: formatInstrumentIdentity(uut),
       }))}
       cellGroups={cellGroups}
-      highlightedPointIds={[
-        ...selectedSidebarPointIds,
-        selectedTestPointId,
-        ...selectedTablePointIds,
-      ]}
       onUutChange={(nextUutId, groupedPointIds = [tp.id]) => {
         const nextUut = (currentSessionData?.uuts || []).find(
           (uut) => String(uut.id) === String(nextUutId),

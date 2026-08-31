@@ -33,7 +33,7 @@ describe("measurement-point value editing", () => {
     ).toEqual({ isStart: false, span: 2, pointIds: ["p1", "p2"] });
   });
 
-  test("highlights the whole grouped UUT cell when any member point is selected", () => {
+  test("leaves selection to the point rows a merged cell spans", () => {
     const groupedUut = { isStart: true, span: 2, pointIds: ["p1", "p2"] };
     const { container } = render(
       <SidebarPointItem
@@ -41,19 +41,45 @@ describe("measurement-point value editing", () => {
         uutName="Bench DMM"
         currentUutId="uut-1"
         cellGroups={{ uut: groupedUut }}
-        highlightedPointIds={["p2"]}
+        isSelected
         onSelect={vi.fn()}
         onSave={vi.fn()}
         visibleColumns={{ uut: true, value: true }}
       />,
     );
 
+    // A merged cell that painted its own surface highlighted every point in
+    // the run, so a single selected point read as a taller, misaligned block
+    // and later rows in the run sliced through the shared label.
     expect(
       container.querySelector(".point-grouped-cell-content"),
-    ).toHaveClass("is-highlighted");
-    expect(
-      container.querySelector(".point-grouped-cell-selection-overlay"),
-    ).not.toBeInTheDocument();
+    ).not.toHaveClass("is-highlighted");
+    expect(container.querySelector(".point-grid-item")).not.toHaveClass(
+      "shared-cell-highlight-active",
+    );
+    expect(container.querySelector(".point-grid-item")).toHaveClass("active");
+  });
+
+  test("marks a continuation cell so it can bridge the row seam above it", () => {
+    const groupedUut = { isStart: false, span: 2, pointIds: ["p1", "p2"] };
+    const { container } = render(
+      <SidebarPointItem
+        point={{ id: "p2", testPointInfo: { parameter: { value: 2, unit: "V" } } }}
+        uutName="Bench DMM"
+        currentUutId="uut-1"
+        cellGroups={{ uut: groupedUut }}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true, value: true }}
+      />,
+    );
+
+    const cell = container.querySelector(".point-uut-selector-cell");
+    expect(cell).toHaveClass("point-grouped-cell--continuation");
+    // The leading column starts after the row's inline padding, so its bridge
+    // has to reach further left than the other merged columns.
+    expect(cell).toHaveClass("point-grouped-cell--leading");
+    expect(cell).not.toHaveClass("point-grouped-cell--start");
   });
 
   test("centers a grouped label without increasing the point row height", () => {

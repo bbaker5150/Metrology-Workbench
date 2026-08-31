@@ -92,6 +92,14 @@ body.uncertainty-active {
   --modal-radius: 16px;
   --seal-radius: 30px;
 
+  /* Measurement-point row geometry. The merged (vertically collapsed) sidebar
+     cells position their label and their seam bridge against these, so the
+     row box and the overlays drawn on top of it can never drift apart. */
+  --sidebar-point-row-seam: 1px; /* gap between consecutive point rows */
+  --sidebar-point-row-pad: 10px; /* row inline padding */
+  --sidebar-point-row-inset: 6px; /* row border + block padding above a cell */
+  --sidebar-point-column-gap: 8px;
+
   /* Toggles */
   --toggle-bg-off: #dee2e6;
   --toggle-knob: #ffffff;
@@ -15634,7 +15642,7 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
   align-items: center;
   min-height: 30px;
   padding: 5px 14px;
-  margin-bottom: 1px;
+  margin-bottom: var(--sidebar-point-row-seam);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -15648,9 +15656,9 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
 /* Header and data rows must use identical horizontal geometry. */
 .sidebar-column-headers,
 .point-grid-item {
-  column-gap: 8px;
-  padding-left: 10px;
-  padding-right: 10px;
+  column-gap: var(--sidebar-point-column-gap);
+  padding-left: var(--sidebar-point-row-pad);
+  padding-right: var(--sidebar-point-row-pad);
   box-sizing: border-box;
 }
 
@@ -18620,12 +18628,16 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   );
 }
 
-.uncertainty-module .measurement-group-container .point-grid-item {
-  background: color-mix(
+.uncertainty-module .measurement-group-container {
+  --sidebar-point-surface: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 12%,
     var(--sidebar-sticky-surface)
-  ) !important;
+  );
+}
+
+.uncertainty-module .measurement-group-container .point-grid-item {
+  background: var(--sidebar-point-surface) !important;
   border-color: transparent !important;
   color: var(--text-color) !important;
   text-shadow: none !important;
@@ -18678,21 +18690,31 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   background-color: inherit !important;
 }
 
-.uncertainty-module
-  .measurement-group-container
-  :is(.point-grid-item.active, .point-grid-item.active-point)
-  .point-section {
-  color: var(--sidebar-function-color, var(--primary-color)) !important;
-  text-shadow: none !important;
-}
-
 /* Selection is already communicated by the row surface and left rail. Keep
-   measurement values consistent with the other result columns instead of
-   turning the frozen Value column into a second function label. */
+   the identity columns (UUT, Section) and the frozen Value column reading as
+   plain data instead of turning them into second function labels. UUT and
+   Section are also shared by whole runs of points, so recoloring them on a
+   single point's selection made a run look partly selected. */
 .uncertainty-module
   .measurement-group-container
   .point-grid-item
   .point-value {
+  color: var(--text-color) !important;
+  text-shadow: none !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-section {
+  color: var(--text-color-muted) !important;
+  text-shadow: none !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  :is(.point-uut-name, .point-uut-summary, .point-uut-selector-cell .inline-menu-select-trigger) {
   color: var(--text-color) !important;
   text-shadow: none !important;
 }
@@ -18770,19 +18792,30 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 /* Consecutive categorical values are presented as one vertically merged cell.
    The outer grid cell keeps the first point row at its normal height. Its
    absolutely positioned content spans the run, so the shared value is centered
-   without enlarging the first row or feeding back into the list height. */
-.uncertainty-module .point-grid-item .point-grouped-cell--start {
+   without enlarging the first row or feeding back into the list height.
+
+   A merged cell is deliberately transparent: selection is painted by the point
+   rows underneath, so a run never contributes a highlight of its own that could
+   disagree with the row it belongs to. */
+.uncertainty-module .point-grid-item :is(.point-grouped-cell--start, .point-grouped-cell--continuation) {
   position: relative;
   align-self: stretch;
   min-width: 0;
   min-height: 0;
   overflow: visible;
+  /* The absolutely positioned label and the seam bridge are measured against
+     the grid cell itself, so the cell must not add an inset of its own. */
+  padding: 0;
+  border-width: 0;
 }
 
 .uncertainty-module .point-grid-item .point-grouped-cell-content {
   position: absolute;
   top: var(--point-cell-group-top, -5px);
   left: 0;
+  /* Above every point row surface so a shared label is never sliced by the
+     background of a later row in its own run, and below the frozen Value
+     column so a scrolled-away label still disappears behind it. */
   z-index: 3;
   display: flex;
   align-items: center;
@@ -18801,44 +18834,9 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 .uncertainty-module
   .point-grid-item
   .point-grouped-cell-content.is-leading-column {
-  left: -10px;
-  width: calc(100% + 10px);
-  padding-left: 10px;
-}
-
-.uncertainty-module
-  .measurement-group-container
-  .point-grid-item
-  .point-grouped-cell-content.is-highlighted {
-  background: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 22%,
-    var(--sidebar-sticky-surface)
-  );
-  color: var(--sidebar-function-color, var(--primary-color));
-  /* Span the 8px grid gap plus the neighboring cell edge. Highlighted merged
-     cells sit above the sticky Value surface so no unselected seam can show. */
-  z-index: 7;
-  width: calc(100% + 10px);
-  box-shadow: none;
-}
-
-/* A merged cell can extend through later sibling rows. Raise its originating
-   row as a unit so those later row surfaces cannot cut through an even-span
-   label that is centered directly on their shared boundary. */
-.uncertainty-module
-  .measurement-group-container
-  .point-grid-item:has(.point-grouped-cell-content.is-highlighted) {
-  z-index: 7;
-}
-
-.uncertainty-module
-  .measurement-group-container
-  .point-grid-item
-  .point-grouped-cell-content.is-highlighted.is-leading-column {
-  width: calc(100% + 20px);
-  box-shadow: inset 3px 0 0
-    var(--sidebar-function-color, var(--primary-color));
+  left: calc(-1 * var(--sidebar-point-row-pad));
+  width: calc(100% + var(--sidebar-point-row-pad));
+  padding-left: var(--sidebar-point-row-pad);
 }
 
 .uncertainty-module
@@ -18871,9 +18869,67 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   text-align: center;
 }
 
-.uncertainty-module .point-grid-item .point-grouped-cell--continuation {
+/* A continuation cell carries no content of its own; the run's single label
+   lives on the start cell. It stays in the layout because it still owns the
+   grid track, and because it draws the bridge over the row seam above it. */
+.uncertainty-module .point-grid-item .point-grouped-cell--continuation > * {
   visibility: hidden;
+}
+
+.uncertainty-module .point-grid-item .point-grouped-cell--continuation {
   pointer-events: none;
+}
+
+/* Point rows are separated by a 1px margin that shows the list background.
+   Inside a run that gap is an artifact - the cell is one merged cell - so each
+   continuation bridges the seam above it with the resting row surface. Only
+   the seam is painted, never any part of a row box, so a selected row keeps a
+   highlight that lines up exactly with its other columns. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--continuation::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * (var(--sidebar-point-row-inset) + var(--sidebar-point-row-seam)));
+  left: 0;
+  /* Reach through the column gap so the seam also closes between a merged
+     cell and the column beside it, the way merged table cells read. */
+  right: calc(-1 * var(--sidebar-point-column-gap));
+  height: var(--sidebar-point-row-seam);
+  background: var(--sidebar-point-surface);
+  /* Above the point row surfaces, below the merged label that spans them. */
+  z-index: 2;
+}
+
+/* The leading column starts after the row's horizontal padding. Extend its
+   bridge through that inset so the merged run reads continuously to the very
+   edge of the point row. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--continuation.point-grouped-cell--leading::before {
+  left: calc(-1 * var(--sidebar-point-row-pad));
+}
+
+/* Point rows are rounded, so bridging the seam alone would still leave a
+   notch at each corner where the run reaches the row edge. Square off only
+   the corners that fall inside a run; the rounding survives at both ends. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:has(
+    > .point-grouped-cell--leading.point-grouped-cell--continuation
+  ) {
+  border-top-left-radius: 0;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:has(
+    + .point-grid-item
+      > .point-grouped-cell--leading.point-grouped-cell--continuation
+  ) {
+  border-bottom-left-radius: 0;
 }
 
 .uncertainty-module
@@ -18948,21 +19004,15 @@ body.dark-mode
   .measurement-group-container
   .point-grid-item:is(.active, .active-point)
   .point-section {
-  color: var(--sidebar-function-color, var(--primary-color)) !important;
+  color: var(--text-color-muted) !important;
   text-shadow: none !important;
 }
 
-/* The merged cell already carries the continuous selection rail. Avoid a
-   second, one-row rail at the far left of the selected measurement point. */
-.uncertainty-module
-  .measurement-group-container
-  .point-grid-item.shared-cell-highlight-active,
 body.dark-mode
   .uncertainty-module
   .measurement-group-container
-  .point-grid-item.shared-cell-highlight-active,
-.uncertainty-module
-  .measurement-group-container
-  .point-grid-item.shared-cell-highlight-active:hover {
-  box-shadow: none !important;
+  .point-grid-item:is(.active, .active-point)
+  :is(.point-uut-name, .point-uut-summary, .point-uut-selector-cell .inline-menu-select-trigger) {
+  color: var(--text-color) !important;
+  text-shadow: none !important;
 }
