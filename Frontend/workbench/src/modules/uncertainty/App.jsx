@@ -1019,10 +1019,10 @@ export const SidebarPointItem = ({
         ) || 8;
       const rectangles = [
         {
-          left: 1,
-          top: 1,
-          right: row.offsetWidth - 1,
-          bottom: row.offsetHeight - 1,
+          left: 0,
+          top: 0,
+          right: row.offsetWidth,
+          bottom: row.offsetHeight,
         },
       ];
       ["uut", "section", "qualifier"].forEach((column) => {
@@ -1046,32 +1046,32 @@ export const SidebarPointItem = ({
         );
         rectangles.push({
           left: isLeading
-            ? 1
+            ? 0
             : Math.min(
                 ...cellBounds.map(
                   (bounds) => (bounds.left - rowBounds.left) / scaleX,
                 ),
-              ) - 1,
+              ) -
+              columnGap / 2,
           top:
             Math.min(
               ...pointRowBounds.map(
                 (bounds) => (bounds.top - rowBounds.top) / scaleY,
               ),
-            ) + 1,
+            ),
           right:
             Math.max(
               ...cellBounds.map(
                 (bounds) => (bounds.right - rowBounds.left) / scaleX,
               ),
             ) +
-            columnGap -
-            1,
+            columnGap / 2,
           bottom:
             Math.max(
               ...pointRowBounds.map(
                 (bounds) => (bounds.bottom - rowBounds.top) / scaleY,
               ),
-            ) - 1,
+            ),
         });
       });
 
