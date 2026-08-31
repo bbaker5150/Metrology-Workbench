@@ -4,12 +4,10 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
 import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
-
-const normalizeUnitSearch = (value) =>
-  String(value || "").toLowerCase().replace(/[^a-z0-9%]+/g, "");
-
-const flattenUnitOptions = (groups = []) =>
-  groups.flatMap((group) => (group.options ? group.options : group));
+import {
+  flattenUnitGroups,
+  rankUnitOptions,
+} from "../../../utils/unitSearch";
 
 /**
  * Compact, searchable unit picker shared by the universal builder's function
@@ -32,33 +30,15 @@ const BuilderUnitSelect = ({
   const searchRef = useRef(null);
   const selectedRef = useRef(null);
   const activeRef = useRef(null);
-  const flatOptions = useMemo(() => flattenUnitOptions(options), [options]);
+  const flatOptions = useMemo(() => flattenUnitGroups(options), [options]);
   const selectedOption =
     flatOptions.find((option) => option.value === value) ||
     (value ? { value, label: getUnitDisplayLabel(value) || value } : null);
-  const normalizedQuery = normalizeUnitSearch(query);
-  const visibleGroups = useMemo(() => {
-    if (!normalizedQuery) return options;
-    return options
-      .map((group) => {
-        const groupOptions = group.options ? group.options : [group];
-        return {
-          ...group,
-          options: groupOptions.filter((option) => {
-            const groupLabel = normalizeUnitSearch(group.label);
-            return (
-              normalizeUnitSearch(option.value).includes(normalizedQuery) ||
-              normalizeUnitSearch(option.label).includes(normalizedQuery) ||
-              groupLabel.includes(normalizedQuery)
-            );
-          }),
-        };
-      })
-      .filter((group) => (group.options || []).length > 0);
-  }, [options, normalizedQuery]);
+  // One ranked list rather than a stack of function groups: a search puts the
+  // units that answer it at the top, and each row names its own function.
   const visibleOptions = useMemo(
-    () => flattenUnitOptions(visibleGroups),
-    [visibleGroups],
+    () => rankUnitOptions(options, query),
+    [options, query],
   );
 
   const closeMenu = () => setIsOpen(false);
@@ -120,7 +100,7 @@ const BuilderUnitSelect = ({
         scrollTarget.scrollIntoView({ block: "nearest" });
       }
     });
-  }, [activeValue, isOpen, normalizedQuery]);
+  }, [activeValue, isOpen, query]);
 
   return (
     <div
@@ -204,41 +184,34 @@ const BuilderUnitSelect = ({
               aria-label={ariaLabel}
               style={{ maxHeight: Math.max(1, menuRect.maxHeight - 50) }}
             >
-              {visibleGroups.length === 0 ? (
+              {visibleOptions.length === 0 ? (
                 <div className="inline-unit-empty">No matching units</div>
               ) : (
-                visibleGroups.map((group) => (
-                  <div className="inline-unit-group" key={group.label}>
-                    <div className="inline-unit-group-label">{group.label}</div>
-                    {(group.options || []).map((option) => {
-                      const isSelected = option.value === value;
-                      const isActive = option.value === activeValue;
-                      return (
-                        <button
-                          key={option.value}
-                          ref={
-                            isActive
-                              ? activeRef
-                              : isSelected
-                                ? selectedRef
-                                : null
-                          }
-                          type="button"
-                          role="option"
-                          aria-selected={isSelected}
-                          className={`inline-unit-option${
-                            isSelected ? " is-selected" : ""
-                          }${isActive ? " is-active" : ""}`}
-                          onMouseEnter={() => setActiveValue(option.value)}
-                          onClick={() => chooseUnit(option)}
-                        >
-                          <span>{option.label}</span>
-                          <small>{option.value}</small>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))
+                visibleOptions.map((option) => {
+                  const isSelected = option.value === value;
+                  const isActive = option.value === activeValue;
+                  return (
+                    <button
+                      key={option.value}
+                      ref={
+                        isActive ? activeRef : isSelected ? selectedRef : null
+                      }
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      className={`inline-unit-option${
+                        isSelected ? " is-selected" : ""
+                      }${isActive ? " is-active" : ""}`}
+                      onMouseEnter={() => setActiveValue(option.value)}
+                      onClick={() => chooseUnit(option)}
+                    >
+                      <span>{option.label}</span>
+                      {/* The unit key used to sit here, which just repeated the
+                          label. Its function is the useful thing to know. */}
+                      <small>{option.functionName}</small>
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>,

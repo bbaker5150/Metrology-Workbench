@@ -71,13 +71,13 @@ class Instrument5790ACompatibilityTests(SimpleTestCase):
             filter_mode="MEDIUM",
             filter_restart="FINE",
             hires=True,
-            range_mode="POINT",
+            range_mode="0.22",
             point_value=0.1,
             input_switch_delay=2.5,
         )
         instrument.resource.write.assert_any_call("DFILT MEDIUM,FINE")
         instrument.resource.write.assert_any_call("HIRES 1")
-        instrument.resource.write.assert_any_call("RANGE 0.1")
+        instrument.resource.write.assert_any_call("RANGE 0.22")
         self.assertEqual(instrument.input_switch_delay, 2.5)
         self.assertEqual(instrument.resource.timeout, 90000)
 
@@ -95,7 +95,7 @@ class Instrument5790ACompatibilityTests(SimpleTestCase):
             "filter_mode": "MEDIUM",
             "filter_restart": "MEDIUM",
             "hires_enabled": True,
-            "range_mode": "AUTO",
+            "range_mode": "2.2",
             "input_switch_delay": 30.0,
         })
         self.assertEqual(
@@ -471,6 +471,27 @@ class SafeShutdownTests(SimpleTestCase):
 
 
 class ReaderSwitchMappingTests(SimpleTestCase):
+    def test_warmup_explicitly_routes_the_energized_ac_source(self):
+        async def prepare():
+            consumer = CalibrationConsumer()
+            consumer.broadcast = AsyncMock()
+            switch = Mock()
+            with patch("api.consumers.asyncio.sleep", new=AsyncMock()) as delay:
+                result = await consumer._prepare_ac_warmup_route(switch, {})
+            return consumer, switch, delay, result
+
+        consumer, switch, delay, result = asyncio.run(prepare())
+        self.assertIs(result, switch)
+        switch.select_ac_source.assert_called_once_with()
+        delay.assert_awaited_once_with(1)
+        self.assertTrue(
+            any(
+                json.loads(call.kwargs["text_data"]).get("active_source") == "AC"
+                for call in consumer.broadcast.await_args_list
+                if "active_source" in json.loads(call.kwargs["text_data"])
+            )
+        )
+
     def test_no_amplifier_shared_5790_infers_source_drive_range(self):
         data = {
             "measurement_params": {

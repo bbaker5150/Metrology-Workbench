@@ -36,6 +36,8 @@ import {
   faFlask,
   faTimes,
   faRedo,
+  faArrowUp,
+  faArrowDown,
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
@@ -64,6 +66,7 @@ import {
 } from "../../../utils/detailSectionOrder";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
+import { rankUnitOptions } from "../../../utils/unitSearch";
 import {
   refreshTmdeInstancesFromMasters,
   tmdeInstanceMatchesMaster,
@@ -167,14 +170,62 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
         : src.instrument,
     };
   }
-  return {
+  const copiedRowId = uuidv4();
+  const sourceDefinition = src.instrument || null;
+  const sourceDefinitionId = sourceDefinition?.id;
+  const copiedDefinitionId = sourceDefinition ? uuidv4() : null;
+  const isLocalCopy = !sourceDefinition || sourceDefinition.scope !== "validated";
+  const copiedRow = {
     ...src,
-    id: uuidv4(),
+    id: copiedRowId,
     ...areaFields,
-    instrument: src.instrument
-      ? { ...src.instrument, id: uuidv4(), ...nestedArea }
-      : src.instrument,
+    instrument: sourceDefinition
+      ? { ...sourceDefinition, id: copiedDefinitionId, ...nestedArea }
+      : sourceDefinition,
   };
+
+  // Session rows and older imports often use self-referential aliases. Carrying
+  // those aliases into a copied row makes reconciliation treat the original and
+  // copy as one instrument even though their row/definition ids are different.
+  if (String(src.sourceId ?? "") === String(src.id ?? "")) {
+    copiedRow.sourceId = copiedRowId;
+  }
+  ["definitionId", "instrumentId", "sourceInstrumentId"].forEach((key) => {
+    if (
+      sourceDefinitionId !== undefined &&
+      sourceDefinitionId !== null &&
+      String(src[key] ?? "") === String(sourceDefinitionId)
+    ) {
+      copiedRow[key] = copiedDefinitionId;
+    }
+  });
+  if (
+    copiedRow.sourceInstrument &&
+    sourceDefinitionId !== undefined &&
+    String(copiedRow.sourceInstrument.id ?? "") === String(sourceDefinitionId)
+  ) {
+    copiedRow.sourceInstrument = {
+      ...copiedRow.sourceInstrument,
+      id: copiedDefinitionId,
+    };
+  }
+  if (
+    copiedRow.instrument &&
+    sourceDefinitionId !== undefined &&
+    String(copiedRow.instrument.sourceId ?? "") === String(sourceDefinitionId)
+  ) {
+    copiedRow.instrument.sourceId = copiedDefinitionId;
+  }
+
+  // A copied local instrument is a new local library record, not another row
+  // for the original record. Preserve shared sourceId lineage for future sync,
+  // but remove the local record aliases used to synchronize session roles.
+  if (isLocalCopy) {
+    delete copiedRow.libraryInstrumentId;
+    if (copiedRow.instrument) delete copiedRow.instrument.libraryInstrumentId;
+  }
+
+  return copiedRow;
 };
 
 export const scopeLibraryInstrumentToFunction = (
@@ -548,6 +599,7 @@ const UnitSelect = ({
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [menuRect, setMenuRect] = useState(null);
+  const [menuAccentColor, setMenuAccentColor] = useState("");
   const [activeBase, setActiveBase] = useState("");
   const rootRef = useRef(null);
   const searchRef = useRef(null);
@@ -579,27 +631,11 @@ const UnitSelect = ({
     flatBaseOptions.find((option) => option.value === selectedBase) ||
     flatBaseOptions.find((option) => option.unit === selectedUnit) ||
     null;
-  const normalizedQuery = normalizeUnitToken(query);
-  const visibleGroups = useMemo(() => {
-    if (!normalizedQuery) return baseOptionsByCategory;
-    return baseOptionsByCategory
-      .map((group) => ({
-        ...group,
-        options: (group.options || []).filter((option) => {
-          const category = normalizeUnitToken(group.label);
-          return (
-            normalizeUnitToken(option.value).includes(normalizedQuery) ||
-            normalizeUnitToken(option.label).includes(normalizedQuery) ||
-            normalizeUnitToken(option.unit).includes(normalizedQuery) ||
-            category.includes(normalizedQuery)
-          );
-        }),
-      }))
-      .filter((group) => group.options.length > 0);
-  }, [baseOptionsByCategory, normalizedQuery]);
+  // One ranked list rather than a stack of function groups: a search puts the
+  // units that answer it at the top, and each row names its own function.
   const visibleOptions = useMemo(
-    () => visibleGroups.flatMap((group) => group.options || []),
-    [visibleGroups],
+    () => rankUnitOptions(baseOptionsByCategory, query),
+    [baseOptionsByCategory, query],
   );
   const unitWidth = useMemo(() => {
     const longestLabelLength = Math.max(
@@ -619,6 +655,13 @@ const UnitSelect = ({
   const prefixSelectWidth = selectedModel ? (compact ? "52px" : "74px") : "58px";
   const openMenu = (initialQuery = "") => {
     const rect = rootRef.current?.getBoundingClientRect();
+    const accentColor = rootRef.current
+      ? window
+          .getComputedStyle(rootRef.current)
+          .getPropertyValue("--function-input-accent")
+          .trim()
+      : "";
+    setMenuAccentColor(accentColor);
     if (rect) {
       setMenuRect({
         top: rect.bottom + 4,
@@ -631,6 +674,13 @@ const UnitSelect = ({
     setIsOpen(true);
   };
   const closeMenu = () => setIsOpen(false);
+  const focusBaseControl = () => {
+    requestAnimationFrame(() => {
+      rootRef.current
+        ?.querySelector(".inline-unit-base-button")
+        ?.focus();
+    });
+  };
   const chooseBaseUnit = (option) => {
     if (option.scalable) {
       const model = scalableByBase.get(option.value);
@@ -639,6 +689,10 @@ const UnitSelect = ({
       onChange(option.unit || option.value);
     }
     closeMenu();
+    // The option list is portaled to <body>. Once it unmounts, explicitly
+    // return keyboard focus to the unit trigger so Tab continues the range
+    // entry chain instead of falling back to the document body.
+    focusBaseControl();
   };
   const choosePrefix = (prefix) => {
     if (!selectedModel) return;
@@ -711,7 +765,7 @@ const UnitSelect = ({
       searchRef.current?.focus();
       (activeRef.current || selectedRef.current)?.scrollIntoView({ block: "nearest" });
     });
-  }, [activeBase, isOpen, normalizedQuery]);
+  }, [activeBase, isOpen, query]);
 
   return (
     <div
@@ -767,6 +821,9 @@ const UnitSelect = ({
               top: menuRect.top,
               left: menuRect.left,
               width: menuRect.width,
+              ...(menuAccentColor
+                ? { "--function-input-accent": menuAccentColor }
+                : {}),
             }}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
@@ -804,35 +861,32 @@ const UnitSelect = ({
               }}
             />
             <div className="inline-unit-options" role="listbox" aria-label={ariaLabel}>
-              {visibleGroups.length === 0 ? (
+              {visibleOptions.length === 0 ? (
                 <div className="inline-unit-empty">No matching units</div>
               ) : (
-                visibleGroups.map((group) => (
-                  <div className="inline-unit-group" key={group.label}>
-                    <div className="inline-unit-group-label">{group.label}</div>
-                    {(group.options || []).map((option) => {
-                      const isSelected = option.value === selectedBase;
-                      const isActive = option.value === activeBase;
-                      return (
-                        <button
-                          key={option.value}
-                          ref={isActive ? activeRef : isSelected ? selectedRef : null}
-                          type="button"
-                          role="option"
-                          aria-selected={isSelected}
-                          className={`inline-unit-option${isSelected ? " is-selected" : ""}${
-                            isActive ? " is-active" : ""
-                          }`}
-                          onMouseEnter={() => setActiveBase(option.value)}
-                          onClick={() => chooseBaseUnit(option)}
-                        >
-                          <span>{option.label}</span>
-                          <small>{option.scalable ? "Scaled" : option.unit || option.value}</small>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))
+                visibleOptions.map((option) => {
+                  const isSelected = option.value === selectedBase;
+                  const isActive = option.value === activeBase;
+                  return (
+                    <button
+                      key={option.value}
+                      ref={isActive ? activeRef : isSelected ? selectedRef : null}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      className={`inline-unit-option${isSelected ? " is-selected" : ""}${
+                        isActive ? " is-active" : ""
+                      }`}
+                      onMouseEnter={() => setActiveBase(option.value)}
+                      onClick={() => chooseBaseUnit(option)}
+                    >
+                      <span>{option.label}</span>
+                      {/* The unit key used to sit here, which just repeated the
+                          label. Its function is the useful thing to know. */}
+                      <small>{option.functionName}</small>
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>,
@@ -1219,7 +1273,7 @@ const blankToleranceFrom = (sourceTol = {}) => {
 
 // Add a blank range alongside the active range (same function), or remove one.
 // Returns { item, newRangeId? }. At least one range is always kept.
-const addRangeToItem = (item, activeRangeId) => {
+export const addRangeToItem = (item, activeRangeId) => {
   const inst = item?.instrument || {};
   const activeRange = findItemRange(item, activeRangeId);
   const seededTolerances = blankToleranceFrom(getItemRangeTolerance(item, activeRangeId));
@@ -1793,6 +1847,8 @@ const getBandDistLabel = (tolerance = {}) => {
   );
 };
 const formatInstrumentIdentity = (source = {}, fallback = "Unnamed Instrument") => {
+  const nickname = String(source.nickname || "").trim();
+  if (nickname) return nickname;
   const instrument = source.instrument || source || {};
   const manufacturer = instrument.manufacturer || source.manufacturer || "";
   const hasStructuredIdentity =
@@ -1804,7 +1860,7 @@ const formatInstrumentIdentity = (source = {}, fallback = "Unnamed Instrument") 
     (!hasStructuredIdentity ? source.name : "");
   const model = instrument.model || source.model || "";
   const parts = [];
-  [manufacturer, make, model].forEach((part) => {
+  [manufacturer, model, make].forEach((part) => {
     const value = String(part || "").trim();
     if (!value) return;
     if (!parts.some((existing) => existing.toLowerCase() === value.toLowerCase())) {
@@ -1812,6 +1868,45 @@ const formatInstrumentIdentity = (source = {}, fallback = "Unnamed Instrument") 
     }
   });
   return parts.join(" ") || source.description || source.name || fallback;
+};
+
+export const applyTmdeIdentityToPoints = (points = [], tmde = {}) => {
+  const identity = formatInstrumentIdentity(tmde);
+  const ids = new Set(
+    [tmde.id, tmde.sourceId, tmde.instrument?.id, tmde.instrument?.sourceId]
+      .filter((value) => value !== undefined && value !== null && value !== "")
+      .map(String),
+  );
+  const componentMatches = (component = {}) =>
+    [component.sourceTmdeId, component.tmdeBudgetSourceId]
+      .filter((value) => value !== undefined && value !== null && value !== "")
+      .some((value) => ids.has(String(value)));
+
+  return points.map((point) => {
+    let changed = false;
+    const tmdeTolerances = (point.tmdeTolerances || []).map((instance) => {
+      if (!tmdeInstanceMatchesMaster(instance, tmde)) return instance;
+      changed = true;
+      return { ...instance, nickname: tmde.nickname || "" };
+    });
+    const components = (point.components || []).map((component) => {
+      if (!componentMatches(component)) return component;
+      changed = true;
+      const suffix =
+        component.tmdeBudgetComponentKind ||
+        String(component.name || "Accuracy").split(" - ").slice(-1)[0];
+      const pointSuffix = String(component.sourcePointLabel || "").includes(" · ")
+        ? ` · ${String(component.sourcePointLabel).split(" · ").slice(1).join(" · ")}`
+        : "";
+      return {
+        ...component,
+        name: `${identity} - ${suffix}`,
+        tmdeIdentity: identity,
+        sourcePointLabel: `${identity}${pointSuffix}`,
+      };
+    });
+    return changed ? { ...point, tmdeTolerances, components } : point;
+  });
 };
 
 const findRangeForFunction = (source = {}, functionKey = null) => {
@@ -1938,12 +2033,14 @@ const confirmViaNotification = (
 // collapses it from anywhere in the editor, and a pointer press outside the
 // active column collapses it after blur-driven commits have run. Unit and
 // tolerance menus are portaled to <body>, so they remain part of the editor.
+const INLINE_EDITOR_PORTAL_SELECTOR =
+  ".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search";
+
 const useInlineColumnDismiss = ({
   expanded,
   rootRef,
   onDismiss,
-  portalSelector =
-    ".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search",
+  portalSelector = INLINE_EDITOR_PORTAL_SELECTOR,
 }) => {
   useEffect(() => {
     if (!expanded) return undefined;
@@ -1952,6 +2049,12 @@ const useInlineColumnDismiss = ({
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (rootRef.current?.contains(target)) return;
+      if (
+        target instanceof Element &&
+        target.closest(".instrument-size-control")
+      ) {
+        return;
+      }
       if (target instanceof Element && target.closest(portalSelector)) return;
       window.setTimeout(() => onDismiss(), 0);
     };
@@ -2035,29 +2138,25 @@ export const EditableDescriptionCell = ({
   make = "",
   model = "",
   name = "",
+  nickname = "",
   functionKey = null,
   onCommit,
   instruments = [],
   onPickLibrary,
 }) => {
-  const [local, setLocal] = useState({ make, model, name });
+  const [local, setLocal] = useState({ make, model, name, nickname });
   const [editing, setEditing] = useState(false);
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
   useEffect(() => {
-    setLocal({ make, model, name });
-  }, [make, model, name]);
+    setLocal({ make, model, name, nickname });
+  }, [make, model, name, nickname]);
 
   const dismissDescriptionEditor = useCallback(() => {
-    setLocal({ make, model, name });
+    setLocal({ make, model, name, nickname });
     setEditing(false);
     setOpen(false);
-  }, [make, model, name]);
-  useInlineColumnDismiss({
-    expanded: editing,
-    rootRef: anchorRef,
-    onDismiss: dismissDescriptionEditor,
-  });
+  }, [make, model, name, nickname]);
 
   // Live library matches as the user types (make/model/name). Token-AND search
   // over the user's local + shared library (the `instruments` prop).
@@ -2121,7 +2220,7 @@ export const EditableDescriptionCell = ({
     // missed when focus moves in the same tick as the last keystroke.
     onBlur: (e) => {
       const next = e.target.value || "";
-      const baseline = { make, model, name }[field] || "";
+      const baseline = { make, model, name, nickname }[field] || "";
       if (next !== baseline) onCommit(field, next);
       // Delay so an onMouseDown pick on a dropdown row registers first.
       setTimeout(() => {
@@ -2145,6 +2244,15 @@ export const EditableDescriptionCell = ({
       }
     },
     onMouseDown: (e) => e.stopPropagation(),
+    onDoubleClick: (e) => {
+      e.stopPropagation();
+      e.currentTarget.select();
+    },
+    draggable: false,
+    onDragStart: (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    },
     className: "inline-desc-input",
   });
 
@@ -2196,6 +2304,7 @@ export const EditableDescriptionCell = ({
   const combinedDescription =
     [local.make, local.model, local.name].filter(Boolean).join(" ") ||
     "Click to add description";
+  const displayDescription = String(local.nickname || "").trim() || combinedDescription;
   return (
     <div ref={anchorRef} className="inline-desc-cell">
       {editing ? (
@@ -2212,6 +2321,10 @@ export const EditableDescriptionCell = ({
             <input {...props("name")} placeholder="Name" className="inline-desc-subinput" />
             <span>Name</span>
           </label>
+          <label className="inline-desc-field inline-desc-field--nickname">
+            <input {...props("nickname")} placeholder="Tag / nickname" className="inline-desc-subinput" />
+            <span>Tag</span>
+          </label>
         </div>
       ) : (
         <button
@@ -2227,7 +2340,7 @@ export const EditableDescriptionCell = ({
             });
           }}
         >
-          {combinedDescription}
+          {displayDescription}
         </button>
       )}
 
@@ -2316,6 +2429,658 @@ export const EditableDescriptionCell = ({
 // Default divisor for a resolution's rounding distribution — rectangular, the
 // standard assumption for a least-significant-digit / quantization error.
 const RESOLUTION_DIST_DEFAULT = "3.464";
+
+const EditableCustomFieldCell = ({ value = "", onCommit }) => {
+  const [draft, setDraft] = useState(value ?? "");
+  const [editing, setEditing] = useState(false);
+  useEffect(() => setDraft(value ?? ""), [value]);
+  const commit = () => {
+    if (String(draft) !== String(value ?? "")) onCommit?.(draft);
+    setEditing(false);
+  };
+  const cancel = () => {
+    setDraft(value ?? "");
+    setEditing(false);
+  };
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className={`inline-tolerance-summary${value ? "" : " is-empty"}`}
+        title="Edit field"
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          setEditing(true);
+        }}
+      >
+        {value || "Not Set"}
+      </button>
+    );
+  }
+  return (
+    <input
+      autoFocus
+      className="instrument-custom-field-input"
+      value={draft}
+      placeholder="Not Set"
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          event.preventDefault();
+          cancel();
+        }
+      }}
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    />
+  );
+};
+
+export const removeInstrumentCustomColumn = (sessionData = {}, kind, key) => {
+  const listKey = kind === "uut" ? "uuts" : "tmdes";
+  const columns = sessionData.instrumentCustomColumns || {};
+  return {
+    ...sessionData,
+    instrumentCustomColumns: {
+      ...columns,
+      [kind]: (columns[kind] || []).filter((column) => column.key !== key),
+    },
+    [listKey]: (sessionData[listKey] || []).map((item) => {
+      if (!Object.prototype.hasOwnProperty.call(item.customFields || {}, key)) {
+        return item;
+      }
+      const customFields = { ...(item.customFields || {}) };
+      delete customFields[key];
+      return { ...item, customFields };
+    }),
+  };
+};
+
+const EditableCustomColumnHeader = ({
+  column,
+  editing,
+  onCommit,
+  onEdit,
+  onDelete,
+}) => {
+  const [draft, setDraft] = useState(column.label || "Name");
+  useEffect(() => setDraft(column.label || "Name"), [column.label]);
+  const finish = () => onCommit(String(draft || "").trim() || "Name");
+  if (!editing) {
+    return (
+      <span className="instrument-custom-column-header">
+        <button
+          type="button"
+          className="instrument-custom-column-label"
+          title="Edit column name"
+          onClick={(event) => {
+            event.stopPropagation();
+            onEdit(column.key);
+          }}
+        >
+          {column.label || "Name"}
+        </button>
+        <button
+          type="button"
+          className="instrument-custom-column-delete"
+          title={`Delete ${column.label || "custom"} column`}
+          aria-label={`Delete ${column.label || "custom"} column`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete?.();
+          }}
+        >
+          ×
+        </button>
+      </span>
+    );
+  }
+  return (
+    <input
+      autoFocus
+      className="instrument-custom-column-name-input"
+      value={draft}
+      aria-label="Column name"
+      onChange={(event) => setDraft(event.target.value)}
+      onFocus={(event) => event.currentTarget.select()}
+      onBlur={finish}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          setDraft(column.label || "Name");
+          event.currentTarget.blur();
+        }
+      }}
+      onClick={(event) => event.stopPropagation()}
+    />
+  );
+};
+
+const INSTRUMENT_COLUMN_RESIZE_EVENT = "uncert-size-instrument-column";
+export const INSTRUMENT_SIZE_RESET_EVENT = "uncert-reset-ui-sizes";
+const INSTRUMENT_COLUMN_DEFAULTS = {
+  uut: {
+    description: 240,
+    range: 300,
+    tolerance: 288,
+    resolution: 300,
+    sync: 72,
+  },
+  tmde: {
+    description: 210,
+    range: 252,
+    tolerance: 228,
+    distribution: 150,
+    resolution: 300,
+    sync: 60,
+  },
+};
+
+const instrumentColumnKey = (column) => `custom:${column.key}`;
+
+const uutTableTitle = (count) =>
+  Number(count) > 1 ? "Units Under Test" : "Unit Under Test";
+
+const selectedInstrumentDeleteLabel = (count) =>
+  `Delete Selected Instrument${Number(count) === 1 ? "" : "s"}`;
+
+const resolutionDistributionDisplayLabel = (option) =>
+  String(option?.label || "").replace(/\s+\(resolution\)$/i, "");
+
+const useInstrumentColumnWidths = (kind, customColumns = []) => {
+  const customSignature = customColumns.map((column) => column.key).join("|");
+  const defaults = useMemo(() => {
+    const base = { ...(INSTRUMENT_COLUMN_DEFAULTS[kind] || {}) };
+    customColumns.forEach((column) => {
+      base[instrumentColumnKey(column)] = 160;
+    });
+    return base;
+    // customSignature intentionally represents the dynamic column set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, customSignature]);
+  // v2 stores proportional weights. The previous absolute-pixel values could
+  // leave blank space at the right edge when the table grew to its container.
+  const storageKey = `uncertalytics:${kind}:instrument-column-widths:v2`;
+  const instanceIdRef = useRef(uuidv4());
+  const [widths, setWidths] = useState(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(storageKey) || "{}");
+      return { ...defaults, ...saved };
+    } catch {
+      return defaults;
+    }
+  });
+
+  useEffect(() => {
+    const syncWidths = (event) => {
+      if (
+        event.detail?.kind !== kind ||
+        event.detail?.source === instanceIdRef.current
+      ) {
+        return;
+      }
+      setWidths((current) => ({ ...current, ...event.detail.widths }));
+    };
+    window.addEventListener(INSTRUMENT_COLUMN_RESIZE_EVENT, syncWidths);
+    return () =>
+      window.removeEventListener(INSTRUMENT_COLUMN_RESIZE_EVENT, syncWidths);
+  }, [kind]);
+
+  useEffect(() => {
+    const resetWidths = () => {
+      setWidths(defaults);
+      try {
+        window.localStorage.removeItem(storageKey);
+      } catch {
+        // Reset still applies to the current view when storage is blocked.
+      }
+    };
+    window.addEventListener(INSTRUMENT_SIZE_RESET_EVENT, resetWidths);
+    return () =>
+      window.removeEventListener(INSTRUMENT_SIZE_RESET_EVENT, resetWidths);
+  }, [defaults, storageKey]);
+
+  const minimumWidth = useCallback((key) => {
+    if (key === "sync") return 60;
+    if (key === "distribution") return 110;
+    if (key === "range") return 220;
+    if (key === "tolerance" || key === "resolution") return 170;
+    return 120;
+  }, []);
+
+  const keys = useMemo(() => Object.keys(defaults), [defaults]);
+  const resolvedWidths = useMemo(
+    () =>
+      Object.fromEntries(
+        keys.map((key) => [key, widths[key] || defaults[key] || 160]),
+      ),
+    [defaults, keys, widths],
+  );
+  const totalWidth = keys.reduce(
+    (sum, key) => sum + resolvedWidths[key],
+    0,
+  );
+
+  const saveWidths = useCallback(
+    (next) => {
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {
+        // Column sizing remains available for this view when storage is blocked.
+      }
+      window.dispatchEvent(
+        new CustomEvent(INSTRUMENT_COLUMN_RESIZE_EVENT, {
+          detail: { kind, widths: next, source: instanceIdRef.current },
+        }),
+      );
+    },
+    [kind, storageKey],
+  );
+
+  const resizePair = useCallback(
+    (key, deltaPixels, tablePixelWidth, sourceWidths = null) => {
+      const index = keys.indexOf(key);
+      if (index < 0 || keys.length < 2) return;
+      const neighborKey = keys[index === keys.length - 1 ? index - 1 : index + 1];
+      const tableWidth = Math.max(1, tablePixelWidth || 1200);
+
+      setWidths((current) => {
+        const base = sourceWidths || current;
+        const currentKeyWidth = base[key] || defaults[key] || 160;
+        const currentNeighborWidth =
+          base[neighborKey] || defaults[neighborKey] || 160;
+        const pairTotal = currentKeyWidth + currentNeighborWidth;
+        const currentTotal = keys.reduce(
+          (sum, columnKey) =>
+            sum + (base[columnKey] || defaults[columnKey] || 160),
+          0,
+        );
+        const deltaWeight = (deltaPixels / tableWidth) * currentTotal;
+        const keyMinimum = (minimumWidth(key) / tableWidth) * currentTotal;
+        const neighborMinimum =
+          (minimumWidth(neighborKey) / tableWidth) * currentTotal;
+        const nextKeyWidth = Math.min(
+          pairTotal - neighborMinimum,
+          Math.max(keyMinimum, currentKeyWidth + deltaWeight),
+        );
+        const next = {
+          ...current,
+          [key]: nextKeyWidth,
+          [neighborKey]: pairTotal - nextKeyWidth,
+        };
+        saveWidths(next);
+        return next;
+      });
+    },
+    [defaults, keys, minimumWidth, saveWidths],
+  );
+
+  const startResize = useCallback(
+    (event, key) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      const tablePixelWidth =
+        event.currentTarget.closest("table")?.getBoundingClientRect().width ||
+        1200;
+      const startWidths = { ...resolvedWidths };
+      const previousCursor = document.body.style.cursor;
+      const previousUserSelect = document.body.style.userSelect;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const handleMove = (moveEvent) => {
+        resizePair(
+          key,
+          moveEvent.clientX - startX,
+          tablePixelWidth,
+          startWidths,
+        );
+      };
+      const handleUp = () => {
+        document.removeEventListener("pointermove", handleMove);
+        document.removeEventListener("pointerup", handleUp);
+        document.body.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
+      };
+      document.addEventListener("pointermove", handleMove);
+      document.addEventListener("pointerup", handleUp, { once: true });
+    },
+    [resizePair, resolvedWidths],
+  );
+
+  return {
+    widthFor: (key) =>
+      `${((resolvedWidths[key] || 160) / totalWidth) * 100}%`,
+    minimumTableWidth: 1200 + customColumns.length * 160,
+    startResize,
+    resizeBy: (key, delta, tablePixelWidth) =>
+      resizePair(key, delta, tablePixelWidth),
+    resetWidths: () => {
+      setWidths(defaults);
+      saveWidths(defaults);
+    },
+  };
+};
+
+const ResizableInstrumentHeader = ({
+  children,
+  columnKey,
+  label,
+  columns,
+  className = "",
+}) => (
+  <th
+    className={`instrument-resizable-header ${className}`.trim()}
+    aria-label={label}
+  >
+    <span className="instrument-resizable-header-content">{children}</span>
+    <button
+      type="button"
+      className="instrument-column-resize-handle instrument-size-control"
+      title={`Drag to resize ${label} column`}
+      aria-label={`Resize ${label} column`}
+      onPointerDown={(event) => columns.startResize(event, columnKey)}
+      onDoubleClick={() => columns.resetWidths()}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        columns.resizeBy(
+          columnKey,
+          event.key === "ArrowLeft" ? -12 : 12,
+          event.currentTarget.closest("table")?.getBoundingClientRect().width,
+        );
+      }}
+    />
+  </th>
+);
+
+const getInstrumentTableContentHeight = (container) => {
+  const table = container?.querySelector?.(":scope > table");
+  if (!table) return null;
+
+  const tableHeight =
+    table.getBoundingClientRect?.().height ||
+    table.scrollHeight ||
+    table.offsetHeight;
+  if (!Number.isFinite(tableHeight) || tableHeight <= 0) return null;
+
+  const style = window.getComputedStyle?.(container);
+  const numberOf = (value) => Number.parseFloat(value || "0") || 0;
+  const verticalChrome = style
+    ? numberOf(style.paddingTop) +
+      numberOf(style.paddingBottom) +
+      numberOf(style.borderTopWidth) +
+      numberOf(style.borderBottomWidth)
+    : 0;
+  const measuredScrollbar = Math.max(
+    0,
+    (container.offsetHeight || 0) -
+      (container.clientHeight || 0) -
+      (style
+        ? numberOf(style.borderTopWidth) + numberOf(style.borderBottomWidth)
+        : 0),
+  );
+  const horizontalScrollbar =
+    container.scrollWidth > container.clientWidth ? measuredScrollbar : 0;
+
+  return Math.ceil(tableHeight + verticalChrome + horizontalScrollbar);
+};
+
+const clampInstrumentTableHeight = (requestedHeight, contentHeight = null) => {
+  const absoluteMaximum = 1600;
+  const maximum =
+    Number.isFinite(contentHeight) && contentHeight > 0
+      ? Math.min(absoluteMaximum, contentHeight)
+      : absoluteMaximum;
+  const minimum = Math.min(180, maximum);
+  return Math.max(
+    minimum,
+    Math.min(maximum, Math.round(requestedHeight)),
+  );
+};
+
+export const getAutoGrownInstrumentTableHeight = ({
+  currentHeight,
+  contentHeight,
+  instrumentCount,
+}) => {
+  if (
+    instrumentCount < 1 ||
+    instrumentCount > 3 ||
+    !Number.isFinite(contentHeight) ||
+    contentHeight <= 0
+  ) {
+    return currentHeight;
+  }
+  const requiredHeight = clampInstrumentTableHeight(
+    contentHeight,
+    contentHeight,
+  );
+  return Number.isFinite(currentHeight) && currentHeight >= requiredHeight
+    ? currentHeight
+    : requiredHeight;
+};
+
+export const getDisplayedInstrumentTableHeight = ({
+  preferredHeight,
+  contentHeight,
+}) => {
+  if (!Number.isFinite(preferredHeight) || preferredHeight <= 0) return null;
+  if (!Number.isFinite(contentHeight) || contentHeight <= 0) {
+    return preferredHeight;
+  }
+  return Math.min(preferredHeight, contentHeight);
+};
+
+const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
+  const storageKey = `uncertalytics:${view}:${kind}:instrument-table-height:v1`;
+  const containerRef = useRef(null);
+  const [contentHeight, setContentHeight] = useState(null);
+  const [height, setHeight] = useState(() => {
+    try {
+      const saved = Number(window.localStorage.getItem(storageKey));
+      return Number.isFinite(saved) && saved > 0 ? saved : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const resetHeight = useCallback(() => {
+    setHeight(null);
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch {
+      // Reset still applies to the current view when storage is blocked.
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    window.addEventListener(INSTRUMENT_SIZE_RESET_EVENT, resetHeight);
+    return () =>
+      window.removeEventListener(INSTRUMENT_SIZE_RESET_EVENT, resetHeight);
+  }, [resetHeight]);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return undefined;
+
+    const syncToContent = () => {
+      const measuredContentHeight = getInstrumentTableContentHeight(container);
+      if (!measuredContentHeight) return;
+      setContentHeight((current) =>
+        current === measuredContentHeight ? current : measuredContentHeight,
+      );
+      if (instrumentCount < 1 || instrumentCount > 3) return;
+      setHeight((currentHeight) => {
+        const nextHeight = getAutoGrownInstrumentTableHeight({
+          currentHeight,
+          contentHeight: measuredContentHeight,
+          instrumentCount,
+        });
+        // Content collapsing (for example, Detailed View hiding irrelevant
+        // functions) must not overwrite the height the user established.
+        // Automatic sizing only grows while the table contains its first three
+        // instruments; later instruments scroll within that established frame.
+        if (nextHeight === currentHeight) {
+          return currentHeight;
+        }
+        try {
+          window.localStorage.setItem(storageKey, String(nextHeight));
+        } catch {
+          // Automatic growth remains visible when preference storage is blocked.
+        }
+        return nextHeight;
+      });
+    };
+
+    syncToContent();
+    const table = container.querySelector(":scope > table");
+    if (!table || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(syncToContent);
+    observer.observe(table);
+    return () => observer.disconnect();
+  }, [instrumentCount, storageKey]);
+
+  const startResize = useCallback(
+    (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const startY = event.clientY;
+      const container = containerRef.current;
+      if (!container || !Number.isFinite(startY)) return;
+      const startHeight = container.getBoundingClientRect().height || height || 340;
+      let nextHeight = startHeight;
+      const previousCursor = document.body.style.cursor;
+      const previousUserSelect = document.body.style.userSelect;
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+
+      const handleMove = (moveEvent) => {
+        if (!Number.isFinite(moveEvent.clientY)) return;
+        nextHeight = clampInstrumentTableHeight(
+          startHeight + moveEvent.clientY - startY,
+          getInstrumentTableContentHeight(container),
+        );
+        // Update the actual scroller during the drag so Electron never has to
+        // wait for a React render before showing the new table height.
+        container.style.height = `${nextHeight}px`;
+        container.style.maxHeight = "none";
+        container.style.flex = "0 0 auto";
+      };
+      const handleUp = () => {
+        window.removeEventListener("pointermove", handleMove);
+        window.removeEventListener("pointerup", handleUp);
+        window.removeEventListener("pointercancel", handleUp);
+        document.body.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
+        setHeight(nextHeight);
+        try {
+          window.localStorage.setItem(storageKey, String(nextHeight));
+        } catch {
+          // Resizing remains available for this view when storage is blocked.
+        }
+      };
+      window.addEventListener("pointermove", handleMove);
+      window.addEventListener("pointerup", handleUp, { once: true });
+      window.addEventListener("pointercancel", handleUp, { once: true });
+    },
+    [height, storageKey],
+  );
+
+  const displayedHeight = getDisplayedInstrumentTableHeight({
+    preferredHeight: height,
+    contentHeight,
+  });
+
+  return {
+    containerRef,
+    containerStyle: displayedHeight
+      ? {
+          height: `${displayedHeight}px`,
+          maxHeight: "none",
+          flex: "0 0 auto",
+        }
+      : undefined,
+    startResize,
+    resetHeight,
+  };
+};
+
+const InstrumentTableHeightHandle = ({ kind, sizing }) => (
+  <button
+    type="button"
+    className="instrument-table-height-resize-handle instrument-size-control"
+    title={`Drag to resize ${kind.toUpperCase()} table height; double-click to reset`}
+    aria-label={`Resize ${kind.toUpperCase()} table height`}
+    onPointerDown={sizing.startResize}
+    onDoubleClick={sizing.resetHeight}
+  />
+);
+
+const InstrumentOrderControls = ({ onMoveUp, onMoveDown }) => (
+  <span
+    className="instrument-order-controls instrument-order-controls--gutter"
+    aria-label="Instrument order"
+  >
+    <button
+      type="button"
+      title="Move instrument up"
+      aria-label="Move instrument up"
+      onClick={(event) => {
+        event.stopPropagation();
+        onMoveUp?.();
+      }}
+    >
+      <FontAwesomeIcon icon={faArrowUp} />
+    </button>
+    <button
+      type="button"
+      title="Move instrument down"
+      aria-label="Move instrument down"
+      onClick={(event) => {
+        event.stopPropagation();
+        onMoveDown?.();
+      }}
+    >
+      <FontAwesomeIcon icon={faArrowDown} />
+    </button>
+  </span>
+);
+
+const reorderInstrumentInSession = (
+  sessionData,
+  kind,
+  itemId,
+  functionKey,
+  direction,
+) => {
+  const listKey = kind === "uut" ? "uuts" : "tmdes";
+  const list = [...(sessionData[listKey] || [])];
+  const candidates = list
+    .map((item, index) =>
+      !functionKey || instrumentHasFunction(item, functionKey) ? index : -1,
+    )
+    .filter((index) => index >= 0);
+  const currentListIndex = list.findIndex(
+    (item) => String(item.id) === String(itemId),
+  );
+  const position = candidates.indexOf(currentListIndex);
+  const targetPosition = position + direction;
+  if (position < 0 || targetPosition < 0 || targetPosition >= candidates.length) {
+    return sessionData;
+  }
+  const targetListIndex = candidates[targetPosition];
+  [list[currentListIndex], list[targetListIndex]] = [
+    list[targetListIndex],
+    list[currentListIndex],
+  ];
+  return { ...sessionData, [listKey]: list };
+};
 
 const INLINE_COLUMN_CONTROL_SELECTOR =
   'input:not([disabled]):not([type="hidden"]), select:not([disabled]), button.inline-unit-combobox:not([disabled]), button.inline-menu-select-trigger:not([disabled])';
@@ -2541,9 +3306,10 @@ export const ResolutionCellInput = ({
           title="Distribution used when this resolution enters the budget"
           ariaLabel="Resolution distribution"
           onChange={onCommitDistribution}
-          width="72px"
+          width="144px"
           menuWidth={220}
           className="inline-resolution-dist inline-unit-like-selector inline-distribution-select"
+          getDisplayLabel={resolutionDistributionDisplayLabel}
         />
       )}
     </span>
@@ -2635,6 +3401,7 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
       }}
     >
       <InlineMenuSelect
+        autoOpen
         value={String(divisor || DISTRIBUTION_NOT_SET)}
         options={errorDistributions}
         ariaLabel="Spec band distribution"
@@ -2686,14 +3453,34 @@ const firstToleranceType = (tolerance = {}) =>
 // tolerance cell closes — blank terms are excluded so the clean summary stays
 // tidy. For %FS the magnitude is the high/low percent, NOT the FS reference
 // value, so a range term with only an FS value still counts as blank.
-const toleranceComponentHasNumericValue = (typeKey, component) => {
+const toleranceComponentHasNumericEntry = (typeKey, component) => {
   if (!component) return false;
-  const finite = (x) => Number.isFinite(parseFloat(x));
+  const finite = (x) =>
+    x !== undefined &&
+    x !== null &&
+    x !== "" &&
+    Number.isFinite(parseFloat(x));
   if (typeKey === "singleSided") return finite(component.limit);
   if (typeKey === "reading") {
-    return finite(component.value) || finite(component.high) || finite(component.low);
+    return (
+      finite(component.value) || finite(component.high) || finite(component.low)
+    );
   }
   return finite(component.high) || finite(component.low);
+};
+const toleranceComponentHasNumericValue = (typeKey, component) => {
+  if (!component) return false;
+  const nonZero = (x) =>
+    Number.isFinite(parseFloat(x)) && parseFloat(x) !== 0;
+  if (typeKey === "singleSided") return nonZero(component.limit);
+  if (typeKey === "reading") {
+    return (
+      nonZero(component.value) ||
+      nonZero(component.high) ||
+      nonZero(component.low)
+    );
+  }
+  return nonZero(component.high) || nonZero(component.low);
 };
 // Does this tolerance have at least one term with a real value? Drives the
 // "Set tolerance…" placeholder vs. the compact summary in the read view.
@@ -2710,7 +3497,9 @@ const pruneBlankToleranceTerms = (tolerance = {}) => {
   TOLERANCE_TYPE_OPTIONS.forEach(({ key }) => {
     if (
       Object.prototype.hasOwnProperty.call(next, key) &&
-      !toleranceComponentHasNumericValue(key, next[key])
+      !toleranceComponentHasNumericValue(key, next[key]) &&
+      (!next[key]?._unitExplicit ||
+        toleranceComponentHasNumericEntry(key, next[key]))
     ) {
       delete next[key];
     }
@@ -2947,9 +3736,9 @@ export const toleranceTermMode = (component = {}) => {
   const hZero = Math.abs(high) < 1e-12;
   const lZero = Math.abs(low) < 1e-12;
   if (hZero && lZero) return "symmetric";
-  // Legacy "+n/-0" data (one side pinned to 0) is migrated to a true
-  // single-sided threshold: the zero side is the unbounded direction.
-  if (hZero || lZero) return "single";
+  // A zero bound remains a real asymmetric limit (+0/-n or +n/-0). Only the
+  // explicit thresholdSide marker represents an unbounded side.
+  if (hZero || lZero) return "asymmetric";
   return Math.abs(Math.abs(high) - Math.abs(low)) > 1e-9 ? "asymmetric" : "symmetric";
 };
 
@@ -3058,9 +3847,6 @@ const ToleranceTermEditor = ({
   const [mode, setMode] = useState(() => toleranceTermMode(component));
   const [shapeMenuRect, setShapeMenuRect] = useState(null);
   const shapeButtonRef = useRef(null);
-  // Relative IV and Range/FS unit pickers are anchored like the shape menu.
-  const [unitMenuRect, setUnitMenuRect] = useState(null);
-  const unitButtonRef = useRef(null);
   // For single-sided: true when the magnitude is on the − side (high pinned 0).
   const [singleNeg, setSingleNeg] = useState(
     () =>
@@ -3208,14 +3994,6 @@ const ToleranceTermEditor = ({
     const rect = shapeButtonRef.current?.getBoundingClientRect();
     if (rect) setShapeMenuRect(rect);
   };
-  const toggleUnitMenu = () => {
-    if (unitMenuRect) {
-      setUnitMenuRect(null);
-      return;
-    }
-    const rect = unitButtonRef.current?.getBoundingClientRect();
-    if (rect) setUnitMenuRect(rect);
-  };
   const readingUnitOptions = [
     { value: "%", label: "%" },
     { value: "ppm", label: "ppm" },
@@ -3223,9 +4001,8 @@ const ToleranceTermEditor = ({
   ];
   const activeComponentUnit = component.unit || "%";
   const commitUnit = (unit) => {
-    setUnitMenuRect(null);
     if (unit === activeComponentUnit) return;
-    commit({ unit });
+    commit({ unit, _unitExplicit: true });
   };
   // Flip a single-sided term between + (high) and − (low) direction, keeping the
   // magnitude and pinning the other limit to 0.
@@ -3278,48 +4055,6 @@ const ToleranceTermEditor = ({
                   <span className="inline-tolerance-shape-option-copy">
                     <span>{option.label}</span>
                     <small>{option.detail}</small>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </>,
-          document.body,
-        )
-      : null;
-
-  const unitMenu =
-    (typeKey === "reading" || typeKey === "range") && unitMenuRect
-      ? ReactDOM.createPortal(
-          <>
-            <div
-              className="inline-tolerance-shape-backdrop"
-              onMouseDown={() => setUnitMenuRect(null)}
-            />
-            <div
-              className="inline-tolerance-shape-menu"
-              style={{
-                top: `${Math.min(unitMenuRect.bottom + 6, window.innerHeight - 132)}px`,
-                left: `${Math.max(
-                  8,
-                  Math.min(unitMenuRect.right - 132, window.innerWidth - 140),
-                )}px`,
-              }}
-              onMouseDown={(e) => e.preventDefault()}
-              role="menu"
-            >
-              {readingUnitOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`inline-tolerance-shape-option${
-                    option.value === activeComponentUnit ? " is-active" : ""
-                  }`}
-                  onClick={() => commitUnit(option.value)}
-                  role="menuitemradio"
-                  aria-checked={option.value === activeComponentUnit}
-                >
-                  <span className="inline-tolerance-shape-option-copy">
-                    <span>{option.label}</span>
                   </span>
                 </button>
               ))}
@@ -3386,6 +4121,18 @@ const ToleranceTermEditor = ({
         )}
         {termMode === "asymmetric" && (
           <>
+            <span className="inline-tolerance-symbol">−</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={lowValue}
+              placeholder="0"
+              onChange={(e) => setLowValue(e.target.value)}
+              onBlur={(e) => commitLimit("low", e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              className="inline-tolerance-input"
+              style={toleranceInputStyleFor(lowValue)}
+            />
             {showHighSign && <span className="inline-tolerance-symbol">+</span>}
             <input
               type="text"
@@ -3397,18 +4144,6 @@ const ToleranceTermEditor = ({
               onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
               className="inline-tolerance-input"
               style={toleranceInputStyleFor(highValue)}
-            />
-            <span className="inline-tolerance-symbol">-</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={lowValue}
-              placeholder="0"
-              onChange={(e) => setLowValue(e.target.value)}
-              onBlur={(e) => commitLimit("low", e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-              className="inline-tolerance-input"
-              style={toleranceInputStyleFor(lowValue)}
             />
           </>
         )}
@@ -3435,33 +4170,27 @@ const ToleranceTermEditor = ({
       </span>
       {typeLabel &&
         (typeKey === "reading" || typeKey === "range" ? (
-          <>
-            <button
-              ref={unitButtonRef}
-              type="button"
-              className={`inline-tolerance-chip inline-tolerance-chip--in-cell inline-tolerance-chip--button${
-                unitMenuRect ? " is-open" : ""
-              }`}
-              title={`Change ${typeKey === "reading" ? "IV" : "range/FS"} unit`}
-              aria-haspopup="menu"
-              aria-expanded={Boolean(unitMenuRect)}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={toggleUnitMenu}
-            >
-              <span>{
-                typeKey === "reading"
-                  ? `IV ${activeComponentUnit}`
-                  : `${activeComponentUnit} FS`
-              }</span>
-              <FontAwesomeIcon icon={faChevronDown} size="xs" />
-            </button>
-            {unitMenu}
-          </>
+          <InlineMenuSelect
+            value={activeComponentUnit}
+            options={readingUnitOptions}
+            ariaLabel={`${typeKey === "reading" ? "IV" : "Range/FS"} tolerance unit`}
+            title={`Change ${typeKey === "reading" ? "IV" : "range/FS"} unit`}
+            onChange={commitUnit}
+            width="82px"
+            menuWidth={132}
+            className="inline-tolerance-unit-select"
+            showOptionMeta={false}
+            getDisplayLabel={() =>
+              typeKey === "reading"
+                ? `IV ${activeComponentUnit}`
+                : `${activeComponentUnit} FS`
+            }
+          />
         ) : typeKey === "floor" ? (
           <UnitSelect
             value={component.unit || activeRange?.unit || ""}
             ariaLabel="Tolerance unit"
-            onChange={(unit) => commit({ unit })}
+            onChange={(unit) => commit({ unit, _unitExplicit: true })}
             width="82px"
           />
         ) : (
@@ -3680,10 +4409,13 @@ export const InlineToleranceCell = ({
   showMeasurementStatus = false,
   onCommit,
   openRequested = false,
+  onOpenRequest,
   onOpenRequestHandled,
+  onEditingChange,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const containerRef = useRef(null);
+  const onEditingChangeRef = useRef(onEditingChange);
   const inferredMode = inferToleranceEditorMode(tolerance);
   const [shapeMode, setShapeMode] = useState(inferredMode.shape);
   const [sidedness, setSidedness] = useState(inferredMode.sidedness);
@@ -3699,6 +4431,14 @@ export const InlineToleranceCell = ({
     setIsEditing(true);
     onOpenRequestHandled?.();
   }, [openRequested, onOpenRequestHandled]);
+
+  useEffect(() => {
+    onEditingChangeRef.current = onEditingChange;
+  }, [onEditingChange]);
+
+  useEffect(() => {
+    onEditingChangeRef.current?.(isEditing);
+  }, [isEditing]);
 
   // Put focus in the first field when the editor opens so a later click-away
   // reliably produces a focusout (and commits the in-progress value).
@@ -3738,6 +4478,10 @@ export const InlineToleranceCell = ({
           className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}`}
           title={hasValue ? "Edit tolerance" : "Set tolerance"}
           aria-label={hasValue ? undefined : "Set tolerance"}
+          onMouseDown={(event) => {
+            event.stopPropagation();
+            onOpenRequest?.();
+          }}
           onClick={openEditor}
         >
           {hasValue ? summary : "Not Set"}
@@ -3913,15 +4657,35 @@ export const RangeCell = ({
   onClearRange,
   onExpandAll,
   onEnsureInitialRange,
+  onAddRange,
   onOpenTolerance,
+  onAdvanceRange,
   openRequested = false,
   onOpenRequestHandled,
   onRequestEditAfterExpand,
+  onEditingChange,
   allowSingleToggle = false,
+  editBlankByDefault = false,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [isStagedBlankOpen, setIsStagedBlankOpen] = useState(
+    () =>
+      editBlankByDefault &&
+      Boolean(rangeIdOf(activeRange)) &&
+      !formatRangeSummary(activeRange),
+  );
   const containerRef = useRef(null);
+  const onEditingChangeRef = useRef(onEditingChange);
   const openAfterInitialRangeRef = useRef(false);
+  const showEditor = isEditing || isStagedBlankOpen;
+
+  useEffect(() => {
+    onEditingChangeRef.current = onEditingChange;
+  }, [onEditingChange]);
+
+  useEffect(() => {
+    onEditingChangeRef.current?.(showEditor);
+  }, [showEditor]);
 
   // Creating the first real range updates the parent row. Wait for that stable
   // id before mounting the inputs; otherwise React replaces the min/max inputs
@@ -3946,7 +4710,10 @@ export const RangeCell = ({
     firstInput?.focus();
   }, [isEditing]);
 
-  const dismissRangeEditor = useCallback(() => setIsEditing(false), []);
+  const dismissRangeEditor = useCallback(() => {
+    setIsEditing(false);
+    setIsStagedBlankOpen(false);
+  }, []);
   useInlineColumnDismiss({
     expanded: isEditing,
     rootRef: containerRef,
@@ -3973,7 +4740,7 @@ export const RangeCell = ({
     );
   }
 
-  if (!isEditing) {
+  if (!showEditor) {
     const rangeSummary = formatRangeSummary(activeRange);
     // Use the same blank-cell affordance as an unentered range in the expanded
     // editor. `rangeSummary` remains the source of truth for expand-vs-edit.
@@ -4009,6 +4776,10 @@ export const RangeCell = ({
             className={`inline-tolerance-summary${rangeSummary ? "" : " is-empty"}`}
             title={rangeSummary ? (onExpandAll ? "Edit ranges" : "Edit range") : "Set range"}
             aria-label={onExpandAll && rangeSummary ? "Edit ranges" : undefined}
+            onMouseDown={(event) => {
+              event.stopPropagation();
+              if (rangeSummary) onRequestEditAfterExpand?.();
+            }}
             onClick={openEditor}
           >
             {summary}
@@ -4027,7 +4798,7 @@ export const RangeCell = ({
       if (containerRef.current?.contains(next)) return;
       if (next.closest(".inline-unit-menu")) return;
     }
-    setIsEditing(false);
+    dismissRangeEditor();
   };
 
   const unit = activeRange.unit || "";
@@ -4049,8 +4820,13 @@ export const RangeCell = ({
     onPatchRange?.({ isSingleValue: true, value: raw, min: raw, max: raw });
   };
   const openToleranceFromUnit = () => {
+    if (onAdvanceRange) {
+      dismissRangeEditor();
+      onAdvanceRange();
+      return;
+    }
     if (!onOpenTolerance) return;
-    setIsEditing(false);
+    dismissRangeEditor();
     onOpenTolerance();
   };
   return (
@@ -4126,6 +4902,21 @@ export const RangeCell = ({
           width="72px"
           compact
         />
+        {onAddRange && (
+          <button
+            type="button"
+            className="range-row-add range-row-add--inline"
+            title="Add range"
+            aria-label="Add range"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddRange();
+            }}
+          >
+            <FontAwesomeIcon icon={faPlus} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -4974,11 +5765,9 @@ export const buildFunctionGroupedRows = (
     })
     .flatMap((group) => [
       group,
-      ...group.items.sort((a, b) => {
-        const aLabel = (a.item.description || a.item.name || "").toLowerCase();
-        const bLabel = (b.item.description || b.item.name || "").toLowerCase();
-        return aLabel.localeCompare(bLabel);
-      }),
+      // Preserve session array order so newly-added instruments append at the
+      // bottom and drag/drop reordering remains visible.
+      ...group.items,
     ]);
 };
 
@@ -5840,7 +6629,6 @@ const QuickAddRow = ({
 const SummaryDashboard = ({
   viewMode,
   contextId,
-  contextName,
   sessionData,
   onDeleteTestPoint,
   rangeData,
@@ -5865,12 +6653,125 @@ const SummaryDashboard = ({
   collapsedFunctionKeys,
   setCollapsedFunctionKeys,
   keyboardShortcutsEnabled = true,
+  onInstrumentSelection = () => {},
 }) => {
+  const latestSessionDataRef = useRef(sessionData);
+  latestSessionDataRef.current = sessionData;
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
   // Add Function picker: null | "uut" | "tmde" (which table's button opened it).
   const [addFunctionMenu, setAddFunctionMenu] = useState(null);
   const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
+  const [editingCustomColumnKey, setEditingCustomColumnKey] = useState(null);
+  const summaryFunctionColorByKey = useMemo(
+    () =>
+      new Map(
+        resolveSessionFunctions(sessionData).map((fn) => [fn.key, fn.color]),
+      ),
+    [sessionData],
+  );
+  const functionRowStyle = useCallback(
+    (functionKey, extra = {}) => ({
+      ...extra,
+      "--instrument-function-color":
+        summaryFunctionColorByKey.get(functionKey) || "var(--primary-color)",
+    }),
+    [summaryFunctionColorByKey],
+  );
   const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
+  const customColumnsFor = (kind) =>
+    sessionData.instrumentCustomColumns?.[kind] || [];
+  const uutTableColumns = useInstrumentColumnWidths(
+    "uut",
+    customColumnsFor("uut"),
+  );
+  const tmdeTableColumns = useInstrumentColumnWidths(
+    "tmde",
+    customColumnsFor("tmde"),
+  );
+  const uutTableHeight = useInstrumentTableHeight(
+    "overview",
+    "uut",
+    (sessionData.uuts || []).length,
+  );
+  const tmdeTableHeight = useInstrumentTableHeight(
+    "overview",
+    "tmde",
+    (sessionData.tmdes || []).length,
+  );
+  const requestCustomColumn = (kind) => {
+    const key = `field-${uuidv4().slice(0, 8)}`;
+    const current = sessionData.instrumentCustomColumns || {};
+    onSessionSave?.({
+      ...sessionData,
+      instrumentCustomColumns: {
+        ...current,
+        [kind]: [...(current[kind] || []), { key, label: "Name" }],
+      },
+    });
+    setEditingCustomColumnKey(key);
+  };
+  const updateCustomColumnLabel = (kind, key, label) => {
+    const current = sessionData.instrumentCustomColumns || {};
+    onSessionSave?.({
+      ...sessionData,
+      instrumentCustomColumns: {
+        ...current,
+        [kind]: (current[kind] || []).map((column) =>
+          column.key === key ? { ...column, label } : column,
+        ),
+      },
+    });
+    setEditingCustomColumnKey(null);
+  };
+  const requestDeleteCustomColumn = (kind, column) => {
+    confirmViaNotification(setNotification, {
+      title: `Delete ${column.label || "Custom"} Column`,
+      message: `Delete the “${column.label || "Custom"}” column? All values saved in this column will also be removed.`,
+      confirmText: "Delete",
+      onConfirm: () => {
+        const nextSession = removeInstrumentCustomColumn(
+          latestSessionDataRef.current,
+          kind,
+          column.key,
+        );
+        latestSessionDataRef.current = nextSession;
+        onSessionSave?.(nextSession);
+        setEditingCustomColumnKey(null);
+      },
+    });
+  };
+  const renderCustomColumnHeader = (kind, column) => (
+    <EditableCustomColumnHeader
+      column={column}
+      editing={editingCustomColumnKey === column.key}
+      onEdit={setEditingCustomColumnKey}
+      onCommit={(label) => updateCustomColumnLabel(kind, column.key, label)}
+      onDelete={() => requestDeleteCustomColumn(kind, column)}
+    />
+  );
+  const updateCustomField = (kind, itemId, key, value) => {
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    onSessionSave({
+      ...sessionData,
+      [listKey]: (sessionData[listKey] || []).map((item) =>
+        String(item.id) === String(itemId)
+          ? {
+              ...item,
+              customFields: { ...(item.customFields || {}), [key]: value },
+            }
+          : item,
+      ),
+    });
+  };
+  const renderCustomCells = (kind, item, rowSpan = 1) =>
+    customColumnsFor(kind).map((column) => (
+      <td key={column.key} rowSpan={rowSpan} className="instrument-custom-field-cell">
+        <EditableCustomFieldCell
+          value={item.customFields?.[column.key] || ""}
+          onCommit={(value) => updateCustomField(kind, item.id, column.key, value)}
+        />
+      </td>
+    ));
 
   // Inline make/model/name edits from the Description cell. `name` is the
   // session label (uut.description / tmde.name); make+model live on the nested
@@ -6077,15 +6978,16 @@ const SummaryDashboard = ({
   };
 
   const persistInlineItem = (kind, updatedItem, { maybePromptLocal = false } = {}) => {
+    const currentSession = latestSessionDataRef.current;
     const localizedItem = localizeSharedInstrumentEdit(updatedItem, instruments);
     const synchronized = synchronizeLocalInstrumentDefinitions(
-      sessionData,
+      currentSession,
       localizedItem,
       kind,
     );
-    let nextTestPoints = sessionData.testPoints || [];
+    let nextTestPoints = currentSession.testPoints || [];
     synchronized.uuts.forEach((nextItem) => {
-      const previousItem = (sessionData.uuts || []).find(
+      const previousItem = (currentSession.uuts || []).find(
         (item) => String(item.id) === String(nextItem.id),
       );
       if (previousItem && previousItem !== nextItem) {
@@ -6097,15 +6999,18 @@ const SummaryDashboard = ({
       }
     });
     synchronized.tmdes.forEach((nextItem) => {
-      const previousItem = (sessionData.tmdes || []).find(
+      const previousItem = (currentSession.tmdes || []).find(
         (item) => String(item.id) === String(nextItem.id),
       );
       if (previousItem && previousItem !== nextItem) {
         nextTestPoints = refreshSessionPointsForTmde(nextItem, nextTestPoints);
       }
     });
+    if (kind === "tmde") {
+      nextTestPoints = applyTmdeIdentityToPoints(nextTestPoints, localizedItem);
+    }
     const nextSession = {
-      ...sessionData,
+      ...currentSession,
       uuts: synchronized.uuts,
       tmdes: synchronized.tmdes,
       testPoints: nextTestPoints,
@@ -6113,6 +7018,7 @@ const SummaryDashboard = ({
     const synchronizedItem = (
       kind === "uut" ? synchronized.uuts : synchronized.tmdes
     ).find((item) => String(item.id) === String(localizedItem.id)) || localizedItem;
+    latestSessionDataRef.current = nextSession;
     onSessionSave(nextSession);
     if (
       onSaveInstrument &&
@@ -6128,8 +7034,18 @@ const SummaryDashboard = ({
 
   const handleUutDescriptionEdit = (uutId, field, value) => {
     if (!onSessionSave) return;
+    if (field === "nickname") {
+      const currentSession = latestSessionDataRef.current;
+      const nextItems = (currentSession.uuts || []).map((item) =>
+        sameId(item.id, uutId) ? { ...item, nickname: value } : item,
+      );
+      const nextSession = { ...currentSession, uuts: nextItems };
+      latestSessionDataRef.current = nextSession;
+      onSessionSave(nextSession);
+      return;
+    }
     let updatedItem = null;
-    (sessionData.uuts || []).forEach((u) => {
+    (latestSessionDataRef.current.uuts || []).forEach((u) => {
       if (u.id !== uutId) return;
       updatedItem =
         field === "name"
@@ -6151,8 +7067,29 @@ const SummaryDashboard = ({
 
   const handleTmdeDescriptionEdit = (tmdeId, field, value) => {
     if (!onSessionSave) return;
+    if (field === "nickname") {
+      const currentSession = latestSessionDataRef.current;
+      let updatedItem = null;
+      const nextItems = (currentSession.tmdes || []).map((item) => {
+        if (!sameId(item.id, tmdeId)) return item;
+        updatedItem = { ...item, nickname: value };
+        return updatedItem;
+      });
+      if (!updatedItem) return;
+      const nextSession = {
+        ...currentSession,
+        tmdes: nextItems,
+        testPoints: applyTmdeIdentityToPoints(
+          currentSession.testPoints || [],
+          updatedItem,
+        ),
+      };
+      latestSessionDataRef.current = nextSession;
+      onSessionSave(nextSession);
+      return;
+    }
     let updatedItem = null;
-    (sessionData.tmdes || []).forEach((t) => {
+    (latestSessionDataRef.current.tmdes || []).forEach((t) => {
       if (t.id !== tmdeId) return;
       updatedItem =
         field === "name"
@@ -6626,8 +7563,7 @@ const SummaryDashboard = ({
     };
     if (kind === "uut") {
       const newUut = { id: uuidv4(), name: "", description: "", instrument };
-      setSelectedUutIds([newUut.id]);
-      onSessionSave({ ...sessionData, uuts: [newUut, ...(sessionData.uuts || [])] });
+      onSessionSave({ ...sessionData, uuts: [...(sessionData.uuts || []), newUut] });
     } else {
       const newTmde = {
         id: uuidv4(),
@@ -6637,8 +7573,7 @@ const SummaryDashboard = ({
         isInstrumentBased: false,
         instrument,
       };
-      setSelectedTmdeIds([newTmde.id]);
-      onSessionSave({ ...sessionData, tmdes: [newTmde, ...(sessionData.tmdes || [])] });
+      onSessionSave({ ...sessionData, tmdes: [...(sessionData.tmdes || []), newTmde] });
     }
   };
 
@@ -6777,6 +7712,27 @@ const SummaryDashboard = ({
       return next;
     });
   };
+  const handleAddBlankRange = (
+    kind,
+    item,
+    activeRangeId,
+    { focusNew = false } = {},
+  ) => {
+    if (!onSessionSave) return;
+    const currentSession = latestSessionDataRef.current;
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    const currentItem = (currentSession[listKey] || []).find(
+      (candidate) => String(candidate.id) === String(item.id),
+    ) || item;
+    const { item: updated, newRangeId } = addRangeToItem(
+      currentItem,
+      activeRangeId,
+    );
+    persistItem(kind, updated);
+    if (focusNew && newRangeId) {
+      setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
+    }
+  };
   const handleDeleteSelectedRanges = () => {
     if (!onSessionSave) return;
     const entry = Object.entries(selectedRangeIds).find(
@@ -6822,9 +7778,16 @@ const SummaryDashboard = ({
 
   const toggleShowAllRanges = (kind, stateId, itemId = stateId) => {
     const key = itemStateKey(kind, stateId);
-    if (expandedRangeKeys.has(key)) {
+    const isExpanded = expandedRangeKeys.has(key);
+    if (isExpanded) {
       sortAndPersistRangeGroup(itemStateKey(kind, itemId));
     }
+    setRangeEditingKeys((previous) => {
+      const next = new Set(previous);
+      if (isExpanded) next.delete(key);
+      else next.add(key);
+      return next;
+    });
     setExpandedRangeKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -7053,7 +8016,7 @@ const SummaryDashboard = ({
     return (
       <button
         type="button"
-        className="range-header-action-btn range-header-action-btn--add function-header-action-btn"
+        className="btn-add-item btn-add-column function-header-action-btn"
         data-tour={`${kind}-add-instrument`}
         title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
@@ -7062,7 +8025,37 @@ const SummaryDashboard = ({
           handleAddInstrumentToFunction(kind, fn);
         }}
       >
-        <FontAwesomeIcon icon={faPlus} size="xs" />
+        <span>Add Instrument</span>
+      </button>
+    );
+  };
+
+  const renderSelectedInstrumentDeleteButton = (kind, fn) => {
+    const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
+    const instrumentsForKind =
+      kind === "uut" ? sessionData.uuts || [] : sessionData.tmdes || [];
+    const hasSelectionInFunction = selectedIds.some((selectedId) =>
+      instrumentsForKind.some(
+        (instrument) =>
+          sameId(instrument.id, selectedId) &&
+          instrumentHasFunction(instrument, fn.key),
+      ),
+    );
+    if (!onSessionSave || !hasSelectionInFunction) return null;
+    const label = selectedInstrumentDeleteLabel(selectedIds.length);
+    return (
+      <button
+        type="button"
+        className="function-header-destructive-btn btn-delete-selection"
+        title={label}
+        aria-label={label}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (kind === "uut") handleDeleteSelectedUuts();
+          else handleDeleteSelectedTmdes();
+        }}
+      >
+        <span>{label}</span>
       </button>
     );
   };
@@ -7073,15 +8066,15 @@ const SummaryDashboard = ({
     return (
       <button
         type="button"
-        className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
-        title="Delete function"
-        aria-label="Delete function"
+        className="function-header-destructive-btn"
+        title="Delete Function"
+        aria-label="Delete Function"
         onClick={(e) => {
           e.stopPropagation();
           handleDeleteFunction(fn);
         }}
       >
-        <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+        <span>Delete Function</span>
       </button>
     );
   };
@@ -7123,18 +8116,26 @@ const SummaryDashboard = ({
           ? " is-function-drop-target"
           : ""
       }`}
+      style={functionRowStyle(fn.key)}
       onDragOver={handleInstrumentDragOverFunction(kind, fn)}
       onDragLeave={() => setDragOverFunctionTarget(null)}
       onDrop={handleInstrumentDropOnFunction(kind, fn)}
     >
       <td colSpan={colSpan}>
         <div className="function-header-row">
-          {renderFunctionColorSwatch(fn)}
-          {renderFunctionNameEditor(fn)}
-          {renderFunctionUnitChip(fn)}
-          {renderFunctionAddButton(kind, fn)}
-          {renderFunctionDeleteButton(fn)}
-          {renderFunctionCollapseButton(kind, fn)}
+          <div className="function-header-leading">
+            {renderFunctionCollapseButton(kind, fn)}
+          </div>
+          <div className="function-header-identity">
+            {renderFunctionColorSwatch(fn)}
+            {renderFunctionNameEditor(fn)}
+            {renderFunctionUnitChip(fn)}
+          </div>
+          <div className="function-header-actions">
+            {renderSelectedInstrumentDeleteButton(kind, fn)}
+            {renderFunctionDeleteButton(fn)}
+            {renderFunctionAddButton(kind, fn)}
+          </div>
         </div>
       </td>
     </tr>
@@ -7289,9 +8290,25 @@ const SummaryDashboard = ({
   const [selectedRangeIds, setSelectedRangeIds] = useState({});
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
 
+  // Keep the current selection through Add and through a delete confirmation.
+  // Prune it only after the backing session rows have actually disappeared.
+  useEffect(() => {
+    const validUutIds = new Set((sessionData.uuts || []).map((item) => String(item.id)));
+    const validTmdeIds = new Set((sessionData.tmdes || []).map((item) => String(item.id)));
+    setSelectedUutIds((current) => {
+      const next = current.filter((id) => validUutIds.has(String(id)));
+      return next.length === current.length ? current : next;
+    });
+    setSelectedTmdeIds((current) => {
+      const next = current.filter((id) => validTmdeIds.has(String(id)));
+      return next.length === current.length ? current : next;
+    });
+  }, [sessionData.uuts, sessionData.tmdes, setSelectedUutIds]);
+
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
+  const [rangeEditingKeys, setRangeEditingKeys] = useState(() => new Set());
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
   const [pendingResolutionRangeKey, setPendingResolutionRangeKey] = useState(null);
   const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
@@ -7305,32 +8322,53 @@ const SummaryDashboard = ({
       rangeClickGroupRef.current = getRangeColumnClickContext(e.target);
     };
     const onDown = (e) => {
+      // Resizing is a layout action, not a click-away from the active editor.
+      if (e.target?.closest?.(".instrument-size-control")) return;
       // UnitSelect renders its options in a body-level portal. Selecting an
       // option is still an interaction with this range group, not a click-away
       // that should collapse the expanded table.
-      if (e.target?.closest?.(".inline-unit-menu")) return;
+      if (e.target?.closest?.(INLINE_EDITOR_PORTAL_SELECTOR)) return;
       // Clicking a non-focusable area (a plain cell/background) does NOT blur a
       // focused inline editor, so its onBlur commit — new range, tolerance edit,
       // clear-to-delete — would never run before the list collapses. Force the
       // focused editor to blur first so its commit lands.
-      const clickedRangeKey = rangeClickGroupRef.current?.key || null;
+      const liveClickContext = getRangeColumnClickContext(e.target);
+      const clickContext = liveClickContext.key
+        ? liveClickContext
+        : rangeClickGroupRef.current;
+      const clickedRangeKey = clickContext?.key || null;
       const clickedInsideRangeColumn =
-        Boolean(clickedRangeKey) && rangeClickGroupRef.current?.inRangeColumn;
-      const toleranceKey = rangeClickGroupRef.current?.toleranceKey || null;
-      if (toleranceKey) setPendingToleranceRangeKey(toleranceKey);
-      if (!clickedInsideRangeColumn) {
+        Boolean(clickedRangeKey) && clickContext?.inRangeColumn;
+      const clickedInsideRangeGroup = Boolean(clickedRangeKey);
+      if (!clickedInsideRangeGroup) {
         const ae = document.activeElement;
         if (ae && typeof ae.blur === "function" && ae.closest?.("[data-range-group]")) {
           ae.blur();
         }
       }
+      // A lateral click is an editor handoff within this instrument. Keep its
+      // physical range rows mounted so the newly clicked column can open on
+      // that same first click, while hiding Range-only add/delete controls.
+      if (clickedInsideRangeGroup && !clickedInsideRangeColumn) {
+        setRangeEditingKeys((prev) => {
+          if (!prev.has(clickedRangeKey)) return prev;
+          const next = new Set(prev);
+          next.delete(clickedRangeKey);
+          return next;
+        });
+      }
       const keysToCollapse = [];
       expandedRangeKeys.forEach((key) => {
-        const inside = clickedInsideRangeColumn && clickedRangeKey === key;
+        const inside = clickedInsideRangeGroup && clickedRangeKey === key;
         if (!inside) keysToCollapse.push(key);
       });
       if (keysToCollapse.length === 0) return;
       setExpandedRangeKeys((prev) => {
+        const next = new Set(prev);
+        keysToCollapse.forEach((key) => next.delete(key));
+        return next;
+      });
+      setRangeEditingKeys((prev) => {
         const next = new Set(prev);
         keysToCollapse.forEach((key) => next.delete(key));
         return next;
@@ -7340,6 +8378,7 @@ const SummaryDashboard = ({
       if (e.key !== "Escape") return;
       document.activeElement?.blur?.();
       setExpandedRangeKeys(new Set());
+      setRangeEditingKeys(new Set());
     };
     // Listen on "click" (fires after mousedown -> blur -> mouseup) so any
     // in-progress editor commits its onBlur BEFORE the list collapses and
@@ -7455,12 +8494,16 @@ const SummaryDashboard = ({
       canDeleteRange = true,
       rangeIndex = 0,
       totalRanges = 1,
+      nextRange = null,
+      stateId = item.id,
     } = {},
   ) => {
     const setRangeIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const tableId = kind;
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range;
+    const rangeGroupKey = itemStateKey(kind, stateId);
+    const showRangeActions = rangeEditingKeys.has(rangeGroupKey);
 
     return (
       <>
@@ -7472,13 +8515,23 @@ const SummaryDashboard = ({
             openRangeRowMenu(event, kind, item, range, rangeIndex, totalRanges)
           }
         >
-          <div className="range-row-cell">
+          <div
+            className={`range-row-cell${showRangeActions ? "" : " range-row-cell--without-actions"}`}
+          >
             <RangeCell
               ranges={[range]}
               activeIndex={0}
               activeRange={range}
               editable
               allowSingleToggle
+              editBlankByDefault={showRangeActions}
+              onEditingChange={(editing) => {
+                if (!editing) return;
+                setRangeEditingKeys((previous) => {
+                  if (previous.has(rangeGroupKey)) return previous;
+                  return new Set(previous).add(rangeGroupKey);
+                });
+              }}
               onSelect={(idx) => setRangeIdx((prev) => ({ ...prev, [item.id]: idx }))}
               onEditBound={(field, value) =>
                 handleEditRangeBound(kind, item, rangeKey, field, value)
@@ -7487,25 +8540,58 @@ const SummaryDashboard = ({
               onPatchRange={(patch) => patchRange(kind, item, rangeKey, patch)}
               onClearRange={() => handleRemoveRange(kind, item, rangeKey)}
               onOpenTolerance={() => openRangeTolerance(kind, item, range)}
+              onAdvanceRange={
+                nextRange
+                  ? () =>
+                      setPendingRangeEditKey(
+                        `${itemStateKey(kind, item.id)}:${rangeIdOf(nextRange)}`,
+                      )
+                  : () =>
+                      handleAddBlankRange(kind, item, rangeKey, {
+                        focusNew: true,
+                      })
+              }
               openRequested={
                 pendingRangeEditKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
               }
+              onRequestEditAfterExpand={() =>
+                setPendingRangeEditKey(
+                  `${itemStateKey(kind, item.id)}:${rangeKey}`,
+                )
+              }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
-            <button
-              type="button"
-              className="range-row-delete"
-              title="Delete range"
-              aria-label="Delete range"
-              disabled={!canDeleteRange}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRemoveRange(kind, item, rangeKey);
-              }}
-            >
-              x
-            </button>
+            {showRangeActions && rangeIndex === 0 && (
+              <button
+                type="button"
+                className="range-row-add"
+                title="Add range"
+                aria-label="Add range"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAddBlankRange(kind, item, rangeKey);
+                }}
+              >
+                <FontAwesomeIcon icon={faPlus} />
+              </button>
+            )}
+            {showRangeActions && (
+              <button
+                type="button"
+                className="range-row-delete"
+                title="Delete range"
+                aria-label="Delete range"
+                disabled={!canDeleteRange}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveRange(kind, item, rangeKey);
+                }}
+              >
+                x
+              </button>
+            )}
           </div>
         </td>
 
@@ -7522,6 +8608,11 @@ const SummaryDashboard = ({
             showMeasurementStatus={kind === "uut"}
             openRequested={
               pendingToleranceRangeKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
+            }
+            onOpenRequest={() =>
+              setPendingToleranceRangeKey(
+                `${itemStateKey(kind, item.id)}:${rangeKey}`,
+              )
             }
             onOpenRequestHandled={() => setPendingToleranceRangeKey(null)}
             onCommit={(nextTypeKey, component) =>
@@ -7666,31 +8757,9 @@ const SummaryDashboard = ({
         );
         return inferredAreaIds.size === 0 || inferredAreaIds.has(contextId);
       });
-    } else if (viewMode === "function") {
-      // contextId is a function key (see utils/functionGrouping). Scope to the
-      // points of that function and the instruments that declare it. Keep a
-      // point-owner fallback for legacy UUTs whose function metadata is missing.
-      const fnPoints = points.filter((tp) => functionKeyOf(tp) === contextId);
-      const ownerIds = new Set(
-        fnPoints.flatMap((tp) => (tp.associatedUutIds || []).map(String)),
-      );
-      displayTitle =
-        fnPoints[0]?.testPointInfo?.parameter?.name ||
-        contextName ||
-        "Function";
-      displaySubtitle = "Function Summary";
-      points = fnPoints;
-      uuts = uuts.filter(
-        (u) =>
-          matchingInstrumentFunctionKey(u, contextId) ||
-          ownerIds.has(String(u.id)),
-      );
-      tmdes = tmdes.filter((tmde) =>
-        matchingInstrumentFunctionKey(tmde, contextId),
-      );
     } else if (viewMode === "uut") {
       const uut = uuts.find((u) => u.id === contextId);
-      displayTitle = uut?.description || "UUT Detail";
+      displayTitle = uut?.nickname || uut?.description || "UUT Detail";
       displaySubtitle = `${uut?.manufacturer || ""} ${uut?.model || ""}`;
       uuts = uut ? [uut] : [];
       points = points.filter(
@@ -7729,7 +8798,7 @@ const SummaryDashboard = ({
         return minMatch && maxMatch && unitMatch && functionIdMatch && funcMatch;
       });
       displayTitle = rangeData.label || "Range Detail";
-      displaySubtitle = `${uut?.description || "UUT"} (${uut?.model || ""})`;
+      displaySubtitle = `${uut?.nickname || uut?.description || "UUT"} (${uut?.model || ""})`;
     }
 
     return {
@@ -7740,7 +8809,7 @@ const SummaryDashboard = ({
       subtitle: displaySubtitle,
       showAreaColumn: isSessionView,
     };
-  }, [viewMode, contextId, contextName, sessionData, rangeData, uutId]);
+  }, [viewMode, contextId, sessionData, rangeData, uutId]);
 
   const getGroupedInstrumentRows = useCallback(
     (items = [], source = "session", pinnedIds = [], kind = null) => {
@@ -7749,20 +8818,10 @@ const SummaryDashboard = ({
       const groupedItems = [];
 
       items.forEach((item, index) => {
-        const isFunctionView = viewMode === "function" && contextId;
-        const functionKey = isFunctionView
-          ? matchingInstrumentFunctionKey(item, contextId) || contextId
-          : null;
         const row = {
           type: "item",
           item,
           index,
-          ...(isFunctionView
-            ? {
-                functionKey,
-                rowKey: `${functionKey}::${item.id}`,
-              }
-            : {}),
         };
         if (pinnedSet.has(item.id)) {
           pinnedRows.push(row);
@@ -7771,17 +8830,13 @@ const SummaryDashboard = ({
         }
       });
 
-      if (viewMode === "function" && contextId) {
-        return [...pinnedRows, ...groupedItems];
-      }
-
       if (!showAreaColumn) {
         return [...pinnedRows, ...groupedItems];
       }
 
       return [...pinnedRows, ...buildFunctionGroupedRows(groupedItems, sessionData, kind)];
     },
-    [contextId, sessionData, showAreaColumn, viewMode],
+    [sessionData, showAreaColumn],
   );
 
   const groupedUutRows = useMemo(
@@ -7820,6 +8875,7 @@ const SummaryDashboard = ({
   // Selection Handlers (Wrapped)
   const handleUutClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
+      onInstrumentSelection();
       setLastSelectionTarget("uut");
       setSelectedRangeIds({});
     }
@@ -7827,6 +8883,7 @@ const SummaryDashboard = ({
   };
   const handleTmdeClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
+      onInstrumentSelection();
       setLastSelectionTarget("tmde");
       setSelectedRangeIds({});
     }
@@ -7837,7 +8894,6 @@ const SummaryDashboard = ({
   const handleDeleteSelectedUuts = useCallback(() => {
     if (onDeleteUut && selectedUutIds.length > 0) {
       onDeleteUut(selectedUutIds);
-      setSelectedUutIds([]);
     }
   }, [onDeleteUut, selectedUutIds]);
 
@@ -7845,7 +8901,6 @@ const SummaryDashboard = ({
   const handleDeleteSelectedTmdes = useCallback(() => {
     if (onDeleteTmdeDefinition && selectedTmdeIds.length > 0) {
       onDeleteTmdeDefinition(selectedTmdeIds);
-      setSelectedTmdeIds([]);
     }
   }, [onDeleteTmdeDefinition, selectedTmdeIds]);
 
@@ -7954,6 +9009,17 @@ const SummaryDashboard = ({
     instrumentClipboard = { kind, mode, item: JSON.parse(JSON.stringify(item)) };
   };
 
+  const moveInstrument = (kind, itemId, functionKey, direction) => {
+    const updated = reorderInstrumentInSession(
+      sessionData,
+      kind,
+      itemId,
+      functionKey,
+      direction,
+    );
+    if (updated !== sessionData) onSessionSave?.(updated);
+  };
+
   const pasteInstrument = (kind, targetAreaId) => {
     if (!onSessionSave || !instrumentClipboard) return;
     const clip = instrumentClipboard;
@@ -7975,7 +9041,7 @@ const SummaryDashboard = ({
       else setSelectedTmdeIds([clone.id]);
       onSessionSave({
         ...sessionData,
-        [listKey]: [clone, ...(sessionData[listKey] || [])],
+        [listKey]: [...(sessionData[listKey] || []), clone],
       });
     }
   };
@@ -8228,23 +9294,23 @@ const SummaryDashboard = ({
 
       {/* UUT TABLE */}
       <div className="panel-card">
-        <div className="panel-card-header">
+        <div className="panel-card-header instrument-panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faMicroscope} />
-            <span>Units Under Test</span>
+            <span>{uutTableTitle(sessionData.uuts?.length)}</span>
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
-            {selectedUutIds.length > 0 && (
-              <button
-                className="btn-delete-selection"
-                onClick={handleDeleteSelectedUuts}
-                title={`Delete ${selectedUutIds.length} Selected UUTs`}
-              >
-                <FontAwesomeIcon icon={faTrashAlt} size="xs" />
-              </button>
-            )}
             <button
-              className="btn-add-item"
+              type="button"
+              className="btn-add-item btn-add-column"
+              onClick={() => requestCustomColumn("uut")}
+              title="Add UUT column"
+              aria-label="Add UUT column"
+            >
+              <span>Add Column</span>
+            </button>
+            <button
+              className="btn-add-item btn-add-column"
               data-tour="uut-add-function"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -8254,51 +9320,88 @@ const SummaryDashboard = ({
               }}
               title="Add Function"
             >
-              <FontAwesomeIcon icon={faPlus} size="xs" />
+              <span>Add Function</span>
             </button>
             {renderAddFunctionMenu("uut")}
           </div>
         </div>
-        <div className="panel-table-container instrument-panel-table-container" data-tour="uut-table">
+        <div
+          ref={uutTableHeight.containerRef}
+          className="panel-table-container instrument-panel-table-container"
+          data-tour="uut-table"
+          style={uutTableHeight.containerStyle}
+        >
           <table
             className="instrument-summary-table industry-table instrument-equipment-table"
             onMouseLeave={() => {
               setHoveredCell({ tableId: null, colIndex: null });
               setHoveredRowId(null);
             }}
-            style={{ tableLayout: "fixed" }}
+            style={{
+              tableLayout: "fixed",
+              width: "100%",
+              minWidth: `${uutTableColumns.minimumTableWidth}px`,
+            }}
           >
             <colgroup>
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "21%" }} />
-              <col style={{ width: "29%" }} />
-              <col style={{ width: "23%" }} />
-              <col style={{ width: "5%" }} />
+              <col style={{ width: uutTableColumns.widthFor("description") }} />
+              <col style={{ width: uutTableColumns.widthFor("range") }} />
+              <col style={{ width: uutTableColumns.widthFor("tolerance") }} />
+              <col style={{ width: uutTableColumns.widthFor("resolution") }} />
+              {customColumnsFor("uut").map((column) => (
+                <col
+                  key={column.key}
+                  style={{ width: uutTableColumns.widthFor(instrumentColumnKey(column)) }}
+                />
+              ))}
+              <col style={{ width: uutTableColumns.widthFor("sync") }} />
             </colgroup>
             <thead>
               <tr>
-                <th>Description</th>
-                <th>
+                <ResizableInstrumentHeader columnKey="description" label="Description" columns={uutTableColumns}>
+                  Description
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="range" label="Range" columns={uutTableColumns}>
                   <span className="range-header-cell">
                     <span>Range</span>
                   </span>
-                </th>
-                <th>Tolerance</th>
-                <th>Resolution</th>
-                <th className="cell-sync">Sync</th>
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="tolerance" label="Tolerance" columns={uutTableColumns}>
+                  Tolerance
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="resolution" label="Resolution" columns={uutTableColumns}>
+                  Resolution
+                </ResizableInstrumentHeader>
+                {customColumnsFor("uut").map((column) => (
+                  <ResizableInstrumentHeader
+                    key={column.key}
+                    columnKey={instrumentColumnKey(column)}
+                    label={column.label || "Name"}
+                    columns={uutTableColumns}
+                  >
+                    {renderCustomColumnHeader("uut", column)}
+                  </ResizableInstrumentHeader>
+                ))}
+                <ResizableInstrumentHeader columnKey="sync" label="Sync" columns={uutTableColumns} className="cell-sync">
+                  Sync
+                </ResizableInstrumentHeader>
               </tr>
             </thead>
             <tbody>
               {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={5}>
-                    Add a UUT using the + icon in the top-right.
+                  <td colSpan={5 + customColumnsFor("uut").length}>
+                    Add a UUT using Add Instrument in the function header.
                   </td>
                 </tr>
               ) : (
                 groupedUutRows.map((row) => {
                   if (row.type === "function") {
-                    return renderFunctionHeaderRow("uut", row.fn, 5);
+                    return renderFunctionHeaderRow(
+                      "uut",
+                      row.fn,
+                      6 + customColumnsFor("uut").length,
+                    );
                   }
 
                   const uut = row.item;
@@ -8375,7 +9478,7 @@ const SummaryDashboard = ({
                   // selects that range so the header +/-/tolerance buttons act on it.
                   if (showAllRanges) {
                     const n = visibleRangeRows.length;
-                    const spanRows = n + 1; // +1 for the trailing ghost add-row
+                    const spanRows = n;
                     const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={uutRowKey}>
@@ -8385,31 +9488,41 @@ const SummaryDashboard = ({
                             <tr
                               key={key}
                               data-range-group={itemStateKey("uut", uutRowKey)}
-                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
+                              onContextMenu={(event) =>
+                                openInstrumentRowMenu(event, "uut", uut)
+                              }
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "uut", uut, index, rangeIdOf(range), uutRowKey)
                               }
-                              draggable={i === 0 && !!onSessionSave}
+                              draggable={false}
                               onDragStart={
                                 i === 0
                                   ? handleInstrumentDragStart("uut", uut, uutFnKey)
                                   : undefined
                               }
                               onDragEnd={i === 0 ? handleInstrumentDragEnd : undefined}
-                              style={{ cursor: "pointer" }}
+                              style={functionRowStyle(uutFnKey, {
+                                cursor: "pointer",
+                              })}
                             >
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className={`cell-description ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                  className={`cell-description has-order-controls ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                   onMouseEnter={() =>
                                     setHoveredCell({ tableId: "uut", colIndex: 0 })
                                   }
                                   title={uut.description}
                                 >
+                                  <InstrumentOrderControls
+                                    onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                                    onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                                  />
                                   <EditableDescriptionCell
                                     name={uut.description}
+                                    nickname={uut.nickname}
                                     make={uut.instrument?.manufacturer}
                                     model={uut.instrument?.model}
                                     functionKey={uutFnKey}
@@ -8425,25 +9538,26 @@ const SummaryDashboard = ({
                               )}
                               {renderRangeRowCells("uut", uut, range, {
                                 includeDistribution: false,
+                                stateId: uutRowKey,
                                 canDeleteRange: true,
                                 rangeIndex: index,
                                 totalRanges: n,
+                                nextRange: visibleRangeRows[i + 1]?.range || null,
                               })}
+                              {i === 0 && renderCustomCells("uut", uut, spanRows)}
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
                                   className="cell-sync"
                                   style={{ textAlign: "center" }}
                                 >
-                                  <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                  <div className="instrument-row-tools">
+                                    <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                  </div>
                                 </td>
                               )}
                             </tr>
                           );
-                        })}
-                        {renderGhostRangeRow("uut", uut, activeRange, {
-                          includeDistribution: false,
-                          stateId: uutRowKey,
                         })}
                       </React.Fragment>
                     );
@@ -8452,10 +9566,13 @@ const SummaryDashboard = ({
                   return (
                     <React.Fragment key={uutRowKey}>
                       <tr
-                        className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                        className={`instrument-function-row ${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleUutClick(e, uut.id)}
+                        onContextMenu={(event) =>
+                          openInstrumentRowMenu(event, "uut", uut)
+                        }
                         onMouseEnter={() => setHoveredRowId(uut.id)}
-                        draggable={!!onSessionSave}
+                        draggable={false}
                         onDragStart={handleInstrumentDragStart("uut", uut, uutFnKey)}
                         onDragEnd={handleInstrumentDragEnd}
                         onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
@@ -8464,24 +9581,29 @@ const SummaryDashboard = ({
                             ? handleInstrumentDropOnArea("uut", resolveItemAreaId("uut", uut))
                             : undefined
                         }
-                        style={{
+                        style={functionRowStyle(uutFnKey, {
                           cursor: "pointer",
                           opacity: draggingInstrumentId === uut.id ? 0.4 : undefined,
                           borderBottom:
                             specRows.length > 1 ? "none" : undefined,
-                        }}
+                        })}
                       >
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-description ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                          className={`cell-description has-order-controls ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut", colIndex: 0 })
                           }
                           title={uut.description}
                         >
+                          <InstrumentOrderControls
+                            onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                            onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                          />
                           {onSessionSave ? (
                             <EditableDescriptionCell
                               name={uut.description}
+                              nickname={uut.nickname}
                               make={uut.instrument?.manufacturer}
                               model={uut.instrument?.model}
                               functionKey={uutFnKey}
@@ -8551,6 +9673,23 @@ const SummaryDashboard = ({
                                   onEnsureInitialRange={() =>
                                     ensureInitialRange("uut", uut)
                                   }
+                                  onAddRange={
+                                    index === 0
+                                      ? () => {
+                                          handleAddBlankRange("uut", uut, rangeKey);
+                                          setRangeEditingKeys((previous) =>
+                                            new Set(previous).add(
+                                              itemStateKey("uut", uutRowKey),
+                                            ),
+                                          );
+                                          setExpandedRangeKeys((previous) =>
+                                            new Set(previous).add(
+                                              itemStateKey("uut", uutRowKey),
+                                            ),
+                                          );
+                                        }
+                                      : undefined
+                                  }
                                   onOpenTolerance={() =>
                                     openRangeTolerance("uut", uut, range)
                                   }
@@ -8585,9 +9724,28 @@ const SummaryDashboard = ({
                                       activeRange={range}
                                       editable={!!onSessionSave}
                                       showMeasurementStatus
+                                      onEditingChange={(editing) => {
+                                        if (!editing) return;
+                                        setRangeEditingKeys((previous) => {
+                                          const next = new Set(previous);
+                                          next.delete(itemStateKey("uut", uutRowKey));
+                                          return next;
+                                        });
+                                        setPendingToleranceRangeKey(
+                                          `${itemStateKey("uut", uut.id)}:${rangeKey}`,
+                                        );
+                                        setExpandedRangeKeys((previous) =>
+                                          new Set(previous).add(
+                                            itemStateKey("uut", uutRowKey),
+                                          ),
+                                        );
+                                      }}
                                       openRequested={
                                         pendingToleranceRangeKey ===
                                         `${itemStateKey("uut", uut.id)}:${rangeKey}`
+                                      }
+                                      onOpenRequest={() =>
+                                        openRangeTolerance("uut", uut, range)
                                       }
                                       onOpenRequestHandled={() =>
                                         setPendingToleranceRangeKey(null)
@@ -8662,20 +9820,25 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
+                        {renderCustomCells("uut", uut, rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className="cell-sync"
                           style={{ textAlign: "center" }}
                         >
-                          <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                          <div className="instrument-row-tools">
+                            <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                          </div>
                         </td>
                       </tr>
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${uut.id}-spec-${sIdx}`}
-                          className={`spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
+                          className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
-                          style={{ cursor: "pointer" }}
+                          style={functionRowStyle(uutFnKey, {
+                            cursor: "pointer",
+                          })}
                           onClick={(e) => handleUutClick(e, uut.id)}
                         >
                           <td
@@ -8696,27 +9859,28 @@ const SummaryDashboard = ({
             </tbody>
           </table>
         </div>
+        <InstrumentTableHeightHandle kind="uut" sizing={uutTableHeight} />
       </div>
 
       {/* TMDE TABLE */}
       <div className="panel-card">
-        <div className="panel-card-header">
+        <div className="panel-card-header instrument-panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faTools} />
             <span>Test Measurement Device Equipment</span>
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
-            {selectedTmdeIds.length > 0 && (
-              <button
-                className="btn-delete-selection"
-                onClick={handleDeleteSelectedTmdes}
-                title={`Delete ${selectedTmdeIds.length} Selected TMDEs`}
-              >
-                <FontAwesomeIcon icon={faTrashAlt} size="xs" />
-              </button>
-            )}
             <button
-              className="btn-add-item"
+              type="button"
+              className="btn-add-item btn-add-column"
+              onClick={() => requestCustomColumn("tmde")}
+              title="Add TMDE column"
+              aria-label="Add TMDE column"
+            >
+              <span>Add Column</span>
+            </button>
+            <button
+              className="btn-add-item btn-add-column"
               data-tour="tmde-add-function"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -8726,53 +9890,92 @@ const SummaryDashboard = ({
               }}
               title="Add Function"
             >
-              <FontAwesomeIcon icon={faPlus} size="xs" />
+              <span>Add Function</span>
             </button>
             {renderAddFunctionMenu("tmde")}
           </div>
         </div>
-        <div className="panel-table-container instrument-panel-table-container" data-tour="tmde-table">
+        <div
+          ref={tmdeTableHeight.containerRef}
+          className="panel-table-container instrument-panel-table-container"
+          data-tour="tmde-table"
+          style={tmdeTableHeight.containerStyle}
+        >
           <table
             className="instrument-summary-table industry-table equipment-summary-table instrument-equipment-table"
             onMouseLeave={() => {
               setHoveredCell({ tableId: null, colIndex: null });
               setHoveredRowId(null);
             }}
-            style={{ tableLayout: "fixed" }}
+            style={{
+              tableLayout: "fixed",
+              width: "100%",
+              minWidth: `${tmdeTableColumns.minimumTableWidth}px`,
+            }}
           >
             <colgroup>
-              <col style={{ width: "19%" }} />
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "20%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: "24%" }} />
-              <col style={{ width: "5%" }} />
+              <col style={{ width: tmdeTableColumns.widthFor("description") }} />
+              <col style={{ width: tmdeTableColumns.widthFor("range") }} />
+              <col style={{ width: tmdeTableColumns.widthFor("tolerance") }} />
+              <col style={{ width: tmdeTableColumns.widthFor("distribution") }} />
+              <col style={{ width: tmdeTableColumns.widthFor("resolution") }} />
+              {customColumnsFor("tmde").map((column) => (
+                <col
+                  key={column.key}
+                  style={{ width: tmdeTableColumns.widthFor(instrumentColumnKey(column)) }}
+                />
+              ))}
+              <col style={{ width: tmdeTableColumns.widthFor("sync") }} />
             </colgroup>
             <thead>
               <tr>
-                <th>Description</th>
-                <th>
+                <ResizableInstrumentHeader columnKey="description" label="Description" columns={tmdeTableColumns}>
+                  Description
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="range" label="Range" columns={tmdeTableColumns}>
                   <span className="range-header-cell">
                     <span>Range</span>
                   </span>
-                </th>
-                <th>Error Limit</th>
-                <th className="cell-distribution">Distribution</th>
-                <th>Resolution</th>
-                <th className="cell-sync">Sync</th>
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="tolerance" label="Error Limit" columns={tmdeTableColumns}>
+                  Error Limit
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="distribution" label="Distribution" columns={tmdeTableColumns} className="cell-distribution">
+                  Distribution
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="resolution" label="Resolution" columns={tmdeTableColumns}>
+                  Resolution
+                </ResizableInstrumentHeader>
+                {customColumnsFor("tmde").map((column) => (
+                  <ResizableInstrumentHeader
+                    key={column.key}
+                    columnKey={instrumentColumnKey(column)}
+                    label={column.label || "Name"}
+                    columns={tmdeTableColumns}
+                  >
+                    {renderCustomColumnHeader("tmde", column)}
+                  </ResizableInstrumentHeader>
+                ))}
+                <ResizableInstrumentHeader columnKey="sync" label="Sync" columns={tmdeTableColumns} className="cell-sync">
+                  Sync
+                </ResizableInstrumentHeader>
               </tr>
             </thead>
             <tbody>
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={6}>
-                    Add a TMDE using the + icon in the top-right.
+                  <td colSpan={6 + customColumnsFor("tmde").length}>
+                    Add a TMDE using Add Instrument in the function header.
                   </td>
                 </tr>
               ) : (
                 groupedTmdeRows.map((row) => {
                   if (row.type === "function") {
-                    return renderFunctionHeaderRow("tmde", row.fn, 6);
+                    return renderFunctionHeaderRow(
+                      "tmde",
+                      row.fn,
+                      7 + customColumnsFor("tmde").length,
+                    );
                   }
 
                   const tmde = row.item;
@@ -8809,7 +10012,7 @@ const SummaryDashboard = ({
                   // per-range cell.
                   if (showAllRanges) {
                     const n = visibleRangeRows.length;
-                    const spanRows = n + 1; // +1 for the trailing ghost add-row
+                    const spanRows = n;
                     const activeRangeIndex = tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={tmdeRowKey || idx}>
@@ -8819,31 +10022,41 @@ const SummaryDashboard = ({
                             <tr
                               key={key}
                               data-range-group={itemStateKey("tmde", tmdeRowKey)}
-                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", tmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
+                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", tmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(tmde.id)}
+                              onContextMenu={(event) =>
+                                openInstrumentRowMenu(event, "tmde", tmde)
+                              }
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "tmde", tmde, index, rangeIdOf(range), tmdeRowKey)
                               }
-                              draggable={i === 0 && !!onSessionSave}
+                              draggable={false}
                               onDragStart={
                                 i === 0
                                   ? handleInstrumentDragStart("tmde", tmde, tmdeFnKey)
                                   : undefined
                               }
                               onDragEnd={i === 0 ? handleInstrumentDragEnd : undefined}
-                              style={{ cursor: "pointer" }}
+                              style={functionRowStyle(tmdeFnKey, {
+                                cursor: "pointer",
+                              })}
                             >
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className={`cell-description ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                  className={`cell-description has-order-controls ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                   onMouseEnter={() =>
                                     setHoveredCell({ tableId: "tmde", colIndex: 0 })
                                   }
                                   title={tmde.name}
                                 >
+                                  <InstrumentOrderControls
+                                    onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
+                                    onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
+                                  />
                                   <EditableDescriptionCell
                                     name={tmde.name}
+                                    nickname={tmde.nickname}
                                     make={tmde.instrument?.manufacturer}
                                     model={tmde.instrument?.model}
                                     functionKey={tmdeFnKey}
@@ -8859,25 +10072,26 @@ const SummaryDashboard = ({
                               )}
                               {renderRangeRowCells("tmde", tmde, range, {
                                 includeDistribution: true,
+                                stateId: tmdeRowKey,
                                 canDeleteRange: true,
                                 rangeIndex: index,
                                 totalRanges: n,
+                                nextRange: visibleRangeRows[i + 1]?.range || null,
                               })}
+                              {i === 0 && renderCustomCells("tmde", tmde, spanRows)}
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
                                   className="cell-sync"
                                   style={{ textAlign: "center" }}
                                 >
-                                  <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                                  <div className="instrument-row-tools">
+                                    <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                                  </div>
                                 </td>
                               )}
                             </tr>
                           );
-                        })}
-                        {renderGhostRangeRow("tmde", tmde, activeRange, {
-                          includeDistribution: true,
-                          stateId: tmdeRowKey,
                         })}
                       </React.Fragment>
                     );
@@ -8886,10 +10100,13 @@ const SummaryDashboard = ({
                   return (
                     <React.Fragment key={tmdeRowKey || idx}>
                       <tr
-                        className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
+                        className={`instrument-function-row ${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                         onClick={(e) => handleTmdeClick(e, tmde.id)}
+                        onContextMenu={(event) =>
+                          openInstrumentRowMenu(event, "tmde", tmde)
+                        }
                         onMouseEnter={() => setHoveredRowId(tmde.id)}
-                        draggable={!!onSessionSave}
+                        draggable={false}
                         onDragStart={handleInstrumentDragStart("tmde", tmde, tmdeFnKey)}
                         onDragEnd={handleInstrumentDragEnd}
                         onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
@@ -8898,24 +10115,29 @@ const SummaryDashboard = ({
                             ? handleInstrumentDropOnArea("tmde", resolveItemAreaId("tmde", tmde))
                             : undefined
                         }
-                        style={{
+                        style={functionRowStyle(tmdeFnKey, {
                           cursor: "pointer",
                           opacity: draggingInstrumentId === tmde.id ? 0.4 : undefined,
                           borderBottom:
                             specRows.length > 1 ? "none" : undefined,
-                        }}
+                        })}
                       >
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-description ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                          className={`cell-description has-order-controls ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "tmde", colIndex: 0 })
                           }
                           title={tmde.name}
                         >
+                          <InstrumentOrderControls
+                            onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
+                            onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
+                          />
                           {onSessionSave ? (
                             <EditableDescriptionCell
                               name={tmde.name}
+                              nickname={tmde.nickname}
                               make={tmde.instrument?.manufacturer}
                               model={tmde.instrument?.model}
                               functionKey={tmdeFnKey}
@@ -8929,7 +10151,7 @@ const SummaryDashboard = ({
                             />
                           ) : (
                             <>
-                              <div style={{ fontWeight: 600 }}>{tmde.name}</div>
+                              <div style={{ fontWeight: 600 }}>{tmde.nickname || tmde.name}</div>
                               {tmde.instrument && (
                                 <div
                                   style={{
@@ -8996,6 +10218,23 @@ const SummaryDashboard = ({
                                   onEnsureInitialRange={() =>
                                     ensureInitialRange("tmde", tmde)
                                   }
+                                  onAddRange={
+                                    index === 0
+                                      ? () => {
+                                          handleAddBlankRange("tmde", tmde, rangeKey);
+                                          setRangeEditingKeys((previous) =>
+                                            new Set(previous).add(
+                                              itemStateKey("tmde", tmdeRowKey),
+                                            ),
+                                          );
+                                          setExpandedRangeKeys((previous) =>
+                                            new Set(previous).add(
+                                              itemStateKey("tmde", tmdeRowKey),
+                                            ),
+                                          );
+                                        }
+                                      : undefined
+                                  }
                                   onOpenTolerance={() =>
                                     openRangeTolerance("tmde", tmde, range)
                                   }
@@ -9029,9 +10268,28 @@ const SummaryDashboard = ({
                                       tolerance={tolerance}
                                       activeRange={range}
                                       editable={!!onSessionSave}
+                                      onEditingChange={(editing) => {
+                                        if (!editing) return;
+                                        setRangeEditingKeys((previous) => {
+                                          const next = new Set(previous);
+                                          next.delete(itemStateKey("tmde", tmdeRowKey));
+                                          return next;
+                                        });
+                                        setPendingToleranceRangeKey(
+                                          `${itemStateKey("tmde", tmde.id)}:${rangeKey}`,
+                                        );
+                                        setExpandedRangeKeys((previous) =>
+                                          new Set(previous).add(
+                                            itemStateKey("tmde", tmdeRowKey),
+                                          ),
+                                        );
+                                      }}
                                       openRequested={
                                         pendingToleranceRangeKey ===
                                         `${itemStateKey("tmde", tmde.id)}:${rangeKey}`
+                                      }
+                                      onOpenRequest={() =>
+                                        openRangeTolerance("tmde", tmde, range)
                                       }
                                       onOpenRequestHandled={() =>
                                         setPendingToleranceRangeKey(null)
@@ -9127,19 +10385,24 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
+                        {renderCustomCells("tmde", tmde, rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className="cell-sync"
                           style={{ textAlign: "center" }}
                         >
-                          <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                          <div className="instrument-row-tools">
+                            <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                          </div>
                         </td>
                       </tr>
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${tmde.id}-spec-${sIdx}`}
-                          className={`spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === tmde.id ? "hovered-spec-row" : ""}`}
-                          style={{ cursor: "pointer" }}
+                          className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === tmde.id ? "hovered-spec-row" : ""}`}
+                          style={functionRowStyle(tmdeFnKey, {
+                            cursor: "pointer",
+                          })}
                           onClick={(e) => handleTmdeClick(e, tmde.id)}
                           onMouseEnter={() => setHoveredRowId(tmde.id)}
                         >
@@ -9161,6 +10424,7 @@ const SummaryDashboard = ({
             </tbody>
           </table>
         </div>
+        <InstrumentTableHeightHandle kind="tmde" sizing={tmdeTableHeight} />
       </div>
 
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
@@ -9325,7 +10589,10 @@ function DetailedView({
   collapsedFunctionKeys,
   setCollapsedFunctionKeys,
   keyboardShortcutsEnabled = true,
+  onInstrumentSelection = () => {},
 }) {
+  const latestSessionDataRef = useRef(sessionData);
+  latestSessionDataRef.current = sessionData;
   const [isSymbolMenuOpen, setIsSymbolMenuOpen] = useState(false);
   const [symbolMenuPosition, setSymbolMenuPosition] = useState({
     top: 0,
@@ -9337,6 +10604,7 @@ function DetailedView({
   // the deps array hits a temporal dead zone during render.
   const [localRangeIndices, setLocalRangeIndices] = useState({});
   const [expandedRangeKeys, setExpandedRangeKeys] = useState(() => new Set());
+  const [rangeEditingKeys, setRangeEditingKeys] = useState(() => new Set());
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
   const [pendingResolutionRangeKey, setPendingResolutionRangeKey] = useState(null);
   const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
@@ -9347,8 +10615,116 @@ function DetailedView({
   const [selectedRangeIds, setSelectedRangeIds] = useState({});
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
+
+  useEffect(() => {
+    const validUutIds = new Set((sessionData.uuts || []).map((item) => String(item.id)));
+    const validTmdeIds = new Set((sessionData.tmdes || []).map((item) => String(item.id)));
+    setSelectedUutIds((current) => {
+      const next = current.filter((id) => validUutIds.has(String(id)));
+      return next.length === current.length ? current : next;
+    });
+    setSelectedTmdeIds((current) => {
+      const next = current.filter((id) => validTmdeIds.has(String(id)));
+      return next.length === current.length ? current : next;
+    });
+  }, [sessionData.uuts, sessionData.tmdes]);
   const [detailDraggingInstrumentId, setDetailDraggingInstrumentId] = useState(null);
   const [detailDragOverFunctionTarget, setDetailDragOverFunctionTarget] = useState(null);
+  const [editingCustomColumnKey, setEditingCustomColumnKey] = useState(null);
+  const customColumnsFor = (kind) =>
+    sessionData.instrumentCustomColumns?.[kind] || [];
+  const uutTableColumns = useInstrumentColumnWidths(
+    "uut",
+    customColumnsFor("uut"),
+  );
+  const tmdeTableColumns = useInstrumentColumnWidths(
+    "tmde",
+    customColumnsFor("tmde"),
+  );
+  const uutTableHeight = useInstrumentTableHeight(
+    "detail",
+    "uut",
+    (sessionData.uuts || []).length,
+  );
+  const tmdeTableHeight = useInstrumentTableHeight(
+    "detail",
+    "tmde",
+    (sessionData.tmdes || []).length,
+  );
+  const requestCustomColumn = (kind) => {
+    const key = `field-${uuidv4().slice(0, 8)}`;
+    const current = sessionData.instrumentCustomColumns || {};
+    onSessionSave?.({
+      ...sessionData,
+      instrumentCustomColumns: {
+        ...current,
+        [kind]: [...(current[kind] || []), { key, label: "Name" }],
+      },
+    });
+    setEditingCustomColumnKey(key);
+  };
+  const updateCustomColumnLabel = (kind, key, label) => {
+    const current = sessionData.instrumentCustomColumns || {};
+    onSessionSave?.({
+      ...sessionData,
+      instrumentCustomColumns: {
+        ...current,
+        [kind]: (current[kind] || []).map((column) =>
+          column.key === key ? { ...column, label } : column,
+        ),
+      },
+    });
+    setEditingCustomColumnKey(null);
+  };
+  const requestDeleteCustomColumn = (kind, column) => {
+    confirmViaNotification(setNotification, {
+      title: `Delete ${column.label || "Custom"} Column`,
+      message: `Delete the “${column.label || "Custom"}” column? All values saved in this column will also be removed.`,
+      confirmText: "Delete",
+      onConfirm: () => {
+        const nextSession = removeInstrumentCustomColumn(
+          latestSessionDataRef.current,
+          kind,
+          column.key,
+        );
+        latestSessionDataRef.current = nextSession;
+        onSessionSave?.(nextSession);
+        setEditingCustomColumnKey(null);
+      },
+    });
+  };
+  const renderCustomColumnHeader = (kind, column) => (
+    <EditableCustomColumnHeader
+      column={column}
+      editing={editingCustomColumnKey === column.key}
+      onEdit={setEditingCustomColumnKey}
+      onCommit={(label) => updateCustomColumnLabel(kind, column.key, label)}
+      onDelete={() => requestDeleteCustomColumn(kind, column)}
+    />
+  );
+  const updateCustomField = (kind, itemId, key, value) => {
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    onSessionSave?.({
+      ...sessionData,
+      [listKey]: (sessionData[listKey] || []).map((item) =>
+        String(item.id) === String(itemId)
+          ? {
+              ...item,
+              customFields: { ...(item.customFields || {}), [key]: value },
+            }
+          : item,
+      ),
+    });
+  };
+  const renderCustomCells = (kind, item, rowSpan = 1) =>
+    customColumnsFor(kind).map((column) => (
+      <td key={column.key} rowSpan={rowSpan} className="instrument-custom-field-cell">
+        <EditableCustomFieldCell
+          value={item.customFields?.[column.key] || ""}
+          onCommit={(value) => updateCustomField(kind, item.id, column.key, value)}
+        />
+      </td>
+    ));
   const [collapsedDetailSections, setCollapsedDetailSections] = useState(
     () => new Set(sessionData.detailCollapsedSections || []),
   );
@@ -9515,6 +10891,17 @@ function DetailedView({
   const copyInstrument = (kind, item, mode = "copy") => {
     instrumentClipboard = { kind, mode, item: JSON.parse(JSON.stringify(item)) };
   };
+
+  const moveInstrument = (kind, itemId, functionKey, direction) => {
+    const updated = reorderInstrumentInSession(
+      sessionData,
+      kind,
+      itemId,
+      functionKey,
+      direction,
+    );
+    if (updated !== sessionData) onSessionSave?.(updated);
+  };
   const pasteInstrument = (kind, targetAreaId) => {
     if (!onSessionSave || !instrumentClipboard) return;
     const clip = instrumentClipboard;
@@ -9536,7 +10923,7 @@ function DetailedView({
       else setSelectedTmdeIds([clone.id]);
       onSessionSave({
         ...sessionData,
-        [listKey]: [clone, ...(sessionData[listKey] || [])],
+        [listKey]: [...(sessionData[listKey] || []), clone],
       });
     }
   };
@@ -9938,20 +11325,27 @@ function DetailedView({
     { maybePromptLocal = false } = {},
   ) => {
     if (!onSessionSave) return;
+    const currentSession = latestSessionDataRef.current;
     const localizedItem = localizeSharedInstrumentEdit(updatedItem, instruments);
     const synchronized = synchronizeLocalInstrumentDefinitions(
-      sessionData,
+      currentSession,
       localizedItem,
       kind,
     );
     const synchronizedItem = (
       kind === "uut" ? synchronized.uuts : synchronized.tmdes
     ).find((item) => String(item.id) === String(localizedItem.id)) || localizedItem;
-    onSessionSave({
-      ...sessionData,
+    const nextSession = {
+      ...currentSession,
       uuts: synchronized.uuts,
       tmdes: synchronized.tmdes,
-    });
+      testPoints:
+        kind === "tmde"
+          ? applyTmdeIdentityToPoints(currentSession.testPoints || [], localizedItem)
+          : currentSession.testPoints || [],
+    };
+    latestSessionDataRef.current = nextSession;
+    onSessionSave(nextSession);
     if (
       onSaveInstrument &&
       (synchronizedItem.instrument?.sourceId ||
@@ -9963,7 +11357,7 @@ function DetailedView({
       promptLocalLibrarySave(kind, synchronizedItem);
     }
     synchronized.tmdes.forEach((nextItem) => {
-      const previousItem = (sessionData.tmdes || []).find(
+      const previousItem = (currentSession.tmdes || []).find(
         (item) => String(item.id) === String(nextItem.id),
       );
       if (previousItem && previousItem !== nextItem) {
@@ -9986,8 +11380,18 @@ function DetailedView({
 
   const handleDetailUutDescEdit = (uutId, field, value) => {
     if (!onSessionSave) return;
+    if (field === "nickname") {
+      const currentSession = latestSessionDataRef.current;
+      const nextItems = (currentSession.uuts || []).map((item) =>
+        sameId(item.id, uutId) ? { ...item, nickname: value } : item,
+      );
+      const nextSession = { ...currentSession, uuts: nextItems };
+      latestSessionDataRef.current = nextSession;
+      onSessionSave(nextSession);
+      return;
+    }
     let updatedItem = null;
-    (sessionData.uuts || []).forEach((u) => {
+    (latestSessionDataRef.current.uuts || []).forEach((u) => {
       if (u.id !== uutId) return;
       updatedItem =
         field === "name"
@@ -10012,8 +11416,29 @@ function DetailedView({
   };
   const handleDetailTmdeDescEdit = (tmdeId, field, value) => {
     if (!onSessionSave) return;
+    if (field === "nickname") {
+      const currentSession = latestSessionDataRef.current;
+      let updatedItem = null;
+      const nextItems = (currentSession.tmdes || []).map((item) => {
+        if (!sameId(item.id, tmdeId)) return item;
+        updatedItem = { ...item, nickname: value };
+        return updatedItem;
+      });
+      if (!updatedItem) return;
+      const nextSession = {
+        ...currentSession,
+        tmdes: nextItems,
+        testPoints: applyTmdeIdentityToPoints(
+          currentSession.testPoints || [],
+          updatedItem,
+        ),
+      };
+      latestSessionDataRef.current = nextSession;
+      onSessionSave(nextSession);
+      return;
+    }
     let updatedItem = null;
-    (sessionData.tmdes || []).forEach((t) => {
+    (latestSessionDataRef.current.tmdes || []).forEach((t) => {
       if (t.id !== tmdeId) return;
       updatedItem =
         field === "name"
@@ -10392,6 +11817,27 @@ function DetailedView({
       return next;
     });
   };
+  const handleAddBlankRangeDetail = (
+    kind,
+    item,
+    activeRangeId,
+    { focusNew = false } = {},
+  ) => {
+    if (!onSessionSave) return;
+    const currentSession = latestSessionDataRef.current;
+    const listKey = kind === "uut" ? "uuts" : "tmdes";
+    const currentItem = (currentSession[listKey] || []).find(
+      (candidate) => String(candidate.id) === String(item.id),
+    ) || item;
+    const { item: updated, newRangeId } = addRangeToItem(
+      currentItem,
+      activeRangeId,
+    );
+    persistInlineItemDetail(kind, updated);
+    if (focusNew && newRangeId) {
+      setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
+    }
+  };
   const handleDeleteSelectedRanges = () => {
     if (!onSessionSave) return;
     const entry = Object.entries(selectedRangeIds).find(
@@ -10460,9 +11906,16 @@ function DetailedView({
 
   const toggleShowAllRangesDetail = (kind, stateId, itemId = stateId) => {
     const key = itemStateKey(kind, stateId);
-    if (expandedRangeKeys.has(key)) {
+    const isExpanded = expandedRangeKeys.has(key);
+    if (isExpanded) {
       sortAndPersistRangeGroupDetail(itemStateKey(kind, itemId));
     }
+    setRangeEditingKeys((previous) => {
+      const next = new Set(previous);
+      if (isExpanded) next.delete(key);
+      else next.add(key);
+      return next;
+    });
     setExpandedRangeKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -10481,32 +11934,50 @@ function DetailedView({
       rangeClickGroupRef.current = getRangeColumnClickContext(e.target);
     };
     const onDown = (e) => {
+      // Resizing is a layout action, not a click-away from the active editor.
+      if (e.target?.closest?.(".instrument-size-control")) return;
       // UnitSelect renders its options in a body-level portal. Selecting an
       // option is still an interaction with this range group, not a click-away
       // that should collapse the expanded table.
-      if (e.target?.closest?.(".inline-unit-menu")) return;
+      if (e.target?.closest?.(INLINE_EDITOR_PORTAL_SELECTOR)) return;
       // Clicking a non-focusable area (a plain cell/background) does NOT blur a
       // focused inline editor, so its onBlur commit — new range, tolerance edit,
       // clear-to-delete — would never run before the list collapses. Force the
       // focused editor to blur first so its commit lands.
-      const clickedRangeKey = rangeClickGroupRef.current?.key || null;
+      const liveClickContext = getRangeColumnClickContext(e.target);
+      const clickContext = liveClickContext.key
+        ? liveClickContext
+        : rangeClickGroupRef.current;
+      const clickedRangeKey = clickContext?.key || null;
       const clickedInsideRangeColumn =
-        Boolean(clickedRangeKey) && rangeClickGroupRef.current?.inRangeColumn;
-      const toleranceKey = rangeClickGroupRef.current?.toleranceKey || null;
-      if (toleranceKey) setPendingToleranceRangeKey(toleranceKey);
-      if (!clickedInsideRangeColumn) {
+        Boolean(clickedRangeKey) && clickContext?.inRangeColumn;
+      const clickedInsideRangeGroup = Boolean(clickedRangeKey);
+      if (!clickedInsideRangeGroup) {
         const ae = document.activeElement;
         if (ae && typeof ae.blur === "function" && ae.closest?.("[data-range-group]")) {
           ae.blur();
         }
       }
+      if (clickedInsideRangeGroup && !clickedInsideRangeColumn) {
+        setRangeEditingKeys((prev) => {
+          if (!prev.has(clickedRangeKey)) return prev;
+          const next = new Set(prev);
+          next.delete(clickedRangeKey);
+          return next;
+        });
+      }
       const keysToCollapse = [];
       expandedRangeKeys.forEach((key) => {
-        const inside = clickedInsideRangeColumn && clickedRangeKey === key;
+        const inside = clickedInsideRangeGroup && clickedRangeKey === key;
         if (!inside) keysToCollapse.push(key);
       });
       if (keysToCollapse.length === 0) return;
       setExpandedRangeKeys((prev) => {
+        const next = new Set(prev);
+        keysToCollapse.forEach((key) => next.delete(key));
+        return next;
+      });
+      setRangeEditingKeys((prev) => {
         const next = new Set(prev);
         keysToCollapse.forEach((key) => next.delete(key));
         return next;
@@ -10516,6 +11987,7 @@ function DetailedView({
       if (e.key !== "Escape") return;
       document.activeElement?.blur?.();
       setExpandedRangeKeys(new Set());
+      setRangeEditingKeys(new Set());
     };
     // Listen on "click" (fires after mousedown -> blur -> mouseup) so any
     // in-progress editor commits its onBlur BEFORE the list collapses and
@@ -10629,11 +12101,15 @@ function DetailedView({
       canDeleteRange = true,
       rangeIndex = 0,
       totalRanges = 1,
+      nextRange = null,
+      stateId = item.id,
     },
   ) => {
     const tableId = kind === "uut" ? "uut_det" : "tmde_det";
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range || {};
+    const rangeGroupKey = itemStateKey(kind, stateId);
+    const showRangeActions = rangeEditingKeys.has(rangeGroupKey);
 
     return (
       <>
@@ -10645,13 +12121,23 @@ function DetailedView({
             openRangeRowMenu(event, kind, item, range, rangeIndex, totalRanges)
           }
         >
-          <div className="range-row-cell">
+          <div
+            className={`range-row-cell${showRangeActions ? "" : " range-row-cell--without-actions"}`}
+          >
             <RangeCell
               ranges={[range]}
               activeIndex={0}
               activeRange={range}
               editable
               allowSingleToggle
+              editBlankByDefault={showRangeActions}
+              onEditingChange={(editing) => {
+                if (!editing) return;
+                setRangeEditingKeys((previous) => {
+                  if (previous.has(rangeGroupKey)) return previous;
+                  return new Set(previous).add(rangeGroupKey);
+                });
+              }}
               onSelect={() => {}}
               onEditBound={(field, value) =>
                 handleEditRangeBoundDetail(kind, item, rangeKey, field, value)
@@ -10660,25 +12146,58 @@ function DetailedView({
               onPatchRange={(patch) => patchRangeDetail(kind, item, rangeKey, patch)}
               onClearRange={() => handleRemoveRangeDetail(kind, item, rangeKey)}
               onOpenTolerance={() => openRangeToleranceDetail(kind, item, range)}
+              onAdvanceRange={
+                nextRange
+                  ? () =>
+                      setPendingRangeEditKey(
+                        `${itemStateKey(kind, item.id)}:${rangeIdOf(nextRange)}`,
+                      )
+                  : () =>
+                      handleAddBlankRangeDetail(kind, item, rangeKey, {
+                        focusNew: true,
+                      })
+              }
               openRequested={
                 pendingRangeEditKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
               }
+              onRequestEditAfterExpand={() =>
+                setPendingRangeEditKey(
+                  `${itemStateKey(kind, item.id)}:${rangeKey}`,
+                )
+              }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
-            <button
-              type="button"
-              className="range-row-delete"
-              title="Delete range"
-              aria-label="Delete range"
-              disabled={!canDeleteRange}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRemoveRangeDetail(kind, item, rangeKey);
-              }}
-            >
-              x
-            </button>
+            {showRangeActions && rangeIndex === 0 && (
+              <button
+                type="button"
+                className="range-row-add"
+                title="Add range"
+                aria-label="Add range"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAddBlankRangeDetail(kind, item, rangeKey);
+                }}
+              >
+                <FontAwesomeIcon icon={faPlus} />
+              </button>
+            )}
+            {showRangeActions && (
+              <button
+                type="button"
+                className="range-row-delete"
+                title="Delete range"
+                aria-label="Delete range"
+                disabled={!canDeleteRange}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveRangeDetail(kind, item, rangeKey);
+                }}
+              >
+                x
+              </button>
+            )}
           </div>
         </td>
 
@@ -10695,6 +12214,11 @@ function DetailedView({
             showMeasurementStatus={kind === "uut"}
             openRequested={
               pendingToleranceRangeKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
+            }
+            onOpenRequest={() =>
+              setPendingToleranceRangeKey(
+                `${itemStateKey(kind, item.id)}:${rangeKey}`,
+              )
             }
             onOpenRequestHandled={() => setPendingToleranceRangeKey(null)}
             onCommit={(nextTypeKey, component) =>
@@ -10864,6 +12388,7 @@ function DetailedView({
   // --- NEW: Row Selection Handlers ---
   const handleUutClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
+      onInstrumentSelection();
       setLastSelectionTarget("uut");
       setSelectedRangeIds({});
     }
@@ -10871,6 +12396,7 @@ function DetailedView({
   };
   const handleTmdeClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
+      onInstrumentSelection();
       setLastSelectionTarget("tmde");
       setSelectedRangeIds({});
     }
@@ -10880,14 +12406,12 @@ function DetailedView({
   const handleDeleteSelectedUuts = () => {
     if (onDeleteUut && selectedUutIds.length > 0) {
       onDeleteUut(selectedUutIds);
-      setSelectedUutIds([]);
     }
   };
 
   const handleDeleteSelectedTmdes = () => {
     if (onDeleteTmdeDefinition && selectedTmdeIds.length > 0) {
       onDeleteTmdeDefinition(selectedTmdeIds);
-      setSelectedTmdeIds([]);
     }
   };
 
@@ -11243,8 +12767,7 @@ function DetailedView({
         measurementAreaColor: activeMeasurementArea?.color || "",
         instrument,
       };
-      setSelectedUutIds([newUut.id]);
-      onSessionSave({ ...sessionData, uuts: [newUut, ...(sessionData.uuts || [])] });
+      onSessionSave({ ...sessionData, uuts: [...(sessionData.uuts || []), newUut] });
     } else {
       const newTmde = {
         id: uuidv4(),
@@ -11254,8 +12777,7 @@ function DetailedView({
         isInstrumentBased: false,
         instrument,
       };
-      setSelectedTmdeIds([newTmde.id]);
-      onSessionSave({ ...sessionData, tmdes: [newTmde, ...(sessionData.tmdes || [])] });
+      onSessionSave({ ...sessionData, tmdes: [...(sessionData.tmdes || []), newTmde] });
     }
   };
 
@@ -11360,7 +12882,7 @@ function DetailedView({
     onSessionSave ? (
       <button
         type="button"
-        className="range-header-action-btn range-header-action-btn--add function-header-action-btn"
+        className="btn-add-item btn-add-column function-header-action-btn"
         data-tour={`${kind}-add-instrument`}
         title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
         aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
@@ -11369,23 +12891,53 @@ function DetailedView({
           handleAddInstrumentToFunction(kind, fn);
         }}
       >
-        <FontAwesomeIcon icon={faPlus} size="xs" />
+        <span>Add Instrument</span>
       </button>
     ) : null;
+
+  const renderSelectedInstrumentDeleteButton = (kind, fn) => {
+    const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
+    const instrumentsForKind =
+      kind === "uut" ? sessionData.uuts || [] : sessionData.tmdes || [];
+    const hasSelectionInFunction = selectedIds.some((selectedId) =>
+      instrumentsForKind.some(
+        (instrument) =>
+          sameId(instrument.id, selectedId) &&
+          instrumentHasFunction(instrument, fn.key),
+      ),
+    );
+    if (!onSessionSave || !hasSelectionInFunction) return null;
+    const label = selectedInstrumentDeleteLabel(selectedIds.length);
+    return (
+      <button
+        type="button"
+        className="function-header-destructive-btn btn-delete-selection"
+        title={label}
+        aria-label={label}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (kind === "uut") handleDeleteSelectedUuts();
+          else handleDeleteSelectedTmdes();
+        }}
+      >
+        <span>{label}</span>
+      </button>
+    );
+  };
 
   const renderFunctionDeleteButton = (fn) =>
     onSessionSave ? (
       <button
         type="button"
-        className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
-        title="Delete function"
-        aria-label="Delete function"
+        className="function-header-destructive-btn"
+        title="Delete Function"
+        aria-label="Delete Function"
         onClick={(e) => {
           e.stopPropagation();
           handleDeleteFunction(fn);
         }}
       >
-        <FontAwesomeIcon icon={faTrashAlt} size="xs" />
+        <span>Delete Function</span>
       </button>
     ) : null;
 
@@ -11430,6 +12982,7 @@ function DetailedView({
           ? " is-function-drop-target"
           : ""
       }`}
+      style={functionBadgeStyle(fn.key)}
       onDragOver={(event) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
@@ -11440,12 +12993,19 @@ function DetailedView({
     >
       <td colSpan={colSpan}>
         <div className="function-header-row">
-          {renderFunctionColorSwatch(fn)}
-          {renderFunctionNameEditor(fn)}
-          {renderFunctionUnitChip(fn)}
-          {renderFunctionAddButton(kind, fn)}
-          {renderFunctionDeleteButton(fn)}
-          {renderFunctionCollapseButton(kind, fn)}
+          <div className="function-header-leading">
+            {renderFunctionCollapseButton(kind, fn)}
+          </div>
+          <div className="function-header-identity">
+            {renderFunctionColorSwatch(fn)}
+            {renderFunctionNameEditor(fn)}
+            {renderFunctionUnitChip(fn)}
+          </div>
+          <div className="function-header-actions">
+            {renderSelectedInstrumentDeleteButton(kind, fn)}
+            {renderFunctionDeleteButton(fn)}
+            {renderFunctionAddButton(kind, fn)}
+          </div>
         </div>
       </td>
     </tr>
@@ -12409,6 +13969,14 @@ function DetailedView({
               )
             : uutNominal),
       });
+      if (!updated.inlineValidation && Number(updated.value) <= 0) {
+        onUpdateTestPoint({
+          components: currentManualComponents.filter(
+            (componentItem) => componentItem.id !== id,
+          ),
+        });
+        return;
+      }
       onUpdateTestPoint({
         components: currentManualComponents.map((componentItem) =>
           componentItem.id === id ? updated : componentItem,
@@ -12477,6 +14045,18 @@ function DetailedView({
       onUpdateTestPoint({ tmdeTolerances: updatedTmdes });
     }
   };
+
+  const moveBudgetComponent = useCallback((componentId, direction) => {
+    const components = [...(testPointData.components || [])];
+    const index = components.findIndex(
+      (component) => String(component.id) === String(componentId),
+    );
+    if (index < 0) return;
+    const target = index + direction;
+    if (target < 0 || target >= components.length) return;
+    [components[index], components[target]] = [components[target], components[index]];
+    onUpdateTestPoint?.({ components });
+  }, [onUpdateTestPoint, testPointData.components]);
 
   const inferVariableUnit = useCallback(
     (variableName) => {
@@ -12922,7 +14502,9 @@ function DetailedView({
     // how the TMDE table labels the row; fall back to the instrument identity.
     const masterId = tmde?.sourceId ?? tmde?.id;
     const master = (sessionData.tmdes || []).find((m) => m.id === masterId);
-    const name = String(master?.name ?? tmde?.name ?? "").trim();
+    const name = String(
+      master?.nickname ?? tmde?.nickname ?? master?.name ?? tmde?.name ?? "",
+    ).trim();
     return name || formatInstrumentIdentity(master || tmde, "Unnamed TMDE");
   };
 
@@ -13285,7 +14867,7 @@ function DetailedView({
         components: [...(testPointData.components || []), ...tmdeComponents],
       });
     }
-    setBudgetTmdePicker(null);
+    // Keep the picker open so several ranges/components can be added in one pass.
   };
 
   // Add the UUT's measuring resolution to this point's budget by opting it in on
@@ -13311,7 +14893,7 @@ function DetailedView({
         ],
       });
     }
-    setBudgetTmdePicker(null);
+    // Keep the picker open for consecutive component additions.
   };
 
   // Add a TMDE's measuring resolution to this budget by opting it in on that
@@ -13389,7 +14971,7 @@ function DetailedView({
         ],
       });
     }
-    setBudgetTmdePicker(null);
+    // Keep the picker open for consecutive component additions.
   };
 
   // Add an instrument-associated Type B (e.g. head pressure) to this budget as a
@@ -13453,7 +15035,7 @@ function DetailedView({
     onUpdateTestPoint?.({
       components: [...(testPointData.components || []), pointComponent],
     });
-    setBudgetTmdePicker(null);
+    // Keep the picker open for consecutive component additions.
   };
 
   const renderBudgetTmdePicker = () => {
@@ -13631,7 +15213,16 @@ function DetailedView({
                   requireFunctionMatch: !isDerived,
                 },
               );
-              return choices.map((range, rangeIndex) => {
+              return (
+                <div
+                  key={`tmde-group-${tmde.id ?? tmde.sourceId}`}
+                  className="budget-tmde-picker-instrument"
+                >
+                  <div className="budget-tmde-picker-instrument-name">
+                    <FontAwesomeIcon icon={faTools} />
+                    <span>{getEquationTmdeLabel(tmde)}</span>
+                  </div>
+                  {choices.map((range, rangeIndex) => {
                 const detail = getBudgetTmdeDetail(tmde, range);
                 const functionLabel = range?.functionName
                   ? `${range.functionName} · `
@@ -13649,7 +15240,7 @@ function DetailedView({
                     (e.currentTarget.style.background = "transparent")
                   }
                 >
-                  <FontAwesomeIcon icon={faTools} style={{ marginTop: "2px" }} />
+                  <span className="budget-tmde-picker-range-mark" aria-hidden="true" />
                   <span
                     style={{
                       display: "flex",
@@ -13658,15 +15249,6 @@ function DetailedView({
                       minWidth: 0,
                     }}
                   >
-                    <span
-                      style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {getEquationTmdeLabel(tmde)}
-                    </span>
                     {detail && (
                       <span
                         style={{
@@ -13683,7 +15265,9 @@ function DetailedView({
                   </span>
                 </button>
                 );
-              });
+                  })}
+                </div>
+              );
             };
             return (
               <>
@@ -14124,23 +15708,23 @@ function DetailedView({
       >
         {/* 1. UUT INFORMATION */}
         <div className="panel-card uut-detail-card">
-        <div className="panel-card-header">
+        <div className="panel-card-header instrument-panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faMicroscope} />
-            <span>Units Under Test</span>
+            <span>{uutTableTitle(sessionData.uuts?.length)}</span>
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
-            {selectedUutIds.length > 0 && (
-              <button
-                className="btn-delete-selection"
-                onClick={handleDeleteSelectedUuts}
-                title={`Delete ${selectedUutIds.length} Selected UUTs`}
-              >
-                <FontAwesomeIcon icon={faTrashAlt} size="xs" />
-              </button>
-            )}
             <button
-              className="btn-add-item"
+              type="button"
+              className="btn-add-item btn-add-column"
+              onClick={() => requestCustomColumn("uut")}
+              title="Add UUT column"
+              aria-label="Add UUT column"
+            >
+              <span>Add Column</span>
+            </button>
+            <button
+              className="btn-add-item btn-add-column"
               data-tour="uut-add-function"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -14150,51 +15734,88 @@ function DetailedView({
               }}
               title="Add Function"
             >
-              <FontAwesomeIcon icon={faPlus} size="xs" />
+              <span>Add Function</span>
             </button>
             {renderAddFunctionMenu("uut")}
           </div>
         </div>
-        <div className="panel-table-container instrument-panel-table-container" data-tour="uut-table">
+        <div
+          ref={uutTableHeight.containerRef}
+          className="panel-table-container instrument-panel-table-container"
+          data-tour="uut-table"
+          style={uutTableHeight.containerStyle}
+        >
           <table
             className="instrument-summary-table industry-table instrument-equipment-table"
             onMouseLeave={() => {
               setHoveredCell({ tableId: null, colIndex: null });
               setHoveredRowId(null);
             }}
-            style={{ tableLayout: "fixed" }}
+            style={{
+              tableLayout: "fixed",
+              width: "100%",
+              minWidth: `${uutTableColumns.minimumTableWidth}px`,
+            }}
           >
             <colgroup>
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "21%" }} />
-              <col style={{ width: "29%" }} />
-              <col style={{ width: "23%" }} />
-              <col style={{ width: "5%" }} />
+              <col style={{ width: uutTableColumns.widthFor("description") }} />
+              <col style={{ width: uutTableColumns.widthFor("range") }} />
+              <col style={{ width: uutTableColumns.widthFor("tolerance") }} />
+              <col style={{ width: uutTableColumns.widthFor("resolution") }} />
+              {customColumnsFor("uut").map((column) => (
+                <col
+                  key={column.key}
+                  style={{ width: uutTableColumns.widthFor(instrumentColumnKey(column)) }}
+                />
+              ))}
+              <col style={{ width: uutTableColumns.widthFor("sync") }} />
             </colgroup>
             <thead>
               <tr>
-                <th>Description</th>
-                <th>
+                <ResizableInstrumentHeader columnKey="description" label="Description" columns={uutTableColumns}>
+                  Description
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="range" label="Range" columns={uutTableColumns}>
                   <span className="range-header-cell">
                     <span>Range</span>
                   </span>
-                </th>
-                <th>Tolerance</th>
-                <th>Resolution</th>
-                <th className="cell-sync">Sync</th>
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="tolerance" label="Tolerance" columns={uutTableColumns}>
+                  Tolerance
+                </ResizableInstrumentHeader>
+                <ResizableInstrumentHeader columnKey="resolution" label="Resolution" columns={uutTableColumns}>
+                  Resolution
+                </ResizableInstrumentHeader>
+                {customColumnsFor("uut").map((column) => (
+                  <ResizableInstrumentHeader
+                    key={column.key}
+                    columnKey={instrumentColumnKey(column)}
+                    label={column.label || "Name"}
+                    columns={uutTableColumns}
+                  >
+                    {renderCustomColumnHeader("uut", column)}
+                  </ResizableInstrumentHeader>
+                ))}
+                <ResizableInstrumentHeader columnKey="sync" label="Sync" columns={uutTableColumns} className="cell-sync">
+                  Sync
+                </ResizableInstrumentHeader>
               </tr>
             </thead>
             <tbody>
               {visibleDetailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan="5">
-                    Add a UUT using the + icon in the top-right.
+                  <td colSpan={5 + customColumnsFor("uut").length}>
+                    Add a UUT using Add Instrument in the function header.
                   </td>
                 </tr>
               ) : (
                 visibleDetailUutRows.map((row) => {
                   if (row.type === "function") {
-                    return renderFunctionHeaderRow("uut", row.fn, 5);
+                    return renderFunctionHeaderRow(
+                      "uut",
+                      row.fn,
+                      6 + customColumnsFor("uut").length,
+                    );
                   }
                   const uut = row.item;
                   const uutRowKey = row.rowKey ?? uut.id;
@@ -14225,7 +15846,7 @@ function DetailedView({
                   // columns line up (see the Session-Overview panel for rationale).
                   if (showAllRanges) {
                     const n = visibleRangeRows.length;
-                    const spanRows = n + 1; // +1 for the trailing ghost add-row
+                    const spanRows = n;
                     const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={uutRowKey}>
@@ -14235,8 +15856,11 @@ function DetailedView({
                             <tr
                               key={key}
                               data-range-group={itemStateKey("uut", uutRowKey)}
-                              className={`inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
+                              onContextMenu={(event) =>
+                                openInstrumentRowMenu(event, "uut", uut)
+                              }
                               onMouseDownCapture={(e) => {
                                 selectRangeRowDetail(e, "uut", uut, index, rangeIdOf(range), uutRowKey);
                                 // With the in-cell range switcher removed, clicking a
@@ -14246,7 +15870,7 @@ function DetailedView({
                                   handleRangeChange(uut.id, index, ranges, isActivePointUut);
                                 }
                               }}
-                              draggable={i === 0 && !!onSessionSave}
+                              draggable={false}
                               onDragStart={
                                 i === 0
                                   ? handleDetailInstrumentDragStart(
@@ -14259,12 +15883,15 @@ function DetailedView({
                               onDragEnd={
                                 i === 0 ? handleDetailInstrumentDragEnd : undefined
                               }
-                              style={{ cursor: "pointer" }}
+                              style={{
+                                ...functionBadgeStyle(uutFnKey),
+                                cursor: "pointer",
+                              }}
                             >
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className={`cell-description ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                  className={`cell-description has-order-controls ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                   onMouseEnter={() =>
                                     setHoveredCell({ tableId: "uut_det", colIndex: 0 })
                                   }
@@ -14274,9 +15901,14 @@ function DetailedView({
                                       : undefined,
                                   }}
                                 >
+                                  <InstrumentOrderControls
+                                    onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                                    onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                                  />
                                   <div className="uut-description-content">
                                     <EditableDescriptionCell
                                       name={uut.description}
+                                      nickname={uut.nickname}
                                       make={uut.instrument?.manufacturer}
                                       model={uut.instrument?.model}
                                       functionKey={uutFnKey}
@@ -14301,27 +15933,27 @@ function DetailedView({
                               )}
                               {renderRangeRowCellsDetail("uut", uut, range, {
                                 includeDistribution: false,
+                                stateId: uutRowKey,
                                 cols: { range: 1, tol: 2, res: 3 },
                                 canDeleteRange: true,
                                 rangeIndex: index,
                                 totalRanges: n,
+                                nextRange: visibleRangeRows[i + 1]?.range || null,
                               })}
+                              {i === 0 && renderCustomCells("uut", uut, spanRows)}
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
                                   className="cell-sync"
                                   style={{ textAlign: "center" }}
                                 >
-                                  <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                  <div className="instrument-row-tools">
+                                    <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                  </div>
                                 </td>
                               )}
                             </tr>
                           );
-                        })}
-                        {renderGhostRangeRowDetail("uut", uut, activeRange, {
-                          includeDistribution: false,
-                          stateId: uutRowKey,
-                          cols: { range: 1, tol: 2, res: 3 },
                         })}
                       </React.Fragment>
                     );
@@ -14330,15 +15962,19 @@ function DetailedView({
                   return (
                     <React.Fragment key={uutRowKey}>
                       <tr
-                        className={`${isSelected ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                        className={`instrument-function-row ${isSelected ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
+                        onContextMenu={(event) =>
+                          openInstrumentRowMenu(event, "uut", uut)
+                        }
                         style={{
+                          ...functionBadgeStyle(uutFnKey),
                           cursor: "pointer",
                           opacity:
                             detailDraggingInstrumentId === uut.id ? 0.4 : undefined,
                         }}
                         onClick={(e) => handleUutClick(e, uut.id)}
-                        draggable={!!onSessionSave}
+                        draggable={false}
                         onDragStart={handleDetailInstrumentDragStart(
                           "uut",
                           uut,
@@ -14349,7 +15985,7 @@ function DetailedView({
                       >
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-description ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                          className={`cell-description has-order-controls ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut_det", colIndex: 0 })
                           }
@@ -14359,10 +15995,15 @@ function DetailedView({
                               : undefined,
                           }}
                         >
+                          <InstrumentOrderControls
+                            onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
+                            onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
+                          />
                           <div className="uut-description-content">
                             {onSessionSave ? (
                               <EditableDescriptionCell
                                 name={uut.description}
+                                nickname={uut.nickname}
                                 make={uut.instrument?.manufacturer}
                                 model={uut.instrument?.model}
                                 functionKey={uutFnKey}
@@ -14375,7 +16016,7 @@ function DetailedView({
                                 }
                               />
                             ) : (
-                              <span>{uut.description}</span>
+                              <span>{uut.nickname || uut.description}</span>
                             )}
                             {isActivePointUut && (
                               <span
@@ -14446,6 +16087,27 @@ function DetailedView({
                                   onEnsureInitialRange={() =>
                                     ensureInitialRangeDetail("uut", uut)
                                   }
+                                  onAddRange={
+                                    index === 0
+                                      ? () => {
+                                          handleAddBlankRangeDetail(
+                                            "uut",
+                                            uut,
+                                            rangeIdOf(range),
+                                          );
+                                          setRangeEditingKeys((previous) =>
+                                            new Set(previous).add(
+                                              itemStateKey("uut", uutRowKey),
+                                            ),
+                                          );
+                                          setExpandedRangeKeys((previous) =>
+                                            new Set(previous).add(
+                                              itemStateKey("uut", uutRowKey),
+                                            ),
+                                          );
+                                        }
+                                      : undefined
+                                  }
                                   onOpenTolerance={() =>
                                     openRangeToleranceDetail("uut", uut, range)
                                   }
@@ -14474,8 +16136,9 @@ function DetailedView({
                         >
                           <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
                             {visibleRangeRows.map(({ range, key }) => {
+                              const rangeKey = rangeIdOf(range);
                               const tolerance =
-                                getItemRangeTolerance(uut, rangeIdOf(range)) ||
+                                getItemRangeTolerance(uut, rangeKey) ||
                                 range ||
                                 {};
                               return (
@@ -14486,9 +16149,28 @@ function DetailedView({
                                       activeRange={range}
                                       editable={!!onSessionSave}
                                       showMeasurementStatus
+                                      onEditingChange={(editing) => {
+                                        if (!editing) return;
+                                        setRangeEditingKeys((previous) => {
+                                          const next = new Set(previous);
+                                          next.delete(itemStateKey("uut", uutRowKey));
+                                          return next;
+                                        });
+                                        setPendingToleranceRangeKey(
+                                          `${itemStateKey("uut", uut.id)}:${rangeKey}`,
+                                        );
+                                        setExpandedRangeKeys((previous) =>
+                                          new Set(previous).add(
+                                            itemStateKey("uut", uutRowKey),
+                                          ),
+                                        );
+                                      }}
                                       openRequested={
                                         pendingToleranceRangeKey ===
-                                        `${itemStateKey("uut", uut.id)}:${rangeIdOf(range)}`
+                                        `${itemStateKey("uut", uut.id)}:${rangeKey}`
+                                      }
+                                      onOpenRequest={() =>
+                                        openRangeToleranceDetail("uut", uut, range)
                                       }
                                       onOpenRequestHandled={() =>
                                         setPendingToleranceRangeKey(null)
@@ -14557,21 +16239,25 @@ function DetailedView({
                             ))}
                           </div>
                         </td>
+                        {renderCustomCells("uut", uut, rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className="cell-sync"
                           style={{ textAlign: "center" }}
                         >
-                          <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                          <div className="instrument-row-tools">
+                            <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                          </div>
                         </td>
                       </tr>
 
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${uutRowKey}-spec-${sIdx}`}
-                          className={`spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
+                          className={`instrument-function-row spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           style={{
+                            ...functionBadgeStyle(uutFnKey),
                             cursor: "pointer",
                           }}
                         >
@@ -14599,6 +16285,7 @@ function DetailedView({
             </tbody>
           </table>
         </div>
+        <InstrumentTableHeightHandle kind="uut" sizing={uutTableHeight} />
         </div>
 
       </div>
@@ -14880,23 +16567,23 @@ function DetailedView({
         style={detailSectionStyle("instruments", 2)}
       >
         <div className="panel-card">
-          <div className="panel-card-header">
+          <div className="panel-card-header instrument-panel-card-header">
             <div className="panel-card-title">
               <FontAwesomeIcon icon={faTools} />
               <span>Test Measurement Device Equipment</span>
             </div>
             <div className="panel-card-actions" style={{ position: "relative" }}>
-              {selectedTmdeIds.length > 0 && (
-                <button
-                  className="btn-delete-selection"
-                  onClick={handleDeleteSelectedTmdes}
-                  title={`Delete ${selectedTmdeIds.length} Selected TMDEs`}
-                >
-                  <FontAwesomeIcon icon={faTrashAlt} size="xs" />
-                </button>
-              )}
               <button
-                className="btn-add-item"
+                type="button"
+                className="btn-add-item btn-add-column"
+                onClick={() => requestCustomColumn("tmde")}
+                title="Add TMDE column"
+                aria-label="Add TMDE column"
+              >
+                <span>Add Column</span>
+              </button>
+              <button
+                className="btn-add-item btn-add-column"
                 data-tour="tmde-add-function"
                 onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
@@ -14906,54 +16593,93 @@ function DetailedView({
                 }}
                 title="Add Function"
               >
-                <FontAwesomeIcon icon={faPlus} size="xs" />
+                <span>Add Function</span>
               </button>
               {renderAddFunctionMenu("tmde")}
             </div>
           </div>
 
-          <div className="panel-table-container instrument-panel-table-container" data-tour="tmde-table">
+          <div
+            ref={tmdeTableHeight.containerRef}
+            className="panel-table-container instrument-panel-table-container"
+            data-tour="tmde-table"
+            style={tmdeTableHeight.containerStyle}
+          >
             <table
               className="instrument-summary-table industry-table equipment-detail-table instrument-equipment-table"
               onMouseLeave={() => {
                 setHoveredCell({ tableId: null, colIndex: null });
                 setHoveredRowId(null);
               }}
-              style={{ tableLayout: "fixed" }}
+              style={{
+                tableLayout: "fixed",
+                width: "100%",
+                minWidth: `${tmdeTableColumns.minimumTableWidth}px`,
+              }}
             >
               <colgroup>
-                <col style={{ width: "19%" }} />
-                <col style={{ width: "22%" }} />
-                <col style={{ width: "20%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "24%" }} />
-                <col style={{ width: "5%" }} />
+                <col style={{ width: tmdeTableColumns.widthFor("description") }} />
+                <col style={{ width: tmdeTableColumns.widthFor("range") }} />
+                <col style={{ width: tmdeTableColumns.widthFor("tolerance") }} />
+                <col style={{ width: tmdeTableColumns.widthFor("distribution") }} />
+                <col style={{ width: tmdeTableColumns.widthFor("resolution") }} />
+                {customColumnsFor("tmde").map((column) => (
+                  <col
+                    key={column.key}
+                    style={{ width: tmdeTableColumns.widthFor(instrumentColumnKey(column)) }}
+                  />
+                ))}
+                <col style={{ width: tmdeTableColumns.widthFor("sync") }} />
               </colgroup>
               <thead>
                 <tr>
-                  <th>Description</th>
-                  <th>
+                  <ResizableInstrumentHeader columnKey="description" label="Description" columns={tmdeTableColumns}>
+                    Description
+                  </ResizableInstrumentHeader>
+                  <ResizableInstrumentHeader columnKey="range" label="Range" columns={tmdeTableColumns}>
                     <span className="range-header-cell">
                       <span>Range</span>
                     </span>
-                  </th>
-                  <th>Error Limit</th>
-                  <th className="cell-distribution">Distribution</th>
-                  <th>Resolution</th>
-                  <th className="cell-sync">Sync</th>
+                  </ResizableInstrumentHeader>
+                  <ResizableInstrumentHeader columnKey="tolerance" label="Error Limit" columns={tmdeTableColumns}>
+                    Error Limit
+                  </ResizableInstrumentHeader>
+                  <ResizableInstrumentHeader columnKey="distribution" label="Distribution" columns={tmdeTableColumns} className="cell-distribution">
+                    Distribution
+                  </ResizableInstrumentHeader>
+                  <ResizableInstrumentHeader columnKey="resolution" label="Resolution" columns={tmdeTableColumns}>
+                    Resolution
+                  </ResizableInstrumentHeader>
+                  {customColumnsFor("tmde").map((column) => (
+                    <ResizableInstrumentHeader
+                      key={column.key}
+                      columnKey={instrumentColumnKey(column)}
+                      label={column.label || "Name"}
+                      columns={tmdeTableColumns}
+                    >
+                      {renderCustomColumnHeader("tmde", column)}
+                    </ResizableInstrumentHeader>
+                  ))}
+                  <ResizableInstrumentHeader columnKey="sync" label="Sync" columns={tmdeTableColumns} className="cell-sync">
+                    Sync
+                  </ResizableInstrumentHeader>
                 </tr>
               </thead>
               <tbody>
                 {visibleDetailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan="6">
-                      Add a TMDE using the + icon in the top-right.
+                    <td colSpan={6 + customColumnsFor("tmde").length}>
+                      Add a TMDE using Add Instrument in the function header.
                     </td>
                   </tr>
                 ) : (
                   visibleDetailTmdeRows.map((row) => {
                     if (row.type === "function") {
-                      return renderFunctionHeaderRow("tmde", row.fn, 6);
+                      return renderFunctionHeaderRow(
+                        "tmde",
+                        row.fn,
+                      7 + customColumnsFor("tmde").length,
+                      );
                     }
                     const masterTmde = row.item;
                     const tmdeRowKey = row.rowKey ?? masterTmde.id;
@@ -15010,6 +16736,7 @@ function DetailedView({
                       );
 
                       const safeDescription =
+                        masterTmde.nickname ||
                         masterTmde.description ||
                         masterTmde.name ||
                         (masterTmde.instrument
@@ -15021,7 +16748,7 @@ function DetailedView({
                       // first range row.
                       if (showAllRanges) {
                         const n = visibleRangeRows.length;
-                        const spanRows = n + 1; // +1 for the trailing ghost add-row
+                        const spanRows = n;
                         const activeRangeIndex =
                           tmdeRangeIndices[rangeStateKey] ?? activeIndex;
                         return (
@@ -15032,8 +16759,11 @@ function DetailedView({
                                 <tr
                                   key={key}
                                   data-range-group={itemStateKey("tmde", tmdeRowKey)}
-                                  className={`tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", masterTmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                                  className={`instrument-function-row tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", masterTmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                                   onMouseEnter={() => setHoveredRowId(masterTmde.id)}
+                                  onContextMenu={(event) =>
+                                    openInstrumentRowMenu(event, "tmde", masterTmde)
+                                  }
                                   onMouseDownCapture={(e) => {
                                     selectRangeRowDetail(e, "tmde", masterTmde, index, rangeIdOf(range), tmdeRowKey);
                                     // Range switcher removed: activating a range row
@@ -15048,7 +16778,7 @@ function DetailedView({
                                       );
                                     }
                                   }}
-                                  draggable={i === 0 && !!onSessionSave}
+                                  draggable={false}
                                   onDragStart={
                                     i === 0
                                       ? handleDetailInstrumentDragStart(
@@ -15064,6 +16794,7 @@ function DetailedView({
                                       : undefined
                                   }
                                   style={{
+                                    ...functionBadgeStyle(tmdeFnKey),
                                     opacity: isSelectedRow ? 1 : 0.85,
                                     cursor: "pointer",
                                   }}
@@ -15071,14 +16802,19 @@ function DetailedView({
                                   {i === 0 && (
                                     <td
                                       rowSpan={spanRows}
-                                      className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                      className={`cell-description has-order-controls ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                       onMouseEnter={() =>
                                         setHoveredCell({ tableId: "tmde_det", colIndex: 0 })
                                       }
                                     >
+                                      <InstrumentOrderControls
+                                        onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
+                                        onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
+                                      />
                                       <div className="uut-description-content">
                                         <EditableDescriptionCell
                                           name={masterTmde.name}
+                                          nickname={masterTmde.nickname}
                                           make={masterTmde.instrument?.manufacturer}
                                           model={masterTmde.instrument?.model}
                                           functionKey={tmdeFnKey}
@@ -15103,30 +16839,31 @@ function DetailedView({
                                   )}
                                   {renderRangeRowCellsDetail("tmde", masterTmde, range, {
                                     includeDistribution: true,
+                                    stateId: tmdeRowKey,
                                     cols: { range: 1, tol: 2, res: 4 },
                                     canDeleteRange: true,
                                     rangeIndex: index,
                                     totalRanges: n,
+                                    nextRange: visibleRangeRows[i + 1]?.range || null,
                                   })}
+                                  {i === 0 &&
+                                    renderCustomCells("tmde", masterTmde, spanRows)}
                                   {i === 0 && (
                                     <td
                                       rowSpan={spanRows}
                                       className="cell-sync"
                                       style={{ textAlign: "center" }}
                                     >
-                                      <SyncBadge
-                                        item={masterTmde}
-                                        onSync={() => handleSyncItem("tmde", masterTmde)}
-                                      />
+                                      <div className="instrument-row-tools">
+                                        <SyncBadge
+                                          item={masterTmde}
+                                          onSync={() => handleSyncItem("tmde", masterTmde)}
+                                        />
+                                      </div>
                                     </td>
                                   )}
                                 </tr>
                               );
-                            })}
-                            {renderGhostRangeRowDetail("tmde", masterTmde, activeRange, {
-                              includeDistribution: true,
-                              stateId: tmdeRowKey,
-                              cols: { range: 1, tol: 2, res: 4 },
                             })}
                           </React.Fragment>
                         );
@@ -15135,14 +16872,18 @@ function DetailedView({
                       return (
                         <React.Fragment key={`${tmdeRowKey}-${idx}`}>
                           <tr
-                            className={`tmde-row ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                            className={`instrument-function-row tmde-row ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                             onMouseEnter={() => setHoveredRowId(masterTmde.id)}
+                            onContextMenu={(event) =>
+                              openInstrumentRowMenu(event, "tmde", masterTmde)
+                            }
                             style={{
+                              ...functionBadgeStyle(tmdeFnKey),
                               opacity: isSelectedRow ? 1 : 0.85,
                               cursor: "pointer",
                             }}
                             onClick={(e) => handleTmdeClick(e, masterTmde.id)}
-                            draggable={!!onSessionSave}
+                            draggable={false}
                             onDragStart={handleDetailInstrumentDragStart(
                               "tmde",
                               masterTmde,
@@ -15153,7 +16894,7 @@ function DetailedView({
                           >
                             <td
                               rowSpan={rowSpan}
-                              className={`cell-description ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                              className={`cell-description has-order-controls ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                               onMouseEnter={() =>
                                 setHoveredCell({
                                   tableId: "tmde_det",
@@ -15161,10 +16902,15 @@ function DetailedView({
                                 })
                               }
                             >
+                              <InstrumentOrderControls
+                                onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
+                                onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
+                              />
                               <div className="uut-description-content">
                                 {onSessionSave ? (
                                   <EditableDescriptionCell
                                     name={masterTmde.name}
+                                    nickname={masterTmde.nickname}
                                     make={masterTmde.instrument?.manufacturer}
                                     model={masterTmde.instrument?.model}
                                     functionKey={tmdeFnKey}
@@ -15275,6 +17021,27 @@ function DetailedView({
                                       onEnsureInitialRange={() =>
                                         ensureInitialRangeDetail("tmde", masterTmde)
                                       }
+                                      onAddRange={
+                                        index === 0
+                                          ? () => {
+                                              handleAddBlankRangeDetail(
+                                                "tmde",
+                                                masterTmde,
+                                                rangeKey,
+                                              );
+                                              setRangeEditingKeys((previous) =>
+                                                new Set(previous).add(
+                                                  itemStateKey("tmde", tmdeRowKey),
+                                                ),
+                                              );
+                                              setExpandedRangeKeys((previous) =>
+                                                new Set(previous).add(
+                                                  itemStateKey("tmde", tmdeRowKey),
+                                                ),
+                                              );
+                                            }
+                                          : undefined
+                                      }
                                       onOpenTolerance={() =>
                                         openRangeToleranceDetail("tmde", masterTmde, range)
                                       }
@@ -15326,9 +17093,34 @@ function DetailedView({
                                           tolerance={tolerance}
                                           activeRange={range}
                                           editable={!!onSessionSave}
+                                          onEditingChange={(editing) => {
+                                            if (!editing) return;
+                                            setRangeEditingKeys((previous) => {
+                                              const next = new Set(previous);
+                                              next.delete(
+                                                itemStateKey("tmde", tmdeRowKey),
+                                              );
+                                              return next;
+                                            });
+                                            setPendingToleranceRangeKey(
+                                              `${itemStateKey("tmde", masterTmde.id)}:${rangeKey}`,
+                                            );
+                                            setExpandedRangeKeys((previous) =>
+                                              new Set(previous).add(
+                                                itemStateKey("tmde", tmdeRowKey),
+                                              ),
+                                            );
+                                          }}
                                           openRequested={
                                             pendingToleranceRangeKey ===
                                             `${itemStateKey("tmde", masterTmde.id)}:${rangeKey}`
+                                          }
+                                          onOpenRequest={() =>
+                                            openRangeToleranceDetail(
+                                              "tmde",
+                                              masterTmde,
+                                              range,
+                                            )
                                           }
                                           onOpenRequestHandled={() =>
                                             setPendingToleranceRangeKey(null)
@@ -15459,19 +17251,23 @@ function DetailedView({
                                 })}
                               </div>
                             </td>
+                            {renderCustomCells("tmde", masterTmde, rowSpan)}
                             <td
                               rowSpan={rowSpan}
                               className="cell-sync"
                               style={{ textAlign: "center" }}
                             >
-                              <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} />
+                              <div className="instrument-row-tools">
+                                <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} />
+                              </div>
                             </td>
                           </tr>
 
                           {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                             <tr
                               key={`${tmdeRowKey}-${idx}-spec-${sIdx}`}
-                              className={`spec-row ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "hovered-spec-row" : ""}`}
+                              className={`instrument-function-row spec-row ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "hovered-spec-row" : ""}`}
+                              style={functionBadgeStyle(tmdeFnKey)}
                               onMouseEnter={() =>
                                 setHoveredRowId(masterTmde.id)
                               }
@@ -15501,6 +17297,7 @@ function DetailedView({
               </tbody>
             </table>
           </div>
+          <InstrumentTableHeightHandle kind="tmde" sizing={tmdeTableHeight} />
         </div>
       </div>
 
@@ -15531,6 +17328,7 @@ function DetailedView({
               components={calcResults?.calculatedBudgetComponents || []}
               onRemove={onRemoveComponent}
               onComponentUpdate={handleComponentUpdate}
+              onMoveComponent={moveBudgetComponent}
               ToleranceEditorComponent={InlineToleranceCell}
               applyToleranceChange={applyToleranceCaseChange}
               formatToleranceSummary={getSpecRows}
@@ -15636,7 +17434,6 @@ const UncertaintyPanel = (props) => {
       <SummaryDashboard
         viewMode={viewMode}
         contextId={testPointData.id}
-        contextName={testPointData.functionName}
         rangeData={testPointData.rangeData}
         uutId={testPointData.uutId}
         sessionData={sessionData}
@@ -15663,6 +17460,7 @@ const UncertaintyPanel = (props) => {
         collapsedFunctionKeys={collapsedFunctionKeys}
         setCollapsedFunctionKeys={setCollapsedFunctionKeys}
         keyboardShortcutsEnabled={props.keyboardShortcutsEnabled}
+        onInstrumentSelection={props.onInstrumentSelection}
       />
     );
   }

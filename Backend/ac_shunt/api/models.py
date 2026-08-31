@@ -256,7 +256,7 @@ class CalibrationSettings(models.Model):
     f5790_filter_mode = models.CharField(max_length=10, default="MEDIUM")
     f5790_filter_restart = models.CharField(max_length=10, default="MEDIUM")
     f5790_hires_enabled = models.BooleanField(default=True)
-    f5790_range_mode = models.CharField(max_length=8, default="AUTO")
+    f5790_range_mode = models.CharField(max_length=8, default="2.2")
     f5790_input_switch_settling_time = models.FloatField(
         default=30.0,
         help_text="Delay after switching INPUT1/INPUT2 on a shared 5790A/B.",

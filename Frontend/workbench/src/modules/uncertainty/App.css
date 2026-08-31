@@ -82,10 +82,24 @@ body.uncertainty-active {
   /* UI Elements */
   --border-color: #e2e8f0;
   --border-color-strong: #cbd5e1;
+  --table-divider-color: color-mix(
+    in srgb,
+    var(--border-color) 88%,
+    var(--text-color-muted)
+  );
   --border-width: 1px;
   --border-radius: 6px;
   --modal-radius: 16px;
   --seal-radius: 30px;
+
+  /* Measurement-point row geometry. The merged (vertically collapsed) sidebar
+     cells position their label and their seam bridge against these, so the
+     row box and the overlays drawn on top of it can never drift apart. */
+  --sidebar-point-row-seam: 1px; /* gap between consecutive point rows */
+  --sidebar-point-row-pad: 10px; /* row inline padding */
+  --sidebar-point-row-inset: 6px; /* row border + block padding above a cell */
+  --sidebar-point-row-border: 1px;
+  --sidebar-point-column-gap: 8px;
 
   /* Toggles */
   --toggle-bg-off: #dee2e6;
@@ -142,8 +156,8 @@ body.uncertainty-active {
   --heading-color: #2c3e50;
 
   /* Table Highlighting (Industry Grade) */
-  --table-hover-row-bg: rgba(33, 37, 41, 0.03);
-  --table-hover-col-bg: rgba(33, 37, 41, 0.02);
+  --table-hover-row-bg: rgba(37, 99, 235, 0.055);
+  --table-hover-col-bg: rgba(37, 99, 235, 0.04);
   --table-selected-row-bg: rgba(0, 123, 255, 0.12);
   --table-selected-border: var(--primary-color);
 }
@@ -2003,6 +2017,22 @@ body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
   min-width: fit-content;
 }
 
+/* Shift-click is the measurement point list's range-select gesture, so the
+   browser must not also extend a text selection across every row it spans -
+   that is what left stray blue text highlights over the metric columns.
+   Inline editors keep normal text selection and caret behaviour. */
+.uncertainty-module .sidebar-points-scroll-wrapper {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.uncertainty-module
+  .sidebar-points-scroll-wrapper
+  :is(input, textarea, [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* =================================================================== */
 /* QUICK ADD CARD (Clean & Simple)                                     */
 /* =================================================================== */
@@ -2637,7 +2667,7 @@ body.dark-mode .uncertainty-module .analysis-container > .analysis-tabs {
 /* Multi-row Spec Handling */
 /* 1. Default: Dashed border for sub-rows (separator) */
 .industry-table tr.spec-row td {
-  border-top: 1px dashed var(--border-color);
+  border-top: 1px dashed var(--table-divider-color);
 }
 
 .industry-table tbody tr.instrument-area-section-row {
@@ -4324,7 +4354,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   padding: 10px 12px;
   text-align: left;
   vertical-align: middle;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--table-divider-color);
 }
 
 .uncertainty-budget-table thead th {
@@ -7849,7 +7879,7 @@ body.dark-mode .analyzed-components-title {
 }
 
 .context-menu {
-  position: absolute;
+  position: fixed;
   background-color: var(--content-background);
   border: 1px solid var(--border-color);
   border-radius: 8px;
@@ -10656,7 +10686,7 @@ body.theme-cyberpunk .notification-window .window-header {
   padding: 6px 10px;
   color: var(--text-color-muted);
   background: var(--content-background);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--table-divider-color);
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -10667,7 +10697,7 @@ body.theme-cyberpunk .notification-window .window-header {
 .measurement-inputs-table td {
   height: 42px;
   padding: 5px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
+  border-bottom: 1px solid var(--table-divider-color);
   vertical-align: middle;
 }
 
@@ -11464,31 +11494,6 @@ body.theme-cyberpunk .notification-window .window-header {
   flex: 1;
 }
 
-/* Delete button in card headers */
-.panel-card-header .btn-delete-selection {
-  color: var(--status-bad);
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: none;
-  transform: none;
-  transition: color 0.15s ease, background-color 0.15s ease;
-}
-
-.panel-card-header .btn-delete-selection:hover {
-  background: rgba(255, 82, 82, 0.1);
-  border-color: transparent;
-  box-shadow: none;
-  transform: none;
-}
-
 /* Add button in card headers */
 .panel-card-header .btn-add-item {
   width: 28px;
@@ -11583,7 +11588,7 @@ body.theme-cyberpunk .notification-window .window-header {
   letter-spacing: normal;
   padding: 10px 12px;
   text-align: left;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--table-divider-color);
   font-size: 0.9rem;
   border-top: 1px solid var(--border-color);
   white-space: nowrap; /* Headers should never wrap */
@@ -11606,13 +11611,13 @@ body.theme-cyberpunk .notification-window .window-header {
      own border in Chromium, so the bottom rule is drawn with a box-shadow. */
   position: sticky;
   top: 0;
-  z-index: 3;
-  box-shadow: inset 0 -1px 0 var(--border-color);
+  z-index: 20;
+  box-shadow: inset 0 -1px 0 var(--table-divider-color);
 }
 
 .instrument-summary-table td {
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--table-divider-color);
   color: var(--text-color);
   vertical-align: middle;
   font-family: inherit;
@@ -11623,6 +11628,11 @@ body.theme-cyberpunk .notification-window .window-header {
 
 .instrument-summary-table tbody tr {
   transition: background-color 0.15s ease;
+}
+
+.instrument-summary-table th:not(:last-child),
+.instrument-summary-table td:not(:last-child) {
+  border-right: 1px solid var(--table-divider-color);
 }
 
 /* Numeric/Value columns should NOT wrap - these are critical for readability */
@@ -11736,7 +11746,8 @@ body.theme-cyberpunk .notification-window .window-header {
 }
 
 .inline-desc-combined {
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
   min-height: 54px;
   display: flex;
   align-items: center;
@@ -11755,8 +11766,8 @@ body.theme-cyberpunk .notification-window .window-header {
 }
 
 .inline-desc-combined:hover {
-  border-color: var(--border-color);
-  background: rgba(var(--primary-rgb), 0.04);
+  border-color: transparent;
+  background: transparent;
 }
 
 .inline-desc-combined.is-empty {
@@ -11827,9 +11838,8 @@ input.inline-desc-subinput:focus-visible {
 .instrument-summary-table td.cell-sync,
 .industry-table th.cell-sync,
 .industry-table td.cell-sync {
-  width: 52px;
-  min-width: 52px;
-  max-width: 52px;
+  width: auto;
+  min-width: 0;
   text-align: center;
   padding-left: 6px;
   padding-right: 6px;
@@ -11845,9 +11855,20 @@ input.inline-desc-subinput:focus-visible {
   margin: 0 auto;
 }
 
+/* The badge sits in an instrument row, which carries its function's colour.
+   Hovering it picked up the application blue instead, so the button read as
+   belonging to a different function than the row it was in. */
 .inline-sync-badge:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--primary-color) 10%, transparent);
-  border-color: color-mix(in srgb, var(--primary-color) 28%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--instrument-function-color, var(--primary-color)) 10%,
+    transparent
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--instrument-function-color, var(--primary-color)) 28%,
+    transparent
+  );
 }
 
 .inline-sync-badge:disabled {
@@ -12277,17 +12298,78 @@ input.inline-function-input:focus {
   opacity: 0.4;
 }
 
-/* Function subsection header: color swatch, editable name, unit, and the
-   add/delete controls — kept on one tidy baseline-aligned row. */
+/* Function subsection header: keep the identity anchored at the start so it
+   reads as the label for the rows below, while actions remain at the far edge. */
 .function-header-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
+}
+
+.function-header-leading {
+  grid-column: 1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+}
+
+.function-header-identity {
+  grid-column: 2;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 0.92rem;
+  font-weight: 800;
   white-space: normal;
-  flex-wrap: wrap;
+}
+
+.function-header-actions {
+  grid-column: 3;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.function-header-destructive-btn {
+  width: auto;
+  height: 24px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--status-bad);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: none;
+  transform: none;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.function-header-destructive-btn:hover,
+.function-header-destructive-btn:focus-visible {
+  background: color-mix(in srgb, var(--status-bad) 6%, transparent);
+  color: var(--status-bad);
+  outline: none;
+  box-shadow: none;
+  transform: none;
 }
 
 .function-header-name {
@@ -12338,7 +12420,7 @@ input.inline-function-input:focus {
 }
 
 .function-header-action-btn:first-of-type {
-  margin-left: 4px;
+  margin-left: 0;
 }
 
 /* Destructive function actions stay visually quiet until the user is working
@@ -12756,9 +12838,17 @@ input.inline-function-input:focus {
 }
 
 .function-header-collapse-btn:hover {
-  color: var(--text-color);
-  border-color: var(--border-color);
-  background: var(--input-background);
+  color: var(--function-input-accent, var(--primary-color));
+  border-color: color-mix(
+    in srgb,
+    var(--function-input-accent, var(--primary-color)) 42%,
+    transparent
+  );
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent, var(--primary-color)) 12%,
+    transparent
+  );
 }
 
 .range-stack {
@@ -12781,6 +12871,210 @@ input.inline-function-input:focus {
   width: 100%;
 }
 
+.point-uut-selector-cell .inline-menu-select {
+  width: 100%;
+  min-width: 0;
+}
+
+.point-uut-summary {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 1px 2px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.point-uut-summary:hover,
+.point-uut-summary:focus-visible {
+  border-color: var(--border-color);
+  background: var(--input-background);
+  outline: none;
+}
+
+.point-uut-selector-cell .inline-menu-select-trigger {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  padding: 1px 4px 1px 2px;
+  text-overflow: ellipsis;
+}
+
+.point-uut-selector-cell .inline-menu-select-trigger:hover,
+.point-uut-selector-cell .inline-menu-select-trigger:focus {
+  border-color: var(--border-color);
+  background: var(--input-background);
+  outline: none;
+}
+
+.btn-add-column {
+  width: auto;
+  gap: 5px;
+  padding-inline: 7px;
+  font-size: 0.72rem;
+}
+
+.panel-card-actions .btn-add-item:has(span),
+.function-header-action-btn:has(span) {
+  width: auto;
+  gap: 5px;
+  padding-inline: 6px;
+}
+
+.function-header-action-btn.btn-add-item {
+  height: 24px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  position: relative;
+  top: 0;
+}
+
+.function-header-action-btn.btn-add-item:hover,
+.function-header-action-btn.btn-add-item:focus-visible {
+  color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.06);
+  outline: none;
+}
+
+.instrument-custom-field-cell {
+  min-width: 120px;
+  vertical-align: middle;
+}
+
+.instrument-custom-field-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  padding: 4px 6px;
+}
+
+.instrument-custom-field-input:hover,
+.instrument-custom-field-input:focus {
+  border-color: var(--border-color);
+  background: var(--input-background);
+  outline: none;
+}
+
+.range-inline-add-btn {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--primary-color);
+  background: transparent;
+  cursor: pointer;
+}
+
+.range-inline-add-btn:hover,
+.range-inline-add-btn:focus-visible {
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+}
+
+.budget-tmde-picker-instrument + .budget-tmde-picker-instrument {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-color);
+}
+
+.budget-tmde-picker-instrument-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px 2px;
+  color: var(--text-color);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.budget-tmde-picker-range-mark {
+  width: 8px;
+  height: 8px;
+  margin-left: 4px;
+  border-left: 1px solid var(--border-color-strong);
+  border-bottom: 1px solid var(--border-color-strong);
+  flex: 0 0 auto;
+}
+
+.budget-order-controls {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.budget-source-cell.has-order-controls {
+  position: relative;
+  padding-left: 58px;
+}
+
+.budget-order-controls button {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text-color-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+
+.uncertainty-budget-table tr:hover .budget-order-controls,
+.uncertainty-budget-table tr:focus-within .budget-order-controls,
+.budget-order-controls:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.budget-order-controls button:hover,
+.budget-order-controls button:focus-visible {
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+  outline: none;
+}
+
 /* ------------------------------------------------------------------ */
 /* Expanded "view all ranges": each range is its own real table row.  */
 /* The <tr> boundary keeps Range / Tolerance / Resolution aligned      */
@@ -12789,7 +13083,7 @@ input.inline-function-input:focus {
 /* ------------------------------------------------------------------ */
 .industry-table tbody tr.inline-range-row > td {
   vertical-align: middle;
-  border-bottom: 1px dashed var(--border-color);
+  border-bottom: 1px solid var(--table-divider-color);
 }
 
 /* Range controls are deliberately contained by their table cell. This keeps
@@ -12807,11 +13101,11 @@ input.inline-function-input:focus {
 
 /* Separate one instrument's range block from the next with a solid rule. */
 .industry-table tbody tr.inline-range-row--first > td {
-  border-top: 1px solid var(--border-color-strong);
+  border-top: 1px solid var(--table-divider-color);
 }
 
 .industry-table tbody tr.inline-range-row--last > td {
-  border-bottom: 1px solid var(--border-color-strong);
+  border-bottom: 1px solid var(--table-divider-color);
 }
 
 /* rowSpan Description / Sync cells stay vertically centered over the group. */
@@ -12850,21 +13144,29 @@ input.inline-function-input:focus {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 55%, transparent);
 }
 
-/* Range cell: editor fills the row, delete tucks to the right edge. */
+/* Expanded range rows reserve their controls on a separate line so the
+   min/max/unit inputs always retain their full readable width. */
 .range-row-cell {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px 24px;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
   min-width: 0;
 }
 
 .range-row-cell > .inline-range-editor {
-  flex: 1 1 auto;
+  grid-column: 1;
+  width: 100%;
   min-width: 0;
 }
 
-.range-row-delete {
+.industry-table tbody tr.inline-range-row > td[data-range-cell="true"] {
+  min-width: 270px;
+}
+
+.range-row-delete,
+.range-row-add {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -12881,9 +13183,26 @@ input.inline-function-input:focus {
   transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
 }
 
-/* Reveal the delete affordance only while the row is hovered or keyboard-focused. */
+.range-row-add {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: center;
+  color: var(--primary-color);
+  opacity: 0;
+}
+
+.range-row-delete {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+/* Reveal row actions only while the row is hovered or keyboard-focused. */
 .industry-table tbody tr.inline-range-row:hover .range-row-delete,
-.range-row-delete:focus-visible {
+.industry-table tbody tr.inline-range-row:hover .range-row-add,
+.industry-table tbody tr.inline-range-row:focus-within .range-row-delete,
+.industry-table tbody tr.inline-range-row:focus-within .range-row-add,
+.range-row-delete:focus-visible,
+.range-row-add:focus-visible {
   opacity: 1;
 }
 
@@ -12897,11 +13216,241 @@ input.inline-function-input:focus {
   opacity: 0;
 }
 
-/* A range can be removed from the one-level-up range list. While its bound,
-   unit, or prefix editor is open, remove the redundant action entirely so it
-   cannot collide with the trailing prefix control. */
-.range-row-cell:has(.inline-range-editor.is-editing) > .range-row-delete {
-  display: none;
+.range-row-add:hover {
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+}
+
+.range-row-add--inline {
+  flex: 0 0 24px;
+  grid-column: auto;
+  grid-row: auto;
+}
+
+.inline-range-editor.is-editing:hover .range-row-add--inline,
+.inline-range-editor.is-editing:focus-within .range-row-add--inline {
+  opacity: 1;
+}
+
+.instrument-row-tools {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+}
+
+.instrument-order-controls {
+  display: inline-flex;
+  gap: 1px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.instrument-summary-table td.cell-description.has-order-controls {
+  position: relative;
+  padding-left: 56px;
+}
+
+.instrument-order-controls--gutter {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  z-index: 2;
+  transform: translateY(-50%);
+}
+
+.instrument-summary-table tbody tr:hover .instrument-order-controls,
+.industry-table tbody tr:hover .instrument-order-controls,
+.instrument-order-controls:has(button:focus-visible) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.range-row-cell.range-row-cell--without-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.instrument-order-controls button {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  color: var(--text-color-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.instrument-order-controls button:hover,
+.instrument-order-controls button:focus-visible {
+  color: var(--function-input-accent, var(--primary-color));
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent, var(--primary-color)) 14%,
+    transparent
+  );
+}
+
+.instrument-resizable-header {
+  position: sticky;
+  padding-right: 13px !important;
+}
+
+.instrument-resizable-header-content {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.instrument-column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  z-index: 3;
+  width: 9px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.instrument-column-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 22%;
+  bottom: 22%;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background-color 0.12s ease;
+}
+
+.instrument-column-resize-handle:hover::after,
+.instrument-column-resize-handle:focus-visible::after {
+  background: var(--primary-color);
+}
+
+.instrument-column-resize-handle:focus-visible {
+  outline: none;
+}
+
+.instrument-table-height-resize-handle {
+  position: relative;
+  display: block;
+  width: 100%;
+  flex: 0 0 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  background: color-mix(in srgb, var(--table-header-bg) 34%, transparent);
+  color: var(--text-color-muted);
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+  z-index: 25;
+}
+
+.instrument-table-height-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 34px;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 34%, transparent);
+  transform: translateX(-50%);
+  transition:
+    width 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.instrument-table-height-resize-handle:hover::after,
+.instrument-table-height-resize-handle:focus-visible::after {
+  width: 46px;
+  background: var(--primary-color);
+}
+
+.instrument-table-height-resize-handle:focus-visible {
+  outline: none;
+}
+
+.instrument-custom-column-label,
+.instrument-custom-column-name-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px 4px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+
+.instrument-custom-column-label {
+  cursor: text;
+}
+
+.instrument-custom-column-header {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.instrument-custom-column-header .instrument-custom-column-label {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.instrument-custom-column-delete {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-color-muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+
+.instrument-custom-column-header:hover .instrument-custom-column-delete,
+.instrument-custom-column-header:focus-within .instrument-custom-column-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.instrument-custom-column-delete:hover,
+.instrument-custom-column-delete:focus-visible {
+  color: var(--status-bad);
+  background: rgba(255, 82, 82, 0.12);
+  outline: none;
+}
+
+.instrument-custom-column-name-input:focus {
+  border-color: var(--primary-color);
+  outline: none;
+  background: var(--input-background);
 }
 
 /* --- Collapsed range cell: clicking the active range opens the full editable
@@ -12922,7 +13471,7 @@ input.inline-function-input:focus {
   min-height: 36px;
   height: 36px;
   padding: 4px 0;
-  border-bottom: 1px dashed color-mix(in srgb, var(--border-color) 72%, transparent);
+  border-bottom: 1px solid var(--table-divider-color);
   overflow: hidden;
 }
 
@@ -13040,7 +13589,7 @@ input.inline-function-input:focus {
   gap: 6px;
   min-height: 24px;
   padding: 0 5px 3px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  border-bottom: 1px solid var(--table-divider-color);
 }
 
 .inline-tolerance-mini-toggle {
@@ -13112,8 +13661,8 @@ input.inline-function-input:focus {
   /* Horizontal negative margin keeps the hover background flush with the cell
      without shifting the text; vertical margin stays 0 so the summary lines up
      with the adjacent distribution dropdown (cell is vertical-align:middle). */
-  padding: 2px 6px;
-  margin: 0 -6px;
+  padding: 2px 5px;
+  margin: 0;
   border-radius: 5px;
   white-space: nowrap;
   transition:
@@ -13132,7 +13681,9 @@ input.inline-function-input:focus {
 .inline-tolerance-summary.is-empty {
   color: var(--text-color-muted);
   font-style: italic;
-  min-width: 100%;
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
   min-height: 24px;
 }
 
@@ -13260,15 +13811,15 @@ input.inline-function-input:focus {
   box-sizing: border-box;
 }
 
-/* Resolution's distribution control is the same compact, 72px control as the
-   adjacent unit selector; keep the table-wide select minimum from stretching
-   it back into the next column. */
+/* Keep the resolution distribution's complete type name visible while
+   preventing the table-wide select minimum from stretching it into the next
+   column. */
 .uncertainty-module .instrument-summary-table .inline-resolution-editor
   > .inline-resolution-dist.inline-unit-like-selector {
-  flex: 0 0 var(--inline-unit-width, 72px);
-  width: var(--inline-unit-width, 72px);
-  min-width: var(--inline-unit-width, 72px);
-  max-width: var(--inline-unit-width, 72px);
+  flex: 0 0 var(--inline-unit-width, 144px);
+  width: var(--inline-unit-width, 144px);
+  min-width: var(--inline-unit-width, 144px);
+  max-width: var(--inline-unit-width, 144px);
 }
 
 .inline-tolerance-single-sided-row .inline-tolerance-limits {
@@ -13299,6 +13850,31 @@ input.inline-function-input:focus {
   border-radius: 0;
   white-space: nowrap;
   box-sizing: border-box;
+}
+
+/* Read-view hit areas hug the visible label instead of filling the table cell. */
+.inline-range-editor:not(.is-editing) {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.inline-range-editor:not(.is-editing) .inline-range-main {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.inline-range-editor:not(.is-editing) .inline-tolerance-summary {
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.inline-tolerance-editor--all
+  > .inline-tolerance-term-group
+  + .inline-tolerance-term-group {
+  margin-top: 3px;
+  padding-top: 6px;
+  border-top: 1px solid var(--table-divider-color);
 }
 
 /* Shared Type B cards use the same compact tolerance summary/read view as the
@@ -13715,12 +14291,12 @@ input.inline-resolution-input {
 }
 
 /* Resolution-cell distribution picker (its rounding distribution for the
-   budget). Compact so the value + unit + distribution fit one editing row. */
+   budget). Wide enough for complete distribution names. */
 .inline-menu-select.inline-resolution-dist.inline-unit-like-selector {
-  flex: 0 0 var(--inline-unit-width, 72px);
-  width: var(--inline-unit-width, 72px);
-  min-width: var(--inline-unit-width, 72px);
-  max-width: var(--inline-unit-width, 72px);
+  flex: 0 0 var(--inline-unit-width, 144px);
+  width: var(--inline-unit-width, 144px);
+  min-width: var(--inline-unit-width, 144px);
+  max-width: var(--inline-unit-width, 144px);
   height: 24px;
   min-height: 24px;
   max-height: 24px;
@@ -13792,6 +14368,18 @@ input.inline-resolution-input {
   color: var(--primary-color);
   border-color: var(--primary-color);
   background: rgba(var(--primary-rgb), 0.06);
+}
+
+/* IV and Range/FS use the same compact trigger and portaled option surface as
+   the other inline table selectors. */
+.inline-tolerance-unit-select,
+.inline-tolerance-unit-select .inline-unit-combobox {
+  height: 24px;
+  font-size: 0.7rem;
+}
+
+.inline-tolerance-unit-select .inline-unit-combobox {
+  color: var(--text-color-muted);
 }
 
 .inline-tolerance-chip.is-pending {
@@ -14851,19 +15439,6 @@ body.theme-cyberpunk .range-header-container:hover {
   z-index: 40;
 }
 
-.sidebar-empty-uut-row {
-  display: grid;
-  align-items: center;
-  min-height: 34px;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-color-muted);
-  cursor: pointer;
-}
-
-.sidebar-empty-uut-row:hover {
-  background: var(--input-background);
-}
-
 .sidebar-empty-uut-row .point-uut-name,
 .sidebar-empty-uut-copy {
   min-width: 0;
@@ -15078,7 +15653,7 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
   align-items: center;
   min-height: 30px;
   padding: 5px 14px;
-  margin-bottom: 1px;
+  margin-bottom: var(--sidebar-point-row-seam);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -15092,9 +15667,9 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
 /* Header and data rows must use identical horizontal geometry. */
 .sidebar-column-headers,
 .point-grid-item {
-  column-gap: 8px;
-  padding-left: 10px;
-  padding-right: 10px;
+  column-gap: var(--sidebar-point-column-gap);
+  padding-left: var(--sidebar-point-row-pad);
+  padding-right: var(--sidebar-point-row-pad);
   box-sizing: border-box;
 }
 
@@ -15147,11 +15722,35 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
    different range units remain immediately distinguishable in the sidebar. */
 .point-value-with-unit {
   display: flex;
-  align-items: baseline;
-  gap: 4px;
-  min-width: max-content;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
   width: 100%;
   overflow: visible;
+}
+
+/* The hover cue for an editable sidebar cell. It hugs its own content rather
+   than filling the column - stretching it to the full Value column made a
+   two-character reading look like a text box several times its width - and it
+   keeps a floor so an empty Section or Qualifier is still an obvious target. */
+.point-edit-affordance {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  width: max-content;
+  max-width: 100%;
+  min-width: 1.75em;
+  padding: 1px 2px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  transition: border-color 0.1s ease, background-color 0.1s ease,
+    box-shadow 0.1s ease;
+}
+
+/* Inside the affordance the label is sized by its text, not by the cell. */
+.point-edit-affordance > .point-grouped-cell-label {
+  width: auto;
 }
 
 .point-value-number {
@@ -15189,12 +15788,6 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
 .point-grid-item:not(.active) .point-section:hover,
 .point-grid-item:not(.active) .point-value:hover {
   cursor: pointer;
-}
-
-/* Active State: Highlight the Section Label too (when not hovering) */
-.point-grid-item.active .point-section {
-  color: var(--primary-color);
-  opacity: 0.8;
 }
 
 /* ------------------------------------------------------------------- */
@@ -15272,19 +15865,87 @@ body.theme-cyberpunk.dark-mode .point-grid-item.active .point-section {
 /* =================================================================== */
 
 body.uncertainty-active .notification-toast {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(360px, calc(100vw - 28px));
+  min-width: min(280px, calc(100vw - 28px));
+  max-width: 360px;
+  padding: 10px 12px;
   background-color: var(--content-background);
-  border-color: var(--border-color-strong);
-  border-radius: 10px;
+  border: 1px solid var(--border-color-strong);
+  border-left-width: 3px;
+  border-radius: 8px;
   color: var(--text-color);
   box-shadow:
-    0 14px 36px rgba(15, 23, 42, 0.16),
+    0 10px 28px rgba(15, 23, 42, 0.14),
     0 0 0 1px rgba(var(--primary-rgb), 0.04);
   backdrop-filter: blur(12px);
+  overflow: hidden;
+}
+
+body.uncertainty-active .notification-toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+body.uncertainty-active .notification-toast-stack .notification-toast {
+  pointer-events: auto;
+}
+
+body.uncertainty-active .toast-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  font-size: 0.92rem;
+}
+
+body.uncertainty-active .toast-content {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-color);
+}
+
+body.uncertainty-active .toast-dismiss {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+body.uncertainty-active .toast-dismiss:hover,
+body.uncertainty-active .toast-dismiss:focus-visible {
+  background: color-mix(in srgb, var(--text-color) 7%, transparent);
+  color: var(--text-color);
+  outline: none;
 }
 
 body.dark-mode.uncertainty-active .notification-toast {
   box-shadow:
-    0 18px 42px rgba(0, 0, 0, 0.5),
+    0 12px 32px rgba(0, 0, 0, 0.48),
     0 0 0 1px rgba(var(--primary-rgb), 0.08);
 }
 
@@ -15563,7 +16224,7 @@ body.theme-cyberpunk .uut-row::before {
 /* 7. Multi-row Spec Handling */
 /* Default: Dashed border for sub-rows (separator) */
 .industry-table tr.spec-row td {
-  border-top: 1px dashed var(--border-color);
+  border-top: 1px dashed var(--table-divider-color);
 }
 
 /* Continue hover through every row belonging to the same instrument. */
@@ -16054,8 +16715,9 @@ body.theme-cyberpunk .area-header-sticky {
 }
 
 .panel-table-container.instrument-panel-table-container {
-  max-height: none;
-  overflow-y: visible;
+  max-height: min(56vh, 560px);
+  min-height: 0;
+  overflow-y: auto;
   overflow-x: auto;
 }
 
@@ -17568,6 +18230,945 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   font-size: 0.74rem;
 }
 
+/* Function-colored instrument groups. The restrained base wash connects each
+   row to its function header without competing with editable values; selection
+   stays in the same color family and becomes deliberately more substantial. */
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-area-section-row
+  > td {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 22%,
+    var(--content-background)
+  ) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 12%,
+    var(--content-background)
+  ) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row
+  > td {
+  background-color: transparent;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row:not(.selected-row):not(.instrument-selected):not(.selected-spec-row):hover,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.row-hovered:not(.selected-row):not(.instrument-selected),
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.hovered-spec-row:not(.selected-spec-row) {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 16%,
+    var(--content-background)
+  ) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-row,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.instrument-selected,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-spec-row,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-row:hover,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.instrument-selected:hover,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-spec-row:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 22%,
+    var(--content-background)
+  ) !important;
+  border-left: 0 !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-row
+  > td,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.instrument-selected
+  > td,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-spec-row
+  > td {
+  background-color: transparent !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.selected-row
+  > td:first-child,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.inline-range-row--first.instrument-selected
+  > td:first-child {
+  box-shadow: inset 4px 0 0 var(--instrument-function-color) !important;
+}
+
+/* Every editor inside a function section uses that section's accent. Keep a
+   separate variable rather than replacing the app-wide primary token so
+   portaled menus and unrelated controls retain their normal theme styling. */
+.uncertainty-module
+  .industry-table
+  tr.instrument-area-section-row,
+.uncertainty-module
+  .industry-table
+  tr.instrument-function-row {
+  --function-input-accent: var(--instrument-function-color);
+}
+
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  :is(input, select, textarea, [contenteditable="true"]) {
+  caret-color: var(--function-input-accent);
+}
+
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  :is(input, select, textarea, [contenteditable="true"]):focus,
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  :is(input, select, textarea, [contenteditable="true"]):focus-visible,
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  .instrument-custom-field-input:hover {
+  border-color: var(--function-input-accent) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--function-input-accent) 18%, transparent) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  :is(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--function-input-accent);
+}
+
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  :is(input, textarea, [contenteditable="true"])::selection {
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent) 34%,
+    transparent
+  );
+}
+
+/* Function-header editing and actions use the same function-colored hover and
+   focus language as every inline instrument field. */
+.uncertainty-module
+  .industry-table
+  tr.instrument-area-section-row
+  .function-header-name:is(:hover, :focus, :focus-visible),
+.uncertainty-module
+  .industry-table
+  tr.instrument-area-section-row
+  :is(.function-header-action-btn, .function-header-destructive-btn):is(
+    :hover,
+    :focus-visible
+  ) {
+  border-color: var(--function-input-accent) !important;
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent) 10%,
+    transparent
+  ) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px
+    color-mix(
+      in srgb,
+      var(--function-input-accent) 18%,
+      transparent
+    ) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tr.instrument-area-section-row
+  .function-header-action-btn:is(:hover, :focus-visible) {
+  color: var(--function-input-accent) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  :is(
+    .inline-unit-combobox:hover,
+    .inline-unit-combobox:focus,
+    .inline-unit-combobox.is-open,
+    .inline-menu-select-trigger:hover,
+    .inline-menu-select-trigger:focus,
+    .inline-menu-select-trigger.is-open,
+    .inline-tolerance-summary:hover,
+    .inline-tolerance-summary:focus-visible,
+    .inline-tolerance-shape-button:hover,
+    .inline-tolerance-shape-button.is-open,
+    .inline-tolerance-chip--button:hover,
+    .inline-tolerance-chip--button.is-open,
+    .session-selector:hover,
+    .session-selector:focus,
+    .tmde-input-assignment:hover,
+    .tmde-input-assignment:focus
+  ) {
+  border-color: var(--function-input-accent) !important;
+  color: var(--function-input-accent);
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent) 10%,
+    transparent
+  );
+  outline: none;
+}
+
+/* Description uses the same editable read-view affordance as Range,
+   Tolerance, and Resolution, including the function-colored hover cue. */
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  .inline-desc-combined:is(:hover, :focus-visible) {
+  border-color: var(--function-input-accent) !important;
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent) 10%,
+    transparent
+  );
+  color: var(--function-input-accent);
+  outline: none;
+}
+
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  :is(.react-select__control:hover, .react-select__control--is-focused) {
+  border-color: var(--function-input-accent) !important;
+  box-shadow: 0 0 0 1px var(--function-input-accent) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  :is(
+    .inline-tolerance-mode-btn.is-active,
+    .inline-tolerance-shape-button.is-open,
+    .inline-tolerance-chip--button.is-open
+  ) {
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent) 18%,
+    transparent
+  ) !important;
+  color: var(--function-input-accent) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  .inline-tolerance-mini-toggle {
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent) 9%,
+    transparent
+  );
+}
+
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  .inline-tolerance-mini-toggle
+  button {
+  color: var(--text-color-muted) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  :is(tr.instrument-area-section-row, tr.instrument-function-row)
+  .inline-tolerance-mini-toggle
+  button.is-active {
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent) 18%,
+    transparent
+  ) !important;
+  color: var(--text-color-muted) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.inline-range-row.is-active-range
+  > td {
+  background-color: color-mix(
+    in srgb,
+    var(--function-input-accent) 14%,
+    transparent
+  ) !important;
+  box-shadow: inset 3px 0 0 var(--function-input-accent);
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.inline-range-row.is-selected-range
+  > td.cell-value[data-range-cell],
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.inline-range-row.is-selected-range
+  > td.cell-value:has(.inline-resolution-editor) {
+  background-color: color-mix(
+    in srgb,
+    var(--function-input-accent) 16%,
+    transparent
+  ) !important;
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--function-input-accent) 58%, transparent);
+}
+
+/* Unit and compact-selector menus are portaled to <body>; their opener copies
+   the function accent onto the menu so option focus does not revert to blue. */
+.inline-unit-menu .inline-unit-search {
+  border-color: var(--function-input-accent, var(--primary-color));
+  caret-color: var(--function-input-accent, var(--primary-color));
+}
+
+.inline-unit-menu .inline-unit-option:hover,
+.inline-unit-menu .inline-unit-option.is-active {
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent, var(--primary-color)) 10%,
+    transparent
+  );
+}
+
+.inline-unit-menu .inline-unit-option.is-selected {
+  background: color-mix(
+    in srgb,
+    var(--function-input-accent, var(--primary-color)) 16%,
+    transparent
+  );
+  color: var(--function-input-accent, var(--primary-color));
+}
+
+/* Measurement-point rows inherit the function identity used by their
+   instrument tables. The function header stays neutral because its label and
+   point rows already communicate that identity clearly. */
+.uncertainty-module .measurement-group-container .area-header-sticky {
+  background-color: var(--sidebar-background) !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(.sidebar-column-header-stack, .sidebar-column-groups, .sidebar-column-headers) {
+  background-color: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 12%,
+    var(--sidebar-sticky-surface)
+  ) !important;
+}
+
+/* Keep the frozen Value header on the same opaque function surface as the
+   rest of its header row. An opaque base is important here: repainting a
+   translucent inherited tint on a sticky child compounds the function color. */
+.uncertainty-module
+  .measurement-group-container
+  .sidebar-column-headers
+  > .sidebar-value-sticky {
+  background-color: inherit !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .sidebar-sort-header:hover {
+  color: var(--sidebar-function-color, var(--primary-color));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .sidebar-sort-header.active:not(:hover) {
+  color: inherit;
+}
+
+.uncertainty-module .measurement-group-container .sidebar-column-group {
+  border-bottom-color: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 46%,
+    transparent
+  );
+}
+
+.uncertainty-module .measurement-group-container {
+  --sidebar-point-surface: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 12%,
+    var(--sidebar-sticky-surface)
+  );
+  --sidebar-point-surface-hover: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 16%,
+    var(--sidebar-sticky-surface)
+  );
+  --sidebar-point-surface-selected: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 22%,
+    var(--sidebar-sticky-surface)
+  );
+}
+
+.uncertainty-module .measurement-group-container .point-grid-item {
+  background: var(--sidebar-point-surface) !important;
+  border-color: transparent !important;
+  color: var(--text-color) !important;
+  text-shadow: none !important;
+}
+
+.uncertainty-module .measurement-group-container .point-grid-item:hover,
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item.table-highlight:not(.active) {
+  background: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 16%,
+    var(--sidebar-sticky-surface)
+  ) !important;
+}
+
+.uncertainty-module .measurement-group-container .point-grid-item.active,
+.uncertainty-module .measurement-group-container .point-grid-item.active-point,
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item.active-point:hover {
+  background: var(--sidebar-point-surface-selected) !important;
+  color: var(--sidebar-function-color, var(--primary-color)) !important;
+  box-shadow: inset 3px 0 0
+    var(--sidebar-function-color, var(--primary-color)) !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  > .sidebar-value-sticky {
+  background-color: inherit !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:hover
+  > .sidebar-value-sticky {
+  background-color: inherit !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(.point-grid-item.active, .point-grid-item.active-point)
+  > .sidebar-value-sticky {
+  background-color: inherit !important;
+}
+
+/* Selection is already communicated by the row surface and left rail. Keep
+   the identity columns (UUT, Section) and the frozen Value column reading as
+   plain data instead of turning them into second function labels. UUT and
+   Section are also shared by whole runs of points, so recoloring them on a
+   single point's selection made a run look partly selected. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-value {
+  color: var(--text-color) !important;
+  text-shadow: none !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-section {
+  color: var(--text-color-muted) !important;
+  text-shadow: none !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  :is(.point-uut-name, .point-uut-summary, .point-uut-selector-cell .inline-menu-select-trigger) {
+  color: var(--text-color) !important;
+  text-shadow: none !important;
+}
+
+/* Keep sidebar controls and editors tied to their function instead of the
+   application-wide blue accent. */
+.uncertainty-module
+  .measurement-group-container
+  :is(
+    .function-sidebar-collapse-button,
+    .function-point-settings-button,
+    .function-point-add-button
+  ):is(:hover, :focus-visible),
+.uncertainty-module
+  .measurement-group-container
+  .function-point-settings-button.is-active {
+  background: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 14%,
+    transparent
+  ) !important;
+  color: var(--sidebar-function-color, var(--primary-color)) !important;
+  outline: none;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .function-point-type-options
+  button.is-selected {
+  color: var(--sidebar-function-color, var(--primary-color));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--sidebar-function-color, var(--primary-color));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(input, select, textarea, [contenteditable="true"]) {
+  caret-color: var(--sidebar-function-color, var(--primary-color));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(input, select, textarea, [contenteditable="true"]):is(:focus, :focus-visible),
+.uncertainty-module
+  .measurement-group-container
+  :is(.point-uut-summary, .inline-menu-select-trigger):is(:hover, :focus, :focus-visible) {
+  border-color: var(--sidebar-function-color, var(--primary-color)) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px
+    color-mix(
+      in srgb,
+      var(--sidebar-function-color, var(--primary-color)) 18%,
+      transparent
+    ) !important;
+}
+
+/* Every inline-editable sidebar cell answers to hover the same way, so a blank
+   Section or Qualifier reads as an input rather than as empty space. */
+.uncertainty-module
+  .measurement-group-container
+  :is(.point-value-with-unit, .point-section, .point-value):hover
+  .point-edit-affordance {
+  border-color: var(--sidebar-function-color, var(--primary-color));
+  background: var(--input-background);
+  box-shadow: 0 0 0 2px
+    color-mix(
+      in srgb,
+      var(--sidebar-function-color, var(--primary-color)) 18%,
+      transparent
+    );
+}
+
+/* Consecutive categorical values are presented as one vertically merged cell.
+   The outer grid cell keeps the first point row at its normal height. Its
+   absolutely positioned content spans the run, so the shared value is centered
+   without enlarging the first row or feeding back into the list height.
+
+   A merged cell is deliberately transparent: selection is painted by the point
+   rows underneath, so a run never contributes a highlight of its own that could
+   disagree with the row it belongs to. */
+.uncertainty-module .point-grid-item :is(.point-grouped-cell--start, .point-grouped-cell--continuation) {
+  position: relative;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+  /* The absolutely positioned label and the row fill are measured against the
+     grid cell itself, so the cell must not add an inset of its own. */
+  padding: 0;
+  border-width: 0;
+  /* A merged cell must never become a stacking context. Its fill has to reach
+     across the row seam and its label has to stay above the fills of the other
+     rows in the run - both of which are trapped inside the cell the moment
+     something gives it an opacity, filter or transform of its own. A stray
+     opacity on the selected row's Section cell did exactly that: it turned the
+     fill translucent, so the row seam showed through the middle of a merged
+     cell, and it let the next row's fill cut across the shared label. */
+  opacity: 1;
+  filter: none;
+  transform: none;
+}
+
+.uncertainty-module .point-grid-item .point-grouped-cell-content {
+  position: absolute;
+  top: var(--point-cell-group-top, -5px);
+  left: 0;
+  /* Above every point row surface so a shared label is never sliced by the
+     background of a later row in its own run, and below the frozen Value
+     column so a scrolled-away label still disappears behind it. */
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--point-cell-group-height);
+  min-width: 0;
+  padding-block: 5px;
+  box-sizing: border-box;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* The grid row has 10px horizontal padding before its first column. Extend a
+   leading merged cell through that inset so its selection rail aligns with the
+   point-row edge, while padding its label back to the original text position. */
+.uncertainty-module
+  .point-grid-item
+  .point-grouped-cell-content.is-leading-column {
+  left: calc(-1 * var(--sidebar-point-row-pad));
+  width: calc(100% + var(--sidebar-point-row-pad));
+  padding-left: var(--sidebar-point-row-pad);
+}
+
+.uncertainty-module
+  .point-grid-item
+  .point-grouped-cell-content
+  > * {
+  pointer-events: auto;
+}
+
+.uncertainty-module .point-grid-item .point-grouped-cell-label {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uncertainty-module
+  .point-grid-item
+  .point-section
+  .point-grouped-cell-content {
+  justify-content: center;
+}
+
+.uncertainty-module
+  .point-grid-item
+  .point-section
+  .point-grouped-cell-label {
+  text-align: center;
+}
+
+/* A continuation cell carries no content of its own; the run's single label
+   lives on the start cell. It stays in the layout because it still owns the
+   grid track, and because it draws the bridge over the row seam above it. */
+.uncertainty-module .point-grid-item .point-grouped-cell--continuation > * {
+  visibility: hidden;
+}
+
+.uncertainty-module .point-grid-item .point-grouped-cell--continuation {
+  pointer-events: none;
+}
+
+/* A merged cell is drawn as a chain of per-row fills rather than one box, so
+   the run stays continuous while every edge still lands exactly on a point
+   row's own edge.
+
+   Point rows are separated by a 1px margin that shows the list background.
+   Inside a run that gap is an artifact - the cell is one merged cell - so a
+   cell that is not the last of its run reaches through the seam below it and
+   overlaps the next fill. Overlap, not abutment: each fill is composited
+   separately, so two that merely share an edge on a fractional device pixel
+   both cover it partially and let what is behind bleed through. That, plus a
+   1px strip patching the gap, is what put a hairline of the list background
+   across merged cells under fractional display scaling. Fills within a run
+   always carry the same colour, so the overlap itself is invisible.
+
+   The fill carries the row's own state, so selection is painted at exactly
+   the band the point row paints for itself. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell {
+  --sidebar-point-cell-fill: var(--sidebar-point-surface);
+}
+
+/* Hovering any row of a run lights the whole shared cell, the same reach
+   selection has - a merged cell is one cell, so it takes a state as a whole
+   rather than tinting only the row the pointer happens to be over. Every cell
+   of the run is marked together, so the run keeps one uniform colour and its
+   overlapping per-row fills still composite invisibly. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell.is-run-hovered {
+  --sidebar-point-cell-fill: var(--sidebar-point-surface-hover);
+}
+
+/* Selecting a point highlights the whole merged cell it shares, because that
+   cell belongs to every point in the run. Declared after hover so a selected
+   run keeps its own colour while the pointer is over it. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted,
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted.is-run-hovered {
+  --sidebar-point-cell-fill: var(--sidebar-point-surface-selected);
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell::after {
+  content: "";
+  position: absolute;
+  /* Out to the row's border box, top and bottom: exactly the band a point row
+     paints for itself. */
+  top: calc(-1 * var(--sidebar-point-row-inset));
+  bottom: calc(-1 * var(--sidebar-point-row-inset));
+  /* Overlap the fill of the merged column to the left by a pixel, for the same
+     reason the vertical fills overlap. */
+  left: -1px;
+  /* Reach through the column gap so a run also closes the seam between itself
+     and the column beside it, the way merged table cells read. */
+  right: calc(-1 * var(--sidebar-point-column-gap));
+  background: var(--sidebar-point-cell-fill);
+  /* Above the point row surfaces, below the selected row's rail and the
+     merged label that spans the run. */
+  z-index: 1;
+}
+
+/* Not the last row of its run: reach through the row seam and a pixel into the
+   next row, so the two fills overlap rather than meet. Merely meeting is not
+   enough - each fill is composited separately, so a shared edge on a
+   fractional device pixel lets a sliver of what is behind show through, which
+   is what put a hairline across merged cells under display scaling. Fills
+   within a run always carry the same colour, so the overlap is invisible. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--has-next::after {
+  bottom: calc(
+    -1 * (var(--sidebar-point-row-inset) + var(--sidebar-point-row-seam) + 1px)
+  );
+}
+
+/* The leading column starts after the row's border and inline padding. Extend
+   its fill back over both so a run reads continuously to the row's edge. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--leading::after {
+  left: calc(
+    -1 * (var(--sidebar-point-row-pad) + var(--sidebar-point-row-border))
+  );
+}
+
+/* The selected point still needs its own rail, and the fills above would bury
+   an inset shadow on the row. Draw it as its own layer instead, over the
+   merged cells but under their labels. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--sidebar-function-color, var(--primary-color));
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Point rows are rounded, so bridging the seam alone would still leave a
+   notch at each corner where the run reaches the row edge. Square off only
+   the corners that fall inside a run; the rounding survives at both ends. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:has(
+    > .point-grouped-cell--leading.point-grouped-cell--continuation
+  ) {
+  border-top-left-radius: 0;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:has(
+    + .point-grid-item
+      > .point-grouped-cell--leading.point-grouped-cell--continuation
+  ) {
+  border-bottom-left-radius: 0;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  :is(input, textarea, [contenteditable="true"])::selection {
+  background: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 34%,
+    transparent
+  );
+}
+
 .risk-viz-header h3 .method-chip {
   vertical-align: 3px;
+}
+
+/* --- Measurement point column resizing --------------------------------- */
+/* Each column header owns the divider at its right edge, matching how the UUT
+   and TMDE tables resize. The handle sits over the grid gap so it is easy to
+   grab without stealing clicks from the sort button beside it. */
+.uncertainty-module .sidebar-column-header-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.uncertainty-module .sidebar-column-header-cell > .sidebar-sort-header {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.uncertainty-module .sidebar-column-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: calc(-1 * var(--sidebar-point-column-gap) / 2);
+  width: var(--sidebar-point-column-gap);
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 9;
+}
+
+.uncertainty-module .sidebar-column-resizer::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color 0.1s ease;
+}
+
+.uncertainty-module .sidebar-column-resizer:hover::after,
+.uncertainty-module .sidebar-column-resizer:active::after {
+  background: var(--sidebar-function-color, var(--primary-color));
+}
+
+/* Keep column hover uniform, including Description, after function-colored
+   row surfaces are applied. Selected rows retain their stronger full-row cue. */
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row:not(.selected-row):not(.instrument-selected):not(.selected-spec-row)
+  > td.col-hovered {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 20%,
+    var(--content-background)
+  ) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row:is(.selected-row, .instrument-selected, .selected-spec-row)
+  > td.col-hovered {
+  background-color: transparent !important;
+}
+
+/* The earlier theme-specific active-point rule uses the application blue and
+   has greater specificity than the function rule. Reassert the point's own
+   function color for dark themes. */
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point),
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item.active-point:hover {
+  background: var(--sidebar-point-surface-selected) !important;
+  border-color: transparent !important;
+  color: var(--sidebar-function-color, var(--primary-color)) !important;
+  box-shadow: inset 3px 0 0
+    var(--sidebar-function-color, var(--primary-color)) !important;
+  text-shadow: none !important;
+}
+
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)
+  > .sidebar-value-sticky {
+  background-color: inherit !important;
+}
+
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)
+  .point-section {
+  color: var(--text-color-muted) !important;
+  text-shadow: none !important;
+}
+
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)
+  :is(.point-uut-name, .point-uut-summary, .point-uut-selector-cell .inline-menu-select-trigger) {
+  color: var(--text-color) !important;
+  text-shadow: none !important;
 }

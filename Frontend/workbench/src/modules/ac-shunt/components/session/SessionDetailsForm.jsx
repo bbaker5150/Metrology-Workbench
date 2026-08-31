@@ -26,8 +26,17 @@ import {
   recordSessionFormHistory,
 } from "../../utils/sessionFieldHistory";
 
+export const formatSessionDate = (date = new Date()) => new Intl.DateTimeFormat("en-US", {
+  month: "2-digit",
+  day: "2-digit",
+  year: "numeric",
+}).format(date).replace(/\//g, "-");
+
+export const formatDefaultSessionName = (sessionNumber, model, serial, date = new Date()) =>
+  `#${sessionNumber}, ${model.trim() || "TI Model"}, ${serial.trim() || "TI Serial"}, (${formatSessionDate(date)})`;
+
 const initialFormData = {
-  sessionName: `Calibration Session - ${new Date().toLocaleString()}`,
+  sessionName: "",
   testInstrument: "",
   testInstrumentSerial: "",
   standardInstrumentModel: "",
@@ -294,6 +303,10 @@ function SessionDetailsForm({
   const [isLoading, setIsLoading] = useState(false);
   const [fieldHistoryTick, setFieldHistoryTick] = useState(0);
   const [isEditingName, setIsEditingName] = useState(false);
+  const nextSessionNumber = useMemo(
+    () => Math.max(0, ...sessionsList.map((session) => Number(session.id) || 0)) + 1,
+    [sessionsList]
+  );
 
   const shuntSerialPool = useMemo(
     () => mergeSuggestions([], shuntSerials),
@@ -357,9 +370,12 @@ function SessionDetailsForm({
         });
       }
     } else {
-      setFormData({ ...initialFormData, sessionName: `Calibration Session - ${new Date().toLocaleString()}` });
+      setFormData({
+        ...initialFormData,
+        sessionName: formatDefaultSessionName(nextSessionNumber, "", ""),
+      });
     }
-  }, [selectedSessionId, sessionsList]);
+  }, [selectedSessionId, sessionsList, nextSessionNumber]);
 
   const handleChange = (e) => {
     let { name, value } = e.target;
@@ -372,35 +388,12 @@ function SessionDetailsForm({
       const next = { ...prev, [name]: value };
 
       // Only auto-enforce if it is a NEW session
-      if (name === "testInstrument" && !selectedSessionId) {
-        const dateStr = new Intl.DateTimeFormat("en-US", {
-          month: "2-digit",
-          day: "2-digit",
-          year: "numeric",
-        })
-          .format(new Date())
-          .replace(/\//g, "-");
-
-        if (value.trim()) {
-          const match = value.match(/(\d+(?:\.\d+)?\s*m?a)/i);
-          let currentPart = "";
-
-          if (match) {
-            // Remove all spaces first (e.g., "100 mAs" -> "100ma")
-            const cleanMatch = match[1].replace(/\s+/g, "");
-
-            // Replace the unit suffix cleanly in one shot
-            const formattedMatch = cleanMatch.replace(/(m?)a$/i, (m, milli) => {
-              return milli ? "mA" : "A";
-            });
-
-            currentPart = ` @ ${formattedMatch}`;
-          }
-
-          next.sessionName = `${value.trim()}${currentPart} (${dateStr})`;
-        } else {
-          next.sessionName = `Calibration Session - ${new Date().toLocaleString()}`;
-        }
+      if (!selectedSessionId && (name === "testInstrument" || name === "testInstrumentSerial")) {
+        next.sessionName = formatDefaultSessionName(
+          nextSessionNumber,
+          name === "testInstrument" ? value : next.testInstrument,
+          name === "testInstrumentSerial" ? value : next.testInstrumentSerial
+        );
       }
 
       return next;

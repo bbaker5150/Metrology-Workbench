@@ -1,11 +1,268 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import { SidebarPointItem } from "./App";
+import {
+  copyPointBudget,
+  getConsecutiveSidebarCellGroup,
+  getUutReassignmentPointIds,
+  pastePointBudget,
+  SidebarPointItem,
+} from "./App";
 
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test("groups consecutive repeated categorical cells", () => {
+    const points = [
+      { id: "p1", section: "4.2.11" },
+      { id: "p2", section: "4.2.11" },
+      { id: "p3", section: "4.2.12" },
+    ];
+
+    expect(
+      getConsecutiveSidebarCellGroup(points, 0, (point) => point.section),
+    ).toEqual({
+      isStart: true,
+      isEnd: false,
+      span: 2,
+      pointIds: ["p1", "p2"],
+    });
+    expect(
+      getConsecutiveSidebarCellGroup(points, 1, (point) => point.section),
+    ).toEqual({
+      isStart: false,
+      isEnd: true,
+      span: 2,
+      pointIds: ["p1", "p2"],
+    });
+    expect(
+      getConsecutiveSidebarCellGroup(points, 2, (point) => point.section),
+    ).toEqual({ isStart: true, isEnd: true, span: 1, pointIds: ["p3"] });
+  });
+
+  const renderGroupedUutRow = (props) =>
+    render(
+      <SidebarPointItem
+        point={{ id: "p1", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
+        uutName="Bench DMM"
+        currentUutId="uut-1"
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true, value: true }}
+        {...props}
+      />,
+    );
+
+  test("highlights a merged cell when any point in its run is selected", () => {
+    const groupedUut = { isStart: true, span: 2, pointIds: ["p1", "p2"] };
+    const { container } = renderGroupedUutRow({
+      cellGroups: { uut: groupedUut },
+      highlightedPointIds: ["p2"],
+    });
+
+    // The shared cell belongs to both points, so selecting either one lights
+    // it. It is marked on the cell rather than on the absolutely positioned
+    // label: each row paints its own slice of the run, which keeps the shared
+    // block aligned with the point rows and keeps the label clear of it.
+    expect(container.querySelector(".point-uut-selector-cell")).toHaveClass(
+      "point-grouped-cell--highlighted",
+    );
+    expect(
+      container.querySelector(".point-grouped-cell-content"),
+    ).not.toHaveClass("is-highlighted");
+  });
+
+  test("leaves an unshared merged run unhighlighted", () => {
+    const groupedUut = { isStart: true, span: 2, pointIds: ["p1", "p2"] };
+    const { container } = renderGroupedUutRow({
+      cellGroups: { uut: groupedUut },
+      highlightedPointIds: ["p9"],
+    });
+
+    expect(container.querySelector(".point-uut-selector-cell")).not.toHaveClass(
+      "point-grouped-cell--highlighted",
+    );
+  });
+
+  test("marks a continuation cell so it can bridge the row seam above it", () => {
+    const groupedUut = {
+      isStart: false,
+      isEnd: true,
+      span: 2,
+      pointIds: ["p1", "p2"],
+    };
+    const { container } = renderGroupedUutRow({
+      point: { id: "p2", testPointInfo: { parameter: { value: 2, unit: "V" } } },
+      cellGroups: { uut: groupedUut },
+    });
+
+    const cell = container.querySelector(".point-uut-selector-cell");
+    expect(cell).toHaveClass("point-grouped-cell--continuation");
+    // The leading column starts after the row's inline padding, so its fill
+    // has to reach further left than the other merged columns.
+    expect(cell).toHaveClass("point-grouped-cell--leading");
+    expect(cell).not.toHaveClass("point-grouped-cell--start");
+    // Last row of the run: its fill stops at the row edge instead of reaching
+    // through the seam below, which is a real divider.
+    expect(cell).not.toHaveClass("point-grouped-cell--has-next");
+  });
+
+  test("tags a merged cell with its run so hover can reach the whole cell", () => {
+    const { container } = renderGroupedUutRow({
+      cellGroups: {
+        uut: { isStart: false, isEnd: true, span: 2, pointIds: ["p1", "p2"] },
+      },
+    });
+
+    // Every cell of a run carries the same key, which is how hovering one row
+    // lights the whole shared cell the way selecting a point does.
+    expect(
+      container.querySelector(".point-uut-selector-cell").dataset.run,
+    ).toBe("uut:p1");
+  });
+
+  test("leaves an unmerged cell out of run hovering", () => {
+    const { container } = renderGroupedUutRow({
+      cellGroups: { uut: { isStart: true, isEnd: true, span: 1, pointIds: ["p1"] } },
+    });
+
+    // A single-row cell is tinted by its own row, so it needs no run key.
+    expect(
+      container.querySelector(".point-uut-selector-cell").dataset.run,
+    ).toBeUndefined();
+  });
+
+  test("pins a dragged column to its width and leaves the rest alone", () => {
+    const { container } = renderGroupedUutRow({
+      cellGroups: {},
+      columnWidths: { uut: 260 },
+      visibleColumns: { uut: true, section: true, value: true },
+    });
+
+    const template =
+      container.querySelector(".point-grid-item").style.gridTemplateColumns;
+    // The resized column is pinned; Section keeps its default track, so the
+    // rows stay in step with the header they are measured against.
+    expect(template).toContain("260px");
+    expect(template).toContain("50px");
+  });
+
+  test("marks every row of a run but the last as reaching through the seam", () => {
+    const { container } = renderGroupedUutRow({
+      cellGroups: {
+        uut: { isStart: true, isEnd: false, span: 2, pointIds: ["p1", "p2"] },
+      },
+    });
+
+    // Consecutive fills have to overlap rather than meet: a shared edge on a
+    // fractional device pixel let the row seam show through a merged cell
+    // under display scaling.
+    expect(container.querySelector(".point-uut-selector-cell")).toHaveClass(
+      "point-grouped-cell--has-next",
+    );
+  });
+
+  test("centers a grouped label without increasing the point row height", () => {
+    const groupedUut = { isStart: true, span: 4, pointIds: ["p1", "p2", "p3", "p4"] };
+    const { container } = render(
+      <SidebarPointItem
+        point={{ id: "p1", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
+        uutName="Bench DMM"
+        currentUutId="uut-1"
+        cellGroups={{ uut: groupedUut }}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true, value: true }}
+      />,
+    );
+
+    const cell = container.querySelector(".point-uut-selector-cell");
+    const content = container.querySelector(".point-grouped-cell-content");
+    expect(cell).not.toHaveStyle({ height: "115px" });
+    expect(content).toHaveClass("point-grouped-cell-content--uut");
+    expect(content).toHaveClass("is-leading-column");
+    expect(content).toHaveStyle({
+      "--point-cell-group-top": "-5px",
+      "--point-cell-group-height": "115px",
+    });
+  });
+
+  test("copies and replaces only uncertainty-budget fields", () => {
+    const source = {
+      id: "source",
+      components: [{ id: "component-1", name: "Repeatability" }],
+      tmdeTolerances: [{ id: "tmde-1" }],
+      inputCorrelations: { a: { b: 0.5 } },
+      equationString: "a+b",
+    };
+    const target = {
+      id: "target",
+      components: [{ id: "old" }],
+      coverageFactorMode: "manual",
+      equationString: "x*y",
+      testPointInfo: { parameter: { value: 10, unit: "V" } },
+    };
+
+    const budget = copyPointBudget(source);
+    const pasted = pastePointBudget(target, budget);
+
+    expect(pasted.components).toEqual(source.components);
+    expect(pasted.components).not.toBe(source.components);
+    expect(pasted.tmdeTolerances).toEqual(source.tmdeTolerances);
+    expect(pasted.inputCorrelations).toEqual(source.inputCorrelations);
+    expect(pasted).not.toHaveProperty("coverageFactorMode");
+    expect(pasted.equationString).toBe("x*y");
+    expect(pasted.testPointInfo).toEqual(target.testPointInfo);
+  });
+
+  test("opens the simplified UUT cell on demand without exposing database ids", async () => {
+    const onUutChange = vi.fn();
+    render(
+      <SidebarPointItem
+        point={{ id: "point-uut", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
+        uutName="Bench DMM"
+        currentUutId="uut-1"
+        uutOptions={[
+          { id: "uut-1", label: "Bench DMM" },
+          { id: "uut-2", label: "Backup DMM" },
+        ]}
+        onUutChange={onUutChange}
+        isSelected
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true }}
+      />,
+    );
+
+    expect(screen.queryByRole("listbox", { name: "UUT" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "UUT" }));
+    const list = await screen.findByRole("listbox", { name: "UUT" });
+    expect(list.querySelector("small")).toBeNull();
+    fireEvent.click(within(list).getByRole("option", { name: "Backup DMM" }));
+    expect(onUutChange).toHaveBeenCalledWith("uut-2");
+  });
+
+  test("reassigns all selected point rows from a selected UUT cell", () => {
+    expect(
+      getUutReassignmentPointIds({
+        selectedPointIds: ["p2", "p3"],
+        currentPointId: "p2",
+      }),
+    ).toEqual(["p2", "p3"]);
+    expect(
+      getUutReassignmentPointIds({
+        selectedPointIds: ["p2", "p3"],
+        currentPointId: "p1",
+      }),
+    ).toEqual(["p1"]);
+  });
+
   test("does not expose obsolete drag behavior on measurement-point rows", () => {
     const { container } = render(
       <SidebarPointItem
@@ -65,6 +322,62 @@ describe("measurement-point value editing", () => {
     const input = document.querySelector(".sidebar-inline-input.value");
     expect(input).toHaveValue("25");
     expect(input).toHaveFocus();
+  });
+
+  test("advances value entry after Enter commits the current point", async () => {
+    const onSave = vi.fn();
+    const onAdvanceValue = vi.fn();
+    render(
+      <SidebarPointItem
+        point={{
+          id: "point-enter",
+          testPointInfo: { parameter: { value: "", unit: "V" } },
+        }}
+        isSelected
+        onSelect={vi.fn()}
+        onSave={onSave}
+        onAdvanceValue={onAdvanceValue}
+        visibleColumns={{ value: true }}
+      />,
+    );
+
+    fireEvent.click(document.querySelector(".point-value"));
+    const input = document.querySelector(".sidebar-inline-input.value");
+    fireEvent.change(input, { target: { value: "10" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        testPointInfo: expect.objectContaining({
+          parameter: expect.objectContaining({ value: "10" }),
+        }),
+      }),
+    );
+    await waitFor(() => expect(onAdvanceValue).toHaveBeenCalledOnce());
+  });
+
+  test("opens an already-mounted blank row when value focus advances", async () => {
+    const common = {
+      point: {
+        id: "point-precreated",
+        testPointInfo: { parameter: { value: "", unit: "V" } },
+      },
+      isSelected: false,
+      onSelect: vi.fn(),
+      onSave: vi.fn(),
+      onAutoEditConsumed: vi.fn(),
+      visibleColumns: { value: true },
+    };
+    const { rerender } = render(
+      <SidebarPointItem {...common} autoEditValue={false} />,
+    );
+
+    rerender(<SidebarPointItem {...common} autoEditValue />);
+
+    await waitFor(() =>
+      expect(document.querySelector(".sidebar-inline-input.value")).toHaveFocus(),
+    );
+    expect(common.onAutoEditConsumed).toHaveBeenCalledOnce();
   });
 });
 

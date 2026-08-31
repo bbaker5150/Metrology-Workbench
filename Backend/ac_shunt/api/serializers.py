@@ -557,8 +557,8 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
 
     def validate_f5790_range_mode(self, value):
         value = str(value).upper()
-        if value not in {"AUTO", "POINT"}:
-            raise serializers.ValidationError("5790 range mode must be Auto or Test point.")
+        if value not in {"0.022", "0.07", "0.22", "0.7", "2.2"}:
+            raise serializers.ValidationError("Select a supported Y5020 range.")
         return value
 
     def validate_f5790_input_switch_settling_time(self, value):

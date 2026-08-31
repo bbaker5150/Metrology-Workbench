@@ -19,6 +19,7 @@ db.sqlite3
 .vscode/
 .idea/
 *.swp
+.codex-tmp/
 
 # OS-specific
 .DS_Store

@@ -160,13 +160,10 @@ describe("measurement input compact editors", () => {
     const search = screen.getByPlaceholderText("Search units...");
     fireEvent.mouseDown(search);
     fireEvent.change(search, { target: { value: "deg" } });
-    const degreeOption = screen
-      .getAllByRole("option")
-      .find(
-        (option) =>
-          option.textContent.endsWith("deg") &&
-          !option.textContent.includes("degF"),
-      );
+    // A unit option shows its display label, then its function. "deg" is
+    // written as the degree sign, and is still reachable by typing "deg"
+    // because the search matches a unit's key as well as its label.
+    const degreeOption = screen.getByRole("option", { name: "\u00b0 Angle" });
     expect(degreeOption).toBeTruthy();
     fireEvent.click(degreeOption);
 

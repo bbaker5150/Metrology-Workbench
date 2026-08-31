@@ -17,20 +17,41 @@ const InlineMenuSelect = ({
   width = "72px",
   menuWidth = 220,
   className = "",
+  autoOpen = false,
+  showOptionMeta = true,
+  onOpenChange,
+  getDisplayLabel,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [menuRect, setMenuRect] = useState(null);
+  const [menuAccentColor, setMenuAccentColor] = useState("");
   const rootRef = useRef(null);
   const selectedRef = useRef(null);
 
   const selectedOption = options.find(
     (option) => String(option.value) === String(value),
   );
-  const displayValue = selectedOption?.shortLabel || selectedOption?.label || value || "Select";
+  const customDisplayValue = getDisplayLabel?.(selectedOption);
+  const displayValue =
+    customDisplayValue ||
+    selectedOption?.shortLabel ||
+    selectedOption?.label ||
+    value ||
+    "Select";
 
-  const closeMenu = () => setIsOpen(false);
+  const closeMenu = () => {
+    setIsOpen(false);
+    onOpenChange?.(false);
+  };
   const openMenu = () => {
     const rect = rootRef.current?.getBoundingClientRect();
+    const accentColor = rootRef.current
+      ? window
+          .getComputedStyle(rootRef.current)
+          .getPropertyValue("--function-input-accent")
+          .trim()
+      : "";
+    setMenuAccentColor(accentColor);
     if (rect) {
       const visualViewport = window.visualViewport;
       setMenuRect(getAnchoredMenuPlacement({
@@ -43,7 +64,16 @@ const InlineMenuSelect = ({
       }));
     }
     setIsOpen(true);
+    onOpenChange?.(true);
   };
+
+  useEffect(() => {
+    if (!autoOpen) return undefined;
+    const frame = requestAnimationFrame(openMenu);
+    return () => cancelAnimationFrame(frame);
+    // Mount-time handoff from a parent read view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -63,7 +93,11 @@ const InlineMenuSelect = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    requestAnimationFrame(() => selectedRef.current?.scrollIntoView({ block: "nearest" }));
+    requestAnimationFrame(() => {
+      if (typeof selectedRef.current?.scrollIntoView === "function") {
+        selectedRef.current.scrollIntoView({ block: "nearest" });
+      }
+    });
   }, [isOpen, value]);
 
   const handleKeyDown = (event) => {
@@ -115,6 +149,9 @@ const InlineMenuSelect = ({
               left: menuRect.left,
               width: menuRect.width,
               maxHeight: menuRect.maxHeight,
+              ...(menuAccentColor
+                ? { "--function-input-accent": menuAccentColor }
+                : {}),
             }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
@@ -141,9 +178,10 @@ const InlineMenuSelect = ({
                     }}
                   >
                     <span>{option.label}</span>
-                    {(option.shortLabel || option.value !== option.label) && (
+                    {showOptionMeta &&
+                      (option.shortLabel || option.value !== option.label) && (
                       <small>{option.shortLabel || option.value}</small>
-                    )}
+                      )}
                   </button>
                 );
               })}

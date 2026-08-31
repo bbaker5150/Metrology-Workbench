@@ -535,7 +535,7 @@ function AppContent() {
 
   const sessionInfoPanelTitle =
     selectedSessionName ||
-    (selectedSessionId != null ? `Session #${selectedSessionId}` : "—");
+    (selectedSessionId != null ? `#${selectedSessionId}` : "—");
 
   const showChromeStatusCluster =
     Boolean(dbInfo) ||
@@ -873,7 +873,7 @@ function AppContent() {
       f5790_filter_mode: readSetting('f5790_filter_mode', 'MEDIUM'),
       f5790_filter_restart: readSetting('f5790_filter_restart', 'MEDIUM'),
       f5790_hires_enabled: readSetting('f5790_hires_enabled', true),
-      f5790_range_mode: readSetting('f5790_range_mode', 'AUTO'),
+      f5790_range_mode: readSetting('f5790_range_mode', '2.2'),
       f5790_input_switch_settling_time: readSetting('f5790_input_switch_settling_time', 30),
       has_switch_driver: Boolean(switchDriverAddress),
       has_reader_switch: Boolean(readerSwitchDriverAddress),

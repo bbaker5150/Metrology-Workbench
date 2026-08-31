@@ -1,9 +1,157 @@
 import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { EditableDescriptionCell, RangeCell } from "./UncertaintyPanel";
+import {
+  EditableDescriptionCell,
+  InlineToleranceCell,
+  RangeCell,
+} from "./UncertaintyPanel";
 
 describe("inline instrument column navigation", () => {
+  it("keeps tolerance editing stable across parent rerenders and mode changes", async () => {
+    const editingChanges = vi.fn();
+    const Harness = () => {
+      const [tolerance, setTolerance] = useState({});
+      const [parentRevision, setParentRevision] = useState(0);
+      return (
+        <InlineToleranceCell
+          tolerance={tolerance}
+          activeRange={{ id: "range-tolerance", min: 0, max: 10, unit: "V" }}
+          editable
+          onEditingChange={(editing) => {
+            editingChanges(editing);
+            if (editing && parentRevision === 0) setParentRevision(1);
+          }}
+          onCommit={(typeKey, component) => {
+            if (typeKey === "__replace__") setTolerance(component);
+          }}
+        />
+      );
+    };
+
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Set tolerance" }));
+    await waitFor(() => {
+      expect(screen.getByTitle("Asymmetric tolerance")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
+    fireEvent.click(screen.getByTitle("Double-sided tolerance"));
+
+    expect(screen.getByTitle("Asymmetric tolerance")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(editingChanges.mock.calls.filter(([editing]) => editing)).toHaveLength(1);
+  });
+
+  it("renders an added blank range as an editable row immediately", () => {
+    render(
+      <RangeCell
+        ranges={[{ id: "blank-range", min: "", max: "", unit: "V" }]}
+        activeIndex={0}
+        activeRange={{ id: "blank-range", min: "", max: "", unit: "V" }}
+        editable
+        editBlankByDefault
+        onEditBound={vi.fn()}
+        onEditUnit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("max")).toBeInTheDocument();
+    expect(screen.queryByText("Not Set")).not.toBeInTheDocument();
+  });
+
+  it("advances from a completed range when Tab leaves its unit", () => {
+    const onAdvanceRange = vi.fn();
+    const range = { id: "range-1", min: "0", max: "10", unit: "V" };
+    render(
+      <RangeCell
+        ranges={[range]}
+        activeIndex={0}
+        activeRange={range}
+        editable
+        onEditBound={vi.fn()}
+        onEditUnit={vi.fn()}
+        onAdvanceRange={onAdvanceRange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "0 to 10 V" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Range unit prefix" }), {
+      key: "Tab",
+    });
+
+    expect(onAdvanceRange).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a staged blank row editable while its bounds are completed", async () => {
+    const onAdvanceRange = vi.fn();
+    const RangeHarness = () => {
+      const [range, setRange] = useState({
+        id: "blank-range",
+        min: "",
+        max: "",
+        unit: "V",
+      });
+      return (
+        <RangeCell
+          ranges={[range]}
+          activeIndex={0}
+          activeRange={range}
+          editable
+          editBlankByDefault
+          onEditBound={(field, value) =>
+            setRange((current) => ({ ...current, [field]: value }))
+          }
+          onEditUnit={(unit) => setRange((current) => ({ ...current, unit }))}
+          onAdvanceRange={onAdvanceRange}
+        />
+      );
+    };
+
+    render(<RangeHarness />);
+    const min = screen.getByPlaceholderText("min");
+    const max = screen.getByPlaceholderText("max");
+    const prefix = screen.getByRole("button", { name: "Range unit prefix" });
+
+    fireEvent.change(min, { target: { value: "0" } });
+    fireEvent.blur(min, { relatedTarget: max });
+    fireEvent.change(max, { target: { value: "10" } });
+    fireEvent.blur(max, { relatedTarget: prefix });
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("max")).toBeInTheDocument();
+    });
+    fireEvent.keyDown(prefix, { key: "Tab" });
+    expect(onAdvanceRange).toHaveBeenCalledOnce();
+  });
+
+  it("commits a nickname on the first outside click", async () => {
+    const onCommit = vi.fn();
+    render(
+      <EditableDescriptionCell
+        make="Acme"
+        model="DMM-1"
+        name="Bench meter"
+        nickname=""
+        onCommit={onCommit}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Acme DMM-1 Bench meter" }));
+    const nickname = screen.getByPlaceholderText("Tag / nickname");
+    fireEvent.change(nickname, { target: { value: "Primary" } });
+    fireEvent.mouseDown(document.body);
+    fireEvent.blur(nickname, { relatedTarget: document.body });
+
+    await waitFor(() =>
+      expect(onCommit).toHaveBeenCalledWith("nickname", "Primary"),
+    );
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps library suggestions concise and omits unset metadata", async () => {
     render(
       <EditableDescriptionCell
@@ -42,7 +190,7 @@ describe("inline instrument column navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Click to add description" }));
 
-    await waitFor(() => expect(screen.getByText("Acme Bench meter DMM-1")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Acme DMM-1 Bench meter")).toBeInTheDocument());
     expect(screen.getByText("local")).toBeInTheDocument();
     expect(screen.queryByText(/not set/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/new|changed|synced/i)).not.toBeInTheDocument();

@@ -74,6 +74,27 @@ const StatCard = ({ title, stats, unit, isActive }) => (
     </div>
 );
 
+const DriftCard = ({ driftPpm }) => (
+    <div className="stat-card stat-card--drift">
+        <h6>AC–DC Drift</h6>
+        <div className="stat-details">
+            <div>
+                <strong>Open → Close:</strong>
+                <span className="stat-value-ppm">
+                    {driftPpm !== null ? `${driftPpm.toFixed(2)} PPM` : '---'}
+                </span>
+            </div>
+        </div>
+    </div>
+);
+
+export const calculateAcDcDriftPpm = (openMean, closeMean) => {
+    const open = Number(openMean);
+    const close = Number(closeMean);
+    if (!Number.isFinite(open) || !Number.isFinite(close) || open === 0) return null;
+    return ((close - open) / Math.abs(open)) * 1e6;
+};
+
 function LiveStabilityTracker({ 
     title, 
     readings, 
@@ -129,6 +150,13 @@ function LiveStabilityTracker({
     const availableStats = useMemo(() => {
         return currentReadingTypes.filter(({ key }) => stats[key]?.count > 0);
     }, [currentReadingTypes, stats]);
+
+    const acDcDriftPpm = useMemo(() => {
+        if (activeChartView !== 'calibration') return null;
+        const open = stats.ac_open?.mean;
+        const close = stats.ac_close?.mean;
+        return calculateAcDcDriftPpm(open, close);
+    }, [activeChartView, stats]);
 
     if (availableStats.length === 0) {
         return null;
@@ -210,6 +238,9 @@ function LiveStabilityTracker({
                                 unit={unit}
                             />
                         ))}
+                        {activeChartView === 'calibration' && (
+                            <DriftCard driftPpm={acDcDriftPpm} />
+                        )}
                     </div>
                 </div>
             )}

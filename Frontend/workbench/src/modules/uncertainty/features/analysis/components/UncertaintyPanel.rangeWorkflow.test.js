@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { makeFunctionKey } from "../../../utils/functionGrouping";
 import {
   addBlankFunctionToInstrument,
+  addRangeToItem,
+  applyTmdeIdentityToPoints,
   countTmdeBudgetUses,
   buildFunctionGroupedRows,
   getDeleteSelectionTarget,
@@ -10,6 +12,7 @@ import {
   localizeSharedInstrumentEdit,
   rangeIsBlank,
   removeRangeFromItem,
+  removeInstrumentCustomColumn,
   removeSelectedRangesFromItem,
   resolveUutRangeHelper,
   sortRangesAscending,
@@ -112,6 +115,94 @@ describe("budget range warnings", () => {
 });
 
 describe("shared instrument inline editing", () => {
+  it("removes a custom column definition and its saved row values", () => {
+    const next = removeInstrumentCustomColumn(
+      {
+        instrumentCustomColumns: {
+          uut: [
+            { key: "owner", label: "Owner" },
+            { key: "location", label: "Location" },
+          ],
+          tmde: [{ key: "lab", label: "Lab" }],
+        },
+        uuts: [
+          { id: "uut-1", customFields: { owner: "A", location: "North" } },
+        ],
+        tmdes: [{ id: "tmde-1", customFields: { lab: "Primary" } }],
+      },
+      "uut",
+      "owner",
+    );
+
+    expect(next.instrumentCustomColumns.uut).toEqual([
+      { key: "location", label: "Location" },
+    ]);
+    expect(next.uuts[0].customFields).toEqual({ location: "North" });
+    expect(next.instrumentCustomColumns.tmde).toEqual([
+      { key: "lab", label: "Lab" },
+    ]);
+    expect(next.tmdes[0].customFields).toEqual({ lab: "Primary" });
+  });
+
+  it("creates any number of blank ranges without requiring intermediate values", () => {
+    const item = {
+      id: "uut-row",
+      instrument: {
+        functions: [
+          {
+            id: "voltage",
+            name: "Voltage",
+            ranges: [{ id: "range-1", min: 0, max: 10, unit: "V" }],
+          },
+        ],
+      },
+    };
+    const firstAddition = addRangeToItem(item, "range-1");
+    const secondAddition = addRangeToItem(firstAddition.item, "range-1");
+    const ranges = secondAddition.item.instrument.functions[0].ranges;
+
+    expect(ranges).toHaveLength(3);
+    expect(ranges.slice(1)).toEqual([
+      expect.objectContaining({ min: "", max: "", unit: "V" }),
+      expect.objectContaining({ min: "", max: "", unit: "V" }),
+    ]);
+  });
+
+  it("updates existing TMDE budget labels when a nickname is assigned once", () => {
+    const tmde = {
+      id: "tmde-row",
+      nickname: "Bench Meter",
+      name: "Original Meter",
+      instrument: { id: "local-meter", model: "DMM-1" },
+    };
+    const [point] = applyTmdeIdentityToPoints(
+      [
+        {
+          id: "point-1",
+          tmdeTolerances: [{ sourceId: "tmde-row", name: "Original Meter" }],
+          components: [
+            {
+              sourceTmdeId: "tmde-row",
+              name: "Original Meter - Accuracy",
+              tmdeBudgetComponentKind: "Accuracy",
+              sourcePointLabel: "Original Meter · 5 V",
+            },
+          ],
+        },
+      ],
+      tmde,
+    );
+
+    expect(point.tmdeTolerances[0].nickname).toBe("Bench Meter");
+    expect(point.components[0]).toEqual(
+      expect.objectContaining({
+        name: "Bench Meter - Accuracy",
+        tmdeIdentity: "Bench Meter",
+        sourcePointLabel: "Bench Meter · 5 V",
+      }),
+    );
+  });
+
   it("forks an edited shared definition to a linked local copy", () => {
     const sharedDefinition = {
       id: "shared-dmm",

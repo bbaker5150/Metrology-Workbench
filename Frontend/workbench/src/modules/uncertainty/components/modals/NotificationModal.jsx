@@ -47,8 +47,6 @@ const NotificationModal = ({
     initialPosition: safeInitialPosition,
   });
 
-  if (!isOpen) return null;
-
   const handleConfirm = () => {
     if (inputLabel) {
       const error = validateInput?.(inputValue) || "";
@@ -57,6 +55,24 @@ const NotificationModal = ({
     }
     onConfirm?.(inputLabel ? inputValue.trim() : undefined);
   };
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const handleDialogKey = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose?.();
+      } else if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        if (onConfirm) handleConfirm();
+        else onClose?.();
+      }
+    };
+    window.addEventListener("keydown", handleDialogKey);
+    return () => window.removeEventListener("keydown", handleDialogKey);
+  });
+
+  if (!isOpen) return null;
 
   // Determine Icon & Color based on Title keywords
   let icon = faInfoCircle;
@@ -127,6 +143,7 @@ const NotificationModal = ({
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
+                  event.stopPropagation();
                   handleConfirm();
                 }
               }}

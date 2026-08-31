@@ -376,7 +376,7 @@ const DEFAULT_CALIBRATION_SETTINGS = {
   f5790_filter_mode: "MEDIUM",
   f5790_filter_restart: "MEDIUM",
   f5790_hires_enabled: true,
-  f5790_range_mode: "AUTO",
+  f5790_range_mode: "2.2",
   f5790_input_switch_settling_time: 30,
   nplc: 100,
   stability_check_method: 'sliding_window',
@@ -520,7 +520,7 @@ function Calibration({
     f5790_filter_mode: "MEDIUM",
     f5790_filter_restart: "MEDIUM",
     f5790_hires_enabled: true,
-    f5790_range_mode: "AUTO",
+    f5790_range_mode: "2.2",
     f5790_input_switch_settling_time: 30,
     nplc: 20,
     stability_check_method: 'sliding_window',
@@ -1498,7 +1498,7 @@ function Calibration({
       f5790_filter_mode: settings.f5790_filter_mode || "MEDIUM",
       f5790_filter_restart: settings.f5790_filter_restart || "MEDIUM",
       f5790_hires_enabled: Boolean(settings.f5790_hires_enabled),
-      f5790_range_mode: settings.f5790_range_mode || "AUTO",
+      f5790_range_mode: settings.f5790_range_mode || "2.2",
       f5790_input_switch_settling_time: Number(settings.f5790_input_switch_settling_time) || 0,
       ignore_instability_after_lock: settings.ignore_instability_after_lock ?? DEFAULT_CALIBRATION_SETTINGS.ignore_instability_after_lock,
       enable_low_frequency_settings: lowFrequencyEnabled,
@@ -1532,7 +1532,7 @@ function Calibration({
       f5790_filter_mode: settings.f5790_filter_mode || "MEDIUM",
       f5790_filter_restart: settings.f5790_filter_restart || "MEDIUM",
       f5790_hires_enabled: Boolean(settings.f5790_hires_enabled),
-      f5790_range_mode: settings.f5790_range_mode || "AUTO",
+      f5790_range_mode: settings.f5790_range_mode || "2.2",
       f5790_input_switch_settling_time: Number(settings.f5790_input_switch_settling_time) || 0,
       nplc: parseFloat(settings.nplc) || DEFAULT_CALIBRATION_SETTINGS.nplc,
       stability_check_method: settings.stability_check_method || DEFAULT_CALIBRATION_SETTINGS.stability_check_method,
@@ -3870,20 +3870,22 @@ function Calibration({
                                 </section>
                                 <section className="reader-profile-card" aria-labelledby="reader-profile-5790-range-title">
                                   <div className="reader-profile-card-header">
-                                    <strong id="reader-profile-5790-range-title">Acquisition</strong>
                                   </div>
                                   <div className="form-section-group">
                                     <div className="form-section reader-setting-tooltip-trigger">
                                       <label htmlFor="f5790_range_mode">Range
                                         <ReaderSettingTooltip>
-                                          Test point selects the range from the commanded source value. Auto lets the 5790 select its own range.
+                                          Select the physical Y5020 input range used by the 5790.
                                         </ReaderSettingTooltip>
                                       </label>
-                                      <select id="f5790_range_mode" value={calibrationSettings.f5790_range_mode || "AUTO"}
+                                      <select id="f5790_range_mode" value={calibrationSettings.f5790_range_mode || "2.2"}
                                         onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_range_mode: e.target.value }))}
                                         disabled={isRemoteViewer}>
-                                        <option value="POINT">Test point</option>
-                                        <option value="AUTO">Auto</option>
+                                        <option value="0.022">22 mV</option>
+                                        <option value="0.07">70 mV</option>
+                                        <option value="0.22">220 mV</option>
+                                        <option value="0.7">700 mV</option>
+                                        <option value="2.2">2.2 V</option>
                                       </select>
                                     </div>
                                     <div className="reader-profile-switches full-width">

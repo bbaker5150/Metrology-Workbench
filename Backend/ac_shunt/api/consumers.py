@@ -248,7 +248,7 @@ def _5790_profile_settings(measurement_params):
     params = measurement_params or {}
     mode = str(params.get('f5790_filter_mode') or 'MEDIUM').upper()
     restart = str(params.get('f5790_filter_restart') or 'MEDIUM').upper()
-    range_mode = str(params.get('f5790_range_mode') or 'AUTO').upper()
+    range_mode = str(params.get('f5790_range_mode') or '2.2').upper()
     switch_delay = params.get('f5790_input_switch_settling_time')
     if switch_delay is None:
         switch_delay = 30.0
@@ -256,7 +256,7 @@ def _5790_profile_settings(measurement_params):
         'filter_mode': mode if mode in {'OFF', 'FAST', 'MEDIUM', 'SLOW'} else 'MEDIUM',
         'filter_restart': restart if restart in {'FINE', 'MEDIUM', 'COARSE'} else 'MEDIUM',
         'hires_enabled': bool(params.get('f5790_hires_enabled', True)),
-        'range_mode': range_mode if range_mode in {'AUTO', 'POINT'} else 'AUTO',
+        'range_mode': range_mode if range_mode in {'0.022', '0.07', '0.22', '0.7', '2.2'} else '2.2',
         'input_switch_delay': max(
             0.0,
             min(300.0, float(switch_delay)),
@@ -1940,6 +1940,31 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if ac_source is not dc_source:
                 await sync_to_async(dc_source.set_operate, thread_sensitive=True)()
 
+    async def _prepare_ac_warmup_route(self, switch_driver, session_details):
+        """Put the source switch on the energized AC path before warm-up.
+
+        A stopped or manually-troubleshot run may leave the 11713C on DC.
+        Warm-up is intended to precondition the AC-open signal path, so make
+        that state explicit instead of relying on whichever stage ran last.
+        """
+        if switch_driver is None and session_details.get('switch_driver_address'):
+            switch_driver = await sync_to_async(_inst, thread_sensitive=True)(
+                Instrument11713C,
+                gpib=session_details.get('switch_driver_address'),
+            )
+        if switch_driver is not None:
+            await self.broadcast(text_data=json.dumps({
+                'type': 'status_update',
+                'message': 'Routing the energized AC source to AC Open for warm-up...',
+            }))
+            await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
+            await self.broadcast(text_data=json.dumps({
+                'type': 'switch_status_update',
+                'active_source': 'AC',
+            }))
+            await asyncio.sleep(1)
+        return switch_driver
+
     async def _perform_warmup(self, warmup_time, tp_id=None):
         if not warmup_time or warmup_time <= 0:
             return
@@ -2098,6 +2123,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await self._activate_sources(**activate_kwargs)
 
             if warmup_time > 0:
+                switch_driver = await self._prepare_ac_warmup_route(switch_driver, session_details)
                 await self._perform_warmup(warmup_time, tp_id=original_tp.get('id'))
 
             settling_time, num_samples = float(data.get('settling_time', 5.0)), data.get('num_samples', 8)
@@ -3301,6 +3327,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             warmup_time = data.get('initial_warm_up_time') or 0
             
             if warmup_time > 0:
+                switch_driver = await self._prepare_ac_warmup_route(switch_driver, session_details)
                 await self._perform_warmup(warmup_time, tp_id=(data.get('test_point') or {}).get('id'))
 
             source_instrument = ac_source if is_ac_reading else dc_source
@@ -3423,6 +3450,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             warmup_time = data.get('initial_warm_up_time') or 0
             
             if warmup_time > 0:
+                switch_driver = await self._prepare_ac_warmup_route(switch_driver, session_details)
                 await self._perform_warmup(warmup_time, tp_id=(data.get('test_point') or {}).get('id'))
 
             settling_time, num_samples, nplc_setting, measurement_params = float(data.get('settling_time', 5.0)), data.get('num_samples', 8), data.get('nplc'), data.get('measurement_params')
@@ -3588,6 +3616,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             # ``warmup_time > 0`` comparison; ``or 0`` coerces null/0/'' to 0.
             warmup_time = data.get('initial_warm_up_time') or 0
             if warmup_time > 0:
+                switch_driver = await self._prepare_ac_warmup_route(switch_driver, session_details)
                 await self._perform_warmup(warmup_time, tp_id=(test_points_to_run[0].get('id') if test_points_to_run else None))
 
             nplc_setting, measurement_params = data.get('nplc'), data.get('measurement_params')
@@ -3939,6 +3968,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             warmup_time = data.get('initial_warm_up_time') or 0
             if warmup_time > 0:
+                switch_driver = await self._prepare_ac_warmup_route(switch_driver, session_details)
                 await self._perform_warmup(warmup_time, tp_id=(forward_points[0].get('id') if forward_points else None))
 
             # ----- Forward pass -----
@@ -4116,14 +4146,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             # ``warmup_time > 0`` comparison; ``or 0`` coerces null/0/'' to 0.
             warmup_time = data.get('initial_warm_up_time') or 0
             if warmup_time > 0:
+                switch_driver = await self._prepare_ac_warmup_route(switch_driver, session_details)
                 await self._perform_warmup(warmup_time, tp_id=(test_points_to_run[0].get('id') if test_points_to_run else None))
 
             source_instrument = ac_source if 'ac' in stage else dc_source
             if not source_instrument: raise Exception(f"Required source for stage '{stage}' is not assigned.")
 
-            switch_driver = None
-            if session_details.get('switch_driver_address'):
+            if switch_driver is None and session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
+            if switch_driver is not None:
                 required_switch_state = 'AC' if 'ac' in stage else 'DC'
                 await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source for batch run..."}))
                 if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()

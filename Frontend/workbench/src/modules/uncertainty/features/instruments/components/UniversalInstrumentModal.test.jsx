@@ -665,12 +665,12 @@ describe("UniversalInstrumentModal library synchronization", () => {
     const distributionSelect = within(row).getByRole("button", {
       name: /Resolution distribution/i,
     });
-    expect(distributionSelect).toHaveTextContent("Rectangular (resolution)");
+    expect(distributionSelect).toHaveTextContent("k = 3.464");
     fireEvent.click(distributionSelect);
-    expect(screen.getByRole("option", { name: /Triangular\s+2\.449/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ })).toBeInTheDocument();
     expect(
       screen.getByRole("option", {
-        name: /Triangular \(resolution\)\s+4\.899/,
+        name: /Triangular \(resolution\)\s+k = 4\.899/,
       }),
     ).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Normal \(95%\)/ })).toBeInTheDocument();

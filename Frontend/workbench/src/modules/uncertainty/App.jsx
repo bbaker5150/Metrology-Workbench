@@ -5,6 +5,7 @@ import React, {
   useState,
   useMemo,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   lazy,
@@ -25,6 +26,7 @@ import UniversalInstrumentModal from "./features/instruments/components/Universa
 import UnresolvedToleranceModal from "./features/testPoints/components/UnresolvedToleranceModal";
 import BugReportModal from "./components/modals/BugReportModal";
 import GuidedWalkthrough from "./components/common/GuidedWalkthrough";
+import InlineMenuSelect from "./components/common/InlineMenuSelect";
 
 // --- Brand emblem (shared 3D medallion recipe) ---
 import HeaderEmblem from "./components/HeaderEmblem";
@@ -54,7 +56,6 @@ import {
   faQuestionCircle,
   faLayerGroup,
   faMicroscope,
-  faCube,
   faRadio,
   faHistory,
   faRightLeft,
@@ -147,6 +148,77 @@ const clonePointSettingValue = (value) => {
   return value;
 };
 
+const POINT_BUDGET_FIELDS = [
+  "components",
+  "tmdeTolerances",
+  "inputCorrelations",
+  "coverageFactorMode",
+  "coverageFactorOverride",
+  "budgetPropagationMethod",
+  "monteCarloTrials",
+  "useEffectiveDofByGroup",
+];
+
+export const copyPointBudget = (point = {}) =>
+  Object.fromEntries(
+    POINT_BUDGET_FIELDS.filter((field) =>
+      Object.prototype.hasOwnProperty.call(point, field),
+    ).map((field) => [field, clonePointSettingValue(point[field])]),
+  );
+
+export const pastePointBudget = (point = {}, budget = {}) => {
+  const next = { ...point };
+  POINT_BUDGET_FIELDS.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(budget, field)) {
+      next[field] = clonePointSettingValue(budget[field]);
+    } else {
+      delete next[field];
+    }
+  });
+  return next;
+};
+
+const normalizedGroupedCellValue = (value) => {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+};
+
+export const getConsecutiveSidebarCellGroup = (
+  points = [],
+  index,
+  valueForPoint,
+) => {
+  const value = normalizedGroupedCellValue(valueForPoint(points[index]));
+  if (!value) {
+    return {
+      isStart: true,
+      isEnd: true,
+      span: 1,
+      pointIds: [points[index]?.id],
+    };
+  }
+  let start = index;
+  let end = index;
+  while (
+    start > 0 &&
+    normalizedGroupedCellValue(valueForPoint(points[start - 1])) === value
+  ) {
+    start -= 1;
+  }
+  while (
+    end + 1 < points.length &&
+    normalizedGroupedCellValue(valueForPoint(points[end + 1])) === value
+  ) {
+    end += 1;
+  }
+  return {
+    isStart: start === index,
+    isEnd: end === index,
+    span: end - start + 1,
+    pointIds: points.slice(start, end + 1).map((point) => point.id),
+  };
+};
+
 const getFunctionPointSettings = (sessionData, functionId) => {
   const stored = (sessionData?.functionGroups || []).find(
     (group) =>
@@ -204,48 +276,67 @@ const SIDEBAR_COLUMN_GROUPS = [
   },
 ];
 
-const getSidebarGridTemplate = (visibleColumns, valueColumnWidth = "80px") => {
+// A column the user has dragged is pinned to that exact width; everything else
+// keeps its default track sizing.
+export const SIDEBAR_COLUMN_MIN_WIDTH = 44;
+
+const getSidebarGridTemplate = (
+  visibleColumns,
+  valueColumnWidth = "80px",
+  columnWidths = {},
+) => {
   const parts = [];
-  // Fixed widths for stable columns
-  if (visibleColumns.uut) parts.push("minmax(120px, 1.35fr)");
-  if (visibleColumns.section) parts.push("50px");
-  if (visibleColumns.value) parts.push(valueColumnWidth);
-  if (visibleColumns.qualifier) parts.push("80px");
-  if (visibleColumns.tolerance) parts.push("minmax(80px, 1fr)");
+  const push = (key, track) => {
+    if (!visibleColumns[key]) return;
+    const custom = Number(columnWidths?.[key]);
+    parts.push(
+      Number.isFinite(custom) && custom > 0
+        ? `${Math.max(SIDEBAR_COLUMN_MIN_WIDTH, Math.round(custom))}px`
+        : track,
+    );
+  };
+
+  // Fixed widths for stable columns. The UUT track starts wide enough for a
+  // full instrument identity rather than clipping it at the default width.
+  push("uut", "minmax(200px, 1.35fr)");
+  push("section", "50px");
+  push("value", valueColumnWidth);
+  push("qualifier", "80px");
+  push("tolerance", "minmax(80px, 1fr)");
 
   // Split Limits Columns
-  if (visibleColumns.lowLimit) parts.push("minmax(60px, 0.8fr)");
-  if (visibleColumns.highLimit) parts.push("minmax(60px, 0.8fr)");
+  push("lowLimit", "minmax(60px, 0.8fr)");
+  push("highLimit", "minmax(60px, 0.8fr)");
 
-  if (visibleColumns.standardUncertainty) parts.push(SIDEBAR_UNCERTAINTY_COLUMN);
-  if (visibleColumns.measurementUncertainty) parts.push(SIDEBAR_UNCERTAINTY_COLUMN);
+  push("standardUncertainty", SIDEBAR_UNCERTAINTY_COLUMN);
+  push("measurementUncertainty", SIDEBAR_UNCERTAINTY_COLUMN);
   // TMDE (standard) limit columns
-  if (visibleColumns.tmdeLow) parts.push("minmax(90px, 1fr)");
-  if (visibleColumns.tmdeHigh) parts.push("minmax(90px, 1fr)");
+  push("tmdeLow", "minmax(90px, 1fr)");
+  push("tmdeHigh", "minmax(90px, 1fr)");
 
   // Workbook measurement and test-point risk columns
-  if (visibleColumns.tur) parts.push("55px");
-  if (visibleColumns.tar) parts.push("55px");
-  if (visibleColumns.observedReop) parts.push("78px");
-  if (visibleColumns.pfa) parts.push("55px");
-  if (visibleColumns.pfr) parts.push("55px");
-  if (visibleColumns.maxReop) parts.push("70px");
-  if (visibleColumns.trueReop) parts.push("70px");
+  push("tur", "55px");
+  push("tar", "55px");
+  push("observedReop", "78px");
+  push("pfa", "55px");
+  push("pfr", "55px");
+  push("maxReop", "70px");
+  push("trueReop", "70px");
 
   // Mitigation (GB + interval)
-  if (visibleColumns.gbMult) parts.push("60px");
-  if (visibleColumns.gbLow) parts.push("minmax(60px, 0.8fr)");
-  if (visibleColumns.gbHigh) parts.push("minmax(60px, 0.8fr)");
-  if (visibleColumns.gbPfa) parts.push("60px");
-  if (visibleColumns.gbPfr) parts.push("60px");
-  if (visibleColumns.gbCalInt) parts.push("84px");
-  if (visibleColumns.gbMeasRel) parts.push("98px");
+  push("gbMult", "60px");
+  push("gbLow", "minmax(60px, 0.8fr)");
+  push("gbHigh", "minmax(60px, 0.8fr)");
+  push("gbPfa", "60px");
+  push("gbPfr", "60px");
+  push("gbCalInt", "84px");
+  push("gbMeasRel", "98px");
 
   // Mitigation (interval only)
-  if (visibleColumns.noGbPfa) parts.push("64px");
-  if (visibleColumns.noGbPfr) parts.push("64px");
-  if (visibleColumns.noGbCalInt) parts.push("90px");
-  if (visibleColumns.noGbMeasRel) parts.push("102px");
+  push("noGbPfa", "64px");
+  push("noGbPfr", "64px");
+  push("noGbCalInt", "90px");
+  push("noGbMeasRel", "102px");
 
   if (parts.length === 0) return "1fr";
   return parts.join(" ");
@@ -263,11 +354,15 @@ const formatInstrumentIdentity = (item = {}) => {
       "",
   ).trim();
   const prefix = [make, model].filter(Boolean).join(" ");
-  if (!prefix) return name || "Instrument";
-  if (!name) return prefix;
-  return name.toLowerCase().startsWith(prefix.toLowerCase())
+  const identity = !prefix
+    ? name || "Instrument"
+    : !name
+      ? prefix
+      : name.toLowerCase().startsWith(prefix.toLowerCase())
     ? name
     : `${prefix} ${name}`;
+  const nickname = String(item.nickname || "").trim();
+  return nickname || identity;
 };
 
 const SCOPED_ZOOM_SURFACE_SELECTOR = [
@@ -281,6 +376,16 @@ const SCOPED_ZOOM_SURFACE_SELECTOR = [
 ].join(", ");
 
 const UNCERTAINTY_UI_PREFERENCES_PREFIX = "uncertalytics.uiPreferences.v1";
+const UNCERTAINTY_UI_SIZING_KEY = "uncertalytics.uiSizing.v1";
+const INSTRUMENT_SIZE_RESET_EVENT = "uncert-reset-ui-sizes";
+const INSTRUMENT_SIZE_STORAGE_KEYS = [
+  "uncertalytics:uut:instrument-column-widths:v2",
+  "uncertalytics:tmde:instrument-column-widths:v2",
+  "uncertalytics:overview:uut:instrument-table-height:v1",
+  "uncertalytics:overview:tmde:instrument-table-height:v1",
+  "uncertalytics:detail:uut:instrument-table-height:v1",
+  "uncertalytics:detail:tmde:instrument-table-height:v1",
+];
 const DEFAULT_SIDEBAR_COLUMNS = {
   uut: true,
   section: false,
@@ -312,7 +417,8 @@ const DEFAULT_SIDEBAR_COLUMNS = {
   noGbCalInt: false,
   noGbMeasRel: false,
 };
-const DEFAULT_SIDEBAR_SORT = { key: "section", direction: "asc" };
+// Preserve authored chronology until the user explicitly selects a column sort.
+const DEFAULT_SIDEBAR_SORT = { key: "", direction: "asc" };
 
 const getUiPreferencesStorageKey = (sessionId) =>
   `${UNCERTAINTY_UI_PREFERENCES_PREFIX}:${sessionId}`;
@@ -392,7 +498,36 @@ const getScopedZoomTarget = (eventTarget) => {
 
   const table = eventTarget.closest("table");
   if (!table || !surface.contains(table)) return null;
-  return { surface, content: table };
+  const linkedContents = surface.classList.contains(
+    "instrument-panel-table-container",
+  )
+    ? [
+        surface.parentElement?.querySelector(
+          ":scope > .instrument-panel-card-header",
+        ),
+      ].filter(Boolean)
+    : [];
+  return { surface, content: table, linkedContents };
+};
+
+const getScopedZoomContents = (surface) => {
+  if (
+    surface.classList.contains("measurement-point-list") ||
+    surface.classList.contains("measurement-equation-zoom-surface")
+  ) {
+    const content = surface.querySelector(":scope > .scoped-zoom-content");
+    return content ? [content] : [];
+  }
+
+  const table = surface.querySelector(":scope > table");
+  if (!table) return [];
+  if (!surface.classList.contains("instrument-panel-table-container")) {
+    return [table];
+  }
+  const header = surface.parentElement?.querySelector(
+    ":scope > .instrument-panel-card-header",
+  );
+  return header ? [table, header] : [table];
 };
 
 const parseSortableNumber = (value) => {
@@ -454,10 +589,45 @@ const getPointTmdeLimitSortValue = (point, key) => {
   return parseSortableNumber(key === "tmdeLow" ? limits.low : limits.high);
 };
 
+const readUiSizingPreferences = () => {
+  try {
+    return JSON.parse(
+      window.localStorage.getItem(UNCERTAINTY_UI_SIZING_KEY) || "{}",
+    );
+  } catch (error) {
+    console.warn("Unable to read uncertainty sizing preferences", error);
+    return {};
+  }
+};
+
+const hasStoredUiSizingPreferences = () => {
+  try {
+    return window.localStorage.getItem(UNCERTAINTY_UI_SIZING_KEY) !== null;
+  } catch {
+    return false;
+  }
+};
+
+export const getUutReassignmentPointIds = ({
+  selectedPointIds = [],
+  currentPointId,
+}) => {
+  const currentId = String(currentPointId);
+  const selectedIds = selectedPointIds.map(String);
+  return selectedIds.includes(currentId) ? selectedIds : [currentId];
+};
+
 // --- HELPER COMPONENT: Sidebar Point Item (Supports Inline Editing) ---
 export const SidebarPointItem = ({
   point,
   uutName = "Unassigned",
+  currentUutId = "",
+  uutOptions = [],
+  onUutChange,
+  cellGroups = {},
+  columnWidths = {},
+  highlightedPointIds = [],
+  onGroupedFieldSave,
   valueColumnWidth = "80px",
   isSelected,
   isActivePoint = false,
@@ -471,6 +641,7 @@ export const SidebarPointItem = ({
   onShowRiskBreakdown,
   autoEditValue = false,
   onAutoEditConsumed,
+  onAdvanceValue,
   visibleColumns = {
     uut: true,
     section: true,
@@ -505,15 +676,22 @@ export const SidebarPointItem = ({
   const [editingField, setEditingField] = useState(
     autoEditValue ? "value" : null,
   );
+  const [editingUut, setEditingUut] = useState(false);
   const [tempValue, setTempValue] = useState(
     autoEditValue ? point.testPointInfo?.parameter?.value ?? "" : "",
   );
+  const groupedCellRefs = useRef({});
+  const [groupedCellGeometry, setGroupedCellGeometry] = useState({});
 
-  // Clear the parent's one-shot auto-edit flag once we've consumed it.
+  // Consume both mount-time and later focus requests. Pre-created blank rows
+  // are already mounted, so relying only on the useState initializer prevented
+  // Enter from advancing into the next row's value field.
   useEffect(() => {
-    if (autoEditValue) onAutoEditConsumed?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!autoEditValue) return;
+    setEditingField("value");
+    setTempValue(point.testPointInfo?.parameter?.value ?? "");
+    onAutoEditConsumed?.();
+  }, [autoEditValue, onAutoEditConsumed, point.testPointInfo]);
 
   const startEdit = (e, field, currentVal) => {
     e.stopPropagation();
@@ -558,7 +736,15 @@ export const SidebarPointItem = ({
 
   const commitEdit = () => {
     if (editingField === "section") {
-      onSave({ ...point, section: tempValue });
+      if (cellGroups.section?.span > 1) {
+        onGroupedFieldSave?.(
+          "section",
+          tempValue,
+          cellGroups.section.pointIds,
+        );
+      } else {
+        onSave({ ...point, section: tempValue });
+      }
     } else if (editingField === "value") {
       const prevInfo = point.testPointInfo || {};
       const prevParam = prevInfo.parameter || {};
@@ -580,14 +766,27 @@ export const SidebarPointItem = ({
           value: tempValue,
         },
       };
-      onSave({ ...point, testPointInfo: newInfo });
+      if (cellGroups.qualifier?.span > 1) {
+        onGroupedFieldSave?.(
+          "qualifier",
+          tempValue,
+          cellGroups.qualifier.pointIds,
+        );
+      } else {
+        onSave({ ...point, testPointInfo: newInfo });
+      }
     }
     setEditingField(null);
   };
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
+      e.preventDefault();
+      const shouldAdvance = editingField === "value";
       e.target.blur(); // Triggers onBlur which commits
+      if (shouldAdvance) {
+        requestAnimationFrame(() => onAdvanceValue?.());
+      }
     }
     if (e.key === "Escape") cancelEdit();
   };
@@ -595,6 +794,130 @@ export const SidebarPointItem = ({
   // Safe Accessors
   const displayValue = point.testPointInfo?.parameter?.value;
   const displayUnit = point.testPointInfo?.parameter?.unit || "";
+
+  // The spanning content is absolutely positioned, so measuring it cannot
+  // enlarge the point rows. Use the real rendered row bounds to keep merged
+  // labels centered when zoom or taller metrics change the row rhythm.
+  useLayoutEffect(() => {
+    const measure = () => {
+      const nextGeometry = {};
+      ["uut", "section", "qualifier"].forEach((column) => {
+        const group = cellGroups[column];
+        const cell = groupedCellRefs.current[column];
+        if (!group?.isStart || group.span < 2 || !cell) return;
+
+        const firstRow = cell.closest(".point-grid-item");
+        if (!firstRow) return;
+        let lastRow = firstRow;
+        for (let offset = 1; offset < group.span; offset += 1) {
+          const nextRow = lastRow.nextElementSibling;
+          if (!nextRow?.classList.contains("point-grid-item")) break;
+          lastRow = nextRow;
+        }
+
+        // offset* values stay in the list's local CSS coordinate system. That
+        // avoids applying scoped CSS zoom twice, which would shift the merged
+        // label away from the true midpoint.
+        const height =
+          lastRow.offsetTop + lastRow.offsetHeight - firstRow.offsetTop;
+        if (height <= 0) return;
+        nextGeometry[column] = {
+          top: `${-cell.offsetTop}px`,
+          height: `${Math.round(height)}px`,
+        };
+      });
+
+      setGroupedCellGeometry((current) =>
+        JSON.stringify(current) === JSON.stringify(nextGeometry)
+          ? current
+          : nextGeometry,
+      );
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    ["uut", "section", "qualifier"].forEach((column) => {
+      const group = cellGroups[column];
+      const cell = groupedCellRefs.current[column];
+      if (!group?.isStart || group.span < 2 || !cell) return;
+      let row = cell.closest(".point-grid-item");
+      for (let offset = 0; offset < group.span && row; offset += 1) {
+        observer.observe(row);
+        row = row.nextElementSibling;
+      }
+    });
+    return () => observer.disconnect();
+  }, [
+    cellGroups.uut?.isStart,
+    cellGroups.uut?.span,
+    cellGroups.uut?.pointIds?.join("|"),
+    cellGroups.section?.isStart,
+    cellGroups.section?.span,
+    cellGroups.section?.pointIds?.join("|"),
+    cellGroups.qualifier?.isStart,
+    cellGroups.qualifier?.span,
+    cellGroups.qualifier?.pointIds?.join("|"),
+    visibleColumns.uut,
+    visibleColumns.section,
+    visibleColumns.qualifier,
+  ]);
+
+  const highlightedPointIdSet = new Set(
+    (highlightedPointIds || []).filter(Boolean).map(String),
+  );
+  // A merged cell belongs to every point in its run, so selecting any one of
+  // them highlights the shared cell as a whole.
+  const groupIsHighlighted = (group) =>
+    group?.span > 1 &&
+    group.pointIds?.some((id) => highlightedPointIdSet.has(String(id)));
+  // Every cell of a run carries the same key, so hovering any row in the run
+  // can light the whole shared cell the way selecting a point does.
+  const groupedCellRunKey = (group, column) =>
+    group?.span > 1 ? `${column}:${group.pointIds?.[0]}` : undefined;
+
+  const groupedCellClass = (group, column) =>
+    group?.span > 1
+      ? ` point-grouped-cell point-grouped-cell--${group.isStart ? "start" : "continuation"}${
+          group.isEnd ? "" : " point-grouped-cell--has-next"
+        }${column === leadingVisibleColumn ? " point-grouped-cell--leading" : ""}${
+          groupIsHighlighted(group) ? " point-grouped-cell--highlighted" : ""
+        }`
+      : "";
+  const groupedCellStyle = (group, column) =>
+    group?.span > 1 && group.isStart
+      ? {
+          "--point-cell-group-top":
+            groupedCellGeometry[column]?.top || "-5px",
+          "--point-cell-group-height":
+            groupedCellGeometry[column]?.height || `${group.span * 29 - 1}px`,
+        }
+      : undefined;
+  const setGroupedCellRef = (column) => (node) => {
+    groupedCellRefs.current[column] = node;
+  };
+  const leadingVisibleColumn = [
+    "uut",
+    "section",
+    "value",
+    "qualifier",
+    "tolerance",
+    "lowLimit",
+    "highLimit",
+    "standardUncertainty",
+    "measurementUncertainty",
+  ].find((column) => visibleColumns[column]);
+  const wrapGroupedCellContent = (group, column, content) =>
+    group?.span > 1 && group.isStart ? (
+      <span
+        className={`point-grouped-cell-content point-grouped-cell-content--${column}${column === leadingVisibleColumn ? " is-leading-column" : ""}`}
+        style={groupedCellStyle(group, column)}
+      >
+        {content}
+      </span>
+    ) : (
+      content
+    );
   // Prefer the live, reactively-computed metrics (always current with the
   // session inputs); fall back to the persisted backend snapshot only if the
   // point can't currently be evaluated (#1).
@@ -754,10 +1077,41 @@ export const SidebarPointItem = ({
       .join("\n");
   }, [tmdeLimitsData]);
 
+  // A shared cell spans rows this component does not own, so its hover is
+  // applied to the run's cells directly. Holding it in React state instead
+  // would re-render the whole workspace - analysis panel included - every time
+  // the pointer crossed a row.
+  const setRunHover = (row, isHovering) => {
+    const list = row?.closest?.(".sidebar-points-scroll-wrapper");
+    if (!list) return;
+    // Leaving clears the whole list, so a run can never be left lit behind.
+    list
+      .querySelectorAll(".is-run-hovered")
+      .forEach((cell) => cell.classList.remove("is-run-hovered"));
+    if (!isHovering) return;
+    const keys = new Set(
+      ["uut", "section", "qualifier"]
+        .map((column) => groupedCellRunKey(cellGroups[column], column))
+        .filter(Boolean),
+    );
+    if (keys.size === 0) return;
+    list.querySelectorAll("[data-run]").forEach((cell) => {
+      if (keys.has(cell.dataset.run)) cell.classList.add("is-run-hovered");
+    });
+  };
+
   return (
     <div
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
-      style={{ gridTemplateColumns: getSidebarGridTemplate(visibleColumns, valueColumnWidth) }}
+      onMouseEnter={(e) => setRunHover(e.currentTarget, true)}
+      onMouseLeave={(e) => setRunHover(e.currentTarget, false)}
+      style={{
+        gridTemplateColumns: getSidebarGridTemplate(
+          visibleColumns,
+          valueColumnWidth,
+          columnWidths,
+        ),
+      }}
       onClick={(e) => {
         if (!editingField) {
           e.stopPropagation();
@@ -775,33 +1129,116 @@ export const SidebarPointItem = ({
       onContextMenu={(e) => onContextMenu(e, point)}
     >
       {visibleColumns.uut && (
-        <span className="point-uut-name" title={uutName}>
-          {uutName}
-        </span>
+        <>
+          <span
+            ref={setGroupedCellRef("uut")}
+            className={`point-uut-name point-uut-selector-cell${groupedCellClass(cellGroups.uut, "uut")}`}
+            data-run={groupedCellRunKey(cellGroups.uut, "uut")}
+            title={uutName}
+          >
+            {!cellGroups.uut?.isStart && cellGroups.uut?.span > 1
+              ? null
+              : wrapGroupedCellContent(
+                  cellGroups.uut,
+                  "uut",
+                  editingUut ? (
+                    <InlineMenuSelect
+                      value={currentUutId || ""}
+                      ariaLabel="UUT"
+                      title={uutName}
+                      width="100%"
+                      menuWidth={260}
+                      className="point-uut-inline-select"
+                      autoOpen
+                      showOptionMeta={false}
+                      options={[
+                        { value: "", label: "Unassigned" },
+                        ...uutOptions.map((option) => ({
+                          value: String(option.id),
+                          label: option.label,
+                        })),
+                      ]}
+                      onOpenChange={(isOpen) => {
+                        if (!isOpen) setEditingUut(false);
+                      }}
+                      onChange={(value) => {
+                        if (cellGroups.uut?.pointIds) {
+                          onUutChange?.(value || null, cellGroups.uut.pointIds);
+                        } else {
+                          onUutChange?.(value || null);
+                        }
+                        setEditingUut(false);
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="point-uut-summary"
+                      aria-label="UUT"
+                      title="Edit UUT"
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditingUut(true);
+                      }}
+                    >
+                      {uutName}
+                    </button>
+                  ),
+                )}
+          </span>
+        </>
       )}
 
       {/* Section */}
       {visibleColumns.section &&
-        (editingField === "section" ? (
-          <input
-            autoFocus
-            className="sidebar-inline-input section"
-            value={tempValue}
-            onChange={(e) => setTempValue(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={handleKeyDown}
-            onClick={(e) => e.stopPropagation()}
-            placeholder="-"
-          />
-        ) : (
-          <span
-            className="point-section"
-            onClick={(e) => handleSingleClickEdit(e, "section", point.section)}
-            title={String(point.section || "-")}
-          >
-            {point.section || "-"}
-          </span>
-        ))}
+        <>
+          {!cellGroups.section?.isStart && cellGroups.section?.span > 1 ? (
+            <span
+              ref={setGroupedCellRef("section")}
+              className={`point-section${groupedCellClass(cellGroups.section, "section")}`}
+              data-run={groupedCellRunKey(cellGroups.section, "section")}
+              aria-hidden="true"
+            />
+          ) : (
+            <span
+              ref={setGroupedCellRef("section")}
+              className={`point-section${groupedCellClass(cellGroups.section, "section")}`}
+              data-run={groupedCellRunKey(cellGroups.section, "section")}
+              title={String(point.section || "-")}
+            >
+              {wrapGroupedCellContent(
+                cellGroups.section,
+                "section",
+                editingField === "section" ? (
+                  <input
+                    autoFocus
+                    className="sidebar-inline-input section"
+                    value={tempValue}
+                    onChange={(e) => setTempValue(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={handleKeyDown}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="-"
+                  />
+                ) : (
+                  <span className="point-edit-affordance">
+                    <span
+                      className="point-grouped-cell-label"
+                      onClick={(e) =>
+                        handleSingleClickEdit(e, "section", point.section)
+                      }
+                    >
+                      {point.section || (
+                        <span className="point-placeholder">-</span>
+                      )}
+                    </span>
+                  </span>
+                ),
+              )}
+            </span>
+          )}
+        </>}
 
       {/* Col 2: Value */}
       {visibleColumns.value &&
@@ -830,51 +1267,79 @@ export const SidebarPointItem = ({
               displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
             }`}
           >
-            <span className="point-value-number">
-              {displayValue || <span className="point-placeholder">-</span>}
-            </span>
-            {displayUnit && (
-              <span className="point-value-unit">
-                {getUnitDisplayLabel(displayUnit)}
+            <span className="point-edit-affordance">
+              <span className="point-value-number">
+                {displayValue || <span className="point-placeholder">-</span>}
               </span>
-            )}
+              {displayUnit && (
+                <span className="point-value-unit">
+                  {getUnitDisplayLabel(displayUnit)}
+                </span>
+              )}
+            </span>
           </span>
         ))}
 
       {/* Optional Qualifier column (e.g. Frequency) — hidden by default. */}
       {visibleColumns.qualifier &&
-        (editingField === "qualifier" ? (
-          <input
-            autoFocus
-            className="sidebar-inline-input value"
-            value={tempValue}
-            onChange={(e) => setTempValue(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={handleKeyDown}
-            onClick={(e) => e.stopPropagation()}
-            placeholder="-"
-          />
-        ) : (
-          <span
-            className="point-value"
-            onClick={(e) =>
-              handleSingleClickEdit(
-                e,
+        <>
+          {!cellGroups.qualifier?.isStart && cellGroups.qualifier?.span > 1 ? (
+            <span
+              ref={setGroupedCellRef("qualifier")}
+              className={`point-value${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
+              data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
+              aria-hidden="true"
+            />
+          ) : (
+            <span
+              ref={setGroupedCellRef("qualifier")}
+              className={`point-value${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
+              data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
+              title={String(point.testPointInfo?.qualifier?.value ?? "-")}
+            >
+              {wrapGroupedCellContent(
+                cellGroups.qualifier,
                 "qualifier",
-                point.testPointInfo?.qualifier?.value,
-              )
-            }
-            title={String(point.testPointInfo?.qualifier?.value ?? "-")}
-          >
-            {point.testPointInfo?.qualifier?.value || (
-              <span className="point-placeholder">-</span>
-            )}
-          </span>
-        ))}
+                editingField === "qualifier" ? (
+                  <input
+                    autoFocus
+                    className="sidebar-inline-input value"
+                    value={tempValue}
+                    onChange={(e) => setTempValue(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={handleKeyDown}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="-"
+                  />
+                ) : (
+                  <span className="point-edit-affordance">
+                    <span
+                      className="point-grouped-cell-label"
+                      onClick={(e) =>
+                        handleSingleClickEdit(
+                          e,
+                          "qualifier",
+                          point.testPointInfo?.qualifier?.value,
+                        )
+                      }
+                    >
+                      {point.testPointInfo?.qualifier?.value || (
+                        <span className="point-placeholder">-</span>
+                      )}
+                    </span>
+                  </span>
+                ),
+              )}
+            </span>
+          )}
+        </>}
 
       {/* Col 3: Tolerance */}
       {visibleColumns.tolerance && (
-        <span className="point-metric" title={toleranceSummary}>
+        <span
+          className="point-metric"
+          title={toleranceSummary}
+        >
           {toleranceSummary !== "Not Set" &&
           toleranceSummary !== "Not Calculated"
             ? toleranceSummary
@@ -884,14 +1349,20 @@ export const SidebarPointItem = ({
 
       {/* Col 4: Low Limit */}
       {visibleColumns.lowLimit && (
-        <span className="point-metric" title={limitsData.fullLow}>
+        <span
+          className="point-metric"
+          title={limitsData.fullLow}
+        >
           {limitsData.low}
         </span>
       )}
 
       {/* Col 5: High Limit */}
       {visibleColumns.highLimit && (
-        <span className="point-metric" title={limitsData.fullHigh}>
+        <span
+          className="point-metric"
+          title={limitsData.fullHigh}
+        >
           {limitsData.high}
         </span>
       )}
@@ -1258,22 +1729,53 @@ const SidebarSessionHeader = ({
 
   if (!sessionData) return null;
 
+  const requirements = sessionData.uncReq || {};
+  const editableFieldOrder = [
+    "name",
+    "organization",
+    "analyst",
+    "document",
+    "documentDate",
+    ...(isRiskInputsOpen
+      ? RISK_INPUT_FIELDS.map((field) => `uncReq.${field.name}`)
+      : []),
+    ...(isMitigationInputsOpen
+      ? MITIGATION_INPUT_FIELDS.map((field) => `uncReq.${field.name}`)
+      : []),
+  ];
+
+  const valueForField = (field) =>
+    field.startsWith("uncReq.")
+      ? requirements[field.slice("uncReq.".length)]
+      : sessionData[field];
+
   const startEdit = (e, field, val) => {
     e.stopPropagation();
     setEditingField(field);
     setTempValue(val || "");
   };
 
-  const commitEdit = () => {
+  const commitEdit = (nextField = null) => {
     if (editingField) {
       if (!editingField.startsWith("uncReq.")) {
         onUpdate({ ...sessionData, [editingField]: tempValue });
       }
-      setEditingField(null);
     }
+    setEditingField(nextField);
+    if (nextField) setTempValue(valueForField(nextField) ?? "");
   };
 
   const handleKeyDown = (e) => {
+    if (e.key === "Tab") {
+      const currentIndex = editableFieldOrder.indexOf(editingField);
+      const nextIndex = currentIndex + (e.shiftKey ? -1 : 1);
+      const nextField = editableFieldOrder[nextIndex];
+      if (nextField) {
+        e.preventDefault();
+        commitEdit(nextField);
+      }
+      return;
+    }
     if (e.key === "Enter") {
       commitEdit();
     }
@@ -1335,6 +1837,12 @@ const SidebarSessionHeader = ({
         ) : (
           <div
             onClick={(e) => startEdit(e, field, value)}
+            onFocus={(e) => startEdit(e, field, value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") startEdit(e, field, value);
+            }}
+            role="button"
+            tabIndex={0}
             className="session-header-value"
             title={helpText}
           >
@@ -1344,8 +1852,6 @@ const SidebarSessionHeader = ({
       </div>
     );
   };
-
-  const requirements = sessionData.uncReq || {};
 
   return (
     <div className="sidebar-session-header-organic" data-tour="session-information">
@@ -1377,6 +1883,7 @@ const SidebarSessionHeader = ({
               {editingField === "name" ? (
                 <input
                   autoFocus
+                  aria-label="Session Name"
                   value={tempValue}
                   onChange={(e) => setTempValue(e.target.value)}
                   onBlur={commitEdit}
@@ -1388,6 +1895,14 @@ const SidebarSessionHeader = ({
               ) : (
                 <div
                   onClick={(e) => startEdit(e, "name", sessionData.name)}
+                  onFocus={(e) => startEdit(e, "name", sessionData.name)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      startEdit(e, "name", sessionData.name);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                   className="session-header-value session-header-name"
                   title="Edit Session Name"
                 >
@@ -1695,7 +2210,11 @@ function App({ showThemeToggle = false }) {
   // and its riskResults are computed, then clears this.
   const [pendingRiskBreakdown, setPendingRiskBreakdown] = useState(null);
 
-  const [sidebarWidth, setSidebarWidth] = useState(550);
+  const [hadStoredUiSizingAtMount] = useState(hasStoredUiSizingPreferences);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = readUiSizingPreferences().sidebarWidth;
+    return Number.isFinite(saved) ? saved : 550;
+  });
   const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(true);
   const [isRiskInputsOpen, setIsRiskInputsOpen] = useState(true);
   const [isMitigationInputsOpen, setIsMitigationInputsOpen] = useState(true);
@@ -1703,7 +2222,13 @@ function App({ showThemeToggle = false }) {
   const analysisScrollPositionsRef = useRef({});
   const lastSelectedPointBySessionRef = useRef({});
   const [showContribution, setShowContribution] = useState(false);
-  const [scopedZoomLevels, setScopedZoomLevels] = useState({});
+  const [scopedZoomLevels, setScopedZoomLevels] = useState(
+    () => readUiSizingPreferences().scopedZoomLevels || {},
+  );
+  // Measurement point columns the user has dragged to a width of their own.
+  const [sidebarColumnWidths, setSidebarColumnWidths] = useState(
+    () => readUiSizingPreferences().sidebarColumnWidths || {},
+  );
   const [loadedPreferencesSessionId, setLoadedPreferencesSessionId] =
     useState(null);
   const isResizingRef = useRef(false);
@@ -1857,6 +2382,7 @@ function App({ showThemeToggle = false }) {
 
   const sortSidebarPoints = useCallback(
     (points) => {
+      if (!sidebarSort.key) return [...points];
       const directionMultiplier = sidebarSort.direction === "asc" ? 1 : -1;
       return [...points].sort((a, b) => {
         const aValue = getSidebarSortValue(a, sidebarSort.key);
@@ -1885,28 +2411,90 @@ function App({ showThemeToggle = false }) {
     [getSidebarSortValue, sidebarSort],
   );
 
+  // Drag the divider at a column's right edge to size it, the way the UUT and
+  // TMDE tables resize. Only the dragged column is pinned; the rest keep their
+  // default track sizing, and a double-click hands a column back to it.
+  const startSidebarColumnResize = useCallback((event, key) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const cell = event.currentTarget.closest(".sidebar-column-header-cell");
+    const startWidth =
+      cell?.getBoundingClientRect().width || SIDEBAR_COLUMN_MIN_WIDTH;
+    const startX = event.clientX;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const handleMove = (moveEvent) => {
+      const next = Math.max(
+        SIDEBAR_COLUMN_MIN_WIDTH,
+        Math.round(startWidth + (moveEvent.clientX - startX)),
+      );
+      setSidebarColumnWidths((current) =>
+        current[key] === next ? current : { ...current, [key]: next },
+      );
+    };
+    const handleUp = () => {
+      document.removeEventListener("pointermove", handleMove);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+    document.addEventListener("pointermove", handleMove);
+    document.addEventListener("pointerup", handleUp, { once: true });
+  }, []);
+
+  const resetSidebarColumnWidth = useCallback((key) => {
+    setSidebarColumnWidths((current) => {
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
   const renderSidebarSortHeader = useCallback(
     (key, label, { align = "left", title = label, className = "" } = {}) => {
       const isActive = sidebarSort.key === key;
       const directionLabel = sidebarSort.direction === "asc" ? "ascending" : "descending";
       return (
-        <button
-          type="button"
-          className={`sidebar-sort-header sidebar-sort-header--${key} ${className} ${isActive ? "active" : ""}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleSidebarSort(key);
-          }}
-          title={`Sort by ${title}${isActive ? ` (${directionLabel})` : ""}`}
-          aria-label={`Sort by ${title}`}
-          aria-sort={isActive ? directionLabel : "none"}
-          style={{ textAlign: align }}
+        <div
+          key={key}
+          className={`sidebar-column-header-cell sidebar-column-header-cell--${key} ${className}`}
         >
-          <span>{label}</span>
-        </button>
+          <button
+            type="button"
+            className={`sidebar-sort-header sidebar-sort-header--${key} ${isActive ? "active" : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSidebarSort(key);
+            }}
+            title={`Sort by ${title}${isActive ? ` (${directionLabel})` : ""}`}
+            aria-label={`Sort by ${title}`}
+            aria-sort={isActive ? directionLabel : "none"}
+            style={{ textAlign: align }}
+          >
+            <span>{label}</span>
+          </button>
+          <span
+            className="sidebar-column-resizer"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={`Resize ${title} column`}
+            title={`Drag to resize ${title}. Double-click to reset.`}
+            onPointerDown={(event) => startSidebarColumnResize(event, key)}
+            onDoubleClick={() => resetSidebarColumnWidth(key)}
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
       );
     },
-    [handleSidebarSort, sidebarSort],
+    [
+      handleSidebarSort,
+      resetSidebarColumnWidth,
+      sidebarSort,
+      startSidebarColumnResize,
+    ],
   );
 
   const [isGlobalExpanded, setIsGlobalExpanded] = useState(false);
@@ -2020,9 +2608,6 @@ function App({ showThemeToggle = false }) {
   }, []);
 
   // --- SELECTION & VIRTUAL STATE ---
-  // The sidebar tree is organized Function -> UUT -> Point. `selectedFunctionId`
-  // is a function key (see utils/functionGrouping) rather than a measurement area.
-  const [selectedFunctionId, setSelectedFunctionId] = useState(null);
   const [selectedUutId, setSelectedUutId] = useState(null);
   const [virtualPoint, setVirtualPoint] = useState(null);
   const [activeRangeIndices, setActiveRangeIndices] = useState({});
@@ -2033,11 +2618,19 @@ function App({ showThemeToggle = false }) {
   // independently.
   const [expandedFunctions, setExpandedFunctions] = useState(new Set());
   const [expandedUuts, setExpandedUuts] = useState(new Set());
-  // Shared by the session overview and every detailed measurement-point view.
-  // This state lives above TestPointDetailView's keyed remount boundary so a
-  // point/view change cannot reset the UUT/TMDE function accordions.
-  const [collapsedInstrumentFunctionKeys, setCollapsedInstrumentFunctionKeys] =
-    useState(new Set());
+  // Instrument Overview and a point's Detailed View intentionally remember
+  // independent function accordion state. Detailed View may collapse unrelated
+  // functions automatically; that must never leak back into the overview.
+  // Both states live above TestPointDetailView's keyed remount boundary so they
+  // survive point and tab navigation.
+  const [
+    collapsedOverviewInstrumentFunctionKeys,
+    setCollapsedOverviewInstrumentFunctionKeys,
+  ] = useState(new Set());
+  const [
+    collapsedDetailInstrumentFunctionKeys,
+    setCollapsedDetailInstrumentFunctionKeys,
+  ] = useState(new Set());
 
   // Tracks which UUT "folder" was clicked in the sidebar to enforce context
   const [selectedTestPointContextUutId, setSelectedTestPointContextUutId] =
@@ -2054,12 +2647,8 @@ function App({ showThemeToggle = false }) {
   // Id of a just-quick-added direct point whose sidebar row should open straight
   // into value-edit. SidebarPointItem consumes it on mount, then App clears it.
   const [pendingValueEditPointId, setPendingValueEditPointId] = useState(null);
+  const [pendingPointValueAdvance, setPendingPointValueAdvance] = useState(null);
   // Function headers own point creation now that UUT folder rows are gone.
-  // When several UUTs implement the function, this remembers the most recent
-  // choice after the add-button instrument picker closes.
-  const [quickAddUutByFunction, setQuickAddUutByFunction] = useState({});
-  const [pendingPointInstrumentChoice, setPendingPointInstrumentChoice] =
-    useState(null);
   // When a function exposes more than one range unit, the quick-add button
   // pauses here so the new direct/derived point can be attached to an explicit
   // unit instead of silently choosing the first range.
@@ -2067,15 +2656,14 @@ function App({ showThemeToggle = false }) {
   const [openFunctionSettingsId, setOpenFunctionSettingsId] = useState(null);
 
   useEffect(() => {
-    if (!pendingPointUnitChoice && !pendingPointInstrumentChoice) return undefined;
+    if (!pendingPointUnitChoice) return undefined;
     const closePicker = (event) => {
       if (event.target?.closest?.(".point-unit-picker")) return;
       setPendingPointUnitChoice(null);
-      setPendingPointInstrumentChoice(null);
     };
     document.addEventListener("pointerdown", closePicker);
     return () => document.removeEventListener("pointerdown", closePicker);
-  }, [pendingPointInstrumentChoice, pendingPointUnitChoice]);
+  }, [pendingPointUnitChoice]);
 
   useEffect(() => {
     if (!openFunctionSettingsId) return undefined;
@@ -2097,6 +2685,7 @@ function App({ showThemeToggle = false }) {
     }
 
     const preferences = readUiPreferences(selectedSessionId);
+    const sizingPreferences = readUiSizingPreferences();
     setSidebarColumns({
       ...DEFAULT_SIDEBAR_COLUMNS,
       ...(preferences.sidebarColumns || {}),
@@ -2106,9 +2695,11 @@ function App({ showThemeToggle = false }) {
       ...(preferences.sidebarSort || {}),
     });
     setSidebarWidth(
-      Number.isFinite(preferences.sidebarWidth)
-        ? preferences.sidebarWidth
-        : 550,
+      Number.isFinite(sizingPreferences.sidebarWidth)
+        ? sizingPreferences.sidebarWidth
+        : Number.isFinite(preferences.sidebarWidth)
+          ? preferences.sidebarWidth
+          : 550,
     );
     setIsSessionInfoOpen(preferences.isSessionInfoOpen ?? true);
     const legacyRequirementsOpen = preferences.isRequirementsOpen ?? true;
@@ -2119,13 +2710,19 @@ function App({ showThemeToggle = false }) {
     setIsGlobalExpanded(preferences.isGlobalExpanded ?? false);
     setExpandedFunctions(new Set(preferences.expandedFunctions || []));
     setExpandedUuts(new Set(preferences.expandedUuts || []));
-    setCollapsedInstrumentFunctionKeys(
-      new Set(preferences.collapsedInstrumentFunctionKeys || []),
+    setCollapsedOverviewInstrumentFunctionKeys(
+      new Set(preferences.collapsedOverviewInstrumentFunctionKeys || []),
+    );
+    setCollapsedDetailInstrumentFunctionKeys(
+      new Set(preferences.collapsedDetailInstrumentFunctionKeys || []),
     );
     setActiveRangeIndices(preferences.activeRangeIndices || {});
     setAnalysisMode(preferences.analysisMode || "overview");
     setShowContribution(preferences.showContribution ?? false);
-    setScopedZoomLevels(preferences.scopedZoomLevels || {});
+    setScopedZoomLevels(
+      sizingPreferences.scopedZoomLevels || preferences.scopedZoomLevels || {},
+    );
+    setSidebarColumnWidths(sizingPreferences.sidebarColumnWidths || {});
     setLoadedPreferencesSessionId(selectedSessionId);
   }, [selectedSessionId]);
 
@@ -2140,20 +2737,21 @@ function App({ showThemeToggle = false }) {
     const preferences = {
       sidebarColumns,
       sidebarSort,
-      sidebarWidth,
       isSessionInfoOpen,
       isRiskInputsOpen,
       isMitigationInputsOpen,
       isGlobalExpanded,
       expandedFunctions: Array.from(expandedFunctions),
       expandedUuts: Array.from(expandedUuts),
-      collapsedInstrumentFunctionKeys: Array.from(
-        collapsedInstrumentFunctionKeys,
+      collapsedOverviewInstrumentFunctionKeys: Array.from(
+        collapsedOverviewInstrumentFunctionKeys,
+      ),
+      collapsedDetailInstrumentFunctionKeys: Array.from(
+        collapsedDetailInstrumentFunctionKeys,
       ),
       activeRangeIndices,
       analysisMode,
       showContribution,
-      scopedZoomLevels,
     };
 
     try {
@@ -2167,7 +2765,8 @@ function App({ showThemeToggle = false }) {
   }, [
     activeRangeIndices,
     analysisMode,
-    collapsedInstrumentFunctionKeys,
+    collapsedDetailInstrumentFunctionKeys,
+    collapsedOverviewInstrumentFunctionKeys,
     expandedFunctions,
     expandedUuts,
     isGlobalExpanded,
@@ -2175,12 +2774,30 @@ function App({ showThemeToggle = false }) {
     isMitigationInputsOpen,
     isSessionInfoOpen,
     loadedPreferencesSessionId,
-    scopedZoomLevels,
     selectedSessionId,
     showContribution,
     sidebarColumns,
     sidebarSort,
+  ]);
+
+  useEffect(() => {
+    // Give an existing session-scoped layout one chance to migrate into the
+    // new user-wide store before writing defaults on first launch.
+    if (!hadStoredUiSizingAtMount && !loadedPreferencesSessionId) return;
+    try {
+      window.localStorage.setItem(
+        UNCERTAINTY_UI_SIZING_KEY,
+        JSON.stringify({ sidebarWidth, scopedZoomLevels, sidebarColumnWidths }),
+      );
+    } catch (error) {
+      console.warn("Unable to save uncertainty sizing preferences", error);
+    }
+  }, [
+    hadStoredUiSizingAtMount,
+    loadedPreferencesSessionId,
     sidebarWidth,
+    scopedZoomLevels,
+    sidebarColumnWidths,
   ]);
 
   useEffect(() => {
@@ -2191,15 +2808,13 @@ function App({ showThemeToggle = false }) {
       root.querySelectorAll(SCOPED_ZOOM_SURFACE_SELECTOR).forEach((surface) => {
         const key = getScopedZoomKey(surface);
         const zoom = scopedZoomLevels[key] || getDefaultScopedZoom(key);
-        const content =
-          surface.classList.contains("measurement-point-list") ||
-          surface.classList.contains("measurement-equation-zoom-surface")
-          ? surface.querySelector(":scope > .scoped-zoom-content")
-          : surface.querySelector(":scope > table");
-        if (!content) return;
+        const contents = getScopedZoomContents(surface);
+        if (contents.length === 0) return;
 
         surface.dataset.zoomLevel = String(zoom);
-        content.style.zoom = String(zoom);
+        contents.forEach((content) => {
+          content.style.zoom = String(zoom);
+        });
       });
     };
 
@@ -2212,6 +2827,7 @@ function App({ showThemeToggle = false }) {
   // --- CLIPBOARD STATE ---
   const [clipboardPoint, setClipboardPoint] = useState(null);
   const [clipboardUut, setClipboardUut] = useState(null);
+  const [clipboardBudget, setClipboardBudget] = useState(null);
   const [clipboardPointMode, setClipboardPointMode] = useState("copy");
   const [clipboardKind, setClipboardKind] = useState(null);
 
@@ -2318,13 +2934,16 @@ function App({ showThemeToggle = false }) {
       ? pointOrPoints
       : [pointOrPoints];
     setClipboardPoint(points);
-    setClipboardPointMode("cut");
+    // Cut is a copy-then-delete operation. Keep the snapshots reusable so the
+    // same point set can be pasted more than once after it leaves the source.
+    setClipboardPointMode("copy");
     setClipboardKind("point");
+    handleDeleteTestPoint(points.map((point) => point.id), true);
     showToast(
-      `${points.length} measurement point${points.length > 1 ? "s" : ""} cut. Select a destination UUT or range and paste.`,
+      `${points.length} measurement point${points.length > 1 ? "s" : ""} cut and copied. Select a destination UUT or range to paste.`,
     );
     setContextMenu(null);
-  }, []);
+  }, [handleDeleteTestPoint]);
 
   const handlePastePoint = useCallback(
     (targetUutId, targetAreaId, targetRange = null) => {
@@ -2444,6 +3063,45 @@ function App({ showThemeToggle = false }) {
     ],
   );
 
+  const handleCopyBudget = useCallback((point) => {
+    if (!point) return;
+    setClipboardBudget(copyPointBudget(point));
+    setClipboardKind("budget");
+    showToast("Measurement point budget copied");
+    setContextMenu(null);
+  }, [showToast]);
+
+  const handlePasteBudget = useCallback(
+    (targetPointIds) => {
+      if (
+        clipboardKind !== "budget" ||
+        !clipboardBudget ||
+        !currentSessionData
+      ) {
+        return;
+      }
+      const ids = new Set((targetPointIds || []).map(String));
+      if (ids.size === 0) return;
+      const nextPoints = (currentSessionData.testPoints || []).map((point) =>
+        ids.has(String(point.id))
+          ? pastePointBudget(point, clipboardBudget)
+          : point,
+      );
+      updateSession({ ...currentSessionData, testPoints: nextPoints });
+      showToast(
+        `Budget pasted into ${ids.size} measurement point${ids.size === 1 ? "" : "s"}`,
+      );
+      setContextMenu(null);
+    },
+    [
+      clipboardBudget,
+      clipboardKind,
+      currentSessionData,
+      showToast,
+      updateSession,
+    ],
+  );
+
   const handleCopyUut = useCallback((uut) => {
     setClipboardUut(uut);
     setClipboardKind("uut");
@@ -2496,13 +3154,58 @@ function App({ showThemeToggle = false }) {
         (e.ctrlKey || e.metaKey) &&
         !e.altKey &&
         !e.shiftKey &&
+        key === "0"
+      ) {
+        e.preventDefault();
+        setSidebarWidth(550);
+        setScopedZoomLevels({});
+        try {
+          window.localStorage.setItem(
+            UNCERTAINTY_UI_SIZING_KEY,
+            JSON.stringify({
+              sidebarWidth: 550,
+              scopedZoomLevels: {},
+              sidebarColumnWidths: {},
+            }),
+          );
+          INSTRUMENT_SIZE_STORAGE_KEYS.forEach((storageKey) =>
+            window.localStorage.removeItem(storageKey),
+          );
+        } catch {
+          // The visible layout still resets when browser storage is blocked.
+        }
+        window.dispatchEvent(new CustomEvent(INSTRUMENT_SIZE_RESET_EVENT));
+        showToast("Layout sizes reset");
+        return;
+      }
+
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        key === "b" &&
+        !isTextEntry
+      ) {
+        e.preventDefault();
+        if (selectedSidebarPointIds.length === 1) {
+          const point = currentTestPoints.find(
+            (candidate) => candidate.id === selectedSidebarPointIds[0],
+          );
+          if (point) {
+            handleCopyBudget(point);
+          }
+        }
+        return;
+      }
+
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
         key === "z" &&
         !isTextEntry
       ) {
-        if (undoLastSessionChange()) {
-          e.preventDefault();
-          showToast("Undid the last change.");
-        }
+        if (undoLastSessionChange()) e.preventDefault();
         return;
       }
 
@@ -2524,14 +3227,6 @@ function App({ showThemeToggle = false }) {
             handleCopyPoint(points);
             handled = true;
           }
-        } else if (selectedTestPointId) {
-          const point = currentTestPoints.find(
-            (p) => p.id === selectedTestPointId,
-          );
-          if (point) {
-            handleCopyPoint(point);
-            handled = true;
-          }
         }
         if (handled) e.preventDefault();
       }
@@ -2547,11 +3242,6 @@ function App({ showThemeToggle = false }) {
           points = currentTestPoints.filter((point) =>
             selectedSidebarPointIds.includes(point.id),
           );
-        } else if (selectedTestPointId) {
-          const point = currentTestPoints.find(
-            (item) => item.id === selectedTestPointId,
-          );
-          if (point) points = [point];
         }
         if (points.length > 0) {
           e.preventDefault();
@@ -2560,7 +3250,22 @@ function App({ showThemeToggle = false }) {
       }
 
       if ((e.ctrlKey || e.metaKey) && key === "v" && !isTextEntry) {
-        if (clipboardKind === "point" && clipboardPoint) {
+        if (clipboardKind === "budget" && clipboardBudget) {
+          const targetIds = selectedSidebarPointIds.length
+            ? selectedSidebarPointIds
+            : selectedTestPointId
+              ? [selectedTestPointId]
+              : [];
+          if (targetIds.length > 0) {
+            e.preventDefault();
+            handlePasteBudget(targetIds);
+          } else {
+            showToast(
+              "Select one or more measurement points before pasting a budget.",
+              "error",
+            );
+          }
+        } else if (clipboardKind === "point" && clipboardPoint) {
           e.preventDefault();
           let targetUutId = null;
 
@@ -2605,15 +3310,18 @@ function App({ showThemeToggle = false }) {
     selectedSidebarPointIds,
     selectedTestPointContextUutId,
     clipboardKind,
+    clipboardBudget,
     clipboardPoint,
     clipboardUut,
     currentTestPoints,
     currentSessionData,
     handleCopyPoint,
+    handleCopyBudget,
     handleCopyUut,
     handleCutPoint,
     handleDeleteTestPoint,
     handlePastePoint,
+    handlePasteBudget,
     handlePasteUut,
     showToast,
     undoLastSessionChange,
@@ -2631,7 +3339,7 @@ function App({ showThemeToggle = false }) {
 
       e.preventDefault();
 
-      const { surface, content } = zoomTarget;
+      const { surface, content, linkedContents = [] } = zoomTarget;
       // The applied default is written to dataset.zoomLevel by applyZoomLevels;
       // fall back to 1 only for surfaces that haven't been initialized yet.
       const currentZoom = parseFloat(surface.dataset.zoomLevel || "1");
@@ -2650,6 +3358,9 @@ function App({ showThemeToggle = false }) {
 
       surface.dataset.zoomLevel = String(nextZoom);
       content.style.zoom = String(nextZoom);
+      linkedContents.forEach((linkedContent) => {
+        linkedContent.style.zoom = String(nextZoom);
+      });
       const zoomKey = getScopedZoomKey(surface);
       if (zoomKey) {
         setScopedZoomLevels((current) => ({
@@ -2683,7 +3394,6 @@ function App({ showThemeToggle = false }) {
     setRiskResults(null);
     setSelectedSessionId(newId);
     setSelectedTestPointId(null);
-    setSelectedFunctionId(null);
     setSelectedUutId(null);
     setVirtualPoint(null);
     setSelectedTestPointContextUutId(null);
@@ -2726,7 +3436,6 @@ function App({ showThemeToggle = false }) {
     const point = resolveFunctionPoint(functionKey, uutId);
 
     setSelectedUutId(uutId);
-    setSelectedFunctionId(functionKey);
     setSelectedTestPointId(point?.id || null);
     setSelectedTestPointContextUutId(uutId);
     setCurrentUutSelection([uutId]);
@@ -2781,8 +3490,6 @@ function App({ showThemeToggle = false }) {
       setSelectedTestPointId(tpId);
     }
 
-    const selectedPoint = currentTestPoints.find((point) => point.id === tpId);
-    setSelectedFunctionId(selectedPoint ? functionKeyOf(selectedPoint) : null);
     setSelectedUutId(null);
     setVirtualPoint(null);
     setSelectedTestPointContextUutId(contextUutId);
@@ -3432,6 +4139,7 @@ function App({ showThemeToggle = false }) {
       const finalData = { ...point };
 
       if (
+        !finalData._skipUutAutofill &&
         (!finalData.associatedUutIds ||
           finalData.associatedUutIds.length === 0) &&
         currentUutSelection.length > 0
@@ -3453,6 +4161,7 @@ function App({ showThemeToggle = false }) {
         return resolvePointForUut(finalData, finalData.associatedUutIds[0]);
       }
 
+      delete finalData._skipUutAutofill;
       return finalData;
     };
 
@@ -3505,7 +4214,14 @@ function App({ showThemeToggle = false }) {
         },
       });
     }
-    updateSession({ ...currentSessionData, functionGroups: next });
+    const testPoints = patch.mode
+      ? (currentSessionData.testPoints || []).map((point) =>
+          functionKeyOf(point) === fnGroup.id
+            ? { ...point, measurementType: patch.mode }
+            : point,
+        )
+      : currentSessionData.testPoints;
+    updateSession({ ...currentSessionData, functionGroups: next, testPoints });
   };
 
   const applyFunctionPointTemplate = (point, fnGroup, settings) => {
@@ -3527,16 +4243,7 @@ function App({ showThemeToggle = false }) {
       });
     }
     if (settings.reuseBudget) {
-      [
-        "components",
-        "tmdeTolerances",
-        "inputCorrelations",
-        "coverageFactorMode",
-        "coverageFactorOverride",
-        "budgetPropagationMethod",
-        "monteCarloTrials",
-        "useEffectiveDofByGroup",
-      ].forEach((field) => {
+      POINT_BUDGET_FIELDS.forEach((field) => {
         const value = clonePointSettingValue(template[field]);
         if (value !== undefined) next[field] = value;
       });
@@ -3575,7 +4282,8 @@ function App({ showThemeToggle = false }) {
       "";
     return applyFunctionPointTemplate({
       measurementAreaId: null,
-      associatedUutIds: [uutId],
+      associatedUutIds: uutId ? [uutId] : [],
+      _skipUutAutofill: !uutId,
       measurementType: settings.mode,
       uutTolerance: fnRange || null,
       testPointInfo: { parameter: { name: functionName, value: "", unit } },
@@ -3602,15 +4310,15 @@ function App({ showThemeToggle = false }) {
     settings,
     selectedUnit = "",
   ) => {
-    if (!uutId) return;
     const newId = handleSaveTestPoint(
       buildBlankPoint(uutId, fnGroup, settings, selectedUnit),
     );
-    setSelectedTestPointContextUutId(uutId);
+    setSelectedTestPointContextUutId(uutId || null);
     setPendingPointUnitChoice(null);
     if (newId != null) {
       setPendingValueEditPointId(newId);
     }
+    return newId;
   };
 
   const openQuickAddPoint = (fnGroup, uutId, settings) => {
@@ -3816,6 +4524,7 @@ function App({ showThemeToggle = false }) {
           unit: unit || units?.[0] || "",
           units: Array.from(new Set([...(units || []), unit].filter(Boolean))),
           uutMap: new Map(),
+          points: [],
         });
       } else {
         const existing = functionMap.get(key);
@@ -3845,34 +4554,35 @@ function App({ showThemeToggle = false }) {
       });
     });
 
-    // 2. Place each point under its own function -> owning UUT.
+    // 2. Keep points directly under their function in authored order. The UUT
+    // is a per-row assignment, not a grouping/sort key; this allows workflows
+    // that intentionally alternate between UUTs chronologically.
     const unassignedPoints = [];
     points.forEach((tp) => {
+      const fnNode = ensureFunction(functionLabelOf(tp));
+      fnNode.points.push(tp);
       const ownerId = (tp.associatedUutIds || [])
         .map((id) => String(id))
         .find((id) => uutById.has(id));
       if (!ownerId) {
-        unassignedPoints.push(tp);
+        // A legacy point with no meaningful function still belongs in the
+        // explicit Unassigned bucket; ordinary unassigned rows remain within
+        // their named function so the row-level UUT dropdown can resolve them.
+        if (fnNode.id === UNASSIGNED_FUNCTION_ID) unassignedPoints.push(tp);
         return;
       }
-      const uutNode = ensureUut(
-        ensureFunction(functionLabelOf(tp)),
-        uutById.get(ownerId),
-      );
+      const uutNode = ensureUut(fnNode, uutById.get(ownerId));
       uutNode.points.push(tp);
     });
 
     const result = Array.from(functionMap.values())
-      .sort(
-        (a, b) =>
-          a.name.localeCompare(b.name) || a.unit.localeCompare(b.unit),
-      )
       .map((node) => ({
         id: node.id,
         name: node.name,
         unit: node.unit,
         units: node.units || (node.unit ? [node.unit] : []),
         color: functionColorByKey.get(node.id) || null,
+        points: node.points || [],
         uutGroups: Array.from(node.uutMap.values()),
       }));
 
@@ -3897,6 +4607,45 @@ function App({ showThemeToggle = false }) {
 
     return result;
   }, [currentSessionData, currentTestPoints]);
+
+  useEffect(() => {
+    if (!pendingPointValueAdvance) return;
+    const { functionId, uutId, unit, nextPointId } = pendingPointValueAdvance;
+    const fnGroup = sidebarData.find((group) => group.id === functionId);
+    if (!fnGroup) {
+      setPendingPointValueAdvance(null);
+      return;
+    }
+    const nextPoint = nextPointId
+      ? currentTestPoints.find((point) => point.id === nextPointId)
+      : null;
+    if (nextPoint) {
+      const nextUutId = nextPoint.associatedUutIds?.[0] || null;
+      setSelectedSidebarPointIds([nextPoint.id]);
+      setSelectedTestPointId(nextPoint.id);
+      setSelectedTestPointContextUutId(nextUutId);
+      setPendingValueEditPointId(nextPoint.id);
+    } else {
+      const settings = getFunctionPointSettings(currentSessionData, fnGroup.id);
+      const newId = handleQuickAddPoint(
+        fnGroup,
+        uutId,
+        settings,
+        unit || fnGroup.unit || "",
+      );
+      if (newId != null) {
+        setSelectedSidebarPointIds([newId]);
+        setSelectedTestPointId(newId);
+        setSelectedTestPointContextUutId(uutId || null);
+      }
+    }
+    setPendingPointValueAdvance(null);
+  }, [
+    currentSessionData,
+    currentTestPoints,
+    pendingPointValueAdvance,
+    sidebarData,
+  ]);
 
   const sidebarValueColumnWidth = useMemo(
     () => getSidebarValueColumnWidth(currentTestPoints),
@@ -3962,7 +4711,6 @@ function App({ showThemeToggle = false }) {
         occurrence?.contextUutId || point.associatedUutIds?.[0] || null;
       setSelectedTestPointId(point.id);
       setSelectedTestPointContextUutId(contextUutId);
-      setSelectedFunctionId(functionKeyOf(point));
       setSelectedUutId(null);
       setSelectedSidebarPointIds([point.id]);
       setSidebarSelectionAnchor({ pointId: point.id, contextUutId });
@@ -4114,16 +4862,6 @@ function App({ showThemeToggle = false }) {
       return { viewMode: "uut", id: selectedUutId };
     }
 
-    if (selectedFunctionId) {
-      const fnNode = sidebarData.find((fn) => fn.id === selectedFunctionId);
-      return {
-        viewMode: "function",
-        id: selectedFunctionId,
-        functionName: fnNode?.name || "",
-        functionUnit: fnNode?.unit || "",
-      };
-    }
-
     if (selectedSessionId) {
       return { viewMode: "session", id: selectedSessionId };
     }
@@ -4136,22 +4874,110 @@ function App({ showThemeToggle = false }) {
     virtualPoint,
     selectedTestPointContextUutId,
     selectedUutId,
-    selectedFunctionId,
     selectedSessionId,
-    sidebarData,
   ]);
 
   // Shared sidebar point-row markup (used under every UUT and the Unassigned
   // bucket). Extracted so the Function -> UUT -> Point tree stays readable.
-  const renderSidebarPointRow = (tp, contextUutId) => (
+  const renderSidebarPointRow = (tp, fnGroup, points = [], index = 0) => {
+    const contextUutId = tp.associatedUutIds?.[0] || null;
+    const functionUuts = (fnGroup?.uutGroups || []).filter(
+      (group) => !group.isUnassigned,
+    );
+    const currentUut = (currentSessionData?.uuts || []).find(
+      (uut) => String(uut.id) === String(contextUutId),
+    );
+    const cellGroups = {
+      uut: getConsecutiveSidebarCellGroup(
+        points,
+        index,
+        (point) => point.associatedUutIds?.[0] || "__unassigned__",
+      ),
+      section: getConsecutiveSidebarCellGroup(
+        points,
+        index,
+        (point) => point.section || "",
+      ),
+      qualifier: getConsecutiveSidebarCellGroup(
+        points,
+        index,
+        (point) => point.testPointInfo?.qualifier?.value || "",
+      ),
+    };
+    return (
     <SidebarPointItem
       key={tp.id}
       point={tp}
+      currentUutId={contextUutId || ""}
       uutName={formatInstrumentIdentity(
-        (currentSessionData?.uuts || []).find(
-          (uut) => String(uut.id) === String(contextUutId),
-        ) || { name: "Unassigned" },
+        currentUut || { name: "Unassigned" },
       )}
+      uutOptions={functionUuts.map((uut) => ({
+        id: uut.id,
+        label: formatInstrumentIdentity(uut),
+      }))}
+      cellGroups={cellGroups}
+      columnWidths={sidebarColumnWidths}
+      highlightedPointIds={[
+        ...selectedSidebarPointIds,
+        selectedTestPointId,
+        ...selectedTablePointIds,
+      ]}
+      onUutChange={(nextUutId, groupedPointIds = [tp.id]) => {
+        const nextUut = (currentSessionData?.uuts || []).find(
+          (uut) => String(uut.id) === String(nextUutId),
+        );
+        const parameter = tp.testPointInfo?.parameter || {};
+        const groupedIds = new Set(groupedPointIds.map(String));
+        const selectedGroupedIds = selectedSidebarPointIds.filter((id) =>
+          groupedIds.has(String(id)),
+        );
+        const runPointIds = new Set(
+          (selectedGroupedIds.length > 0 ? selectedGroupedIds : [tp.id]).map(
+            String,
+          ),
+        );
+        const nextPoints = (currentSessionData?.testPoints || []).map((point) => {
+          if (!runPointIds.has(String(point.id))) return point;
+          const pointParameter = point.testPointInfo?.parameter || parameter;
+          return {
+            ...point,
+            associatedUutIds: nextUut ? [nextUut.id] : [],
+            measurementAreaId: nextUut?.measurementAreaId || null,
+            uutTolerance: nextUut
+              ? findMatchingRange(
+                  nextUut,
+                  pointParameter.value,
+                  pointParameter.unit,
+                )
+              : null,
+          };
+        });
+        updateSession({ ...currentSessionData, testPoints: nextPoints });
+        setSelectedTestPointContextUutId(nextUut?.id || null);
+      }}
+      onGroupedFieldSave={(field, value, groupedPointIds) => {
+        const ids = new Set((groupedPointIds || []).map(String));
+        const nextPoints = (currentSessionData?.testPoints || []).map((point) => {
+          if (!ids.has(String(point.id))) return point;
+          if (field === "section") return { ...point, section: value };
+          const info = point.testPointInfo || {};
+          const qualifier = info.qualifier || {};
+          return {
+            ...point,
+            testPointInfo: {
+              ...info,
+              qualifier: {
+                name: qualifier.name || "Qualifier",
+                unit: qualifier.unit || "",
+                ...qualifier,
+                value,
+              },
+            },
+          };
+        });
+        updateSession({ ...currentSessionData, testPoints: nextPoints });
+      }}
       valueColumnWidth={sidebarValueColumnWidth}
       visibleColumns={visibleSidebarColumns}
       isSelected={selectedSidebarPointIds.includes(tp.id)}
@@ -4164,6 +4990,14 @@ function App({ showThemeToggle = false }) {
       onShowRiskBreakdown={(key) => setPendingRiskBreakdown(key)}
       autoEditValue={pendingValueEditPointId === tp.id}
       onAutoEditConsumed={() => setPendingValueEditPointId(null)}
+      onAdvanceValue={() =>
+        setPendingPointValueAdvance({
+          functionId: fnGroup.id,
+          uutId: contextUutId,
+          unit: tp.testPointInfo?.parameter?.unit || fnGroup.unit || "",
+          nextPointId: points[index + 1]?.id || null,
+        })
+      }
       onSave={handleInlinePointUpdate}
       onContextMenu={(e, p) => {
         e.preventDefault();
@@ -4189,6 +5023,38 @@ function App({ showThemeToggle = false }) {
                 ),
               icon: faCut,
             },
+            ...(clipboardKind === "point" && clipboardPoint
+              ? [
+                  {
+                    label: "Paste Point",
+                    action: () => handlePastePoint(contextUutId, null, null),
+                    icon: faPaste,
+                  },
+                ]
+              : []),
+            ...(selectedSidebarPointIds.length <= 1
+              ? [
+                  {
+                    label: "Copy Budget",
+                    action: () => handleCopyBudget(p),
+                    icon: faCopy,
+                  },
+                ]
+              : []),
+            ...(clipboardKind === "budget" && clipboardBudget
+              ? [
+                  {
+                    label: "Paste Budget",
+                    action: () =>
+                      handlePasteBudget(
+                        selectedSidebarPointIds.includes(p.id)
+                          ? selectedSidebarPointIds
+                          : [p.id],
+                      ),
+                    icon: faPaste,
+                  },
+                ]
+              : []),
             {
               label: "Delete Point",
               action: () => handleDeleteTestPoint(p.id),
@@ -4199,37 +5065,6 @@ function App({ showThemeToggle = false }) {
         });
       }}
     />
-  );
-
-  const renderEmptySidebarUutRow = (group, fnGroup) => {
-    const uutKey = `${fnGroup.id}::${group.id}`;
-    const gridTemplateColumns = getSidebarGridTemplate(
-      visibleSidebarColumns,
-      sidebarValueColumnWidth,
-    );
-    const identity = formatInstrumentIdentity(group);
-    return (
-      <div
-        key={`empty-${uutKey}`}
-        className="sidebar-empty-uut-row"
-        style={{ gridTemplateColumns }}
-        aria-label={`${identity}: no measurement points`}
-        onClick={() => handleSelectUut(group.id, fnGroup.id)}
-      >
-        {visibleSidebarColumns.uut && (
-          <span className="point-uut-name" title={identity}>
-            {identity}
-          </span>
-        )}
-        <span
-          className="sidebar-empty-uut-copy"
-          style={{
-            gridColumn: visibleSidebarColumns.uut ? "2 / -1" : "1 / -1",
-          }}
-        >
-          No measurement points
-        </span>
-      </div>
     );
   };
 
@@ -4237,6 +5072,7 @@ function App({ showThemeToggle = false }) {
     const gridTemplateColumns = getSidebarGridTemplate(
       visibleSidebarColumns,
       sidebarValueColumnWidth,
+      sidebarColumnWidths,
     );
     const visibleGroups = SIDEBAR_COLUMN_GROUPS.map((group) => ({
       ...group,
@@ -4387,11 +5223,6 @@ function App({ showThemeToggle = false }) {
     );
     if (uutOptions.length === 0) return null;
 
-    const requestedUutId = quickAddUutByFunction[fnGroup.id];
-    const targetUut =
-      uutOptions.find(
-        (group) => String(group.id) === String(requestedUutId),
-      ) || uutOptions[0];
     const settings = getFunctionPointSettings(currentSessionData, fnGroup.id);
     const settingsOpen = openFunctionSettingsId === fnGroup.id;
 
@@ -4491,14 +5322,7 @@ function App({ showThemeToggle = false }) {
                 new Set(previous).add(fnGroup.id),
               );
               setPendingPointUnitChoice(null);
-              if (uutOptions.length > 1) {
-                setPendingPointInstrumentChoice({
-                  functionId: fnGroup.id,
-                  settings,
-                });
-              } else {
-                openQuickAddPoint(fnGroup, targetUut.id, settings);
-              }
+              openQuickAddPoint(fnGroup, null, settings);
             }}
             title={
               settings.mode === "derived"
@@ -4513,47 +5337,7 @@ function App({ showThemeToggle = false }) {
           >
             <FontAwesomeIcon icon={faPlus} size="xs" />
           </button>
-          {pendingPointInstrumentChoice?.functionId === fnGroup.id && (
-            <div
-              className="budget-settings-menu point-unit-picker function-point-instrument-picker"
-              data-tour="measurement-point-menu"
-              role="menu"
-              aria-label={`Choose UUT for new ${fnGroup.name} measurement point`}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <h5 className="point-unit-picker-title">Choose instrument</h5>
-              {uutOptions.map((group) => (
-                <button
-                  key={group.id}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setQuickAddUutByFunction((previous) => ({
-                      ...previous,
-                      [fnGroup.id]: group.id,
-                    }));
-                    setPendingPointInstrumentChoice(null);
-                    openQuickAddPoint(
-                      fnGroup,
-                      group.id,
-                      pendingPointInstrumentChoice.settings,
-                    );
-                  }}
-                >
-                  {formatInstrumentIdentity(group)}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="point-unit-picker-cancel"
-                onClick={() => setPendingPointInstrumentChoice(null)}
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-          {pendingPointUnitChoice?.functionId === fnGroup.id &&
-            pendingPointUnitChoice?.uutId === targetUut.id && (
+          {pendingPointUnitChoice?.functionId === fnGroup.id && (
               <div
                 className="budget-settings-menu point-unit-picker function-point-unit-picker"
                 data-tour="measurement-point-menu"
@@ -4570,7 +5354,7 @@ function App({ showThemeToggle = false }) {
                     onClick={() =>
                       handleQuickAddPoint(
                         fnGroup,
-                        targetUut.id,
+                        pendingPointUnitChoice.uutId,
                         pendingPointUnitChoice.settings,
                         unit,
                       )
@@ -5164,6 +5948,12 @@ function App({ showThemeToggle = false }) {
                         <div
                           key={fnGroup.id}
                           className="measurement-group-container"
+                          style={{
+                            "--sidebar-function-color":
+                              fnGroup.color || "var(--primary-color)",
+                            "--function-input-accent":
+                              fnGroup.color || "var(--primary-color)",
+                          }}
                         >
                           <div className="area-header-sticky">
                             <button
@@ -5185,12 +5975,12 @@ function App({ showThemeToggle = false }) {
                             />
                             <span className="area-label">{fnGroup.name}</span>
                           </div>
-                          {isFnExpanded && (
+                          {isFnExpanded && pts.length > 0 && (
                             <div className="tree-branch">
                               <div className="sidebar-points-scroll-wrapper">
                                 {renderSidebarColumnHeaders()}
-                                {pts.map((tp) =>
-                                  renderSidebarPointRow(tp, null),
+                                {pts.map((tp, index) =>
+                                  renderSidebarPointRow(tp, fnGroup, pts, index),
                                 )}
                               </div>
                             </div>
@@ -5199,10 +5989,17 @@ function App({ showThemeToggle = false }) {
                       );
                     }
 
+                    const points = sortSidebarPoints(fnGroup.points || []);
                     return (
                       <div
                         key={fnGroup.id}
                         className="measurement-group-container"
+                        style={{
+                          "--sidebar-function-color":
+                            fnGroup.color || "var(--primary-color)",
+                          "--function-input-accent":
+                            fnGroup.color || "var(--primary-color)",
+                        }}
                       >
                         <div className="area-header-sticky">
                           <button
@@ -5217,15 +6014,6 @@ function App({ showThemeToggle = false }) {
                               icon={isFnExpanded ? faChevronDown : faChevronRight}
                             />
                           </button>
-                          <FontAwesomeIcon
-                            icon={faCube}
-                            style={{
-                              color:
-                                fnGroup.color || "var(--primary-color)",
-                              opacity: 0.7,
-                            }}
-                            size="sm"
-                          />
                           <span
                             className="area-label"
                             style={{
@@ -5238,20 +6026,13 @@ function App({ showThemeToggle = false }) {
                           {renderFunctionPointActions(fnGroup)}
                         </div>
 
-                        {isFnExpanded && (
+                        {isFnExpanded && points.length > 0 && (
                           <div className="tree-branch">
                             <div className="sidebar-points-scroll-wrapper">
                               {renderSidebarColumnHeaders()}
-                              {fnGroup.uutGroups.flatMap((group) => {
-                                const points = sortSidebarPoints(
-                                  group.points || [],
-                                );
-                                return points.length > 0
-                                  ? points.map((tp) =>
-                                      renderSidebarPointRow(tp, group.id),
-                                    )
-                                  : [renderEmptySidebarUutRow(group, fnGroup)];
-                              })}
+                              {points.map((tp, index) =>
+                                renderSidebarPointRow(tp, fnGroup, points, index),
+                              )}
                             </div>
                           </div>
                         )}
@@ -5305,12 +6086,19 @@ function App({ showThemeToggle = false }) {
                     onRangeSelectionChange={setActiveRangeIndices}
                     selectedTablePointIds={selectedTablePointIds}
                     setSelectedTablePointIds={setSelectedTablePointIds}
+                    onInstrumentSelection={() => {
+                      setSelectedSidebarPointIds([]);
+                      setSelectedTablePointIds([]);
+                      setSelectedUutId(null);
+                    }}
                     preferredAnalysisMode={analysisMode}
                     onAnalysisModeChange={handleAnalysisModeChange}
                     preferredShowContribution={showContribution}
                     onShowContributionChange={setShowContribution}
-                    collapsedFunctionKeys={collapsedInstrumentFunctionKeys}
-                    setCollapsedFunctionKeys={setCollapsedInstrumentFunctionKeys}
+                    overviewCollapsedFunctionKeys={collapsedOverviewInstrumentFunctionKeys}
+                    setOverviewCollapsedFunctionKeys={setCollapsedOverviewInstrumentFunctionKeys}
+                    detailCollapsedFunctionKeys={collapsedDetailInstrumentFunctionKeys}
+                    setDetailCollapsedFunctionKeys={setCollapsedDetailInstrumentFunctionKeys}
                     keyboardShortcutsEnabled={!isInstrumentBuilderOpen}
                     scrollPositionsRef={analysisScrollPositionsRef}
                     onSelectUut={handleSelectUut}
