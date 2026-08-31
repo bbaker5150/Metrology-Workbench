@@ -19527,38 +19527,16 @@ body.dark-mode
   left: auto;
 }
 
-/* Keep a leading frozen Value cell inside its own grid track. The earlier
-   negative margin extended its opaque surface into the next measurement
-   column and could cover the first digit of UUT Low/High after reordering. */
+/* Keep every Value cell inside its own grid track. The old -8px margin made
+   the cell exactly one grid gap wider, so it covered the first glyph of the
+   following column whenever Value was not the first configured column. */
 .uncertainty-module
-  .point-grid-item[data-value-leading="true"]
+  .point-grid-item
   > .sidebar-value-sticky {
   box-sizing: border-box;
   width: 100%;
   margin-right: 0;
   padding-right: 2px;
-}
-
-/* The leading Value cell is layered above the scrolling metrics so it remains
-   readable while the table moves horizontally. Reserve a small amount of
-   space inside the immediately adjacent cell so its first glyph cannot sit
-   beneath that sticky layer at browser zoom levels with fractional pixels. */
-.uncertainty-module
-  .point-grid-item
-  > [data-sidebar-column-after-value="true"]:not(.point-grouped-cell) {
-  box-sizing: border-box;
-  padding-left: 8px;
-}
-
-/* Shared UUT/Section/Qualifier cells need the same clearance, but their outer
-   box drives merged-cell geometry. Shift only the content so the shared fill
-   and vertical dividers remain perfectly aligned. */
-.uncertainty-module
-  .point-grid-item
-  > .point-grouped-cell[data-sidebar-column-after-value="true"]
-  > .point-grouped-cell-content {
-  box-sizing: border-box;
-  padding-left: 8px;
 }
 
 .sidebar-column-order-dropdown {
