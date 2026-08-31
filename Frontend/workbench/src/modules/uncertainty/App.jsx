@@ -600,6 +600,7 @@ export const SidebarPointItem = ({
   uutOptions = [],
   onUutChange,
   cellGroups = {},
+  highlightedPointIds = [],
   onGroupedFieldSave,
   valueColumnWidth = "80px",
   isSelected,
@@ -836,11 +837,19 @@ export const SidebarPointItem = ({
     visibleColumns.qualifier,
   ]);
 
+  const highlightedPointIdSet = new Set(
+    (highlightedPointIds || []).filter(Boolean).map(String),
+  );
+  // A merged cell belongs to every point in its run, so selecting any one of
+  // them highlights the shared cell as a whole.
+  const groupIsHighlighted = (group) =>
+    group?.span > 1 &&
+    group.pointIds?.some((id) => highlightedPointIdSet.has(String(id)));
   const groupedCellClass = (group, column) =>
     group?.span > 1
       ? ` point-grouped-cell point-grouped-cell--${group.isStart ? "start" : "continuation"}${
           column === leadingVisibleColumn ? " point-grouped-cell--leading" : ""
-        }`
+        }${groupIsHighlighted(group) ? " point-grouped-cell--highlighted" : ""}`
       : "";
   const groupedCellStyle = (group, column) =>
     group?.span > 1 && group.isStart
@@ -4756,6 +4765,11 @@ function App({ showThemeToggle = false }) {
         label: formatInstrumentIdentity(uut),
       }))}
       cellGroups={cellGroups}
+      highlightedPointIds={[
+        ...selectedSidebarPointIds,
+        selectedTestPointId,
+        ...selectedTablePointIds,
+      ]}
       onUutChange={(nextUutId, groupedPointIds = [tp.id]) => {
         const nextUut = (currentSessionData?.uuts || []).find(
           (uut) => String(uut.id) === String(nextUutId),

@@ -33,46 +33,56 @@ describe("measurement-point value editing", () => {
     ).toEqual({ isStart: false, span: 2, pointIds: ["p1", "p2"] });
   });
 
-  test("leaves selection to the point rows a merged cell spans", () => {
-    const groupedUut = { isStart: true, span: 2, pointIds: ["p1", "p2"] };
-    const { container } = render(
+  const renderGroupedUutRow = (props) =>
+    render(
       <SidebarPointItem
         point={{ id: "p1", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
         uutName="Bench DMM"
         currentUutId="uut-1"
-        cellGroups={{ uut: groupedUut }}
-        isSelected
         onSelect={vi.fn()}
         onSave={vi.fn()}
         visibleColumns={{ uut: true, value: true }}
+        {...props}
       />,
     );
 
-    // A merged cell that painted its own surface highlighted every point in
-    // the run, so a single selected point read as a taller, misaligned block
-    // and later rows in the run sliced through the shared label.
+  test("highlights a merged cell when any point in its run is selected", () => {
+    const groupedUut = { isStart: true, span: 2, pointIds: ["p1", "p2"] };
+    const { container } = renderGroupedUutRow({
+      cellGroups: { uut: groupedUut },
+      highlightedPointIds: ["p2"],
+    });
+
+    // The shared cell belongs to both points, so selecting either one lights
+    // it. It is marked on the cell rather than on the absolutely positioned
+    // label: each row paints its own slice of the run, which keeps the shared
+    // block aligned with the point rows and keeps the label clear of it.
+    expect(container.querySelector(".point-uut-selector-cell")).toHaveClass(
+      "point-grouped-cell--highlighted",
+    );
     expect(
       container.querySelector(".point-grouped-cell-content"),
     ).not.toHaveClass("is-highlighted");
-    expect(container.querySelector(".point-grid-item")).not.toHaveClass(
-      "shared-cell-highlight-active",
+  });
+
+  test("leaves an unshared merged run unhighlighted", () => {
+    const groupedUut = { isStart: true, span: 2, pointIds: ["p1", "p2"] };
+    const { container } = renderGroupedUutRow({
+      cellGroups: { uut: groupedUut },
+      highlightedPointIds: ["p9"],
+    });
+
+    expect(container.querySelector(".point-uut-selector-cell")).not.toHaveClass(
+      "point-grouped-cell--highlighted",
     );
-    expect(container.querySelector(".point-grid-item")).toHaveClass("active");
   });
 
   test("marks a continuation cell so it can bridge the row seam above it", () => {
     const groupedUut = { isStart: false, span: 2, pointIds: ["p1", "p2"] };
-    const { container } = render(
-      <SidebarPointItem
-        point={{ id: "p2", testPointInfo: { parameter: { value: 2, unit: "V" } } }}
-        uutName="Bench DMM"
-        currentUutId="uut-1"
-        cellGroups={{ uut: groupedUut }}
-        onSelect={vi.fn()}
-        onSave={vi.fn()}
-        visibleColumns={{ uut: true, value: true }}
-      />,
-    );
+    const { container } = renderGroupedUutRow({
+      point: { id: "p2", testPointInfo: { parameter: { value: 2, unit: "V" } } },
+      cellGroups: { uut: groupedUut },
+    });
 
     const cell = container.querySelector(".point-uut-selector-cell");
     expect(cell).toHaveClass("point-grouped-cell--continuation");

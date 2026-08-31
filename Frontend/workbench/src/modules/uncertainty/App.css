@@ -18634,6 +18634,11 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
     var(--sidebar-function-color, var(--primary-color)) 12%,
     var(--sidebar-sticky-surface)
   );
+  --sidebar-point-surface-selected: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 22%,
+    var(--sidebar-sticky-surface)
+  );
 }
 
 .uncertainty-module .measurement-group-container .point-grid-item {
@@ -18659,11 +18664,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 .uncertainty-module
   .measurement-group-container
   .point-grid-item.active-point:hover {
-  background: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 22%,
-    var(--sidebar-sticky-surface)
-  ) !important;
+  background: var(--sidebar-point-surface-selected) !important;
   color: var(--sidebar-function-color, var(--primary-color)) !important;
   box-shadow: inset 3px 0 0
     var(--sidebar-function-color, var(--primary-color)) !important;
@@ -18897,7 +18898,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
      cell and the column beside it, the way merged table cells read. */
   right: calc(-1 * var(--sidebar-point-column-gap));
   height: var(--sidebar-point-row-seam);
-  background: var(--sidebar-point-surface);
+  background: var(--sidebar-point-cell-fill, var(--sidebar-point-surface));
   /* Above the point row surfaces, below the merged label that spans them. */
   z-index: 2;
 }
@@ -18910,6 +18911,58 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .point-grid-item
   .point-grouped-cell--continuation.point-grouped-cell--leading::before {
   left: calc(-1 * var(--sidebar-point-row-pad));
+}
+
+/* Selecting a point highlights the whole merged cell it shares, because that
+   cell belongs to every point in the run. Each cell paints only its own row's
+   slice, from the same tokens the row box uses, so the shared block lines up
+   with the point row exactly instead of floating a pixel off it - and no later
+   row in the run can repaint over the shared label, which sits above. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted {
+  --sidebar-point-cell-fill: var(--sidebar-point-surface-selected);
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted::after {
+  content: "";
+  position: absolute;
+  /* Out to the row's border box, top and bottom: exactly the band a selected
+     point row paints for itself. */
+  top: calc(-1 * var(--sidebar-point-row-inset));
+  bottom: calc(-1 * var(--sidebar-point-row-inset));
+  left: 0;
+  right: calc(-1 * var(--sidebar-point-column-gap));
+  background: var(--sidebar-point-surface-selected);
+  z-index: 1;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted.point-grouped-cell--leading::after {
+  left: calc(-1 * var(--sidebar-point-row-pad));
+}
+
+/* The selected point still needs its own rail, and the shared fills above
+   would bury an inset shadow on the row. Draw it as its own layer instead,
+   over the shared cells but under their labels. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--sidebar-function-color, var(--primary-color));
+  z-index: 2;
+  pointer-events: none;
 }
 
 /* Point rows are rounded, so bridging the seam alone would still leave a
@@ -18979,11 +19032,7 @@ body.dark-mode
   .uncertainty-module
   .measurement-group-container
   .point-grid-item.active-point:hover {
-  background: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 22%,
-    var(--sidebar-sticky-surface)
-  ) !important;
+  background: var(--sidebar-point-surface-selected) !important;
   border-color: transparent !important;
   color: var(--sidebar-function-color, var(--primary-color)) !important;
   box-shadow: inset 3px 0 0
