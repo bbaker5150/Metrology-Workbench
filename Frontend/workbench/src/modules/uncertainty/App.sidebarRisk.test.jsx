@@ -10,8 +10,10 @@ import { describe, expect, test, vi } from "vitest";
 import {
   buildSidebarSelectionContour,
   copyPointBudget,
+  DEFAULT_SIDEBAR_COLUMN_ORDER,
   getConsecutiveSidebarCellGroup,
   getUutReassignmentPointIds,
+  normalizeSidebarColumnOrder,
   pastePointBudget,
   SidebarPointItem,
 } from "./App";
@@ -19,6 +21,49 @@ import {
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test("normalizes saved column order without losing newly added columns", () => {
+    const normalized = normalizeSidebarColumnOrder([
+      "value",
+      "uut",
+      "value",
+      "unknown",
+    ]);
+
+    expect(normalized.slice(0, 2)).toEqual(["value", "uut"]);
+    expect(new Set(normalized).size).toBe(DEFAULT_SIDEBAR_COLUMN_ORDER.length);
+    expect(normalized).toEqual(
+      expect.arrayContaining(DEFAULT_SIDEBAR_COLUMN_ORDER),
+    );
+  });
+
+  test("places point cells into the saved visual column order", () => {
+    const { container } = render(
+      <SidebarPointItem
+        point={{
+          id: "p1",
+          section: "4.1",
+          testPointInfo: { parameter: { value: 1, unit: "V" } },
+        }}
+        uutName="Bench DMM"
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true, section: true, value: true }}
+        columnOrder={["value", "uut", "section"]}
+      />,
+    );
+
+    const row = container.querySelector(".point-grid-item");
+    expect(row.style.gridTemplateAreas).toBe('"value uut section"');
+    expect(
+      [...row.querySelectorAll("[data-sidebar-column]")]
+        .sort((a, b) =>
+          ["value", "uut", "section"].indexOf(a.style.gridArea) -
+          ["value", "uut", "section"].indexOf(b.style.gridArea),
+        )
+        .map((cell) => cell.dataset.sidebarColumn),
+    ).toEqual(["value", "uut", "section"]);
+  });
+
   test("builds one outer contour for a row and its shared cells", () => {
     const contour = buildSidebarSelectionContour([
       { left: 0, top: 20, right: 100, bottom: 30 },

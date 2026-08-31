@@ -19477,3 +19477,122 @@ body.dark-mode
 .uncertainty-module .point-selection-contour::before {
   content: none !important;
 }
+
+/* A continuation editor must sit above the single spanning label owned by the
+   run's first row. Without this layer, Section/Qualifier appeared to ignore an
+   edit request made from a selected continuation point. */
+.uncertainty-module
+  .point-grid-item
+  .point-grouped-cell--editing-member {
+  z-index: 5;
+  background: inherit;
+}
+
+/* Column reordering changes visual order without changing the feature-grouped
+   JSX order. Suppress the old DOM-last divider rule and use the visual-last
+   marker assigned before paint instead. */
+.uncertainty-module .point-grid-item > :not(:last-child)::before {
+  content: none;
+}
+
+.uncertainty-module
+  .point-grid-item
+  > [data-sidebar-column]:not([data-sidebar-column-last="true"])::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--sidebar-point-row-inset));
+  right: calc(-1 * var(--sidebar-point-column-gap) / 2);
+  bottom: calc(-1 * var(--sidebar-point-row-inset));
+  width: 1px;
+  background: var(--sidebar-point-divider-color, var(--sidebar-sticky-surface));
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Value is only frozen when it is the first visible column. Reordering it into
+   the middle of the table must not make it overlap columns to its left. */
+.uncertainty-module
+  .point-grid-item:not([data-value-leading="true"])
+  > .sidebar-value-sticky {
+  position: relative;
+  left: auto;
+}
+
+.sidebar-column-order-panel {
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.sidebar-column-order-heading,
+.sidebar-column-order-item,
+.sidebar-column-order-actions {
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-column-order-heading {
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+  color: var(--text-color-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sidebar-column-order-heading button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary-color);
+  cursor: pointer;
+  font: inherit;
+  text-transform: none;
+}
+
+.sidebar-column-order-list {
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.sidebar-column-order-item {
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 25px;
+  padding: 2px 2px 2px 6px;
+  border-radius: 4px;
+  color: var(--text-color-muted);
+  font-size: 0.72rem;
+}
+
+.sidebar-column-order-item.is-visible {
+  color: var(--text-color);
+}
+
+.sidebar-column-order-actions {
+  gap: 2px;
+}
+
+.sidebar-column-order-actions button {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.sidebar-column-order-actions button:hover:not(:disabled) {
+  background: var(--hover-color);
+  color: var(--primary-color);
+}
+
+.sidebar-column-order-actions button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
