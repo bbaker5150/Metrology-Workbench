@@ -19511,13 +19511,11 @@ body.dark-mode
   .point-qualifier
   .sidebar-inline-input.qualifier-editor {
   position: relative;
-  left: 50%;
   z-index: 6;
-  width: max(100%, 76px);
-  max-width: none;
-  padding-inline: 4px;
+  width: 100%;
+  max-width: 100%;
+  padding-inline: 2px;
   text-align: center;
-  transform: translateX(-50%);
 }
 
 /* Value is only frozen when it is the first visible column. Reordering it into

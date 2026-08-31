@@ -221,6 +221,26 @@ export const getConsecutiveSidebarCellGroup = (
   };
 };
 
+// While one member of a merged Section/Qualifier run is being edited, treat
+// that point as its own temporary value. This removes the old spanning label
+// from behind the editor and leaves the points on either side grouped exactly
+// as they will be after the edited value is saved.
+export const getConsecutiveSidebarCellGroupDuringEdit = (
+  points = [],
+  index,
+  valueForPoint,
+  field,
+  pendingEdit,
+) =>
+  getConsecutiveSidebarCellGroup(points, index, (candidate) => {
+    const isEditedMember =
+      pendingEdit?.field === field &&
+      String(pendingEdit?.pointId ?? "") === String(candidate?.id ?? "");
+    return isEditedMember
+      ? `\u0000sidebar-edit-member:${field}:${candidate?.id}`
+      : valueForPoint(candidate);
+  });
+
 const getFunctionPointSettings = (sessionData, functionId) => {
   const stored = (sessionData?.functionGroups || []).find(
     (group) =>
@@ -813,14 +833,13 @@ export const SidebarPointItem = ({
 
   const handleSharedFieldClick = (e, field, currentVal, group) => {
     const preferredId = String(preferredSharedEditPointId ?? "");
-    const pointId = String(point.id);
     const preferredBelongsToGroup =
       group?.span > 1 &&
       preferredId &&
       group.pointIds?.some((id) => String(id) === preferredId);
 
     if (preferredBelongsToGroup) {
-      if (preferredId !== pointId) {
+      if (onRequestSharedMemberEdit) {
         e.stopPropagation();
         e.preventDefault();
         onRequestSharedMemberEdit?.(preferredSharedEditPointId, field);
@@ -5035,15 +5054,19 @@ function App({ showThemeToggle = false }) {
         index,
         (point) => point.associatedUutIds?.[0] || "__unassigned__",
       ),
-      section: getConsecutiveSidebarCellGroup(
+      section: getConsecutiveSidebarCellGroupDuringEdit(
         points,
         index,
         (point) => point.section || "",
+        "section",
+        pendingSharedFieldEdit,
       ),
-      qualifier: getConsecutiveSidebarCellGroup(
+      qualifier: getConsecutiveSidebarCellGroupDuringEdit(
         points,
         index,
         (point) => point.testPointInfo?.qualifier?.value || "",
+        "qualifier",
+        pendingSharedFieldEdit,
       ),
     };
     return (

@@ -11,6 +11,7 @@ import {
   copyPointBudget,
   DEFAULT_SIDEBAR_COLUMN_ORDER,
   getConsecutiveSidebarCellGroup,
+  getConsecutiveSidebarCellGroupDuringEdit,
   getUutReassignmentPointIds,
   normalizeSidebarColumnOrder,
   pastePointBudget,
@@ -122,6 +123,41 @@ describe("measurement-point value editing", () => {
       container.querySelector(".point-grouped-cell-content"),
     ).not.toHaveClass("is-highlighted");
     expect(container.querySelector(".point-selection-contour")).toBeNull();
+  });
+
+  test("temporarily splits a shared cell around its edited member", () => {
+    const points = ["p1", "p2", "p3", "p4"].map((id) => ({
+      id,
+      qualifier: "Hz",
+    }));
+    const pendingEdit = { pointId: "p2", field: "qualifier" };
+    const groupAt = (index) =>
+      getConsecutiveSidebarCellGroupDuringEdit(
+        points,
+        index,
+        (point) => point.qualifier,
+        "qualifier",
+        pendingEdit,
+      );
+
+    expect(groupAt(0)).toEqual({
+      isStart: true,
+      isEnd: true,
+      span: 1,
+      pointIds: ["p1"],
+    });
+    expect(groupAt(1)).toEqual({
+      isStart: true,
+      isEnd: true,
+      span: 1,
+      pointIds: ["p2"],
+    });
+    expect(groupAt(2)).toEqual({
+      isStart: true,
+      isEnd: false,
+      span: 2,
+      pointIds: ["p3", "p4"],
+    });
   });
 
   test("leaves an unshared merged run unhighlighted", () => {
@@ -458,10 +494,12 @@ describe("measurement-point value editing", () => {
               <SidebarPointItem
                 point={point}
                 cellGroups={{
-                  qualifier: getConsecutiveSidebarCellGroup(
+                  qualifier: getConsecutiveSidebarCellGroupDuringEdit(
                     points,
                     index,
                     (candidate) => candidate.testPointInfo.qualifier.value,
+                    "qualifier",
+                    pendingEdit,
                   ),
                 }}
                 preferredSharedEditPointId="p2"
@@ -501,6 +539,12 @@ describe("measurement-point value editing", () => {
     const selectedEditor = within(
       screen.getByTestId("qualifier-row-p2"),
     ).getByDisplayValue("60");
+    expect(
+      screen
+        .getByTestId("qualifier-row-p1")
+        .querySelector(".point-grouped-cell-content--qualifier"),
+    ).toBeNull();
+    expect(selectedEditor.closest(".point-grouped-cell")).toBeNull();
     fireEvent.change(selectedEditor, { target: { value: "400" } });
     fireEvent.blur(selectedEditor);
 
