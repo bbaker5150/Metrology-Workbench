@@ -871,6 +871,11 @@ export const SidebarPointItem = ({
   const groupIsHighlighted = (group) =>
     group?.span > 1 &&
     group.pointIds?.some((id) => highlightedPointIdSet.has(String(id)));
+  // Every cell of a run carries the same key, so hovering any row in the run
+  // can light the whole shared cell the way selecting a point does.
+  const groupedCellRunKey = (group, column) =>
+    group?.span > 1 ? `${column}:${group.pointIds?.[0]}` : undefined;
+
   const groupedCellClass = (group, column) =>
     group?.span > 1
       ? ` point-grouped-cell point-grouped-cell--${group.isStart ? "start" : "continuation"}${
@@ -1072,9 +1077,34 @@ export const SidebarPointItem = ({
       .join("\n");
   }, [tmdeLimitsData]);
 
+  // A shared cell spans rows this component does not own, so its hover is
+  // applied to the run's cells directly. Holding it in React state instead
+  // would re-render the whole workspace - analysis panel included - every time
+  // the pointer crossed a row.
+  const setRunHover = (row, isHovering) => {
+    const list = row?.closest?.(".sidebar-points-scroll-wrapper");
+    if (!list) return;
+    // Leaving clears the whole list, so a run can never be left lit behind.
+    list
+      .querySelectorAll(".is-run-hovered")
+      .forEach((cell) => cell.classList.remove("is-run-hovered"));
+    if (!isHovering) return;
+    const keys = new Set(
+      ["uut", "section", "qualifier"]
+        .map((column) => groupedCellRunKey(cellGroups[column], column))
+        .filter(Boolean),
+    );
+    if (keys.size === 0) return;
+    list.querySelectorAll("[data-run]").forEach((cell) => {
+      if (keys.has(cell.dataset.run)) cell.classList.add("is-run-hovered");
+    });
+  };
+
   return (
     <div
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
+      onMouseEnter={(e) => setRunHover(e.currentTarget, true)}
+      onMouseLeave={(e) => setRunHover(e.currentTarget, false)}
       style={{
         gridTemplateColumns: getSidebarGridTemplate(
           visibleColumns,
@@ -1103,6 +1133,7 @@ export const SidebarPointItem = ({
           <span
             ref={setGroupedCellRef("uut")}
             className={`point-uut-name point-uut-selector-cell${groupedCellClass(cellGroups.uut, "uut")}`}
+            data-run={groupedCellRunKey(cellGroups.uut, "uut")}
             title={uutName}
           >
             {!cellGroups.uut?.isStart && cellGroups.uut?.span > 1
@@ -1166,12 +1197,14 @@ export const SidebarPointItem = ({
             <span
               ref={setGroupedCellRef("section")}
               className={`point-section${groupedCellClass(cellGroups.section, "section")}`}
+              data-run={groupedCellRunKey(cellGroups.section, "section")}
               aria-hidden="true"
             />
           ) : (
             <span
               ref={setGroupedCellRef("section")}
               className={`point-section${groupedCellClass(cellGroups.section, "section")}`}
+              data-run={groupedCellRunKey(cellGroups.section, "section")}
               title={String(point.section || "-")}
             >
               {wrapGroupedCellContent(
@@ -1254,12 +1287,14 @@ export const SidebarPointItem = ({
             <span
               ref={setGroupedCellRef("qualifier")}
               className={`point-value${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
+              data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
               aria-hidden="true"
             />
           ) : (
             <span
               ref={setGroupedCellRef("qualifier")}
               className={`point-value${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
+              data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
               title={String(point.testPointInfo?.qualifier?.value ?? "-")}
             >
               {wrapGroupedCellContent(

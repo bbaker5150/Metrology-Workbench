@@ -113,6 +113,31 @@ describe("measurement-point value editing", () => {
     expect(cell).not.toHaveClass("point-grouped-cell--has-next");
   });
 
+  test("tags a merged cell with its run so hover can reach the whole cell", () => {
+    const { container } = renderGroupedUutRow({
+      cellGroups: {
+        uut: { isStart: false, isEnd: true, span: 2, pointIds: ["p1", "p2"] },
+      },
+    });
+
+    // Every cell of a run carries the same key, which is how hovering one row
+    // lights the whole shared cell the way selecting a point does.
+    expect(
+      container.querySelector(".point-uut-selector-cell").dataset.run,
+    ).toBe("uut:p1");
+  });
+
+  test("leaves an unmerged cell out of run hovering", () => {
+    const { container } = renderGroupedUutRow({
+      cellGroups: { uut: { isStart: true, isEnd: true, span: 1, pointIds: ["p1"] } },
+    });
+
+    // A single-row cell is tinted by its own row, so it needs no run key.
+    expect(
+      container.querySelector(".point-uut-selector-cell").dataset.run,
+    ).toBeUndefined();
+  });
+
   test("pins a dragged column to its width and leaves the rest alone", () => {
     const { container } = renderGroupedUutRow({
       cellGroups: {},

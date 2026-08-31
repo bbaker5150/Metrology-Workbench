@@ -18649,6 +18649,11 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
     var(--sidebar-function-color, var(--primary-color)) 12%,
     var(--sidebar-sticky-surface)
   );
+  --sidebar-point-surface-hover: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 16%,
+    var(--sidebar-sticky-surface)
+  );
   --sidebar-point-surface-selected: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 22%,
@@ -18931,12 +18936,29 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   --sidebar-point-cell-fill: var(--sidebar-point-surface);
 }
 
-/* Selecting a point highlights the whole merged cell it shares, because that
-   cell belongs to every point in the run. */
+/* Hovering any row of a run lights the whole shared cell, the same reach
+   selection has - a merged cell is one cell, so it takes a state as a whole
+   rather than tinting only the row the pointer happens to be over. Every cell
+   of the run is marked together, so the run keeps one uniform colour and its
+   overlapping per-row fills still composite invisibly. */
 .uncertainty-module
   .measurement-group-container
   .point-grid-item
-  .point-grouped-cell--highlighted {
+  .point-grouped-cell.is-run-hovered {
+  --sidebar-point-cell-fill: var(--sidebar-point-surface-hover);
+}
+
+/* Selecting a point highlights the whole merged cell it shares, because that
+   cell belongs to every point in the run. Declared after hover so a selected
+   run keeps its own colour while the pointer is over it. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted,
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted.is-run-hovered {
   --sidebar-point-cell-fill: var(--sidebar-point-surface-selected);
 }
 
