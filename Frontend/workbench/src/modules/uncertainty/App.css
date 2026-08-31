@@ -19039,6 +19039,51 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   vertical-align: 3px;
 }
 
+/* --- Measurement point column resizing --------------------------------- */
+/* Each column header owns the divider at its right edge, matching how the UUT
+   and TMDE tables resize. The handle sits over the grid gap so it is easy to
+   grab without stealing clicks from the sort button beside it. */
+.uncertainty-module .sidebar-column-header-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.uncertainty-module .sidebar-column-header-cell > .sidebar-sort-header {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.uncertainty-module .sidebar-column-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: calc(-1 * var(--sidebar-point-column-gap) / 2);
+  width: var(--sidebar-point-column-gap);
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 9;
+}
+
+.uncertainty-module .sidebar-column-resizer::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color 0.1s ease;
+}
+
+.uncertainty-module .sidebar-column-resizer:hover::after,
+.uncertainty-module .sidebar-column-resizer:active::after {
+  background: var(--sidebar-function-color, var(--primary-color));
+}
+
 /* Keep column hover uniform, including Description, after function-colored
    row surfaces are applied. Selected rows retain their stronger full-row cue. */
 .uncertainty-module

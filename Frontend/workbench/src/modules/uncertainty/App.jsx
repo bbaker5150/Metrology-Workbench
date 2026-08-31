@@ -276,48 +276,67 @@ const SIDEBAR_COLUMN_GROUPS = [
   },
 ];
 
-const getSidebarGridTemplate = (visibleColumns, valueColumnWidth = "80px") => {
+// A column the user has dragged is pinned to that exact width; everything else
+// keeps its default track sizing.
+export const SIDEBAR_COLUMN_MIN_WIDTH = 44;
+
+const getSidebarGridTemplate = (
+  visibleColumns,
+  valueColumnWidth = "80px",
+  columnWidths = {},
+) => {
   const parts = [];
-  // Fixed widths for stable columns
-  if (visibleColumns.uut) parts.push("minmax(120px, 1.35fr)");
-  if (visibleColumns.section) parts.push("50px");
-  if (visibleColumns.value) parts.push(valueColumnWidth);
-  if (visibleColumns.qualifier) parts.push("80px");
-  if (visibleColumns.tolerance) parts.push("minmax(80px, 1fr)");
+  const push = (key, track) => {
+    if (!visibleColumns[key]) return;
+    const custom = Number(columnWidths?.[key]);
+    parts.push(
+      Number.isFinite(custom) && custom > 0
+        ? `${Math.max(SIDEBAR_COLUMN_MIN_WIDTH, Math.round(custom))}px`
+        : track,
+    );
+  };
+
+  // Fixed widths for stable columns. The UUT track starts wide enough for a
+  // full instrument identity rather than clipping it at the default width.
+  push("uut", "minmax(200px, 1.35fr)");
+  push("section", "50px");
+  push("value", valueColumnWidth);
+  push("qualifier", "80px");
+  push("tolerance", "minmax(80px, 1fr)");
 
   // Split Limits Columns
-  if (visibleColumns.lowLimit) parts.push("minmax(60px, 0.8fr)");
-  if (visibleColumns.highLimit) parts.push("minmax(60px, 0.8fr)");
+  push("lowLimit", "minmax(60px, 0.8fr)");
+  push("highLimit", "minmax(60px, 0.8fr)");
 
-  if (visibleColumns.standardUncertainty) parts.push(SIDEBAR_UNCERTAINTY_COLUMN);
-  if (visibleColumns.measurementUncertainty) parts.push(SIDEBAR_UNCERTAINTY_COLUMN);
+  push("standardUncertainty", SIDEBAR_UNCERTAINTY_COLUMN);
+  push("measurementUncertainty", SIDEBAR_UNCERTAINTY_COLUMN);
   // TMDE (standard) limit columns
-  if (visibleColumns.tmdeLow) parts.push("minmax(90px, 1fr)");
-  if (visibleColumns.tmdeHigh) parts.push("minmax(90px, 1fr)");
+  push("tmdeLow", "minmax(90px, 1fr)");
+  push("tmdeHigh", "minmax(90px, 1fr)");
 
   // Workbook measurement and test-point risk columns
-  if (visibleColumns.tur) parts.push("55px");
-  if (visibleColumns.tar) parts.push("55px");
-  if (visibleColumns.observedReop) parts.push("78px");
-  if (visibleColumns.pfa) parts.push("55px");
-  if (visibleColumns.pfr) parts.push("55px");
-  if (visibleColumns.maxReop) parts.push("70px");
-  if (visibleColumns.trueReop) parts.push("70px");
+  push("tur", "55px");
+  push("tar", "55px");
+  push("observedReop", "78px");
+  push("pfa", "55px");
+  push("pfr", "55px");
+  push("maxReop", "70px");
+  push("trueReop", "70px");
 
   // Mitigation (GB + interval)
-  if (visibleColumns.gbMult) parts.push("60px");
-  if (visibleColumns.gbLow) parts.push("minmax(60px, 0.8fr)");
-  if (visibleColumns.gbHigh) parts.push("minmax(60px, 0.8fr)");
-  if (visibleColumns.gbPfa) parts.push("60px");
-  if (visibleColumns.gbPfr) parts.push("60px");
-  if (visibleColumns.gbCalInt) parts.push("84px");
-  if (visibleColumns.gbMeasRel) parts.push("98px");
+  push("gbMult", "60px");
+  push("gbLow", "minmax(60px, 0.8fr)");
+  push("gbHigh", "minmax(60px, 0.8fr)");
+  push("gbPfa", "60px");
+  push("gbPfr", "60px");
+  push("gbCalInt", "84px");
+  push("gbMeasRel", "98px");
 
   // Mitigation (interval only)
-  if (visibleColumns.noGbPfa) parts.push("64px");
-  if (visibleColumns.noGbPfr) parts.push("64px");
-  if (visibleColumns.noGbCalInt) parts.push("90px");
-  if (visibleColumns.noGbMeasRel) parts.push("102px");
+  push("noGbPfa", "64px");
+  push("noGbPfr", "64px");
+  push("noGbCalInt", "90px");
+  push("noGbMeasRel", "102px");
 
   if (parts.length === 0) return "1fr";
   return parts.join(" ");
@@ -606,6 +625,7 @@ export const SidebarPointItem = ({
   uutOptions = [],
   onUutChange,
   cellGroups = {},
+  columnWidths = {},
   highlightedPointIds = [],
   onGroupedFieldSave,
   valueColumnWidth = "80px",
@@ -1055,7 +1075,13 @@ export const SidebarPointItem = ({
   return (
     <div
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
-      style={{ gridTemplateColumns: getSidebarGridTemplate(visibleColumns, valueColumnWidth) }}
+      style={{
+        gridTemplateColumns: getSidebarGridTemplate(
+          visibleColumns,
+          valueColumnWidth,
+          columnWidths,
+        ),
+      }}
       onClick={(e) => {
         if (!editingField) {
           e.stopPropagation();
@@ -2164,6 +2190,10 @@ function App({ showThemeToggle = false }) {
   const [scopedZoomLevels, setScopedZoomLevels] = useState(
     () => readUiSizingPreferences().scopedZoomLevels || {},
   );
+  // Measurement point columns the user has dragged to a width of their own.
+  const [sidebarColumnWidths, setSidebarColumnWidths] = useState(
+    () => readUiSizingPreferences().sidebarColumnWidths || {},
+  );
   const [loadedPreferencesSessionId, setLoadedPreferencesSessionId] =
     useState(null);
   const isResizingRef = useRef(false);
@@ -2346,28 +2376,90 @@ function App({ showThemeToggle = false }) {
     [getSidebarSortValue, sidebarSort],
   );
 
+  // Drag the divider at a column's right edge to size it, the way the UUT and
+  // TMDE tables resize. Only the dragged column is pinned; the rest keep their
+  // default track sizing, and a double-click hands a column back to it.
+  const startSidebarColumnResize = useCallback((event, key) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const cell = event.currentTarget.closest(".sidebar-column-header-cell");
+    const startWidth =
+      cell?.getBoundingClientRect().width || SIDEBAR_COLUMN_MIN_WIDTH;
+    const startX = event.clientX;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const handleMove = (moveEvent) => {
+      const next = Math.max(
+        SIDEBAR_COLUMN_MIN_WIDTH,
+        Math.round(startWidth + (moveEvent.clientX - startX)),
+      );
+      setSidebarColumnWidths((current) =>
+        current[key] === next ? current : { ...current, [key]: next },
+      );
+    };
+    const handleUp = () => {
+      document.removeEventListener("pointermove", handleMove);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+    document.addEventListener("pointermove", handleMove);
+    document.addEventListener("pointerup", handleUp, { once: true });
+  }, []);
+
+  const resetSidebarColumnWidth = useCallback((key) => {
+    setSidebarColumnWidths((current) => {
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
   const renderSidebarSortHeader = useCallback(
     (key, label, { align = "left", title = label, className = "" } = {}) => {
       const isActive = sidebarSort.key === key;
       const directionLabel = sidebarSort.direction === "asc" ? "ascending" : "descending";
       return (
-        <button
-          type="button"
-          className={`sidebar-sort-header sidebar-sort-header--${key} ${className} ${isActive ? "active" : ""}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleSidebarSort(key);
-          }}
-          title={`Sort by ${title}${isActive ? ` (${directionLabel})` : ""}`}
-          aria-label={`Sort by ${title}`}
-          aria-sort={isActive ? directionLabel : "none"}
-          style={{ textAlign: align }}
+        <div
+          key={key}
+          className={`sidebar-column-header-cell sidebar-column-header-cell--${key} ${className}`}
         >
-          <span>{label}</span>
-        </button>
+          <button
+            type="button"
+            className={`sidebar-sort-header sidebar-sort-header--${key} ${isActive ? "active" : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSidebarSort(key);
+            }}
+            title={`Sort by ${title}${isActive ? ` (${directionLabel})` : ""}`}
+            aria-label={`Sort by ${title}`}
+            aria-sort={isActive ? directionLabel : "none"}
+            style={{ textAlign: align }}
+          >
+            <span>{label}</span>
+          </button>
+          <span
+            className="sidebar-column-resizer"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={`Resize ${title} column`}
+            title={`Drag to resize ${title}. Double-click to reset.`}
+            onPointerDown={(event) => startSidebarColumnResize(event, key)}
+            onDoubleClick={() => resetSidebarColumnWidth(key)}
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
       );
     },
-    [handleSidebarSort, sidebarSort],
+    [
+      handleSidebarSort,
+      resetSidebarColumnWidth,
+      sidebarSort,
+      startSidebarColumnResize,
+    ],
   );
 
   const [isGlobalExpanded, setIsGlobalExpanded] = useState(false);
@@ -2595,6 +2687,7 @@ function App({ showThemeToggle = false }) {
     setScopedZoomLevels(
       sizingPreferences.scopedZoomLevels || preferences.scopedZoomLevels || {},
     );
+    setSidebarColumnWidths(sizingPreferences.sidebarColumnWidths || {});
     setLoadedPreferencesSessionId(selectedSessionId);
   }, [selectedSessionId]);
 
@@ -2659,12 +2752,18 @@ function App({ showThemeToggle = false }) {
     try {
       window.localStorage.setItem(
         UNCERTAINTY_UI_SIZING_KEY,
-        JSON.stringify({ sidebarWidth, scopedZoomLevels }),
+        JSON.stringify({ sidebarWidth, scopedZoomLevels, sidebarColumnWidths }),
       );
     } catch (error) {
       console.warn("Unable to save uncertainty sizing preferences", error);
     }
-  }, [hadStoredUiSizingAtMount, loadedPreferencesSessionId, sidebarWidth, scopedZoomLevels]);
+  }, [
+    hadStoredUiSizingAtMount,
+    loadedPreferencesSessionId,
+    sidebarWidth,
+    scopedZoomLevels,
+    sidebarColumnWidths,
+  ]);
 
   useEffect(() => {
     const root = resultsContainerRef.current;
@@ -3028,7 +3127,11 @@ function App({ showThemeToggle = false }) {
         try {
           window.localStorage.setItem(
             UNCERTAINTY_UI_SIZING_KEY,
-            JSON.stringify({ sidebarWidth: 550, scopedZoomLevels: {} }),
+            JSON.stringify({
+              sidebarWidth: 550,
+              scopedZoomLevels: {},
+              sidebarColumnWidths: {},
+            }),
           );
           INSTRUMENT_SIZE_STORAGE_KEYS.forEach((storageKey) =>
             window.localStorage.removeItem(storageKey),
@@ -4779,6 +4882,7 @@ function App({ showThemeToggle = false }) {
         label: formatInstrumentIdentity(uut),
       }))}
       cellGroups={cellGroups}
+      columnWidths={sidebarColumnWidths}
       highlightedPointIds={[
         ...selectedSidebarPointIds,
         selectedTestPointId,
@@ -4933,6 +5037,7 @@ function App({ showThemeToggle = false }) {
     const gridTemplateColumns = getSidebarGridTemplate(
       visibleSidebarColumns,
       sidebarValueColumnWidth,
+      sidebarColumnWidths,
     );
     const visibleGroups = SIDEBAR_COLUMN_GROUPS.map((group) => ({
       ...group,

@@ -113,6 +113,21 @@ describe("measurement-point value editing", () => {
     expect(cell).not.toHaveClass("point-grouped-cell--has-next");
   });
 
+  test("pins a dragged column to its width and leaves the rest alone", () => {
+    const { container } = renderGroupedUutRow({
+      cellGroups: {},
+      columnWidths: { uut: 260 },
+      visibleColumns: { uut: true, section: true, value: true },
+    });
+
+    const template =
+      container.querySelector(".point-grid-item").style.gridTemplateColumns;
+    // The resized column is pinned; Section keeps its default track, so the
+    // rows stay in step with the header they are measured against.
+    expect(template).toContain("260px");
+    expect(template).toContain("50px");
+  });
+
   test("marks every row of a run but the last as reaching through the seam", () => {
     const { container } = renderGroupedUutRow({
       cellGroups: {

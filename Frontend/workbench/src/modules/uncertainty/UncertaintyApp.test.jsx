@@ -1507,7 +1507,8 @@ describe("UncertaintyApp", () => {
     expect(pointRow.style.gridTemplateColumns).toBe(
       columnHeader.style.gridTemplateColumns,
     );
-    expect(pointRow.style.gridTemplateColumns).toMatch(/^minmax\(120px, 1\.35fr\) /);
+    // The UUT track starts wide enough for a full instrument identity.
+    expect(pointRow.style.gridTemplateColumns).toMatch(/^minmax\(200px, 1\.35fr\) /);
     expect(pointRow.style.gridTemplateColumns).not.toContain("ch");
     fireEvent.click(pointRow);
     expect(pointRow).toHaveClass("active-point");
