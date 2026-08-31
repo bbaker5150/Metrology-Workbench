@@ -337,6 +337,11 @@ describe("measurement-point value editing", () => {
 
     expect(container.querySelector(".point-qualifier")).toBeInTheDocument();
     const editor = screen.getByDisplayValue("60");
+    expect(editor).toHaveClass("qualifier-editor");
+    expect(editor.closest(".point-qualifier")).toHaveClass(
+      "point-qualifier--editing",
+      "point-grouped-cell--editing-member",
+    );
     fireEvent.change(editor, { target: { value: "400" } });
     fireEvent.blur(editor);
     expect(onSave).toHaveBeenCalledWith(

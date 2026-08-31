@@ -19480,6 +19480,46 @@ body.dark-mode
   z-index: 2;
 }
 
+/* A divider occupies the center of the column gap. When either the point row
+   or a shared cell is selected, paint that strip with the same selected
+   surface instead of leaving a light seam through the highlight. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)
+  > [data-sidebar-column]:not([data-sidebar-column-last="true"])::before,
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  > .point-grouped-cell--highlighted[data-sidebar-column]:not(
+    [data-sidebar-column-last="true"]
+  )::before {
+  background: var(--sidebar-point-surface-selected);
+}
+
+/* Qualifier tracks may be resized down to the general column minimum. Let the
+   temporary editor open wider than that track without changing the saved
+   table layout, and keep the grouped cell from clipping the control. */
+.uncertainty-module
+  .point-grid-item
+  .point-qualifier.point-qualifier--editing {
+  overflow: visible !important;
+  z-index: 5;
+}
+
+.uncertainty-module
+  .point-grid-item
+  .point-qualifier
+  .sidebar-inline-input.qualifier-editor {
+  position: relative;
+  left: 50%;
+  z-index: 6;
+  width: max(100%, 76px);
+  max-width: none;
+  padding-inline: 4px;
+  text-align: center;
+  transform: translateX(-50%);
+}
+
 /* Value is only frozen when it is the first visible column. Reordering it into
    the middle of the table must not make it overlap columns to its left. */
 .uncertainty-module

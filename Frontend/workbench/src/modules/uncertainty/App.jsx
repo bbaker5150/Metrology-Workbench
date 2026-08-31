@@ -1404,7 +1404,9 @@ export const SidebarPointItem = ({
           ) : (
             <span
               ref={setGroupedCellRef("qualifier")}
-              className={`point-value point-qualifier${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
+              className={`point-value point-qualifier${
+                editingField === "qualifier" ? " point-qualifier--editing" : ""
+              }${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
               data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
               title={String(point.testPointInfo?.qualifier?.value ?? "-")}
             >
@@ -1414,7 +1416,7 @@ export const SidebarPointItem = ({
                 editingField === "qualifier" ? (
                   <input
                     autoFocus
-                    className="sidebar-inline-input value"
+                    className="sidebar-inline-input value qualifier-editor"
                     value={tempValue}
                     onChange={(e) => setTempValue(e.target.value)}
                     onBlur={commitEdit}
