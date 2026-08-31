@@ -69,6 +69,12 @@ describe("measurement-point value editing", () => {
         )
         .map((cell) => cell.dataset.sidebarColumn),
     ).toEqual(["value", "uut", "section"]);
+    expect(
+      row.querySelector('[data-sidebar-column="uut"]'),
+    ).toHaveAttribute("data-sidebar-column-after-value", "true");
+    expect(
+      row.querySelector('[data-sidebar-column="section"]'),
+    ).toHaveAttribute("data-sidebar-column-after-value", "false");
   });
 
   test("groups consecutive repeated categorical cells", () => {

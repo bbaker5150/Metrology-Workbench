@@ -776,6 +776,8 @@ export const SidebarPointItem = ({
   useLayoutEffect(() => {
     const row = pointRowRef.current;
     if (!row) return;
+    const columnAfterLeadingValue =
+      orderedVisibleColumns[0] === "value" ? orderedVisibleColumns[1] : null;
     const renderedKeys = DEFAULT_SIDEBAR_COLUMN_ORDER.filter((key) =>
       Boolean(visibleColumns[key]),
     );
@@ -787,6 +789,9 @@ export const SidebarPointItem = ({
       cell.dataset.sidebarColumn = key;
       cell.dataset.sidebarColumnLast = String(
         key === orderedVisibleColumns[orderedVisibleColumns.length - 1],
+      );
+      cell.dataset.sidebarColumnAfterValue = String(
+        Boolean(columnAfterLeadingValue) && key === columnAfterLeadingValue,
       );
     });
     row.dataset.valueLeading = String(orderedVisibleColumns[0] === "value");
