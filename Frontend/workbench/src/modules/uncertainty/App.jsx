@@ -1163,13 +1163,17 @@ export const SidebarPointItem = ({
                     placeholder="-"
                   />
                 ) : (
-                  <span
-                    className="point-grouped-cell-label"
-                    onClick={(e) =>
-                      handleSingleClickEdit(e, "section", point.section)
-                    }
-                  >
-                    {point.section || "-"}
+                  <span className="point-edit-affordance">
+                    <span
+                      className="point-grouped-cell-label"
+                      onClick={(e) =>
+                        handleSingleClickEdit(e, "section", point.section)
+                      }
+                    >
+                      {point.section || (
+                        <span className="point-placeholder">-</span>
+                      )}
+                    </span>
                   </span>
                 ),
               )}
@@ -1204,7 +1208,7 @@ export const SidebarPointItem = ({
               displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
             }`}
           >
-            <span className="point-value-edit-affordance">
+            <span className="point-edit-affordance">
               <span className="point-value-number">
                 {displayValue || <span className="point-placeholder">-</span>}
               </span>
@@ -1247,19 +1251,21 @@ export const SidebarPointItem = ({
                     placeholder="-"
                   />
                 ) : (
-                  <span
-                    className="point-grouped-cell-label"
-                    onClick={(e) =>
-                      handleSingleClickEdit(
-                        e,
-                        "qualifier",
-                        point.testPointInfo?.qualifier?.value,
-                      )
-                    }
-                  >
-                    {point.testPointInfo?.qualifier?.value || (
-                      <span className="point-placeholder">-</span>
-                    )}
+                  <span className="point-edit-affordance">
+                    <span
+                      className="point-grouped-cell-label"
+                      onClick={(e) =>
+                        handleSingleClickEdit(
+                          e,
+                          "qualifier",
+                          point.testPointInfo?.qualifier?.value,
+                        )
+                      }
+                    >
+                      {point.testPointInfo?.qualifier?.value || (
+                        <span className="point-placeholder">-</span>
+                      )}
+                    </span>
                   </span>
                 ),
               )}
