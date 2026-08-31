@@ -282,7 +282,7 @@ describe("GhostRangeRow", () => {
     fireEvent.change(screen.getByPlaceholderText("Search units..."), {
       target: { value: "g" },
     });
-    fireEvent.click(screen.getByRole("option", { name: "g Scaled" }));
+    fireEvent.click(screen.getByRole("option", { name: "g Mass" }));
     fireEvent.click(screen.getByLabelText("New range unit prefix"));
     fireEvent.click(screen.getByRole("option", { name: /Kilo k/ }));
 
@@ -1044,7 +1044,7 @@ describe("inline range editing", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Tolerance unit base unit" }),
     );
-    fireEvent.click(screen.getByRole("option", { name: "% %" }));
+    fireEvent.click(screen.getByRole("option", { name: "% Other" }));
 
     expect(onCommit).toHaveBeenLastCalledWith(
       "floor",

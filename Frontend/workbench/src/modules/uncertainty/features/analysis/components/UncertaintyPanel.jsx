@@ -66,6 +66,7 @@ import {
 } from "../../../utils/detailSectionOrder";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
+import { rankUnitOptions } from "../../../utils/unitSearch";
 import {
   refreshTmdeInstancesFromMasters,
   tmdeInstanceMatchesMaster,
@@ -630,27 +631,11 @@ const UnitSelect = ({
     flatBaseOptions.find((option) => option.value === selectedBase) ||
     flatBaseOptions.find((option) => option.unit === selectedUnit) ||
     null;
-  const normalizedQuery = normalizeUnitToken(query);
-  const visibleGroups = useMemo(() => {
-    if (!normalizedQuery) return baseOptionsByCategory;
-    return baseOptionsByCategory
-      .map((group) => ({
-        ...group,
-        options: (group.options || []).filter((option) => {
-          const category = normalizeUnitToken(group.label);
-          return (
-            normalizeUnitToken(option.value).includes(normalizedQuery) ||
-            normalizeUnitToken(option.label).includes(normalizedQuery) ||
-            normalizeUnitToken(option.unit).includes(normalizedQuery) ||
-            category.includes(normalizedQuery)
-          );
-        }),
-      }))
-      .filter((group) => group.options.length > 0);
-  }, [baseOptionsByCategory, normalizedQuery]);
+  // One ranked list rather than a stack of function groups: a search puts the
+  // units that answer it at the top, and each row names its own function.
   const visibleOptions = useMemo(
-    () => visibleGroups.flatMap((group) => group.options || []),
-    [visibleGroups],
+    () => rankUnitOptions(baseOptionsByCategory, query),
+    [baseOptionsByCategory, query],
   );
   const unitWidth = useMemo(() => {
     const longestLabelLength = Math.max(
@@ -780,7 +765,7 @@ const UnitSelect = ({
       searchRef.current?.focus();
       (activeRef.current || selectedRef.current)?.scrollIntoView({ block: "nearest" });
     });
-  }, [activeBase, isOpen, normalizedQuery]);
+  }, [activeBase, isOpen, query]);
 
   return (
     <div
@@ -876,35 +861,32 @@ const UnitSelect = ({
               }}
             />
             <div className="inline-unit-options" role="listbox" aria-label={ariaLabel}>
-              {visibleGroups.length === 0 ? (
+              {visibleOptions.length === 0 ? (
                 <div className="inline-unit-empty">No matching units</div>
               ) : (
-                visibleGroups.map((group) => (
-                  <div className="inline-unit-group" key={group.label}>
-                    <div className="inline-unit-group-label">{group.label}</div>
-                    {(group.options || []).map((option) => {
-                      const isSelected = option.value === selectedBase;
-                      const isActive = option.value === activeBase;
-                      return (
-                        <button
-                          key={option.value}
-                          ref={isActive ? activeRef : isSelected ? selectedRef : null}
-                          type="button"
-                          role="option"
-                          aria-selected={isSelected}
-                          className={`inline-unit-option${isSelected ? " is-selected" : ""}${
-                            isActive ? " is-active" : ""
-                          }`}
-                          onMouseEnter={() => setActiveBase(option.value)}
-                          onClick={() => chooseBaseUnit(option)}
-                        >
-                          <span>{option.label}</span>
-                          <small>{option.scalable ? "Scaled" : option.unit || option.value}</small>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))
+                visibleOptions.map((option) => {
+                  const isSelected = option.value === selectedBase;
+                  const isActive = option.value === activeBase;
+                  return (
+                    <button
+                      key={option.value}
+                      ref={isActive ? activeRef : isSelected ? selectedRef : null}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      className={`inline-unit-option${isSelected ? " is-selected" : ""}${
+                        isActive ? " is-active" : ""
+                      }`}
+                      onMouseEnter={() => setActiveBase(option.value)}
+                      onClick={() => chooseBaseUnit(option)}
+                    >
+                      <span>{option.label}</span>
+                      {/* The unit key used to sit here, which just repeated the
+                          label. Its function is the useful thing to know. */}
+                      <small>{option.functionName}</small>
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>,

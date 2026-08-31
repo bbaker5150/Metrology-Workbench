@@ -130,7 +130,7 @@ describe("TypeBComponentsEditor", () => {
     fireEvent.click(unitButton);
     const search = await screen.findByPlaceholderText("Search units...");
     fireEvent.change(search, { target: { value: "lb" } });
-    const poundOption = await screen.findByRole("option", { name: "lb lb" });
+    const poundOption = await screen.findByRole("option", { name: "lb Mass" });
     fireEvent.click(poundOption);
 
     expect(onChange).toHaveBeenCalledWith(
