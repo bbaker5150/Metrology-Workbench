@@ -19425,7 +19425,7 @@ body.dark-mode
   z-index: 7;
 }
 
-/* Final selection treatment: one SVG traces the outer boundary of the union
+/* Final selection treatment: one SVG draws the exposed boundary of the union
    (selected row + all shared cells it references). Disable every earlier
    per-row/per-cell perimeter so no internal or overlapping lines remain. */
 .uncertainty-module
@@ -19467,8 +19467,8 @@ body.dark-mode
   fill: none;
   stroke: var(--sidebar-function-color, var(--primary-color));
   stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
   vector-effect: non-scaling-stroke;
 }
 

@@ -220,10 +220,12 @@ export const getConsecutiveSidebarCellGroup = (
   };
 };
 
-// Build one orthogonal perimeter around the union of the selected point row
-// and every vertically shared cell that belongs to it. Each rectangle is
+// Build the exposed orthogonal edges around the union of the selected point
+// row and every vertically shared cell that belongs to it. Each rectangle is
 // decomposed on the combined x/y grid; only edges with empty space on the
-// other side survive, so internal borders can never be drawn.
+// other side survive. Keeping those exposed edges as independent SVG subpaths
+// is deliberate: at a concave corner two perimeter loops can share a vertex,
+// and greedily joining them can draw a false bridge across an unselected cell.
 export const buildSidebarSelectionContour = (rectangles = []) => {
   const rects = rectangles
     .map((rect) => ({
@@ -289,36 +291,52 @@ export const buildSidebarSelectionContour = (rectangles = []) => {
     }
   });
 
-  const pointKey = ([x, y]) => `${x}:${y}`;
-  const unused = new Set(edges.map((_, index) => index));
-  const paths = [];
-  while (unused.size > 0) {
-    const firstIndex = unused.values().next().value;
-    unused.delete(firstIndex);
-    const [firstStart, firstEnd] = edges[firstIndex];
-    const points = [firstStart, firstEnd];
-    let current = firstEnd;
-    let guard = edges.length + 1;
-
-    while (pointKey(current) !== pointKey(firstStart) && guard > 0) {
-      guard -= 1;
-      const nextIndex = [...unused].find(
-        (index) => pointKey(edges[index][0]) === pointKey(current),
-      );
-      if (nextIndex === undefined) break;
-      unused.delete(nextIndex);
-      current = edges[nextIndex][1];
-      points.push(current);
-    }
-
-    if (pointKey(points[points.length - 1]) === pointKey(firstStart)) {
-      points.pop();
-    }
-    paths.push(
-      `M ${points.map(([x, y]) => `${x} ${y}`).join(" L ")} Z`,
+  const lineGroups = new Map();
+  edges.forEach(([[startX, startY], [endX, endY]]) => {
+    const horizontal = startY === endY;
+    const fixed = horizontal ? startY : startX;
+    const start = Math.min(
+      horizontal ? startX : startY,
+      horizontal ? endX : endY,
     );
-  }
-  return paths.join(" ");
+    const end = Math.max(
+      horizontal ? startX : startY,
+      horizontal ? endX : endY,
+    );
+    const key = `${horizontal ? "h" : "v"}:${fixed}`;
+    if (!lineGroups.has(key)) lineGroups.set(key, []);
+    lineGroups.get(key).push([start, end]);
+  });
+
+  const mergedEdges = [];
+  lineGroups.forEach((intervals, key) => {
+    const [orientation, fixedValue] = key.split(":");
+    const fixed = Number(fixedValue);
+    const sorted = intervals.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    sorted.forEach(([start, end]) => {
+      const current = merged[merged.length - 1];
+      if (current && start <= current[1]) {
+        current[1] = Math.max(current[1], end);
+      } else {
+        merged.push([start, end]);
+      }
+    });
+    merged.forEach(([start, end]) => {
+      mergedEdges.push(
+        orientation === "h"
+          ? [[start, fixed], [end, fixed]]
+          : [[fixed, start], [fixed, end]],
+      );
+    });
+  });
+
+  return mergedEdges
+    .map(
+      ([[startX, startY], [endX, endY]]) =>
+        `M ${startX} ${startY} L ${endX} ${endY}`,
+    )
+    .join(" ");
 };
 
 const getFunctionPointSettings = (sessionData, functionId) => {
@@ -879,9 +897,9 @@ export const SidebarPointItem = ({
   }, [autoEditValue, onAutoEditConsumed, point.testPointInfo]);
 
   // Shared Section and Qualifier labels are rendered once at the start of a
-  // run, but the editor belongs to the point the user actually selected. The
-  // start row forwards that request here so a continuation row can temporarily
-  // expose its own editor and split only itself from the shared run on save.
+  // run, but the editor belongs to the point the user actually selected. Keep
+  // the request alive for the lifetime of the editor; consuming it immediately
+  // allowed a parent render to hide a continuation editor before it could save.
   useEffect(() => {
     if (!autoEditField || !["section", "qualifier"].includes(autoEditField)) {
       return;
@@ -892,13 +910,7 @@ export const SidebarPointItem = ({
         ? point.section ?? ""
         : point.testPointInfo?.qualifier?.value ?? "",
     );
-    onAutoEditFieldConsumed?.();
-  }, [
-    autoEditField,
-    onAutoEditFieldConsumed,
-    point.section,
-    point.testPointInfo?.qualifier?.value,
-  ]);
+  }, [autoEditField]);
 
   const startEdit = (e, field, currentVal) => {
     e.stopPropagation();
@@ -958,11 +970,16 @@ export const SidebarPointItem = ({
   };
 
   const cancelEdit = () => {
+    const wasRequestedSharedEdit =
+      autoEditField && autoEditField === editingField;
     setEditingField(null);
     setTempValue("");
+    if (wasRequestedSharedEdit) onAutoEditFieldConsumed?.();
   };
 
   const commitEdit = () => {
+    const wasRequestedSharedEdit =
+      autoEditField && autoEditField === editingField;
     if (editingField === "section") {
       onSave({ ...point, section: tempValue });
     } else if (editingField === "value") {
@@ -989,6 +1006,7 @@ export const SidebarPointItem = ({
       onSave({ ...point, testPointInfo: newInfo });
     }
     setEditingField(null);
+    if (wasRequestedSharedEdit) onAutoEditFieldConsumed?.();
   };
 
   const handleKeyDown = (e) => {
@@ -1088,12 +1106,6 @@ export const SidebarPointItem = ({
     const measure = () => {
       const rowBounds = row.getBoundingClientRect();
       if (!row.offsetWidth || !row.offsetHeight || !rowBounds.width) return;
-      const columnGap =
-        parseFloat(
-          getComputedStyle(row).getPropertyValue(
-            "--sidebar-point-column-gap",
-          ),
-        ) || 8;
       const rectangles = [
         {
           left: 0,
@@ -1114,24 +1126,16 @@ export const SidebarPointItem = ({
         const pointRows = cells
           .map((cell) => cell.closest(".point-grid-item"))
           .filter(Boolean);
-        const isLeading = cells.some((cell) =>
-          cell.classList.contains("point-grouped-cell--leading"),
-        );
         rectangles.push({
-          left: isLeading
-            ? 0
-            : Math.min(...cells.map((cell) => cell.offsetLeft)) -
-              columnGap / 2,
+          left: Math.min(...cells.map((cell) => cell.offsetLeft)),
           top: Math.min(
             ...pointRows.map(
               (pointRow) => pointRow.offsetTop - row.offsetTop,
             ),
           ),
-          right:
-            Math.max(
-              ...cells.map((cell) => cell.offsetLeft + cell.offsetWidth),
-            ) +
-            columnGap / 2,
+          right: Math.max(
+            ...cells.map((cell) => cell.offsetLeft + cell.offsetWidth),
+          ),
           bottom: Math.max(
             ...pointRows.map(
               (pointRow) =>
