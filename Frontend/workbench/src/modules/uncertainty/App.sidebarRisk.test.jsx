@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import {
+  buildSidebarSelectionContour,
   copyPointBudget,
   getConsecutiveSidebarCellGroup,
   getUutReassignmentPointIds,
@@ -18,6 +19,21 @@ import {
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test("builds one outer contour for a row and its shared cells", () => {
+    const contour = buildSidebarSelectionContour([
+      { left: 0, top: 20, right: 100, bottom: 30 },
+      { left: 0, top: 0, right: 20, bottom: 50 },
+      { left: 20, top: 10, right: 40, bottom: 30 },
+      { left: 50, top: 20, right: 70, bottom: 40 },
+    ]);
+
+    // All rectangles touch through the selected row, so their union has one
+    // connected perimeter and therefore one SVG subpath. Internal shared-cell
+    // borders never appear in the generated geometry.
+    expect(contour.match(/\bM\b/g)).toHaveLength(1);
+    expect(contour).toMatch(/\bZ$/);
+  });
+
   test("groups consecutive repeated categorical cells", () => {
     const points = [
       { id: "p1", section: "4.2.11" },

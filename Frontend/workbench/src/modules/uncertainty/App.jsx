@@ -219,6 +219,107 @@ export const getConsecutiveSidebarCellGroup = (
   };
 };
 
+// Build one orthogonal perimeter around the union of the selected point row
+// and every vertically shared cell that belongs to it. Each rectangle is
+// decomposed on the combined x/y grid; only edges with empty space on the
+// other side survive, so internal borders can never be drawn.
+export const buildSidebarSelectionContour = (rectangles = []) => {
+  const rects = rectangles
+    .map((rect) => ({
+      left: Number(rect.left),
+      top: Number(rect.top),
+      right: Number(rect.right),
+      bottom: Number(rect.bottom),
+    }))
+    .filter(
+      (rect) =>
+        [rect.left, rect.top, rect.right, rect.bottom].every(Number.isFinite) &&
+        rect.right > rect.left &&
+        rect.bottom > rect.top,
+    );
+  if (rects.length === 0) return "";
+
+  const uniqueSorted = (values) =>
+    [...new Set(values.map((value) => Math.round(value * 100) / 100))].sort(
+      (a, b) => a - b,
+    );
+  const xs = uniqueSorted(rects.flatMap((rect) => [rect.left, rect.right]));
+  const ys = uniqueSorted(rects.flatMap((rect) => [rect.top, rect.bottom]));
+  const occupied = new Set();
+
+  for (let yIndex = 0; yIndex < ys.length - 1; yIndex += 1) {
+    for (let xIndex = 0; xIndex < xs.length - 1; xIndex += 1) {
+      const x = (xs[xIndex] + xs[xIndex + 1]) / 2;
+      const y = (ys[yIndex] + ys[yIndex + 1]) / 2;
+      if (
+        rects.some(
+          (rect) =>
+            x >= rect.left &&
+            x <= rect.right &&
+            y >= rect.top &&
+            y <= rect.bottom,
+        )
+      ) {
+        occupied.add(`${xIndex}:${yIndex}`);
+      }
+    }
+  }
+
+  const hasCell = (xIndex, yIndex) =>
+    occupied.has(`${xIndex}:${yIndex}`);
+  const edges = [];
+  occupied.forEach((cellKey) => {
+    const [xIndex, yIndex] = cellKey.split(":").map(Number);
+    const left = xs[xIndex];
+    const right = xs[xIndex + 1];
+    const top = ys[yIndex];
+    const bottom = ys[yIndex + 1];
+    if (!hasCell(xIndex, yIndex - 1)) {
+      edges.push([[left, top], [right, top]]);
+    }
+    if (!hasCell(xIndex + 1, yIndex)) {
+      edges.push([[right, top], [right, bottom]]);
+    }
+    if (!hasCell(xIndex, yIndex + 1)) {
+      edges.push([[right, bottom], [left, bottom]]);
+    }
+    if (!hasCell(xIndex - 1, yIndex)) {
+      edges.push([[left, bottom], [left, top]]);
+    }
+  });
+
+  const pointKey = ([x, y]) => `${x}:${y}`;
+  const unused = new Set(edges.map((_, index) => index));
+  const paths = [];
+  while (unused.size > 0) {
+    const firstIndex = unused.values().next().value;
+    unused.delete(firstIndex);
+    const [firstStart, firstEnd] = edges[firstIndex];
+    const points = [firstStart, firstEnd];
+    let current = firstEnd;
+    let guard = edges.length + 1;
+
+    while (pointKey(current) !== pointKey(firstStart) && guard > 0) {
+      guard -= 1;
+      const nextIndex = [...unused].find(
+        (index) => pointKey(edges[index][0]) === pointKey(current),
+      );
+      if (nextIndex === undefined) break;
+      unused.delete(nextIndex);
+      current = edges[nextIndex][1];
+      points.push(current);
+    }
+
+    if (pointKey(points[points.length - 1]) === pointKey(firstStart)) {
+      points.pop();
+    }
+    paths.push(
+      `M ${points.map(([x, y]) => `${x} ${y}`).join(" L ")} Z`,
+    );
+  }
+  return paths.join(" ");
+};
+
 const getFunctionPointSettings = (sessionData, functionId) => {
   const stored = (sessionData?.functionGroups || []).find(
     (group) =>
@@ -684,7 +785,9 @@ export const SidebarPointItem = ({
     autoEditValue ? point.testPointInfo?.parameter?.value ?? "" : "",
   );
   const groupedCellRefs = useRef({});
+  const pointRowRef = useRef(null);
   const [groupedCellGeometry, setGroupedCellGeometry] = useState({});
+  const [selectionContour, setSelectionContour] = useState(null);
 
   // Consume both mount-time and later focus requests. Pre-created blank rows
   // are already mounted, so relying only on the useState initializer prevented
@@ -886,6 +989,143 @@ export const SidebarPointItem = ({
     cellGroups.section?.span,
     cellGroups.section?.pointIds?.join("|"),
     cellGroups.qualifier?.isStart,
+    cellGroups.qualifier?.span,
+    cellGroups.qualifier?.pointIds?.join("|"),
+    visibleColumns.uut,
+    visibleColumns.section,
+    visibleColumns.qualifier,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!isSelected && !isActivePoint) {
+      setSelectionContour(null);
+      return undefined;
+    }
+
+    const row = pointRowRef.current;
+    const list = row?.closest?.(".sidebar-points-scroll-wrapper");
+    if (!row || !list) return undefined;
+
+    const measure = () => {
+      const rowBounds = row.getBoundingClientRect();
+      if (!row.offsetWidth || !row.offsetHeight || !rowBounds.width) return;
+      const scaleX = rowBounds.width / row.offsetWidth || 1;
+      const scaleY = rowBounds.height / row.offsetHeight || 1;
+      const columnGap =
+        parseFloat(
+          getComputedStyle(row).getPropertyValue(
+            "--sidebar-point-column-gap",
+          ),
+        ) || 8;
+      const rectangles = [
+        {
+          left: 1,
+          top: 1,
+          right: row.offsetWidth - 1,
+          bottom: row.offsetHeight - 1,
+        },
+      ];
+      ["uut", "section", "qualifier"].forEach((column) => {
+        const group = cellGroups[column];
+        const runKey = groupedCellRunKey(group, column);
+        if (!runKey || group?.span < 2) return;
+        const cells = [...list.querySelectorAll("[data-run]")].filter(
+          (cell) => cell.dataset.run === runKey,
+        );
+        if (cells.length === 0) return;
+
+        const cellBounds = cells.map((cell) => cell.getBoundingClientRect());
+        const pointRows = cells
+          .map((cell) => cell.closest(".point-grid-item"))
+          .filter(Boolean);
+        const pointRowBounds = pointRows.map((pointRow) => {
+          return pointRow.getBoundingClientRect();
+        });
+        const isLeading = cells.some((cell) =>
+          cell.classList.contains("point-grouped-cell--leading"),
+        );
+        rectangles.push({
+          left: isLeading
+            ? 1
+            : Math.min(
+                ...cellBounds.map(
+                  (bounds) => (bounds.left - rowBounds.left) / scaleX,
+                ),
+              ) - 1,
+          top:
+            Math.min(
+              ...pointRowBounds.map(
+                (bounds) => (bounds.top - rowBounds.top) / scaleY,
+              ),
+            ) + 1,
+          right:
+            Math.max(
+              ...cellBounds.map(
+                (bounds) => (bounds.right - rowBounds.left) / scaleX,
+              ),
+            ) +
+            columnGap -
+            1,
+          bottom:
+            Math.max(
+              ...pointRowBounds.map(
+                (bounds) => (bounds.bottom - rowBounds.top) / scaleY,
+              ),
+            ) - 1,
+        });
+      });
+
+      const path = buildSidebarSelectionContour(rectangles);
+      if (!path) return;
+      const padding = 9;
+      const left = Math.min(...rectangles.map((rect) => rect.left));
+      const top = Math.min(...rectangles.map((rect) => rect.top));
+      const right = Math.max(...rectangles.map((rect) => rect.right));
+      const bottom = Math.max(...rectangles.map((rect) => rect.bottom));
+      const nextContour = {
+        path,
+        left: left - padding,
+        top: top - padding,
+        width: right - left + padding * 2,
+        height: bottom - top + padding * 2,
+        viewBox: `${left - padding} ${top - padding} ${right - left + padding * 2} ${bottom - top + padding * 2}`,
+      };
+      setSelectionContour((current) => {
+        return current &&
+          JSON.stringify(current) === JSON.stringify(nextContour)
+          ? current
+          : nextContour;
+      });
+    };
+
+    measure();
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
+    observer?.observe(row);
+    ["uut", "section", "qualifier"].forEach((column) => {
+      const runKey = groupedCellRunKey(cellGroups[column], column);
+      if (!runKey) return;
+      [...list.querySelectorAll("[data-run]")]
+        .filter((cell) => cell.dataset.run === runKey)
+        .forEach((cell) => {
+          const pointRow = cell.closest(".point-grid-item");
+          if (pointRow) observer?.observe(pointRow);
+        });
+    });
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [
+    isSelected,
+    isActivePoint,
+    cellGroups.uut?.span,
+    cellGroups.uut?.pointIds?.join("|"),
+    cellGroups.section?.span,
+    cellGroups.section?.pointIds?.join("|"),
     cellGroups.qualifier?.span,
     cellGroups.qualifier?.pointIds?.join("|"),
     visibleColumns.uut,
@@ -1132,6 +1372,7 @@ export const SidebarPointItem = ({
 
   return (
     <div
+      ref={pointRowRef}
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
       onMouseEnter={(e) => setRunHover(e.currentTarget, true)}
       onMouseLeave={(e) => setRunHover(e.currentTarget, false)}
@@ -1158,6 +1399,22 @@ export const SidebarPointItem = ({
       }}
       onContextMenu={(e) => onContextMenu(e, point)}
     >
+      {selectionContour && (
+        <svg
+          className="point-selection-contour"
+          aria-hidden="true"
+          focusable="false"
+          viewBox={selectionContour.viewBox}
+          style={{
+            left: `${selectionContour.left}px`,
+            top: `${selectionContour.top}px`,
+            width: `${selectionContour.width}px`,
+            height: `${selectionContour.height}px`,
+          }}
+        >
+          <path d={selectionContour.path} />
+        </svg>
+      )}
       {visibleColumns.uut && (
         <>
           <span

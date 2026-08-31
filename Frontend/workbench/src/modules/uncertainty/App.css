@@ -19424,3 +19424,56 @@ body.dark-mode
       );
   z-index: 7;
 }
+
+/* Final selection treatment: one SVG traces the outer boundary of the union
+   (selected row + all shared cells it references). Disable every earlier
+   per-row/per-cell perimeter so no internal or overlapping lines remain. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted.point-grouped-cell--start
+  > .point-grouped-cell-content {
+  border: 0;
+  box-shadow: none;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)::after {
+  content: none;
+}
+
+.uncertainty-module .point-grid-item > .point-selection-contour {
+  position: absolute;
+  /* The generic grid-divider rule makes every non-final row child relative.
+     Keep the contour out of grid layout so its measured union can never
+     enlarge a measurement-point row. */
+  z-index: 12;
+  display: block;
+  max-width: none;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(
+    0 0 4px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 58%,
+        transparent
+      )
+  );
+}
+
+.uncertainty-module .point-selection-contour path {
+  fill: none;
+  stroke: var(--sidebar-function-color, var(--primary-color));
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* The contour is inserted first so the real final data cell remains the last
+   grid child (and therefore does not gain a trailing divider). */
+.uncertainty-module .point-selection-contour::before {
+  content: none !important;
+}
