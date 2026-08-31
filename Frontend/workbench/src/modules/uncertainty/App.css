@@ -19329,3 +19329,98 @@ body.dark-mode
   min-height: 32px;
   font-size: 0.9rem;
 }
+
+/* Follow-up: the horizontal point-row seam is the sticky surface showing
+   through the one-pixel row gap. Use that exact surface for vertical rules so
+   the grid reads as one consistent set of dividers in every theme. */
+.uncertainty-module .measurement-group-container {
+  --sidebar-point-divider-color: var(--sidebar-sticky-surface);
+}
+
+.uncertainty-module .sidebar-column-header-cell:not(:last-child)::before,
+.uncertainty-module .point-grid-item > :not(:last-child)::before {
+  background: var(--sidebar-point-divider-color, var(--sidebar-sticky-surface));
+}
+
+/* The first implementation outlined each per-row slice of a merged cell.
+   That looked like darker column dividers and could not create one continuous
+   glow. Remove those slice borders and outline the single spanning label box
+   instead. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted::after {
+  border: 0;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted.point-grouped-cell--start
+  > .point-grouped-cell-content {
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--sidebar-function-color, var(--primary-color)) 76%,
+      transparent
+    );
+  border-radius: 3px;
+  box-shadow:
+    inset 0 0 4px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 18%,
+        transparent
+      ),
+    0 0 7px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 55%,
+        transparent
+      );
+}
+
+/* Draw selection above grouped fills. The row itself cannot own the glow via
+   box-shadow because those fills intentionally sit over its background. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point),
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point),
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item.active-point:hover {
+  box-shadow: none !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)::after {
+  inset: 0;
+  width: auto;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--sidebar-function-color, var(--primary-color)) 82%,
+      transparent
+    );
+  border-radius: inherit;
+  background: transparent;
+  box-shadow:
+    inset 0 0 4px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 20%,
+        transparent
+      ),
+    0 0 8px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 62%,
+        transparent
+      );
+  z-index: 7;
+}
