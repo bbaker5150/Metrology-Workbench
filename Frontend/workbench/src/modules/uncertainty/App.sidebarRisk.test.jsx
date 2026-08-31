@@ -27,10 +27,23 @@ describe("measurement-point value editing", () => {
 
     expect(
       getConsecutiveSidebarCellGroup(points, 0, (point) => point.section),
-    ).toEqual({ isStart: true, span: 2, pointIds: ["p1", "p2"] });
+    ).toEqual({
+      isStart: true,
+      isEnd: false,
+      span: 2,
+      pointIds: ["p1", "p2"],
+    });
     expect(
       getConsecutiveSidebarCellGroup(points, 1, (point) => point.section),
-    ).toEqual({ isStart: false, span: 2, pointIds: ["p1", "p2"] });
+    ).toEqual({
+      isStart: false,
+      isEnd: true,
+      span: 2,
+      pointIds: ["p1", "p2"],
+    });
+    expect(
+      getConsecutiveSidebarCellGroup(points, 2, (point) => point.section),
+    ).toEqual({ isStart: true, isEnd: true, span: 1, pointIds: ["p3"] });
   });
 
   const renderGroupedUutRow = (props) =>
@@ -78,7 +91,12 @@ describe("measurement-point value editing", () => {
   });
 
   test("marks a continuation cell so it can bridge the row seam above it", () => {
-    const groupedUut = { isStart: false, span: 2, pointIds: ["p1", "p2"] };
+    const groupedUut = {
+      isStart: false,
+      isEnd: true,
+      span: 2,
+      pointIds: ["p1", "p2"],
+    };
     const { container } = renderGroupedUutRow({
       point: { id: "p2", testPointInfo: { parameter: { value: 2, unit: "V" } } },
       cellGroups: { uut: groupedUut },
@@ -86,10 +104,28 @@ describe("measurement-point value editing", () => {
 
     const cell = container.querySelector(".point-uut-selector-cell");
     expect(cell).toHaveClass("point-grouped-cell--continuation");
-    // The leading column starts after the row's inline padding, so its bridge
+    // The leading column starts after the row's inline padding, so its fill
     // has to reach further left than the other merged columns.
     expect(cell).toHaveClass("point-grouped-cell--leading");
     expect(cell).not.toHaveClass("point-grouped-cell--start");
+    // Last row of the run: its fill stops at the row edge instead of reaching
+    // through the seam below, which is a real divider.
+    expect(cell).not.toHaveClass("point-grouped-cell--has-next");
+  });
+
+  test("marks every row of a run but the last as reaching through the seam", () => {
+    const { container } = renderGroupedUutRow({
+      cellGroups: {
+        uut: { isStart: true, isEnd: false, span: 2, pointIds: ["p1", "p2"] },
+      },
+    });
+
+    // Consecutive fills have to overlap rather than meet: a shared edge on a
+    // fractional device pixel let the row seam show through a merged cell
+    // under display scaling.
+    expect(container.querySelector(".point-uut-selector-cell")).toHaveClass(
+      "point-grouped-cell--has-next",
+    );
   });
 
   test("centers a grouped label without increasing the point row height", () => {

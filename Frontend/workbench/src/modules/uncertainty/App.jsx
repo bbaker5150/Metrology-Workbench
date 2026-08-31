@@ -190,7 +190,12 @@ export const getConsecutiveSidebarCellGroup = (
 ) => {
   const value = normalizedGroupedCellValue(valueForPoint(points[index]));
   if (!value) {
-    return { isStart: true, span: 1, pointIds: [points[index]?.id] };
+    return {
+      isStart: true,
+      isEnd: true,
+      span: 1,
+      pointIds: [points[index]?.id],
+    };
   }
   let start = index;
   let end = index;
@@ -208,6 +213,7 @@ export const getConsecutiveSidebarCellGroup = (
   }
   return {
     isStart: start === index,
+    isEnd: end === index,
     span: end - start + 1,
     pointIds: points.slice(start, end + 1).map((point) => point.id),
   };
@@ -848,8 +854,10 @@ export const SidebarPointItem = ({
   const groupedCellClass = (group, column) =>
     group?.span > 1
       ? ` point-grouped-cell point-grouped-cell--${group.isStart ? "start" : "continuation"}${
-          column === leadingVisibleColumn ? " point-grouped-cell--leading" : ""
-        }${groupIsHighlighted(group) ? " point-grouped-cell--highlighted" : ""}`
+          group.isEnd ? "" : " point-grouped-cell--has-next"
+        }${column === leadingVisibleColumn ? " point-grouped-cell--leading" : ""}${
+          groupIsHighlighted(group) ? " point-grouped-cell--highlighted" : ""
+        }`
       : "";
   const groupedCellStyle = (group, column) =>
     group?.span > 1 && group.isStart

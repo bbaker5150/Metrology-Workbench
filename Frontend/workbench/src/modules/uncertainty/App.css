@@ -98,6 +98,7 @@ body.uncertainty-active {
   --sidebar-point-row-seam: 1px; /* gap between consecutive point rows */
   --sidebar-point-row-pad: 10px; /* row inline padding */
   --sidebar-point-row-inset: 6px; /* row border + block padding above a cell */
+  --sidebar-point-row-border: 1px;
   --sidebar-point-column-gap: 8px;
 
   /* Toggles */
@@ -15769,12 +15770,6 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
   cursor: pointer;
 }
 
-/* Active State: Highlight the Section Label too (when not hovering) */
-.point-grid-item.active .point-section {
-  color: var(--primary-color);
-  opacity: 0.8;
-}
-
 /* ------------------------------------------------------------------- */
 /* THEME OVERRIDES FOR POINTS                                          */
 /* ------------------------------------------------------------------- */
@@ -18804,10 +18799,20 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   min-width: 0;
   min-height: 0;
   overflow: visible;
-  /* The absolutely positioned label and the seam bridge are measured against
-     the grid cell itself, so the cell must not add an inset of its own. */
+  /* The absolutely positioned label and the row fill are measured against the
+     grid cell itself, so the cell must not add an inset of its own. */
   padding: 0;
   border-width: 0;
+  /* A merged cell must never become a stacking context. Its fill has to reach
+     across the row seam and its label has to stay above the fills of the other
+     rows in the run - both of which are trapped inside the cell the moment
+     something gives it an opacity, filter or transform of its own. A stray
+     opacity on the selected row's Section cell did exactly that: it turned the
+     fill translucent, so the row seam showed through the middle of a merged
+     cell, and it let the next row's fill cut across the shared label. */
+  opacity: 1;
+  filter: none;
+  transform: none;
 }
 
 .uncertainty-module .point-grid-item .point-grouped-cell-content {
@@ -18881,43 +18886,31 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   pointer-events: none;
 }
 
-/* Point rows are separated by a 1px margin that shows the list background.
-   Inside a run that gap is an artifact - the cell is one merged cell - so each
-   continuation bridges the seam above it with the resting row surface. Only
-   the seam is painted, never any part of a row box, so a selected row keeps a
-   highlight that lines up exactly with its other columns. */
-.uncertainty-module
-  .measurement-group-container
-  .point-grid-item
-  .point-grouped-cell--continuation::before {
-  content: "";
-  position: absolute;
-  top: calc(-1 * (var(--sidebar-point-row-inset) + var(--sidebar-point-row-seam)));
-  left: 0;
-  /* Reach through the column gap so the seam also closes between a merged
-     cell and the column beside it, the way merged table cells read. */
-  right: calc(-1 * var(--sidebar-point-column-gap));
-  height: var(--sidebar-point-row-seam);
-  background: var(--sidebar-point-cell-fill, var(--sidebar-point-surface));
-  /* Above the point row surfaces, below the merged label that spans them. */
-  z-index: 2;
-}
+/* A merged cell is drawn as a chain of per-row fills rather than one box, so
+   the run stays continuous while every edge still lands exactly on a point
+   row's own edge.
 
-/* The leading column starts after the row's horizontal padding. Extend its
-   bridge through that inset so the merged run reads continuously to the very
-   edge of the point row. */
+   Point rows are separated by a 1px margin that shows the list background.
+   Inside a run that gap is an artifact - the cell is one merged cell - so a
+   cell that is not the last of its run reaches through the seam below it and
+   overlaps the next fill. Overlap, not abutment: each fill is composited
+   separately, so two that merely share an edge on a fractional device pixel
+   both cover it partially and let what is behind bleed through. That, plus a
+   1px strip patching the gap, is what put a hairline of the list background
+   across merged cells under fractional display scaling. Fills within a run
+   always carry the same colour, so the overlap itself is invisible.
+
+   The fill carries the row's own state, so selection is painted at exactly
+   the band the point row paints for itself. */
 .uncertainty-module
   .measurement-group-container
   .point-grid-item
-  .point-grouped-cell--continuation.point-grouped-cell--leading::before {
-  left: calc(-1 * var(--sidebar-point-row-pad));
+  .point-grouped-cell {
+  --sidebar-point-cell-fill: var(--sidebar-point-surface);
 }
 
 /* Selecting a point highlights the whole merged cell it shares, because that
-   cell belongs to every point in the run. Each cell paints only its own row's
-   slice, from the same tokens the row box uses, so the shared block lines up
-   with the point row exactly instead of floating a pixel off it - and no later
-   row in the run can repaint over the shared label, which sits above. */
+   cell belongs to every point in the run. */
 .uncertainty-module
   .measurement-group-container
   .point-grid-item
@@ -18928,29 +18921,54 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 .uncertainty-module
   .measurement-group-container
   .point-grid-item
-  .point-grouped-cell--highlighted::after {
+  .point-grouped-cell::after {
   content: "";
   position: absolute;
-  /* Out to the row's border box, top and bottom: exactly the band a selected
-     point row paints for itself. */
+  /* Out to the row's border box, top and bottom: exactly the band a point row
+     paints for itself. */
   top: calc(-1 * var(--sidebar-point-row-inset));
   bottom: calc(-1 * var(--sidebar-point-row-inset));
-  left: 0;
+  /* Overlap the fill of the merged column to the left by a pixel, for the same
+     reason the vertical fills overlap. */
+  left: -1px;
+  /* Reach through the column gap so a run also closes the seam between itself
+     and the column beside it, the way merged table cells read. */
   right: calc(-1 * var(--sidebar-point-column-gap));
-  background: var(--sidebar-point-surface-selected);
+  background: var(--sidebar-point-cell-fill);
+  /* Above the point row surfaces, below the selected row's rail and the
+     merged label that spans the run. */
   z-index: 1;
 }
 
+/* Not the last row of its run: reach through the row seam and a pixel into the
+   next row, so the two fills overlap rather than meet. Merely meeting is not
+   enough - each fill is composited separately, so a shared edge on a
+   fractional device pixel lets a sliver of what is behind show through, which
+   is what put a hairline across merged cells under display scaling. Fills
+   within a run always carry the same colour, so the overlap is invisible. */
 .uncertainty-module
   .measurement-group-container
   .point-grid-item
-  .point-grouped-cell--highlighted.point-grouped-cell--leading::after {
-  left: calc(-1 * var(--sidebar-point-row-pad));
+  .point-grouped-cell--has-next::after {
+  bottom: calc(
+    -1 * (var(--sidebar-point-row-inset) + var(--sidebar-point-row-seam) + 1px)
+  );
 }
 
-/* The selected point still needs its own rail, and the shared fills above
-   would bury an inset shadow on the row. Draw it as its own layer instead,
-   over the shared cells but under their labels. */
+/* The leading column starts after the row's border and inline padding. Extend
+   its fill back over both so a run reads continuously to the row's edge. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--leading::after {
+  left: calc(
+    -1 * (var(--sidebar-point-row-pad) + var(--sidebar-point-row-border))
+  );
+}
+
+/* The selected point still needs its own rail, and the fills above would bury
+   an inset shadow on the row. Draw it as its own layer instead, over the
+   merged cells but under their labels. */
 .uncertainty-module
   .measurement-group-container
   .point-grid-item:is(.active, .active-point)::after {
