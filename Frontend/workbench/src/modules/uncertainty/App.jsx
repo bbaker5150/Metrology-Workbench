@@ -927,6 +927,10 @@ export const SidebarPointItem = ({
     if (e.key === "Escape") cancelEdit();
   };
 
+  const selectInlineFieldValue = (event) => {
+    event.currentTarget.select();
+  };
+
   // Safe Accessors
   const displayValue = point.testPointInfo?.parameter?.value;
   const displayUnit = point.testPointInfo?.parameter?.unit || "";
@@ -1349,6 +1353,8 @@ export const SidebarPointItem = ({
                     onChange={(e) => setTempValue(e.target.value)}
                     onBlur={commitEdit}
                     onKeyDown={handleKeyDown}
+                    onFocus={selectInlineFieldValue}
+                    onDoubleClick={selectInlineFieldValue}
                     onClick={(e) => e.stopPropagation()}
                     placeholder="-"
                   />
@@ -1449,6 +1455,8 @@ export const SidebarPointItem = ({
                     onChange={(e) => setTempValue(e.target.value)}
                     onBlur={commitEdit}
                     onKeyDown={handleKeyDown}
+                    onFocus={selectInlineFieldValue}
+                    onDoubleClick={selectInlineFieldValue}
                     onClick={(e) => e.stopPropagation()}
                     placeholder="-"
                   />

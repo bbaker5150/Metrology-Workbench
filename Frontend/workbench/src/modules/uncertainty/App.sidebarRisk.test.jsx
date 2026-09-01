@@ -338,6 +338,13 @@ describe("measurement-point value editing", () => {
     );
 
     const editor = screen.getByDisplayValue("3.1.2");
+    expect(editor).toHaveFocus();
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe("3.1.2".length);
+    editor.setSelectionRange(2, 2);
+    fireEvent.doubleClick(editor);
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe("3.1.2".length);
     expect(
       container.querySelector(".point-grouped-cell--editing-member"),
     ).toBeInTheDocument();
@@ -380,6 +387,13 @@ describe("measurement-point value editing", () => {
 
     expect(container.querySelector(".point-qualifier")).toBeInTheDocument();
     const editor = screen.getByDisplayValue("60");
+    expect(editor).toHaveFocus();
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe("60".length);
+    editor.setSelectionRange(1, 1);
+    fireEvent.doubleClick(editor);
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe("60".length);
     expect(editor).toHaveClass("qualifier-editor");
     expect(editor.closest(".point-qualifier")).toHaveClass(
       "point-qualifier--editing",
