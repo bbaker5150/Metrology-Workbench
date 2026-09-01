@@ -155,7 +155,7 @@ export default function CalibrationPDF({ data, sections }) {
     <Page size="LETTER" style={styles.page}>
       {ordered.map((section) => <View key={section.id}>{blocks[section.id]()}</View>)}
       {missing.map((id) => <View key={id}>{blocks[id]()}</View>)}
-      {isVisible("footer") && <Footer data={data} page={1} pages={pages} />}
+      <Footer data={data} page={1} pages={pages} />
     </Page>
     {tables.length ? <Page size="LETTER" style={styles.page}>
       <View>
@@ -165,7 +165,7 @@ export default function CalibrationPDF({ data, sections }) {
         <View style={styles.labelRow}><Text style={styles.label}>Serial:</Text><Text>{data.serial_number}</Text></View>
       </View>
       {tables.map((table, index) => <DataTable key={index} table={table} />)}
-      {isVisible("footer") && <Footer data={data} page={2} pages={pages} />}
+      <Footer data={data} page={2} pages={pages} />
     </Page> : null}
   </Document>;
 }

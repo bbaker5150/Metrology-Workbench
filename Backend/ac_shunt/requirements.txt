@@ -1,7 +1,16 @@
 # Core web stack
 Django
 djangorestframework
-django-cors-headers
+# >=4.4 required: older releases mark their ASGI middleware coroutine-ness
+# with a manual `_is_coroutine` attribute instead of asgiref's
+# markcoroutinefunction() helper. On Python 3.12+, asgiref's iscoroutinefunction
+# stops recognizing that manual marker, so Django's middleware chain silently
+# builds itself as sync past CorsMiddleware while corsheaders still returns a
+# coroutine from __call__ -- every request 500s with "TypeError: object
+# HttpResponse can't be used in an await expression" under the ASGI/Daphne
+# server (manage.py runserver), even though `manage.py test` and a plain WSGI
+# server both look fine. 4.4+ fixed this to use markcoroutinefunction().
+django-cors-headers>=4.4
 drf-nested-routers
 
 # Realtime / ASGI
@@ -14,6 +23,9 @@ channels-redis
 
 # Data + scientific processing used by calibration logic/scripts
 numpy
+
+# .xlsx generation for the Report of Calibration module (reports/excel.py)
+openpyxl
 
 # Instrument + DB drivers
 PyVISA

@@ -18,7 +18,11 @@ export const DEFAULT_SECTIONS = [
   { id: "statements_rest", label: "Statements (uncertainty, traceability)", visible: true },
   { id: "environment", label: "Environment & Dates", visible: true },
   { id: "signatures", label: "Signature Block", visible: true },
-  { id: "footer", label: "RoC # Footer", visible: true },
+  // "footer" (RoC #/page number/issue date) is intentionally NOT a
+  // configurable section: it renders `fixed` at the bottom of every PDF page
+  // regardless of where it'd sit in this list, so letting users drag or hide
+  // it was a no-op that looked like a working control. It's always present —
+  // see CalibrationPDF.jsx's unconditional <Footer />.
   { id: "tables", label: "Measurement Data (page 2)", visible: true },
 ];
 

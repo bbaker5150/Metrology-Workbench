@@ -109,15 +109,26 @@ function TableEditor({ table, index, onChange, onRemove }) {
           <span className="roc-label">Rows</span>
           <button className="roc-btn-link" onClick={addRow}>+ Row</button>
         </div>
-        <div style={{ display: "grid", gap: 6 }}>
-          {table.rows.map((row, rowIndex) => (
-            <div key={rowIndex} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              {row.map((cell, columnIndex) => (
-                <BufferedInput key={columnIndex} className="roc-input roc-input-mono" value={cell} onCommit={(value) => updateCell(rowIndex, columnIndex, value)} />
-              ))}
-              <button className="roc-btn-link" onClick={() => removeRow(rowIndex)}>×</button>
-            </div>
-          ))}
+        {/* Cells get a fixed min-width instead of flex-shrinking to fit —
+            with many columns the row scrolls horizontally instead of every
+            input squeezing down to unreadable width. */}
+        <div style={{ overflowX: "auto" }}>
+          <div style={{ display: "grid", gap: 6, minWidth: "max-content" }}>
+            {table.rows.map((row, rowIndex) => (
+              <div key={rowIndex} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {row.map((cell, columnIndex) => (
+                  <BufferedInput
+                    key={columnIndex}
+                    className="roc-input roc-input-mono"
+                    style={{ width: 110, flex: "0 0 110px" }}
+                    value={cell}
+                    onCommit={(value) => updateCell(rowIndex, columnIndex, value)}
+                  />
+                ))}
+                <button className="roc-btn-link" onClick={() => removeRow(rowIndex)} style={{ flexShrink: 0 }}>×</button>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

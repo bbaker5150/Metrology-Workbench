@@ -172,6 +172,10 @@ body.dark-mode .reports-module {
 .roc-side-body {
   flex: 1;
   overflow-y: auto;
+  /* The panel is capped to the viewport height (`.reports-module` is
+     `height: 100vh`, `body` clips overflow), so without this the last row of
+     a tall form/table sits flush against the bottom edge of the window. */
+  padding-bottom: 28px;
 }
 
 /* ── Tabs (mirrors .app-chrome-tab's look: transparent, muted text,

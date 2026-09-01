@@ -1,8 +1,25 @@
 """
 DRF serializers for the Report of Calibration module.
 
-None yet — serializers arrive alongside the module's models. Kept as a wired
-placeholder so the app structure mirrors the AC-Shunt (``api``) app and the
-frontend ``modules/reports`` layout.
+Both models are flat enough (regular columns + a few JSON blobs) that plain
+``ModelSerializer``s suffice — no hand-rolled DTO functions needed like the
+``uncertainty`` app's deeply-nested sessions.
 """
-from rest_framework import serializers  # noqa: F401
+from rest_framework import serializers
+
+from .models import MeasurementArea, ROCRecord
+
+
+class MeasurementAreaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MeasurementArea
+        fields = [
+            "code", "name", "default_nomenclature", "submitted_label",
+            "statements",
+        ]
+
+
+class ROCRecordSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ROCRecord
+        fields = "__all__"

@@ -58,13 +58,17 @@ export default function ExcelImport({ onDataLoaded }) {
 
   return (
     <div className="roc-section-body">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
         <div>
           <p className="roc-title">Import ROC Workbook</p>
           <p className="roc-subtitle">.xlsx, .xlsm, or .xls — generated templates and lab originals</p>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <select className="roc-select" value={areaCode} onChange={(event) => setAreaCode(event.target.value)}>
+        {/* flexShrink: 0 + a min-width keeps the select from being squeezed
+            down by the title text next to it — it was shrinking enough to
+            clip the area name. Wraps to its own line below the title on
+            narrow widths instead. */}
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <select className="roc-select" style={{ minWidth: 150 }} value={areaCode} onChange={(event) => setAreaCode(event.target.value)}>
             {areas.map((area) => <option key={area.code} value={area.code}>{area.name}</option>)}
           </select>
           <button className="roc-btn" disabled={busy || !areaCode} onClick={handleTemplate}>
