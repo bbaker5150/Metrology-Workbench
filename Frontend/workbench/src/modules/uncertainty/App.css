@@ -18672,11 +18672,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 .uncertainty-module
   .measurement-group-container
   .point-grid-item.table-highlight:not(.active) {
-  background: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 16%,
-    var(--sidebar-sticky-surface)
-  ) !important;
+  background: var(--sidebar-point-surface-hover) !important;
 }
 
 .uncertainty-module .measurement-group-container .point-grid-item.active,
@@ -19537,6 +19533,29 @@ body.dark-mode
   width: 100%;
   margin-right: 0;
   padding-right: 2px;
+}
+
+/* Inline Value editing should be no wider than the compact value affordance.
+   The input's `size` follows its current character count; keeping both the
+   editor and wrapper content-sized prevents the focus state from filling the
+   entire Value track. */
+.uncertainty-module
+  .point-grid-item
+  > .sidebar-inline-input-wrapper.sidebar-value-sticky {
+  gap: 4px;
+  width: max-content;
+  max-width: 100%;
+}
+
+.uncertainty-module
+  .point-grid-item
+  > .sidebar-inline-input-wrapper.sidebar-value-sticky
+  > .sidebar-inline-input.value {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 1.75em;
+  max-width: 100%;
+  padding-inline: 2px;
 }
 
 .sidebar-column-order-dropdown {

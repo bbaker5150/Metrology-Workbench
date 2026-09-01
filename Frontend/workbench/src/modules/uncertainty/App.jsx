@@ -101,6 +101,7 @@ import {
 } from "./constants/constants";
 import {
   getRemainingCutPoints,
+  hasDerivedNominalMismatch,
   preparePointForPaste,
 } from "./utils/pointClipboard";
 import {
@@ -1382,6 +1383,7 @@ export const SidebarPointItem = ({
             <input
               autoFocus
               className="sidebar-inline-input value"
+              size={Math.max(1, String(tempValue ?? "").length)}
               value={tempValue}
               onChange={(e) => setTempValue(e.target.value)}
               onBlur={commitEdit}
@@ -3201,11 +3203,20 @@ function App({ showThemeToggle = false }) {
       }
 
       if (newPoints.length > 0) {
+        const mismatchedDerivedPointCount = newPoints.filter(
+          hasDerivedNominalMismatch,
+        ).length;
         saveTestPoint(newPoints, null);
         const action = clipboardPointMode === "cut" ? "Moved" : "Pasted";
         showToast(
           `${action} ${newPoints.length} measurement point${newPoints.length > 1 ? "s" : ""}.`,
         );
+        if (mismatchedDerivedPointCount > 0) {
+          showToast(
+            `${mismatchedDerivedPointCount} pasted derived measurement point${mismatchedDerivedPointCount === 1 ? " has" : "s have"} equation inputs that do not match the nominal value. Update the nominal or inputs to display risk metrics.`,
+            "warning",
+          );
+        }
         setSelectedTestPointContextUutId(targetUutId);
 
         if (clipboardPointMode === "cut") {
@@ -3228,6 +3239,7 @@ function App({ showThemeToggle = false }) {
       currentSessionData,
       saveTestPoint,
       setSelectedTestPointContextUutId,
+      showToast,
     ],
   );
 

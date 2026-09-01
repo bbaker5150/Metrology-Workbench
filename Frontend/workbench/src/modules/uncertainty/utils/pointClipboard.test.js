@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getRemainingCutPoints,
+  hasDerivedNominalMismatch,
   preparePointForPaste,
 } from "./pointClipboard";
 
@@ -141,5 +142,44 @@ describe("getRemainingCutPoints", () => {
     expect(getRemainingCutPoints(clipboard, [{ id: "point-1" }])).toEqual([
       { id: "point-2" },
     ]);
+  });
+});
+
+describe("hasDerivedNominalMismatch", () => {
+  const derivedPoint = {
+    measurementType: "derived",
+    equationString: "A + B",
+    variableMappings: { A: "Input A", B: "Input B" },
+    variableNominals: {
+      A: { value: "3", unit: "V" },
+      B: { value: "5", unit: "V" },
+    },
+    tmdeTolerances: [],
+    testPointInfo: { parameter: { value: "8", unit: "V" } },
+  };
+
+  it("accepts a derived point whose inputs equal its nominal", () => {
+    expect(hasDerivedNominalMismatch(derivedPoint)).toBe(false);
+  });
+
+  it("warns when a pasted derived point's inputs do not equal its nominal", () => {
+    expect(
+      hasDerivedNominalMismatch({
+        ...derivedPoint,
+        testPointInfo: { parameter: { value: "6", unit: "V" } },
+      }),
+    ).toBe(true);
+  });
+
+  it("ignores direct points and incomplete derived inputs", () => {
+    expect(
+      hasDerivedNominalMismatch({ ...derivedPoint, measurementType: "direct" }),
+    ).toBe(false);
+    expect(
+      hasDerivedNominalMismatch({
+        ...derivedPoint,
+        variableNominals: { A: { value: "3", unit: "V" } },
+      }),
+    ).toBe(false);
   });
 });

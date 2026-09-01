@@ -696,6 +696,7 @@ describe("measurement-point value editing", () => {
     expect(onSelect).toHaveBeenCalledOnce();
     const input = document.querySelector(".sidebar-inline-input.value");
     expect(input).toHaveValue("25");
+    expect(input).toHaveAttribute("size", "2");
     expect(input).toHaveFocus();
   });
 
