@@ -28,14 +28,17 @@ describe("buildSessionReportModel", () => {
     ]);
   });
 
-  it("lays every selected field into one continuous value-anchored table", () => {
+  it("lays only selected fields into one continuous table", () => {
     const layout = resolvePdfTableLayout({ value: false, pfa: true, gbPfr: true });
-    expect(layout.columns.map((item) => item.key)).toEqual(["value", "pfa", "gbPfr"]);
+    expect(layout.columns.map((item) => item.key)).toEqual(["pfa", "gbPfr"]);
     expect(layout.columns.map((item) => item.groupLabel)).toEqual([
-      "Measurement",
       "Risk",
       "Mitigation (GB + Interval)",
     ]);
+  });
+
+  it("does not silently restore a column when every filter is disabled", () => {
+    expect(resolvePdfTableLayout({}).columns).toEqual([]);
   });
 
   it("groups by function -> UUT -> range with all risk fields", () => {

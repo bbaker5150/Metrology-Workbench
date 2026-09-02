@@ -1,3 +1,5 @@
+import { calculateDerivedUncertainty } from "./uncertaintyMath";
+
 // Cached uncertainty-calculation outputs. These are derived from the point's
 // inputs (equation, nominals, tolerances) AND its target UUT range, so they go
 // stale the moment a point is copied or moved to a different UUT/range. Only the
@@ -32,6 +34,30 @@ const POINT_RESOLUTION_FIELDS = [
 ];
 
 const hasValue = (value) => value !== undefined && value !== null && value !== "";
+
+export const hasDerivedNominalMismatch = (point) => {
+  if (point?.measurementType !== "derived") return false;
+
+  const nominal = point.testPointInfo?.parameter || {};
+  const targetNominal = Number.parseFloat(nominal.value);
+  if (!Number.isFinite(targetNominal)) return false;
+
+  const result = calculateDerivedUncertainty(
+    point.equationString,
+    point.variableMappings || {},
+    point.tmdeTolerances || [],
+    {
+      ...nominal,
+      variableNominals: point.variableNominals || {},
+    },
+    [],
+  );
+  const calculatedNominal = Number(result?.nominalResult);
+  if (!Number.isFinite(calculatedNominal)) return false;
+
+  const tolerance = Math.max(Math.abs(targetNominal * 0.0001), 1e-9);
+  return Math.abs(calculatedNominal - targetNominal) > tolerance;
+};
 
 const resolvePastedTolerance = (sourceTolerance, targetTolerance) => {
   if (!sourceTolerance) return targetTolerance;

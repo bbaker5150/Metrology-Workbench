@@ -9,8 +9,12 @@ import {
 import { describe, expect, test, vi } from "vitest";
 import {
   copyPointBudget,
+  DEFAULT_SIDEBAR_COLUMN_ORDER,
   getConsecutiveSidebarCellGroup,
+  getConsecutiveSidebarCellGroupDuringEdit,
+  getSidebarColumnMinWidth,
   getUutReassignmentPointIds,
+  normalizeSidebarColumnOrder,
   pastePointBudget,
   SidebarPointItem,
 } from "./App";
@@ -18,6 +22,55 @@ import {
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test("normalizes saved column order without losing newly added columns", () => {
+    const normalized = normalizeSidebarColumnOrder([
+      "value",
+      "uut",
+      "value",
+      "unknown",
+    ]);
+
+    expect(normalized.slice(0, 2)).toEqual(["value", "uut"]);
+    expect(new Set(normalized).size).toBe(DEFAULT_SIDEBAR_COLUMN_ORDER.length);
+    expect(normalized).toEqual(
+      expect.arrayContaining(DEFAULT_SIDEBAR_COLUMN_ORDER),
+    );
+  });
+
+  test("keeps UUT limit columns wide enough for full-precision values", () => {
+    expect(getSidebarColumnMinWidth("lowLimit")).toBe(82);
+    expect(getSidebarColumnMinWidth("highLimit")).toBe(82);
+    expect(getSidebarColumnMinWidth("section")).toBe(44);
+  });
+
+  test("places point cells into the saved visual column order", () => {
+    const { container } = render(
+      <SidebarPointItem
+        point={{
+          id: "p1",
+          section: "4.1",
+          testPointInfo: { parameter: { value: 1, unit: "V" } },
+        }}
+        uutName="Bench DMM"
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true, section: true, value: true }}
+        columnOrder={["value", "uut", "section"]}
+      />,
+    );
+
+    const row = container.querySelector(".point-grid-item");
+    expect(row.style.gridTemplateAreas).toBe('"value uut section"');
+    expect(
+      [...row.querySelectorAll("[data-sidebar-column]")]
+        .sort((a, b) =>
+          ["value", "uut", "section"].indexOf(a.style.gridArea) -
+          ["value", "uut", "section"].indexOf(b.style.gridArea),
+        )
+        .map((cell) => cell.dataset.sidebarColumn),
+    ).toEqual(["value", "uut", "section"]);
+  });
+
   test("groups consecutive repeated categorical cells", () => {
     const points = [
       { id: "p1", section: "4.2.11" },
@@ -76,6 +129,42 @@ describe("measurement-point value editing", () => {
     expect(
       container.querySelector(".point-grouped-cell-content"),
     ).not.toHaveClass("is-highlighted");
+    expect(container.querySelector(".point-selection-contour")).toBeNull();
+  });
+
+  test("temporarily splits a shared cell around its edited member", () => {
+    const points = ["p1", "p2", "p3", "p4"].map((id) => ({
+      id,
+      qualifier: "Hz",
+    }));
+    const pendingEdit = { pointId: "p2", field: "qualifier" };
+    const groupAt = (index) =>
+      getConsecutiveSidebarCellGroupDuringEdit(
+        points,
+        index,
+        (point) => point.qualifier,
+        "qualifier",
+        pendingEdit,
+      );
+
+    expect(groupAt(0)).toEqual({
+      isStart: true,
+      isEnd: true,
+      span: 1,
+      pointIds: ["p1"],
+    });
+    expect(groupAt(1)).toEqual({
+      isStart: true,
+      isEnd: true,
+      span: 1,
+      pointIds: ["p2"],
+    });
+    expect(groupAt(2)).toEqual({
+      isStart: true,
+      isEnd: false,
+      span: 2,
+      pointIds: ["p3", "p4"],
+    });
   });
 
   test("leaves an unshared merged run unhighlighted", () => {
@@ -191,6 +280,306 @@ describe("measurement-point value editing", () => {
       "--point-cell-group-top": "-5px",
       "--point-cell-group-height": "115px",
     });
+  });
+
+  test("routes a shared Section click to the selected member of the run", () => {
+    const onRequestSharedMemberEdit = vi.fn();
+    render(
+      <SidebarPointItem
+        point={{
+          id: "p1",
+          section: "3.1.2",
+          testPointInfo: { parameter: { value: 1, unit: "V" } },
+        }}
+        cellGroups={{
+          section: {
+            isStart: true,
+            isEnd: false,
+            span: 2,
+            pointIds: ["p1", "p2"],
+          },
+        }}
+        preferredSharedEditPointId="p2"
+        onRequestSharedMemberEdit={onRequestSharedMemberEdit}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ section: true, value: true }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("3.1.2"));
+    expect(onRequestSharedMemberEdit).toHaveBeenCalledWith("p2", "section");
+  });
+
+  test("edits only a selected continuation member of a shared Section", () => {
+    const onSave = vi.fn();
+    const onAutoEditFieldConsumed = vi.fn();
+    const { container } = render(
+      <SidebarPointItem
+        point={{
+          id: "p2",
+          section: "3.1.2",
+          testPointInfo: { parameter: { value: 2, unit: "V" } },
+        }}
+        cellGroups={{
+          section: {
+            isStart: false,
+            isEnd: true,
+            span: 2,
+            pointIds: ["p1", "p2"],
+          },
+        }}
+        autoEditField="section"
+        onAutoEditFieldConsumed={onAutoEditFieldConsumed}
+        onSelect={vi.fn()}
+        onSave={onSave}
+        visibleColumns={{ section: true, value: true }}
+      />,
+    );
+
+    const editor = screen.getByDisplayValue("3.1.2");
+    expect(editor).toHaveFocus();
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe("3.1.2".length);
+    editor.setSelectionRange(2, 2);
+    fireEvent.doubleClick(editor);
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe("3.1.2".length);
+    expect(
+      container.querySelector(".point-grouped-cell--editing-member"),
+    ).toBeInTheDocument();
+    expect(onAutoEditFieldConsumed).not.toHaveBeenCalled();
+
+    fireEvent.change(editor, { target: { value: "3.1.3" } });
+    fireEvent.blur(editor);
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "p2", section: "3.1.3" }),
+    );
+    expect(onAutoEditFieldConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  test("edits only a selected continuation member of a shared Qualifier", () => {
+    const onSave = vi.fn();
+    const { container } = render(
+      <SidebarPointItem
+        point={{
+          id: "p2",
+          testPointInfo: {
+            parameter: { value: 2, unit: "V" },
+            qualifier: { name: "Frequency", unit: "Hz", value: "60" },
+          },
+        }}
+        cellGroups={{
+          qualifier: {
+            isStart: false,
+            isEnd: true,
+            span: 2,
+            pointIds: ["p1", "p2"],
+          },
+        }}
+        autoEditField="qualifier"
+        onAutoEditFieldConsumed={vi.fn()}
+        onSelect={vi.fn()}
+        onSave={onSave}
+        visibleColumns={{ qualifier: true, value: true }}
+      />,
+    );
+
+    expect(container.querySelector(".point-qualifier")).toBeInTheDocument();
+    const editor = screen.getByDisplayValue("60");
+    expect(editor).toHaveFocus();
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe("60".length);
+    editor.setSelectionRange(1, 1);
+    fireEvent.doubleClick(editor);
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe("60".length);
+    expect(editor).toHaveClass("qualifier-editor");
+    expect(editor.closest(".point-qualifier")).toHaveClass(
+      "point-qualifier--editing",
+      "point-grouped-cell--editing-member",
+    );
+    fireEvent.change(editor, { target: { value: "400" } });
+    fireEvent.blur(editor);
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "p2",
+        testPointInfo: expect.objectContaining({
+          qualifier: expect.objectContaining({ value: "400" }),
+        }),
+      }),
+    );
+  });
+
+  test("completes the shared Section click handoff and splits only the selected point", async () => {
+    const onSave = vi.fn();
+    const initialPoints = [
+      {
+        id: "p1",
+        section: "1",
+        testPointInfo: { parameter: { value: 1, unit: "V" } },
+      },
+      {
+        id: "p2",
+        section: "1",
+        testPointInfo: { parameter: { value: 2, unit: "V" } },
+      },
+      {
+        id: "p3",
+        section: "1",
+        testPointInfo: { parameter: { value: 3, unit: "V" } },
+      },
+    ];
+
+    const SharedSectionHarness = () => {
+      const [points, setPoints] = React.useState(initialPoints);
+      const [pendingEdit, setPendingEdit] = React.useState(null);
+      return (
+        <div className="sidebar-points-scroll-wrapper">
+          {points.map((point, index) => (
+            <div data-testid={`row-${point.id}`} key={point.id}>
+              <SidebarPointItem
+                point={point}
+                cellGroups={{
+                  section: getConsecutiveSidebarCellGroup(
+                    points,
+                    index,
+                    (candidate) => candidate.section,
+                  ),
+                }}
+                preferredSharedEditPointId="p2"
+                onRequestSharedMemberEdit={(pointId, field) =>
+                  setPendingEdit({ pointId, field })
+                }
+                autoEditField={
+                  pendingEdit?.pointId === point.id ? pendingEdit.field : null
+                }
+                onAutoEditFieldConsumed={() => setPendingEdit(null)}
+                onSelect={vi.fn()}
+                onSave={(updatedPoint) => {
+                  onSave(updatedPoint);
+                  setPoints((current) =>
+                    current.map((candidate) =>
+                      candidate.id === updatedPoint.id
+                        ? updatedPoint
+                        : candidate,
+                    ),
+                  );
+                }}
+                visibleColumns={{ section: true, value: true }}
+              />
+            </div>
+          ))}
+        </div>
+      );
+    };
+
+    const { container } = render(<SharedSectionHarness />);
+    fireEvent.click(
+      container.querySelector(
+        '[data-testid="row-p1"] .point-section .point-grouped-cell-label',
+      ),
+    );
+
+    const selectedEditor = within(screen.getByTestId("row-p2")).getByDisplayValue(
+      "1",
+    );
+    fireEvent.change(selectedEditor, { target: { value: "2" } });
+    fireEvent.blur(selectedEditor);
+
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "p2", section: "2" }),
+      ),
+    );
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  test("completes the shared Qualifier click handoff and splits only the selected point", async () => {
+    const onSave = vi.fn();
+    const initialPoints = ["p1", "p2", "p3"].map((id, index) => ({
+      id,
+      testPointInfo: {
+        parameter: { value: index + 1, unit: "V" },
+        qualifier: { name: "Frequency", unit: "Hz", value: "60" },
+      },
+    }));
+
+    const SharedQualifierHarness = () => {
+      const [points, setPoints] = React.useState(initialPoints);
+      const [pendingEdit, setPendingEdit] = React.useState(null);
+      return (
+        <div className="sidebar-points-scroll-wrapper">
+          {points.map((point, index) => (
+            <div data-testid={`qualifier-row-${point.id}`} key={point.id}>
+              <SidebarPointItem
+                point={point}
+                cellGroups={{
+                  qualifier: getConsecutiveSidebarCellGroupDuringEdit(
+                    points,
+                    index,
+                    (candidate) => candidate.testPointInfo.qualifier.value,
+                    "qualifier",
+                    pendingEdit,
+                  ),
+                }}
+                preferredSharedEditPointId="p2"
+                onRequestSharedMemberEdit={(pointId, field) =>
+                  setPendingEdit({ pointId, field })
+                }
+                autoEditField={
+                  pendingEdit?.pointId === point.id ? pendingEdit.field : null
+                }
+                onAutoEditFieldConsumed={() => setPendingEdit(null)}
+                onSelect={vi.fn()}
+                onSave={(updatedPoint) => {
+                  onSave(updatedPoint);
+                  setPoints((current) =>
+                    current.map((candidate) =>
+                      candidate.id === updatedPoint.id
+                        ? updatedPoint
+                        : candidate,
+                    ),
+                  );
+                }}
+                visibleColumns={{ qualifier: true, value: true }}
+              />
+            </div>
+          ))}
+        </div>
+      );
+    };
+
+    const { container } = render(<SharedQualifierHarness />);
+    fireEvent.click(
+      container.querySelector(
+        '[data-testid="qualifier-row-p1"] .point-qualifier .point-grouped-cell-label',
+      ),
+    );
+
+    const selectedEditor = within(
+      screen.getByTestId("qualifier-row-p2"),
+    ).getByDisplayValue("60");
+    expect(
+      screen
+        .getByTestId("qualifier-row-p1")
+        .querySelector(".point-grouped-cell-content--qualifier"),
+    ).toBeNull();
+    expect(selectedEditor.closest(".point-grouped-cell")).toBeNull();
+    fireEvent.change(selectedEditor, { target: { value: "400" } });
+    fireEvent.blur(selectedEditor);
+
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "p2",
+          testPointInfo: expect.objectContaining({
+            qualifier: expect.objectContaining({ value: "400" }),
+          }),
+        }),
+      ),
+    );
+    expect(onSave).toHaveBeenCalledTimes(1);
   });
 
   test("copies and replaces only uncertainty-budget fields", () => {
@@ -321,6 +710,7 @@ describe("measurement-point value editing", () => {
     expect(onSelect).toHaveBeenCalledOnce();
     const input = document.querySelector(".sidebar-inline-input.value");
     expect(input).toHaveValue("25");
+    expect(input).toHaveAttribute("size", "2");
     expect(input).toHaveFocus();
   });
 

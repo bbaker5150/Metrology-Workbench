@@ -361,6 +361,27 @@ class ShuntReportViewSet(_ReportViewSetMixin, viewsets.ModelViewSet):
     parent_lookup_kwarg = 'shunt_pk'
     parent_field = 'shunt'
 
+    def perform_update(self, serializer):
+        super().perform_update(serializer)
+        report = serializer.instance
+
+        # A report can be edited while its points are being measured. Refresh
+        # every automatically sourced result immediately so the calculation
+        # view and subsequent cycle math use the newly saved value. Explicit
+        # per-point overrides from the calculator remain authoritative.
+        linked_points = report.test_points.select_related('results').all()
+        for point in linked_points:
+            results = getattr(point, 'results', None)
+            if results is None or results.corrections_manually_overridden:
+                continue
+            results.delta_std_known = None
+            results.save(update_fields=['delta_std_known'])
+            results.fetch_automatic_corrections()
+            results.calculate_ac_dc_difference()
+            results.recompute_cycle_deltas()
+            results.recompute_cycle_aggregates()
+            results.recompute_pair_aggregate()
+
 
 class TVCReportViewSet(_ReportViewSetMixin, viewsets.ModelViewSet):
     queryset = TVCReport.objects.all()
@@ -923,6 +944,7 @@ class TestPointViewSet(viewsets.ModelViewSet):
                 'settings',
                 'readings',
                 'results',
+                'correction_report',
                 'test_point_set__session__calibration__configurations',
             )
             .prefetch_related('results__cycles')
@@ -1247,6 +1269,10 @@ class TestPointViewSet(viewsets.ModelViewSet):
         points_data = request.data.get('points', [])
         try:
             tp_set, created_tp_set = TestPointSet.objects.get_or_create(session_id=session_pk)
+            correction_report = None
+            correction_report_id = request.data.get('correction_report_id')
+            if correction_report_id is not None:
+                correction_report = get_object_or_404(ShuntReport, pk=correction_report_id)
             existing = tp_set.points.values_list('current', 'frequency', 'direction')
             existing_set = { (str(c), f, d) for c, f, d in existing }
 
@@ -1275,6 +1301,7 @@ class TestPointViewSet(viewsets.ModelViewSet):
                         TestPoint(
                             test_point_set=tp_set,
                             order=pair_orders[pair_key],
+                            correction_report=correction_report,
                             **point,
                         )
                     )
@@ -1519,6 +1546,9 @@ class TestPointViewSet(viewsets.ModelViewSet):
                 'eta_std', 'eta_ti', 'delta_std', 'delta_ti', 'delta_std_known',
             )
             mirrored_keys = [k for k in CORRECTION_FIELDS if k in request.data]
+            if mirrored_keys:
+                saved_results.corrections_manually_overridden = True
+                saved_results.save(update_fields=['corrections_manually_overridden'])
             opposite = 'Reverse' if test_point.direction == 'Forward' else 'Forward'
             sibling_results = None
             if mirrored_keys:
@@ -1532,7 +1562,8 @@ class TestPointViewSet(viewsets.ModelViewSet):
                     sibling_results, _ = CalibrationResults.objects.get_or_create(test_point=sibling_tp)
                     for f in mirrored_keys:
                         setattr(sibling_results, f, getattr(saved_results, f))
-                    sibling_results.save(update_fields=mirrored_keys)
+                    sibling_results.corrections_manually_overridden = True
+                    sibling_results.save(update_fields=[*mirrored_keys, 'corrections_manually_overridden'])
                 except TestPoint.DoesNotExist:
                     sibling_results = None
 
@@ -1554,6 +1585,27 @@ class TestPointViewSet(viewsets.ModelViewSet):
 
         except TestPoint.DoesNotExist:
             return Response({"detail": "Test point not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['get'], url_path='resolved-corrections')
+    def resolved_corrections(self, request, session_pk=None, pk=None):
+        """Return the correction factors the calculator will actually use.
+
+        This is intentionally available before readings exist so operators can
+        audit or edit the values before (and during) a measurement run.
+        """
+        test_point = self.get_object()
+        results, _ = CalibrationResults.objects.get_or_create(test_point=test_point)
+        results.fetch_automatic_corrections()
+        results.refresh_from_db()
+        return Response({
+            'eta_std': results.eta_std,
+            'eta_ti': results.eta_ti,
+            'delta_std': results.delta_std,
+            'delta_ti': results.delta_ti,
+            'delta_std_known': results.delta_std_known,
+            'corrections_manually_overridden': results.corrections_manually_overridden,
+            'correction_report_id': test_point.correction_report_id,
+        })
                         
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()

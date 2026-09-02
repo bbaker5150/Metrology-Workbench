@@ -634,9 +634,17 @@ class TestPointSerializer(serializers.ModelSerializer):
     settings = CalibrationSettingsSerializer(required=False)
     readings = CalibrationReadingsSerializer(required=False)
     results = CalibrationResultsSerializer(required=False)
+    correction_report = serializers.PrimaryKeyRelatedField(
+        queryset=ShuntReport.objects.all(),
+        required=False,
+        allow_null=True,
+    )
     class Meta:
         model = TestPoint
-        fields = ['id', 'current', 'frequency', 'direction', 'is_stability_failed', 'settings', 'readings', 'results']
+        fields = [
+            'id', 'current', 'frequency', 'direction', 'is_stability_failed',
+            'correction_report', 'settings', 'readings', 'results',
+        ]
     
     def update(self, instance, validated_data):
         settings_data = validated_data.pop('settings', None)

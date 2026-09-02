@@ -175,6 +175,17 @@ class TestPoint(models.Model):
     direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES, default='Forward')
     order = models.IntegerField(default=0, help_text="Custom sort order for the test point pair")
     is_stability_failed = models.BooleanField(default=False)
+    correction_report = models.ForeignKey(
+        'ShuntReport',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='test_points',
+        help_text=(
+            "The exact AC-shunt Report of Calibration used when this point "
+            "was generated. Legacy points may leave this blank."
+        ),
+    )
 
     def __str__(self):
         return f"ID: {self.id} | {self.direction} | Current: {self.current}, Frequency: {self.frequency}"
@@ -666,33 +677,48 @@ class CalibrationResults(models.Model):
         target_current = float(self.test_point.current)
 
         # 1. Shunt Correction
-        if self.delta_std_known is None and session.standard_instrument_serial:
-            cal_config = getattr(session.calibration, 'configurations', None)
-            if cal_config and cal_config.ac_shunt_range:
-                from .models import Shunt
-                # Prefer a manual override when both manual and imported rows
-                # exist for the same (serial, range, current).
-                shunt = (
-                    Shunt.objects
-                    .filter(
+        if not self.corrections_manually_overridden or self.delta_std_known is None:
+            # Points generated from the Corrections modal retain their exact
+            # source report. This avoids re-discovering the correction through
+            # mutable session identity fields (the old path that could silently
+            # fall through to 0 ppm for imported reports).
+            source_report = getattr(self.test_point, 'correction_report', None)
+            if source_report is not None:
+                corr = source_report.corrections.filter(
+                    current__gte=target_current - 1e-9,
+                    current__lte=target_current + 1e-9,
+                    frequency=int(target_freq),
+                ).first()
+                if corr is not None:
+                    self.delta_std_known = corr.correction
+
+            # Legacy/manual points do not have a source report. Preserve the
+            # session-based lookup, but search each matching device until an
+            # actual point is found. A partial manual entry must not mask a
+            # complete imported report with the same serial and range.
+            if self.delta_std_known is None and session.standard_instrument_serial:
+                cal_config = getattr(session.calibration, 'configurations', None)
+                if cal_config and cal_config.ac_shunt_range:
+                    matching_shunts = Shunt.objects.filter(
                         serial_number=session.standard_instrument_serial,
-                        range=cal_config.ac_shunt_range,
-                    )
-                    .order_by('-is_manual')
-                    .first()
-                )
-                if shunt:
-                    # Corrections live under the device's active Report of
-                    # Calibration; older reports are retained for history but
-                    # never feed live math.
-                    active_report = shunt.reports.filter(is_active=True).first()
-                    if active_report:
+                        range__gte=float(cal_config.ac_shunt_range) - 1e-9,
+                        range__lte=float(cal_config.ac_shunt_range) + 1e-9,
+                    ).order_by('-is_manual', 'id')
+                    for shunt in matching_shunts:
+                        active_report = (
+                            shunt.reports.filter(is_active=True).first()
+                            or resolve_active_report(shunt.reports.all())
+                        )
+                        if active_report is None:
+                            continue
                         corr = active_report.corrections.filter(
-                            current=target_current,
-                            frequency=target_freq,
+                            current__gte=target_current - 1e-9,
+                            current__lte=target_current + 1e-9,
+                            frequency=int(target_freq),
                         ).first()
-                        if corr:
+                        if corr is not None:
                             self.delta_std_known = corr.correction
+                            break
 
         # 2. TVC Interpolation Logic
         def get_tvc_corr(serial):
@@ -1090,6 +1116,13 @@ class CalibrationResults(models.Model):
     delta_std = models.FloatField(null=True, blank=True, help_text="Known AC-DC difference of the Standard TVC in PPM")
     delta_ti = models.FloatField(null=True, blank=True, help_text="Known AC-DC difference of the TI TVC in PPM")
     delta_std_known = models.FloatField(null=True, blank=True, help_text="Known AC-DC difference of the Standard Shunt in PPM")
+    corrections_manually_overridden = models.BooleanField(
+        default=False,
+        help_text=(
+            "True when the operator saved correction factors from the "
+            "calculation view; automatic report lookups must then preserve them."
+        ),
+    )
 
     delta_uut_ppm = models.FloatField(null=True, blank=True, help_text="Legacy single-pass UUT AC-DC difference in PPM (pre-N-cycle workflow)")
     delta_uut_ppm_avg = models.FloatField(null=True, blank=True, help_text="Per-direction mean δ across this TestPoint's cycles (ppm). Diagnostic only — the headline AC-DC δ is pair_delta_uut_ppm.")

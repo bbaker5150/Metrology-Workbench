@@ -73,6 +73,7 @@ body.uncertainty-active {
   /* Surfaces */
   --header-background: #ffffff;
   --content-background: #ffffff;
+  --content-background-solid: #ffffff;
   --input-background: #ffffff;
   --sidebar-background: transparent;
   --sidebar-sticky-surface: #ffffff;
@@ -176,6 +177,7 @@ body.dark-mode.uncertainty-active {
 
   --header-background: #111a2e;
   --content-background: #111a2e;
+  --content-background-solid: #111a2e;
   --input-background: #1a2640;
   --sidebar-background: transparent;
   --sidebar-sticky-surface: var(--background-color);
@@ -192,14 +194,14 @@ body.dark-mode.uncertainty-active {
 
   --status-good: #28a745;
   --status-warning: #ffc107;
-  --status-bad: #dc3545;
+  --status-bad: #ff5c73;
   --status-good-bg: #142e22;
   --status-warning-bg: #33270b;
   --status-bad-bg: #2f1b20;
 
   --risk-pfa-good-color: #28a745;
   --risk-pfa-warning-color: #ffc107;
-  --risk-pfa-bad-color: #dc3545;
+  --risk-pfa-bad-color: #ff5c73;
 
   /* Seals (Default Dark) */
   --seal-background-color: #007bff;
@@ -4790,6 +4792,18 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   overflow-x: auto;
   align-self: start;
   border-radius: 0 0 8px 8px;
+}
+
+.budget-results-zoom-surface {
+  width: 100%;
+  min-width: 0;
+  align-self: start;
+}
+
+.budget-results-zoom-surface > .scoped-zoom-content {
+  width: 100%;
+  min-width: 0;
+  transform-origin: top left;
 }
 
 .budget-stack-section .uncertainty-budget-table {
@@ -11022,7 +11036,9 @@ body.theme-cyberpunk .notification-window .window-header {
   margin: -12px -12px 8px;
   padding: 12px;
   border-bottom: 1px solid var(--border-color);
-  background: var(--background-color-secondary);
+  /* This toolbar sits over scrolling equations. Keep it fully opaque even in
+     glass-capable themes so list text never bleeds through the search field. */
+  background: var(--content-background-solid, var(--content-background));
 }
 
 .equation-library-search {
@@ -16279,14 +16295,28 @@ body.theme-cyberpunk .industry-table tr.selected-row {
   gap: 0;
 }
 
-.measurement-point-list > .scoped-zoom-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px 40px;
+.sidebar-session-info-zoom-surface,
+.measurement-points-zoom-surface {
+  flex: 0 0 auto;
+  min-width: 100%;
+}
+
+.sidebar-session-info-zoom-surface > .scoped-zoom-content,
+.measurement-points-zoom-surface > .scoped-zoom-content {
   min-width: 100%;
   box-sizing: border-box;
   transform-origin: top left;
+}
+
+.sidebar-session-info-zoom-surface > .scoped-zoom-content {
+  padding: 8px 10px 0;
+}
+
+.measurement-points-zoom-surface > .scoped-zoom-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 10px 40px;
 }
 
 .panel-table-container > table,
@@ -18672,11 +18702,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 .uncertainty-module
   .measurement-group-container
   .point-grid-item.table-highlight:not(.active) {
-  background: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 16%,
-    var(--sidebar-sticky-surface)
-  ) !important;
+  background: var(--sidebar-point-surface-hover) !important;
 }
 
 .uncertainty-module .measurement-group-container .point-grid-item.active,
@@ -18686,8 +18712,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .point-grid-item.active-point:hover {
   background: var(--sidebar-point-surface-selected) !important;
   color: var(--sidebar-function-color, var(--primary-color)) !important;
-  box-shadow: inset 3px 0 0
-    var(--sidebar-function-color, var(--primary-color)) !important;
+  box-shadow: none !important;
 }
 
 .uncertainty-module
@@ -19006,7 +19031,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .point-grid-item
   .point-grouped-cell--leading::after {
   left: calc(
-    -1 * (var(--sidebar-point-row-pad) + var(--sidebar-point-row-border))
+    -1 * (var(--sidebar-point-row-pad) + var(--sidebar-point-row-border) + 1px)
   );
 }
 
@@ -19142,8 +19167,7 @@ body.dark-mode
   background: var(--sidebar-point-surface-selected) !important;
   border-color: transparent !important;
   color: var(--sidebar-function-color, var(--primary-color)) !important;
-  box-shadow: inset 3px 0 0
-    var(--sidebar-function-color, var(--primary-color)) !important;
+  box-shadow: none !important;
   text-shadow: none !important;
 }
 
@@ -19171,4 +19195,641 @@ body.dark-mode
   :is(.point-uut-name, .point-uut-summary, .point-uut-selector-cell .inline-menu-select-trigger) {
   color: var(--text-color) !important;
   text-shadow: none !important;
+}
+
+/* --- 31 Aug round 2: shared point cells and table-scale consistency ---- */
+
+/* Qualifiers use the same centered treatment as Sections, including their
+   merged label and their temporary per-point editor. */
+.uncertainty-module .point-grid-item .point-qualifier,
+.uncertainty-module
+  .point-grid-item
+  .point-qualifier
+  .point-grouped-cell-label {
+  text-align: center;
+}
+
+.uncertainty-module
+  .point-grid-item
+  .point-qualifier
+  .point-grouped-cell-content,
+.uncertainty-module .point-grid-item .point-qualifier .point-edit-affordance {
+  justify-content: center;
+}
+
+/* A continuation row normally contributes only its slice of a merged cell.
+   When that exact point is being edited, reveal its own control without
+   stretching it across the rest of the shared run. */
+.uncertainty-module
+  .point-grid-item
+  .point-grouped-cell--continuation.point-grouped-cell--editing-member {
+  pointer-events: auto;
+}
+
+.uncertainty-module
+  .point-grid-item
+  .point-grouped-cell--continuation.point-grouped-cell--editing-member
+  > * {
+  visibility: visible;
+}
+
+/* Vertical rules sit in the center of the existing column gap and use the
+   same one-pixel divider token as horizontal row rules. Their layer is above
+   grouped-cell fills but below content and resize handles. */
+.uncertainty-module .sidebar-column-header-cell:not(:last-child)::before,
+.uncertainty-module .point-grid-item > :not(:last-child)::before {
+  content: "";
+  position: absolute;
+  right: calc(-1 * var(--sidebar-point-column-gap) / 2);
+  width: 1px;
+  background: var(--table-divider-color);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.uncertainty-module .sidebar-column-header-cell:not(:last-child)::before {
+  top: 0;
+  bottom: 0;
+}
+
+.uncertainty-module .point-grid-item > :not(:last-child) {
+  position: relative;
+}
+
+.uncertainty-module .point-grid-item > :not(:last-child)::before {
+  top: calc(-1 * var(--sidebar-point-row-inset));
+  bottom: calc(-1 * var(--sidebar-point-row-inset));
+}
+
+/* Selected rows and every shared cell they intersect get one function-colored
+   perimeter. The row glow makes the selected point unmistakable; grouped
+   cells add only their outer edges so adjacent rows never create extra bars. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point) {
+  box-shadow:
+    inset 0 0 0 1px var(--sidebar-function-color, var(--primary-color)),
+    0 0 6px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 48%,
+        transparent
+      ) !important;
+}
+
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point),
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item.active-point:hover {
+  box-shadow:
+    inset 0 0 0 1px var(--sidebar-function-color, var(--primary-color)),
+    0 0 7px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 58%,
+        transparent
+      ) !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted::after {
+  border-left: 1px solid var(--sidebar-function-color, var(--primary-color));
+  border-right: 1px solid var(--sidebar-function-color, var(--primary-color));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted.point-grouped-cell--start::after {
+  border-top: 1px solid var(--sidebar-function-color, var(--primary-color));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted:not(.point-grouped-cell--has-next)::after {
+  border-bottom: 1px solid var(--sidebar-function-color, var(--primary-color));
+}
+
+/* Collapsed measurement-input controls should highlight only the content the
+   user can edit, not the full remaining width of a fixed table cell. */
+.uncertainty-module .measurement-input-symbol,
+.uncertainty-module .measurement-input-summary {
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* Measurement inputs, budget tables and propagation/approximation tables now
+   share the same default typography and cell rhythm as UUT/TMDE tables. All
+   of these wrappers are already scoped-zoom surfaces, so Ctrl+wheel adjusts
+   the table under the pointer without changing the rest of the workspace. */
+.uncertainty-module .measurement-inputs-table,
+.uncertainty-module .uncertainty-budget-table {
+  font-size: 0.9rem;
+}
+
+.uncertainty-module .measurement-inputs-table th {
+  height: auto;
+  padding: 10px 12px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.uncertainty-module .measurement-inputs-table td {
+  height: auto;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.uncertainty-module .measurement-input-symbol,
+.uncertainty-module .measurement-input-summary {
+  min-height: 32px;
+  font-size: 0.9rem;
+}
+
+/* Follow-up: the horizontal point-row seam is the sticky surface showing
+   through the one-pixel row gap. Use that exact surface for vertical rules so
+   the grid reads as one consistent set of dividers in every theme. */
+.uncertainty-module .measurement-group-container {
+  --sidebar-point-divider-color: var(--sidebar-sticky-surface);
+}
+
+.uncertainty-module .sidebar-column-header-cell:not(:last-child)::before,
+.uncertainty-module .point-grid-item > :not(:last-child)::before {
+  background: var(--sidebar-point-divider-color, var(--sidebar-sticky-surface));
+}
+
+/* The first implementation outlined each per-row slice of a merged cell.
+   That looked like darker column dividers and could not create one continuous
+   glow. Remove those slice borders and outline the single spanning label box
+   instead. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted::after {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted.point-grouped-cell--start
+  > .point-grouped-cell-content {
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--sidebar-function-color, var(--primary-color)) 76%,
+      transparent
+    );
+  border-radius: 3px;
+  box-shadow:
+    inset 0 0 4px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 18%,
+        transparent
+      ),
+    0 0 7px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 55%,
+        transparent
+      );
+}
+
+/* Draw selection above grouped fills. The row itself cannot own the glow via
+   box-shadow because those fills intentionally sit over its background. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point),
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point),
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item.active-point:hover {
+  box-shadow: none !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)::after {
+  inset: 0;
+  width: auto;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--sidebar-function-color, var(--primary-color)) 82%,
+      transparent
+    );
+  border-radius: inherit;
+  background: transparent;
+  box-shadow:
+    inset 0 0 4px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 20%,
+        transparent
+      ),
+    0 0 8px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 62%,
+        transparent
+      );
+  z-index: 7;
+}
+
+/* Selection uses the shared-cell and row fill only. Disable all legacy
+   per-row/per-cell perimeter styles so shared runs remain visually clean. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell--highlighted.point-grouped-cell--start
+  > .point-grouped-cell-content {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point) {
+  border-color: transparent !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)::after {
+  content: none !important;
+}
+
+/* A continuation editor must sit above the single spanning label owned by the
+   run's first row. Without this layer, Section/Qualifier appeared to ignore an
+   edit request made from a selected continuation point. */
+.uncertainty-module
+  .point-grid-item
+  .point-grouped-cell--editing-member {
+  z-index: 5;
+  background: inherit;
+}
+
+/* Column reordering changes visual order without changing the feature-grouped
+   JSX order. Suppress the old DOM-last divider rule and use the visual-last
+   marker assigned before paint instead. */
+.uncertainty-module .point-grid-item > :not(:last-child)::before {
+  content: none;
+}
+
+.uncertainty-module
+  .point-grid-item
+  > [data-sidebar-column]:not([data-sidebar-column-last="true"])::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--sidebar-point-row-inset));
+  right: calc(-1 * var(--sidebar-point-column-gap) / 2);
+  bottom: calc(-1 * var(--sidebar-point-row-inset));
+  width: 1px;
+  background: var(--sidebar-point-divider-color, var(--sidebar-sticky-surface));
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* A divider occupies the center of the column gap. When either the point row
+   or a shared cell is selected, paint that strip with the same selected
+   surface instead of leaving a light seam through the highlight. */
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point)
+  > [data-sidebar-column]:not([data-sidebar-column-last="true"])::before,
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  > .point-grouped-cell--highlighted[data-sidebar-column]:not(
+    [data-sidebar-column-last="true"]
+  )::before {
+  background: var(--sidebar-point-surface-selected);
+}
+
+/* Qualifier tracks may be resized down to the general column minimum. Let the
+   temporary editor open wider than that track without changing the saved
+   table layout, and keep the grouped cell from clipping the control. */
+.uncertainty-module
+  .point-grid-item
+  .point-qualifier.point-qualifier--editing {
+  overflow: visible !important;
+  z-index: 5;
+}
+
+.uncertainty-module
+  .point-grid-item
+  .point-qualifier
+  .sidebar-inline-input.qualifier-editor {
+  position: relative;
+  z-index: 6;
+  width: 100%;
+  max-width: 100%;
+  padding-inline: 2px;
+  text-align: center;
+}
+
+/* Value is only frozen when it is the first visible column. Reordering it into
+   the middle of the table must not make it overlap columns to its left. */
+.uncertainty-module
+  .point-grid-item:not([data-value-leading="true"])
+  > .sidebar-value-sticky {
+  position: relative;
+  left: auto;
+}
+
+/* Keep every Value cell inside its own grid track. The old -8px margin made
+   the cell exactly one grid gap wider, so it covered the first glyph of the
+   following column whenever Value was not the first configured column. */
+.uncertainty-module
+  .point-grid-item
+  > .sidebar-value-sticky {
+  box-sizing: border-box;
+  width: 100%;
+  margin-right: 0;
+  padding-right: 2px;
+}
+
+/* Inline Value editing should be no wider than the compact value affordance.
+   The input's `size` follows its current character count; keeping both the
+   editor and wrapper content-sized prevents the focus state from filling the
+   entire Value track. */
+.uncertainty-module
+  .point-grid-item
+  > .sidebar-inline-input-wrapper.sidebar-value-sticky {
+  gap: 4px;
+  width: max-content;
+  max-width: 100%;
+}
+
+.uncertainty-module
+  .point-grid-item
+  > .sidebar-inline-input-wrapper.sidebar-value-sticky
+  > .sidebar-inline-input.value {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 1.75em;
+  max-width: 100%;
+  padding-inline: 2px;
+}
+
+.sidebar-column-order-dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  width: min(290px, calc(100vw - 24px));
+  max-height: min(520px, calc(100vh - 100px));
+  overflow: hidden;
+  background: var(--content-background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+  z-index: 3000;
+  animation: filterDropdownIn 0.12s ease-out;
+}
+
+.sidebar-column-order-panel {
+  padding: 8px 10px 10px;
+}
+
+.sidebar-column-order-heading,
+.sidebar-column-order-item,
+.sidebar-column-order-actions {
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-column-order-heading {
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+  color: var(--text-color-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sidebar-column-order-heading button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary-color);
+  cursor: pointer;
+  font: inherit;
+  text-transform: none;
+}
+
+.sidebar-column-order-list {
+  max-height: min(440px, calc(100vh - 160px));
+  overflow-y: auto;
+}
+
+.sidebar-column-order-item {
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 25px;
+  padding: 2px 2px 2px 6px;
+  border-radius: 4px;
+  color: var(--text-color-muted);
+  font-size: 0.72rem;
+}
+
+.sidebar-column-order-item.is-visible {
+  color: var(--text-color);
+}
+
+.sidebar-column-order-actions {
+  gap: 2px;
+}
+
+.sidebar-column-order-actions button {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.sidebar-column-order-actions button:hover:not(:disabled) {
+  background: var(--hover-color);
+  color: var(--primary-color);
+}
+
+.sidebar-column-order-actions button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+/* Dark mode needs a stronger function-family signal than the light theme.
+   Increase the color contribution while retaining the existing surfaces and
+   add only a soft inset glow, so text and editable controls remain crisp. */
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container {
+  --sidebar-point-surface: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 20%,
+    var(--sidebar-sticky-surface)
+  );
+  --sidebar-point-surface-hover: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 27%,
+    var(--sidebar-sticky-surface)
+  );
+  --sidebar-point-surface-selected: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 35%,
+    var(--sidebar-sticky-surface)
+  );
+}
+
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  :is(.sidebar-column-header-stack, .sidebar-column-groups, .sidebar-column-headers) {
+  background-color: color-mix(
+    in srgb,
+    var(--sidebar-function-color, var(--primary-color)) 20%,
+    var(--sidebar-sticky-surface)
+  ) !important;
+}
+
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item {
+  box-shadow: inset 0 0 10px
+    color-mix(
+      in srgb,
+      var(--sidebar-function-color, var(--primary-color)) 8%,
+      transparent
+    ) !important;
+}
+
+body.dark-mode
+  .uncertainty-module
+  .measurement-group-container
+  .point-grid-item:is(.active, .active-point) {
+  box-shadow:
+    inset 0 0 12px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 16%,
+        transparent
+      ),
+    0 0 6px
+      color-mix(
+        in srgb,
+        var(--sidebar-function-color, var(--primary-color)) 18%,
+        transparent
+      ) !important;
+}
+
+/* Failure metrics need to remain immediately legible against the more vivid
+   function-colour surfaces in dark mode. The restrained halo brightens the
+   readout without changing its layout or weight. */
+body.dark-mode
+  .uncertainty-module
+  .point-risk-metric[style*="status-bad"] {
+  text-shadow: 0 0 5px color-mix(in srgb, var(--status-bad) 55%, transparent);
+}
+
+body.dark-mode
+  .uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-area-section-row
+  > td {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 34%,
+    var(--content-background)
+  ) !important;
+  box-shadow:
+    inset 0 1px 0
+      color-mix(in srgb, var(--instrument-function-color) 48%, transparent),
+    inset 0 -1px 0
+      color-mix(in srgb, var(--instrument-function-color) 32%, transparent),
+    0 0 8px
+      color-mix(in srgb, var(--instrument-function-color) 14%, transparent);
+}
+
+body.dark-mode
+  .uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 20%,
+    var(--content-background)
+  ) !important;
+}
+
+body.dark-mode
+  .uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row
+  > td {
+  box-shadow:
+    inset 0 1px 0
+      color-mix(in srgb, var(--instrument-function-color) 10%, transparent),
+    inset 0 -1px 0
+      color-mix(in srgb, var(--instrument-function-color) 10%, transparent);
+}
+
+body.dark-mode
+  .uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row:not(.selected-row):not(.instrument-selected):not(.selected-spec-row):hover,
+body.dark-mode
+  .uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.row-hovered:not(.selected-row):not(.instrument-selected),
+body.dark-mode
+  .uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row.hovered-spec-row:not(.selected-spec-row) {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 27%,
+    var(--content-background)
+  ) !important;
+}
+
+body.dark-mode
+  .uncertainty-module
+  .industry-table
+  tbody
+  tr.instrument-function-row:is(.selected-row, .instrument-selected, .selected-spec-row) {
+  background-color: color-mix(
+    in srgb,
+    var(--instrument-function-color) 34%,
+    var(--content-background)
+  ) !important;
 }

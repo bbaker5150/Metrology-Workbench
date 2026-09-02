@@ -75,34 +75,58 @@ const getActiveReport = (device) => {
 
 // Helper functions for corrections (getShuntCorrectionForPoint, getTVCCorrectionForPoint)
 const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntSn, shuntsData) => {
-  if (!point || !shuntRangeInAmps || !shuntsData || shuntsData.length === 0 || !shuntSn)
+  if (!point || !shuntsData || shuntsData.length === 0)
     return { correction: "N/A", uncertainty: "N/A" };
 
   const pointCurrent = parseFloat(point.current);
+  const pointFrequency = Number(point.frequency);
   const epsilon = 1e-9;
+  const sourceReportId = point.forward?.correction_report ?? point.reverse?.correction_report;
 
-  // Prefer a manual device over an imported one when both exist.
-  const shunt = [...shuntsData]
+  if (sourceReportId !== null && sourceReportId !== undefined) {
+    for (const shunt of shuntsData) {
+      const sourceReport = (shunt.reports || []).find(
+        (report) => Number(report.id) === Number(sourceReportId)
+      );
+      if (!sourceReport) continue;
+      const correction = (sourceReport.corrections || []).find(
+        (entry) =>
+          Math.abs(parseFloat(entry.current) - pointCurrent) < epsilon &&
+          Number(entry.frequency) === pointFrequency
+      );
+      return correction
+        ? { correction: correction.correction, uncertainty: correction.uncertainty }
+        : { correction: "N/A", uncertainty: "N/A" };
+    }
+  }
+
+  if (!shuntRangeInAmps || !shuntSn) {
+    return { correction: "N/A", uncertainty: "N/A" };
+  }
+
+  // Prefer a manual value when one exists, but keep searching imported
+  // reports when the manual device is only a partial table.
+  const candidateShunts = [...shuntsData]
     .filter(
       (s) =>
         String(s.serial_number) === String(shuntSn) &&
         Math.abs(parseFloat(s.range) - shuntRangeInAmps) < epsilon
     )
-    .sort((a, b) => (b.is_manual ? 1 : 0) - (a.is_manual ? 1 : 0))[0];
+    .sort((a, b) => (b.is_manual ? 1 : 0) - (a.is_manual ? 1 : 0));
 
-  const activeReport = getActiveReport(shunt);
-  if (activeReport && Array.isArray(activeReport.corrections)) {
-    const correction = activeReport.corrections.find(
+  for (const shunt of candidateShunts) {
+    const activeReport = getActiveReport(shunt);
+    const correction = (activeReport?.corrections || []).find(
       (c) =>
         Math.abs(parseFloat(c.current) - pointCurrent) < epsilon &&
-        parseFloat(c.frequency) === point.frequency
+        Number(c.frequency) === pointFrequency
     );
-    return correction
-      ? {
+    if (correction) {
+      return {
         correction: correction.correction,
         uncertainty: correction.uncertainty,
-      }
-      : { correction: "N/A", uncertainty: "N/A" };
+      };
+    }
   }
   return { correction: "N/A", uncertainty: "N/A" };
 };

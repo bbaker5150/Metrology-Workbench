@@ -15620,7 +15620,10 @@ function DetailedView({
 
   const equationVariableInputs =
     equationDisplayData?.variables.length > 0 ? (
-      <div className="panel-table-container measurement-inputs-table-wrap">
+      <div
+        className="panel-table-container measurement-inputs-table-wrap"
+        data-scoped-zoom-key="measurement-inputs"
+      >
         <table className="instrument-summary-table industry-table measurement-inputs-table">
           <colgroup>
             <col style={{ width: "12%" }} />

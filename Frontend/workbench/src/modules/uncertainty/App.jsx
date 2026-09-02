@@ -66,7 +66,9 @@ import {
   faPaste,
   faCheckCircle,
   faSlidersH,
+  faArrowsLeftRight,
   faChevronDown,
+  faChevronUp,
   faChevronRight,
   faExpandArrowsAlt,
   faCompressArrowsAlt,
@@ -99,6 +101,7 @@ import {
 } from "./constants/constants";
 import {
   getRemainingCutPoints,
+  hasDerivedNominalMismatch,
   preparePointForPaste,
 } from "./utils/pointClipboard";
 import {
@@ -219,6 +222,26 @@ export const getConsecutiveSidebarCellGroup = (
   };
 };
 
+// While one member of a merged Section/Qualifier run is being edited, treat
+// that point as its own temporary value. This removes the old spanning label
+// from behind the editor and leaves the points on either side grouped exactly
+// as they will be after the edited value is saved.
+export const getConsecutiveSidebarCellGroupDuringEdit = (
+  points = [],
+  index,
+  valueForPoint,
+  field,
+  pendingEdit,
+) =>
+  getConsecutiveSidebarCellGroup(points, index, (candidate) => {
+    const isEditedMember =
+      pendingEdit?.field === field &&
+      String(pendingEdit?.pointId ?? "") === String(candidate?.id ?? "");
+    return isEditedMember
+      ? `\u0000sidebar-edit-member:${field}:${candidate?.id}`
+      : valueForPoint(candidate);
+  });
+
 const getFunctionPointSettings = (sessionData, functionId) => {
   const stored = (sessionData?.functionGroups || []).find(
     (group) =>
@@ -276,67 +299,121 @@ const SIDEBAR_COLUMN_GROUPS = [
   },
 ];
 
+export const DEFAULT_SIDEBAR_COLUMN_ORDER = SIDEBAR_COLUMN_GROUPS.flatMap(
+  (group) => group.columns,
+);
+
+const SIDEBAR_COLUMN_TRACKS = {
+  uut: "minmax(200px, 1.35fr)",
+  section: "50px",
+  value: "80px",
+  qualifier: "80px",
+  tolerance: "minmax(80px, 1fr)",
+  lowLimit: "minmax(82px, 0.8fr)",
+  highLimit: "minmax(82px, 0.8fr)",
+  standardUncertainty: SIDEBAR_UNCERTAINTY_COLUMN,
+  measurementUncertainty: SIDEBAR_UNCERTAINTY_COLUMN,
+  tmdeLow: "minmax(90px, 1fr)",
+  tmdeHigh: "minmax(90px, 1fr)",
+  tur: "55px",
+  tar: "55px",
+  observedReop: "78px",
+  pfa: "55px",
+  pfr: "55px",
+  maxReop: "70px",
+  trueReop: "70px",
+  gbMult: "60px",
+  gbLow: "minmax(60px, 0.8fr)",
+  gbHigh: "minmax(60px, 0.8fr)",
+  gbPfa: "60px",
+  gbPfr: "60px",
+  gbCalInt: "84px",
+  gbMeasRel: "98px",
+  noGbPfa: "64px",
+  noGbPfr: "64px",
+  noGbCalInt: "90px",
+  noGbMeasRel: "102px",
+};
+
+const SIDEBAR_COLUMN_LABELS = {
+  uut: "UUT",
+  section: "Section",
+  value: "Value",
+  qualifier: "Qualifier",
+  tolerance: "Tolerance",
+  lowLimit: "UUT Low Limit",
+  highLimit: "UUT High Limit",
+  standardUncertainty: "Comb. Uncertainty",
+  measurementUncertainty: "Exp. Uncertainty",
+  tmdeLow: "TMDE Low Limit",
+  tmdeHigh: "TMDE High Limit",
+  tur: "TUR",
+  tar: "TAR",
+  observedReop: "REOP @ test pt TUR",
+  pfa: "PFA",
+  pfr: "PFR",
+  maxReop: "Max REOP",
+  trueReop: "R_meas",
+  gbMult: "GB Mult",
+  gbLow: "GB Lower Limit",
+  gbHigh: "GB Upper Limit",
+  gbPfa: "PFA with GB",
+  gbPfr: "PFR with GB",
+  gbCalInt: "Cal Int with GB",
+  gbMeasRel: "Targeted REOP w/ GB",
+  noGbPfa: "PFA w/o GB",
+  noGbPfr: "PFR w/o GB",
+  noGbCalInt: "Cal Int w/o GB",
+  noGbMeasRel: "Targeted REOP w/o GB",
+};
+
+export const normalizeSidebarColumnOrder = (order) => {
+  const valid = new Set(DEFAULT_SIDEBAR_COLUMN_ORDER);
+  const normalized = [];
+  (Array.isArray(order) ? order : []).forEach((key) => {
+    if (valid.has(key) && !normalized.includes(key)) normalized.push(key);
+  });
+  DEFAULT_SIDEBAR_COLUMN_ORDER.forEach((key) => {
+    if (!normalized.includes(key)) normalized.push(key);
+  });
+  return normalized;
+};
+
+const getVisibleSidebarColumnOrder = (visibleColumns, columnOrder) =>
+  normalizeSidebarColumnOrder(columnOrder).filter(
+    (key) => Boolean(visibleColumns[key]),
+  );
+
 // A column the user has dragged is pinned to that exact width; everything else
 // keeps its default track sizing.
 export const SIDEBAR_COLUMN_MIN_WIDTH = 44;
+const SIDEBAR_COLUMN_MIN_WIDTHS = {
+  lowLimit: 82,
+  highLimit: 82,
+};
+
+export const getSidebarColumnMinWidth = (key) =>
+  SIDEBAR_COLUMN_MIN_WIDTHS[key] || SIDEBAR_COLUMN_MIN_WIDTH;
 
 const getSidebarGridTemplate = (
   visibleColumns,
   valueColumnWidth = "80px",
   columnWidths = {},
+  columnOrder = DEFAULT_SIDEBAR_COLUMN_ORDER,
 ) => {
-  const parts = [];
-  const push = (key, track) => {
-    if (!visibleColumns[key]) return;
-    const custom = Number(columnWidths?.[key]);
-    parts.push(
-      Number.isFinite(custom) && custom > 0
-        ? `${Math.max(SIDEBAR_COLUMN_MIN_WIDTH, Math.round(custom))}px`
-        : track,
-    );
+  const tracks = {
+    ...SIDEBAR_COLUMN_TRACKS,
+    value: valueColumnWidth,
   };
-
-  // Fixed widths for stable columns. The UUT track starts wide enough for a
-  // full instrument identity rather than clipping it at the default width.
-  push("uut", "minmax(200px, 1.35fr)");
-  push("section", "50px");
-  push("value", valueColumnWidth);
-  push("qualifier", "80px");
-  push("tolerance", "minmax(80px, 1fr)");
-
-  // Split Limits Columns
-  push("lowLimit", "minmax(60px, 0.8fr)");
-  push("highLimit", "minmax(60px, 0.8fr)");
-
-  push("standardUncertainty", SIDEBAR_UNCERTAINTY_COLUMN);
-  push("measurementUncertainty", SIDEBAR_UNCERTAINTY_COLUMN);
-  // TMDE (standard) limit columns
-  push("tmdeLow", "minmax(90px, 1fr)");
-  push("tmdeHigh", "minmax(90px, 1fr)");
-
-  // Workbook measurement and test-point risk columns
-  push("tur", "55px");
-  push("tar", "55px");
-  push("observedReop", "78px");
-  push("pfa", "55px");
-  push("pfr", "55px");
-  push("maxReop", "70px");
-  push("trueReop", "70px");
-
-  // Mitigation (GB + interval)
-  push("gbMult", "60px");
-  push("gbLow", "minmax(60px, 0.8fr)");
-  push("gbHigh", "minmax(60px, 0.8fr)");
-  push("gbPfa", "60px");
-  push("gbPfr", "60px");
-  push("gbCalInt", "84px");
-  push("gbMeasRel", "98px");
-
-  // Mitigation (interval only)
-  push("noGbPfa", "64px");
-  push("noGbPfr", "64px");
-  push("noGbCalInt", "90px");
-  push("noGbMeasRel", "102px");
+  const parts = getVisibleSidebarColumnOrder(
+    visibleColumns,
+    columnOrder,
+  ).map((key) => {
+    const custom = Number(columnWidths?.[key]);
+    return Number.isFinite(custom) && custom > 0
+      ? `${Math.max(getSidebarColumnMinWidth(key), Math.round(custom))}px`
+      : tracks[key];
+  });
 
   if (parts.length === 0) return "1fr";
   return parts.join(" ");
@@ -366,8 +443,11 @@ const formatInstrumentIdentity = (item = {}) => {
 };
 
 const SCOPED_ZOOM_SURFACE_SELECTOR = [
-  ".measurement-point-list",
+  ".app-chrome-zoom-surface",
+  ".sidebar-session-info-zoom-surface",
+  ".measurement-points-zoom-surface",
   ".measurement-equation-zoom-surface",
+  ".budget-results-zoom-surface",
   ".panel-table-container",
   ".instrument-table-container",
   ".budget-section-table-wrap",
@@ -436,7 +516,16 @@ const readUiPreferences = (sessionId) => {
 };
 
 const getScopedZoomKey = (surface) => {
-  if (surface.classList.contains("measurement-point-list")) {
+  if (surface.dataset.scopedZoomKey) {
+    return surface.dataset.scopedZoomKey;
+  }
+  if (surface.classList.contains("app-chrome-zoom-surface")) {
+    return "app-header";
+  }
+  if (surface.classList.contains("sidebar-session-info-zoom-surface")) {
+    return "session-info";
+  }
+  if (surface.classList.contains("measurement-points-zoom-surface")) {
     return "measurement-points";
   }
   if (surface.classList.contains("measurement-equation-zoom-surface")) {
@@ -460,8 +549,13 @@ const getScopedZoomKey = (surface) => {
 
 // Friendly labels for the zoom toast, keyed by the scoped surface class.
 const SCOPED_ZOOM_LABELS = {
+  "app-header": "Header",
+  "session-info": "Session info",
   "measurement-points": "Point list",
   "measurement-equation": "Equation",
+  "measurement-inputs": "Measurement inputs",
+  "budget-results": "Results card",
+  "budget-table": "Budget table",
   "panel-table-container": "Table",
   "instrument-table-container": "Instrument table",
   "budget-section-table-wrap": "Budget table",
@@ -485,35 +579,53 @@ const getDefaultScopedZoom = (zoomKey) => {
 const getScopedZoomTarget = (eventTarget) => {
   if (!(eventTarget instanceof Element)) return null;
 
-  const surface = eventTarget.closest(SCOPED_ZOOM_SURFACE_SELECTOR);
+  let surface = eventTarget.closest(SCOPED_ZOOM_SURFACE_SELECTOR);
+  if (!surface) {
+    const header = eventTarget.closest(
+      ".panel-card-header, .budget-section-title-row",
+    );
+    if (header?.classList.contains("budget-section-title-row")) {
+      surface = header.parentElement?.querySelector(
+        ":scope > .budget-section-table-wrap",
+      );
+    } else if (header) {
+      surface = header.parentElement?.querySelector(
+        ":scope > .panel-table-container, :scope > * > .panel-table-container",
+      );
+    }
+  }
   if (!surface) return null;
 
   if (
-    surface.classList.contains("measurement-point-list") ||
-    surface.classList.contains("measurement-equation-zoom-surface")
+    surface.classList.contains("app-chrome-zoom-surface") ||
+    surface.classList.contains("sidebar-session-info-zoom-surface") ||
+    surface.classList.contains("measurement-points-zoom-surface") ||
+    surface.classList.contains("measurement-equation-zoom-surface") ||
+    surface.classList.contains("budget-results-zoom-surface")
   ) {
     const content = surface.querySelector(":scope > .scoped-zoom-content");
     return content ? { surface, content } : null;
   }
 
-  const table = eventTarget.closest("table");
-  if (!table || !surface.contains(table)) return null;
-  const linkedContents = surface.classList.contains(
-    "instrument-panel-table-container",
-  )
-    ? [
-        surface.parentElement?.querySelector(
-          ":scope > .instrument-panel-card-header",
-        ),
-      ].filter(Boolean)
-    : [];
+  const table = surface.querySelector(":scope > table");
+  if (!table) return null;
+  const panelHeader = surface
+    .closest(".panel-card")
+    ?.querySelector(":scope > .panel-card-header");
+  const budgetHeader = surface
+    .closest(".budget-stack-section")
+    ?.querySelector(":scope > .budget-section-title-row");
+  const linkedContents = [panelHeader, budgetHeader].filter(Boolean);
   return { surface, content: table, linkedContents };
 };
 
 const getScopedZoomContents = (surface) => {
   if (
-    surface.classList.contains("measurement-point-list") ||
-    surface.classList.contains("measurement-equation-zoom-surface")
+    surface.classList.contains("app-chrome-zoom-surface") ||
+    surface.classList.contains("sidebar-session-info-zoom-surface") ||
+    surface.classList.contains("measurement-points-zoom-surface") ||
+    surface.classList.contains("measurement-equation-zoom-surface") ||
+    surface.classList.contains("budget-results-zoom-surface")
   ) {
     const content = surface.querySelector(":scope > .scoped-zoom-content");
     return content ? [content] : [];
@@ -521,13 +633,13 @@ const getScopedZoomContents = (surface) => {
 
   const table = surface.querySelector(":scope > table");
   if (!table) return [];
-  if (!surface.classList.contains("instrument-panel-table-container")) {
-    return [table];
-  }
-  const header = surface.parentElement?.querySelector(
-    ":scope > .instrument-panel-card-header",
-  );
-  return header ? [table, header] : [table];
+  const panelHeader = surface
+    .closest(".panel-card")
+    ?.querySelector(":scope > .panel-card-header");
+  const budgetHeader = surface
+    .closest(".budget-stack-section")
+    ?.querySelector(":scope > .budget-section-title-row");
+  return [table, panelHeader, budgetHeader].filter(Boolean);
 };
 
 const parseSortableNumber = (value) => {
@@ -626,8 +738,8 @@ export const SidebarPointItem = ({
   onUutChange,
   cellGroups = {},
   columnWidths = {},
+  columnOrder = DEFAULT_SIDEBAR_COLUMN_ORDER,
   highlightedPointIds = [],
-  onGroupedFieldSave,
   valueColumnWidth = "80px",
   isSelected,
   isActivePoint = false,
@@ -640,7 +752,11 @@ export const SidebarPointItem = ({
   onContextMenu,
   onShowRiskBreakdown,
   autoEditValue = false,
+  autoEditField = null,
   onAutoEditConsumed,
+  onAutoEditFieldConsumed,
+  preferredSharedEditPointId = null,
+  onRequestSharedMemberEdit,
   onAdvanceValue,
   visibleColumns = {
     uut: true,
@@ -681,7 +797,36 @@ export const SidebarPointItem = ({
     autoEditValue ? point.testPointInfo?.parameter?.value ?? "" : "",
   );
   const groupedCellRefs = useRef({});
+  const pointRowRef = useRef(null);
   const [groupedCellGeometry, setGroupedCellGeometry] = useState({});
+  const orderedVisibleColumns = getVisibleSidebarColumnOrder(
+    visibleColumns,
+    columnOrder,
+  );
+  const orderedVisibleColumnsKey = orderedVisibleColumns.join("|");
+
+  // The cell JSX intentionally stays grouped by feature for readability. Map
+  // each rendered cell into a named grid area before paint so users can move
+  // columns freely without duplicating the point-row markup or flashing the
+  // default order for a frame.
+  useLayoutEffect(() => {
+    const row = pointRowRef.current;
+    if (!row) return;
+    const renderedKeys = DEFAULT_SIDEBAR_COLUMN_ORDER.filter((key) =>
+      Boolean(visibleColumns[key]),
+    );
+    const cells = [...row.children];
+    cells.forEach((cell, index) => {
+      const key = renderedKeys[index];
+      if (!key) return;
+      cell.style.gridArea = key;
+      cell.dataset.sidebarColumn = key;
+      cell.dataset.sidebarColumnLast = String(
+        key === orderedVisibleColumns[orderedVisibleColumns.length - 1],
+      );
+    });
+    row.dataset.valueLeading = String(orderedVisibleColumns[0] === "value");
+  }, [editingField, orderedVisibleColumnsKey, visibleColumns]);
 
   // Consume both mount-time and later focus requests. Pre-created blank rows
   // are already mounted, so relying only on the useState initializer prevented
@@ -692,6 +837,22 @@ export const SidebarPointItem = ({
     setTempValue(point.testPointInfo?.parameter?.value ?? "");
     onAutoEditConsumed?.();
   }, [autoEditValue, onAutoEditConsumed, point.testPointInfo]);
+
+  // Shared Section and Qualifier labels are rendered once at the start of a
+  // run, but the editor belongs to the point the user actually selected. Keep
+  // the request alive for the lifetime of the editor; consuming it immediately
+  // allowed a parent render to hide a continuation editor before it could save.
+  useEffect(() => {
+    if (!autoEditField || !["section", "qualifier"].includes(autoEditField)) {
+      return;
+    }
+    setEditingField(autoEditField);
+    setTempValue(
+      autoEditField === "section"
+        ? point.section ?? ""
+        : point.testPointInfo?.qualifier?.value ?? "",
+    );
+  }, [autoEditField]);
 
   const startEdit = (e, field, currentVal) => {
     e.stopPropagation();
@@ -713,6 +874,26 @@ export const SidebarPointItem = ({
     }
   };
 
+  const handleSharedFieldClick = (e, field, currentVal, group) => {
+    const preferredId = String(preferredSharedEditPointId ?? "");
+    const preferredBelongsToGroup =
+      group?.span > 1 &&
+      preferredId &&
+      group.pointIds?.some((id) => String(id) === preferredId);
+
+    if (preferredBelongsToGroup) {
+      if (onRequestSharedMemberEdit) {
+        e.stopPropagation();
+        e.preventDefault();
+        onRequestSharedMemberEdit?.(preferredSharedEditPointId, field);
+        return;
+      }
+      startEdit(e, field, currentVal);
+      return;
+    }
+    handleSingleClickEdit(e, field, currentVal);
+  };
+
   // A plain click on a risk metric just selects the point (what users usually
   // mean). The breakdown modal only opens on Ctrl/Cmd-click, so it isn't
   // triggered accidentally while clicking around a row. The modal is opened by
@@ -730,21 +911,18 @@ export const SidebarPointItem = ({
   };
 
   const cancelEdit = () => {
+    const wasRequestedSharedEdit =
+      autoEditField && autoEditField === editingField;
     setEditingField(null);
     setTempValue("");
+    if (wasRequestedSharedEdit) onAutoEditFieldConsumed?.();
   };
 
   const commitEdit = () => {
+    const wasRequestedSharedEdit =
+      autoEditField && autoEditField === editingField;
     if (editingField === "section") {
-      if (cellGroups.section?.span > 1) {
-        onGroupedFieldSave?.(
-          "section",
-          tempValue,
-          cellGroups.section.pointIds,
-        );
-      } else {
-        onSave({ ...point, section: tempValue });
-      }
+      onSave({ ...point, section: tempValue });
     } else if (editingField === "value") {
       const prevInfo = point.testPointInfo || {};
       const prevParam = prevInfo.parameter || {};
@@ -766,17 +944,10 @@ export const SidebarPointItem = ({
           value: tempValue,
         },
       };
-      if (cellGroups.qualifier?.span > 1) {
-        onGroupedFieldSave?.(
-          "qualifier",
-          tempValue,
-          cellGroups.qualifier.pointIds,
-        );
-      } else {
-        onSave({ ...point, testPointInfo: newInfo });
-      }
+      onSave({ ...point, testPointInfo: newInfo });
     }
     setEditingField(null);
+    if (wasRequestedSharedEdit) onAutoEditFieldConsumed?.();
   };
 
   const handleKeyDown = (e) => {
@@ -789,6 +960,10 @@ export const SidebarPointItem = ({
       }
     }
     if (e.key === "Escape") cancelEdit();
+  };
+
+  const selectInlineFieldValue = (event) => {
+    event.currentTarget.select();
   };
 
   // Safe Accessors
@@ -882,7 +1057,7 @@ export const SidebarPointItem = ({
           group.isEnd ? "" : " point-grouped-cell--has-next"
         }${column === leadingVisibleColumn ? " point-grouped-cell--leading" : ""}${
           groupIsHighlighted(group) ? " point-grouped-cell--highlighted" : ""
-        }`
+        }${editingField === column ? " point-grouped-cell--editing-member" : ""}`
       : "";
   const groupedCellStyle = (group, column) =>
     group?.span > 1 && group.isStart
@@ -896,19 +1071,9 @@ export const SidebarPointItem = ({
   const setGroupedCellRef = (column) => (node) => {
     groupedCellRefs.current[column] = node;
   };
-  const leadingVisibleColumn = [
-    "uut",
-    "section",
-    "value",
-    "qualifier",
-    "tolerance",
-    "lowLimit",
-    "highLimit",
-    "standardUncertainty",
-    "measurementUncertainty",
-  ].find((column) => visibleColumns[column]);
+  const leadingVisibleColumn = orderedVisibleColumns[0];
   const wrapGroupedCellContent = (group, column, content) =>
-    group?.span > 1 && group.isStart ? (
+    group?.span > 1 && group.isStart && editingField !== column ? (
       <span
         className={`point-grouped-cell-content point-grouped-cell-content--${column}${column === leadingVisibleColumn ? " is-leading-column" : ""}`}
         style={groupedCellStyle(group, column)}
@@ -1102,6 +1267,7 @@ export const SidebarPointItem = ({
 
   return (
     <div
+      ref={pointRowRef}
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
       onMouseEnter={(e) => setRunHover(e.currentTarget, true)}
       onMouseLeave={(e) => setRunHover(e.currentTarget, false)}
@@ -1110,7 +1276,9 @@ export const SidebarPointItem = ({
           visibleColumns,
           valueColumnWidth,
           columnWidths,
+          columnOrder,
         ),
+        gridTemplateAreas: `"${orderedVisibleColumns.join(" ")}"`,
       }}
       onClick={(e) => {
         if (!editingField) {
@@ -1193,7 +1361,9 @@ export const SidebarPointItem = ({
       {/* Section */}
       {visibleColumns.section &&
         <>
-          {!cellGroups.section?.isStart && cellGroups.section?.span > 1 ? (
+          {!cellGroups.section?.isStart &&
+          cellGroups.section?.span > 1 &&
+          editingField !== "section" ? (
             <span
               ref={setGroupedCellRef("section")}
               className={`point-section${groupedCellClass(cellGroups.section, "section")}`}
@@ -1218,6 +1388,8 @@ export const SidebarPointItem = ({
                     onChange={(e) => setTempValue(e.target.value)}
                     onBlur={commitEdit}
                     onKeyDown={handleKeyDown}
+                    onFocus={selectInlineFieldValue}
+                    onDoubleClick={selectInlineFieldValue}
                     onClick={(e) => e.stopPropagation()}
                     placeholder="-"
                   />
@@ -1226,7 +1398,12 @@ export const SidebarPointItem = ({
                     <span
                       className="point-grouped-cell-label"
                       onClick={(e) =>
-                        handleSingleClickEdit(e, "section", point.section)
+                        handleSharedFieldClick(
+                          e,
+                          "section",
+                          point.section,
+                          cellGroups.section,
+                        )
                       }
                     >
                       {point.section || (
@@ -1247,6 +1424,7 @@ export const SidebarPointItem = ({
             <input
               autoFocus
               className="sidebar-inline-input value"
+              size={Math.max(1, String(tempValue ?? "").length)}
               value={tempValue}
               onChange={(e) => setTempValue(e.target.value)}
               onBlur={commitEdit}
@@ -1283,17 +1461,21 @@ export const SidebarPointItem = ({
       {/* Optional Qualifier column (e.g. Frequency) — hidden by default. */}
       {visibleColumns.qualifier &&
         <>
-          {!cellGroups.qualifier?.isStart && cellGroups.qualifier?.span > 1 ? (
+          {!cellGroups.qualifier?.isStart &&
+          cellGroups.qualifier?.span > 1 &&
+          editingField !== "qualifier" ? (
             <span
               ref={setGroupedCellRef("qualifier")}
-              className={`point-value${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
+              className={`point-value point-qualifier${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
               data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
               aria-hidden="true"
             />
           ) : (
             <span
               ref={setGroupedCellRef("qualifier")}
-              className={`point-value${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
+              className={`point-value point-qualifier${
+                editingField === "qualifier" ? " point-qualifier--editing" : ""
+              }${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
               data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
               title={String(point.testPointInfo?.qualifier?.value ?? "-")}
             >
@@ -1303,11 +1485,13 @@ export const SidebarPointItem = ({
                 editingField === "qualifier" ? (
                   <input
                     autoFocus
-                    className="sidebar-inline-input value"
+                    className="sidebar-inline-input value qualifier-editor"
                     value={tempValue}
                     onChange={(e) => setTempValue(e.target.value)}
                     onBlur={commitEdit}
                     onKeyDown={handleKeyDown}
+                    onFocus={selectInlineFieldValue}
+                    onDoubleClick={selectInlineFieldValue}
                     onClick={(e) => e.stopPropagation()}
                     placeholder="-"
                   />
@@ -1316,10 +1500,11 @@ export const SidebarPointItem = ({
                     <span
                       className="point-grouped-cell-label"
                       onClick={(e) =>
-                        handleSingleClickEdit(
+                        handleSharedFieldClick(
                           e,
                           "qualifier",
                           point.testPointInfo?.qualifier?.value,
+                          cellGroups.qualifier,
                         )
                       }
                     >
@@ -2238,6 +2423,7 @@ function App({ showThemeToggle = false }) {
   // vertical scrollbar width — which differs between a browser (classic
   // scrollbars reserve width) and Electron (overlay scrollbars reserve none).
   const resultsContainerRef = useRef(null);
+  const zoomRootRef = useRef(null);
 
   // --- SIDEBAR PREFERENCES ---
   const [sidebarColumns, setSidebarColumns] = useState({
@@ -2274,6 +2460,9 @@ function App({ showThemeToggle = false }) {
     noGbCalInt: false,
     noGbMeasRel: false,
   });
+  const [sidebarColumnOrder, setSidebarColumnOrder] = useState(
+    DEFAULT_SIDEBAR_COLUMN_ORDER,
+  );
   const [sidebarSort, setSidebarSort] = useState(DEFAULT_SIDEBAR_SORT);
   // Keep explicitly enabled columns visible even if their current values are
   // blank. Hiding Section in that state made its filter appear broken and
@@ -2419,7 +2608,7 @@ function App({ showThemeToggle = false }) {
     event.stopPropagation();
     const cell = event.currentTarget.closest(".sidebar-column-header-cell");
     const startWidth =
-      cell?.getBoundingClientRect().width || SIDEBAR_COLUMN_MIN_WIDTH;
+      cell?.getBoundingClientRect().width || getSidebarColumnMinWidth(key);
     const startX = event.clientX;
     const previousCursor = document.body.style.cursor;
     const previousUserSelect = document.body.style.userSelect;
@@ -2428,7 +2617,7 @@ function App({ showThemeToggle = false }) {
 
     const handleMove = (moveEvent) => {
       const next = Math.max(
-        SIDEBAR_COLUMN_MIN_WIDTH,
+        getSidebarColumnMinWidth(key),
         Math.round(startWidth + (moveEvent.clientX - startX)),
       );
       setSidebarColumnWidths((current) =>
@@ -2496,6 +2685,17 @@ function App({ showThemeToggle = false }) {
       startSidebarColumnResize,
     ],
   );
+
+  const moveSidebarColumn = useCallback((key, direction) => {
+    setSidebarColumnOrder((current) => {
+      const next = normalizeSidebarColumnOrder(current);
+      const index = next.indexOf(key);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= next.length) return current;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }, []);
 
   const [isGlobalExpanded, setIsGlobalExpanded] = useState(false);
 
@@ -2592,7 +2792,9 @@ function App({ showThemeToggle = false }) {
   };
 
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
+  const [isColumnOrderMenuOpen, setIsColumnOrderMenuOpen] = useState(false);
   const columnMenuRef = useRef(null);
+  const columnOrderMenuRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -2601,6 +2803,12 @@ function App({ showThemeToggle = false }) {
         !columnMenuRef.current.contains(event.target)
       ) {
         setIsColumnMenuOpen(false);
+      }
+      if (
+        columnOrderMenuRef.current &&
+        !columnOrderMenuRef.current.contains(event.target)
+      ) {
+        setIsColumnOrderMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -2647,6 +2855,7 @@ function App({ showThemeToggle = false }) {
   // Id of a just-quick-added direct point whose sidebar row should open straight
   // into value-edit. SidebarPointItem consumes it on mount, then App clears it.
   const [pendingValueEditPointId, setPendingValueEditPointId] = useState(null);
+  const [pendingSharedFieldEdit, setPendingSharedFieldEdit] = useState(null);
   const [pendingPointValueAdvance, setPendingPointValueAdvance] = useState(null);
   // Function headers own point creation now that UUT folder rows are gone.
   // When a function exposes more than one range unit, the quick-add button
@@ -2690,6 +2899,9 @@ function App({ showThemeToggle = false }) {
       ...DEFAULT_SIDEBAR_COLUMNS,
       ...(preferences.sidebarColumns || {}),
     });
+    setSidebarColumnOrder(
+      normalizeSidebarColumnOrder(preferences.sidebarColumnOrder),
+    );
     setSidebarSort({
       ...DEFAULT_SIDEBAR_SORT,
       ...(preferences.sidebarSort || {}),
@@ -2736,6 +2948,7 @@ function App({ showThemeToggle = false }) {
 
     const preferences = {
       sidebarColumns,
+      sidebarColumnOrder,
       sidebarSort,
       isSessionInfoOpen,
       isRiskInputsOpen,
@@ -2777,6 +2990,7 @@ function App({ showThemeToggle = false }) {
     selectedSessionId,
     showContribution,
     sidebarColumns,
+    sidebarColumnOrder,
     sidebarSort,
   ]);
 
@@ -2801,7 +3015,7 @@ function App({ showThemeToggle = false }) {
   ]);
 
   useEffect(() => {
-    const root = resultsContainerRef.current;
+    const root = zoomRootRef.current;
     if (!root) return undefined;
 
     const applyZoomLevels = () => {
@@ -3033,11 +3247,20 @@ function App({ showThemeToggle = false }) {
       }
 
       if (newPoints.length > 0) {
+        const mismatchedDerivedPointCount = newPoints.filter(
+          hasDerivedNominalMismatch,
+        ).length;
         saveTestPoint(newPoints, null);
         const action = clipboardPointMode === "cut" ? "Moved" : "Pasted";
         showToast(
           `${action} ${newPoints.length} measurement point${newPoints.length > 1 ? "s" : ""}.`,
         );
+        if (mismatchedDerivedPointCount > 0) {
+          showToast(
+            `${mismatchedDerivedPointCount} pasted derived measurement point${mismatchedDerivedPointCount === 1 ? " has" : "s have"} equation inputs that do not match the nominal value. Update the nominal or inputs to display risk metrics.`,
+            "warning",
+          );
+        }
         setSelectedTestPointContextUutId(targetUutId);
 
         if (clipboardPointMode === "cut") {
@@ -3060,6 +3283,7 @@ function App({ showThemeToggle = false }) {
       currentSessionData,
       saveTestPoint,
       setSelectedTestPointContextUutId,
+      showToast,
     ],
   );
 
@@ -4468,6 +4692,8 @@ function App({ showThemeToggle = false }) {
       const { saveSessionToPdf } = await import("./utils/fileIo");
       await saveSessionToPdf(currentSessionData, sessionCache, {
         visibleColumns: visibleSidebarColumns,
+        riskMetricsMap: pointRiskMap,
+        includeGuardband: mitigationColumnsEnabled,
       });
     } catch (error) {
       console.error("PDF Save Error:", error);
@@ -4893,15 +5119,19 @@ function App({ showThemeToggle = false }) {
         index,
         (point) => point.associatedUutIds?.[0] || "__unassigned__",
       ),
-      section: getConsecutiveSidebarCellGroup(
+      section: getConsecutiveSidebarCellGroupDuringEdit(
         points,
         index,
         (point) => point.section || "",
+        "section",
+        pendingSharedFieldEdit,
       ),
-      qualifier: getConsecutiveSidebarCellGroup(
+      qualifier: getConsecutiveSidebarCellGroupDuringEdit(
         points,
         index,
         (point) => point.testPointInfo?.qualifier?.value || "",
+        "qualifier",
+        pendingSharedFieldEdit,
       ),
     };
     return (
@@ -4918,11 +5148,16 @@ function App({ showThemeToggle = false }) {
       }))}
       cellGroups={cellGroups}
       columnWidths={sidebarColumnWidths}
+      columnOrder={sidebarColumnOrder}
       highlightedPointIds={[
         ...selectedSidebarPointIds,
         selectedTestPointId,
         ...selectedTablePointIds,
       ]}
+      preferredSharedEditPointId={selectedTestPointId}
+      onRequestSharedMemberEdit={(pointId, field) =>
+        setPendingSharedFieldEdit({ pointId, field })
+      }
       onUutChange={(nextUutId, groupedPointIds = [tp.id]) => {
         const nextUut = (currentSessionData?.uuts || []).find(
           (uut) => String(uut.id) === String(nextUutId),
@@ -4956,28 +5191,6 @@ function App({ showThemeToggle = false }) {
         updateSession({ ...currentSessionData, testPoints: nextPoints });
         setSelectedTestPointContextUutId(nextUut?.id || null);
       }}
-      onGroupedFieldSave={(field, value, groupedPointIds) => {
-        const ids = new Set((groupedPointIds || []).map(String));
-        const nextPoints = (currentSessionData?.testPoints || []).map((point) => {
-          if (!ids.has(String(point.id))) return point;
-          if (field === "section") return { ...point, section: value };
-          const info = point.testPointInfo || {};
-          const qualifier = info.qualifier || {};
-          return {
-            ...point,
-            testPointInfo: {
-              ...info,
-              qualifier: {
-                name: qualifier.name || "Qualifier",
-                unit: qualifier.unit || "",
-                ...qualifier,
-                value,
-              },
-            },
-          };
-        });
-        updateSession({ ...currentSessionData, testPoints: nextPoints });
-      }}
       valueColumnWidth={sidebarValueColumnWidth}
       visibleColumns={visibleSidebarColumns}
       isSelected={selectedSidebarPointIds.includes(tp.id)}
@@ -4989,7 +5202,13 @@ function App({ showThemeToggle = false }) {
       onSelect={(e) => handleSelectTestPoint(e, tp.id, contextUutId)}
       onShowRiskBreakdown={(key) => setPendingRiskBreakdown(key)}
       autoEditValue={pendingValueEditPointId === tp.id}
+      autoEditField={
+        String(pendingSharedFieldEdit?.pointId ?? "") === String(tp.id)
+          ? pendingSharedFieldEdit.field
+          : null
+      }
       onAutoEditConsumed={() => setPendingValueEditPointId(null)}
+      onAutoEditFieldConsumed={() => setPendingSharedFieldEdit(null)}
       onAdvanceValue={() =>
         setPendingPointValueAdvance({
           functionId: fnGroup.id,
@@ -5073,12 +5292,91 @@ function App({ showThemeToggle = false }) {
       visibleSidebarColumns,
       sidebarValueColumnWidth,
       sidebarColumnWidths,
+      sidebarColumnOrder,
     );
-    const visibleGroups = SIDEBAR_COLUMN_GROUPS.map((group) => ({
-      ...group,
-      visibleCount: group.columns.filter((key) => visibleSidebarColumns[key])
-        .length,
-    })).filter((group) => group.visibleCount > 0);
+    const orderedVisibleColumns = getVisibleSidebarColumnOrder(
+      visibleSidebarColumns,
+      sidebarColumnOrder,
+    );
+    const groupByColumn = Object.fromEntries(
+      SIDEBAR_COLUMN_GROUPS.flatMap((group) =>
+        group.columns.map((column) => [column, group]),
+      ),
+    );
+    const visibleGroups = orderedVisibleColumns.reduce((runs, column) => {
+      const group = groupByColumn[column];
+      const previous = runs[runs.length - 1];
+      if (previous?.key === group.key) {
+        previous.visibleCount += 1;
+      } else {
+        runs.push({ ...group, visibleCount: 1, run: runs.length });
+      }
+      return runs;
+    }, []);
+    const headerConfig = {
+      uut: ["UUT"],
+      section: ["Sect.", { align: "right", title: "Section" }],
+      value: [
+        "Value",
+        {
+          className:
+            orderedVisibleColumns[0] === "value" ? "sidebar-value-sticky" : "",
+        },
+      ],
+      qualifier: ["Qual."],
+      tolerance: ["Tolerance"],
+      lowLimit: ["UUT Low", { title: "UUT Low Limit" }],
+      highLimit: ["UUT High", { title: "UUT High Limit" }],
+      standardUncertainty: [
+        "Std. Unc.",
+        { align: "center", title: "Standard Uncertainty (combined)" },
+      ],
+      measurementUncertainty: [
+        "Exp. Unc.",
+        { align: "center", title: "Measurement Uncertainty (expanded)" },
+      ],
+      tmdeLow: ["TMDE Low"],
+      tmdeHigh: ["TMDE High"],
+      tur: ["TUR", { align: "center" }],
+      tar: ["TAR", { align: "center" }],
+      observedReop: [
+        "REOP @ TUR",
+        { align: "center", title: "REOP at Test-Point TUR" },
+      ],
+      pfa: ["PFA", { align: "center" }],
+      pfr: ["PFR", { align: "center" }],
+      maxReop: ["Max REOP", { align: "center", title: "Maximum REOP" }],
+      trueReop: ["R_meas", { align: "center" }],
+      gbMult: ["GB Mult", { align: "center" }],
+      gbLow: ["GB Low", { title: "GB Lower Limit" }],
+      gbHigh: ["GB High", { title: "GB Upper Limit" }],
+      gbPfa: ["PFA + GB", { align: "center", title: "PFA with Guardband" }],
+      gbPfr: ["PFR + GB", { align: "center", title: "PFR with Guardband" }],
+      gbCalInt: [
+        "Cal Int + GB",
+        { align: "center", title: "Calibration Interval with Guardband" },
+      ],
+      gbMeasRel: [
+        "Target REOP + GB",
+        { align: "center", title: "Targeted REOP with Guardband" },
+      ],
+      noGbPfa: [
+        "PFA no GB",
+        { align: "center", title: "PFA without Guardband" },
+      ],
+      noGbPfr: [
+        "PFR no GB",
+        { align: "center", title: "PFR without Guardband" },
+      ],
+      noGbCalInt: [
+        "Cal Int no GB",
+        { align: "center", title: "Calibration Interval without Guardband" },
+      ],
+      noGbMeasRel: [
+        "Target REOP no GB",
+        { align: "center", title: "Targeted REOP without Guardband" },
+      ],
+    };
 
     return (
       <div className="sidebar-column-header-stack">
@@ -5089,7 +5387,7 @@ function App({ showThemeToggle = false }) {
         >
           {visibleGroups.map((group) => (
             <div
-              key={group.key}
+              key={`${group.key}-${group.run}`}
               className={`sidebar-column-group sidebar-column-group--${group.key}`}
               style={{ gridColumn: `span ${group.visibleCount}` }}
               title={group.label}
@@ -5105,113 +5403,9 @@ function App({ showThemeToggle = false }) {
             gridTemplateColumns,
           }}
         >
-      {visibleSidebarColumns.uut &&
-        renderSidebarSortHeader("uut", "UUT")}
-      {visibleSidebarColumns.section &&
-        renderSidebarSortHeader("section", "Sect.", {
-          align: "right",
-          title: "Section",
-        })}
-      {visibleSidebarColumns.value &&
-        renderSidebarSortHeader("value", "Value", {
-          className: "sidebar-value-sticky",
-        })}
-      {visibleSidebarColumns.qualifier &&
-        renderSidebarSortHeader("qualifier", "Qual.")}
-      {visibleSidebarColumns.tolerance &&
-        renderSidebarSortHeader("tolerance", "Tolerance")}
-      {visibleSidebarColumns.lowLimit &&
-        renderSidebarSortHeader("lowLimit", "UUT Low", {
-          title: "UUT Low Limit",
-        })}
-      {visibleSidebarColumns.highLimit &&
-        renderSidebarSortHeader("highLimit", "UUT High", {
-          title: "UUT High Limit",
-        })}
-      {visibleSidebarColumns.standardUncertainty &&
-        renderSidebarSortHeader("standardUncertainty", "Std. Unc.", {
-          align: "center",
-          title: "Standard Uncertainty (combined)",
-        })}
-      {visibleSidebarColumns.measurementUncertainty &&
-        renderSidebarSortHeader("measurementUncertainty", "Exp. Unc.", {
-          align: "center",
-          title: "Measurement Uncertainty (expanded)",
-        })}
-      {visibleSidebarColumns.tmdeLow &&
-        renderSidebarSortHeader("tmdeLow", "TMDE Low")}
-      {visibleSidebarColumns.tmdeHigh &&
-        renderSidebarSortHeader("tmdeHigh", "TMDE High")}
-      {visibleSidebarColumns.tur &&
-        renderSidebarSortHeader("tur", "TUR", { align: "center" })}
-      {visibleSidebarColumns.tar &&
-        renderSidebarSortHeader("tar", "TAR", { align: "center" })}
-      {visibleSidebarColumns.observedReop &&
-        renderSidebarSortHeader("observedReop", "REOP @ TUR", {
-          align: "center",
-          title: "REOP at Test-Point TUR",
-        })}
-      {visibleSidebarColumns.pfa &&
-        renderSidebarSortHeader("pfa", "PFA", { align: "center" })}
-      {visibleSidebarColumns.pfr &&
-        renderSidebarSortHeader("pfr", "PFR", { align: "center" })}
-      {visibleSidebarColumns.maxReop &&
-        renderSidebarSortHeader("maxReop", "Max REOP", {
-          align: "center",
-          title: "Maximum REOP",
-        })}
-      {visibleSidebarColumns.trueReop &&
-        renderSidebarSortHeader("trueReop", "R_meas", { align: "center" })}
-      {visibleSidebarColumns.gbMult &&
-        renderSidebarSortHeader("gbMult", "GB Mult", { align: "center" })}
-      {visibleSidebarColumns.gbLow &&
-        renderSidebarSortHeader("gbLow", "GB Low", {
-          title: "GB Lower Limit",
-        })}
-      {visibleSidebarColumns.gbHigh &&
-        renderSidebarSortHeader("gbHigh", "GB High", {
-          title: "GB Upper Limit",
-        })}
-      {visibleSidebarColumns.gbPfa &&
-        renderSidebarSortHeader("gbPfa", "PFA + GB", {
-          align: "center",
-          title: "PFA with Guardband",
-        })}
-      {visibleSidebarColumns.gbPfr &&
-        renderSidebarSortHeader("gbPfr", "PFR + GB", {
-          align: "center",
-          title: "PFR with Guardband",
-        })}
-      {visibleSidebarColumns.gbCalInt &&
-        renderSidebarSortHeader("gbCalInt", "Cal Int + GB", {
-          align: "center",
-          title: "Calibration Interval with Guardband",
-        })}
-      {visibleSidebarColumns.gbMeasRel &&
-        renderSidebarSortHeader("gbMeasRel", "Target REOP + GB", {
-          align: "center",
-          title: "Targeted REOP with Guardband",
-        })}
-      {visibleSidebarColumns.noGbPfa &&
-        renderSidebarSortHeader("noGbPfa", "PFA no GB", {
-          align: "center",
-          title: "PFA without Guardband",
-        })}
-      {visibleSidebarColumns.noGbPfr &&
-        renderSidebarSortHeader("noGbPfr", "PFR no GB", {
-          align: "center",
-          title: "PFR without Guardband",
-        })}
-      {visibleSidebarColumns.noGbCalInt &&
-        renderSidebarSortHeader("noGbCalInt", "Cal Int no GB", {
-          align: "center",
-          title: "Calibration Interval without Guardband",
-        })}
-      {visibleSidebarColumns.noGbMeasRel &&
-        renderSidebarSortHeader("noGbMeasRel", "Target REOP no GB", {
-          align: "center",
-          title: "Targeted REOP without Guardband",
-        })}
+          {orderedVisibleColumns.map((key) =>
+            renderSidebarSortHeader(key, ...(headerConfig[key] || [key])),
+          )}
         </div>
       </div>
     );
@@ -5495,13 +5689,13 @@ function App({ showThemeToggle = false }) {
           />
         )}
 
-        <div className="content-area uncertainty-analysis-page">
+        <div className="content-area uncertainty-analysis-page" ref={zoomRootRef}>
           {/* Module chrome — mirrors the AC-Shunt module's .app-chrome header
               (brand block on the left, a meta-icon tool cluster on the right).
               The floating draggable toolbar was removed; the global window
               chrome + theme toggle live in the workbench top bar above. */}
-          <header className="app-chrome">
-            <div className="app-chrome-bar">
+          <header className="app-chrome app-chrome-zoom-surface">
+            <div className="app-chrome-bar scoped-zoom-content">
               <div className="app-chrome-brand">
                 <div
                   className="app-chrome-brand-mark"
@@ -5726,19 +5920,25 @@ function App({ showThemeToggle = false }) {
 
               {/* === SIDEBAR LIST === */}
               <div className="measurement-point-list">
-                <div className="scoped-zoom-content">
-                {/* Session metadata stays in the sidebar; Instrument Overview
-                    now lives in the first workspace tab. */}
-                <SidebarSessionHeader
-                  sessionData={currentSessionData}
-                  onUpdate={updateSession}
-                  isSessionInfoOpen={isSessionInfoOpen}
-                  onSessionInfoOpenChange={setIsSessionInfoOpen}
-                  isRiskInputsOpen={isRiskInputsOpen}
-                  onRiskInputsOpenChange={setIsRiskInputsOpen}
-                  isMitigationInputsOpen={isMitigationInputsOpen}
-                  onMitigationInputsOpenChange={setIsMitigationInputsOpen}
-                />
+                <div className="sidebar-session-info-zoom-surface">
+                  <div className="scoped-zoom-content">
+                    {/* Session metadata stays in the sidebar; Instrument Overview
+                        now lives in the first workspace tab. */}
+                    <SidebarSessionHeader
+                      sessionData={currentSessionData}
+                      onUpdate={updateSession}
+                      isSessionInfoOpen={isSessionInfoOpen}
+                      onSessionInfoOpenChange={setIsSessionInfoOpen}
+                      isRiskInputsOpen={isRiskInputsOpen}
+                      onRiskInputsOpenChange={setIsRiskInputsOpen}
+                      isMitigationInputsOpen={isMitigationInputsOpen}
+                      onMitigationInputsOpenChange={setIsMitigationInputsOpen}
+                    />
+                  </div>
+                </div>
+
+                <div className="measurement-points-zoom-surface">
+                  <div className="scoped-zoom-content">
 
                 {/* 3. MEASUREMENT POINTS */}
                 <div className="sidebar-global-actions">
@@ -5767,10 +5967,85 @@ function App({ showThemeToggle = false }) {
                           />
                         </button>
 
+                        {/* Column Order Menu */}
+                        <div
+                          className="sidebar-column-menu"
+                          ref={columnOrderMenuRef}
+                        >
+                          <button
+                            onClick={() => {
+                              setIsColumnOrderMenuOpen((open) => !open);
+                              setIsColumnMenuOpen(false);
+                            }}
+                            title="Reorder columns"
+                            aria-label="Reorder columns"
+                            className={`sidebar-action-btn-organic ${isColumnOrderMenuOpen ? "active" : ""}`}
+                          >
+                            <FontAwesomeIcon icon={faArrowsLeftRight} />
+                          </button>
+
+                          {isColumnOrderMenuOpen && (
+                            <div className="sidebar-column-order-dropdown">
+                              <div className="sidebar-column-order-panel">
+                                <div className="sidebar-column-order-heading">
+                                  <span>Column order</span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setSidebarColumnOrder(
+                                        DEFAULT_SIDEBAR_COLUMN_ORDER,
+                                      )
+                                    }
+                                  >
+                                    Reset
+                                  </button>
+                                </div>
+                                <div className="sidebar-column-order-list">
+                                  {sidebarColumnOrder.map((key, index) => (
+                                    <div
+                                      className={`sidebar-column-order-item${
+                                        sidebarColumns[key] ? " is-visible" : ""
+                                      }`}
+                                      key={key}
+                                    >
+                                      <span>{SIDEBAR_COLUMN_LABELS[key]}</span>
+                                      <div className="sidebar-column-order-actions">
+                                        <button
+                                          type="button"
+                                          title={`Move ${SIDEBAR_COLUMN_LABELS[key]} left`}
+                                          aria-label={`Move ${SIDEBAR_COLUMN_LABELS[key]} left`}
+                                          disabled={index === 0}
+                                          onClick={() => moveSidebarColumn(key, -1)}
+                                        >
+                                          <FontAwesomeIcon icon={faChevronUp} />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          title={`Move ${SIDEBAR_COLUMN_LABELS[key]} right`}
+                                          aria-label={`Move ${SIDEBAR_COLUMN_LABELS[key]} right`}
+                                          disabled={
+                                            index === sidebarColumnOrder.length - 1
+                                          }
+                                          onClick={() => moveSidebarColumn(key, 1)}
+                                        >
+                                          <FontAwesomeIcon icon={faChevronDown} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
                         {/* Column Filter Menu */}
                         <div className="sidebar-column-menu" ref={columnMenuRef}>
                           <button
-                            onClick={() => setIsColumnMenuOpen(!isColumnMenuOpen)}
+                            onClick={() => {
+                              setIsColumnMenuOpen((open) => !open);
+                              setIsColumnOrderMenuOpen(false);
+                            }}
                             title="Filter visible columns"
                             className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
                           >
@@ -5779,7 +6054,7 @@ function App({ showThemeToggle = false }) {
 
                           {isColumnMenuOpen && (
                             <div className="sidebar-filter-dropdown">
-                          {[
+                              {[
                             {
                               group: "Measurement",
                               cols: [
@@ -6039,6 +6314,7 @@ function App({ showThemeToggle = false }) {
                       </div>
                     );
                   })}
+                  </div>
                 </div>
               </div>
             </aside>

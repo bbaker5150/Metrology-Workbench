@@ -3766,6 +3766,7 @@ input:checked+.slider:before {
   overflow: hidden;
   /* Containing block for the sub-prompt sheet (.corrections-subprompt-overlay). */
   position: relative;
+  isolation: isolate;
 }
 
 .corrections-modal-header {
@@ -3780,7 +3781,7 @@ input:checked+.slider:before {
      so the modal can always be dismissed, even while a password/confirm
      prompt is up. */
   position: relative;
-  z-index: 6;
+  z-index: 100;
   background-color: var(--content-background);
 }
 
@@ -3822,7 +3823,7 @@ body.dark-mode .corrections-subprompt-overlay {
 
 .corrections-modal-close {
   position: relative;
-  z-index: 2;
+  z-index: 101;
   pointer-events: auto;
 }
 
@@ -12559,4 +12560,55 @@ body.dark-mode .window-stability-section {
   background: var(--content-background); 
   color: var(--primary-color);
   box-shadow: inset 0 -2px 0 var(--primary-color);
+}
+
+.corrections-imported-inputs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--background-color);
+}
+
+.corrections-imported-inputs-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-color-muted);
+}
+
+.corrections-imported-inputs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.corrections-imported-input,
+.corrections-imported-inputs-empty {
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.corrections-imported-input {
+  padding: 6px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.corrections-imported-input.is-complete {
+  color: var(--success-color, #15803d);
+  background: color-mix(in srgb, var(--success-color, #15803d) 12%, transparent);
+}
+
+.corrections-imported-input.is-partial {
+  color: var(--warning-color, #b45309);
+  background: color-mix(in srgb, var(--warning-color, #b45309) 14%, transparent);
+}
+
+.corrections-imported-inputs-empty {
+  color: var(--text-color-muted);
 }

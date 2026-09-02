@@ -121,8 +121,8 @@ const CorrectionFactorsModal = ({
         </div>
 
         <p style={{ marginBottom: "20px" }}>
-          Enter known correction factors. These will be applied to all completed
-          directions.
+          Review or update the correction factors used for this measurement
+          point. Changes apply to both directions and subsequent calculations.
         </p>
 
         <div className="modal-form-grid">
@@ -1565,19 +1565,35 @@ function Calibration({
       [e.target.name]: e.target.value,
     }));
 
-  const handleOpenCorrectionModal = () => {
+  const handleOpenCorrectionModal = async () => {
     const primaryPoint = activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
     const existingResults = primaryPoint?.results || {};
 
     setCorrectionInputs({
-      eta_std: existingResults.eta_std || "",
-      eta_ti: existingResults.eta_ti || "",
+      eta_std: existingResults.eta_std ?? "",
+      eta_ti: existingResults.eta_ti ?? "",
       delta_std: existingResults.delta_std ?? "",
       delta_ti: existingResults.delta_ti ?? "",
       delta_std_known: existingResults.delta_std_known ?? "",
     });
 
     setIsCorrectionModalOpen(true);
+    if (!primaryPoint?.id) return;
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${primaryPoint.id}/resolved-corrections/`
+      );
+      const resolved = response.data || {};
+      setCorrectionInputs({
+        eta_std: resolved.eta_std ?? "",
+        eta_ti: resolved.eta_ti ?? "",
+        delta_std: resolved.delta_std ?? "",
+        delta_ti: resolved.delta_ti ?? "",
+        delta_std_known: resolved.delta_std_known ?? "",
+      });
+    } catch (error) {
+      showNotification("Could not refresh correction inputs.", "error");
+    }
   };
 
   const validateInstrumentAssignments = useCallback((operationLabel = "start calibration") => {
@@ -2832,9 +2848,6 @@ function Calibration({
     return readingType ? readingType.label : stageKey.replace(/_/g, " ");
   };
 
-  const isCalculationReady =
-    focusedTP &&
-    (hasAllReadings(focusedTP.forward) || hasAllReadings(focusedTP.reverse));
   const dropdownOptions = useMemo(() => {
     // Characterization is a single-point operation regardless of how many
     // test points the user has checkboxed in the sidebar: per the
@@ -2963,13 +2976,6 @@ function Calibration({
     if (isRemoteViewer) {
       return;
     }
-    if (isCollecting || isBulkRunning) {
-      showNotification(
-        "Corrections are view-only while calibration is running.",
-        "info"
-      );
-      return;
-    }
 
     try {
       const pointToUpdate = activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
@@ -3017,7 +3023,7 @@ function Calibration({
         onSubmit={handleSaveCorrections}
         initialValues={correctionInputs}
         onInputChange={handleCorrectionInputChange}
-        isReadOnly={isCollecting || isBulkRunning || isRemoteViewer}
+        isReadOnly={isRemoteViewer}
       />
       <HarmonicProjectionInfoModal
         isOpen={isHarmonicInfoOpen}
@@ -4389,16 +4395,12 @@ function Calibration({
                               <button
                                 type="button"
                                 onClick={handleOpenCorrectionModal}
-                                disabled={
-                                  isCalculatingAverages ||
-                                  !isCalculationReady
-                                }
                                 className="cal-results-excel-icon-btn"
                                 aria-label="Calculate AC-DC difference"
                                 title={
-                                  isCollecting || isBulkRunning
-                                    ? "View correction inputs (editing disabled while running)"
-                                    : "View or Edit Correction Inputs"
+                                  isRemoteViewer
+                                    ? "View correction inputs"
+                                    : "View or edit correction inputs"
                                 }
                               >
                                 <FaCalculator aria-hidden />
