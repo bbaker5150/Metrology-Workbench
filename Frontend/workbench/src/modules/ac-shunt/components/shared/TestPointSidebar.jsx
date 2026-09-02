@@ -655,7 +655,7 @@ function TestPointSidebar({
             type="button"
             onClick={onViewCorrections}
             className="cal-results-excel-icon-btn"
-            disabled={isBulkRunning || isCollecting || !selectedSessionId}
+            disabled={!selectedSessionId}
             aria-label="View corrections data"
             title="View corrections data"
           >
