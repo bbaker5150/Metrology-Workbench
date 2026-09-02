@@ -85,8 +85,8 @@ describe("inline tolerance global modes", () => {
     fireEvent.click(screen.getByTitle("Edit tolerance"));
 
     expect(screen.getByLabelText("Tolerance mode")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "IV %" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "% FS" })).toBeInTheDocument();
+    expect(screen.getByLabelText("IV tolerance unit")).toBeInTheDocument();
+    expect(screen.getByLabelText("Range/FS tolerance unit")).toBeInTheDocument();
     expect(screen.getByLabelText("Tolerance unit")).toBeInTheDocument();
     expect(screen.getByTitle("dB")).toBeInTheDocument();
   });
