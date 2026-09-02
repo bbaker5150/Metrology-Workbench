@@ -1741,7 +1741,7 @@ describe("UncertaintyApp", () => {
     const card = document.createElement("div");
     card.className = "panel-card";
     const header = document.createElement("div");
-    header.className = "panel-card-header instrument-panel-card-header";
+    header.className = "panel-card-header";
     const surface = document.createElement("div");
     surface.className =
       "panel-table-container instrument-panel-table-container";
@@ -1781,6 +1781,37 @@ describe("UncertaintyApp", () => {
     expect(surface.scrollTop).toBeCloseTo(76);
     expect(document.documentElement.style.zoom || "").toBe("");
 
+    const appHeaderSurface = document.querySelector(
+      ".app-chrome-zoom-surface",
+    );
+    const appHeaderContent = appHeaderSurface.querySelector(
+      ":scope > .scoped-zoom-content",
+    );
+    fireEvent.wheel(appHeaderContent, {
+      ctrlKey: true,
+      deltaY: -100,
+      clientX: 200,
+      clientY: 70,
+    });
+    expect(appHeaderSurface.dataset.zoomLevel).toBe("1.1");
+    expect(appHeaderContent.style.zoom).toBe("1.1");
+
+    const resultsSurface = document.createElement("div");
+    resultsSurface.className = "budget-results-zoom-surface";
+    resultsSurface.dataset.scopedZoomKey = "budget-results:test";
+    const resultsContent = document.createElement("div");
+    resultsContent.className = "scoped-zoom-content";
+    resultsSurface.appendChild(resultsContent);
+    document.body.appendChild(resultsSurface);
+    fireEvent.wheel(resultsContent, {
+      ctrlKey: true,
+      deltaY: -100,
+      clientX: 10,
+      clientY: 10,
+    });
+    expect(resultsSurface.dataset.zoomLevel).toBe("1.1");
+    expect(resultsContent.style.zoom).toBe("1.1");
+
     window.localStorage.setItem(
       "uncertalytics:uut:instrument-column-widths:v2",
       JSON.stringify({ description: 999 }),
@@ -1800,6 +1831,7 @@ describe("UncertaintyApp", () => {
     });
 
     card.remove();
+    resultsSurface.remove();
   });
 
   test("zooms the measurement equation area around the cursor", async () => {

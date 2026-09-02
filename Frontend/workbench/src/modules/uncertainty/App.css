@@ -73,6 +73,7 @@ body.uncertainty-active {
   /* Surfaces */
   --header-background: #ffffff;
   --content-background: #ffffff;
+  --content-background-solid: #ffffff;
   --input-background: #ffffff;
   --sidebar-background: transparent;
   --sidebar-sticky-surface: #ffffff;
@@ -176,6 +177,7 @@ body.dark-mode.uncertainty-active {
 
   --header-background: #111a2e;
   --content-background: #111a2e;
+  --content-background-solid: #111a2e;
   --input-background: #1a2640;
   --sidebar-background: transparent;
   --sidebar-sticky-surface: var(--background-color);
@@ -192,14 +194,14 @@ body.dark-mode.uncertainty-active {
 
   --status-good: #28a745;
   --status-warning: #ffc107;
-  --status-bad: #dc3545;
+  --status-bad: #ff5c73;
   --status-good-bg: #142e22;
   --status-warning-bg: #33270b;
   --status-bad-bg: #2f1b20;
 
   --risk-pfa-good-color: #28a745;
   --risk-pfa-warning-color: #ffc107;
-  --risk-pfa-bad-color: #dc3545;
+  --risk-pfa-bad-color: #ff5c73;
 
   /* Seals (Default Dark) */
   --seal-background-color: #007bff;
@@ -4790,6 +4792,18 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   overflow-x: auto;
   align-self: start;
   border-radius: 0 0 8px 8px;
+}
+
+.budget-results-zoom-surface {
+  width: 100%;
+  min-width: 0;
+  align-self: start;
+}
+
+.budget-results-zoom-surface > .scoped-zoom-content {
+  width: 100%;
+  min-width: 0;
+  transform-origin: top left;
 }
 
 .budget-stack-section .uncertainty-budget-table {
@@ -11022,7 +11036,9 @@ body.theme-cyberpunk .notification-window .window-header {
   margin: -12px -12px 8px;
   padding: 12px;
   border-bottom: 1px solid var(--border-color);
-  background: var(--background-color-secondary);
+  /* This toolbar sits over scrolling equations. Keep it fully opaque even in
+     glass-capable themes so list text never bleeds through the search field. */
+  background: var(--content-background-solid, var(--content-background));
 }
 
 .equation-library-search {
@@ -16279,14 +16295,28 @@ body.theme-cyberpunk .industry-table tr.selected-row {
   gap: 0;
 }
 
-.measurement-point-list > .scoped-zoom-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px 40px;
+.sidebar-session-info-zoom-surface,
+.measurement-points-zoom-surface {
+  flex: 0 0 auto;
+  min-width: 100%;
+}
+
+.sidebar-session-info-zoom-surface > .scoped-zoom-content,
+.measurement-points-zoom-surface > .scoped-zoom-content {
   min-width: 100%;
   box-sizing: border-box;
   transform-origin: top left;
+}
+
+.sidebar-session-info-zoom-surface > .scoped-zoom-content {
+  padding: 8px 10px 0;
+}
+
+.measurement-points-zoom-surface > .scoped-zoom-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 10px 40px;
 }
 
 .panel-table-container > table,
@@ -19001,7 +19031,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .point-grid-item
   .point-grouped-cell--leading::after {
   left: calc(
-    -1 * (var(--sidebar-point-row-pad) + var(--sidebar-point-row-border))
+    -1 * (var(--sidebar-point-row-pad) + var(--sidebar-point-row-border) + 1px)
   );
 }
 
@@ -19714,6 +19744,15 @@ body.dark-mode
         var(--sidebar-function-color, var(--primary-color)) 18%,
         transparent
       ) !important;
+}
+
+/* Failure metrics need to remain immediately legible against the more vivid
+   function-colour surfaces in dark mode. The restrained halo brightens the
+   readout without changing its layout or weight. */
+body.dark-mode
+  .uncertainty-module
+  .point-risk-metric[style*="status-bad"] {
+  text-shadow: 0 0 5px color-mix(in srgb, var(--status-bad) 55%, transparent);
 }
 
 body.dark-mode

@@ -20,6 +20,20 @@ const {
   PDFRawStream,
 } = PDFLib;
 
+const GUARDBAND_REPORT_COLUMNS = [
+  "gbPfa",
+  "gbPfr",
+  "gbMult",
+  "gbLow",
+  "gbHigh",
+  "gbCalInt",
+  "gbMeasRel",
+  "noGbPfa",
+  "noGbPfr",
+  "noGbCalInt",
+  "noGbMeasRel",
+];
+
 // --- Helper: Convert Uint8Array to Base64 (For Loading) ---
 const uint8ArrayToBase64 = (buffer) => {
   let binary = '';
@@ -172,11 +186,20 @@ export const createSessionPdfBytes = async (
 
   // 4. Generate Overview Pages
   const helpers = { getToleranceErrorSummary, getAbsoluteLimits, getTmdeAbsoluteLimits };
-  const freshlyComputedRisk = computeRiskMetricsMap(
-    currentSession.testPoints || [],
-    currentSession,
-    true,
-  );
+  // The calling view can provide its live risk map so the exported numbers
+  // are exactly the ones behind the active column filters. Standalone callers
+  // still get a fresh calculation, with guardband work limited to reports that
+  // actually display guardband or interval-mitigation columns.
+  const includeGuardband = reportOptions.includeGuardband ??
+    GUARDBAND_REPORT_COLUMNS.some(
+      (columnKey) => reportOptions.visibleColumns?.[columnKey],
+    );
+  const freshlyComputedRisk = reportOptions.riskMetricsMap ||
+    computeRiskMetricsMap(
+      currentSession.testPoints || [],
+      currentSession,
+      includeGuardband,
+    );
   // Some workbook-parity fields (for example REOP and interval projections)
   // are persisted by the detailed risk calculation, while the lightweight
   // bulk calculator refreshes PFA/PFR/TUR and guardband fields. Merge both so

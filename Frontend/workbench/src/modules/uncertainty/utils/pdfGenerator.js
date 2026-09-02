@@ -70,14 +70,9 @@ export const PDF_COLUMN_GROUPS = [
 ];
 
 export const resolvePdfColumnGroups = (visibleColumns) => {
-  const effective = {
-    ...(visibleColumns || Object.fromEntries(
+  const effective = visibleColumns || Object.fromEntries(
     PDF_COLUMN_GROUPS.flatMap((group) => group.columns.map((item) => [item.key, true])),
-    )),
-    // Every result row needs its measurement identity even if the screen's
-    // Value checkbox is off. All other report columns follow the live filter.
-    value: true,
-  };
+  );
   return PDF_COLUMN_GROUPS.map((group) => ({
     ...group,
     columns: group.columns.filter((item) => effective[item.key]),
@@ -800,6 +795,15 @@ export const generateOverviewReport = async (
     ["Confidence", `${requirements.uncertaintyConfidence ?? "-"}%`],
     ["Calibration Interval", requirements.calInt ?? "-"],
   ]);
+
+  if (!reportColumns.length) {
+    renderer.banner(
+      "No measurement-point columns are enabled in the current filter",
+      COLORS.headerFill,
+    );
+    renderer.finish();
+    return;
+  }
 
   if (!report.functions.length) {
     renderer.banner("No measurement points", COLORS.areaFill);

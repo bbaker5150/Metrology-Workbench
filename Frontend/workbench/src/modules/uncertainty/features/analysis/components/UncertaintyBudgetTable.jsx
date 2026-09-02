@@ -1622,7 +1622,10 @@ const UncertaintyBudgetTable = ({
                       )}
                 </div>
               </div>
-              <div className="budget-section-table-wrap">
+              <div
+                className="budget-section-table-wrap"
+                data-scoped-zoom-key={`budget-table:${group.kind}:${group.variableType || group.id}`}
+              >
                 {group.kind === "equation"
                   ? renderEquationTable(group)
                   : renderComponentTable(group)}
@@ -1650,21 +1653,26 @@ const UncertaintyBudgetTable = ({
                 </div>
               )}
             </div>
-            <ResultsCard
-              title={group.kind === "final" ? "Final Results" : "Results"}
-              results={
-                group.results
-              }
-              unit={group.kind === "final" ? derivedUnit : group.unit || derivedUnit}
-              sigFigs={getGroupSigFigs(group)}
-              isFinal={group.kind === "final"}
-              useEffectiveDof={
-                (useEffectiveDofByGroup[groupDofKey(group)] ?? true) !== false
-              }
-              onToggleEffectiveDof={(checked) =>
-                handleToggleEffectiveDof(groupDofKey(group), checked)
-              }
-            />
+            <div
+              className="budget-results-zoom-surface"
+              data-scoped-zoom-key={`budget-results:${group.kind}:${group.variableType || group.id}`}
+            >
+              <div className="scoped-zoom-content">
+                <ResultsCard
+                  title={group.kind === "final" ? "Final Results" : "Results"}
+                  results={group.results}
+                  unit={group.kind === "final" ? derivedUnit : group.unit || derivedUnit}
+                  sigFigs={getGroupSigFigs(group)}
+                  isFinal={group.kind === "final"}
+                  useEffectiveDof={
+                    (useEffectiveDofByGroup[groupDofKey(group)] ?? true) !== false
+                  }
+                  onToggleEffectiveDof={(checked) =>
+                    handleToggleEffectiveDof(groupDofKey(group), checked)
+                  }
+                />
+              </div>
+            </div>
           </section>
         </React.Fragment>
       ))}

@@ -66,7 +66,7 @@ import {
   faPaste,
   faCheckCircle,
   faSlidersH,
-  faColumns,
+  faArrowsLeftRight,
   faChevronDown,
   faChevronUp,
   faChevronRight,
@@ -443,8 +443,11 @@ const formatInstrumentIdentity = (item = {}) => {
 };
 
 const SCOPED_ZOOM_SURFACE_SELECTOR = [
-  ".measurement-point-list",
+  ".app-chrome-zoom-surface",
+  ".sidebar-session-info-zoom-surface",
+  ".measurement-points-zoom-surface",
   ".measurement-equation-zoom-surface",
+  ".budget-results-zoom-surface",
   ".panel-table-container",
   ".instrument-table-container",
   ".budget-section-table-wrap",
@@ -513,7 +516,16 @@ const readUiPreferences = (sessionId) => {
 };
 
 const getScopedZoomKey = (surface) => {
-  if (surface.classList.contains("measurement-point-list")) {
+  if (surface.dataset.scopedZoomKey) {
+    return surface.dataset.scopedZoomKey;
+  }
+  if (surface.classList.contains("app-chrome-zoom-surface")) {
+    return "app-header";
+  }
+  if (surface.classList.contains("sidebar-session-info-zoom-surface")) {
+    return "session-info";
+  }
+  if (surface.classList.contains("measurement-points-zoom-surface")) {
     return "measurement-points";
   }
   if (surface.classList.contains("measurement-equation-zoom-surface")) {
@@ -537,8 +549,13 @@ const getScopedZoomKey = (surface) => {
 
 // Friendly labels for the zoom toast, keyed by the scoped surface class.
 const SCOPED_ZOOM_LABELS = {
+  "app-header": "Header",
+  "session-info": "Session info",
   "measurement-points": "Point list",
   "measurement-equation": "Equation",
+  "measurement-inputs": "Measurement inputs",
+  "budget-results": "Results card",
+  "budget-table": "Budget table",
   "panel-table-container": "Table",
   "instrument-table-container": "Instrument table",
   "budget-section-table-wrap": "Budget table",
@@ -562,35 +579,53 @@ const getDefaultScopedZoom = (zoomKey) => {
 const getScopedZoomTarget = (eventTarget) => {
   if (!(eventTarget instanceof Element)) return null;
 
-  const surface = eventTarget.closest(SCOPED_ZOOM_SURFACE_SELECTOR);
+  let surface = eventTarget.closest(SCOPED_ZOOM_SURFACE_SELECTOR);
+  if (!surface) {
+    const header = eventTarget.closest(
+      ".panel-card-header, .budget-section-title-row",
+    );
+    if (header?.classList.contains("budget-section-title-row")) {
+      surface = header.parentElement?.querySelector(
+        ":scope > .budget-section-table-wrap",
+      );
+    } else if (header) {
+      surface = header.parentElement?.querySelector(
+        ":scope > .panel-table-container, :scope > * > .panel-table-container",
+      );
+    }
+  }
   if (!surface) return null;
 
   if (
-    surface.classList.contains("measurement-point-list") ||
-    surface.classList.contains("measurement-equation-zoom-surface")
+    surface.classList.contains("app-chrome-zoom-surface") ||
+    surface.classList.contains("sidebar-session-info-zoom-surface") ||
+    surface.classList.contains("measurement-points-zoom-surface") ||
+    surface.classList.contains("measurement-equation-zoom-surface") ||
+    surface.classList.contains("budget-results-zoom-surface")
   ) {
     const content = surface.querySelector(":scope > .scoped-zoom-content");
     return content ? { surface, content } : null;
   }
 
-  const table = eventTarget.closest("table");
-  if (!table || !surface.contains(table)) return null;
-  const linkedContents = surface.classList.contains(
-    "instrument-panel-table-container",
-  )
-    ? [
-        surface.parentElement?.querySelector(
-          ":scope > .instrument-panel-card-header",
-        ),
-      ].filter(Boolean)
-    : [];
+  const table = surface.querySelector(":scope > table");
+  if (!table) return null;
+  const panelHeader = surface
+    .closest(".panel-card")
+    ?.querySelector(":scope > .panel-card-header");
+  const budgetHeader = surface
+    .closest(".budget-stack-section")
+    ?.querySelector(":scope > .budget-section-title-row");
+  const linkedContents = [panelHeader, budgetHeader].filter(Boolean);
   return { surface, content: table, linkedContents };
 };
 
 const getScopedZoomContents = (surface) => {
   if (
-    surface.classList.contains("measurement-point-list") ||
-    surface.classList.contains("measurement-equation-zoom-surface")
+    surface.classList.contains("app-chrome-zoom-surface") ||
+    surface.classList.contains("sidebar-session-info-zoom-surface") ||
+    surface.classList.contains("measurement-points-zoom-surface") ||
+    surface.classList.contains("measurement-equation-zoom-surface") ||
+    surface.classList.contains("budget-results-zoom-surface")
   ) {
     const content = surface.querySelector(":scope > .scoped-zoom-content");
     return content ? [content] : [];
@@ -598,13 +633,13 @@ const getScopedZoomContents = (surface) => {
 
   const table = surface.querySelector(":scope > table");
   if (!table) return [];
-  if (!surface.classList.contains("instrument-panel-table-container")) {
-    return [table];
-  }
-  const header = surface.parentElement?.querySelector(
-    ":scope > .instrument-panel-card-header",
-  );
-  return header ? [table, header] : [table];
+  const panelHeader = surface
+    .closest(".panel-card")
+    ?.querySelector(":scope > .panel-card-header");
+  const budgetHeader = surface
+    .closest(".budget-stack-section")
+    ?.querySelector(":scope > .budget-section-title-row");
+  return [table, panelHeader, budgetHeader].filter(Boolean);
 };
 
 const parseSortableNumber = (value) => {
@@ -2388,6 +2423,7 @@ function App({ showThemeToggle = false }) {
   // vertical scrollbar width — which differs between a browser (classic
   // scrollbars reserve width) and Electron (overlay scrollbars reserve none).
   const resultsContainerRef = useRef(null);
+  const zoomRootRef = useRef(null);
 
   // --- SIDEBAR PREFERENCES ---
   const [sidebarColumns, setSidebarColumns] = useState({
@@ -2979,7 +3015,7 @@ function App({ showThemeToggle = false }) {
   ]);
 
   useEffect(() => {
-    const root = resultsContainerRef.current;
+    const root = zoomRootRef.current;
     if (!root) return undefined;
 
     const applyZoomLevels = () => {
@@ -4656,6 +4692,8 @@ function App({ showThemeToggle = false }) {
       const { saveSessionToPdf } = await import("./utils/fileIo");
       await saveSessionToPdf(currentSessionData, sessionCache, {
         visibleColumns: visibleSidebarColumns,
+        riskMetricsMap: pointRiskMap,
+        includeGuardband: mitigationColumnsEnabled,
       });
     } catch (error) {
       console.error("PDF Save Error:", error);
@@ -5651,13 +5689,13 @@ function App({ showThemeToggle = false }) {
           />
         )}
 
-        <div className="content-area uncertainty-analysis-page">
+        <div className="content-area uncertainty-analysis-page" ref={zoomRootRef}>
           {/* Module chrome — mirrors the AC-Shunt module's .app-chrome header
               (brand block on the left, a meta-icon tool cluster on the right).
               The floating draggable toolbar was removed; the global window
               chrome + theme toggle live in the workbench top bar above. */}
-          <header className="app-chrome">
-            <div className="app-chrome-bar">
+          <header className="app-chrome app-chrome-zoom-surface">
+            <div className="app-chrome-bar scoped-zoom-content">
               <div className="app-chrome-brand">
                 <div
                   className="app-chrome-brand-mark"
@@ -5882,19 +5920,25 @@ function App({ showThemeToggle = false }) {
 
               {/* === SIDEBAR LIST === */}
               <div className="measurement-point-list">
-                <div className="scoped-zoom-content">
-                {/* Session metadata stays in the sidebar; Instrument Overview
-                    now lives in the first workspace tab. */}
-                <SidebarSessionHeader
-                  sessionData={currentSessionData}
-                  onUpdate={updateSession}
-                  isSessionInfoOpen={isSessionInfoOpen}
-                  onSessionInfoOpenChange={setIsSessionInfoOpen}
-                  isRiskInputsOpen={isRiskInputsOpen}
-                  onRiskInputsOpenChange={setIsRiskInputsOpen}
-                  isMitigationInputsOpen={isMitigationInputsOpen}
-                  onMitigationInputsOpenChange={setIsMitigationInputsOpen}
-                />
+                <div className="sidebar-session-info-zoom-surface">
+                  <div className="scoped-zoom-content">
+                    {/* Session metadata stays in the sidebar; Instrument Overview
+                        now lives in the first workspace tab. */}
+                    <SidebarSessionHeader
+                      sessionData={currentSessionData}
+                      onUpdate={updateSession}
+                      isSessionInfoOpen={isSessionInfoOpen}
+                      onSessionInfoOpenChange={setIsSessionInfoOpen}
+                      isRiskInputsOpen={isRiskInputsOpen}
+                      onRiskInputsOpenChange={setIsRiskInputsOpen}
+                      isMitigationInputsOpen={isMitigationInputsOpen}
+                      onMitigationInputsOpenChange={setIsMitigationInputsOpen}
+                    />
+                  </div>
+                </div>
+
+                <div className="measurement-points-zoom-surface">
+                  <div className="scoped-zoom-content">
 
                 {/* 3. MEASUREMENT POINTS */}
                 <div className="sidebar-global-actions">
@@ -5937,7 +5981,7 @@ function App({ showThemeToggle = false }) {
                             aria-label="Reorder columns"
                             className={`sidebar-action-btn-organic ${isColumnOrderMenuOpen ? "active" : ""}`}
                           >
-                            <FontAwesomeIcon icon={faColumns} />
+                            <FontAwesomeIcon icon={faArrowsLeftRight} />
                           </button>
 
                           {isColumnOrderMenuOpen && (
@@ -6270,6 +6314,7 @@ function App({ showThemeToggle = false }) {
                       </div>
                     );
                   })}
+                  </div>
                 </div>
               </div>
             </aside>
