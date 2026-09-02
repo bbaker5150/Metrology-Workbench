@@ -90,25 +90,6 @@ def _merge_for(ws, cell_ref):
     return None
 
 
-def _grow_for_text(ws, cell_ref, text):
-    """If cell_ref anchors a multi-row merge, grow its last row's height
-    when edited/replacement text needs more lines than the template
-    author's original text did -- avoids clipping without disturbing
-    shorter text, which keeps the template's original spacing untouched."""
-    merged_range = _merge_for(ws, cell_ref)
-    if not merged_range or merged_range.max_row == merged_range.min_row or not text:
-        return
-    col_span = merged_range.max_col - merged_range.min_col + 1
-    chars_per_line = max(20, round(col_span * 2.7))
-    needed_lines = max(1, -(-len(text) // chars_per_line))
-    rows = range(merged_range.min_row, merged_range.max_row + 1)
-    current_total = sum(ws.row_dimensions[r].height or 15.6 for r in rows)
-    needed_total = needed_lines * 15.6
-    if needed_total > current_total:
-        last_row = merged_range.max_row
-        ws.row_dimensions[last_row].height = (ws.row_dimensions[last_row].height or 15.6) + (needed_total - current_total)
-
-
 def _apply_border(ws, row, col_start, col_end):
     for col in range(col_start, col_end + 1):
         ws.cell(row=row, column=col).border = CELL_BORDER
