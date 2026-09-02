@@ -619,7 +619,7 @@ body.dark-mode .reports-module {
   background-color: var(--surface-sunken, #f1f4f9);
   border: 1px solid var(--border-color, #e2e8f0);
   color: var(--text-color-subtle, #94a3b8);
-  margin-bottom: 16px;
+  margin: 0 auto 16px;
 }
 
 .roc-empty-title {

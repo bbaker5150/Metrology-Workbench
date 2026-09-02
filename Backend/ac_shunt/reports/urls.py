@@ -17,6 +17,7 @@ urlpatterns = [
     path("rocs/<int:roc_id>/excel/", views.roc_excel, name="roc-excel"),
     path("roc/generate/", views.roc_generate, name="roc-generate"),
     path("roc/template/", views.roc_template, name="roc-template"),
+    path("roc/parse/", views.roc_parse, name="roc-parse"),
     path("ac-shunt/sessions/", views.ac_shunt_sessions, name="ac-shunt-sessions"),
     path("ac-shunt/sessions/<int:session_id>/pull/", views.ac_shunt_session_pull, name="ac-shunt-session-pull"),
 ]

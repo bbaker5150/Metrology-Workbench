@@ -39,9 +39,10 @@ export async function downloadRecordROC(id, rocNumber) {
   downloadBlob(response.data, `ROC_${rocNumber}.xlsx`, response.headers);
 }
 
-export async function parseROCFile(file) {
+export async function parseROCFile(file, areaHint) {
   const form = new FormData();
   form.append("file", file);
+  if (areaHint) form.append("area", areaHint);
   const response = await axios.post(`${REPORTS_API}/roc/parse/`, form, {
     headers: { "Content-Type": "multipart/form-data" },
   });

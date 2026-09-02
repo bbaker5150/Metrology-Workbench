@@ -25,7 +25,7 @@ export default function ExcelImport({ onDataLoaded }) {
     setStatus(null);
     setPreview(null);
     try {
-      const parsed = normalizeROC(await parseROCFile(file));
+      const parsed = normalizeROC(await parseROCFile(file, areaCode));
       setPreview(parsed);
       setStatus({
         type: "ok",

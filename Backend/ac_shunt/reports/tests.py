@@ -2,12 +2,13 @@
 from io import BytesIO
 
 from django.apps import apps
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import TestCase
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from rest_framework.test import APIRequestFactory
 
-from . import views
+from . import excel, importer, views
 from .models import MeasurementArea, ROCRecord
 
 
@@ -77,9 +78,53 @@ class ReportsExcelTests(TestCase):
             response["Content-Type"],
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        # A corrupt/empty workbook would raise here.
+        # A corrupt/empty workbook would raise here. No area_code in the
+        # payload -- cellmap.area_map() falls back to AC_SHUNT's real
+        # ROC1/ROC2 template (see excel.py/cellmap.py).
         workbook = load_workbook(BytesIO(response.content))
-        self.assertIn("Report of Calibration", workbook.sheetnames)
+        self.assertEqual(workbook.sheetnames, ["ROC1", "Data Entry"])
+        # Round-tripping the generated workbook through the importer is a
+        # more robust check than pinning exact cell coordinates here.
+        parsed = importer.parse_workbook(BytesIO(response.content))
+        self.assertEqual(parsed["roc_number"], "2026-000123")
+        self.assertEqual(parsed["statements"], [{"kind": "technical", "text": "Test statement."}])
+        self.assertEqual(len(parsed["tables"]), 1)
+        self.assertEqual(parsed["tables"][0]["columns"][0], {"header": "Current", "unit": "(A)"})
+        self.assertEqual(parsed["tables"][0]["rows"][0][0], 1.0)
+        self.assertEqual(parsed["tables"][0]["rows"][1][0], 2.0)
+
+    def test_temperature_template_splits_certificate_and_raw_data(self):
+        call_command("seed_rocs")
+        request = APIRequestFactory().get("/api/reports/roc/template/", {"area": "TEMPERATURE"})
+        response = views.roc_template(request)
+        workbook = load_workbook(BytesIO(response.content))
+        self.assertEqual(workbook.sheetnames, ["Report of Calibration", "Data Entry"])
+        self.assertEqual(workbook["Report of Calibration"].print_area, "'Report of Calibration'!$A$1:$AZ$61")
+        self.assertEqual(workbook["Data Entry"]["A4"].value, "REPORT FIELDS")
+        self.assertEqual(workbook["Data Entry"]["A5"].value, "RoC #")
+
+    def test_export_preserves_reference_certificate_cell_structure(self):
+        reference = load_workbook(excel.TEMPLATES_DIR / "roc_ac_shunt.xlsx")["ROC1"]
+        generated = excel.build_workbook({
+            "area_code": "AC_SHUNT",
+            "nomenclature": "Current Shunt",
+            "statements": [{"kind": "technical", "text": "Replacement text."}],
+            "tables": [],
+        })["ROC1"]
+        self.assertEqual(
+            set(map(str, generated.merged_cells.ranges)),
+            set(map(str, reference.merged_cells.ranges)),
+        )
+        self.assertEqual(
+            {key: dim.width for key, dim in generated.column_dimensions.items()},
+            {key: dim.width for key, dim in reference.column_dimensions.items()},
+        )
+        self.assertEqual(
+            {key: dim.height for key, dim in generated.row_dimensions.items()},
+            {key: dim.height for key, dim in reference.row_dimensions.items()},
+        )
+        self.assertEqual(generated.page_setup.orientation, reference.page_setup.orientation)
+        self.assertEqual(generated.page_setup.fitToWidth, reference.page_setup.fitToWidth)
 
     def test_roc_excel_from_saved_record(self):
         call_command("seed_rocs")
@@ -94,7 +139,53 @@ class ReportsExcelTests(TestCase):
         request = APIRequestFactory().get("/api/reports/roc/template/", {"area": "AC_SHUNT"})
         response = views.roc_template(request)
         self.assertEqual(response.status_code, 200)
-        load_workbook(BytesIO(response.content))  # raises if malformed
+        workbook = load_workbook(BytesIO(response.content))  # raises if malformed
+        # A page 2 to fill in and upload back through Excel Import, even
+        # though this blank record has no table data of its own yet.
+        self.assertEqual(workbook.sheetnames, ["ROC1", "Data Entry"])
+        ws = workbook["Data Entry"]
+        # Every field from Manual Input appears as a label/input pair, in
+        # ManualInputForm.jsx's order.
+        self.assertEqual(ws["A4"].value, "REPORT FIELDS")
+        self.assertEqual(ws["A5"].value, "RoC #")
+        self.assertEqual(ws["B5"].fill.fgColor.rgb, "00FFF2CC")
+        self.assertEqual(ws["A6"].value, "Nomenclature")
+        self.assertEqual([label for _, label in excel.cellmap.DATA_ENTRY_FIELDS][-1], "Approver Title")
+        # Front-page statements and the calibration table(s) both follow.
+        self.assertIn("FRONT-PAGE STATEMENTS", [ws.cell(row=r, column=1).value for r in range(1, 30)])
+        self.assertIn("CALIBRATION DATA TABLE(S)", [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)])
+
+    def test_roc_parse_round_trips_a_generated_workbook(self):
+        call_command("seed_rocs")
+        record = ROCRecord.objects.get(area_code="AC_SHUNT")
+        generated = views.roc_excel(APIRequestFactory().get(f"/api/reports/rocs/{record.pk}/excel/"), roc_id=record.pk)
+
+        upload = SimpleUploadedFile(
+            "roc.xlsx", generated.content,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        request = APIRequestFactory().post("/api/reports/roc/parse/", {"file": upload}, format="multipart")
+        response = views.roc_parse(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["area_code"], "AC_SHUNT")
+        self.assertEqual(response.data["manufacturer"], record.manufacturer)
+        self.assertEqual(response.data["serial_number"], record.serial_number)
+        self.assertEqual(response.data["roc_number"], record.roc_number)
+        self.assertEqual(len(response.data["tables"]), len(record.tables))
+        self.assertEqual(len(response.data["tables"][0]["rows"]), len(record.tables[0]["rows"]))
+
+    def test_roc_parse_rejects_an_unrecognized_file(self):
+        workbook = Workbook()
+        workbook.active.title = "Not A ROC"
+        buffer = BytesIO()
+        workbook.save(buffer)
+        upload = SimpleUploadedFile(
+            "random.xlsx", buffer.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        request = APIRequestFactory().post("/api/reports/roc/parse/", {"file": upload}, format="multipart")
+        response = views.roc_parse(request)
+        self.assertEqual(response.status_code, 400)
 
 
 class ReportsAcShuntPullTests(TestCase):

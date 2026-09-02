@@ -3,18 +3,20 @@ Views for the Report of Calibration module.
 
 Excel generation is self-contained (reports/excel.py, no external
 dependency). AC-Shunt pull reads the api app's models in-process via
-reports/services.py. ``/roc/parse/`` (re-importing a filled-in template
-workbook) is still not built — the Excel Import tab's upload/parse flow will
-404 until a later step adds it; downloading a template still works.
+reports/services.py. ``/roc/parse/`` reads a filled-in copy of one of
+excel.py's own templates back into a ROC payload (reports/importer.py) --
+the Excel Import tab's upload flow.
 """
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, parser_classes, permission_classes
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import excel as excel_builder
+from . import importer
 from . import models, serializers, services
 
 
@@ -80,7 +82,7 @@ def _xlsx_response(workbook, filename):
 @permission_classes([AllowAny])
 def roc_generate(request):
     """Generate a workbook straight from a manual-input payload (not saved)."""
-    workbook = excel_builder.build_workbook(request.data)
+    workbook = excel_builder.build_download_workbook(request.data)
     filename = f"ROC_{request.data.get('roc_number') or 'draft'}.xlsx"
     return _xlsx_response(workbook, filename)
 
@@ -90,14 +92,16 @@ def roc_generate(request):
 def roc_excel(request, roc_id):
     """Generate a workbook from a saved ROCRecord."""
     record = get_object_or_404(models.ROCRecord, pk=roc_id)
-    workbook = excel_builder.build_workbook(serializers.ROCRecordSerializer(record).data)
+    workbook = excel_builder.build_download_workbook(serializers.ROCRecordSerializer(record).data)
     return _xlsx_response(workbook, f"ROC_{record.roc_number or record.pk}.xlsx")
 
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def roc_template(request):
-    """Generate a blank workbook pre-filled with one area's default statements."""
+    """Generate a blank workbook pre-filled with one area's default
+    statements, plus a data-entry page 2 -- fill it out in Excel and upload
+    it back through Excel Import (/roc/parse/) to load it into a record."""
     area_code = request.query_params.get("area", "")
     area = models.MeasurementArea.objects.filter(code=area_code).first()
     data = {
@@ -105,9 +109,27 @@ def roc_template(request):
         "nomenclature": area.default_nomenclature if area else "",
         "submitted_label": area.submitted_label if area else "Submitted by:",
         "statements": area.statements if area else [],
+        "tables": [],
     }
-    workbook = excel_builder.build_workbook(data)
+    workbook = excel_builder.build_template_workbook(data)
     return _xlsx_response(workbook, f"ROC_template_{area_code or 'blank'}.xlsx")
+
+
+@api_view(["POST"])
+@parser_classes([MultiPartParser])
+@permission_classes([AllowAny])
+def roc_parse(request):
+    """Parse an uploaded ROC workbook (a filled-in template, or a real lab
+    workbook) into a ROC payload for the Excel Import preview."""
+    upload = request.FILES.get("file")
+    if not upload:
+        return Response({"error": "No file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+    area_hint = request.data.get("area") or None
+    try:
+        data = importer.parse_workbook(upload, area_hint=area_hint)
+    except importer.UnsupportedWorkbook as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(data)
 
 
 @api_view(["GET"])
