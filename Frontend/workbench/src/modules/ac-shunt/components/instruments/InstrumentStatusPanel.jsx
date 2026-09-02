@@ -2,7 +2,7 @@
  * @file InstrumentStatusPanel.js
  * @brief Displays the status of connected hardware instruments and allows role assignment.
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
 import { FaSave, FaUndo, FaTimes, FaSearch, FaSync, FaEdit, FaCreativeCommonsZero } from 'react-icons/fa';
@@ -53,19 +53,28 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
     const [localIp, setLocalIp] = useState('');
     const [editingIp, setEditingIp] = useState(null);
     const [editingName, setEditingName] = useState('');
+    const scanGenerationRef = useRef(0);
 
+    // Discovery results are intentionally memory-only. The previous global
+    // localStorage cache reused one bench topology across every session.
     useEffect(() => {
-        if (selectedSessionId) {
-            const savedInstruments = localStorage.getItem(`discoveredInstruments`);
-            if (savedInstruments) {
-                setDiscoveredInstruments(JSON.parse(savedInstruments));
-            } else {
-                setDiscoveredInstruments([]);
-            }
-        } else {
-            setDiscoveredInstruments([]);
-        }
-    }, [selectedSessionId, setDiscoveredInstruments]);
+        localStorage.removeItem('discoveredInstruments');
+    }, []);
+
+    // Invalidate any in-flight request when the session changes (or this
+    // panel unmounts) so a slow response from the prior session cannot
+    // repopulate the new session with stale instruments.
+    useEffect(() => {
+        scanGenerationRef.current += 1;
+        setIsScanning(false);
+        setLocalIp('');
+        setActiveWorkstationIp('');
+        setEditingIp(null);
+        setEditingName('');
+        return () => {
+            scanGenerationRef.current += 1;
+        };
+    }, [selectedSessionId]);
 
     useEffect(() => {
         if (isRemoteViewer || isCollecting) return;
@@ -177,19 +186,23 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
     };
 
     const handleScanInstruments = async () => {
+        if (!selectedSessionId) {
+            showNotification('Please select a session before scanning for instruments.', 'warning');
+            return;
+        }
+        const scanGeneration = ++scanGenerationRef.current;
         setIsScanning(true);
         setDiscoveredInstruments([]);
 
         try {
             const response = await axios.get(`${API_BASE_URL}/instruments/discover/`);
+            if (scanGeneration !== scanGenerationRef.current) return;
             const instruments = Array.isArray(response.data.instruments) ? response.data.instruments : [];
 
             const serverIp = response.data.server_ip || response.data.local_ip || '';
 
             setLocalIp(serverIp);
             setDiscoveredInstruments(instruments);
-
-            localStorage.setItem(`discoveredInstruments`, JSON.stringify(instruments));
 
             instruments.forEach(inst => {
                 const modelMatch = inst.identity.match(/(\d{4}[A-Z]?)/);
@@ -201,9 +214,13 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
 
             showNotification(`Scan complete. Found ${instruments.length} instrument(s).`, 'success');
         } catch (error) {
-            showNotification('Failed to scan for instruments.', 'error');
+            if (scanGeneration === scanGenerationRef.current) {
+                showNotification('Failed to scan for instruments.', 'error');
+            }
         } finally {
-            setIsScanning(false);
+            if (scanGeneration === scanGenerationRef.current) {
+                setIsScanning(false);
+            }
         }
     };
 
@@ -497,8 +514,8 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                         type="button"
                         onClick={handleScanInstruments}
                         className="cal-results-excel-icon-btn"
-                        disabled={isScanning || isRemoteViewer}
-                        title={isScanning ? "Scanning..." : "Scan for Instruments"}
+                        disabled={isScanning || !selectedSessionId || isRemoteViewer}
+                        title={!selectedSessionId ? "Select a session before scanning" : isScanning ? "Scanning..." : "Scan for Instruments"}
                         aria-label="Scan for instruments"
                     >
                         <FaSearch />

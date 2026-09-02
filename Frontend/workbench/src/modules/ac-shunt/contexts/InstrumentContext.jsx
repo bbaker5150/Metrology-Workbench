@@ -145,6 +145,7 @@ export const InstrumentContextProvider = ({ children }) => {
   const lastLiveSyncSigRef = useRef({ sig: null, ts: 0 });
   const hostSyncWs = useRef(null);
   const selectedSessionIdRef = useRef(selectedSessionId);
+  const discoverySessionIdRef = useRef(null);
   // Mirror the active cycle (set by calibration_stage_update) so the
   // dual_reading_update handler can tag live points without re-rendering
   // every time `activeCollectionDetails` changes.
@@ -175,6 +176,36 @@ export const InstrumentContextProvider = ({ children }) => {
   // Keep a ref of the session ID to avoid stale closures in the WebSocket events
   useEffect(() => {
     selectedSessionIdRef.current = selectedSessionId;
+  }, [selectedSessionId]);
+
+  // Instrument discovery describes the physical topology that was present
+  // for one session. Never carry that topology, its status responses, or its
+  // open status sockets into another session; the operator must explicitly
+  // scan again after selecting a different session.
+  useEffect(() => {
+    const nextSessionId = selectedSessionId == null ? null : String(selectedSessionId);
+    if (discoverySessionIdRef.current === nextSessionId) return;
+    discoverySessionIdRef.current = nextSessionId;
+
+    Object.values(statusWs.current).forEach((socket) => {
+      if (!socket) return;
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      try {
+        socket.close();
+      } catch {
+        // The socket may already have been disposed by the browser.
+      }
+    });
+    statusWs.current = {};
+    isFetchingStatusesRef.current = {};
+    zeroingInstrumentsRef.current = {};
+    setDiscoveredInstruments([]);
+    setInstrumentStatuses({});
+    setIsFetchingStatuses({});
+    setZeroingInstruments({});
   }, [selectedSessionId]);
 
   // --- Switch Driver WebSocket Logic ---
