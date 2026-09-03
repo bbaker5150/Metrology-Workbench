@@ -36,7 +36,7 @@ const renderGhost = (onMaterialize, unit = "V") =>
   );
 
 describe("instrument table automatic height", () => {
-  it("grows for the first three instruments without shrinking on collapse", () => {
+  it("grows with all instruments while preserving a user-shortened height", () => {
     expect(
       getAutoGrownInstrumentTableHeight({
         currentHeight: 260,
@@ -57,7 +57,13 @@ describe("instrument table automatic height", () => {
         contentHeight: 620,
         instrumentCount: 4,
       }),
-    ).toBe(420);
+    ).toBe(620);
+    expect(
+      getDisplayedInstrumentTableHeight({
+        preferredHeight: null,
+        contentHeight: 920,
+      }),
+    ).toBe(920);
     expect(
       getDisplayedInstrumentTableHeight({
         preferredHeight: 420,

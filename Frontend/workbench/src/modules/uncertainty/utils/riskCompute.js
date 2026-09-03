@@ -67,6 +67,35 @@ import {
 const isFilledNumber = (v) =>
   v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v));
 
+const componentStandardUncertaintyBase = (
+  component,
+  nominalValue,
+  nominalUnit,
+) => {
+  if (
+    component?.value_native !== undefined &&
+    component?.value_native !== null &&
+    component?.unit_native
+  ) {
+    return unitSystem.toBaseUnit(
+      component.value_native,
+      component.unit_native,
+    );
+  }
+  if (
+    component?.isBaseUnitValue &&
+    Number.isFinite(Number(component.value))
+  ) {
+    return Number(component.value);
+  }
+  const value = Number(component?.value);
+  if (!Number.isFinite(value)) return NaN;
+  const nominalBase = unitSystem.toBaseUnit(nominalValue, nominalUnit);
+  return Number.isFinite(nominalBase)
+    ? (value / 1e6) * Math.abs(nominalBase)
+    : NaN;
+};
+
 // Derived points keep TMDE error sources as linked manual budget components.
 // Resolve those links against the live session master before computing sidebar
 // risk so a tolerance/range edit updates PFA/PFR immediately, just as it does
@@ -152,7 +181,7 @@ const refreshLinkedDerivedManualComponents = (
 // --- Pure uncertainty (mirrors useUncertaintyCalculation, display fields only) ---
 // Returns { combined_uncertainty_absolute_base, expanded_uncertainty_absolute_base }
 // or null when the point isn't ready to evaluate.
-function computeUncertaintyForPoint(point, sessionData) {
+export function computeUncertaintyForPoint(point, sessionData) {
   const uutNominal = point.testPointInfo?.parameter;
   if (!uutNominal || !isFilledNumber(uutNominal.value) || !uutNominal.unit) {
     return null;
@@ -333,6 +362,7 @@ function computeUncertaintyForPoint(point, sessionData) {
     } else {
       // Direct measurement.
       let totalVariancePPM = 0;
+      let totalVarianceBase = 0;
       tmdeTolerancesData.forEach((tmde) => {
         const quantity = tmde.quantity || 1;
         const toleranceSource = tmde.tolerance || tmde;
@@ -341,12 +371,28 @@ function computeUncertaintyForPoint(point, sessionData) {
           uutNominal,
         );
         components.forEach((comp) => {
-          totalVariancePPM += comp.value ** 2 * quantity;
+          if (!comp.isBaseUnitValue) {
+            totalVariancePPM += comp.value ** 2 * quantity;
+          }
+          const compBase = componentStandardUncertaintyBase(
+            comp,
+            derivedNominalValue,
+            derivedNominalUnit,
+          );
+          if (Number.isFinite(compBase)) {
+            totalVarianceBase += compBase ** 2 * quantity;
+          }
           componentsForBudgetTable.push({ ...comp, quantity });
         });
       });
       manualComponents.forEach((comp) => {
-        totalVariancePPM += comp.value ** 2;
+        if (!comp.isBaseUnitValue) totalVariancePPM += comp.value ** 2;
+        const compBase = componentStandardUncertaintyBase(
+          comp,
+          derivedNominalValue,
+          derivedNominalUnit,
+        );
+        if (Number.isFinite(compBase)) totalVarianceBase += compBase ** 2;
         componentsForBudgetTable.push(comp);
       });
 
@@ -355,15 +401,24 @@ function computeUncertaintyForPoint(point, sessionData) {
         uutNominal,
       );
       if (uutResComp) {
-        totalVariancePPM += uutResComp.value ** 2;
+        if (!uutResComp.isBaseUnitValue) {
+          totalVariancePPM += uutResComp.value ** 2;
+        }
+        const compBase = componentStandardUncertaintyBase(
+          uutResComp,
+          derivedNominalValue,
+          derivedNominalUnit,
+        );
+        if (Number.isFinite(compBase)) totalVarianceBase += compBase ** 2;
         componentsForBudgetTable.push({ ...uutResComp, quantity: 1 });
       }
 
       if (componentsForBudgetTable.length === 0) return null;
 
       combinedUncertaintyPPM = Math.sqrt(totalVariancePPM);
+      combinedUncertaintyAbsoluteBase = Math.sqrt(totalVarianceBase);
 
-      const numerator = Math.pow(combinedUncertaintyPPM, 4);
+      const numerator = Math.pow(combinedUncertaintyAbsoluteBase, 4);
       const denominator = componentsForBudgetTable.reduce((sum, comp) => {
         const dof =
           comp.dof === Infinity ||
@@ -371,24 +426,29 @@ function computeUncertaintyForPoint(point, sessionData) {
           isNaN(parseFloat(comp.dof))
             ? Infinity
             : parseFloat(comp.dof);
-        return dof === Infinity || dof <= 0 || isNaN(comp.value) || comp.value === 0
-          ? sum
-          : sum + Math.pow(comp.value, 4) / dof;
-      }, 0);
-      effectiveDof = denominator > 0 ? numerator / denominator : Infinity;
-
-      if (
-        !isNaN(combinedUncertaintyPPM) &&
-        derivedNominalValue !== 0
-      ) {
-        const derivedNominalInBase = unitSystem.toBaseUnit(
+        const compBase = componentStandardUncertaintyBase(
+          comp,
           derivedNominalValue,
           derivedNominalUnit,
         );
-        if (!isNaN(derivedNominalInBase) && derivedNominalInBase !== 0) {
-          combinedUncertaintyAbsoluteBase =
-            (combinedUncertaintyPPM / 1e6) * Math.abs(derivedNominalInBase);
-        }
+        return dof === Infinity ||
+          dof <= 0 ||
+          !Number.isFinite(compBase) ||
+          compBase === 0
+          ? sum
+          : sum + Math.pow(compBase, 4) / dof;
+      }, 0);
+      effectiveDof = denominator > 0 ? numerator / denominator : Infinity;
+
+      const derivedNominalInBase = unitSystem.toBaseUnit(
+        derivedNominalValue,
+        derivedNominalUnit,
+      );
+      if (!isNaN(derivedNominalInBase) && derivedNominalInBase !== 0) {
+        combinedUncertaintyPPM =
+          (combinedUncertaintyAbsoluteBase /
+            Math.abs(derivedNominalInBase)) *
+          1e6;
       }
     }
 
@@ -425,6 +485,32 @@ function computeUncertaintyForPoint(point, sessionData) {
   } catch {
     return null;
   }
+}
+
+// Refresh the display fields immediately after a bulk budget paste. The normal
+// selected-point hook persists these values when a point is opened, but a bulk
+// operation must not require opening every destination before its Std./Exp.
+// uncertainty columns become current.
+export function recalculatePointUncertaintyFields(point, sessionData) {
+  const results = computeUncertaintyForPoint(point, sessionData);
+  if (!results) {
+    return {
+      ...point,
+      combined_uncertainty: null,
+      combined_uncertainty_absolute_base: null,
+      expanded_uncertainty: null,
+      expanded_uncertainty_absolute_base: null,
+      k_value: null,
+    };
+  }
+  return {
+    ...point,
+    combined_uncertainty_absolute_base:
+      results.combined_uncertainty_absolute_base,
+    expanded_uncertainty_absolute_base:
+      results.expanded_uncertainty_absolute_base,
+    k_value: results.k_value,
+  };
 }
 
 // --- Pure risk (mirrors useRiskCalculation limit derivation + core metrics) ---
@@ -562,12 +648,14 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
       (acc, tmde) => {
         const hasTmdeMeasurementPoint =
           tmde.measurementPoint &&
-          tmde.measurementPoint.value &&
+          isFilledNumber(tmde.measurementPoint.value) &&
           tmde.measurementPoint.unit;
         const refPoint = hasTmdeMeasurementPoint
           ? tmde.measurementPoint
           : uutNominal;
-        if (!refPoint || !refPoint.value || !refPoint.unit) return acc;
+        if (!refPoint || !isFilledNumber(refPoint.value) || !refPoint.unit) {
+          return acc;
+        }
 
         const toleranceSource = tmde.tolerance || tmde;
         let breakdown;

@@ -881,9 +881,15 @@ export const useUncertaintyCalculation = (
         // --- DIRECT MEASUREMENT LOGIC ---
         
         let totalVariancePPM = 0;
+        let totalVarianceBase = 0;
 
         tmdeTolerancesData.forEach((tmde, tmdeIndex) => {
-          if (uutNominal && uutNominal.value) {
+          if (
+            uutNominal &&
+            uutNominal.value !== "" &&
+            uutNominal.value !== null &&
+            uutNominal.value !== undefined
+          ) {
             const quantity = Math.max(
               1,
               Math.floor(Number(tmde.quantity) || 1),
@@ -929,7 +935,16 @@ export const useUncertaintyCalculation = (
             qualifiedComponents.forEach((comp) => {
               const compValue = Number(comp.value);
               if (Number.isFinite(compValue)) {
-                totalVariancePPM += compValue ** 2;
+                if (!comp.isBaseUnitValue) totalVariancePPM += compValue ** 2;
+              }
+              const compBase = componentStandardUncertaintyBase(
+                comp,
+                derivedNominalUnit,
+                derivedNominalValue,
+                derivedNominalUnit,
+              );
+              if (Number.isFinite(compBase)) {
+                totalVarianceBase += compBase ** 2;
               }
             });
           }
@@ -940,20 +955,37 @@ export const useUncertaintyCalculation = (
           sourcePointLabel: "Manual",
         }));
         manual.forEach((comp) => {
-          totalVariancePPM += comp.value ** 2;
+          if (!comp.isBaseUnitValue) totalVariancePPM += comp.value ** 2;
+          const compBase = componentStandardUncertaintyBase(
+            comp,
+            derivedNominalUnit,
+            derivedNominalValue,
+            derivedNominalUnit,
+          );
+          if (Number.isFinite(compBase)) totalVarianceBase += compBase ** 2;
           componentsForBudgetTable.push(comp);
         });
 
         // The UUT's own measuring resolution, when opted in, joins the budget.
         const uutResComp = getUutResolutionComponent(uutToleranceData, uutNominal);
         if (uutResComp) {
-          totalVariancePPM += uutResComp.value ** 2;
+          if (!uutResComp.isBaseUnitValue) {
+            totalVariancePPM += uutResComp.value ** 2;
+          }
+          const compBase = componentStandardUncertaintyBase(
+            uutResComp,
+            derivedNominalUnit,
+            derivedNominalValue,
+            derivedNominalUnit,
+          );
+          if (Number.isFinite(compBase)) totalVarianceBase += compBase ** 2;
           componentsForBudgetTable.push({ ...uutResComp, quantity: 1 });
         }
 
         combinedUncertaintyPPM = Math.sqrt(totalVariancePPM);
+        combinedUncertaintyAbsoluteBase = Math.sqrt(totalVarianceBase);
 
-        const numerator = Math.pow(combinedUncertaintyPPM, 4);
+        const numerator = Math.pow(combinedUncertaintyAbsoluteBase, 4);
         const denominator = componentsForBudgetTable.reduce((sum, comp) => {
           const dof =
             comp.dof === Infinity ||
@@ -961,34 +993,43 @@ export const useUncertaintyCalculation = (
             isNaN(parseFloat(comp.dof))
               ? Infinity
               : parseFloat(comp.dof);
+          const compBase = componentStandardUncertaintyBase(
+            comp,
+            derivedNominalUnit,
+            derivedNominalValue,
+            derivedNominalUnit,
+          );
           return dof === Infinity ||
             dof <= 0 ||
-            isNaN(comp.value) ||
-            comp.value === 0
+            !Number.isFinite(compBase) ||
+            compBase === 0
             ? sum
-            : sum + Math.pow(comp.value, 4) / dof;
+            : sum + Math.pow(compBase, 4) / dof;
         }, 0);
         effectiveDof = denominator > 0 ? numerator / denominator : Infinity;
 
-        if (
-          !isNaN(combinedUncertaintyPPM) &&
-          !isNaN(derivedNominalValue) &&
-          derivedNominalUnit &&
-          derivedNominalValue !== 0
-        ) {
+        if (!isNaN(derivedNominalValue) && derivedNominalUnit) {
           const derivedNominalInBase = unitSystem.toBaseUnit(
             derivedNominalValue,
             derivedNominalUnit
           );
           if (!isNaN(derivedNominalInBase) && derivedNominalInBase !== 0) {
-            combinedUncertaintyAbsoluteBase =
-              (combinedUncertaintyPPM / 1e6) * Math.abs(derivedNominalInBase);
-            componentsForBudgetTable.forEach((comp) => {
-              const compBase =
-                (comp.value / 1e6) * Math.abs(derivedNominalInBase);
-              comp.contribution = compBase / targetUnitInfo.to_si;
-            });
+            combinedUncertaintyPPM =
+              (combinedUncertaintyAbsoluteBase /
+                Math.abs(derivedNominalInBase)) *
+              1e6;
           }
+          componentsForBudgetTable.forEach((comp) => {
+            const compBase = componentStandardUncertaintyBase(
+              comp,
+              derivedNominalUnit,
+              derivedNominalValue,
+              derivedNominalUnit,
+            );
+            comp.contribution = Number.isFinite(compBase)
+              ? compBase / targetUnitInfo.to_si
+              : NaN;
+          });
         }
 
         // A direct budget is already expressed by its physical source rows.
