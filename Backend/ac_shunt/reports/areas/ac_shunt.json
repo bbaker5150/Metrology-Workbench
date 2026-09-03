@@ -1,0 +1,46 @@
+{
+  "area_code": "AC_SHUNT",
+  "area_name": "AC Shunt",
+  "roc_number": "",
+  "nomenclature": "Current Shunt",
+  "manufacturer": "",
+  "model_number": "",
+  "serial_number": "",
+  "procedure_used": "",
+  "submitted_label": "Submitted by:",
+  "customer_name": "",
+  "customer_address": "",
+  "statements": [
+    {
+      "kind": "technical",
+      "text": "The DC resistance of this test instrument (TI) was measured at the current listed below by comparison to a standard shunt. Measurements were taken after the TI exhibited a condition of temperature equilibrium. The TI was found to be in tolerance. The results in this report relate only to the item(s) calibrated. There are no special limitations of use imposed on the calibration item."
+    },
+    {
+      "kind": "results_location",
+      "text": "Calibration results are listed on the following page(s)."
+    },
+    {
+      "kind": "uncertainty",
+      "text": "The expanded uncertainty of the TI is the uncertainty the TI is expected to remain within for the duration of the calibration interval. All uncertainties were calculated per NIST Technical Note 1297, “Guidelines for Evaluating and Expressing the Uncertainty of NIST Measurement Results” using a coverage factor of k=2 for a confidence level of 95%."
+    },
+    {
+      "kind": "traceability",
+      "text": "NPSL maintains traceability to the International System of Units (SI) through an unbroken chain of comparisons with the National Institute of Standards and Technology (NIST), National Measurement Institutes (NMIs), US Naval Observatory, or other Department of the Navy approved sources or intrinsic and derived standards."
+    },
+    {
+      "kind": "reproduction",
+      "text": "This Report of Calibration shall not be reproduced except in full, without the written approval of the Navy Primary Standards Laboratory. This Report of Calibration shall not be used as an endorsement by NIST, or any agency of the Federal Government for any product or service."
+    }
+  ],
+  "ambient_temperature": "",
+  "relative_humidity": "",
+  "calibration_date": "",
+  "due_date": "",
+  "issue_date": "",
+  "metrologist_name": "",
+  "metrologist_title": "",
+  "approver_name": "",
+  "approver_title": "",
+  "inline_results": [],
+  "tables": []
+}
