@@ -1,0 +1,46 @@
+{
+  "area_code": "RESISTANCE",
+  "area_name": "Resistance",
+  "roc_number": "",
+  "nomenclature": "Resistance Standard",
+  "manufacturer": "",
+  "model_number": "",
+  "serial_number": "",
+  "procedure_used": "",
+  "submitted_label": "Submitted by:",
+  "customer_name": "",
+  "customer_address": "",
+  "statements": [
+    {
+      "kind": "technical",
+      "text": "A direct comparison technique was used to evaluate the test instrument (TI) using a Navy Primary Standards Laboratory (NPSL) resistance standard. The reported value is the mean of a series of measurements. The TI was calibrated to the specifications in the related ICPs to the TI as stated in 17-35MTL-1, except as indicated in the report. In tolerance conditions are based on test results falling within specified limits with no reduction by the uncertainty of the measurement. The results contained herein relate only to the items calibrated. There are no special limitations of use imposed on the calibration item. The TI was found to be in tolerance."
+    },
+    {
+      "kind": "results_location",
+      "text": "See following page for measurement data."
+    },
+    {
+      "kind": "uncertainty",
+      "text": "The expanded uncertainty of the TI is the uncertainty the TI is expected to remain within for the duration of the calibration interval. All uncertainties were calculated per NIST Technical Note 1297, “Guidelines for Evaluating and Expressing the Uncertainty of NIST Measurement Results” using a coverage factor of k=2 for a confidence level of 95%."
+    },
+    {
+      "kind": "traceability",
+      "text": "NPSL maintains traceability to the International System of Units (SI) through an unbroken chain of comparisons with the National Institute of Standards and Technology (NIST), National Measurement Institutes (NMIs), US Naval Observatory, or other Department of the Navy approved sources or intrinsic and derived standards."
+    },
+    {
+      "kind": "reproduction",
+      "text": "This Report of Calibration shall not be reproduced except in full, without the written approval of the Navy Primary Standards Laboratory. This Report of Calibration shall not be used as an endorsement by ANAB, NIST or any agency of the Federal Government for any product or service."
+    }
+  ],
+  "ambient_temperature": "",
+  "relative_humidity": "",
+  "calibration_date": "",
+  "due_date": "",
+  "issue_date": "",
+  "metrologist_name": "",
+  "metrologist_title": "",
+  "approver_name": "",
+  "approver_title": "",
+  "inline_results": [],
+  "tables": []
+}

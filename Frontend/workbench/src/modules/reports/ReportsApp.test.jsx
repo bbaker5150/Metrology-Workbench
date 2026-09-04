@@ -4,13 +4,14 @@ import { MemoryRouter } from "react-router";
 import ReportsApp from "./ReportsApp";
 
 describe("ReportsApp", () => {
-  test("renders the module placeholder", () => {
+  test("renders the Report of Calibration module body", () => {
     render(
       <MemoryRouter>
         <ReportsApp />
       </MemoryRouter>
     );
-    expect(screen.getByText(/Report of Calibration/i)).toBeInTheDocument();
-    expect(screen.getByText(/Coming soon/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Data Source/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Report Sections/i)).toBeInTheDocument();
+    expect(screen.getByText(/AC-Shunt Pull/i)).toBeInTheDocument();
   });
 });

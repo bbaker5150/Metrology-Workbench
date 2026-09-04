@@ -11,6 +11,7 @@
     "@fortawesome/fontawesome-svg-core": "^7.2.0",
     "@fortawesome/free-solid-svg-icons": "^7.2.0",
     "@fortawesome/react-fontawesome": "^3.3.1",
+    "@react-pdf/renderer": "^4.6.0",
     "@heyirisai/docx-editor-core": "1.11.0",
     "@heyirisai/docx-editor-react": "1.11.0",
     "@react-three/drei": "^10.7.7",
