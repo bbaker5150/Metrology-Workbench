@@ -44,6 +44,7 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "overrides": {
+    "@heyirisai/docx-editor-agents": "1.11.0",
     "brace-expansion@1": "^1.1.18",
     "exceljs": {
       "uuid": "^11.1.1"
