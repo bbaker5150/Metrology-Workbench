@@ -6,38 +6,19 @@ Mirrors the flat DTO shape the frontend (``modules/reports``) already speaks
 always-present fields are normalized columns; irregular nested content
 (front-page statements, inline coefficient rows, page-2 data tables) is kept
 as JSONField, the same relational/JSON split used by the ``uncertainty`` app.
-WorkbenchRouter (``api.db_routers``) routes both tables here to the dedicated
+WorkbenchRouter (``api.db_routers``) routes this table to the dedicated
 ``reports`` database alias.
 
-A ``ROCRecord`` snapshots its ``area_code``/``area_name``/``statements`` from
-the ``MeasurementArea`` it was created from rather than holding a live FK —
-a saved ROC must not silently change if someone edits the area's default
-statements later; the frontend already assumes this (``ManualInputForm``
-copies ``area.statements`` into the record on selection).
+Measurement area *definitions* (default statements, nomenclature, etc.) are
+no longer a model -- they're plain JSON files read by ``area_registry.py``.
+A ``ROCRecord`` snapshots its ``area_code``/``area_name``/``statements``
+from the area it was created from rather than holding a live reference to
+it — a saved ROC must not silently change if someone edits an area's
+default statements later; the frontend already assumes this
+(``ManualInputForm`` copies ``area.statements`` into the record on
+selection).
 """
 from django.db import models
-
-
-class MeasurementArea(models.Model):
-    """A measurement area's default ROC front-page statements.
-
-    ``ManualInputForm`` fetches these to pre-fill a new record; the record
-    then owns its own copy (see module docstring).
-    """
-
-    code = models.CharField(max_length=32, unique=True)
-    name = models.CharField(max_length=255)
-    default_nomenclature = models.CharField(max_length=255, blank=True, default="")
-    submitted_label = models.CharField(max_length=255, blank=True, default="Submitted by:")
-    # [{kind: "technical"|"results_location"|"special"|"uncertainty"|
-    #   "traceability"|"reproduction", text: str}, ...]
-    statements = models.JSONField(default=list, blank=True)
-
-    class Meta:
-        ordering = ["name"]
-
-    def __str__(self):
-        return self.name
 
 
 class ROCRecord(models.Model):

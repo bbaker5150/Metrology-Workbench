@@ -1,26 +1,28 @@
 """
-Single source of truth for where each ROC field lives in a real NPSL
-Report of Calibration workbook — cell coordinates transcribed from four
-completed reports reviewed in a ``ROCs/`` folder that sits next to this
-repo's checkout (see ``management/commands/seed_rocs.py`` for the file
-list). ``excel.py`` (writer) and ``importer.py`` (reader) both import this
-module so the two directions can never drift apart — a cell that moves here
-moves for both at once.
+Single source of truth for where each ROC field lives in the app's one
+canonical Excel layout — cell coordinates transcribed from a real NPSL
+Report of Calibration workbook (the AC-Shunt lab original; see
+``management/commands/seed_rocs.py``'s former docstring for provenance).
+``excel.py`` (writer) and ``importer.py`` (reader) both import this module
+so the two directions can never drift apart — a cell that moves here moves
+for both at once.
 
-Layout, per area:
-  - ``template``: the trimmed-down real workbook this area's ROC is built
-    from (``templates/<file>``, labels/fonts/merges/page-setup intact,
-    every field cell blanked).
-  - ``page1_sheet`` / ``page2_sheet``: sheet names. AC_SHUNT and RESISTANCE
-    use two real sheets (matching the source files' own ROC1/ROC2 and
-    ROC/"Roc Data" split); TEMPERATURE's source keeps everything on one
-    sheet, so both point at the same name.
+Every measurement area shares this one layout now (see
+``reports/area_registry.py`` — areas are plain JSON data, not separate
+cell-coordinate maps). Two other real lab-original workbooks
+(``templates/roc_resistance.xlsx``, ``templates/roc_temperature.xlsx``)
+still sit in ``templates/`` for reference but are no longer wired to
+anything; only ``roc_ac_shunt.xlsx``'s layout is used going forward.
+
+``TEMPLATE`` layout:
+  - ``template``: the trimmed-down real workbook every ROC is built from
+    (``templates/<file>``, labels/fonts/merges/page-setup intact, every
+    field cell blanked).
+  - ``page1_sheet`` / ``page2_sheet``: sheet names.
   - ``fields``: flat non-statement values, ``field_name -> "A1"`` cell on
     ``page1_sheet`` (top-left cell of the merge, if the field is merged).
   - ``statements``: statement ``kind`` (see ``STATEMENT_ORDER`` in
-    ``excel.py``) -> cell on ``page1_sheet``. A kind missing here is simply
-    not written for that area (e.g. TEMPERATURE's source has no
-    ``results_location`` sentence).
+    ``excel.py``) -> cell on ``page1_sheet``.
   - ``page2_fields``: the nomenclature/manufacturer/model/serial + cal/due
     date header repeated at the top of the data page, cell on
     ``page2_sheet``.
@@ -31,159 +33,57 @@ Layout, per area:
     be pinned to fixed template cells the way the fields above can.
 """
 
-AREA_TEMPLATES = {
-    "AC_SHUNT": {
-        "template": "roc_ac_shunt.xlsx",
-        "page1_sheet": "ROC1",
-        "page2_sheet": "ROC2",
-        "fields": {
-            "nomenclature": "A11",
-            "manufacturer": "J12",
-            "model_number": "J13",
-            "serial_number": "J14",
-            "submitted_label": "A15",
-            "customer_name": "A16",
-            "customer_address": "A17",
-            "procedure_used": "K23",
-            "ambient_temperature": "R42",
-            "calibration_date": "AW42",
-            "relative_humidity": "R43",
-            "due_date": "AW43",
-            "metrologist_name": "I48",
-            "approver_name": "AQ48",
-            "metrologist_title": "F50",
-            "approver_title": "AV50",
-            "roc_number": "E52",
-            "page_label": "Z52",
-            "issue_date": "AW52",
-        },
-        "statements": {
-            "technical": "A19",
-            "results_location": "A25",
-            "uncertainty": "A27",
-            "traceability": "A33",
-            "reproduction": "A38",
-        },
-        "page2_fields": {
-            "nomenclature": "K1",
-            "calibration_date": "AW1",
-            "manufacturer": "K2",
-            "due_date": "AW2",
-            "model_number": "K3",
-            "serial_number": "K4",
-            "roc_number": "E45",
-            "page_label": "A46",
-        },
-        "table_start_row": 7,
+TEMPLATE = {
+    "template": "roc_ac_shunt.xlsx",
+    "page1_sheet": "ROC1",
+    "page2_sheet": "ROC2",
+    "fields": {
+        "nomenclature": "A11",
+        "manufacturer": "J12",
+        "model_number": "J13",
+        "serial_number": "J14",
+        "submitted_label": "A15",
+        "customer_name": "A16",
+        "customer_address": "A17",
+        "procedure_used": "K23",
+        "ambient_temperature": "R42",
+        "calibration_date": "AW42",
+        "relative_humidity": "R43",
+        "due_date": "AW43",
+        "metrologist_name": "I48",
+        "approver_name": "AQ48",
+        "metrologist_title": "F50",
+        "approver_title": "AV50",
+        "roc_number": "E52",
+        "page_label": "Z52",
+        "issue_date": "AW52",
     },
-    "RESISTANCE": {
-        "template": "roc_resistance.xlsx",
-        "page1_sheet": "ROC",
-        "page2_sheet": "Roc Data",
-        "fields": {
-            "nomenclature": "A11",
-            "manufacturer": "J12",
-            "model_number": "J13",
-            "serial_number": "J14",
-            "submitted_label": "A15",
-            "customer_name": "A16",
-            "customer_address": "A17",
-            "procedure_used": "K23",
-            "ambient_temperature": "R40",
-            "calibration_date": "AX40",
-            "relative_humidity": "R41",
-            "due_date": "AX41",
-            "metrologist_name": "L45",
-            "approver_name": "AR45",
-            "metrologist_title": "I47",
-            "approver_title": "AM47",
-            "roc_number": "E54",
-            "page_label": "Z54",
-            "issue_date": "AV54",
-        },
-        "statements": {
-            "technical": "A19",
-            "results_location": "A24",
-            "uncertainty": "A26",
-            "traceability": "A31",
-            "reproduction": "A36",
-        },
-        "page2_fields": {
-            "nomenclature": "I2",
-            "calibration_date": "AX2",
-            "manufacturer": "I3",
-            "due_date": "AX3",
-            "model_number": "I4",
-            "serial_number": "I5",
-            "roc_number": "F52",
-            "page_label": "Z52",
-        },
-        "table_start_row": 8,
+    "statements": {
+        "technical": "A19",
+        "results_location": "A25",
+        "uncertainty": "A27",
+        "traceability": "A33",
+        "reproduction": "A38",
     },
-    "TEMPERATURE": {
-        "template": "roc_temperature.xlsx",
-        "page1_sheet": "Report of Calibration",
-        # The lab original continues its result pages below the first page on
-        # one very tall worksheet.  Downloads deliberately split that into a
-        # conventional two-tab ROC: the source-formatted certificate face on
-        # sheet 1 and an editable calibration-data table on sheet 2.
-        "page2_sheet": "Calibration Data",
-        "fields": {
-            "nomenclature": "A11",
-            "manufacturer": "I13",
-            "model_number": "I14",
-            "serial_number": "I15",
-            "submitted_label": "A17",
-            "customer_name": "A19",
-            "customer_address": "A20",
-            # No dedicated procedure cell in the source (it's embedded in
-            # the technical statement's prose there) — added on the blank
-            # row between the statement and the coefficient block so this
-            # area still exposes the same procedure_used field as the
-            # other two.
-            "procedure_used": "I27",
-            "ambient_temperature": "M51",
-            "calibration_date": "AS51",
-            "relative_humidity": "M52",
-            "due_date": "AS52",
-            "metrologist_name": "G58",
-            "approver_name": "AP58",
-            "metrologist_title": "E59",
-            "approver_title": "AL59",
-            "roc_number": "E61",
-            "page_label": "AA61",
-            "issue_date": "AT61",
-        },
-        "statements": {
-            "technical": "A22",
-            "uncertainty": "A36",
-            "traceability": "A42",
-            "reproduction": "A47",
-        },
-        "page2_fields": {
-            "nomenclature": "K1",
-            "calibration_date": "AW1",
-            "manufacturer": "K2",
-            "due_date": "AW2",
-            "model_number": "K3",
-            "serial_number": "K4",
-            "roc_number": "E45",
-            "page_label": "A46",
-        },
-        "table_start_row": 7,
+    "page2_fields": {
+        "nomenclature": "K1",
+        "calibration_date": "AW1",
+        "manufacturer": "K2",
+        "due_date": "AW2",
+        "model_number": "K3",
+        "serial_number": "K4",
+        "roc_number": "E45",
+        "page_label": "A46",
     },
+    "table_start_row": 7,
 }
-
-
-def area_map(area_code):
-    return AREA_TEMPLATES.get(area_code) or AREA_TEMPLATES["AC_SHUNT"]
 
 
 # ---------------------------------------------------------------------------
 # Synthetic "Data Entry" worksheet layout -- shared by every area and by
 # every download (blank ROC Template, a saved record's export, and a manual
 # draft export all build this same page 2, see excel.py's
-# _build_data_entry_sheet / build_template_workbook). Unlike AREA_TEMPLATES
+# _build_data_entry_sheet / build_template_workbook). Unlike TEMPLATE
 # above, none of this traces to a real NPSL file: it's a plain, unmerged
 # form built from scratch so a user can hand-type or edit every field the
 # Manual Input tab exposes -- front-page fields, statements, inline
@@ -203,7 +103,12 @@ DATA_ENTRY_SECTION_HEADERS = {
 
 # field_name -> label, in display order -- mirrors ManualInputForm.jsx's
 # Instrument / Customer / Environment & Dates / Personnel sections exactly.
+# area_code leads the list so a round-tripped download (Template or a saved
+# record's export) always carries its area on re-upload -- see
+# importer.py's parse_workbook, which no longer has per-area sheet names to
+# detect the area from now that every area shares this one layout.
 DATA_ENTRY_FIELDS = [
+    ("area_code", "Measurement Area"),
     ("roc_number", "RoC #"),
     ("nomenclature", "Nomenclature"),
     ("manufacturer", "Manufacturer"),
@@ -225,9 +130,9 @@ DATA_ENTRY_FIELDS = [
 ]
 
 # statement kind -> label, in excel.py's STATEMENT_ORDER -- includes
-# "special", which (unlike the other five kinds) has no fixed cell in any
-# AREA_TEMPLATES entry above and so previously had nowhere to be written on
-# an exported workbook at all.
+# "special", which (unlike the other five kinds) has no fixed cell in
+# TEMPLATE above and so previously had nowhere to be written on an exported
+# workbook at all.
 DATA_ENTRY_STATEMENTS = [
     ("technical", "Technical / Method Statement"),
     ("results_location", "Results Location Statement"),

@@ -6,9 +6,9 @@ Two directions live here:
   - Functions other modules import (never HTTP) to read report data without
     crossing process boundaries — the "soft dependency" contract from
     docs/adding-a-module.md. Empty until another module needs to pull ROC
-    data in-process. CRUD on MeasurementArea/ROCRecord itself lives in
-    views.py — that part of this file is for callers *outside* the reports
-    app.
+    data in-process. CRUD on ROCRecord itself lives in views.py -- area
+    *definitions* aren't a model at all, see area_registry.py -- that part
+    of this file is for callers *outside* the reports app.
 
   - list_ac_shunt_sessions()/pull_ac_shunt_session() below: reports is the
     downstream end of the pipeline (AC-Shunt -> Type-A -> Uncertainty Budget
@@ -19,7 +19,7 @@ Two directions live here:
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.utils import Error as DjangoDBError
 
-from .models import MeasurementArea
+from . import area_registry
 
 AC_SHUNT_AREA_CODE = "AC_SHUNT"
 
@@ -72,7 +72,7 @@ def pull_ac_shunt_session(session_id):
     except (CalibrationSession.DoesNotExist, DjangoDBError):
         return None
 
-    area = MeasurementArea.objects.filter(code=AC_SHUNT_AREA_CODE).first()
+    area = area_registry.get_area(AC_SHUNT_AREA_CODE)
 
     rows = []
     try:
@@ -95,18 +95,18 @@ def pull_ac_shunt_session(session_id):
         ])
 
     return {
-        "area_code": area.code if area else AC_SHUNT_AREA_CODE,
-        "area_name": area.name if area else "AC Shunt",
+        "area_code": area["area_code"] if area else AC_SHUNT_AREA_CODE,
+        "area_name": area["area_name"] if area else "AC Shunt",
         "roc_number": "",
-        "nomenclature": area.default_nomenclature if area else "Current Shunt",
+        "nomenclature": area["nomenclature"] if area else "Current Shunt",
         "manufacturer": "",
         "model_number": session.test_instrument_model or "",
         "serial_number": session.test_instrument_serial or "",
-        "submitted_label": area.submitted_label if area else "Submitted by:",
+        "submitted_label": area["submitted_label"] if area else "Submitted by:",
         "customer_name": "",
         "customer_address": "",
         "procedure_used": "",
-        "statements": area.statements if area else [],
+        "statements": area["statements"] if area else [],
         "inline_results": [],
         "ambient_temperature": _round_or_blank(session.temperature),
         "relative_humidity": _round_or_blank(session.humidity),

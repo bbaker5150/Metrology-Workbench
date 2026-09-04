@@ -208,7 +208,7 @@ def _make_calibration_data_sheet(wb, area):
 def build_workbook(data: dict, *, template_mode=False):
     """Build a Workbook from a ROC payload dict (the same shape ManualInputForm
     edits and ROCRecordSerializer produces)."""
-    area = cellmap.area_map(data.get("area_code") or "")
+    area = cellmap.TEMPLATE
     wb = load_workbook(TEMPLATES_DIR / area["template"])
     ws1 = wb[area["page1_sheet"]]
     # The trimmed temperature source contains legacy result-page formatting
@@ -505,7 +505,7 @@ def build_template_workbook(data: dict):
     (_build_data_entry_sheet). One builder backs every download; they differ
     only in how much of `data` is populated.
     """
-    area = cellmap.area_map(data.get("area_code") or "")
+    area = cellmap.TEMPLATE
     # tables=[] here always -- build_workbook's own table-writing path
     # targets the real per-area page2 sheet, which this download layout
     # replaces outright with _build_data_entry_sheet below.

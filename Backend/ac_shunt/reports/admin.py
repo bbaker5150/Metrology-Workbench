@@ -1,12 +1,6 @@
 from django.contrib import admin
 
-from .models import MeasurementArea, ROCRecord
-
-
-@admin.register(MeasurementArea)
-class MeasurementAreaAdmin(admin.ModelAdmin):
-    list_display = ["code", "name", "default_nomenclature"]
-    search_fields = ["code", "name"]
+from .models import ROCRecord
 
 
 @admin.register(ROCRecord)

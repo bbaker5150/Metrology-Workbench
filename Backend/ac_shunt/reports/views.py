@@ -15,7 +15,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from . import excel as excel_builder
+from . import area_registry, excel as excel_builder
 from . import importer
 from . import models, serializers, services
 
@@ -34,8 +34,7 @@ def module_info(request):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def areas(request):
-    qs = models.MeasurementArea.objects.all()
-    return Response(serializers.MeasurementAreaSerializer(qs, many=True).data)
+    return Response(area_registry.list_areas())
 
 
 @api_view(["GET", "POST"])
@@ -99,20 +98,16 @@ def roc_excel(request, roc_id):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def roc_template(request):
-    """Generate a blank workbook pre-filled with one area's default
-    statements, plus a data-entry page 2 -- fill it out in Excel and upload
-    it back through Excel Import (/roc/parse/) to load it into a record."""
+    """Generate a workbook pre-filled with one area's default statements
+    (and any other defaults its areas/<code>.json carries), plus a
+    data-entry page 2 -- fill it out in Excel and upload it back through
+    Excel Import (/roc/parse/) to load it into a record."""
     area_code = request.query_params.get("area", "")
-    area = models.MeasurementArea.objects.filter(code=area_code).first()
-    data = {
-        "area_code": area_code,
-        "nomenclature": area.default_nomenclature if area else "",
-        "submitted_label": area.submitted_label if area else "Submitted by:",
-        "statements": area.statements if area else [],
-        "tables": [],
-    }
+    data = area_registry.get_area(area_code)
+    if data is None:
+        return Response({"error": f"Unknown measurement area '{area_code}'."}, status=status.HTTP_404_NOT_FOUND)
     workbook = excel_builder.build_template_workbook(data)
-    return _xlsx_response(workbook, f"ROC_template_{area_code or 'blank'}.xlsx")
+    return _xlsx_response(workbook, f"ROC_template_{area_code}.xlsx")
 
 
 @api_view(["POST"])
