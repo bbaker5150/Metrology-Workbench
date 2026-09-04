@@ -24,8 +24,9 @@ from datetime import date
 from io import BytesIO
 from pathlib import Path
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 from . import cellmap
 
@@ -73,12 +74,24 @@ def _set(ws, cell_ref, value):
         ws[cell_ref] = value
 
 
-def _tie_formula(data_entry_row):
-    """A live reference to a Data Entry field/statement's input cell (column
-    B), blank instead of 0 when that cell is empty -- see build_workbook's
-    REPORT FIELDS / FRONT-PAGE STATEMENTS loops."""
-    ref = f"'Data Entry'!B{data_entry_row}"
+def _tie_formula(data_entry_cell_ref):
+    """A live reference to a Data Entry cell, blank instead of 0 when that
+    cell is empty -- see build_workbook's REPORT FIELDS / FRONT-PAGE
+    STATEMENTS loops and its calibration-table tie."""
+    ref = f"'Data Entry'!{data_entry_cell_ref}"
     return f'=IF({ref}="","",{ref})'
+
+
+def _tie_inline_result_formula(data_entry_row):
+    """A live reference to one Data Entry inline-results row (columns
+    A-D: Label, Value, Label 2, Value 2), reconstructing the same
+    "label = value     label2 = value2" text build_workbook writes literally
+    when there's no Data Entry sheet to tie to -- each pair only contributes
+    if both its label and value are non-blank, same as the literal version."""
+    a, b, c, d = (f"'Data Entry'!{col}{data_entry_row}" for col in "ABCD")
+    pair1 = f'IF(AND({a}<>"",{b}<>""),{a}&" = "&{b},"")'
+    pair2 = f'IF(AND({c}<>"",{d}<>""),{c}&" = "&{d},"")'
+    return f'=TEXTJOIN("     ",TRUE,{pair1},{pair2})'
 
 
 def _merge_for(ws, cell_ref):
@@ -117,7 +130,14 @@ def _write_paragraph(ws, row, text):
     return row + 2
 
 
-def _write_table(ws, row, table, *, input_mode=False):
+def _write_table(ws, row, table, *, input_mode=False, tie_layout=None):
+    """`tie_layout` (from _build_data_entry_sheet's per-table return value:
+    {"data_start_row", "width"}), when given, ties each data cell to its
+    Data Entry counterpart instead of writing the value literally -- editing
+    the number in Data Entry updates the certificate page's own copy of it
+    in Excel. Only real columns (0..width-1) are tied; Data Entry's extra
+    "Additional N" growth columns have no certificate-page counterpart to
+    tie to."""
     row = _write_paragraph(ws, row, table.get("intro_text"))
     if table.get("title"):
         cell = ws.cell(row=row, column=1, value=table["title"])
@@ -142,9 +162,14 @@ def _write_table(ws, row, table, *, input_mode=False):
     ws.row_dimensions[row].height = 30
     row += 1
 
-    for data_row in table.get("rows") or []:
-        for (start, end), value in zip(spans, data_row):
-            cell = ws.cell(row=row, column=start, value=value if value not in (None,) else "")
+    for row_index, data_row in enumerate(table.get("rows") or []):
+        for col_index, ((start, end), value) in enumerate(zip(spans, data_row)):
+            if tie_layout is not None and col_index < tie_layout["width"]:
+                de_ref = f"{get_column_letter(col_index + 1)}{tie_layout['data_start_row'] + row_index}"
+                cell_value = _tie_formula(de_ref)
+            else:
+                cell_value = value if value not in (None,) else ""
+            cell = ws.cell(row=row, column=start, value=cell_value)
             cell.font = BODY_FONT
             cell.alignment = CENTER
             if input_mode:
@@ -205,9 +230,19 @@ def _make_calibration_data_sheet(wb, area):
     return ws
 
 
-def build_workbook(data: dict, *, template_mode=False):
+def build_workbook(data: dict, *, template_mode=False, with_data_entry_tie=False):
     """Build a Workbook from a ROC payload dict (the same shape ManualInputForm
-    edits and ROCRecordSerializer produces)."""
+    edits and ROCRecordSerializer produces).
+
+    `with_data_entry_tie=True` (build_template_workbook's downloads) also
+    builds the Data Entry sheet (_build_data_entry_sheet) and ties every
+    certificate-page value to it -- REPORT FIELDS / FRONT-PAGE STATEMENTS
+    (fixed cells, always tied), plus Inline Results and each calibration
+    table's data cells (their Data Entry row/column only known once Data
+    Entry itself has been built, hence building it first, here, rather than
+    as a separate step afterward). `False` (the default; every other
+    caller, including the tests that inspect build_workbook's output
+    directly) writes plain literal values and no Data Entry sheet at all."""
     area = cellmap.TEMPLATE
     wb = load_workbook(TEMPLATES_DIR / area["template"])
     ws1 = wb[area["page1_sheet"]]
@@ -229,26 +264,32 @@ def build_workbook(data: dict, *, template_mode=False):
     else:
         _fit_to_one_page_wide(wb[area["page2_sheet"]])
 
+    # Built before anything below ties to it, so each calibration table's
+    # Data Entry row/column is already known (_build_data_entry_sheet
+    # returns it) by the time the ws2 loop needs it.
+    table_layouts = None
+    if with_data_entry_tie:
+        _, table_layouts = _build_data_entry_sheet(wb, data)
+
     # REPORT FIELDS / FRONT-PAGE STATEMENTS are *tied*: the certificate cell
     # holds a live formula pointing at its Data Entry input cell (see
     # cellmap.data_entry_field_row/_statement_row) instead of a duplicated
     # value, so editing either sheet in Excel updates the other. Inline
-    # Results and the calibration table(s) are deliberately NOT tied (see
-    # cellmap.py's comment on DATA_ENTRY_FIELDS_HEADER_ROW) -- those stay
-    # independent, plain values below.
+    # Results and the calibration table(s) are tied the same way -- see
+    # below -- once a Data Entry sheet exists to tie to (with_data_entry_tie).
     fields = area["fields"]
     for name, cell_ref in fields.items():
         de_row = cellmap.data_entry_field_row(name)
-        if de_row is not None:
-            ws1[cell_ref] = _tie_formula(de_row)
+        if de_row is not None and with_data_entry_tie:
+            ws1[cell_ref] = _tie_formula(f"B{de_row}")
         else:
             value = data.get(name)
             _set(ws1, cell_ref, _format_date(value) if name in DATE_FIELDS else value)
 
     for kind, cell_ref in area["statements"].items():
         de_row = cellmap.data_entry_statement_row(kind)
-        if de_row is not None:
-            ws1[cell_ref] = _tie_formula(de_row)
+        if de_row is not None and with_data_entry_tie:
+            ws1[cell_ref] = _tie_formula(f"B{de_row}")
 
     tables = data.get("tables") or []
     pages = 2 if tables else 1
@@ -268,12 +309,17 @@ def build_workbook(data: dict, *, template_mode=False):
             row = last_row + 2
         else:
             row = 20
-        for line in data["inline_results"]:
-            cells = [str(c) for c in line if c not in (None, "")]
-            if not cells:
-                continue
-            pairs = [f"{cells[i]} = {cells[i + 1]}" for i in range(0, len(cells) - 1, 2)]
-            cell = ws1.cell(row=row, column=1, value="     ".join(pairs))
+        for index, line in enumerate(data["inline_results"]):
+            if with_data_entry_tie:
+                de_row = cellmap.DATA_ENTRY_INLINE_RESULTS_DATA_START_ROW + index
+                cell_value = _tie_inline_result_formula(de_row)
+            else:
+                cells = [str(c) for c in line if c not in (None, "")]
+                if not cells:
+                    continue
+                pairs = [f"{cells[i]} = {cells[i + 1]}" for i in range(0, len(cells) - 1, 2)]
+                cell_value = "     ".join(pairs)
+            cell = ws1.cell(row=row, column=1, value=cell_value)
             cell.font = BODY_FONT
             cell.alignment = CENTER
             ws1.merge_cells(start_row=row, start_column=1, end_row=row, end_column=GRID_COLUMNS)
@@ -292,9 +338,24 @@ def build_workbook(data: dict, *, template_mode=False):
             value = data.get(name)
             _set(ws2, cell_ref, _format_date(value) if name in DATE_FIELDS else value)
 
+    # The real lab-original source (roc_ac_shunt.xlsx) has its own stray
+    # border formatting scattered below the header, left over from that
+    # specific completed report's own table -- empty cells with a border and
+    # no value, at positions unrelated to whatever shape *this* record's
+    # table(s) turn out to be. Left alone, they show up as random bordered
+    # boxes wherever our own table doesn't happen to cover them. Clear
+    # everything from table_start_row down before writing our own table(s)
+    # so nothing but our own formatting shows.
+    for r in range(area["table_start_row"], max(ws2.max_row, area["table_start_row"]) + 1):
+        for c in range(1, GRID_COLUMNS + 1):
+            cell = ws2.cell(row=r, column=c)
+            cell.border = Border()
+            cell.fill = PatternFill(fill_type=None)
+
     row = area["table_start_row"]
-    for table in tables:
-        row = _write_table(ws2, row, table, input_mode=template_mode)
+    for index, table in enumerate(tables):
+        layout = table_layouts[index] if table_layouts else None
+        row = _write_table(ws2, row, table, input_mode=template_mode, tie_layout=layout)
 
     if template_mode:
         # Title, spacer, and header occupy the first three table rows.
@@ -372,7 +433,7 @@ def _write_inline_results_table(ws, row, inline_results, *, min_rows=8):
 
 
 def _write_calibration_table(ws, row, table, *, area_code="", extra_columns=5,
-                              min_extra_rows=10, min_total_rows=25, freeze=False):
+                              min_extra_rows=10, min_total_rows=25):
     """One calibration data table: title (+ optional intro paragraph),
     header row, then data rows padded well past whatever real data is
     present, plus a handful of pre-formatted extra columns -- so there's
@@ -412,8 +473,7 @@ def _write_calibration_table(ws, row, table, *, area_code="", extra_columns=5,
         cell.fill = INPUT_FILL
         cell.border = CELL_BORDER
     row += 1
-    if freeze:
-        ws.freeze_panes = ws.cell(row=row, column=2).coordinate
+    data_start_row = row
 
     height = max(len(data_rows) + min_extra_rows, min_total_rows)
     for r in range(height):
@@ -427,7 +487,8 @@ def _write_calibration_table(ws, row, table, *, area_code="", extra_columns=5,
             cell.border = CELL_BORDER
         row += 1
 
-    return row + 1  # blank spacer row before the next table
+    layout = {"data_start_row": data_start_row, "width": width}
+    return row + 1, layout  # blank spacer row before the next table
 
 
 def _build_data_entry_sheet(wb, data):
@@ -436,7 +497,13 @@ def _build_data_entry_sheet(wb, data):
     coefficients, and the calibration data table(s) at the bottom. Built
     from `data`, so this is identical whether `data` is empty (a blank ROC
     Template download) or a saved/drafted record's full payload (a
-    prefilled download) -- see build_template_workbook."""
+    prefilled download) -- see build_template_workbook.
+
+    Returns (ws, table_layouts): table_layouts is one
+    {"data_start_row", "width"} dict per table in `data["tables"]`, in
+    order -- used by build_workbook (with_data_entry_tie=True) to tie the
+    certificate page's own copy of each calibration table to these same
+    cells."""
     ws = wb.create_sheet("Data Entry")
     ws.sheet_view.showGridLines = False
     ws.page_setup.orientation = "landscape"
@@ -471,12 +538,17 @@ def _build_data_entry_sheet(wb, data):
     for kind, label in cellmap.DATA_ENTRY_STATEMENTS:
         row = _write_form_statement_row(ws, row, label, statements_by_kind.get(kind, ""))
 
-    row += 1
+    # From the fixed cellmap row (not the natural cursor) -- guarantees this
+    # can't silently drift from DATA_ENTRY_INLINE_RESULTS_DATA_START_ROW,
+    # which build_workbook's inline-results tie relies on.
+    row = cellmap.DATA_ENTRY_INLINE_RESULTS_HEADER_ROW
     row = _write_section_header(ws, row, cellmap.DATA_ENTRY_SECTION_HEADERS["inline_results"])
     note = ws.cell(row=row, column=1, value="One row per line: Label | Value | Label 2 | Value 2.")
     note.font = Font(name="Times New Roman", size=10, italic=True)
     row += 1
     row = _write_inline_results_table(ws, row, data.get("inline_results") or [])
+    assert row == cellmap.DATA_ENTRY_INLINE_RESULTS_DATA_START_ROW + max(len(data.get("inline_results") or []), 8), \
+        "DATA_ENTRY_INLINE_RESULTS_DATA_START_ROW drifted from _write_inline_results_table's actual layout"
 
     row += 1
     row = _write_section_header(ws, row, cellmap.DATA_ENTRY_SECTION_HEADERS["calibration"])
@@ -489,40 +561,53 @@ def _build_data_entry_sheet(wb, data):
 
     tables = data.get("tables") or [{}]
     area_code = data.get("area_code") or ""
-    for index, table in enumerate(tables):
-        row = _write_calibration_table(ws, row, table, area_code=area_code, freeze=(index == 0))
+    table_layouts = []
+    for table in tables:
+        row, layout = _write_calibration_table(ws, row, table, area_code=area_code)
+        table_layouts.append(layout)
 
     last_col = max(14, max((len(t.get("columns") or []) + 5 for t in tables), default=14))
     ws.print_area = f"A1:{ws.cell(row=1, column=last_col).column_letter}{row}"
-    return ws
+    return ws, table_layouts
 
 
 def build_template_workbook(data: dict):
-    """Build the app's ROC Template/download: the certificate page from the
-    lab template (build_workbook, populated with whatever front-page data is
-    present in `data` -- blank for a fresh template, filled in for a
-    prefilled download), plus the synthetic Data Entry page 2
-    (_build_data_entry_sheet). One builder backs every download; they differ
-    only in how much of `data` is populated.
+    """Build a filled-in download: the certificate page from the lab
+    template, its real page-2 calibration data page when there are tables
+    (both via build_workbook -- the same polished, read-only look the app's
+    PDF preview renders, not a fill-in form), plus the synthetic Data Entry
+    page (_build_data_entry_sheet). Every value on the certificate and its
+    real page 2 -- REPORT FIELDS, FRONT-PAGE STATEMENTS, Inline Results, and
+    each calibration table's data cells -- is a live formula tied to Data
+    Entry (build_workbook's with_data_entry_tie=True): edit either page in
+    Excel and the other updates too. Used for both download buttons that
+    have a real record behind them (draft generate, saved-record export) --
+    see build_download_workbook. The blank "ROC Template" download has no
+    record yet, so it skips the certificate page entirely instead of
+    shipping an empty one -- see build_blank_template_workbook.
     """
-    area = cellmap.TEMPLATE
-    # tables=[] here always -- build_workbook's own table-writing path
-    # targets the real per-area page2 sheet, which this download layout
-    # replaces outright with _build_data_entry_sheet below.
-    front_page_data = {**data, "tables": []}
-    wb = build_workbook(front_page_data)
-    ws1 = wb[area["page1_sheet"]]
-    assert wb.sheetnames == [ws1.title]  # build_workbook(tables=[]) already drops page 2
-    _build_data_entry_sheet(wb, data)
-    return wb
+    return build_workbook(data, with_data_entry_tie=True)
 
 
 def build_download_workbook(data: dict):
-    """Public builder used by both download buttons (draft generate and
-    saved-record export) as well as the blank ROC Template download -- see
-    build_template_workbook, now the single implementation shared by all
-    three."""
+    """Public builder used by both download buttons that have a real record
+    behind them (draft generate and saved-record export) -- see
+    build_template_workbook."""
     return build_template_workbook(data)
+
+
+def build_blank_template_workbook(data: dict):
+    """Build the blank "ROC Template" download (views.roc_template): the
+    Data Entry form page alone, with no certificate page. There's no real
+    record yet at this point -- just an area's defaults -- so a mostly-empty
+    certificate page (its REPORT FIELDS / FRONT-PAGE STATEMENTS cells are
+    live formulas pointing at Data Entry anyway, see build_workbook) has
+    nothing useful to show; the Data Entry form is the actual thing to fill
+    out and upload back through Excel Import."""
+    wb = Workbook()
+    wb.remove(wb.active)  # openpyxl always creates one default empty sheet
+    _build_data_entry_sheet(wb, data)  # table_layouts unused -- no certificate page here to tie
+    return wb
 
 
 def workbook_to_bytes(workbook) -> bytes:

@@ -149,19 +149,30 @@ INLINE_RESULT_HEADERS = ["Label", "Value", "Label 2", "Value 2"]
 
 # Fixed rows on the Data Entry sheet -- title (1), instructions (2), a blank
 # row (3), then the fields section header. Everything below is deterministic
-# from here (fixed-count sections, no content-dependent row growth), which is
-# what lets excel.py tie the certificate page's REPORT FIELDS / FRONT-PAGE
-# STATEMENTS cells to these same rows with live formulas (see
-# data_entry_field_row / data_entry_statement_row below) instead of just
-# duplicating values at generation time -- edit one, the other updates in
-# Excel itself. Inline Results and the calibration table(s) are NOT tied
-# this way: both sit below a content-dependent inline-results row count, and
-# neither has a single well-defined "the" value to link a certificate cell
-# to, so they stay independent, hand-editable content on each page.
+# from here (fixed-count sections: field count, statement count x
+# STATEMENT_ROW_HEIGHT, and the inline-results table's own fixed 3-row
+# preamble are all constants, not content-dependent), which is what lets
+# excel.py tie every one of the certificate page's own values -- REPORT
+# FIELDS / FRONT-PAGE STATEMENTS cells (data_entry_field_row /
+# data_entry_statement_row), Inline Results
+# (DATA_ENTRY_INLINE_RESULTS_DATA_START_ROW), and each calibration table's
+# data cells (via _build_data_entry_sheet's own returned per-table
+# data_start_row, since table shape varies per record and so can't be a
+# fixed constant like the rows below) -- to these same Data Entry cells with
+# live formulas instead of just duplicating values at generation time: edit
+# one, the other updates in Excel itself.
 DATA_ENTRY_FIELDS_HEADER_ROW = 4
 DATA_ENTRY_FIELDS_START_ROW = DATA_ENTRY_FIELDS_HEADER_ROW + 1
 DATA_ENTRY_STATEMENTS_HEADER_ROW = DATA_ENTRY_FIELDS_START_ROW + len(DATA_ENTRY_FIELDS) + 1
 DATA_ENTRY_STATEMENTS_START_ROW = DATA_ENTRY_STATEMENTS_HEADER_ROW + 1
+# Blank spacer, then the inline-results section header (see
+# DATA_ENTRY_SECTION_HEADERS["inline_results"]), its one-line instruction,
+# and its Label/Value/Label 2/Value 2 column-header row -- 3 fixed rows
+# before the first real inline-result data row.
+DATA_ENTRY_INLINE_RESULTS_HEADER_ROW = (
+    DATA_ENTRY_STATEMENTS_START_ROW + len(DATA_ENTRY_STATEMENTS) * STATEMENT_ROW_HEIGHT + 1
+)
+DATA_ENTRY_INLINE_RESULTS_DATA_START_ROW = DATA_ENTRY_INLINE_RESULTS_HEADER_ROW + 3
 
 _DATA_ENTRY_FIELD_INDEX = {key: i for i, (key, _label) in enumerate(DATA_ENTRY_FIELDS)}
 _DATA_ENTRY_STATEMENT_INDEX = {kind: i for i, (kind, _label) in enumerate(DATA_ENTRY_STATEMENTS)}

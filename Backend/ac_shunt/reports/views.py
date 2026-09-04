@@ -98,15 +98,15 @@ def roc_excel(request, roc_id):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def roc_template(request):
-    """Generate a workbook pre-filled with one area's default statements
-    (and any other defaults its areas/<code>.json carries), plus a
-    data-entry page 2 -- fill it out in Excel and upload it back through
-    Excel Import (/roc/parse/) to load it into a record."""
+    """Generate the blank Data Entry form for one area (its defaults from
+    areas/<code>.json) -- no certificate page, since there's no record yet
+    to put on one. Fill it out in Excel and upload it back through Excel
+    Import (/roc/parse/) to load it into a record."""
     area_code = request.query_params.get("area", "")
     data = area_registry.get_area(area_code)
     if data is None:
         return Response({"error": f"Unknown measurement area '{area_code}'."}, status=status.HTTP_404_NOT_FOUND)
-    workbook = excel_builder.build_template_workbook(data)
+    workbook = excel_builder.build_blank_template_workbook(data)
     return _xlsx_response(workbook, f"ROC_template_{area_code}.xlsx")
 
 
