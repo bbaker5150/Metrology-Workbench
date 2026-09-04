@@ -391,10 +391,10 @@ export const getBudgetComponentsFromTolerance = (
               toleranceObject.resolutionDistribution,
           ),
       );
-      const resDistRaw = resDistEntry ? resDistEntry.value : "1.732";
+      const resDistRaw = resDistEntry ? resDistEntry.value : "3.464";
       const resDivisor =
-        distributionDivisorValue(resDistRaw) || distributionDivisorValue("1.732");
-      const resDistLabel = resDistEntry?.label || "Rectangular";
+        distributionDivisorValue(resDistRaw) || distributionDivisorValue("3.464");
+      const resDistLabel = resDistEntry?.label || "Rectangular (resolution)";
 
       const usesFullLsdDivisor = ["3.464", "4.899"].includes(resDistRaw);
       const u_i_base =
@@ -922,10 +922,10 @@ export const getUutResolutionComponent = (
   const resDistEntry = errorDistributions.find(
     (d) => parseFloat(d.value) === parseFloat(resDistRawSource)
   );
-  const resDistRaw = resDistEntry ? resDistEntry.value : "1.732";
+  const resDistRaw = resDistEntry ? resDistEntry.value : "3.464";
   const resDivisor =
-    distributionDivisorValue(resDistRaw) || distributionDivisorValue("1.732");
-  const resDistLabel = resDistEntry?.label || "Rectangular";
+    distributionDivisorValue(resDistRaw) || distributionDivisorValue("3.464");
+  const resDistLabel = resDistEntry?.label || "Rectangular (resolution)";
 
   // Do not halve the resolution twice. "Rectangular (resolution)" uses
   // LSD/sqrt(12), and "Triangular (resolution)" uses LSD/sqrt(24). The regular
@@ -960,5 +960,19 @@ export const getUutResolutionComponent = (
     distributionDivisor: resDistRaw,
     isResolution: true,
     sourcePointLabel: `${resVal} ${resUnit} LSD`,
+  };
+};
+
+export const removeSavedBudgetComponent = (components = [], componentId) => {
+  const savedComponents = Array.isArray(components) ? components : [];
+  const id = String(componentId);
+  const hasMatch = savedComponents.some(
+    (component) => String(component?.id) === id,
+  );
+  return {
+    removed: hasMatch,
+    components: hasMatch
+      ? savedComponents.filter((component) => String(component?.id) !== id)
+      : savedComponents,
   };
 };

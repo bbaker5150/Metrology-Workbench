@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
+import { getAnchoredMenuPlacement } from "../../utils/anchoredMenuPosition";
 
 // Compact, portaled selector used by inline instrument editors. It intentionally
 // shares the UnitSelect menu classes so unit prefixes and resolution
@@ -16,35 +17,63 @@ const InlineMenuSelect = ({
   width = "72px",
   menuWidth = 220,
   className = "",
+  autoOpen = false,
+  showOptionMeta = true,
+  onOpenChange,
+  getDisplayLabel,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [menuRect, setMenuRect] = useState(null);
+  const [menuAccentColor, setMenuAccentColor] = useState("");
   const rootRef = useRef(null);
   const selectedRef = useRef(null);
 
   const selectedOption = options.find(
     (option) => String(option.value) === String(value),
   );
-  const displayValue = selectedOption?.shortLabel || selectedOption?.label || value || "Select";
+  const customDisplayValue = getDisplayLabel?.(selectedOption);
+  const displayValue =
+    customDisplayValue ||
+    selectedOption?.shortLabel ||
+    selectedOption?.label ||
+    value ||
+    "Select";
 
-  const closeMenu = () => setIsOpen(false);
+  const closeMenu = () => {
+    setIsOpen(false);
+    onOpenChange?.(false);
+  };
   const openMenu = () => {
     const rect = rootRef.current?.getBoundingClientRect();
+    const accentColor = rootRef.current
+      ? window
+          .getComputedStyle(rootRef.current)
+          .getPropertyValue("--function-input-accent")
+          .trim()
+      : "";
+    setMenuAccentColor(accentColor);
     if (rect) {
-      const desiredWidth = Math.max(rect.width, menuWidth);
-      const estimatedHeight = Math.min(320, Math.max(48, options.length * 34 + 12));
-      const roomBelow = window.innerHeight - rect.bottom - 8;
-      const openAbove = roomBelow < estimatedHeight && rect.top > roomBelow;
-      setMenuRect({
-        top: openAbove
-          ? Math.max(8, rect.top - Math.min(estimatedHeight, rect.top - 8) - 4)
-          : rect.bottom + 4,
-        left: Math.max(8, Math.min(rect.left, window.innerWidth - desiredWidth - 8)),
-        width: desiredWidth,
-      });
+      const visualViewport = window.visualViewport;
+      setMenuRect(getAnchoredMenuPlacement({
+        anchorRect: rect,
+        viewportWidth: visualViewport?.width || window.innerWidth,
+        viewportHeight: visualViewport?.height || window.innerHeight,
+        preferredWidth: Math.max(rect.width, menuWidth),
+        preferredMaxHeight: Math.min(320, Math.max(48, options.length * 34 + 12)),
+        gap: 4,
+      }));
     }
     setIsOpen(true);
+    onOpenChange?.(true);
   };
+
+  useEffect(() => {
+    if (!autoOpen) return undefined;
+    const frame = requestAnimationFrame(openMenu);
+    return () => cancelAnimationFrame(frame);
+    // Mount-time handoff from a parent read view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -64,7 +93,11 @@ const InlineMenuSelect = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    requestAnimationFrame(() => selectedRef.current?.scrollIntoView({ block: "nearest" }));
+    requestAnimationFrame(() => {
+      if (typeof selectedRef.current?.scrollIntoView === "function") {
+        selectedRef.current.scrollIntoView({ block: "nearest" });
+      }
+    });
   }, [isOpen, value]);
 
   const handleKeyDown = (event) => {
@@ -112,13 +145,23 @@ const InlineMenuSelect = ({
             className="inline-unit-menu inline-menu-select-menu"
             style={{
               top: menuRect.top,
+              bottom: menuRect.bottom,
               left: menuRect.left,
               width: menuRect.width,
+              maxHeight: menuRect.maxHeight,
+              ...(menuAccentColor
+                ? { "--function-input-accent": menuAccentColor }
+                : {}),
             }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
-            <div role="listbox" aria-label={ariaLabel} className="inline-unit-options">
+            <div
+              role="listbox"
+              aria-label={ariaLabel}
+              className="inline-unit-options"
+              style={{ maxHeight: Math.max(1, menuRect.maxHeight - 12) }}
+            >
               {options.map((option) => {
                 const isSelected = String(option.value) === String(value);
                 return (
@@ -135,9 +178,10 @@ const InlineMenuSelect = ({
                     }}
                   >
                     <span>{option.label}</span>
-                    {(option.shortLabel || option.value !== option.label) && (
+                    {showOptionMeta &&
+                      (option.shortLabel || option.value !== option.label) && (
                       <small>{option.shortLabel || option.value}</small>
-                    )}
+                      )}
                   </button>
                 );
               })}

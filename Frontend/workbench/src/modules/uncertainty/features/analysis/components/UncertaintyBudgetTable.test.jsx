@@ -1,28 +1,17 @@
+import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
 
-// ContributionPlot draws with the real Plotly bundle; stub it so the budget
-// table tests stay fast and deterministic (they only assert the graph mounts).
-vi.mock("plotly.js-dist", () => ({
-  default: {
-    react: vi.fn(),
-    purge: vi.fn(),
-    Plots: { resize: vi.fn() },
-    Icons: { camera: { width: 1000, path: "" } },
-    toImage: vi.fn(),
-  },
-}));
-
-beforeAll(() => {
-  if (!window.ResizeObserver) {
-    window.ResizeObserver = class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    };
-  }
-});
+const contributionShares = (container) =>
+  Object.fromEntries(
+    Array.from(container.querySelectorAll("[data-contribution-label]")).map(
+      (row) => [
+        row.dataset.contributionLabel,
+        Number(row.dataset.contributionPercentage),
+      ],
+    ),
+  );
 
 const renderDirectBudget = (overrides = {}) => {
   const props = {
@@ -57,7 +46,115 @@ const renderDirectBudget = (overrides = {}) => {
   return { ...props, ...view };
 };
 
+const derivedApproximationGroups = (finalOverrides = {}) => [
+  {
+    id: "equation_approximation",
+    kind: "equation",
+    label: "Measurement Equation Approximation",
+    unit: "V",
+    rows: [],
+    results: {},
+  },
+  {
+    id: "final_budget",
+    kind: "final",
+    label: "Voltage Uncertainty Budget",
+    unit: "V",
+    components: [],
+    results: {
+      combined: 1,
+      effective_dof: Infinity,
+      k_value: 2,
+      expanded: 2,
+    },
+    ...finalOverrides,
+  },
+];
+
 describe("UncertaintyBudgetTable direct budget actions", () => {
+  it("keeps manually added components at the bottom of the budget", () => {
+    const { container } = renderDirectBudget({
+      components: [
+        {
+          id: "manual-saved",
+          name: "Operator influence",
+          type: "B",
+          value: 0.1,
+          value_native: 0.1,
+          unit_native: "V",
+          distribution: "Rectangular",
+          distributionDivisor: "1.732",
+          isManual: true,
+          isInlineManual: true,
+          inlineDraft: false,
+          originalInput: {
+            inputMode: "standard",
+            standardUncertainty: "0.1",
+            unit: "V",
+          },
+        },
+        {
+          id: "uut-resolution",
+          name: "UUT Resolution",
+          type: "B",
+          value: 0.02,
+          value_native: 0.02,
+          unit_native: "V",
+          distribution: "Rectangular (resolution)",
+          isResolution: true,
+        },
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    const rows = Array.from(
+      container.querySelectorAll(".uncertainty-budget-table tbody > tr"),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("UUT Resolution");
+    expect(rows[1]).toHaveTextContent("Operator influence");
+  });
+
+  it("numbers repeated resolution rows immediately without another source type", () => {
+    const makeComponent = (id, name) => ({
+      id,
+      componentId: id,
+      name,
+      type: "B",
+      value: 0.01,
+      value_native: 0.01,
+      unit_native: "V",
+      distribution: "Rectangular (resolution)",
+      isResolution: name === "UUT Resolution",
+      isBudgetInstance: true,
+      quantity: 1,
+    });
+    const { container } = renderDirectBudget({
+      components: [
+        makeComponent("resolution-1", "UUT Resolution"),
+        makeComponent("resolution-2", "UUT Resolution"),
+        makeComponent("resolution-3", "UUT Resolution"),
+        makeComponent("accuracy-1", "Reference DMM - Accuracy"),
+        makeComponent("accuracy-2", "Reference DMM - Accuracy"),
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    const labels = Array.from(
+      container.querySelectorAll(
+        ".uncertainty-budget-table tbody > tr > td:first-child",
+      ),
+      (cell) => cell.textContent.trim(),
+    );
+    expect(labels).toEqual([
+      "UUT Resolution",
+      "UUT Resolution (2)",
+      "UUT Resolution (3)",
+      "Reference DMM - Accuracy",
+      "Reference DMM - Accuracy (2)",
+    ]);
+  });
+
   it("explains distribution deviations with spec and current values", () => {
     renderDirectBudget({
       components: [
@@ -111,6 +208,24 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(onAddTmdeToBudget.mock.calls[0][0]).not.toHaveProperty(
       "canAddPropagation",
     );
+  });
+
+  it("shows a range warning beside the add-component button", () => {
+    renderDirectBudget({
+      onAddTmdeToBudget: vi.fn(),
+      rangeWarningsByGroup: {
+        final: [{ componentId: "outside-range", reason: "below range" }],
+      },
+    });
+
+    const addButton = screen.getByRole("button", {
+      name: "Add component to budget",
+    });
+    const warning = screen.getByLabelText(
+      "Selected range does not include the nominal",
+    );
+    expect(warning).toBeInTheDocument();
+    expect(warning.parentElement).toBe(addButton.parentElement);
   });
 
   it("renders uncertainty at a fixed precision without nominal table data", () => {
@@ -262,12 +377,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     renderDirectBudget({
       measurementType: "derived",
       calcResults: {
-        calculatedBudgetGroups: [
-          {
-            id: "final_budget",
-            kind: "final",
-            label: "Voltage Uncertainty Budget",
-            unit: "V",
+        calculatedBudgetGroups: derivedApproximationGroups({
             components: [
               {
                 id: "risk8_monte_carlo_uncertainty",
@@ -290,8 +400,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
               k_value: 2.064,
               expanded: 3.096,
             },
-          },
-        ],
+          }),
       },
       referencePoint: { name: "Voltage", unit: "V" },
       budgetPropagationMethod: "montecarlo",
@@ -328,6 +437,9 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
   it("defaults a newly enabled Monte Carlo method to 10,000 trials", () => {
     renderDirectBudget({
       measurementType: "derived",
+      calcResults: {
+        calculatedBudgetGroups: derivedApproximationGroups(),
+      },
       budgetPropagationMethod: "montecarlo",
       onPropagationMethodChange: vi.fn(),
     });
@@ -361,8 +473,8 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     });
 
     expect(
-      screen.getByRole("heading", { name: "Uncertainty Budget", level: 3 }),
-    ).toBeInTheDocument();
+      screen.queryByRole("heading", { name: "Uncertainty Budget", level: 3 }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Length Uncertainty Budget", level: 4 }),
     ).toBeInTheDocument();
@@ -371,9 +483,33 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.queryByText("0.002000 in")).not.toBeInTheDocument();
   });
 
+  it("limits result-card readouts to eight significant digits", () => {
+    renderDirectBudget({
+      calcResults: {
+        combined_uncertainty: 0.00999981624765,
+        effective_dof: Infinity,
+        k_value: 2,
+        expanded_uncertainty: 0.0199996324953,
+      },
+    });
+
+    expect(screen.getByText("0.0099998162 in-oz")).toBeInTheDocument();
+    expect(screen.getByText("0.019999632 in-oz")).toBeInTheDocument();
+    expect(screen.queryByText(/0\.00999981624765/)).not.toBeInTheDocument();
+    expect(
+      screen.getByTitle("0.00999981624765"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTitle("0.0199996324953"),
+    ).toBeInTheDocument();
+  });
+
   it("keeps the Monte Carlo trial count visible but disabled for Taylor Series", () => {
     renderDirectBudget({
       measurementType: "derived",
+      calcResults: {
+        calculatedBudgetGroups: derivedApproximationGroups(),
+      },
       budgetPropagationMethod: "linear",
       monteCarloTrials: 25000,
       onMonteCarloTrialsChange: vi.fn(),
@@ -430,6 +566,12 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
             value: 10,
             value_native: 0.01,
           },
+          {
+            id: "resolution",
+            name: "UUT Resolution",
+            value: 20,
+            value_native: 0.02,
+          },
         ],
       },
       referencePoint: { name: "Voltage", unit: "V" },
@@ -441,6 +583,349 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(
       screen.getByRole("button", { name: "Hide contribution chart" }),
     ).toHaveAttribute("aria-pressed", "true");
+    expect(contributionShares(view.container)).toEqual({
+      "UUT Resolution": 80,
+      "DMM Accuracy": 20,
+    });
+    expect(
+      view.container.querySelector('[data-contribution-label="DMM Accuracy"]'),
+    ).toHaveAttribute("title", expect.stringContaining("Variance contribution"));
+  });
+
+  it("keeps repeated sources as separate contribution rows", async () => {
+    const view = renderDirectBudget({
+      showContribution: true,
+      setShowContribution: vi.fn(),
+      calcResults: {
+        combined_uncertainty: 1,
+        effective_dof: Infinity,
+        k_value: 2,
+        expanded_uncertainty: 2,
+        calculatedBudgetComponents: [
+          {
+            id: "resolution-1",
+            name: "UUT Resolution",
+            value_native: 0.01,
+          },
+          {
+            id: "resolution-2",
+            name: "UUT Resolution",
+            value_native: 0.01,
+          },
+          {
+            id: "accuracy-1",
+            name: "DMM Accuracy",
+            value_native: 0.02,
+          },
+        ],
+      },
+    });
+
+    await waitFor(() =>
+      expect(Object.keys(contributionShares(view.container))).toEqual(
+        expect.arrayContaining([
+          "DMM Accuracy",
+          "UUT Resolution",
+          "UUT Resolution (2)",
+        ]),
+      ),
+    );
+    const shares = contributionShares(view.container);
+    expect(shares["DMM Accuracy"]).toBeCloseTo(66.6666666667, 8);
+    expect(shares["UUT Resolution"]).toBeCloseTo(16.6666666667, 8);
+    expect(shares["UUT Resolution (2)"]).toBeCloseTo(16.6666666667, 8);
+  });
+
+  it("updates an open contribution graph when the calculated budget changes", async () => {
+    const baseProps = {
+      components: [],
+      showContribution: true,
+      setShowContribution: vi.fn(),
+      measurementType: "direct",
+      referencePoint: { name: "Voltage", unit: "V" },
+    };
+    const makeResults = (accuracy) => ({
+      combined_uncertainty: 1,
+      effective_dof: Infinity,
+      k_value: 2,
+      expanded_uncertainty: 2,
+      calculatedBudgetComponents: [
+        {
+          id: "accuracy",
+          name: "DMM Accuracy",
+          value_native: accuracy,
+        },
+        {
+          id: "resolution",
+          name: "UUT Resolution",
+          value_native: 0.02,
+        },
+      ],
+    });
+
+    const view = render(
+      <UncertaintyBudgetTable {...baseProps} calcResults={makeResults(0.01)} />,
+    );
+    await waitFor(() =>
+      expect(contributionShares(view.container)).toEqual({
+        "UUT Resolution": 80,
+        "DMM Accuracy": 20,
+      }),
+    );
+
+    view.rerender(
+      <UncertaintyBudgetTable {...baseProps} calcResults={makeResults(0.02)} />,
+    );
+
+    await waitFor(() =>
+      expect(contributionShares(view.container)).toEqual({
+        "DMM Accuracy": 50,
+        "UUT Resolution": 50,
+      }),
+    );
+  });
+
+  it("charts each Taylor Series input instead of the derived summary row", async () => {
+    const view = renderDirectBudget({
+      measurementType: "derived",
+      budgetPropagationMethod: "equation",
+      showContribution: true,
+      setShowContribution: vi.fn(),
+      referencePoint: { name: "Torque", unit: "in-oz" },
+      calcResults: {
+        calculatedBudgetGroups: [
+          {
+            id: "measurement_equation",
+            kind: "equation",
+            label: "Taylor Series Approximation",
+            method: "equation",
+            unit: "in-oz",
+            rows: [
+              {
+                id: "length",
+                name: "Length (l)",
+                standardUncertainty: 0.001,
+                unit: "in",
+                sensitivityCoefficient: 2,
+                contribution: 0.002,
+              },
+              {
+                id: "weight",
+                name: "Weight (w)",
+                standardUncertainty: 0.0004,
+                unit: "ozf",
+                sensitivityCoefficient: 1,
+                contribution: 0.0004,
+              },
+            ],
+            results: { combined: 0.002 },
+          },
+          {
+            id: "final_budget",
+            kind: "final",
+            label: "Torque Uncertainty Budget",
+            unit: "in-oz",
+            components: [
+              {
+                id: "taylor-summary",
+                name: "Taylor Series Approximation",
+                value_native: 0.00204,
+                isPropagationSummary: true,
+                distribution: "Standard uncertainty (k=1)",
+              },
+              {
+                id: "uut-resolution",
+                name: "UUT Resolution",
+                contribution: 0.0001,
+                distribution: "Rectangular (resolution)",
+              },
+            ],
+            results: {},
+          },
+        ],
+      },
+    });
+
+    await waitFor(() =>
+      expect(view.container.querySelector(".contribution-plot-native")).toBeInTheDocument(),
+    );
+    const shares = contributionShares(view.container);
+    expect(Object.keys(shares)).toEqual(
+      expect.arrayContaining(["Length (l)", "Weight (w)", "UUT Resolution"]),
+    );
+    expect(shares).not.toHaveProperty("Taylor Series Approximation");
+    const rawEquationVariance = 0.002 ** 2 + 0.0004 ** 2;
+    const displayedEquationVariance = 0.00204 ** 2;
+    const resolutionVariance = 0.0001 ** 2;
+    const totalVariance = displayedEquationVariance + resolutionVariance;
+    expect(shares["Length (l)"]).toBeCloseTo(
+      ((0.002 ** 2 / rawEquationVariance) * displayedEquationVariance /
+        totalVariance) *
+        100,
+      8,
+    );
+    expect(shares["Weight (w)"]).toBeCloseTo(
+      ((0.0004 ** 2 / rawEquationVariance) * displayedEquationVariance /
+        totalVariance) *
+        100,
+      8,
+    );
+    expect(shares["UUT Resolution"]).toBeCloseTo(
+      (resolutionVariance / totalVariance) * 100,
+      8,
+    );
+    expect(
+      screen.getByRole("region", {
+        name: "Taylor series uncertainty contribution",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("allocates a derived input's contribution across each budget component", async () => {
+    const view = renderDirectBudget({
+      measurementType: "derived",
+      budgetPropagationMethod: "equation",
+      showContribution: true,
+      setShowContribution: vi.fn(),
+      referencePoint: { name: "Torque", unit: "in-oz" },
+      calcResults: {
+        calculatedBudgetGroups: [
+          {
+            id: "input_weight",
+            kind: "input",
+            variable: "w",
+            variableType: "Weight",
+            unit: "ozf",
+            components: [
+              {
+                id: "weight-accuracy-1",
+                name: "F-Class Weight - Accuracy",
+                value_native: 0.002,
+                unit_native: "ozf",
+              },
+              {
+                id: "weight-accuracy-2",
+                name: "F-Class Weight - Accuracy",
+                value_native: 0.001,
+                unit_native: "ozf",
+              },
+            ],
+          },
+          {
+            id: "measurement_equation",
+            kind: "equation",
+            method: "equation",
+            rows: [
+              {
+                id: "weight",
+                variable: "w",
+                variableType: "Weight",
+                name: "Weight (w)",
+                contribution: 0.01,
+              },
+            ],
+            results: { combined: 0.01 },
+          },
+          {
+            id: "final_budget",
+            kind: "final",
+            components: [
+              {
+                id: "taylor-summary",
+                name: "Taylor Series Approximation",
+                value_native: 0.01,
+                isPropagationSummary: true,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    await waitFor(() =>
+      expect(contributionShares(view.container)).toEqual({
+        "F-Class Weight - Accuracy": 80,
+        "F-Class Weight - Accuracy (2)": 20,
+      }),
+    );
+  });
+
+  it("charts Monte Carlo variable influence percentages", async () => {
+    const view = renderDirectBudget({
+      measurementType: "derived",
+      budgetPropagationMethod: "montecarlo",
+      showContribution: true,
+      setShowContribution: vi.fn(),
+      referencePoint: { name: "Torque", unit: "in-oz" },
+      calcResults: {
+        calculatedBudgetGroups: [
+          {
+            id: "measurement_equation",
+            kind: "equation",
+            label: "Monte Carlo Approximation",
+            method: "montecarlo",
+            unit: "in-oz",
+            rows: [
+              {
+                id: "length",
+                name: "Length (l)",
+                standardUncertainty: 0.001,
+                unit: "in",
+                sensitivityCoefficient: 2,
+                contribution: 0.002,
+                influence: 0.25,
+              },
+              {
+                id: "weight",
+                name: "Weight (w)",
+                standardUncertainty: 0.0004,
+                unit: "ozf",
+                sensitivityCoefficient: 1,
+                contribution: 0.0004,
+                influence: 0.75,
+              },
+            ],
+            results: {},
+          },
+          {
+            id: "final_budget",
+            kind: "final",
+            label: "Torque Uncertainty Budget",
+            unit: "in-oz",
+            components: [
+              {
+                id: "mc-summary",
+                name: "Monte Carlo Approximation",
+                value_native: 0.002,
+                isPropagationSummary: true,
+                distribution: "Standard uncertainty (k=1)",
+              },
+              {
+                id: "uut-resolution",
+                name: "UUT Resolution",
+                contribution: 0.001,
+                distribution: "Rectangular (resolution)",
+              },
+            ],
+            results: {},
+          },
+        ],
+      },
+    });
+
+    await waitFor(() =>
+      expect(view.container.querySelector(".contribution-plot-native")).toBeInTheDocument(),
+    );
+    const shares = contributionShares(view.container);
+    expect(shares["Length (l)"]).toBeCloseTo(20, 10);
+    expect(shares["UUT Resolution"]).toBeCloseTo(20, 10);
+    expect(shares["Weight (w)"]).toBeCloseTo(60, 10);
+    expect(shares).not.toHaveProperty("Monte Carlo Approximation");
+    expect(
+      screen.getByRole("region", {
+        name: "Monte Carlo uncertainty contribution",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("uses a compact chart control beside Add for contribution display", () => {
@@ -534,10 +1019,34 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 
-  it("authors a new manual component directly in an expanded budget row", () => {
+  it("authors a new manual component directly in an expanded budget row", async () => {
     const onComponentUpdate = vi.fn();
+    const ToleranceEditorComponent = ({ onCommit, openRequested }) => (
+      <button
+        type="button"
+        aria-label="Author IV tolerance"
+        data-open={String(openRequested)}
+        onClick={() =>
+          onCommit("reading", {
+            high: "0.5",
+            low: "-0.5",
+            unit: "%",
+            distribution: "1.732",
+            symmetric: true,
+          })
+        }
+      >
+        Tolerance editor
+      </button>
+    );
     renderDirectBudget({
       onComponentUpdate,
+      ToleranceEditorComponent,
+      applyToleranceChange: (tolerance, key, term) => ({
+        ...tolerance,
+        [key]: term,
+      }),
+      formatToleranceSummary: () => ["Not Set"],
       components: [
         {
           id: "manual-inline",
@@ -564,33 +1073,209 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     });
 
     expect(screen.queryByText("Manual Component", { selector: "h3" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Error source name")).not.toHaveAttribute(
+      "placeholder",
+    );
     fireEvent.change(screen.getByLabelText("Error source name"), {
       target: { value: "Thermal drift" },
     });
-    fireEvent.change(screen.getByLabelText("Tolerance limit"), {
-      target: { value: "0.5" },
-    });
-    fireEvent.change(screen.getByLabelText("Error limit distribution"), {
-      target: { value: "2.000" },
-    });
+    expect(screen.getByLabelText("Author IV tolerance")).toHaveAttribute(
+      "data-open",
+      "true",
+    );
+    fireEvent.click(screen.getByLabelText("Author IV tolerance"));
     fireEvent.pointerDown(document.body);
 
-    expect(onComponentUpdate).toHaveBeenCalledOnce();
+    await waitFor(() => expect(onComponentUpdate).toHaveBeenCalledOnce());
     expect(onComponentUpdate.mock.calls[0][0]).toBe("manual-inline");
     expect(onComponentUpdate.mock.calls[0][1]).toMatchObject({
       inlineManualDraft: {
         name: "Thermal drift",
         type: "B",
         inputMode: "tolerance",
-        toleranceLimit: "0.5",
-        errorDistributionDivisor: "2.000",
+        toleranceLimit: "",
+        tolerance: {
+          reading: {
+            high: "0.5",
+            low: "-0.5",
+            unit: "%",
+            distribution: "1.732",
+            symmetric: true,
+          },
+        },
         unit: "V",
       },
       referencePoint: { value: 10, unit: "V" },
     });
   });
 
-  it("switches a manual row to direct standard-uncertainty entry inline", () => {
+  it("edits a derived final-budget manual tolerance against the measurement point", async () => {
+    const onComponentUpdate = vi.fn();
+    const ToleranceEditorComponent = ({ onCommit }) => (
+      <button
+        type="button"
+        aria-label="Set final IV tolerance"
+        onClick={() =>
+          onCommit("reading", {
+            high: "1",
+            low: "-1",
+            value: "1",
+            unit: "%",
+            symmetric: true,
+          })
+        }
+      >
+        Tolerance editor
+      </button>
+    );
+    const manual = {
+      id: "derived-final-manual",
+      name: "Fixture effect",
+      type: "B",
+      value: 0,
+      value_native: 0,
+      unit_native: "V",
+      distribution: "Rectangular",
+      distributionDivisor: "1.732",
+      isManual: true,
+      isInlineManual: true,
+      inlineDraft: true,
+      originalInput: {
+        inputMode: "tolerance",
+        toleranceLimit: "",
+        tolerance: { bandDistribution: "1.732" },
+        standardUncertainty: "",
+        errorDistributionDivisor: "1.732",
+        unit: "V",
+      },
+    };
+
+    renderDirectBudget({
+      measurementType: "derived",
+      onComponentUpdate,
+      ToleranceEditorComponent,
+      applyToleranceChange: (tolerance, key, term) => ({
+        ...tolerance,
+        [key]: term,
+      }),
+      formatToleranceSummary: () => ["Not Set"],
+      referencePoint: { name: "Voltage", value: 20, unit: "V" },
+      calcResults: {
+        calculatedBudgetGroups: [
+          {
+            id: "final_budget",
+            kind: "final",
+            label: "Voltage Uncertainty Budget",
+            unit: "V",
+            // This summary nominal must never replace the actual point nominal.
+            nominalPoint: { value: 999, unit: "A" },
+            components: [manual],
+            results: {},
+          },
+        ],
+      },
+    });
+
+    fireEvent.change(screen.getByLabelText("Error limit distribution"), {
+      target: { value: "1.960" },
+    });
+    fireEvent.click(screen.getByLabelText("Set final IV tolerance"));
+    fireEvent.pointerDown(document.body);
+
+    await waitFor(() => expect(onComponentUpdate).toHaveBeenCalledOnce());
+    expect(onComponentUpdate.mock.calls[0][1]).toMatchObject({
+      inlineManualDraft: {
+        tolerance: {
+          bandDistribution: "1.960",
+          reading: {
+            high: "1",
+            low: "-1",
+            unit: "%",
+            distribution: "1.960",
+          },
+        },
+      },
+      referencePoint: { name: "Voltage", value: 20, unit: "V" },
+    });
+  });
+
+  it("persists a tolerance committed by blur before an outside click closes the row", async () => {
+    const onComponentUpdate = vi.fn();
+    const ToleranceEditorComponent = ({ onCommit }) => {
+      const [value, setValue] = useState("");
+      return (
+        <input
+          aria-label="Manual IV term"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onBlur={() =>
+            onCommit("reading", {
+              high: value,
+              low: `-${value}`,
+              value,
+              unit: "%",
+              symmetric: true,
+            })
+          }
+        />
+      );
+    };
+
+    renderDirectBudget({
+      onComponentUpdate,
+      ToleranceEditorComponent,
+      applyToleranceChange: (tolerance, key, term) => ({
+        ...tolerance,
+        [key]: term,
+      }),
+      formatToleranceSummary: () => ["Not Set"],
+      components: [
+        {
+          id: "manual-blur-order",
+          name: "Thermal drift",
+          type: "B",
+          value: 0,
+          value_native: 0,
+          unit_native: "V",
+          distribution: "Rectangular",
+          distributionDivisor: "1.732",
+          isManual: true,
+          isInlineManual: true,
+          inlineDraft: true,
+          originalInput: {
+            inputMode: "tolerance",
+            toleranceLimit: "",
+            standardUncertainty: "",
+            errorDistributionDivisor: "1.732",
+            unit: "V",
+          },
+        },
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    const input = screen.getByLabelText("Manual IV term");
+    fireEvent.change(input, { target: { value: "0.5" } });
+    // Browsers dispatch pointerdown outside before the focused input blurs.
+    fireEvent.pointerDown(document.body);
+    fireEvent.blur(input);
+
+    await waitFor(() => expect(onComponentUpdate).toHaveBeenCalledOnce());
+    expect(onComponentUpdate.mock.calls[0][1]).toMatchObject({
+      inlineManualDraft: {
+        tolerance: {
+          reading: {
+            high: "0.5",
+            low: "-0.5",
+            value: "0.5",
+            unit: "%",
+          },
+        },
+      },
+    });
+  });
+
+  it("switches a manual row to direct standard-uncertainty entry inline", async () => {
     const onComponentUpdate = vi.fn();
     renderDirectBudget({
       onComponentUpdate,
@@ -618,14 +1303,13 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       referencePoint: { name: "Voltage", value: 10, unit: "V" },
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Enter standard uncertainty" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Not Set" }));
     const standardInput = screen.getByLabelText("Standard uncertainty");
     expect(standardInput).toHaveValue(0.3);
     fireEvent.change(standardInput, { target: { value: "0.2" } });
     fireEvent.pointerDown(document.body);
 
+    await waitFor(() => expect(onComponentUpdate).toHaveBeenCalledOnce());
     expect(onComponentUpdate.mock.calls[0][1].inlineManualDraft).toMatchObject({
       inputMode: "standard",
       standardUncertainty: "0.2",
@@ -665,5 +1349,83 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.getByLabelText("Error source name")).toHaveValue(
       "Operator influence",
     );
+  });
+
+  it("presents an incomplete collapsed manual component with table-style Not Set labels", () => {
+    const { container } = renderDirectBudget({
+      onComponentUpdate: vi.fn(),
+      components: [
+        {
+          id: "manual-incomplete",
+          name: "",
+          type: "B",
+          value: 0,
+          value_native: 0,
+          unit_native: "V",
+          distribution: "Not Set",
+          isManual: true,
+          isInlineManual: true,
+          inlineDraft: false,
+          originalInput: {
+            inputMode: "tolerance",
+            toleranceLimit: "",
+            standardUncertainty: "",
+            errorDistributionDivisor: "1.732",
+            unit: "V",
+          },
+        },
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    const row = container.querySelector(".budget-inline-manual-row");
+    expect(row).not.toBeNull();
+    expect(row.querySelectorAll(".budget-inline-not-set")).toHaveLength(2);
+    expect(row.textContent).not.toContain("Manual component");
+
+    fireEvent.click(row.querySelector(".budget-inline-not-set"));
+    expect(screen.getByLabelText("Error source name")).toHaveValue("");
+  });
+
+  it("uses the instrument tolerance formatter in a collapsed manual row", () => {
+    renderDirectBudget({
+      onComponentUpdate: vi.fn(),
+      formatToleranceSummary: (tolerance) =>
+        tolerance.reading ? ["± 0.5% IV"] : ["Not Set"],
+      components: [
+        {
+          id: "manual-shaped-saved",
+          name: "Display effect",
+          type: "B",
+          value: 2500,
+          value_native: 0.025,
+          unit_native: "V",
+          distribution: "Normal (95.45%)",
+          isManual: true,
+          isInlineManual: true,
+          inlineDraft: false,
+          originalInput: {
+            inputMode: "tolerance",
+            tolerance: {
+              reading: {
+                high: "0.5",
+                low: "-0.5",
+                unit: "%",
+                distribution: "2.000",
+                symmetric: true,
+              },
+            },
+            toleranceLimit: "",
+            standardUncertainty: "",
+            errorDistributionDivisor: "2.000",
+            unit: "V",
+          },
+        },
+      ],
+      referencePoint: { name: "Voltage", value: 10, unit: "V" },
+    });
+
+    expect(screen.getByText("± 0.5% IV")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Error source name")).not.toBeInTheDocument();
   });
 });

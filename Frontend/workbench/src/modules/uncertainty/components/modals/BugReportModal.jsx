@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import ReactDOM from "react-dom";
 import { useFloatingWindow } from '../../hooks/useFloatingWindow';
+import submitOnEnter from '../../utils/submitOnEnter';
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
     faBug,
@@ -37,7 +38,7 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
     const { position, handleMouseDown } = useFloatingWindow({
         isOpen,
         defaultWidth: 600,
-        defaultHeight: 750
+        defaultHeight: Math.min(750, window.innerHeight * 0.9)
     });
 
     if (!isOpen) return null;
@@ -216,7 +217,7 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
                     )}
 
                     {activeTab === "new" && (
-                        <form onSubmit={handleSubmit} className="bug-report-form">
+                        <div className="bug-report-form" onKeyDown={submitOnEnter(handleSubmit)}>
 
                             {/* Row 1: Reporter & Date */}
                             <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
@@ -303,15 +304,24 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
 
                             {/* Footer Actions */}
                             <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px', paddingTop: '15px', borderTop: '1px solid var(--border-color)' }}>
+                                {/* This panel is deliberately not a <form>. The
+                                    SharePoint build runs inside a host that
+                                    blocks native submission outright, so a
+                                    button that had to reach the browser's form
+                                    machinery would silently do nothing there.
+                                    Enter still commits — submitOnEnter on the
+                                    container puts that back explicitly. */}
                                 <button
-                                    type="submit"
-                                    className="nav-btn primary"
-                                    style={{ padding: '10px 25px' }}
+                                    type="button"
+                                    onClick={handleSubmit}
+                                    className="bug-report-check-action"
+                                    aria-label={formData.id ? "Save report changes" : "Submit report"}
+                                    title={formData.id ? "Save report changes" : "Submit report"}
                                 >
-                                    <FontAwesomeIcon icon={faCheck} style={{ marginLeft: '8px' }} />
+                                    <FontAwesomeIcon icon={faCheck} />
                                 </button>
                             </div>
-                        </form>
+                        </div>
                     )}
 
                     {activeTab === "list" && (
@@ -393,10 +403,10 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
                                             }}>
                                                 {report.status !== 'Complete' && (
                                                     <button
-                                                        className="icon-btn-round"
+                                                        className="bug-report-check-action bug-report-check-action--complete"
                                                         onClick={() => handleMarkComplete(report)}
                                                         title="Mark Complete"
-                                                        style={{ color: 'var(--status-good)', borderColor: 'var(--status-good)' }}
+                                                        aria-label="Mark Complete"
                                                     >
                                                         <FontAwesomeIcon icon={faCheck} />
                                                     </button>

@@ -4,6 +4,7 @@ import {
   unitCategories,
   getUnitDisplayLabel,
   getUniqueUnitDisplayLabels,
+  getUniqueUnits,
 } from "./uncertaintyMath";
 
 // Regression coverage for the SCCM/inWa unit families so their conversion
@@ -97,5 +98,12 @@ describe("function-header unit labels", () => {
       "mΩ",
       "MΩ",
     ]);
+  });
+
+  it("returns one canonical selector key for legacy duplicate units", () => {
+    expect(
+      getUniqueUnits(["in", "inch", "in.", "ozf-in", "in-oz", "in-ozf"]),
+    ).toEqual(["in", "in-ozf"]);
+    expect(getUniqueUnits(["mOhm", "MOhm"])).toEqual(["mOhm", "MOhm"]);
   });
 });

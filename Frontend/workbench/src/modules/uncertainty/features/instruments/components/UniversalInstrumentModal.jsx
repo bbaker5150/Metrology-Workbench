@@ -9,7 +9,6 @@ import {
   faTimes,
   faPlus,
   faTrashAlt,
-  faArrowLeft,
   faSearch,
   faChevronDown,
   faChevronUp,
@@ -20,8 +19,7 @@ import {
   faTag,
   faIndustry,
   faFingerprint,
-  faSyncAlt,
-  faFlask
+  faSyncAlt
 } from "@fortawesome/free-solid-svg-icons";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -38,7 +36,11 @@ import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 import useInstrumentSync from "../../../hooks/useInstrumentSync";
-import { computeSyncState, diffFromSnapshot } from "../../../utils/instrumentSync";
+import {
+  buildValidatedSnapshot,
+  computeSyncState,
+  diffFromSnapshot,
+} from "../../../utils/instrumentSync";
 
 import "./UniversalInstrumentModal.css";
 
@@ -78,7 +80,8 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
   return options;
 };
 
-const RESOLUTION_DIST_DEFAULT = "1.732";
+const TOLERANCE_DIST_DEFAULT = "1.732";
+const RESOLUTION_DIST_DEFAULT = "3.464";
 const MAX_BUILDER_UNDO_STEPS = 50;
 const BAND_KEYS = ["reading", "readings_iv", "range", "floor"];
 
@@ -93,7 +96,7 @@ const formatToleranceSummary = (tolerances) => {
 
 const getBandDistribution = (tolerances = {}) => {
     const key = BAND_KEYS.find((k) => tolerances?.[k]);
-    if (key) return tolerances[key].distribution || RESOLUTION_DIST_DEFAULT;
+    if (key) return tolerances[key].distribution || TOLERANCE_DIST_DEFAULT;
     return tolerances?.bandDistribution || null;
 };
 
@@ -317,7 +320,7 @@ const effectiveFloorTerm = (tolerance = {}) => {
 const getBuilderBandDivisor = (tolerance = {}) => {
     if (!tolerance || typeof tolerance !== "object") return null;
     const key = BAND_KEYS.find((k) => tolerance[k]);
-    if (key) return tolerance[key].distribution || RESOLUTION_DIST_DEFAULT;
+    if (key) return tolerance[key].distribution || TOLERANCE_DIST_DEFAULT;
     return tolerance.bandDistribution || null;
 };
 
@@ -510,6 +513,7 @@ const ToleranceTermEditor = ({
     typeKey,
     showHighSign = true,
     onCommit,
+    unitOptions = [],
 }) => {
     const component =
         getToleranceComponent(tolerance, typeKey) ||
@@ -933,7 +937,7 @@ const ToleranceTermEditor = ({
                             className={`inline-tolerance-shape-button${
                                 shapeMenuRect ? " is-open" : ""
                             }`}
-                            title={`Tolerance shape: ${currentShape.label}`}
+                            title="Change tolerance shape"
                             aria-haspopup="menu"
                             aria-expanded={Boolean(shapeMenuRect)}
                             onMouseDown={(e) => e.preventDefault()}
@@ -955,7 +959,7 @@ const ToleranceTermEditor = ({
                             className={`inline-tolerance-chip inline-tolerance-chip--in-cell inline-tolerance-chip--button${
                                 unitMenuRect ? " is-open" : ""
                             }`}
-                            title={`${typeKey === "reading" ? "IV" : "Range/FS"} unit - click to change`}
+                            title={`Change ${typeKey === "reading" ? "IV" : "range/FS"} unit`}
                             aria-haspopup="menu"
                             aria-expanded={Boolean(unitMenuRect)}
                             onMouseDown={(e) => e.preventDefault()}
@@ -966,6 +970,14 @@ const ToleranceTermEditor = ({
                         </button>
                         {unitMenu}
                     </>
+                ) : typeKey === "floor" ? (
+                    <BuilderUnitSelect
+                        value={component.unit || activeRange?.unit || ""}
+                        onChange={(unit) => commit({ unit })}
+                        options={unitOptions}
+                        ariaLabel="Tolerance unit"
+                        width="82px"
+                    />
                 ) : (
                     <span
                         className={`inline-tolerance-chip inline-tolerance-chip--in-cell${
@@ -1010,6 +1022,7 @@ const BuilderSingleSidedToleranceEditor = ({
     tolerance = {},
     activeRange = {},
     onCommit,
+    unitOptions = [],
 }) => {
     const stored = getToleranceComponent(tolerance, "singleSided");
     const component = stored || defaultToleranceComponent("singleSided", activeRange, tolerance);
@@ -1087,7 +1100,6 @@ const BuilderSingleSidedToleranceEditor = ({
               document.body,
           )
         : null;
-    const unit = getUnitDisplayLabel(component.unit || activeRange?.unit || "");
     const limitLabel = direction === "low" ? "Lower limit" : "Upper limit";
 
     return (
@@ -1142,10 +1154,16 @@ const BuilderSingleSidedToleranceEditor = ({
                                 className="inline-tolerance-input builder-single-sided-input"
                             />
                         </span>
-                        {unit && <span className="builder-single-sided-unit">{unit}</span>}
                     </div>
                 );
             })}
+            <BuilderUnitSelect
+                value={component.unit || activeRange?.unit || ""}
+                onChange={(unit) => commit({ unit })}
+                options={unitOptions}
+                ariaLabel="Single-sided tolerance unit"
+                width="82px"
+            />
         </span>
     );
 };
@@ -1181,7 +1199,7 @@ const BuilderRangeCell = ({
                 <button
                     type="button"
                     className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
-                    title={summary ? "Click to edit range" : "Click to set a range"}
+                    title={summary ? "Edit range" : "Set range"}
                     onClick={(e) => {
                         e.stopPropagation();
                         setEditing(true);
@@ -1283,6 +1301,7 @@ const BuilderRangeCell = ({
 const BuilderToleranceCell = ({
     range = {},
     fn = {},
+    unitOptions = [],
     onToleranceComponentCommit,
 }) => {
     const [editing, setEditing] = useState(false);
@@ -1318,6 +1337,7 @@ const BuilderToleranceCell = ({
                                 tolerance={tolerance}
                                 activeRange={activeRange}
                                 onCommit={onToleranceComponentCommit}
+                                unitOptions={unitOptions}
                             />
                         ) : (
                             <ToleranceTermEditor
@@ -1326,6 +1346,7 @@ const BuilderToleranceCell = ({
                                 typeKey={opt.key}
                                 showHighSign
                                 onCommit={onToleranceComponentCommit}
+                                unitOptions={unitOptions}
                             />
                         )}
                     </span>
@@ -1339,7 +1360,7 @@ const BuilderToleranceCell = ({
             <button
                 type="button"
                 className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}`}
-                title={hasValue ? "Click to edit tolerance" : "Click to set a tolerance"}
+                title={hasValue ? "Edit tolerance" : "Set tolerance"}
                 aria-label={hasValue ? undefined : "Set tolerance"}
                 onClick={(e) => {
                     e.stopPropagation();
@@ -1372,7 +1393,7 @@ const BuilderDistributionCell = ({ value, onChange }) => {
                 <button
                     type="button"
                     className="inline-tolerance-summary"
-                    title="Click to edit distribution"
+                    title="Edit distribution"
                     onClick={(e) => {
                         e.stopPropagation();
                         setEditing(true);
@@ -1446,7 +1467,7 @@ const BuilderResolutionCell = ({
                 <button
                     type="button"
                     className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
-                    title={summary ? "Click to edit resolution" : "Click to set a resolution"}
+                    title={summary ? "Edit resolution" : "Set resolution"}
                     aria-label={summary ? undefined : "Set resolution"}
                     onClick={(e) => {
                         e.stopPropagation();
@@ -1622,6 +1643,7 @@ const UniversalInstrumentModal = ({
     const [pendingDelete, setPendingDelete] = useState(null); // { ids: [...] }
     const [pendingSync, setPendingSync] = useState(null);
     const [syncNotice, setSyncNotice] = useState(null);
+    const [validationNotice, setValidationNotice] = useState(false);
     const [pendingInstrumentSave, setPendingInstrumentSave] = useState(false);
     // Password prompt for writing an instrument to the validated (shared) library
     // from the builder. Any save that promotes/updates the shared definition is
@@ -1660,8 +1682,8 @@ const UniversalInstrumentModal = ({
 
     const { position, handleMouseDown } = useFloatingWindow({
         isOpen,
-        defaultWidth: 1100,
-        defaultHeight: 850
+        defaultWidth: Math.min(1100, window.innerWidth * 0.95),
+        defaultHeight: Math.min(850, window.innerHeight * 0.85)
     });
     const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
 
@@ -1674,6 +1696,7 @@ const UniversalInstrumentModal = ({
             setPendingDelete(null);
             setPendingSync(null);
             setSyncNotice(null);
+            setValidationNotice(false);
             setPendingInstrumentSave(false);
             setPendingLibraryPassword(false);
             setLibraryPasswordError("");
@@ -1886,13 +1909,12 @@ const UniversalInstrumentModal = ({
 
     const modeIcon = effectiveMode === 'uut' ? faMicroscope : (effectiveMode === 'tmde' ? faTools : faBookOpen);
 
-    const isFormValid = useMemo(() => {
-        // Mfr. + Model define the instrument; the trailing Name token is optional
-        // (mirrors the inline tables, where a name/label is not required).
-        if (!instrumentDef.manufacturer?.trim()) return false;
-        if (!instrumentDef.model?.trim()) return false;
-        return true;
-    }, [instrumentDef.manufacturer, instrumentDef.model]);
+    const missingRequiredFields = useMemo(() => [
+        !instrumentDef.manufacturer?.trim() ? "Mfr." : null,
+        !instrumentDef.model?.trim() ? "Model" : null,
+        !metaData.name?.trim() ? "Name" : null,
+    ].filter(Boolean), [instrumentDef.manufacturer, instrumentDef.model, metaData.name]);
+    const isFormValid = missingRequiredFields.length === 0;
 
     const isInstrumentInLibrary = useMemo(
         () => instruments.some(
@@ -1914,9 +1936,27 @@ const UniversalInstrumentModal = ({
 
     const hasLibraryChanges = useMemo(() => {
         if (!linkedLibraryInstrument) return false;
-        return JSON.stringify(getComparableLibraryInstrument(instrumentDef)) !==
+        return JSON.stringify(getComparableLibraryInstrument({
+            ...instrumentDef,
+            description: metaData.name,
+        })) !==
             initialInstrumentSignature;
-    }, [initialInstrumentSignature, instrumentDef, linkedLibraryInstrument]);
+    }, [initialInstrumentSignature, instrumentDef, linkedLibraryInstrument, metaData.name]);
+
+    const sourceBadgeInstrument = useMemo(() => {
+        if (instrumentDef.scope !== "validated" || !hasLibraryChanges) {
+            return instrumentDef;
+        }
+        return {
+            ...instrumentDef,
+            scope: "local",
+            sourceId: instrumentDef.sourceId || instrumentDef.id,
+            validatedSnapshot:
+                instrumentDef.validatedSnapshot ||
+                buildValidatedSnapshot(linkedLibraryInstrument || instrumentDef),
+            localOverride: true,
+        };
+    }, [hasLibraryChanges, instrumentDef, linkedLibraryInstrument]);
 
     // --- Library list multi-select (ctrl = toggle, shift = range) ---
     const handleRowSelect = (e, instId) => {
@@ -2135,6 +2175,7 @@ const UniversalInstrumentModal = ({
         }));
         setActiveFunctionId(null);
         setActiveTypeBId(null);
+        setValidationNotice(false);
         setViewMode("edit");
     };
 
@@ -2375,13 +2416,32 @@ const UniversalInstrumentModal = ({
                 type: effectiveMode
             };
         } else {
-            // Library Mode: Sync description with the input field (metaData.name)
-            finalData = { 
-                ...instrumentDef, 
-                description: metaData.name, // Ensure description is updated from UI
+            // Library-mode editing is always local. Editing a shared definition
+            // creates a linked local copy and leaves the canonical shared record
+            // untouched; the explicit Sync action remains the only path that can
+            // write changes back to the shared library.
+            const editingSharedInstrument = instrumentDef.scope === "validated";
+            const sharedSourceId =
+                instrumentDef.sourceId ||
+                instrumentDef.libraryInstrumentId ||
+                (editingSharedInstrument ? instrumentDef.id : null);
+            finalData = {
+                ...instrumentDef,
+                id: editingSharedInstrument ? uuidv4() : instrumentDef.id,
+                description: metaData.name,
                 measurementArea: metaData.measurementArea, 
                 measurementAreaColor: metaData.measurementAreaColor,
-                type: 'library' 
+                type: 'library',
+                scope: "local",
+                ...(sharedSourceId ? { sourceId: sharedSourceId } : {}),
+                ...(editingSharedInstrument
+                    ? {
+                        validatedSnapshot:
+                            instrumentDef.validatedSnapshot ||
+                            buildValidatedSnapshot(linkedLibraryInstrument || instrumentDef),
+                    }
+                    : {}),
+                localOverride: true,
             };
         }
 
@@ -2479,7 +2539,10 @@ const UniversalInstrumentModal = ({
     };
 
     const handleSave = () => {
-        if (!isFormValid) return;
+        if (!isFormValid) {
+            setValidationNotice(true);
+            return;
+        }
 
         if (
             (effectiveMode === 'uut' || effectiveMode === 'tmde') &&
@@ -2488,15 +2551,6 @@ const UniversalInstrumentModal = ({
             hasLibraryChanges
         ) {
             setPendingInstrumentSave(true);
-            return;
-        }
-
-        // Library mode: editing a validated (shared) instrument writes straight
-        // to the shared library, which the backend password-gates. Collect the
-        // password first instead of firing an unguarded save that 403s. New /
-        // local instruments stay local and save without a password.
-        if (effectiveMode === 'library' && instrumentDef.scope === 'validated') {
-            promptLibraryPassword();
             return;
         }
 
@@ -2537,11 +2591,6 @@ const UniversalInstrumentModal = ({
                 onMouseDown={handleMouseDown}
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    {viewMode === 'list' && (
-                        <button className="icon-btn-ghost" onClick={() => setViewMode("edit")} title="Back to Editor">
-                            <FontAwesomeIcon icon={faArrowLeft} />
-                        </button>
-                    )}
                     <h3 style={{ margin: 0, fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <FontAwesomeIcon icon={modeIcon} style={{ color: 'var(--primary-color)' }} />
                         {viewMode === 'list' ? "Select Instrument from Library" : modalTitle}
@@ -2566,7 +2615,7 @@ const UniversalInstrumentModal = ({
                                     autoFocus
                                 />
                             </div>
-                            <button className="icon-btn-ghost" onClick={handleCreateNew} title="Create Manual Instrument">
+                            <button className="icon-btn-ghost" onClick={handleCreateNew} title="Create Instrument">
                                 <FontAwesomeIcon icon={faPlus} />
                             </button>
                         </div>
@@ -2593,7 +2642,7 @@ const UniversalInstrumentModal = ({
                                                     onClick={(e) => handleRowSelect(e, inst.id)}
                                                     onDoubleClick={() => handleEditLibraryItem(inst)}
                                                     className={`hover-row ${isRowSelected ? 'row-selected' : ''}`}
-                                                    title="Click to select (Ctrl/Shift for multi); double-click to open"
+                                                    title="Select instrument"
                                                     tabIndex={0}
                                                     aria-selected={isRowSelected}
                                                 >
@@ -2608,9 +2657,9 @@ const UniversalInstrumentModal = ({
                                                     </td>
                                                     <td onClick={e => e.stopPropagation()}>
                                                         <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
-                                                            {inst.functions.map(f => (
+                                                            {inst.functions.map((f, functionIndex) => (
                                                                 <button
-                                                                    key={f.id}
+                                                                    key={f.id || `${inst.id}-function-${functionIndex}`}
                                                                     onClick={(e) => toggleFunctionDetails(e, inst.id, f.id)}
                                                                     className={`status-pill ${isExpanded && expandedDetail.funcId === f.id ? "active" : ""}`}
                                                                 >
@@ -2734,22 +2783,11 @@ const UniversalInstrumentModal = ({
                                 <div className="identity-title">
                                     <span>Identification</span>
                                     <InstrumentSourceBadge
-                                        instrument={instrumentDef}
+                                        instrument={sourceBadgeInstrument}
                                         linkedInstrument={linkedLibraryInstrument}
                                     />
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <span
-                                        className="builder-typeb-status"
-                                        title="Associated Type B uncertainties are edited below the function specs"
-                                    >
-                                        <FontAwesomeIcon icon={faFlask} />
-                                        {(instrumentDef.typeBComponents?.length || 0) > 0 && (
-                                            <span className="typeb-count-badge">
-                                                {instrumentDef.typeBComponents.length}
-                                            </span>
-                                        )}
-                                    </span>
                                     <button className="icon-btn-ghost" onClick={() => setViewMode('list')} title="Import from Library">
                                         <FontAwesomeIcon icon={faBookOpen} />
                                     </button>
@@ -2900,6 +2938,7 @@ const UniversalInstrumentModal = ({
                                                                     <BuilderToleranceCell
                                                                         range={range}
                                                                         fn={fn}
+                                                                        unitOptions={unitOptions}
                                                                         onToleranceComponentCommit={(typeKey, component) =>
                                                                             updateRangeTolerance(fn.id, range.id, (prev) =>
                                                                                 applyToleranceCaseChange(
@@ -2963,7 +3002,7 @@ const UniversalInstrumentModal = ({
                                 <section className="typeb-spec-section">
                                     <div className="spec-sheet-toolbar typeb-spec-toolbar">
                                         <h5>
-                                            <FontAwesomeIcon icon={faFlask} /> Type B Uncertainties
+                                            Type B Uncertainties
                                         </h5>
                                         <div className="spec-toolbar-actions">
                                             <button
@@ -3007,8 +3046,7 @@ const UniversalInstrumentModal = ({
                             <button 
                                 className="icon-btn-ghost editor-save-button"
                                 onClick={handleSave} 
-                                disabled={!isFormValid}
-                                title={!isFormValid ? "Fill Manufacturer, Model, and Description" : "Save Configuration"}
+                                title="Save Configuration"
                                 aria-label="Save configuration"
                             >
                                 <FontAwesomeIcon icon={faCheck} />
@@ -3117,6 +3155,12 @@ const UniversalInstrumentModal = ({
                 onClose={() => setSyncNotice(null)}
                 title={syncNotice?.title}
                 message={syncNotice?.message}
+            />
+            <NotificationModal
+                isOpen={validationNotice}
+                onClose={() => setValidationNotice(false)}
+                title="Complete required fields"
+                message={`Fill in all required fields before saving: ${missingRequiredFields.join(", ")}.`}
             />
         </div>,
         document.body

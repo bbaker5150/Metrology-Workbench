@@ -196,6 +196,28 @@ describe("calculateDerivedUncertainty input contributors", () => {
     expect(result.nominalResult).toBeNaN();
   });
 
+  it("uses a readable fallback when an equation produces an unknown unit combination", () => {
+    const result = calculateDerivedUncertainty(
+      "T = L * W",
+      { L: "Length", W: "Weight" },
+      [],
+      {
+        value: 10,
+        unit: "lb-ft",
+        variableNominals: {
+          L: { value: 2, unit: "ft" },
+          W: { value: 5, unit: "lb" },
+        },
+      },
+      [],
+      { strictUnitValidation: true },
+    );
+
+    expect(result.error).toMatch(/units do not match the expected value/i);
+    expect(result.error).toContain("lb-ft");
+    expect(result.error).not.toMatch(/\bM\s+L\b/);
+  });
+
   it("accepts a force-times-length equation for a torque target", () => {
     const result = calculateDerivedUncertainty(
       "y = w * l",

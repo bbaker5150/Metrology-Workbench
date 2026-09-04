@@ -205,7 +205,7 @@ const InstrumentLookupModal = ({
               <th style={{ padding: "12px", width: "15%" }}>Model</th>
               <th style={{ padding: "12px", width: "25%" }}>Description</th>
               <th style={{ padding: "12px", width: "35%" }}>
-                Functions (Click to View Specs)
+                Functions
               </th>
               <th
                 style={{ padding: "12px", width: "10%", textAlign: "center" }}
@@ -290,7 +290,7 @@ const InstrumentLookupModal = ({
                                 padding: "2px 8px",
                                 borderRadius: "12px",
                               }}
-                              title="Click to view tolerances"
+                              title="View tolerances"
                             >
                               {f.name}{" "}
                               {isFuncActive ? (

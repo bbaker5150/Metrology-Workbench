@@ -35,8 +35,10 @@ from npsl_tools.instruments import (
     Instrument11713C,
     Instrument3458A,
     Instrument5730A,
+    Instrument5790A,
     Instrument5790B,
     Instrument34420A,
+    Instrument8508A,
     Instrument8100,
 )
 
@@ -197,6 +199,13 @@ class Mock5790B(Instrument5790B):
         return None
 
 
+class Mock5790A(Mock5790B, Instrument5790A):
+    """Mock 5790A using the same measurement behavior as the 5790B mock."""
+
+    def __init__(self, model: str = "5790A", gpib: Optional[str] = None, timeout: float = 60000):
+        _install_mock_attrs(self, model=model, gpib=gpib, timeout=timeout)
+
+
 class Mock34420A(Instrument34420A):
     """Mock 34420A nanovoltmeter.
 
@@ -218,6 +227,38 @@ class Mock34420A(Instrument34420A):
 
     def read_instrument(self) -> float:  # type: ignore[override]
         return _synthetic_reading(getattr(self, "gpib", None), inject_lf_ripple=True)
+
+    def close(self) -> None:  # type: ignore[override]
+        return None
+
+
+class Mock8508A(Instrument8508A):
+    """Mock dual-input 8508A used as two logical readers."""
+
+    def __init__(
+        self,
+        gpib: Optional[str] = None,
+        input_terminal: str = "FRONT",
+        timeout: int = 120000,
+        reset_on_connect: bool = True,
+    ):
+        _install_mock_attrs(self, model="8508A", gpib=gpib, timeout=timeout)
+        self.input_terminal = str(input_terminal).upper()
+
+    def initialize_ac_shunt_mode(self) -> None:  # type: ignore[override]
+        return None
+
+    def set_input(self, terminal: str) -> None:  # type: ignore[override]
+        self.input_terminal = str(terminal).upper()
+
+    def read_instrument(self) -> float:  # type: ignore[override]
+        # Offset the two logical inputs just enough for mock runs to prove that
+        # Standard and TI routing did not accidentally read the same channel.
+        base = _synthetic_reading(getattr(self, "gpib", None), inject_lf_ripple=True)
+        return base if self.input_terminal == "FRONT" else base * 1.000001
+
+    def read_pair(self, other, reverse_order: bool = False):  # type: ignore[override]
+        return self.read_instrument(), other.read_instrument()
 
     def close(self) -> None:  # type: ignore[override]
         return None
@@ -258,6 +299,21 @@ class Mock11713C(Instrument11713C):
     def select_ac_source(self) -> None:  # type: ignore[override]
         _STATE["active_source"] = "AC"
 
+    def set_route(self, route: str) -> None:  # type: ignore[override]
+        _STATE["active_route"] = str(route).upper()
+
+    def select_instrument(self, role: str, standard_route: str = "OPEN") -> None:  # type: ignore[override]
+        role = str(role).upper()
+        _STATE["active_reader"] = role
+        _STATE["active_instrument"] = role
+        route = standard_route if role == "STD" else (
+            "CLOSED" if str(standard_route).upper() == "OPEN" else "OPEN"
+        )
+        self.set_route(route)
+
+    def select_reader(self, role: str, standard_route: str = "OPEN") -> None:  # type: ignore[override]
+        self.select_instrument(role, standard_route=standard_route)
+
     def deactivate_all(self) -> None:  # type: ignore[override]
         _STATE["active_source"] = None
 
@@ -269,8 +325,10 @@ class Mock11713C(Instrument11713C):
 MOCK_CLASS_MAP = {
     Instrument5730A: Mock5730A,
     Instrument3458A: Mock3458A,
+    Instrument5790A: Mock5790A,
     Instrument5790B: Mock5790B,
     Instrument34420A: Mock34420A,
+    Instrument8508A: Mock8508A,
     Instrument8100: Mock8100,
     Instrument11713C: Mock11713C,
 }

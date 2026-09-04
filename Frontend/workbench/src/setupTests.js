@@ -1,4 +1,43 @@
+import React from 'react';
 import '@testing-library/jest-dom/vitest';
+import { vi } from 'vitest';
+
+// The DOCX editor relies on layout, canvas, and ProseMirror measurements that
+// jsdom does not implement. DOM tests receive a focused facade while component
+// tests exercise our binary persistence and session-isolation behavior.
+vi.mock('@heyirisai/docx-editor-react', () => ({
+  createEmptyDocument: () => ({ kind: 'empty-docx' }),
+  createDocumentWithText: (text) => ({ kind: 'text-docx', text }),
+  DocxEditor: React.forwardRef(function MockDocxEditor(props, ref) {
+    const contentRef = React.useRef(null);
+    React.useImperativeHandle(ref, () => ({
+      save: vi.fn(async () => new TextEncoder().encode(
+        contentRef.current?.textContent || 'mock-docx',
+      ).buffer),
+      focus: vi.fn(),
+    }), []);
+    React.useEffect(() => {
+      props.onEditorViewReady?.({});
+    }, [props]);
+    return (
+      React.createElement('div', {
+        className: 'mock-docx-editor',
+        'data-testid': 'docx-editor',
+        'data-show-file-open': String(Boolean(props.showFileOpen)),
+        'data-has-open-handler': String(typeof props.onOpen === 'function'),
+      },
+        props.renderTitleBarRight?.(),
+        React.createElement('div', {
+          ref: contentRef,
+          className: 'mock-docx-content',
+          contentEditable: true,
+          suppressContentEditableWarning: true,
+          onInput: () => props.onChange?.({}),
+        }, props.document?.text || ''),
+      )
+    );
+  }),
+}));
 
 // jsdom does not implement ResizeObserver, while the production UI relies on
 // it through react-use-measure / react-three-fiber. A no-op observer is enough

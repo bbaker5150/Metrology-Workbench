@@ -93,6 +93,41 @@ const changeResolution = (value) => {
 };
 
 describe("UniversalInstrumentModal library synchronization", () => {
+  test("uses the add button as the only new-instrument entry point", () => {
+    renderModal({
+      mode: "library",
+      initialData: null,
+      instruments: [],
+    });
+
+    expect(screen.queryByTitle("Back to Editor")).not.toBeInTheDocument();
+    expect(screen.getByTitle("Create Instrument")).toBeInTheDocument();
+  });
+
+  test("shows missing required fields when save is attempted", () => {
+    const props = renderModal({
+      mode: "uut",
+      initialData: null,
+      instruments: [],
+    });
+
+    const save = screen.getByRole("button", { name: "Save configuration" });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+
+    const notice = screen.getByRole("alertdialog", {
+      name: "Complete required fields",
+    });
+    expect(notice).toHaveTextContent("Mfr., Model, Name");
+    expect(props.onSave).not.toHaveBeenCalled();
+  });
+
+  test("does not decorate Type B authoring with flask icons", () => {
+    renderModal();
+
+    expect(document.querySelector('[data-icon="flask"]')).not.toBeInTheDocument();
+  });
+
   test("owns Delete and routes it to the selected library instrument", async () => {
     const onDelete = vi.fn(async () => {});
     renderModal({
@@ -213,54 +248,50 @@ describe("UniversalInstrumentModal library synchronization", () => {
     );
   });
 
-  test("password-gates saving a validated instrument edited in library mode", async () => {
+  test("saves edits to a shared instrument as a linked local copy", () => {
     const sharedInstrument = {
       ...libraryInstrument,
       id: "shared-lib-1",
       model: "DMM-SHARED",
       scope: "validated",
     };
-    const syncedInstrument = { ...sharedInstrument, sourceId: "shared-lib-1" };
-    axios.post.mockResolvedValueOnce({ data: syncedInstrument });
-    const onInstrumentSynced = vi.fn();
 
     const props = renderModal({
       mode: "library",
       initialData: null,
       instruments: [sharedInstrument],
-      onInstrumentSynced,
     });
 
-    // Open the shared instrument for editing (as when adding a Type B to it).
     fireEvent.doubleClick(screen.getByText("DMM-SHARED").closest("tr"));
+    const [, modelInput] = document.querySelectorAll(
+      ".identity-grid input[type='text']",
+    );
+    fireEvent.change(modelInput, { target: { value: "DMM-LOCAL-EDIT" } });
 
-    // Saving a validated instrument must prompt for the password, never fire an
-    // unguarded POST (the 403 the user hit).
-    fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
-    expect(axios.post).not.toHaveBeenCalled();
-    expect(props.onSave).not.toHaveBeenCalled();
-
-    fireEvent.change(screen.getByLabelText("Shared library password"), {
-      target: { value: "calibrate" },
-    });
-    fireEvent.click(
-      screen.getByRole("button", { name: /Update Shared Library/i }),
+    // The source indicator changes as soon as the shared definition diverges.
+    expect(screen.getByLabelText("Instrument source: Local")).toHaveTextContent(
+      "Local",
     );
 
-    await waitFor(() => {
-      expect(axios.post).toHaveBeenCalledWith(
-        expect.stringContaining("/instruments/"),
-        expect.objectContaining({
-          id: "shared-lib-1",
-          scope: "validated",
-          password: "calibrate",
-        }),
-      );
-    });
-    // Library mode reconciles through onInstrumentSynced; it must not also
-    // re-POST the record via the unguarded session onSave path.
-    expect(onInstrumentSynced).toHaveBeenCalledWith(syncedInstrument);
-    expect(props.onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Shared library password")).not.toBeInTheDocument();
+    expect(props.onSave).toHaveBeenCalledTimes(1);
+
+    const saved = props.onSave.mock.calls[0][0];
+    expect(saved).toEqual(
+      expect.objectContaining({
+        model: "DMM-LOCAL-EDIT",
+        scope: "local",
+        sourceId: "shared-lib-1",
+        localOverride: true,
+        type: "library",
+      }),
+    );
+    expect(saved.id).not.toBe("shared-lib-1");
+    expect(saved.validatedSnapshot).toEqual(
+      expect.objectContaining({ model: "DMM-SHARED" }),
+    );
   });
 
   test("shows shared and local source labels in the library list and editor", () => {
@@ -634,11 +665,12 @@ describe("UniversalInstrumentModal library synchronization", () => {
     const distributionSelect = within(row).getByRole("button", {
       name: /Resolution distribution/i,
     });
+    expect(distributionSelect).toHaveTextContent("k = 3.464");
     fireEvent.click(distributionSelect);
-    expect(screen.getByRole("option", { name: /Triangular\s+2\.449/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ })).toBeInTheDocument();
     expect(
       screen.getByRole("option", {
-        name: /Triangular \(resolution\)\s+4\.899/,
+        name: /Triangular \(resolution\)\s+k = 4\.899/,
       }),
     ).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Normal \(95%\)/ })).toBeInTheDocument();

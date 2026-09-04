@@ -186,7 +186,7 @@ const WORKFLOW_STEPS = [
 const TOOLS_INFO = [
   {
     icon: faList,
-    title: "Session Overview",
+    title: "Instrument Overview",
     desc: "Menu displaying full analysis session overview. Includes UUT/TMDE information for all measurement points, including all risk metrics calculated. "
   },
   {

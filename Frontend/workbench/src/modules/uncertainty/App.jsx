@@ -5,6 +5,7 @@ import React, {
   useState,
   useMemo,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   lazy,
@@ -24,6 +25,8 @@ import TestPointInfoModal from "./features/testPoints/components/TestPointInfoMo
 import UniversalInstrumentModal from "./features/instruments/components/UniversalInstrumentModal";
 import UnresolvedToleranceModal from "./features/testPoints/components/UnresolvedToleranceModal";
 import BugReportModal from "./components/modals/BugReportModal";
+import GuidedWalkthrough from "./components/common/GuidedWalkthrough";
+import InlineMenuSelect from "./components/common/InlineMenuSelect";
 
 // --- Brand emblem (shared 3D medallion recipe) ---
 import HeaderEmblem from "./components/HeaderEmblem";
@@ -53,7 +56,6 @@ import {
   faQuestionCircle,
   faLayerGroup,
   faMicroscope,
-  faCube,
   faRadio,
   faHistory,
   faRightLeft,
@@ -64,10 +66,15 @@ import {
   faPaste,
   faCheckCircle,
   faSlidersH,
+  faArrowsLeftRight,
   faChevronDown,
+  faChevronUp,
   faChevronRight,
   faExpandArrowsAlt,
   faCompressArrowsAlt,
+  faCog,
+  faMoon,
+  faSun,
 } from "@fortawesome/free-solid-svg-icons";
 
 import ThemeContext from "./context/ThemeContext";
@@ -94,6 +101,7 @@ import {
 } from "./constants/constants";
 import {
   getRemainingCutPoints,
+  hasDerivedNominalMismatch,
   preparePointForPaste,
 } from "./utils/pointClipboard";
 import {
@@ -108,7 +116,10 @@ import {
   resolveSessionFunctions,
 } from "./utils/functionGrouping";
 import { formatRangeLabel } from "./utils/rangeFormatting";
-import { formatSidebarUncertainty } from "./utils/sidebarUncertainty";
+import {
+  formatSidebarUncertainty,
+  formatSidebarUncertaintyFull,
+} from "./utils/sidebarUncertainty";
 import { ZOOM_TOAST_EVENT } from "../../shared/ZoomToast";
 
 // Synthetic ids for the top-level "Unassigned Points" bucket (points whose
@@ -121,11 +132,134 @@ const UNASSIGNED_UUT_ID = "__unassigned_uut__";
 // appear detached from their headers and changed spacing with viewport width.
 const SIDEBAR_UNCERTAINTY_COLUMN = "110px";
 
+const DEFAULT_FUNCTION_POINT_SETTINGS = Object.freeze({
+  mode: "direct",
+  reuseEquation: false,
+  reuseBudget: false,
+});
+
+const clonePointSettingValue = (value) => {
+  if (Array.isArray(value)) return value.map(clonePointSettingValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        clonePointSettingValue(nested),
+      ]),
+    );
+  }
+  return value;
+};
+
+const POINT_BUDGET_FIELDS = [
+  "components",
+  "tmdeTolerances",
+  "inputCorrelations",
+  "coverageFactorMode",
+  "coverageFactorOverride",
+  "budgetPropagationMethod",
+  "monteCarloTrials",
+  "useEffectiveDofByGroup",
+];
+
+export const copyPointBudget = (point = {}) =>
+  Object.fromEntries(
+    POINT_BUDGET_FIELDS.filter((field) =>
+      Object.prototype.hasOwnProperty.call(point, field),
+    ).map((field) => [field, clonePointSettingValue(point[field])]),
+  );
+
+export const pastePointBudget = (point = {}, budget = {}) => {
+  const next = { ...point };
+  POINT_BUDGET_FIELDS.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(budget, field)) {
+      next[field] = clonePointSettingValue(budget[field]);
+    } else {
+      delete next[field];
+    }
+  });
+  return next;
+};
+
+const normalizedGroupedCellValue = (value) => {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+};
+
+export const getConsecutiveSidebarCellGroup = (
+  points = [],
+  index,
+  valueForPoint,
+) => {
+  const value = normalizedGroupedCellValue(valueForPoint(points[index]));
+  if (!value) {
+    return {
+      isStart: true,
+      isEnd: true,
+      span: 1,
+      pointIds: [points[index]?.id],
+    };
+  }
+  let start = index;
+  let end = index;
+  while (
+    start > 0 &&
+    normalizedGroupedCellValue(valueForPoint(points[start - 1])) === value
+  ) {
+    start -= 1;
+  }
+  while (
+    end + 1 < points.length &&
+    normalizedGroupedCellValue(valueForPoint(points[end + 1])) === value
+  ) {
+    end += 1;
+  }
+  return {
+    isStart: start === index,
+    isEnd: end === index,
+    span: end - start + 1,
+    pointIds: points.slice(start, end + 1).map((point) => point.id),
+  };
+};
+
+// While one member of a merged Section/Qualifier run is being edited, treat
+// that point as its own temporary value. This removes the old spanning label
+// from behind the editor and leaves the points on either side grouped exactly
+// as they will be after the edited value is saved.
+export const getConsecutiveSidebarCellGroupDuringEdit = (
+  points = [],
+  index,
+  valueForPoint,
+  field,
+  pendingEdit,
+) =>
+  getConsecutiveSidebarCellGroup(points, index, (candidate) => {
+    const isEditedMember =
+      pendingEdit?.field === field &&
+      String(pendingEdit?.pointId ?? "") === String(candidate?.id ?? "");
+    return isEditedMember
+      ? `\u0000sidebar-edit-member:${field}:${candidate?.id}`
+      : valueForPoint(candidate);
+  });
+
+const getFunctionPointSettings = (sessionData, functionId) => {
+  const stored = (sessionData?.functionGroups || []).find(
+    (group) =>
+      makeFunctionKey(group.name) === functionId && group.kind !== "tmde",
+  )?.pointCreationSettings;
+  return {
+    ...DEFAULT_FUNCTION_POINT_SETTINGS,
+    ...(stored || {}),
+    mode: stored?.mode === "derived" ? "derived" : "direct",
+  };
+};
+
 const SIDEBAR_COLUMN_GROUPS = [
   {
     key: "measurement",
     label: "Measurement",
     columns: [
+      "uut",
       "section",
       "value",
       "qualifier",
@@ -165,92 +299,124 @@ const SIDEBAR_COLUMN_GROUPS = [
   },
 ];
 
-const getSidebarGridTemplate = (visibleColumns, valueColumnWidth = "80px") => {
-  const parts = [];
-  // Fixed widths for stable columns
-  if (visibleColumns.section) parts.push("50px");
-  if (visibleColumns.value) parts.push(valueColumnWidth);
-  if (visibleColumns.qualifier) parts.push("80px");
-  if (visibleColumns.tolerance) parts.push("minmax(80px, 1fr)");
+export const DEFAULT_SIDEBAR_COLUMN_ORDER = SIDEBAR_COLUMN_GROUPS.flatMap(
+  (group) => group.columns,
+);
 
-  // Split Limits Columns
-  if (visibleColumns.lowLimit) parts.push("minmax(60px, 0.8fr)");
-  if (visibleColumns.highLimit) parts.push("minmax(60px, 0.8fr)");
+const SIDEBAR_COLUMN_TRACKS = {
+  uut: "minmax(200px, 1.35fr)",
+  section: "50px",
+  value: "80px",
+  qualifier: "80px",
+  tolerance: "minmax(80px, 1fr)",
+  lowLimit: "minmax(82px, 0.8fr)",
+  highLimit: "minmax(82px, 0.8fr)",
+  standardUncertainty: SIDEBAR_UNCERTAINTY_COLUMN,
+  measurementUncertainty: SIDEBAR_UNCERTAINTY_COLUMN,
+  tmdeLow: "minmax(90px, 1fr)",
+  tmdeHigh: "minmax(90px, 1fr)",
+  tur: "55px",
+  tar: "55px",
+  observedReop: "78px",
+  pfa: "55px",
+  pfr: "55px",
+  maxReop: "70px",
+  trueReop: "70px",
+  gbMult: "60px",
+  gbLow: "minmax(60px, 0.8fr)",
+  gbHigh: "minmax(60px, 0.8fr)",
+  gbPfa: "60px",
+  gbPfr: "60px",
+  gbCalInt: "84px",
+  gbMeasRel: "98px",
+  noGbPfa: "64px",
+  noGbPfr: "64px",
+  noGbCalInt: "90px",
+  noGbMeasRel: "102px",
+};
 
-  if (visibleColumns.standardUncertainty) parts.push(SIDEBAR_UNCERTAINTY_COLUMN);
-  if (visibleColumns.measurementUncertainty) parts.push(SIDEBAR_UNCERTAINTY_COLUMN);
-  // TMDE (standard) limit columns
-  if (visibleColumns.tmdeLow) parts.push("minmax(90px, 1fr)");
-  if (visibleColumns.tmdeHigh) parts.push("minmax(90px, 1fr)");
+const SIDEBAR_COLUMN_LABELS = {
+  uut: "UUT",
+  section: "Section",
+  value: "Value",
+  qualifier: "Qualifier",
+  tolerance: "Tolerance",
+  lowLimit: "UUT Low Limit",
+  highLimit: "UUT High Limit",
+  standardUncertainty: "Comb. Uncertainty",
+  measurementUncertainty: "Exp. Uncertainty",
+  tmdeLow: "TMDE Low Limit",
+  tmdeHigh: "TMDE High Limit",
+  tur: "TUR",
+  tar: "TAR",
+  observedReop: "REOP @ test pt TUR",
+  pfa: "PFA",
+  pfr: "PFR",
+  maxReop: "Max REOP",
+  trueReop: "R_meas",
+  gbMult: "GB Mult",
+  gbLow: "GB Lower Limit",
+  gbHigh: "GB Upper Limit",
+  gbPfa: "PFA with GB",
+  gbPfr: "PFR with GB",
+  gbCalInt: "Cal Int with GB",
+  gbMeasRel: "Targeted REOP w/ GB",
+  noGbPfa: "PFA w/o GB",
+  noGbPfr: "PFR w/o GB",
+  noGbCalInt: "Cal Int w/o GB",
+  noGbMeasRel: "Targeted REOP w/o GB",
+};
 
-  // Workbook measurement and test-point risk columns
-  if (visibleColumns.tur) parts.push("55px");
-  if (visibleColumns.tar) parts.push("55px");
-  if (visibleColumns.observedReop) parts.push("78px");
-  if (visibleColumns.pfa) parts.push("55px");
-  if (visibleColumns.pfr) parts.push("55px");
-  if (visibleColumns.maxReop) parts.push("70px");
-  if (visibleColumns.trueReop) parts.push("70px");
+export const normalizeSidebarColumnOrder = (order) => {
+  const valid = new Set(DEFAULT_SIDEBAR_COLUMN_ORDER);
+  const normalized = [];
+  (Array.isArray(order) ? order : []).forEach((key) => {
+    if (valid.has(key) && !normalized.includes(key)) normalized.push(key);
+  });
+  DEFAULT_SIDEBAR_COLUMN_ORDER.forEach((key) => {
+    if (!normalized.includes(key)) normalized.push(key);
+  });
+  return normalized;
+};
 
-  // Mitigation (GB + interval)
-  if (visibleColumns.gbMult) parts.push("60px");
-  if (visibleColumns.gbLow) parts.push("minmax(60px, 0.8fr)");
-  if (visibleColumns.gbHigh) parts.push("minmax(60px, 0.8fr)");
-  if (visibleColumns.gbPfa) parts.push("60px");
-  if (visibleColumns.gbPfr) parts.push("60px");
-  if (visibleColumns.gbCalInt) parts.push("84px");
-  if (visibleColumns.gbMeasRel) parts.push("98px");
+const getVisibleSidebarColumnOrder = (visibleColumns, columnOrder) =>
+  normalizeSidebarColumnOrder(columnOrder).filter(
+    (key) => Boolean(visibleColumns[key]),
+  );
 
-  // Mitigation (interval only)
-  if (visibleColumns.noGbPfa) parts.push("64px");
-  if (visibleColumns.noGbPfr) parts.push("64px");
-  if (visibleColumns.noGbCalInt) parts.push("90px");
-  if (visibleColumns.noGbMeasRel) parts.push("102px");
+// A column the user has dragged is pinned to that exact width; everything else
+// keeps its default track sizing.
+export const SIDEBAR_COLUMN_MIN_WIDTH = 44;
+const SIDEBAR_COLUMN_MIN_WIDTHS = {
+  lowLimit: 82,
+  highLimit: 82,
+};
+
+export const getSidebarColumnMinWidth = (key) =>
+  SIDEBAR_COLUMN_MIN_WIDTHS[key] || SIDEBAR_COLUMN_MIN_WIDTH;
+
+const getSidebarGridTemplate = (
+  visibleColumns,
+  valueColumnWidth = "80px",
+  columnWidths = {},
+  columnOrder = DEFAULT_SIDEBAR_COLUMN_ORDER,
+) => {
+  const tracks = {
+    ...SIDEBAR_COLUMN_TRACKS,
+    value: valueColumnWidth,
+  };
+  const parts = getVisibleSidebarColumnOrder(
+    visibleColumns,
+    columnOrder,
+  ).map((key) => {
+    const custom = Number(columnWidths?.[key]);
+    return Number.isFinite(custom) && custom > 0
+      ? `${Math.max(getSidebarColumnMinWidth(key), Math.round(custom))}px`
+      : tracks[key];
+  });
 
   if (parts.length === 0) return "1fr";
   return parts.join(" ");
-};
-
-// Helper to calculate minimum sidebar width based on visible columns
-const getMinSidebarWidth = (visibleColumns) => {
-  // Base width for padding, indentation, tree structure, etc.
-  let width = 80; // Base padding/margin
-
-  // Add width for each visible column (use minimum values from grid template)
-  if (visibleColumns.section) width += 55;
-  if (visibleColumns.value) width += 85;
-  if (visibleColumns.qualifier) width += 85;
-  if (visibleColumns.tolerance) width += 90;
-  if (visibleColumns.lowLimit) width += 70;
-  if (visibleColumns.highLimit) width += 70;
-  if (visibleColumns.tmdeLow) width += 100;
-  if (visibleColumns.tmdeHigh) width += 100;
-  if (visibleColumns.standardUncertainty) width += 130;
-  if (visibleColumns.measurementUncertainty) width += 130;
-  if (visibleColumns.pfa) width += 60;
-  if (visibleColumns.pfr) width += 60;
-  if (visibleColumns.tur) width += 60;
-  if (visibleColumns.tar) width += 60;
-  if (visibleColumns.observedReop) width += 84;
-  if (visibleColumns.maxReop) width += 76;
-  if (visibleColumns.trueReop) width += 76;
-  if (visibleColumns.gbPfa) width += 65;
-  if (visibleColumns.gbPfr) width += 65;
-  if (visibleColumns.gbMult) width += 65;
-  if (visibleColumns.gbLow) width += 70;
-  if (visibleColumns.gbHigh) width += 70;
-  if (visibleColumns.gbCalInt) width += 70;
-  if (visibleColumns.gbMeasRel) width += 104;
-  if (visibleColumns.noGbPfa) width += 70;
-  if (visibleColumns.noGbPfr) width += 70;
-  if (visibleColumns.noGbCalInt) width += 76;
-  if (visibleColumns.noGbMeasRel) width += 108;
-
-  // Add extra buffer for gaps (4px per column gap)
-  const columnCount = Object.values(visibleColumns).filter(Boolean).length;
-  width += columnCount * 4;
-
-  return width;
 };
 
 const formatInstrumentIdentity = (item = {}) => {
@@ -265,16 +431,23 @@ const formatInstrumentIdentity = (item = {}) => {
       "",
   ).trim();
   const prefix = [make, model].filter(Boolean).join(" ");
-  if (!prefix) return name || "Instrument";
-  if (!name) return prefix;
-  return name.toLowerCase().startsWith(prefix.toLowerCase())
+  const identity = !prefix
+    ? name || "Instrument"
+    : !name
+      ? prefix
+      : name.toLowerCase().startsWith(prefix.toLowerCase())
     ? name
     : `${prefix} ${name}`;
+  const nickname = String(item.nickname || "").trim();
+  return nickname || identity;
 };
 
 const SCOPED_ZOOM_SURFACE_SELECTOR = [
-  ".measurement-point-list",
+  ".app-chrome-zoom-surface",
+  ".sidebar-session-info-zoom-surface",
+  ".measurement-points-zoom-surface",
   ".measurement-equation-zoom-surface",
+  ".budget-results-zoom-surface",
   ".panel-table-container",
   ".instrument-table-container",
   ".budget-section-table-wrap",
@@ -283,7 +456,18 @@ const SCOPED_ZOOM_SURFACE_SELECTOR = [
 ].join(", ");
 
 const UNCERTAINTY_UI_PREFERENCES_PREFIX = "uncertalytics.uiPreferences.v1";
+const UNCERTAINTY_UI_SIZING_KEY = "uncertalytics.uiSizing.v1";
+const INSTRUMENT_SIZE_RESET_EVENT = "uncert-reset-ui-sizes";
+const INSTRUMENT_SIZE_STORAGE_KEYS = [
+  "uncertalytics:uut:instrument-column-widths:v2",
+  "uncertalytics:tmde:instrument-column-widths:v2",
+  "uncertalytics:overview:uut:instrument-table-height:v1",
+  "uncertalytics:overview:tmde:instrument-table-height:v1",
+  "uncertalytics:detail:uut:instrument-table-height:v1",
+  "uncertalytics:detail:tmde:instrument-table-height:v1",
+];
 const DEFAULT_SIDEBAR_COLUMNS = {
+  uut: true,
   section: false,
   value: true,
   qualifier: false,
@@ -313,7 +497,8 @@ const DEFAULT_SIDEBAR_COLUMNS = {
   noGbCalInt: false,
   noGbMeasRel: false,
 };
-const DEFAULT_SIDEBAR_SORT = { key: "section", direction: "asc" };
+// Preserve authored chronology until the user explicitly selects a column sort.
+const DEFAULT_SIDEBAR_SORT = { key: "", direction: "asc" };
 
 const getUiPreferencesStorageKey = (sessionId) =>
   `${UNCERTAINTY_UI_PREFERENCES_PREFIX}:${sessionId}`;
@@ -331,7 +516,16 @@ const readUiPreferences = (sessionId) => {
 };
 
 const getScopedZoomKey = (surface) => {
-  if (surface.classList.contains("measurement-point-list")) {
+  if (surface.dataset.scopedZoomKey) {
+    return surface.dataset.scopedZoomKey;
+  }
+  if (surface.classList.contains("app-chrome-zoom-surface")) {
+    return "app-header";
+  }
+  if (surface.classList.contains("sidebar-session-info-zoom-surface")) {
+    return "session-info";
+  }
+  if (surface.classList.contains("measurement-points-zoom-surface")) {
     return "measurement-points";
   }
   if (surface.classList.contains("measurement-equation-zoom-surface")) {
@@ -355,8 +549,13 @@ const getScopedZoomKey = (surface) => {
 
 // Friendly labels for the zoom toast, keyed by the scoped surface class.
 const SCOPED_ZOOM_LABELS = {
+  "app-header": "Header",
+  "session-info": "Session info",
   "measurement-points": "Point list",
   "measurement-equation": "Equation",
+  "measurement-inputs": "Measurement inputs",
+  "budget-results": "Results card",
+  "budget-table": "Budget table",
   "panel-table-container": "Table",
   "instrument-table-container": "Instrument table",
   "budget-section-table-wrap": "Budget table",
@@ -380,20 +579,67 @@ const getDefaultScopedZoom = (zoomKey) => {
 const getScopedZoomTarget = (eventTarget) => {
   if (!(eventTarget instanceof Element)) return null;
 
-  const surface = eventTarget.closest(SCOPED_ZOOM_SURFACE_SELECTOR);
+  let surface = eventTarget.closest(SCOPED_ZOOM_SURFACE_SELECTOR);
+  if (!surface) {
+    const header = eventTarget.closest(
+      ".panel-card-header, .budget-section-title-row",
+    );
+    if (header?.classList.contains("budget-section-title-row")) {
+      surface = header.parentElement?.querySelector(
+        ":scope > .budget-section-table-wrap",
+      );
+    } else if (header) {
+      surface = header.parentElement?.querySelector(
+        ":scope > .panel-table-container, :scope > * > .panel-table-container",
+      );
+    }
+  }
   if (!surface) return null;
 
   if (
-    surface.classList.contains("measurement-point-list") ||
-    surface.classList.contains("measurement-equation-zoom-surface")
+    surface.classList.contains("app-chrome-zoom-surface") ||
+    surface.classList.contains("sidebar-session-info-zoom-surface") ||
+    surface.classList.contains("measurement-points-zoom-surface") ||
+    surface.classList.contains("measurement-equation-zoom-surface") ||
+    surface.classList.contains("budget-results-zoom-surface")
   ) {
     const content = surface.querySelector(":scope > .scoped-zoom-content");
     return content ? { surface, content } : null;
   }
 
-  const table = eventTarget.closest("table");
-  if (!table || !surface.contains(table)) return null;
-  return { surface, content: table };
+  const table = surface.querySelector(":scope > table");
+  if (!table) return null;
+  const panelHeader = surface
+    .closest(".panel-card")
+    ?.querySelector(":scope > .panel-card-header");
+  const budgetHeader = surface
+    .closest(".budget-stack-section")
+    ?.querySelector(":scope > .budget-section-title-row");
+  const linkedContents = [panelHeader, budgetHeader].filter(Boolean);
+  return { surface, content: table, linkedContents };
+};
+
+const getScopedZoomContents = (surface) => {
+  if (
+    surface.classList.contains("app-chrome-zoom-surface") ||
+    surface.classList.contains("sidebar-session-info-zoom-surface") ||
+    surface.classList.contains("measurement-points-zoom-surface") ||
+    surface.classList.contains("measurement-equation-zoom-surface") ||
+    surface.classList.contains("budget-results-zoom-surface")
+  ) {
+    const content = surface.querySelector(":scope > .scoped-zoom-content");
+    return content ? [content] : [];
+  }
+
+  const table = surface.querySelector(":scope > table");
+  if (!table) return [];
+  const panelHeader = surface
+    .closest(".panel-card")
+    ?.querySelector(":scope > .panel-card-header");
+  const budgetHeader = surface
+    .closest(".budget-stack-section")
+    ?.querySelector(":scope > .budget-section-title-row");
+  return [table, panelHeader, budgetHeader].filter(Boolean);
 };
 
 const parseSortableNumber = (value) => {
@@ -455,9 +701,45 @@ const getPointTmdeLimitSortValue = (point, key) => {
   return parseSortableNumber(key === "tmdeLow" ? limits.low : limits.high);
 };
 
+const readUiSizingPreferences = () => {
+  try {
+    return JSON.parse(
+      window.localStorage.getItem(UNCERTAINTY_UI_SIZING_KEY) || "{}",
+    );
+  } catch (error) {
+    console.warn("Unable to read uncertainty sizing preferences", error);
+    return {};
+  }
+};
+
+const hasStoredUiSizingPreferences = () => {
+  try {
+    return window.localStorage.getItem(UNCERTAINTY_UI_SIZING_KEY) !== null;
+  } catch {
+    return false;
+  }
+};
+
+export const getUutReassignmentPointIds = ({
+  selectedPointIds = [],
+  currentPointId,
+}) => {
+  const currentId = String(currentPointId);
+  const selectedIds = selectedPointIds.map(String);
+  return selectedIds.includes(currentId) ? selectedIds : [currentId];
+};
+
 // --- HELPER COMPONENT: Sidebar Point Item (Supports Inline Editing) ---
 export const SidebarPointItem = ({
   point,
+  uutName = "Unassigned",
+  currentUutId = "",
+  uutOptions = [],
+  onUutChange,
+  cellGroups = {},
+  columnWidths = {},
+  columnOrder = DEFAULT_SIDEBAR_COLUMN_ORDER,
+  highlightedPointIds = [],
   valueColumnWidth = "80px",
   isSelected,
   isActivePoint = false,
@@ -468,11 +750,16 @@ export const SidebarPointItem = ({
   onSelect,
   onSave,
   onContextMenu,
-  onDragStart,
   onShowRiskBreakdown,
   autoEditValue = false,
+  autoEditField = null,
   onAutoEditConsumed,
+  onAutoEditFieldConsumed,
+  preferredSharedEditPointId = null,
+  onRequestSharedMemberEdit,
+  onAdvanceValue,
   visibleColumns = {
+    uut: true,
     section: true,
     value: true,
     tolerance: true,
@@ -500,20 +787,72 @@ export const SidebarPointItem = ({
     noGbMeasRel: false,
   },
 }) => {
-  // 'section' | 'value' | 'qualifier' | null. A freshly quick-added direct point
+  // 'section' | 'value' | 'qualifier' | null. A freshly quick-added point
   // mounts straight into value-edit (autoEditValue) so the user can just type.
   const [editingField, setEditingField] = useState(
     autoEditValue ? "value" : null,
   );
+  const [editingUut, setEditingUut] = useState(false);
   const [tempValue, setTempValue] = useState(
     autoEditValue ? point.testPointInfo?.parameter?.value ?? "" : "",
   );
+  const groupedCellRefs = useRef({});
+  const pointRowRef = useRef(null);
+  const [groupedCellGeometry, setGroupedCellGeometry] = useState({});
+  const orderedVisibleColumns = getVisibleSidebarColumnOrder(
+    visibleColumns,
+    columnOrder,
+  );
+  const orderedVisibleColumnsKey = orderedVisibleColumns.join("|");
 
-  // Clear the parent's one-shot auto-edit flag once we've consumed it.
+  // The cell JSX intentionally stays grouped by feature for readability. Map
+  // each rendered cell into a named grid area before paint so users can move
+  // columns freely without duplicating the point-row markup or flashing the
+  // default order for a frame.
+  useLayoutEffect(() => {
+    const row = pointRowRef.current;
+    if (!row) return;
+    const renderedKeys = DEFAULT_SIDEBAR_COLUMN_ORDER.filter((key) =>
+      Boolean(visibleColumns[key]),
+    );
+    const cells = [...row.children];
+    cells.forEach((cell, index) => {
+      const key = renderedKeys[index];
+      if (!key) return;
+      cell.style.gridArea = key;
+      cell.dataset.sidebarColumn = key;
+      cell.dataset.sidebarColumnLast = String(
+        key === orderedVisibleColumns[orderedVisibleColumns.length - 1],
+      );
+    });
+    row.dataset.valueLeading = String(orderedVisibleColumns[0] === "value");
+  }, [editingField, orderedVisibleColumnsKey, visibleColumns]);
+
+  // Consume both mount-time and later focus requests. Pre-created blank rows
+  // are already mounted, so relying only on the useState initializer prevented
+  // Enter from advancing into the next row's value field.
   useEffect(() => {
-    if (autoEditValue) onAutoEditConsumed?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!autoEditValue) return;
+    setEditingField("value");
+    setTempValue(point.testPointInfo?.parameter?.value ?? "");
+    onAutoEditConsumed?.();
+  }, [autoEditValue, onAutoEditConsumed, point.testPointInfo]);
+
+  // Shared Section and Qualifier labels are rendered once at the start of a
+  // run, but the editor belongs to the point the user actually selected. Keep
+  // the request alive for the lifetime of the editor; consuming it immediately
+  // allowed a parent render to hide a continuation editor before it could save.
+  useEffect(() => {
+    if (!autoEditField || !["section", "qualifier"].includes(autoEditField)) {
+      return;
+    }
+    setEditingField(autoEditField);
+    setTempValue(
+      autoEditField === "section"
+        ? point.section ?? ""
+        : point.testPointInfo?.qualifier?.value ?? "",
+    );
+  }, [autoEditField]);
 
   const startEdit = (e, field, currentVal) => {
     e.stopPropagation();
@@ -525,9 +864,34 @@ export const SidebarPointItem = ({
   };
 
   const handleSingleClickEdit = (e, field, currentVal) => {
-    if (isSelected) {
+    const isPlainValueClick =
+      field === "value" && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+    if (!isSelected && isPlainValueClick) {
+      onSelect?.(e, point);
+    }
+    if (isSelected || isPlainValueClick) {
       startEdit(e, field, currentVal);
     }
+  };
+
+  const handleSharedFieldClick = (e, field, currentVal, group) => {
+    const preferredId = String(preferredSharedEditPointId ?? "");
+    const preferredBelongsToGroup =
+      group?.span > 1 &&
+      preferredId &&
+      group.pointIds?.some((id) => String(id) === preferredId);
+
+    if (preferredBelongsToGroup) {
+      if (onRequestSharedMemberEdit) {
+        e.stopPropagation();
+        e.preventDefault();
+        onRequestSharedMemberEdit?.(preferredSharedEditPointId, field);
+        return;
+      }
+      startEdit(e, field, currentVal);
+      return;
+    }
+    handleSingleClickEdit(e, field, currentVal);
   };
 
   // A plain click on a risk metric just selects the point (what users usually
@@ -547,11 +911,16 @@ export const SidebarPointItem = ({
   };
 
   const cancelEdit = () => {
+    const wasRequestedSharedEdit =
+      autoEditField && autoEditField === editingField;
     setEditingField(null);
     setTempValue("");
+    if (wasRequestedSharedEdit) onAutoEditFieldConsumed?.();
   };
 
   const commitEdit = () => {
+    const wasRequestedSharedEdit =
+      autoEditField && autoEditField === editingField;
     if (editingField === "section") {
       onSave({ ...point, section: tempValue });
     } else if (editingField === "value") {
@@ -578,18 +947,142 @@ export const SidebarPointItem = ({
       onSave({ ...point, testPointInfo: newInfo });
     }
     setEditingField(null);
+    if (wasRequestedSharedEdit) onAutoEditFieldConsumed?.();
   };
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
+      e.preventDefault();
+      const shouldAdvance = editingField === "value";
       e.target.blur(); // Triggers onBlur which commits
+      if (shouldAdvance) {
+        requestAnimationFrame(() => onAdvanceValue?.());
+      }
     }
     if (e.key === "Escape") cancelEdit();
+  };
+
+  const selectInlineFieldValue = (event) => {
+    event.currentTarget.select();
   };
 
   // Safe Accessors
   const displayValue = point.testPointInfo?.parameter?.value;
   const displayUnit = point.testPointInfo?.parameter?.unit || "";
+
+  // The spanning content is absolutely positioned, so measuring it cannot
+  // enlarge the point rows. Use the real rendered row bounds to keep merged
+  // labels centered when zoom or taller metrics change the row rhythm.
+  useLayoutEffect(() => {
+    const measure = () => {
+      const nextGeometry = {};
+      ["uut", "section", "qualifier"].forEach((column) => {
+        const group = cellGroups[column];
+        const cell = groupedCellRefs.current[column];
+        if (!group?.isStart || group.span < 2 || !cell) return;
+
+        const firstRow = cell.closest(".point-grid-item");
+        if (!firstRow) return;
+        let lastRow = firstRow;
+        for (let offset = 1; offset < group.span; offset += 1) {
+          const nextRow = lastRow.nextElementSibling;
+          if (!nextRow?.classList.contains("point-grid-item")) break;
+          lastRow = nextRow;
+        }
+
+        // offset* values stay in the list's local CSS coordinate system. That
+        // avoids applying scoped CSS zoom twice, which would shift the merged
+        // label away from the true midpoint.
+        const height =
+          lastRow.offsetTop + lastRow.offsetHeight - firstRow.offsetTop;
+        if (height <= 0) return;
+        nextGeometry[column] = {
+          top: `${-cell.offsetTop}px`,
+          height: `${Math.round(height)}px`,
+        };
+      });
+
+      setGroupedCellGeometry((current) =>
+        JSON.stringify(current) === JSON.stringify(nextGeometry)
+          ? current
+          : nextGeometry,
+      );
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    ["uut", "section", "qualifier"].forEach((column) => {
+      const group = cellGroups[column];
+      const cell = groupedCellRefs.current[column];
+      if (!group?.isStart || group.span < 2 || !cell) return;
+      let row = cell.closest(".point-grid-item");
+      for (let offset = 0; offset < group.span && row; offset += 1) {
+        observer.observe(row);
+        row = row.nextElementSibling;
+      }
+    });
+    return () => observer.disconnect();
+  }, [
+    cellGroups.uut?.isStart,
+    cellGroups.uut?.span,
+    cellGroups.uut?.pointIds?.join("|"),
+    cellGroups.section?.isStart,
+    cellGroups.section?.span,
+    cellGroups.section?.pointIds?.join("|"),
+    cellGroups.qualifier?.isStart,
+    cellGroups.qualifier?.span,
+    cellGroups.qualifier?.pointIds?.join("|"),
+    visibleColumns.uut,
+    visibleColumns.section,
+    visibleColumns.qualifier,
+  ]);
+
+  const highlightedPointIdSet = new Set(
+    (highlightedPointIds || []).filter(Boolean).map(String),
+  );
+  // A merged cell belongs to every point in its run, so selecting any one of
+  // them highlights the shared cell as a whole.
+  const groupIsHighlighted = (group) =>
+    group?.span > 1 &&
+    group.pointIds?.some((id) => highlightedPointIdSet.has(String(id)));
+  // Every cell of a run carries the same key, so hovering any row in the run
+  // can light the whole shared cell the way selecting a point does.
+  const groupedCellRunKey = (group, column) =>
+    group?.span > 1 ? `${column}:${group.pointIds?.[0]}` : undefined;
+
+  const groupedCellClass = (group, column) =>
+    group?.span > 1
+      ? ` point-grouped-cell point-grouped-cell--${group.isStart ? "start" : "continuation"}${
+          group.isEnd ? "" : " point-grouped-cell--has-next"
+        }${column === leadingVisibleColumn ? " point-grouped-cell--leading" : ""}${
+          groupIsHighlighted(group) ? " point-grouped-cell--highlighted" : ""
+        }${editingField === column ? " point-grouped-cell--editing-member" : ""}`
+      : "";
+  const groupedCellStyle = (group, column) =>
+    group?.span > 1 && group.isStart
+      ? {
+          "--point-cell-group-top":
+            groupedCellGeometry[column]?.top || "-5px",
+          "--point-cell-group-height":
+            groupedCellGeometry[column]?.height || `${group.span * 29 - 1}px`,
+        }
+      : undefined;
+  const setGroupedCellRef = (column) => (node) => {
+    groupedCellRefs.current[column] = node;
+  };
+  const leadingVisibleColumn = orderedVisibleColumns[0];
+  const wrapGroupedCellContent = (group, column, content) =>
+    group?.span > 1 && group.isStart && editingField !== column ? (
+      <span
+        className={`point-grouped-cell-content point-grouped-cell-content--${column}${column === leadingVisibleColumn ? " is-leading-column" : ""}`}
+        style={groupedCellStyle(group, column)}
+      >
+        {content}
+      </span>
+    ) : (
+      content
+    );
   // Prefer the live, reactively-computed metrics (always current with the
   // session inputs); fall back to the persisted backend snapshot only if the
   // point can't currently be evaluated (#1).
@@ -668,6 +1161,17 @@ export const SidebarPointItem = ({
       ? `${Number(value).toFixed(digits)}%`
       : "-";
 
+  // Hover text is intentionally only the unrounded stored value. Column
+  // headings already explain what the number means; repeating the label and
+  // interaction instructions made the native tooltip unnecessarily noisy.
+  const fullMetricTitle = (_label, value) =>
+    value !== undefined &&
+    value !== null &&
+    value !== "" &&
+    Number.isFinite(Number(value))
+      ? String(value)
+      : "-";
+
   // Calculate Metrics
   const toleranceSummary = React.useMemo(() => {
     const ptParam = point.testPointInfo?.parameter;
@@ -677,10 +1181,22 @@ export const SidebarPointItem = ({
   const limitsData = React.useMemo(() => {
     const ptParam = point.testPointInfo?.parameter;
     const limits = getAbsoluteLimits(point.uutTolerance, ptParam);
-    if (!limits || limits.low === "N/A") return { low: "-", high: "-" };
+    if (!limits || limits.low === "N/A") {
+      return { low: "-", high: "-", fullLow: "-", fullHigh: "-" };
+    }
     const shortLow = limits.low.split(" ")[0];
     const shortHigh = limits.high.split(" ")[0];
-    return { low: shortLow, high: shortHigh };
+    const referenceUnitLabel = getUnitDisplayLabel(ptParam?.unit || "");
+    const fullLimit = (raw, formatted) =>
+      raw !== undefined
+        ? `${raw}${raw !== "—" && referenceUnitLabel ? ` ${referenceUnitLabel}` : ""}`
+        : formatted;
+    return {
+      low: shortLow,
+      high: shortHigh,
+      fullLow: fullLimit(limits.rawLow, limits.low),
+      fullHigh: fullLimit(limits.rawHigh, limits.high),
+    };
   }, [point.uutTolerance, point.testPointInfo]);
 
   const tmdeLimitsData = React.useMemo(() => {
@@ -726,18 +1242,50 @@ export const SidebarPointItem = ({
       .join("\n");
   }, [tmdeLimitsData]);
 
+  // A shared cell spans rows this component does not own, so its hover is
+  // applied to the run's cells directly. Holding it in React state instead
+  // would re-render the whole workspace - analysis panel included - every time
+  // the pointer crossed a row.
+  const setRunHover = (row, isHovering) => {
+    const list = row?.closest?.(".sidebar-points-scroll-wrapper");
+    if (!list) return;
+    // Leaving clears the whole list, so a run can never be left lit behind.
+    list
+      .querySelectorAll(".is-run-hovered")
+      .forEach((cell) => cell.classList.remove("is-run-hovered"));
+    if (!isHovering) return;
+    const keys = new Set(
+      ["uut", "section", "qualifier"]
+        .map((column) => groupedCellRunKey(cellGroups[column], column))
+        .filter(Boolean),
+    );
+    if (keys.size === 0) return;
+    list.querySelectorAll("[data-run]").forEach((cell) => {
+      if (keys.has(cell.dataset.run)) cell.classList.add("is-run-hovered");
+    });
+  };
+
   return (
     <div
-      draggable={!editingField}
+      ref={pointRowRef}
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
-      style={{ gridTemplateColumns: getSidebarGridTemplate(visibleColumns, valueColumnWidth) }}
+      onMouseEnter={(e) => setRunHover(e.currentTarget, true)}
+      onMouseLeave={(e) => setRunHover(e.currentTarget, false)}
+      style={{
+        gridTemplateColumns: getSidebarGridTemplate(
+          visibleColumns,
+          valueColumnWidth,
+          columnWidths,
+          columnOrder,
+        ),
+        gridTemplateAreas: `"${orderedVisibleColumns.join(" ")}"`,
+      }}
       onClick={(e) => {
         if (!editingField) {
           e.stopPropagation();
           onSelect(e, point);
         }
       }}
-      onDragStart={(e) => onDragStart(e, point.id)}
       onDoubleClick={(e) => {
         if (!editingField) {
           e.preventDefault();
@@ -748,36 +1296,135 @@ export const SidebarPointItem = ({
       }}
       onContextMenu={(e) => onContextMenu(e, point)}
     >
-      {/* Col 1: Section */}
-      {visibleColumns.section &&
-        (editingField === "section" ? (
-          <input
-            autoFocus
-            className="sidebar-inline-input section"
-            value={tempValue}
-            onChange={(e) => setTempValue(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={handleKeyDown}
-            onClick={(e) => e.stopPropagation()}
-            placeholder="-"
-          />
-        ) : (
+      {visibleColumns.uut && (
+        <>
           <span
-            className="point-section"
-            onClick={(e) => handleSingleClickEdit(e, "section", point.section)}
-            title="Click to edit Section"
+            ref={setGroupedCellRef("uut")}
+            className={`point-uut-name point-uut-selector-cell${groupedCellClass(cellGroups.uut, "uut")}`}
+            data-run={groupedCellRunKey(cellGroups.uut, "uut")}
+            title={uutName}
           >
-            {point.section || "-"}
+            {!cellGroups.uut?.isStart && cellGroups.uut?.span > 1
+              ? null
+              : wrapGroupedCellContent(
+                  cellGroups.uut,
+                  "uut",
+                  editingUut ? (
+                    <InlineMenuSelect
+                      value={currentUutId || ""}
+                      ariaLabel="UUT"
+                      title={uutName}
+                      width="100%"
+                      menuWidth={260}
+                      className="point-uut-inline-select"
+                      autoOpen
+                      showOptionMeta={false}
+                      options={[
+                        { value: "", label: "Unassigned" },
+                        ...uutOptions.map((option) => ({
+                          value: String(option.id),
+                          label: option.label,
+                        })),
+                      ]}
+                      onOpenChange={(isOpen) => {
+                        if (!isOpen) setEditingUut(false);
+                      }}
+                      onChange={(value) => {
+                        if (cellGroups.uut?.pointIds) {
+                          onUutChange?.(value || null, cellGroups.uut.pointIds);
+                        } else {
+                          onUutChange?.(value || null);
+                        }
+                        setEditingUut(false);
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="point-uut-summary"
+                      aria-label="UUT"
+                      title="Edit UUT"
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditingUut(true);
+                      }}
+                    >
+                      {uutName}
+                    </button>
+                  ),
+                )}
           </span>
-        ))}
+        </>
+      )}
+
+      {/* Section */}
+      {visibleColumns.section &&
+        <>
+          {!cellGroups.section?.isStart &&
+          cellGroups.section?.span > 1 &&
+          editingField !== "section" ? (
+            <span
+              ref={setGroupedCellRef("section")}
+              className={`point-section${groupedCellClass(cellGroups.section, "section")}`}
+              data-run={groupedCellRunKey(cellGroups.section, "section")}
+              aria-hidden="true"
+            />
+          ) : (
+            <span
+              ref={setGroupedCellRef("section")}
+              className={`point-section${groupedCellClass(cellGroups.section, "section")}`}
+              data-run={groupedCellRunKey(cellGroups.section, "section")}
+              title={String(point.section || "-")}
+            >
+              {wrapGroupedCellContent(
+                cellGroups.section,
+                "section",
+                editingField === "section" ? (
+                  <input
+                    autoFocus
+                    className="sidebar-inline-input section"
+                    value={tempValue}
+                    onChange={(e) => setTempValue(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={handleKeyDown}
+                    onFocus={selectInlineFieldValue}
+                    onDoubleClick={selectInlineFieldValue}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="-"
+                  />
+                ) : (
+                  <span className="point-edit-affordance">
+                    <span
+                      className="point-grouped-cell-label"
+                      onClick={(e) =>
+                        handleSharedFieldClick(
+                          e,
+                          "section",
+                          point.section,
+                          cellGroups.section,
+                        )
+                      }
+                    >
+                      {point.section || (
+                        <span className="point-placeholder">-</span>
+                      )}
+                    </span>
+                  </span>
+                ),
+              )}
+            </span>
+          )}
+        </>}
 
       {/* Col 2: Value */}
       {visibleColumns.value &&
         (editingField === "value" ? (
-          <div className="sidebar-inline-input-wrapper">
+          <div className="sidebar-inline-input-wrapper sidebar-value-sticky">
             <input
               autoFocus
               className="sidebar-inline-input value"
+              size={Math.max(1, String(tempValue ?? "").length)}
               value={tempValue}
               onChange={(e) => setTempValue(e.target.value)}
               onBlur={commitEdit}
@@ -792,55 +1439,92 @@ export const SidebarPointItem = ({
           </div>
         ) : (
           <span
-            className="point-value point-value-with-unit"
+            className="point-value point-value-with-unit sidebar-value-sticky"
             onClick={(e) => handleSingleClickEdit(e, "value", displayValue)}
-            title="Click to edit Value"
+            title={`${displayValue ?? "-"}${
+              displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
+            }`}
           >
-            <span className="point-value-number">
-              {displayValue || <span className="point-placeholder">-</span>}
-            </span>
-            {displayUnit && (
-              <span className="point-value-unit">
-                {getUnitDisplayLabel(displayUnit)}
+            <span className="point-edit-affordance">
+              <span className="point-value-number">
+                {displayValue || <span className="point-placeholder">-</span>}
               </span>
-            )}
+              {displayUnit && (
+                <span className="point-value-unit">
+                  {getUnitDisplayLabel(displayUnit)}
+                </span>
+              )}
+            </span>
           </span>
         ))}
 
       {/* Optional Qualifier column (e.g. Frequency) — hidden by default. */}
       {visibleColumns.qualifier &&
-        (editingField === "qualifier" ? (
-          <input
-            autoFocus
-            className="sidebar-inline-input value"
-            value={tempValue}
-            onChange={(e) => setTempValue(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={handleKeyDown}
-            onClick={(e) => e.stopPropagation()}
-            placeholder="-"
-          />
-        ) : (
-          <span
-            className="point-value"
-            onClick={(e) =>
-              handleSingleClickEdit(
-                e,
+        <>
+          {!cellGroups.qualifier?.isStart &&
+          cellGroups.qualifier?.span > 1 &&
+          editingField !== "qualifier" ? (
+            <span
+              ref={setGroupedCellRef("qualifier")}
+              className={`point-value point-qualifier${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
+              data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
+              aria-hidden="true"
+            />
+          ) : (
+            <span
+              ref={setGroupedCellRef("qualifier")}
+              className={`point-value point-qualifier${
+                editingField === "qualifier" ? " point-qualifier--editing" : ""
+              }${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
+              data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
+              title={String(point.testPointInfo?.qualifier?.value ?? "-")}
+            >
+              {wrapGroupedCellContent(
+                cellGroups.qualifier,
                 "qualifier",
-                point.testPointInfo?.qualifier?.value,
-              )
-            }
-            title="Click to edit Qualifier"
-          >
-            {point.testPointInfo?.qualifier?.value || (
-              <span className="point-placeholder">-</span>
-            )}
-          </span>
-        ))}
+                editingField === "qualifier" ? (
+                  <input
+                    autoFocus
+                    className="sidebar-inline-input value qualifier-editor"
+                    value={tempValue}
+                    onChange={(e) => setTempValue(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={handleKeyDown}
+                    onFocus={selectInlineFieldValue}
+                    onDoubleClick={selectInlineFieldValue}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="-"
+                  />
+                ) : (
+                  <span className="point-edit-affordance">
+                    <span
+                      className="point-grouped-cell-label"
+                      onClick={(e) =>
+                        handleSharedFieldClick(
+                          e,
+                          "qualifier",
+                          point.testPointInfo?.qualifier?.value,
+                          cellGroups.qualifier,
+                        )
+                      }
+                    >
+                      {point.testPointInfo?.qualifier?.value || (
+                        <span className="point-placeholder">-</span>
+                      )}
+                    </span>
+                  </span>
+                ),
+              )}
+            </span>
+          )}
+        </>}
 
       {/* Col 3: Tolerance */}
       {visibleColumns.tolerance && (
-        <span className="point-metric" title={toleranceSummary}>
+        <span
+          className="point-metric"
+          title={toleranceSummary}
+        >
           {toleranceSummary !== "Not Set" &&
           toleranceSummary !== "Not Calculated"
             ? toleranceSummary
@@ -850,24 +1534,30 @@ export const SidebarPointItem = ({
 
       {/* Col 4: Low Limit */}
       {visibleColumns.lowLimit && (
-        <span className="point-metric" title={`Low: ${limitsData.low}`}>
+        <span
+          className="point-metric"
+          title={limitsData.fullLow}
+        >
           {limitsData.low}
         </span>
       )}
 
       {/* Col 5: High Limit */}
       {visibleColumns.highLimit && (
-        <span className="point-metric" title={`High: ${limitsData.high}`}>
+        <span
+          className="point-metric"
+          title={limitsData.fullHigh}
+        >
           {limitsData.high}
         </span>
       )}
 
-      {/* Calculated uncertainty columns are persisted in PPM by the analysis
-          calculation, so the unit is shown directly with each value. */}
+      {/* The Value column already establishes the measurement unit. Keep the
+          calculated uncertainty columns numeric, matching the low/high cells. */}
       {visibleColumns.standardUncertainty && (
         <span
           className="point-metric point-uncertainty-metric"
-          title="Standard Uncertainty (combined)"
+          title={formatSidebarUncertaintyFull(point, "combined")}
         >
           {formatSidebarUncertainty(point, "combined")}
         </span>
@@ -875,7 +1565,7 @@ export const SidebarPointItem = ({
       {visibleColumns.measurementUncertainty && (
         <span
           className="point-metric point-uncertainty-metric"
-          title="Measurement Uncertainty (expanded)"
+          title={formatSidebarUncertaintyFull(point, "expanded")}
         >
           {formatSidebarUncertainty(point, "expanded")}
         </span>
@@ -887,7 +1577,7 @@ export const SidebarPointItem = ({
           className={`point-metric ${
             tmdeLimitsData.entries.length > 0 ? "point-metric-list" : ""
           }`}
-          title={tmdeLimitsTitle || `TMDE Low: ${tmdeLimitsData.low}`}
+          title={tmdeLimitsTitle || tmdeLimitsData.low}
         >
           {tmdeLimitsData.entries.length > 0
             ? tmdeLimitsData.entries.map((entry) => (
@@ -909,7 +1599,7 @@ export const SidebarPointItem = ({
           className={`point-metric ${
             tmdeLimitsData.entries.length > 0 ? "point-metric-list" : ""
           }`}
-          title={tmdeLimitsTitle || `TMDE High: ${tmdeLimitsData.high}`}
+          title={tmdeLimitsTitle || tmdeLimitsData.high}
         >
           {tmdeLimitsData.entries.length > 0
             ? tmdeLimitsData.entries.map((entry) => (
@@ -932,7 +1622,7 @@ export const SidebarPointItem = ({
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getTurColor(risk.tur), fontWeight: 600 }}
-          title="TUR — Ctrl+click for breakdown"
+          title={fullMetricTitle("TUR", risk.tur, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "tur")}
         >
           {risk.tur !== undefined ? `${Number(risk.tur).toFixed(2)}` : "-"}
@@ -942,7 +1632,7 @@ export const SidebarPointItem = ({
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getTarColor(risk.tar) }}
-          title="TAR — Ctrl+click for breakdown"
+          title={fullMetricTitle("TAR", risk.tar, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "tar")}
         >
           {risk.tar !== undefined ? `${Number(risk.tar).toFixed(1)}` : "-"}
@@ -951,7 +1641,10 @@ export const SidebarPointItem = ({
       {visibleColumns.observedReop && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="R_REOP at test-point TUR - Ctrl+click for breakdown"
+          title={fullMetricTitle("REOP at test-point TUR", risk.observedReop, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "observedreop")}
         >
           {formatMitigationPercent(risk.observedReop, 2)}
@@ -961,9 +1654,11 @@ export const SidebarPointItem = ({
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getPfaColor(risk.pfa), fontWeight: 600 }}
-          title={`PFA — Ctrl+click for breakdown${
-            riskMethodMark ? ` · ${riskMethodMark.note}` : ""
-          }`}
+          title={fullMetricTitle("PFA", risk.pfa, {
+            suffix: "%",
+            action: true,
+            note: riskMethodMark?.note || "",
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "pfa")}
         >
           {risk.pfa !== undefined ? `${Number(risk.pfa).toFixed(2)}%` : "-"}
@@ -980,7 +1675,7 @@ export const SidebarPointItem = ({
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getPfrColor(risk.pfr) }}
-          title="PFR — Ctrl+click for breakdown"
+          title={fullMetricTitle("PFR", risk.pfr, { suffix: "%", action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "pfr")}
         >
           {risk.pfr !== undefined ? `${Number(risk.pfr).toFixed(2)}%` : "-"}
@@ -989,7 +1684,10 @@ export const SidebarPointItem = ({
       {visibleColumns.maxReop && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Maximum R_REOP - Ctrl+click for breakdown"
+          title={fullMetricTitle("Maximum REOP", risk.maxReop, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "maxreop")}
         >
           {formatMitigationPercent(risk.maxReop, 2)}
@@ -998,7 +1696,7 @@ export const SidebarPointItem = ({
       {visibleColumns.trueReop && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="R_meas - Ctrl+click for breakdown"
+          title={fullMetricTitle("R_meas", risk.trueReop, { suffix: "%", action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "truereop")}
         >
           {formatMitigationPercent(risk.trueReop, 2)}
@@ -1007,7 +1705,10 @@ export const SidebarPointItem = ({
       {visibleColumns.gbMult && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Guardband Multiplier — Ctrl+click for breakdown"
+          title={fullMetricTitle("Guardband Multiplier", risk.gbMult, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbmult")}
         >
           {risk.gbMult !== undefined ? `${Number(risk.gbMult).toFixed(2)}%` : "-"}
@@ -1016,7 +1717,7 @@ export const SidebarPointItem = ({
       {visibleColumns.gbLow && (
         <span
           className={`point-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Guardband Low Limit — Ctrl+click for breakdown"
+          title={fullMetricTitle("Guardband Low Limit", risk.gbLow, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gblow")}
         >
           {risk.gbLow !== undefined ? Number(risk.gbLow).toPrecision(4) : "-"}
@@ -1025,7 +1726,7 @@ export const SidebarPointItem = ({
       {visibleColumns.gbHigh && (
         <span
           className={`point-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Guardband High Limit — Ctrl+click for breakdown"
+          title={fullMetricTitle("Guardband High Limit", risk.gbHigh, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbhigh")}
         >
           {risk.gbHigh !== undefined ? Number(risk.gbHigh).toPrecision(4) : "-"}
@@ -1035,7 +1736,10 @@ export const SidebarPointItem = ({
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getPfaColor(risk.gbPfa), fontWeight: 600 }}
-          title="PFA w/ Guardband — Ctrl+click for breakdown"
+          title={fullMetricTitle("PFA with Guardband", risk.gbPfa, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbpfa")}
         >
           {risk.gbPfa !== undefined ? `${Number(risk.gbPfa).toFixed(2)}%` : "-"}
@@ -1045,7 +1749,10 @@ export const SidebarPointItem = ({
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
           style={{ color: getPfrColor(risk.gbPfr) }}
-          title="PFR w/ Guardband — Ctrl+click for breakdown"
+          title={fullMetricTitle("PFR with Guardband", risk.gbPfr, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbpfr")}
         >
           {risk.gbPfr !== undefined ? `${Number(risk.gbPfr).toFixed(2)}%` : "-"}
@@ -1054,7 +1761,9 @@ export const SidebarPointItem = ({
       {visibleColumns.gbCalInt && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Calibration Interval with Guard Banding"
+          title={fullMetricTitle("Calibration Interval with Guard Banding", risk.gbCalInt, {
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbcalint")}
         >
           {formatMitigationNumber(risk.gbCalInt)}
@@ -1063,7 +1772,10 @@ export const SidebarPointItem = ({
       {visibleColumns.gbMeasRel && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Targeted R_REOP with GB - Ctrl+click for breakdown"
+          title={fullMetricTitle("Targeted REOP with GB", risk.gbMeasRel, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbmeasrel")}
         >
           {formatMitigationPercent(risk.gbMeasRel, 2)}
@@ -1072,7 +1784,10 @@ export const SidebarPointItem = ({
       {visibleColumns.noGbPfa && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="PFA without GB - Ctrl+click for breakdown"
+          title={fullMetricTitle("PFA without GB", risk.noGbPfa, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "nogbpfa")}
         >
           {formatMitigationPercent(risk.noGbPfa, 2)}
@@ -1081,7 +1796,10 @@ export const SidebarPointItem = ({
       {visibleColumns.noGbPfr && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="PFR without GB - Ctrl+click for breakdown"
+          title={fullMetricTitle("PFR without GB", risk.noGbPfr, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "nogbpfr")}
         >
           {formatMitigationPercent(risk.noGbPfr, 2)}
@@ -1090,7 +1808,11 @@ export const SidebarPointItem = ({
       {visibleColumns.noGbCalInt && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Calibration Interval without Guard Banding - Ctrl+click for breakdown"
+          title={fullMetricTitle(
+            "Calibration Interval without Guard Banding",
+            risk.noGbCalInt,
+            { action: true },
+          )}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "calint")}
         >
           {formatMitigationNumber(risk.noGbCalInt)}
@@ -1099,7 +1821,10 @@ export const SidebarPointItem = ({
       {visibleColumns.noGbMeasRel && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          title="Targeted R_REOP without GB - Ctrl+click for breakdown"
+          title={fullMetricTitle("Targeted REOP without GB", risk.noGbMeasRel, {
+            suffix: "%",
+            action: true,
+          })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "measrel")}
         >
           {formatMitigationPercent(risk.noGbMeasRel, 2)}
@@ -1177,8 +1902,6 @@ const pointToleranceMatchesFunction = (point, tolerance) => {
 const SidebarSessionHeader = ({
   sessionData,
   onUpdate,
-  isActive,
-  onSelect,
   isSessionInfoOpen,
   onSessionInfoOpenChange,
   isRiskInputsOpen,
@@ -1191,22 +1914,53 @@ const SidebarSessionHeader = ({
 
   if (!sessionData) return null;
 
+  const requirements = sessionData.uncReq || {};
+  const editableFieldOrder = [
+    "name",
+    "organization",
+    "analyst",
+    "document",
+    "documentDate",
+    ...(isRiskInputsOpen
+      ? RISK_INPUT_FIELDS.map((field) => `uncReq.${field.name}`)
+      : []),
+    ...(isMitigationInputsOpen
+      ? MITIGATION_INPUT_FIELDS.map((field) => `uncReq.${field.name}`)
+      : []),
+  ];
+
+  const valueForField = (field) =>
+    field.startsWith("uncReq.")
+      ? requirements[field.slice("uncReq.".length)]
+      : sessionData[field];
+
   const startEdit = (e, field, val) => {
     e.stopPropagation();
     setEditingField(field);
     setTempValue(val || "");
   };
 
-  const commitEdit = () => {
+  const commitEdit = (nextField = null) => {
     if (editingField) {
       if (!editingField.startsWith("uncReq.")) {
         onUpdate({ ...sessionData, [editingField]: tempValue });
       }
-      setEditingField(null);
     }
+    setEditingField(nextField);
+    if (nextField) setTempValue(valueForField(nextField) ?? "");
   };
 
   const handleKeyDown = (e) => {
+    if (e.key === "Tab") {
+      const currentIndex = editableFieldOrder.indexOf(editingField);
+      const nextIndex = currentIndex + (e.shiftKey ? -1 : 1);
+      const nextField = editableFieldOrder[nextIndex];
+      if (nextField) {
+        e.preventDefault();
+        commitEdit(nextField);
+      }
+      return;
+    }
     if (e.key === "Enter") {
       commitEdit();
     }
@@ -1268,6 +2022,12 @@ const SidebarSessionHeader = ({
         ) : (
           <div
             onClick={(e) => startEdit(e, field, value)}
+            onFocus={(e) => startEdit(e, field, value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") startEdit(e, field, value);
+            }}
+            role="button"
+            tabIndex={0}
             className="session-header-value"
             title={helpText}
           >
@@ -1278,33 +2038,22 @@ const SidebarSessionHeader = ({
     );
   };
 
-  const requirements = sessionData.uncReq || {};
-
   return (
-    <div
-      className={`sidebar-session-header-organic ${isActive ? "active" : ""}`}
-      title="Click to select Session Overview"
-      onClick={onSelect}
-    >
-      <button
-        type="button"
-        className={`session-overview-button ${isActive ? "active" : ""}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          onSelect();
-        }}
-        aria-current={isActive ? "page" : undefined}
-      >
-        <span>Session Overview</span>
-      </button>
-
+    <div className="sidebar-session-header-organic" data-tour="session-information">
       <div className="session-collapsible-block session-info-block">
         <button
           type="button"
           className="session-section-toggle"
           onClick={(e) => {
             e.stopPropagation();
-            onSessionInfoOpenChange(!isSessionInfoOpen);
+            const nextOpen = !isSessionInfoOpen;
+            if (nextOpen) {
+              // Session Info is the parent workspace for both requirement
+              // groups. Reopening it should reveal the complete input set.
+              onRiskInputsOpenChange(true);
+              onMitigationInputsOpenChange(true);
+            }
+            onSessionInfoOpenChange(nextOpen);
           }}
           aria-expanded={isSessionInfoOpen}
         >
@@ -1319,6 +2068,7 @@ const SidebarSessionHeader = ({
               {editingField === "name" ? (
                 <input
                   autoFocus
+                  aria-label="Session Name"
                   value={tempValue}
                   onChange={(e) => setTempValue(e.target.value)}
                   onBlur={commitEdit}
@@ -1330,6 +2080,14 @@ const SidebarSessionHeader = ({
               ) : (
                 <div
                   onClick={(e) => startEdit(e, "name", sessionData.name)}
+                  onFocus={(e) => startEdit(e, "name", sessionData.name)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      startEdit(e, "name", sessionData.name);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                   className="session-header-value session-header-name"
                   title="Edit Session Name"
                 >
@@ -1343,64 +2101,72 @@ const SidebarSessionHeader = ({
               {renderEditableField("organization", sessionData.organization, "Organization")}
               {renderEditableField("analyst", sessionData.analyst, "Analyst")}
               {renderEditableField("document", sessionData.document, "Doc ID")}
-              {renderEditableField("documentDate", sessionData.documentDate, "Date", "date")}
+              {renderEditableField(
+                "documentDate",
+                sessionData.documentDate,
+                "Document Date",
+                "date",
+              )}
             </div>
-          </div>
-        )}
-      </div>
+            <div className="session-collapsible-block session-subsection-block">
+              <button
+                type="button"
+                className="session-section-toggle session-subsection-toggle"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRiskInputsOpenChange(!isRiskInputsOpen);
+                }}
+                aria-expanded={isRiskInputsOpen}
+              >
+                <span>Risk Inputs</span>
+                <FontAwesomeIcon
+                  icon={isRiskInputsOpen ? faChevronDown : faChevronRight}
+                />
+              </button>
+              {isRiskInputsOpen && (
+                <div className="session-requirements-grid">
+                  {RISK_INPUT_FIELDS.map((field) =>
+                    renderEditableField(
+                      `uncReq.${field.name}`,
+                      requirements[field.name],
+                      field.sidebarLabel,
+                      "number",
+                      field.tooltip,
+                    ),
+                  )}
+                </div>
+              )}
+            </div>
 
-      <div className="session-collapsible-block session-requirements-block">
-        <button
-          type="button"
-          className="session-section-toggle"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRiskInputsOpenChange(!isRiskInputsOpen);
-          }}
-          aria-expanded={isRiskInputsOpen}
-        >
-          <span>Risk Inputs</span>
-          <FontAwesomeIcon icon={isRiskInputsOpen ? faChevronDown : faChevronRight} />
-        </button>
-        {isRiskInputsOpen && (
-          <div className="session-requirements-grid">
-            {RISK_INPUT_FIELDS.map((field) =>
-              renderEditableField(
-                `uncReq.${field.name}`,
-                requirements[field.name],
-                field.sidebarLabel,
-                "number",
-                field.tooltip,
-              ),
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="session-collapsible-block session-requirements-block">
-        <button
-          type="button"
-          className="session-section-toggle"
-          onClick={(e) => {
-            e.stopPropagation();
-            onMitigationInputsOpenChange(!isMitigationInputsOpen);
-          }}
-          aria-expanded={isMitigationInputsOpen}
-        >
-          <span>Mitigation Inputs</span>
-          <FontAwesomeIcon icon={isMitigationInputsOpen ? faChevronDown : faChevronRight} />
-        </button>
-        {isMitigationInputsOpen && (
-          <div className="session-requirements-grid">
-            {MITIGATION_INPUT_FIELDS.map((field) =>
-              renderEditableField(
-                `uncReq.${field.name}`,
-                requirements[field.name],
-                field.sidebarLabel,
-                "number",
-                field.tooltip,
-              ),
-            )}
+            <div className="session-collapsible-block session-subsection-block">
+              <button
+                type="button"
+                className="session-section-toggle session-subsection-toggle"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMitigationInputsOpenChange(!isMitigationInputsOpen);
+                }}
+                aria-expanded={isMitigationInputsOpen}
+              >
+                <span>Mitigation Inputs</span>
+                <FontAwesomeIcon
+                  icon={isMitigationInputsOpen ? faChevronDown : faChevronRight}
+                />
+              </button>
+              {isMitigationInputsOpen && (
+                <div className="session-requirements-grid">
+                  {MITIGATION_INPUT_FIELDS.map((field) =>
+                    renderEditableField(
+                      `uncReq.${field.name}`,
+                      requirements[field.name],
+                      field.sidebarLabel,
+                      "number",
+                      field.tooltip,
+                    ),
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1408,9 +2174,10 @@ const SidebarSessionHeader = ({
   );
 };
 
-function App() {
+function App({ showThemeToggle = false }) {
   const {
     sessions,
+    sessionsLoaded,
     instruments,
     customEquations,
     saveCustomEquation,
@@ -1443,7 +2210,7 @@ function App() {
   // Theme + toasts are provided by the workbench shell (global light/dark
   // toggle in WorkbenchTopBar; toast stack at the shell root). The module no
   // longer owns its own dark-mode/theme state or a local toast.
-  const { theme } = useTheme();
+  const { theme, toggleTheme } = useTheme();
   const isDarkMode = theme === "dark";
 
   const [isToleranceModalOpen, setIsToleranceModalOpen] = useState(false);
@@ -1470,6 +2237,156 @@ function App() {
   });
 
   const [isBugReportOpen, setIsBugReportOpen] = useState(false);
+  const [isWalkthroughOpen, setIsWalkthroughOpen] = useState(false);
+  const [walkthroughStepIndex, setWalkthroughStepIndex] = useState(0);
+  const walkthroughAutoStartedRef = useRef(false);
+
+  const walkthroughSteps = useMemo(
+    () => [
+      {
+        id: "new-session",
+        title: "Start an analysis session",
+        description:
+          "Select the highlighted add button to create your first analysis session. Sessions keep instruments, points, budgets, and notes together.",
+        hint:
+          sessions.length === 0
+            ? "Click the highlighted + to continue."
+            : "You already have a session, so you can continue or create another one.",
+        target: '[data-tour="add-session"]',
+        advanceOnTargetClick: true,
+        canAdvance: sessions.length > 0,
+      },
+      {
+        id: "session-information",
+        title: "Complete the session information",
+        description:
+          "Give the session a recognizable name, then enter the analyst, organization, document, and date. The risk and mitigation inputs below establish the requirements used across the session.",
+        target: '[data-tour="session-information"]',
+        hint: "Values save as you enter them. Required analysis settings can be refined at any time.",
+      },
+      {
+        id: "overview-tab",
+        title: "Open Instrument Overview",
+        description:
+          "Instrument Overview is where you define the UUT and TMDE available to every measurement point in this session.",
+        target: '[data-tour="tab-overview"]',
+      },
+      {
+        id: "uut-function",
+        title: "Create the UUT function",
+        description:
+          "Use this add button to create the function being tested, such as Voltage, Weight, or Torque. Existing functions are listed for reuse, and a session can contain as many functions as needed.",
+        target: '[data-tour="uut-add-function"]',
+        revealedTarget: '[data-tour="uut-function-menu"]',
+      },
+      {
+        id: "uut-instrument",
+        title: "Add the unit under test",
+        description:
+          "Use the + on the function header to add an instrument. Choose a local or shared instrument from the Description suggestions, or enter a new instrument directly through Description, Range, Tolerance, and Resolution.",
+        target: '[data-tour="uut-add-instrument"]',
+        hint: "Each range remains aligned with its tolerance and resolution, and any number of UUTs can share this function.",
+      },
+      {
+        id: "uut-columns",
+        title: "Define the UUT specifications",
+        description:
+          "Description identifies the instrument. Range defines where a specification applies, Tolerance defines its accuracy, Resolution defines readable increments, and Sync controls sharing with the validated library.",
+        target: '[data-tour="uut-table"]',
+      },
+      {
+        id: "function-settings",
+        title: "Review Function Settings",
+        description:
+          "Hover beside the function name and open the settings button. Keep Direct selected for this walkthrough. Reusing the first point's budget makes later points inherit the complete initial budget.",
+        target: '[data-tour="function-settings"]',
+        revealedTarget: '[data-tour="function-settings-menu"]',
+      },
+      {
+        id: "measurement-point",
+        title: "Create a direct measurement point",
+        description:
+          "Select the + on the function header. If several UUTs share the function, choose the instrument from the menu that opens, then enter the measurement value in the new sidebar row.",
+        target: '[data-tour="add-measurement-point"]',
+        revealedTarget: '[data-tour="measurement-point-menu"]',
+      },
+      {
+        id: "tmde-function",
+        title: "Create the TMDE function",
+        description:
+          "Now repeat the setup for the measuring equipment. Add the function used by the TMDE; it can reuse a function already defined in the session.",
+        target: '[data-tour="tmde-add-function"]',
+        revealedTarget: '[data-tour="tmde-function-menu"]',
+      },
+      {
+        id: "tmde-instrument",
+        title: "Add the TMDE",
+        description:
+          "Use the function's + button to add the measuring instrument, then select a local or shared definition or enter a new Description, Range, Tolerance, and Resolution.",
+        target: '[data-tour="tmde-add-instrument"]',
+      },
+      {
+        id: "tmde-columns",
+        title: "Define the TMDE specifications",
+        description:
+          "Complete the TMDE table just like the UUT table. These specifications become the selectable accuracy and resolution sources used in uncertainty budgets.",
+        target: '[data-tour="tmde-table"]',
+      },
+      {
+        id: "workspace-tabs",
+        title: "Understand the three workspaces",
+        description:
+          "Instrument Overview manages session instruments. Uncertainty Budget builds and calculates the selected point's budget. Notes stores formatted session documentation and supporting images.",
+        target: '[data-tour="analysis-tabs"]',
+      },
+      {
+        id: "budget-tab",
+        title: "Open the Uncertainty Budget",
+        description:
+          "Select a measurement point, then open Uncertainty Budget. The selected point's UUT nominal, instrument sources, calculation controls, and results appear here.",
+        target: '[data-tour="tab-budget"]',
+      },
+      {
+        id: "budget-component",
+        title: "Build the budget",
+        description:
+          "Use Add component on each budget table to select a compatible tolerance, resolution, repeatability result, or manual source. Configure its distribution and coverage details, then calculate the combined and expanded uncertainty.",
+        target: '[data-tour="budget-add-component"]',
+        revealedTarget: '[data-tour="budget-component-menu"]',
+        hint: "A yellow range warning appears when a selected instrument range does not contain the direct measurement nominal.",
+      },
+      {
+        id: "complete",
+        title: "Your direct workflow is ready",
+        description:
+          "You now know the direct-measurement path from session setup through instruments, points, and uncertainty budgets. Use the Help button at any time to restart this walkthrough.",
+        target: '[data-tour="help-walkthrough"]',
+      },
+    ],
+    [sessions.length],
+  );
+
+  useEffect(() => {
+    if (
+      !sessionsLoaded ||
+      sessions.length > 0 ||
+      walkthroughAutoStartedRef.current
+    ) return;
+
+    // Mark this only when onboarding truly starts. Previously a successful
+    // load with existing sessions consumed the one-time check, so deleting
+    // the final session later left the user on an empty workspace with no
+    // guidance.
+    walkthroughAutoStartedRef.current = true;
+    setWalkthroughStepIndex(0);
+    setIsWalkthroughOpen(true);
+  }, [sessions.length, sessionsLoaded]);
+
+  useEffect(() => {
+    if (!isWalkthroughOpen) return;
+    const stepId = walkthroughSteps[walkthroughStepIndex]?.id;
+    if (stepId === "session-information") setIsSessionInfoOpen(true);
+  }, [isWalkthroughOpen, walkthroughStepIndex, walkthroughSteps]);
 
   const [sessionImageCache, setSessionImageCache] = useState(new Map());
   const [riskResults, setRiskResults] = useState(null);
@@ -1478,13 +2395,25 @@ function App() {
   // and its riskResults are computed, then clears this.
   const [pendingRiskBreakdown, setPendingRiskBreakdown] = useState(null);
 
-  const [sidebarWidth, setSidebarWidth] = useState(550);
+  const [hadStoredUiSizingAtMount] = useState(hasStoredUiSizingPreferences);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = readUiSizingPreferences().sidebarWidth;
+    return Number.isFinite(saved) ? saved : 550;
+  });
   const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(true);
   const [isRiskInputsOpen, setIsRiskInputsOpen] = useState(true);
   const [isMitigationInputsOpen, setIsMitigationInputsOpen] = useState(true);
-  const [analysisMode, setAnalysisMode] = useState("uncertaintyTool");
+  const [analysisMode, setAnalysisMode] = useState("overview");
+  const analysisScrollPositionsRef = useRef({});
+  const lastSelectedPointBySessionRef = useRef({});
   const [showContribution, setShowContribution] = useState(false);
-  const [scopedZoomLevels, setScopedZoomLevels] = useState({});
+  const [scopedZoomLevels, setScopedZoomLevels] = useState(
+    () => readUiSizingPreferences().scopedZoomLevels || {},
+  );
+  // Measurement point columns the user has dragged to a width of their own.
+  const [sidebarColumnWidths, setSidebarColumnWidths] = useState(
+    () => readUiSizingPreferences().sidebarColumnWidths || {},
+  );
   const [loadedPreferencesSessionId, setLoadedPreferencesSessionId] =
     useState(null);
   const isResizingRef = useRef(false);
@@ -1494,9 +2423,11 @@ function App() {
   // vertical scrollbar width — which differs between a browser (classic
   // scrollbars reserve width) and Electron (overlay scrollbars reserve none).
   const resultsContainerRef = useRef(null);
+  const zoomRootRef = useRef(null);
 
   // --- SIDEBAR PREFERENCES ---
   const [sidebarColumns, setSidebarColumns] = useState({
+    uut: true,
     section: false,
     value: true,
     // Optional secondary parameter (e.g. Frequency); off by default.
@@ -1529,21 +2460,14 @@ function App() {
     noGbCalInt: false,
     noGbMeasRel: false,
   });
+  const [sidebarColumnOrder, setSidebarColumnOrder] = useState(
+    DEFAULT_SIDEBAR_COLUMN_ORDER,
+  );
   const [sidebarSort, setSidebarSort] = useState(DEFAULT_SIDEBAR_SORT);
-  const hasAnySectionedPoint = useMemo(
-    () =>
-      (currentTestPoints || []).some((point) =>
-        Boolean(String(point.section || "").trim()),
-      ),
-    [currentTestPoints],
-  );
-  const visibleSidebarColumns = useMemo(
-    () => ({
-      ...sidebarColumns,
-      section: sidebarColumns.section && hasAnySectionedPoint,
-    }),
-    [hasAnySectionedPoint, sidebarColumns],
-  );
+  // Keep explicitly enabled columns visible even if their current values are
+  // blank. Hiding Section in that state made its filter appear broken and
+  // prevented users from entering the first section value.
+  const visibleSidebarColumns = sidebarColumns;
   // Reactive per-point risk metrics for the sidebar columns. Recomputed purely
   // in memory (no DB hits) whenever the points or the session's requirements /
   // shared tolerance change, so every row reflects the latest inputs without
@@ -1594,6 +2518,13 @@ function App() {
     (point, key) => {
       const risk = pointRiskMap[point.id] || point.riskMetrics || {};
       switch (key) {
+        case "uut": {
+          const uutId = (point.associatedUutIds || [])[0];
+          const uut = (currentSessionData?.uuts || []).find(
+            (candidate) => String(candidate.id) === String(uutId),
+          );
+          return formatInstrumentIdentity(uut || { name: "Unassigned" });
+        }
         case "section":
           return point.section || "";
         case "value":
@@ -1635,11 +2566,12 @@ function App() {
           return "";
       }
     },
-    [pointRiskMap],
+    [currentSessionData?.uuts, pointRiskMap],
   );
 
   const sortSidebarPoints = useCallback(
     (points) => {
+      if (!sidebarSort.key) return [...points];
       const directionMultiplier = sidebarSort.direction === "asc" ? 1 : -1;
       return [...points].sort((a, b) => {
         const aValue = getSidebarSortValue(a, sidebarSort.key);
@@ -1668,32 +2600,104 @@ function App() {
     [getSidebarSortValue, sidebarSort],
   );
 
+  // Drag the divider at a column's right edge to size it, the way the UUT and
+  // TMDE tables resize. Only the dragged column is pinned; the rest keep their
+  // default track sizing, and a double-click hands a column back to it.
+  const startSidebarColumnResize = useCallback((event, key) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const cell = event.currentTarget.closest(".sidebar-column-header-cell");
+    const startWidth =
+      cell?.getBoundingClientRect().width || getSidebarColumnMinWidth(key);
+    const startX = event.clientX;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const handleMove = (moveEvent) => {
+      const next = Math.max(
+        getSidebarColumnMinWidth(key),
+        Math.round(startWidth + (moveEvent.clientX - startX)),
+      );
+      setSidebarColumnWidths((current) =>
+        current[key] === next ? current : { ...current, [key]: next },
+      );
+    };
+    const handleUp = () => {
+      document.removeEventListener("pointermove", handleMove);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+    document.addEventListener("pointermove", handleMove);
+    document.addEventListener("pointerup", handleUp, { once: true });
+  }, []);
+
+  const resetSidebarColumnWidth = useCallback((key) => {
+    setSidebarColumnWidths((current) => {
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
   const renderSidebarSortHeader = useCallback(
-    (key, label, { align = "left", title = label } = {}) => {
+    (key, label, { align = "left", title = label, className = "" } = {}) => {
       const isActive = sidebarSort.key === key;
       const directionLabel = sidebarSort.direction === "asc" ? "ascending" : "descending";
       return (
-        <button
-          type="button"
-          className={`sidebar-sort-header sidebar-sort-header--${key} ${isActive ? "active" : ""}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleSidebarSort(key);
-          }}
-          title={`Sort by ${title}${isActive ? ` (${directionLabel})` : ""}`}
-          aria-label={`Sort by ${title}`}
-          aria-sort={isActive ? directionLabel : "none"}
-          style={{ textAlign: align }}
+        <div
+          key={key}
+          className={`sidebar-column-header-cell sidebar-column-header-cell--${key} ${className}`}
         >
-          <span>{label}</span>
-        </button>
+          <button
+            type="button"
+            className={`sidebar-sort-header sidebar-sort-header--${key} ${isActive ? "active" : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSidebarSort(key);
+            }}
+            title={`Sort by ${title}${isActive ? ` (${directionLabel})` : ""}`}
+            aria-label={`Sort by ${title}`}
+            aria-sort={isActive ? directionLabel : "none"}
+            style={{ textAlign: align }}
+          >
+            <span>{label}</span>
+          </button>
+          <span
+            className="sidebar-column-resizer"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={`Resize ${title} column`}
+            title={`Drag to resize ${title}. Double-click to reset.`}
+            onPointerDown={(event) => startSidebarColumnResize(event, key)}
+            onDoubleClick={() => resetSidebarColumnWidth(key)}
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
       );
     },
-    [handleSidebarSort, sidebarSort],
+    [
+      handleSidebarSort,
+      resetSidebarColumnWidth,
+      sidebarSort,
+      startSidebarColumnResize,
+    ],
   );
 
+  const moveSidebarColumn = useCallback((key, direction) => {
+    setSidebarColumnOrder((current) => {
+      const next = normalizeSidebarColumnOrder(current);
+      const index = next.indexOf(key);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= next.length) return current;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }, []);
+
   const [isGlobalExpanded, setIsGlobalExpanded] = useState(false);
-  const [isMeasurementPointsOpen, setIsMeasurementPointsOpen] = useState(true);
 
   // Resize Effect
   useEffect(() => {
@@ -1784,17 +2788,13 @@ function App() {
       setExpandedFunctions(allFunctionIds);
       setExpandedUuts(allUutKeys);
       setIsGlobalExpanded(true);
-
-      // Auto-resize sidebar to fit expanded columns if too narrow
-      const minRequiredWidth = getMinSidebarWidth(visibleSidebarColumns);
-      if (sidebarWidth < minRequiredWidth) {
-        setSidebarWidth(minRequiredWidth);
-      }
     }
   };
 
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
+  const [isColumnOrderMenuOpen, setIsColumnOrderMenuOpen] = useState(false);
   const columnMenuRef = useRef(null);
+  const columnOrderMenuRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -1804,15 +2804,18 @@ function App() {
       ) {
         setIsColumnMenuOpen(false);
       }
+      if (
+        columnOrderMenuRef.current &&
+        !columnOrderMenuRef.current.contains(event.target)
+      ) {
+        setIsColumnOrderMenuOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   // --- SELECTION & VIRTUAL STATE ---
-  // The sidebar tree is organized Function -> UUT -> Point. `selectedFunctionId`
-  // is a function key (see utils/functionGrouping) rather than a measurement area.
-  const [selectedFunctionId, setSelectedFunctionId] = useState(null);
   const [selectedUutId, setSelectedUutId] = useState(null);
   const [virtualPoint, setVirtualPoint] = useState(null);
   const [activeRangeIndices, setActiveRangeIndices] = useState({});
@@ -1823,11 +2826,19 @@ function App() {
   // independently.
   const [expandedFunctions, setExpandedFunctions] = useState(new Set());
   const [expandedUuts, setExpandedUuts] = useState(new Set());
-  // Shared by the session overview and every detailed measurement-point view.
-  // This state lives above TestPointDetailView's keyed remount boundary so a
-  // point/view change cannot reset the UUT/TMDE function accordions.
-  const [collapsedInstrumentFunctionKeys, setCollapsedInstrumentFunctionKeys] =
-    useState(new Set());
+  // Instrument Overview and a point's Detailed View intentionally remember
+  // independent function accordion state. Detailed View may collapse unrelated
+  // functions automatically; that must never leak back into the overview.
+  // Both states live above TestPointDetailView's keyed remount boundary so they
+  // survive point and tab navigation.
+  const [
+    collapsedOverviewInstrumentFunctionKeys,
+    setCollapsedOverviewInstrumentFunctionKeys,
+  ] = useState(new Set());
+  const [
+    collapsedDetailInstrumentFunctionKeys,
+    setCollapsedDetailInstrumentFunctionKeys,
+  ] = useState(new Set());
 
   // Tracks which UUT "folder" was clicked in the sidebar to enforce context
   const [selectedTestPointContextUutId, setSelectedTestPointContextUutId] =
@@ -1844,13 +2855,14 @@ function App() {
   // Id of a just-quick-added direct point whose sidebar row should open straight
   // into value-edit. SidebarPointItem consumes it on mount, then App clears it.
   const [pendingValueEditPointId, setPendingValueEditPointId] = useState(null);
-  // Per-UUT direct/derived mode for the "+" quick-add button (keyed by the
-  // sidebar UUT row key). Defaults to "direct".
-  const [newPointModeByUut, setNewPointModeByUut] = useState({});
+  const [pendingSharedFieldEdit, setPendingSharedFieldEdit] = useState(null);
+  const [pendingPointValueAdvance, setPendingPointValueAdvance] = useState(null);
+  // Function headers own point creation now that UUT folder rows are gone.
   // When a function exposes more than one range unit, the quick-add button
   // pauses here so the new direct/derived point can be attached to an explicit
   // unit instead of silently choosing the first range.
   const [pendingPointUnitChoice, setPendingPointUnitChoice] = useState(null);
+  const [openFunctionSettingsId, setOpenFunctionSettingsId] = useState(null);
 
   useEffect(() => {
     if (!pendingPointUnitChoice) return undefined;
@@ -1862,6 +2874,16 @@ function App() {
     return () => document.removeEventListener("pointerdown", closePicker);
   }, [pendingPointUnitChoice]);
 
+  useEffect(() => {
+    if (!openFunctionSettingsId) return undefined;
+    const closeSettings = (event) => {
+      if (event.target?.closest?.(".function-point-settings")) return;
+      setOpenFunctionSettingsId(null);
+    };
+    document.addEventListener("pointerdown", closeSettings);
+    return () => document.removeEventListener("pointerdown", closeSettings);
+  }, [openFunctionSettingsId]);
+
   // --- Global UUT Selection State ---
   const [currentUutSelection, setCurrentUutSelection] = useState([]);
 
@@ -1872,18 +2894,24 @@ function App() {
     }
 
     const preferences = readUiPreferences(selectedSessionId);
+    const sizingPreferences = readUiSizingPreferences();
     setSidebarColumns({
       ...DEFAULT_SIDEBAR_COLUMNS,
       ...(preferences.sidebarColumns || {}),
     });
+    setSidebarColumnOrder(
+      normalizeSidebarColumnOrder(preferences.sidebarColumnOrder),
+    );
     setSidebarSort({
       ...DEFAULT_SIDEBAR_SORT,
       ...(preferences.sidebarSort || {}),
     });
     setSidebarWidth(
-      Number.isFinite(preferences.sidebarWidth)
-        ? preferences.sidebarWidth
-        : 550,
+      Number.isFinite(sizingPreferences.sidebarWidth)
+        ? sizingPreferences.sidebarWidth
+        : Number.isFinite(preferences.sidebarWidth)
+          ? preferences.sidebarWidth
+          : 550,
     );
     setIsSessionInfoOpen(preferences.isSessionInfoOpen ?? true);
     const legacyRequirementsOpen = preferences.isRequirementsOpen ?? true;
@@ -1891,17 +2919,22 @@ function App() {
     setIsMitigationInputsOpen(
       preferences.isMitigationInputsOpen ?? legacyRequirementsOpen,
     );
-    setIsMeasurementPointsOpen(preferences.isMeasurementPointsOpen ?? true);
     setIsGlobalExpanded(preferences.isGlobalExpanded ?? false);
     setExpandedFunctions(new Set(preferences.expandedFunctions || []));
     setExpandedUuts(new Set(preferences.expandedUuts || []));
-    setCollapsedInstrumentFunctionKeys(
-      new Set(preferences.collapsedInstrumentFunctionKeys || []),
+    setCollapsedOverviewInstrumentFunctionKeys(
+      new Set(preferences.collapsedOverviewInstrumentFunctionKeys || []),
+    );
+    setCollapsedDetailInstrumentFunctionKeys(
+      new Set(preferences.collapsedDetailInstrumentFunctionKeys || []),
     );
     setActiveRangeIndices(preferences.activeRangeIndices || {});
-    setAnalysisMode(preferences.analysisMode || "uncertaintyTool");
+    setAnalysisMode(preferences.analysisMode || "overview");
     setShowContribution(preferences.showContribution ?? false);
-    setScopedZoomLevels(preferences.scopedZoomLevels || {});
+    setScopedZoomLevels(
+      sizingPreferences.scopedZoomLevels || preferences.scopedZoomLevels || {},
+    );
+    setSidebarColumnWidths(sizingPreferences.sidebarColumnWidths || {});
     setLoadedPreferencesSessionId(selectedSessionId);
   }, [selectedSessionId]);
 
@@ -1915,22 +2948,23 @@ function App() {
 
     const preferences = {
       sidebarColumns,
+      sidebarColumnOrder,
       sidebarSort,
-      sidebarWidth,
       isSessionInfoOpen,
       isRiskInputsOpen,
       isMitigationInputsOpen,
-      isMeasurementPointsOpen,
       isGlobalExpanded,
       expandedFunctions: Array.from(expandedFunctions),
       expandedUuts: Array.from(expandedUuts),
-      collapsedInstrumentFunctionKeys: Array.from(
-        collapsedInstrumentFunctionKeys,
+      collapsedOverviewInstrumentFunctionKeys: Array.from(
+        collapsedOverviewInstrumentFunctionKeys,
+      ),
+      collapsedDetailInstrumentFunctionKeys: Array.from(
+        collapsedDetailInstrumentFunctionKeys,
       ),
       activeRangeIndices,
       analysisMode,
       showContribution,
-      scopedZoomLevels,
     };
 
     try {
@@ -1944,40 +2978,57 @@ function App() {
   }, [
     activeRangeIndices,
     analysisMode,
-    collapsedInstrumentFunctionKeys,
+    collapsedDetailInstrumentFunctionKeys,
+    collapsedOverviewInstrumentFunctionKeys,
     expandedFunctions,
     expandedUuts,
     isGlobalExpanded,
-    isMeasurementPointsOpen,
     isRiskInputsOpen,
     isMitigationInputsOpen,
     isSessionInfoOpen,
     loadedPreferencesSessionId,
-    scopedZoomLevels,
     selectedSessionId,
     showContribution,
     sidebarColumns,
+    sidebarColumnOrder,
     sidebarSort,
-    sidebarWidth,
   ]);
 
   useEffect(() => {
-    const root = resultsContainerRef.current;
+    // Give an existing session-scoped layout one chance to migrate into the
+    // new user-wide store before writing defaults on first launch.
+    if (!hadStoredUiSizingAtMount && !loadedPreferencesSessionId) return;
+    try {
+      window.localStorage.setItem(
+        UNCERTAINTY_UI_SIZING_KEY,
+        JSON.stringify({ sidebarWidth, scopedZoomLevels, sidebarColumnWidths }),
+      );
+    } catch (error) {
+      console.warn("Unable to save uncertainty sizing preferences", error);
+    }
+  }, [
+    hadStoredUiSizingAtMount,
+    loadedPreferencesSessionId,
+    sidebarWidth,
+    scopedZoomLevels,
+    sidebarColumnWidths,
+  ]);
+
+  useEffect(() => {
+    const root = zoomRootRef.current;
     if (!root) return undefined;
 
     const applyZoomLevels = () => {
       root.querySelectorAll(SCOPED_ZOOM_SURFACE_SELECTOR).forEach((surface) => {
         const key = getScopedZoomKey(surface);
         const zoom = scopedZoomLevels[key] || getDefaultScopedZoom(key);
-        const content =
-          surface.classList.contains("measurement-point-list") ||
-          surface.classList.contains("measurement-equation-zoom-surface")
-          ? surface.querySelector(":scope > .scoped-zoom-content")
-          : surface.querySelector(":scope > table");
-        if (!content) return;
+        const contents = getScopedZoomContents(surface);
+        if (contents.length === 0) return;
 
         surface.dataset.zoomLevel = String(zoom);
-        content.style.zoom = String(zoom);
+        contents.forEach((content) => {
+          content.style.zoom = String(zoom);
+        });
       });
     };
 
@@ -1987,11 +3038,10 @@ function App() {
     return () => observer.disconnect();
   }, [scopedZoomLevels]);
 
-  // --- DRAG AND DROP & CLIPBOARD STATE ---
-  const [draggedPointId, setDraggedPointId] = useState(null);
-  const [dragOverTargetId, setDragOverTargetId] = useState(null);
+  // --- CLIPBOARD STATE ---
   const [clipboardPoint, setClipboardPoint] = useState(null);
   const [clipboardUut, setClipboardUut] = useState(null);
+  const [clipboardBudget, setClipboardBudget] = useState(null);
   const [clipboardPointMode, setClipboardPointMode] = useState("copy");
   const [clipboardKind, setClipboardKind] = useState(null);
 
@@ -2098,13 +3148,16 @@ function App() {
       ? pointOrPoints
       : [pointOrPoints];
     setClipboardPoint(points);
-    setClipboardPointMode("cut");
+    // Cut is a copy-then-delete operation. Keep the snapshots reusable so the
+    // same point set can be pasted more than once after it leaves the source.
+    setClipboardPointMode("copy");
     setClipboardKind("point");
+    handleDeleteTestPoint(points.map((point) => point.id), true);
     showToast(
-      `${points.length} measurement point${points.length > 1 ? "s" : ""} cut. Select a destination UUT or range and paste.`,
+      `${points.length} measurement point${points.length > 1 ? "s" : ""} cut and copied. Select a destination UUT or range to paste.`,
     );
     setContextMenu(null);
-  }, []);
+  }, [handleDeleteTestPoint]);
 
   const handlePastePoint = useCallback(
     (targetUutId, targetAreaId, targetRange = null) => {
@@ -2194,11 +3247,20 @@ function App() {
       }
 
       if (newPoints.length > 0) {
+        const mismatchedDerivedPointCount = newPoints.filter(
+          hasDerivedNominalMismatch,
+        ).length;
         saveTestPoint(newPoints, null);
         const action = clipboardPointMode === "cut" ? "Moved" : "Pasted";
         showToast(
           `${action} ${newPoints.length} measurement point${newPoints.length > 1 ? "s" : ""}.`,
         );
+        if (mismatchedDerivedPointCount > 0) {
+          showToast(
+            `${mismatchedDerivedPointCount} pasted derived measurement point${mismatchedDerivedPointCount === 1 ? " has" : "s have"} equation inputs that do not match the nominal value. Update the nominal or inputs to display risk metrics.`,
+            "warning",
+          );
+        }
         setSelectedTestPointContextUutId(targetUutId);
 
         if (clipboardPointMode === "cut") {
@@ -2221,6 +3283,46 @@ function App() {
       currentSessionData,
       saveTestPoint,
       setSelectedTestPointContextUutId,
+      showToast,
+    ],
+  );
+
+  const handleCopyBudget = useCallback((point) => {
+    if (!point) return;
+    setClipboardBudget(copyPointBudget(point));
+    setClipboardKind("budget");
+    showToast("Measurement point budget copied");
+    setContextMenu(null);
+  }, [showToast]);
+
+  const handlePasteBudget = useCallback(
+    (targetPointIds) => {
+      if (
+        clipboardKind !== "budget" ||
+        !clipboardBudget ||
+        !currentSessionData
+      ) {
+        return;
+      }
+      const ids = new Set((targetPointIds || []).map(String));
+      if (ids.size === 0) return;
+      const nextPoints = (currentSessionData.testPoints || []).map((point) =>
+        ids.has(String(point.id))
+          ? pastePointBudget(point, clipboardBudget)
+          : point,
+      );
+      updateSession({ ...currentSessionData, testPoints: nextPoints });
+      showToast(
+        `Budget pasted into ${ids.size} measurement point${ids.size === 1 ? "" : "s"}`,
+      );
+      setContextMenu(null);
+    },
+    [
+      clipboardBudget,
+      clipboardKind,
+      currentSessionData,
+      showToast,
+      updateSession,
     ],
   );
 
@@ -2276,13 +3378,58 @@ function App() {
         (e.ctrlKey || e.metaKey) &&
         !e.altKey &&
         !e.shiftKey &&
+        key === "0"
+      ) {
+        e.preventDefault();
+        setSidebarWidth(550);
+        setScopedZoomLevels({});
+        try {
+          window.localStorage.setItem(
+            UNCERTAINTY_UI_SIZING_KEY,
+            JSON.stringify({
+              sidebarWidth: 550,
+              scopedZoomLevels: {},
+              sidebarColumnWidths: {},
+            }),
+          );
+          INSTRUMENT_SIZE_STORAGE_KEYS.forEach((storageKey) =>
+            window.localStorage.removeItem(storageKey),
+          );
+        } catch {
+          // The visible layout still resets when browser storage is blocked.
+        }
+        window.dispatchEvent(new CustomEvent(INSTRUMENT_SIZE_RESET_EVENT));
+        showToast("Layout sizes reset");
+        return;
+      }
+
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        key === "b" &&
+        !isTextEntry
+      ) {
+        e.preventDefault();
+        if (selectedSidebarPointIds.length === 1) {
+          const point = currentTestPoints.find(
+            (candidate) => candidate.id === selectedSidebarPointIds[0],
+          );
+          if (point) {
+            handleCopyBudget(point);
+          }
+        }
+        return;
+      }
+
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
         key === "z" &&
         !isTextEntry
       ) {
-        if (undoLastSessionChange()) {
-          e.preventDefault();
-          showToast("Undid the last change.");
-        }
+        if (undoLastSessionChange()) e.preventDefault();
         return;
       }
 
@@ -2304,14 +3451,6 @@ function App() {
             handleCopyPoint(points);
             handled = true;
           }
-        } else if (selectedTestPointId) {
-          const point = currentTestPoints.find(
-            (p) => p.id === selectedTestPointId,
-          );
-          if (point) {
-            handleCopyPoint(point);
-            handled = true;
-          }
         }
         if (handled) e.preventDefault();
       }
@@ -2327,11 +3466,6 @@ function App() {
           points = currentTestPoints.filter((point) =>
             selectedSidebarPointIds.includes(point.id),
           );
-        } else if (selectedTestPointId) {
-          const point = currentTestPoints.find(
-            (item) => item.id === selectedTestPointId,
-          );
-          if (point) points = [point];
         }
         if (points.length > 0) {
           e.preventDefault();
@@ -2340,7 +3474,22 @@ function App() {
       }
 
       if ((e.ctrlKey || e.metaKey) && key === "v" && !isTextEntry) {
-        if (clipboardKind === "point" && clipboardPoint) {
+        if (clipboardKind === "budget" && clipboardBudget) {
+          const targetIds = selectedSidebarPointIds.length
+            ? selectedSidebarPointIds
+            : selectedTestPointId
+              ? [selectedTestPointId]
+              : [];
+          if (targetIds.length > 0) {
+            e.preventDefault();
+            handlePasteBudget(targetIds);
+          } else {
+            showToast(
+              "Select one or more measurement points before pasting a budget.",
+              "error",
+            );
+          }
+        } else if (clipboardKind === "point" && clipboardPoint) {
           e.preventDefault();
           let targetUutId = null;
 
@@ -2385,15 +3534,18 @@ function App() {
     selectedSidebarPointIds,
     selectedTestPointContextUutId,
     clipboardKind,
+    clipboardBudget,
     clipboardPoint,
     clipboardUut,
     currentTestPoints,
     currentSessionData,
     handleCopyPoint,
+    handleCopyBudget,
     handleCopyUut,
     handleCutPoint,
     handleDeleteTestPoint,
     handlePastePoint,
+    handlePasteBudget,
     handlePasteUut,
     showToast,
     undoLastSessionChange,
@@ -2411,7 +3563,7 @@ function App() {
 
       e.preventDefault();
 
-      const { surface, content } = zoomTarget;
+      const { surface, content, linkedContents = [] } = zoomTarget;
       // The applied default is written to dataset.zoomLevel by applyZoomLevels;
       // fall back to 1 only for surfaces that haven't been initialized yet.
       const currentZoom = parseFloat(surface.dataset.zoomLevel || "1");
@@ -2430,6 +3582,9 @@ function App() {
 
       surface.dataset.zoomLevel = String(nextZoom);
       content.style.zoom = String(nextZoom);
+      linkedContents.forEach((linkedContent) => {
+        linkedContent.style.zoom = String(nextZoom);
+      });
       const zoomKey = getScopedZoomKey(surface);
       if (zoomKey) {
         setScopedZoomLevels((current) => ({
@@ -2458,144 +3613,18 @@ function App() {
     return () => window.removeEventListener("wheel", handleZoom);
   }, []);
 
-  // --- DRAG AND DROP HANDLERS (AUTO-MOVE) ---
-
-  const handleDragStart = (e, pointId) => {
-    // If dragging an item that is NOT in the selection, make it the only selection
-    if (!selectedSidebarPointIds.includes(pointId)) {
-      setSelectedSidebarPointIds([pointId]);
-      setDraggedPointId(pointId);
-    } else {
-      // Dragging a selected item = dragging the group
-      setDraggedPointId(pointId); // Still track primary for generic logic
-    }
-
-    e.dataTransfer.effectAllowed = "move";
-    // Optional: Set drag preview size/text if multiple
-  };
-
-  const handleDragOver = (e, targetId) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    if (dragOverTargetId !== targetId) {
-      setDragOverTargetId(targetId);
-    }
-  };
-
-  const handleDragLeave = () => {
-    // Optional cleanup
-  };
-
-  const handleDrop = (e, targetUutId, targetAreaId, targetRange = null) => {
-    e.preventDefault();
-    setDragOverTargetId(null);
-
-    // Identify points to move
-    let pointsToMoveIds = [];
-    if (draggedPointId && selectedSidebarPointIds.includes(draggedPointId)) {
-      pointsToMoveIds = [...selectedSidebarPointIds];
-    } else if (draggedPointId) {
-      pointsToMoveIds = [draggedPointId];
-    }
-
-    if (pointsToMoveIds.length === 0) return;
-
-    const targetUut = currentSessionData.uuts.find((u) => u.id === targetUutId);
-
-    // FIX: Robust Area ID Lookup
-    let resolvedAreaId = targetAreaId;
-    if (!resolvedAreaId && targetUut) {
-      resolvedAreaId = targetUut.measurementAreaId;
-      if (!resolvedAreaId && targetUut.measurementArea) {
-        const area = currentSessionData.measurementAreas?.find(
-          (a) => a.name === targetUut.measurementArea,
-        );
-        if (area) resolvedAreaId = area.id;
-      }
-    }
-
-    // --- RANGE CHECK FUNCTION ---
-    const isValueInRange = (val, unit, range) => {
-      if (!range) return true;
-      const numVal = parseFloat(val);
-      if (isNaN(numVal)) return true;
-
-      const min = parseFloat(range.min);
-      const max = parseFloat(range.max);
-      const unitMatch =
-        !unit || !range.unit || unit.toLowerCase() === range.unit.toLowerCase();
-
-      if (!isNaN(min) && !isNaN(max)) {
-        return unitMatch && numVal >= min && numVal <= max;
-      }
-      return unitMatch;
-    };
-
-    const updatesToSave = [];
-    let errorCount = 0;
-
-    pointsToMoveIds.forEach((pId) => {
-      const pointToProcess = currentTestPoints.find((p) => p.id === pId);
-      if (!pointToProcess) return;
-
-      const val = pointToProcess.testPointInfo?.parameter?.value;
-      const unit = pointToProcess.testPointInfo?.parameter?.unit;
-
-      // CHECK VALIDITY
-      if (targetRange) {
-        if (!isValueInRange(val, unit, targetRange)) {
-          errorCount++;
-          return;
-        }
-      }
-
-      const updatedPointData = {
-        ...pointToProcess,
-        measurementAreaId: resolvedAreaId, // Use resolved ID
-        associatedUutIds: [targetUutId],
-      };
-
-      // Tolerance Logic
-      if (targetRange) {
-        updatedPointData.uutTolerance = targetRange;
-      } else if (targetUut) {
-        const matched = findMatchingRange(targetUut, val, unit);
-        updatedPointData.uutTolerance = matched || null;
-      }
-
-      updatesToSave.push(updatedPointData);
-    });
-
-    if (errorCount > 0) {
-      showToast(
-        `Move rejected: ${errorCount} point(s) do not fit in target range.`,
-        "error",
-      );
-    }
-
-    if (updatesToSave.length > 0) {
-      saveTestPoint(updatesToSave, null);
-      showToast(
-        `Moved ${updatesToSave.length} measurement point${updatesToSave.length > 1 ? "s" : ""}`,
-      );
-      setSelectedTestPointContextUutId(targetUutId);
-    }
-
-    setDraggedPointId(null);
-  };
-
   // --- SELECTION HANDLERS ---
   const handleSelectSession = (newId) => {
     setRiskResults(null);
     setSelectedSessionId(newId);
     setSelectedTestPointId(null);
-    setSelectedFunctionId(null);
     setSelectedUutId(null);
     setVirtualPoint(null);
     setSelectedTestPointContextUutId(null);
     setCurrentUutSelection([]);
     setSelectedTablePointIds([]);
     setSelectedSidebarPointIds([]);
+    setAnalysisMode("overview");
   };
 
   // --- TOGGLE EXPANSION HANDLERS ---
@@ -2605,18 +3634,6 @@ function App() {
       const newSet = new Set(prev);
       if (newSet.has(functionKey)) newSet.delete(functionKey);
       else newSet.add(functionKey);
-      return newSet;
-    });
-  };
-
-  // uutKey is the composite `${functionKey}::${uutId}` so the same UUT under two
-  // function nodes expands independently.
-  const toggleUutExpand = (e, uutKey) => {
-    e.stopPropagation();
-    setExpandedUuts((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(uutKey)) newSet.delete(uutKey);
-      else newSet.add(uutKey);
       return newSet;
     });
   };
@@ -2638,32 +3655,18 @@ function App() {
     return current || currentTestPoints.find(inScope) || null;
   };
 
-  const handleSelectFunction = (functionKey) => {
-    setRiskResults(null);
-    const point = resolveFunctionPoint(functionKey);
-
-    setSelectedFunctionId(functionKey);
-    setSelectedUutId(null);
-    setSelectedTestPointId(point?.id || null);
-    setSelectedTestPointContextUutId(point?.associatedUutIds?.[0] || null);
-    setCurrentUutSelection([]);
-    setVirtualPoint(null);
-    setSelectedTablePointIds([]);
-    setSelectedSidebarPointIds(point ? [point.id] : []);
-  };
-
   const handleSelectUut = (uutId, functionKey) => {
     setRiskResults(null);
     const point = resolveFunctionPoint(functionKey, uutId);
 
     setSelectedUutId(uutId);
-    setSelectedFunctionId(functionKey);
     setSelectedTestPointId(point?.id || null);
     setSelectedTestPointContextUutId(uutId);
     setCurrentUutSelection([uutId]);
     setVirtualPoint(null);
     setSelectedTablePointIds([]);
     setSelectedSidebarPointIds(point ? [point.id] : []);
+    setAnalysisMode(point ? "uncertaintyTool" : "overview");
   };
 
   const handleSelectTestPoint = (e, tpId, contextUutId = null) => {
@@ -2711,13 +3714,12 @@ function App() {
       setSelectedTestPointId(tpId);
     }
 
-    const selectedPoint = currentTestPoints.find((point) => point.id === tpId);
-    setSelectedFunctionId(selectedPoint ? functionKeyOf(selectedPoint) : null);
     setSelectedUutId(null);
     setVirtualPoint(null);
     setSelectedTestPointContextUutId(contextUutId);
     setCurrentUutSelection([]);
     setSelectedTablePointIds([]);
+    setAnalysisMode("uncertaintyTool");
   };
 
   const handleAddNewSession = () => {
@@ -2850,11 +3852,11 @@ function App() {
       }
     }
 
-    // Create the point directly (no modal). Direct points drop into inline
-    // value-edit; derived points open in the Detailed View equation editor.
+    // Create the point directly (no modal) and drop either measurement type
+    // into inline value-edit so its first required value is immediately ready.
     const mode = initialData.measurementType || "direct";
     const newId = handleSaveTestPoint({ ...initialData, measurementType: mode });
-    if (newId != null && mode === "direct") {
+    if (newId != null) {
       setPendingValueEditPointId(newId);
     }
   };
@@ -3361,6 +4363,7 @@ function App() {
       const finalData = { ...point };
 
       if (
+        !finalData._skipUutAutofill &&
         (!finalData.associatedUutIds ||
           finalData.associatedUutIds.length === 0) &&
         currentUutSelection.length > 0
@@ -3382,6 +4385,7 @@ function App() {
         return resolvePointForUut(finalData, finalData.associatedUutIds[0]);
       }
 
+      delete finalData._skipUutAutofill;
       return finalData;
     };
 
@@ -3399,12 +4403,84 @@ function App() {
     return newId;
   };
 
+  const updateFunctionPointSettings = (fnGroup, patch) => {
+    if (!currentSessionData) return;
+    const existing = Array.isArray(currentSessionData.functionGroups)
+      ? currentSessionData.functionGroups
+      : [];
+    let found = false;
+    const next = existing.map((group) => {
+      if (
+        makeFunctionKey(group.name) !== fnGroup.id ||
+        group.kind === "tmde"
+      ) {
+        return group;
+      }
+      found = true;
+      return {
+        ...group,
+        pointCreationSettings: {
+          ...DEFAULT_FUNCTION_POINT_SETTINGS,
+          ...(group.pointCreationSettings || {}),
+          ...patch,
+        },
+      };
+    });
+    if (!found) {
+      next.push({
+        name: fnGroup.name,
+        unit: fnGroup.unit || "",
+        units: fnGroup.units || (fnGroup.unit ? [fnGroup.unit] : []),
+        kind: "uut",
+        pointCreationSettings: {
+          ...DEFAULT_FUNCTION_POINT_SETTINGS,
+          ...patch,
+        },
+      });
+    }
+    const testPoints = patch.mode
+      ? (currentSessionData.testPoints || []).map((point) =>
+          functionKeyOf(point) === fnGroup.id
+            ? { ...point, measurementType: patch.mode }
+            : point,
+        )
+      : currentSessionData.testPoints;
+    updateSession({ ...currentSessionData, functionGroups: next, testPoints });
+  };
+
+  const applyFunctionPointTemplate = (point, fnGroup, settings) => {
+    const template = currentTestPoints.find(
+      (candidate) => functionKeyOf(candidate) === fnGroup.id,
+    );
+    if (!template) return point;
+
+    const next = { ...point };
+    if (settings.reuseEquation) {
+      [
+        "equationString",
+        "equationName",
+        "variableMappings",
+        "variableNominals",
+      ].forEach((field) => {
+        const value = clonePointSettingValue(template[field]);
+        if (value !== undefined) next[field] = value;
+      });
+    }
+    if (settings.reuseBudget) {
+      POINT_BUDGET_FIELDS.forEach((field) => {
+        const value = clonePointSettingValue(template[field]);
+        if (value !== undefined) next[field] = value;
+      });
+    }
+    return next;
+  };
+
   // Quick-add a blank point directly onto a UUT (no modal): the unit/function
   // come from the function group the "+" was clicked under, the point starts
   // with an empty value, and a direct point is dropped straight into inline
   // value-edit in the sidebar. Derived points open in the Detailed View where
   // the equation editor already lives.
-  const buildBlankPoint = (uutId, fnGroup, mode, selectedUnit = "") => {
+  const buildBlankPoint = (uutId, fnGroup, settings, selectedUnit = "") => {
     const uut = currentSessionData?.uuts?.find((u) => u.id === uutId);
     const ranges = uut ? getAllUutRanges(uut) : [];
     const requestedUnit = selectedUnit || fnGroup?.unit || "";
@@ -3428,13 +4504,14 @@ function App() {
       fnGroup?.unit ||
       uut?.instrument?.functions?.[0]?.unit ||
       "";
-    return {
+    return applyFunctionPointTemplate({
       measurementAreaId: null,
-      associatedUutIds: [uutId],
-      measurementType: mode,
+      associatedUutIds: uutId ? [uutId] : [],
+      _skipUutAutofill: !uutId,
+      measurementType: settings.mode,
       uutTolerance: fnRange || null,
       testPointInfo: { parameter: { name: functionName, value: "", unit } },
-    };
+    }, fnGroup, settings);
   };
 
   // A shared function section can span several UUTs. Only offer units that
@@ -3454,27 +4531,32 @@ function App() {
   const handleQuickAddPoint = (
     fnGroup,
     uutId,
-    mode = "direct",
+    settings,
     selectedUnit = "",
   ) => {
-    if (!uutId) return;
     const newId = handleSaveTestPoint(
-      buildBlankPoint(uutId, fnGroup, mode, selectedUnit),
+      buildBlankPoint(uutId, fnGroup, settings, selectedUnit),
     );
-    setSelectedTestPointContextUutId(uutId);
+    setSelectedTestPointContextUutId(uutId || null);
     setPendingPointUnitChoice(null);
-    if (newId != null && mode === "direct") {
+    if (newId != null) {
       setPendingValueEditPointId(newId);
     }
+    return newId;
   };
 
-  const openQuickAddPoint = (fnGroup, uutId, mode) => {
+  const openQuickAddPoint = (fnGroup, uutId, settings) => {
     const units = unitsForQuickAddPoint(fnGroup, uutId);
     if (units.length > 1) {
-      setPendingPointUnitChoice({ functionId: fnGroup.id, uutId, mode, units });
+      setPendingPointUnitChoice({
+        functionId: fnGroup.id,
+        uutId,
+        settings,
+        units,
+      });
       return;
     }
-    handleQuickAddPoint(fnGroup, uutId, mode, units[0] || "");
+    handleQuickAddPoint(fnGroup, uutId, settings, units[0] || "");
   };
 
   // ---  Inline update handler for sidebar edits ---
@@ -3610,6 +4692,8 @@ function App() {
       const { saveSessionToPdf } = await import("./utils/fileIo");
       await saveSessionToPdf(currentSessionData, sessionCache, {
         visibleColumns: visibleSidebarColumns,
+        riskMetricsMap: pointRiskMap,
+        includeGuardband: mitigationColumnsEnabled,
       });
     } catch (error) {
       console.error("PDF Save Error:", error);
@@ -3666,6 +4750,7 @@ function App() {
           unit: unit || units?.[0] || "",
           units: Array.from(new Set([...(units || []), unit].filter(Boolean))),
           uutMap: new Map(),
+          points: [],
         });
       } else {
         const existing = functionMap.get(key);
@@ -3695,34 +4780,35 @@ function App() {
       });
     });
 
-    // 2. Place each point under its own function -> owning UUT.
+    // 2. Keep points directly under their function in authored order. The UUT
+    // is a per-row assignment, not a grouping/sort key; this allows workflows
+    // that intentionally alternate between UUTs chronologically.
     const unassignedPoints = [];
     points.forEach((tp) => {
+      const fnNode = ensureFunction(functionLabelOf(tp));
+      fnNode.points.push(tp);
       const ownerId = (tp.associatedUutIds || [])
         .map((id) => String(id))
         .find((id) => uutById.has(id));
       if (!ownerId) {
-        unassignedPoints.push(tp);
+        // A legacy point with no meaningful function still belongs in the
+        // explicit Unassigned bucket; ordinary unassigned rows remain within
+        // their named function so the row-level UUT dropdown can resolve them.
+        if (fnNode.id === UNASSIGNED_FUNCTION_ID) unassignedPoints.push(tp);
         return;
       }
-      const uutNode = ensureUut(
-        ensureFunction(functionLabelOf(tp)),
-        uutById.get(ownerId),
-      );
+      const uutNode = ensureUut(fnNode, uutById.get(ownerId));
       uutNode.points.push(tp);
     });
 
     const result = Array.from(functionMap.values())
-      .sort(
-        (a, b) =>
-          a.name.localeCompare(b.name) || a.unit.localeCompare(b.unit),
-      )
       .map((node) => ({
         id: node.id,
         name: node.name,
         unit: node.unit,
         units: node.units || (node.unit ? [node.unit] : []),
         color: functionColorByKey.get(node.id) || null,
+        points: node.points || [],
         uutGroups: Array.from(node.uutMap.values()),
       }));
 
@@ -3748,6 +4834,45 @@ function App() {
     return result;
   }, [currentSessionData, currentTestPoints]);
 
+  useEffect(() => {
+    if (!pendingPointValueAdvance) return;
+    const { functionId, uutId, unit, nextPointId } = pendingPointValueAdvance;
+    const fnGroup = sidebarData.find((group) => group.id === functionId);
+    if (!fnGroup) {
+      setPendingPointValueAdvance(null);
+      return;
+    }
+    const nextPoint = nextPointId
+      ? currentTestPoints.find((point) => point.id === nextPointId)
+      : null;
+    if (nextPoint) {
+      const nextUutId = nextPoint.associatedUutIds?.[0] || null;
+      setSelectedSidebarPointIds([nextPoint.id]);
+      setSelectedTestPointId(nextPoint.id);
+      setSelectedTestPointContextUutId(nextUutId);
+      setPendingValueEditPointId(nextPoint.id);
+    } else {
+      const settings = getFunctionPointSettings(currentSessionData, fnGroup.id);
+      const newId = handleQuickAddPoint(
+        fnGroup,
+        uutId,
+        settings,
+        unit || fnGroup.unit || "",
+      );
+      if (newId != null) {
+        setSelectedSidebarPointIds([newId]);
+        setSelectedTestPointId(newId);
+        setSelectedTestPointContextUutId(uutId || null);
+      }
+    }
+    setPendingPointValueAdvance(null);
+  }, [
+    currentSessionData,
+    currentTestPoints,
+    pendingPointValueAdvance,
+    sidebarData,
+  ]);
+
   const sidebarValueColumnWidth = useMemo(
     () => getSidebarValueColumnWidth(currentTestPoints),
     [currentTestPoints],
@@ -3755,14 +4880,78 @@ function App() {
 
   // Exact top-to-bottom order of the point rows currently visible in the
   // sidebar. Shift-click must follow the active sort and skip collapsed rows.
-  const visibleSidebarPointOrder = useMemo(
-    () =>
-      getVisibleSidebarPointOrder(
-        sidebarData,
-        { expandedFunctions, expandedUuts },
-        sortSidebarPoints,
-      ),
-    [expandedFunctions, expandedUuts, sidebarData, sortSidebarPoints],
+  const visibleSidebarPointOrder = useMemo(() => {
+    const visibleUutKeys = new Set();
+    sidebarData.forEach((fnGroup) => {
+      (fnGroup.uutGroups || []).forEach((group) => {
+        visibleUutKeys.add(`${fnGroup.id}::${group.id}`);
+      });
+    });
+    return getVisibleSidebarPointOrder(
+      sidebarData,
+      { expandedFunctions, expandedUuts: visibleUutKeys },
+      sortSidebarPoints,
+    );
+  },
+    [expandedFunctions, sidebarData, sortSidebarPoints],
+  );
+
+  useEffect(() => {
+    if (selectedSessionId && selectedTestPointId) {
+      lastSelectedPointBySessionRef.current[selectedSessionId] =
+        selectedTestPointId;
+    }
+  }, [selectedSessionId, selectedTestPointId]);
+
+  const handleAnalysisModeChange = useCallback(
+    (nextMode) => {
+      if (nextMode !== "uncertaintyTool") {
+        setAnalysisMode(nextMode);
+        return;
+      }
+
+      const activePoint = currentTestPoints.find(
+        (candidate) => String(candidate.id) === String(selectedTestPointId),
+      );
+      if (activePoint) {
+        setAnalysisMode(nextMode);
+        return;
+      }
+
+      const rememberedId = selectedSessionId
+        ? lastSelectedPointBySessionRef.current[selectedSessionId]
+        : null;
+      const point =
+        currentTestPoints.find(
+          (candidate) => String(candidate.id) === String(rememberedId),
+        ) || currentTestPoints[0];
+      if (!point) {
+        setAnalysisMode("overview");
+        return;
+      }
+
+      const occurrence = visibleSidebarPointOrder.find(
+        (entry) => String(entry.pointId) === String(point.id),
+      );
+      const contextUutId =
+        occurrence?.contextUutId || point.associatedUutIds?.[0] || null;
+      setSelectedTestPointId(point.id);
+      setSelectedTestPointContextUutId(contextUutId);
+      setSelectedUutId(null);
+      setSelectedSidebarPointIds([point.id]);
+      setSidebarSelectionAnchor({ pointId: point.id, contextUutId });
+      setVirtualPoint(null);
+      setCurrentUutSelection([]);
+      setSelectedTablePointIds([]);
+      setAnalysisMode("uncertaintyTool");
+    },
+    [
+      currentTestPoints,
+      selectedSessionId,
+      selectedTestPointId,
+      setSelectedTestPointId,
+      visibleSidebarPointOrder,
+    ],
   );
 
   // --- LOGIC: Compute Data to Display ---
@@ -3899,16 +5088,6 @@ function App() {
       return { viewMode: "uut", id: selectedUutId };
     }
 
-    if (selectedFunctionId) {
-      const fnNode = sidebarData.find((fn) => fn.id === selectedFunctionId);
-      return {
-        viewMode: "function",
-        id: selectedFunctionId,
-        functionName: fnNode?.name || "",
-        functionUnit: fnNode?.unit || "",
-      };
-    }
-
     if (selectedSessionId) {
       return { viewMode: "session", id: selectedSessionId };
     }
@@ -3921,17 +5100,97 @@ function App() {
     virtualPoint,
     selectedTestPointContextUutId,
     selectedUutId,
-    selectedFunctionId,
     selectedSessionId,
-    sidebarData,
   ]);
 
   // Shared sidebar point-row markup (used under every UUT and the Unassigned
   // bucket). Extracted so the Function -> UUT -> Point tree stays readable.
-  const renderSidebarPointRow = (tp, contextUutId) => (
+  const renderSidebarPointRow = (tp, fnGroup, points = [], index = 0) => {
+    const contextUutId = tp.associatedUutIds?.[0] || null;
+    const functionUuts = (fnGroup?.uutGroups || []).filter(
+      (group) => !group.isUnassigned,
+    );
+    const currentUut = (currentSessionData?.uuts || []).find(
+      (uut) => String(uut.id) === String(contextUutId),
+    );
+    const cellGroups = {
+      uut: getConsecutiveSidebarCellGroup(
+        points,
+        index,
+        (point) => point.associatedUutIds?.[0] || "__unassigned__",
+      ),
+      section: getConsecutiveSidebarCellGroupDuringEdit(
+        points,
+        index,
+        (point) => point.section || "",
+        "section",
+        pendingSharedFieldEdit,
+      ),
+      qualifier: getConsecutiveSidebarCellGroupDuringEdit(
+        points,
+        index,
+        (point) => point.testPointInfo?.qualifier?.value || "",
+        "qualifier",
+        pendingSharedFieldEdit,
+      ),
+    };
+    return (
     <SidebarPointItem
       key={tp.id}
       point={tp}
+      currentUutId={contextUutId || ""}
+      uutName={formatInstrumentIdentity(
+        currentUut || { name: "Unassigned" },
+      )}
+      uutOptions={functionUuts.map((uut) => ({
+        id: uut.id,
+        label: formatInstrumentIdentity(uut),
+      }))}
+      cellGroups={cellGroups}
+      columnWidths={sidebarColumnWidths}
+      columnOrder={sidebarColumnOrder}
+      highlightedPointIds={[
+        ...selectedSidebarPointIds,
+        selectedTestPointId,
+        ...selectedTablePointIds,
+      ]}
+      preferredSharedEditPointId={selectedTestPointId}
+      onRequestSharedMemberEdit={(pointId, field) =>
+        setPendingSharedFieldEdit({ pointId, field })
+      }
+      onUutChange={(nextUutId, groupedPointIds = [tp.id]) => {
+        const nextUut = (currentSessionData?.uuts || []).find(
+          (uut) => String(uut.id) === String(nextUutId),
+        );
+        const parameter = tp.testPointInfo?.parameter || {};
+        const groupedIds = new Set(groupedPointIds.map(String));
+        const selectedGroupedIds = selectedSidebarPointIds.filter((id) =>
+          groupedIds.has(String(id)),
+        );
+        const runPointIds = new Set(
+          (selectedGroupedIds.length > 0 ? selectedGroupedIds : [tp.id]).map(
+            String,
+          ),
+        );
+        const nextPoints = (currentSessionData?.testPoints || []).map((point) => {
+          if (!runPointIds.has(String(point.id))) return point;
+          const pointParameter = point.testPointInfo?.parameter || parameter;
+          return {
+            ...point,
+            associatedUutIds: nextUut ? [nextUut.id] : [],
+            measurementAreaId: nextUut?.measurementAreaId || null,
+            uutTolerance: nextUut
+              ? findMatchingRange(
+                  nextUut,
+                  pointParameter.value,
+                  pointParameter.unit,
+                )
+              : null,
+          };
+        });
+        updateSession({ ...currentSessionData, testPoints: nextPoints });
+        setSelectedTestPointContextUutId(nextUut?.id || null);
+      }}
       valueColumnWidth={sidebarValueColumnWidth}
       visibleColumns={visibleSidebarColumns}
       isSelected={selectedSidebarPointIds.includes(tp.id)}
@@ -3943,9 +5202,22 @@ function App() {
       onSelect={(e) => handleSelectTestPoint(e, tp.id, contextUutId)}
       onShowRiskBreakdown={(key) => setPendingRiskBreakdown(key)}
       autoEditValue={pendingValueEditPointId === tp.id}
+      autoEditField={
+        String(pendingSharedFieldEdit?.pointId ?? "") === String(tp.id)
+          ? pendingSharedFieldEdit.field
+          : null
+      }
       onAutoEditConsumed={() => setPendingValueEditPointId(null)}
+      onAutoEditFieldConsumed={() => setPendingSharedFieldEdit(null)}
+      onAdvanceValue={() =>
+        setPendingPointValueAdvance({
+          functionId: fnGroup.id,
+          uutId: contextUutId,
+          unit: tp.testPointInfo?.parameter?.unit || fnGroup.unit || "",
+          nextPointId: points[index + 1]?.id || null,
+        })
+      }
       onSave={handleInlinePointUpdate}
-      onDragStart={handleDragStart}
       onContextMenu={(e, p) => {
         e.preventDefault();
         e.stopPropagation();
@@ -3970,6 +5242,38 @@ function App() {
                 ),
               icon: faCut,
             },
+            ...(clipboardKind === "point" && clipboardPoint
+              ? [
+                  {
+                    label: "Paste Point",
+                    action: () => handlePastePoint(contextUutId, null, null),
+                    icon: faPaste,
+                  },
+                ]
+              : []),
+            ...(selectedSidebarPointIds.length <= 1
+              ? [
+                  {
+                    label: "Copy Budget",
+                    action: () => handleCopyBudget(p),
+                    icon: faCopy,
+                  },
+                ]
+              : []),
+            ...(clipboardKind === "budget" && clipboardBudget
+              ? [
+                  {
+                    label: "Paste Budget",
+                    action: () =>
+                      handlePasteBudget(
+                        selectedSidebarPointIds.includes(p.id)
+                          ? selectedSidebarPointIds
+                          : [p.id],
+                      ),
+                    icon: faPaste,
+                  },
+                ]
+              : []),
             {
               label: "Delete Point",
               action: () => handleDeleteTestPoint(p.id),
@@ -3980,18 +5284,99 @@ function App() {
         });
       }}
     />
-  );
+    );
+  };
 
   const renderSidebarColumnHeaders = () => {
     const gridTemplateColumns = getSidebarGridTemplate(
       visibleSidebarColumns,
       sidebarValueColumnWidth,
+      sidebarColumnWidths,
+      sidebarColumnOrder,
     );
-    const visibleGroups = SIDEBAR_COLUMN_GROUPS.map((group) => ({
-      ...group,
-      visibleCount: group.columns.filter((key) => visibleSidebarColumns[key])
-        .length,
-    })).filter((group) => group.visibleCount > 0);
+    const orderedVisibleColumns = getVisibleSidebarColumnOrder(
+      visibleSidebarColumns,
+      sidebarColumnOrder,
+    );
+    const groupByColumn = Object.fromEntries(
+      SIDEBAR_COLUMN_GROUPS.flatMap((group) =>
+        group.columns.map((column) => [column, group]),
+      ),
+    );
+    const visibleGroups = orderedVisibleColumns.reduce((runs, column) => {
+      const group = groupByColumn[column];
+      const previous = runs[runs.length - 1];
+      if (previous?.key === group.key) {
+        previous.visibleCount += 1;
+      } else {
+        runs.push({ ...group, visibleCount: 1, run: runs.length });
+      }
+      return runs;
+    }, []);
+    const headerConfig = {
+      uut: ["UUT"],
+      section: ["Sect.", { align: "right", title: "Section" }],
+      value: [
+        "Value",
+        {
+          className:
+            orderedVisibleColumns[0] === "value" ? "sidebar-value-sticky" : "",
+        },
+      ],
+      qualifier: ["Qual."],
+      tolerance: ["Tolerance"],
+      lowLimit: ["UUT Low", { title: "UUT Low Limit" }],
+      highLimit: ["UUT High", { title: "UUT High Limit" }],
+      standardUncertainty: [
+        "Std. Unc.",
+        { align: "center", title: "Standard Uncertainty (combined)" },
+      ],
+      measurementUncertainty: [
+        "Exp. Unc.",
+        { align: "center", title: "Measurement Uncertainty (expanded)" },
+      ],
+      tmdeLow: ["TMDE Low"],
+      tmdeHigh: ["TMDE High"],
+      tur: ["TUR", { align: "center" }],
+      tar: ["TAR", { align: "center" }],
+      observedReop: [
+        "REOP @ TUR",
+        { align: "center", title: "REOP at Test-Point TUR" },
+      ],
+      pfa: ["PFA", { align: "center" }],
+      pfr: ["PFR", { align: "center" }],
+      maxReop: ["Max REOP", { align: "center", title: "Maximum REOP" }],
+      trueReop: ["R_meas", { align: "center" }],
+      gbMult: ["GB Mult", { align: "center" }],
+      gbLow: ["GB Low", { title: "GB Lower Limit" }],
+      gbHigh: ["GB High", { title: "GB Upper Limit" }],
+      gbPfa: ["PFA + GB", { align: "center", title: "PFA with Guardband" }],
+      gbPfr: ["PFR + GB", { align: "center", title: "PFR with Guardband" }],
+      gbCalInt: [
+        "Cal Int + GB",
+        { align: "center", title: "Calibration Interval with Guardband" },
+      ],
+      gbMeasRel: [
+        "Target REOP + GB",
+        { align: "center", title: "Targeted REOP with Guardband" },
+      ],
+      noGbPfa: [
+        "PFA no GB",
+        { align: "center", title: "PFA without Guardband" },
+      ],
+      noGbPfr: [
+        "PFR no GB",
+        { align: "center", title: "PFR without Guardband" },
+      ],
+      noGbCalInt: [
+        "Cal Int no GB",
+        { align: "center", title: "Calibration Interval without Guardband" },
+      ],
+      noGbMeasRel: [
+        "Target REOP no GB",
+        { align: "center", title: "Targeted REOP without Guardband" },
+      ],
+    };
 
     return (
       <div className="sidebar-column-header-stack">
@@ -4002,7 +5387,7 @@ function App() {
         >
           {visibleGroups.map((group) => (
             <div
-              key={group.key}
+              key={`${group.key}-${group.run}`}
               className={`sidebar-column-group sidebar-column-group--${group.key}`}
               style={{ gridColumn: `span ${group.visibleCount}` }}
               title={group.label}
@@ -4018,107 +5403,171 @@ function App() {
             gridTemplateColumns,
           }}
         >
-      {visibleSidebarColumns.section &&
-        renderSidebarSortHeader("section", "Sect.", { align: "right" })}
-      {visibleSidebarColumns.value && renderSidebarSortHeader("value", "Value")}
-      {visibleSidebarColumns.qualifier &&
-        renderSidebarSortHeader("qualifier", "Qual.")}
-      {visibleSidebarColumns.tolerance &&
-        renderSidebarSortHeader("tolerance", "Tolerance")}
-      {visibleSidebarColumns.lowLimit &&
-        renderSidebarSortHeader("lowLimit", "UUT Low", {
-          title: "UUT Low Limit",
-        })}
-      {visibleSidebarColumns.highLimit &&
-        renderSidebarSortHeader("highLimit", "UUT High", {
-          title: "UUT High Limit",
-        })}
-      {visibleSidebarColumns.standardUncertainty &&
-        renderSidebarSortHeader("standardUncertainty", "Std. Unc.", {
-          align: "center",
-          title: "Standard Uncertainty (combined)",
-        })}
-      {visibleSidebarColumns.measurementUncertainty &&
-        renderSidebarSortHeader("measurementUncertainty", "Exp. Unc.", {
-          align: "center",
-          title: "Measurement Uncertainty (expanded)",
-        })}
-      {visibleSidebarColumns.tmdeLow &&
-        renderSidebarSortHeader("tmdeLow", "TMDE Low")}
-      {visibleSidebarColumns.tmdeHigh &&
-        renderSidebarSortHeader("tmdeHigh", "TMDE High")}
-      {visibleSidebarColumns.tur &&
-        renderSidebarSortHeader("tur", "TUR", { align: "center" })}
-      {visibleSidebarColumns.tar &&
-        renderSidebarSortHeader("tar", "TAR", { align: "center" })}
-      {visibleSidebarColumns.observedReop &&
-        renderSidebarSortHeader("observedReop", "REOP @ TUR", {
-          align: "center",
-          title: "R_REOP at Test-Point TUR",
-        })}
-      {visibleSidebarColumns.pfa &&
-        renderSidebarSortHeader("pfa", "PFA", { align: "center" })}
-      {visibleSidebarColumns.pfr &&
-        renderSidebarSortHeader("pfr", "PFR", { align: "center" })}
-      {visibleSidebarColumns.maxReop &&
-        renderSidebarSortHeader("maxReop", "Max REOP", {
-          align: "center",
-          title: "Maximum REOP",
-        })}
-      {visibleSidebarColumns.trueReop &&
-        renderSidebarSortHeader("trueReop", "R_meas", { align: "center" })}
-      {visibleSidebarColumns.gbMult &&
-        renderSidebarSortHeader("gbMult", "GB Mult", { align: "center" })}
-      {visibleSidebarColumns.gbLow &&
-        renderSidebarSortHeader("gbLow", "GB Low", {
-          title: "GB Lower Limit",
-        })}
-      {visibleSidebarColumns.gbHigh &&
-        renderSidebarSortHeader("gbHigh", "GB High", {
-          title: "GB Upper Limit",
-        })}
-      {visibleSidebarColumns.gbPfa &&
-        renderSidebarSortHeader("gbPfa", "PFA + GB", {
-          align: "center",
-          title: "PFA with Guardband",
-        })}
-      {visibleSidebarColumns.gbPfr &&
-        renderSidebarSortHeader("gbPfr", "PFR + GB", {
-          align: "center",
-          title: "PFR with Guardband",
-        })}
-      {visibleSidebarColumns.gbCalInt &&
-        renderSidebarSortHeader("gbCalInt", "Cal Int + GB", {
-          align: "center",
-          title: "Calibration Interval with Guardband",
-        })}
-      {visibleSidebarColumns.gbMeasRel &&
-        renderSidebarSortHeader("gbMeasRel", "Target REOP + GB", {
-          align: "center",
-          title: "Targeted R_REOP with Guardband",
-        })}
-      {visibleSidebarColumns.noGbPfa &&
-        renderSidebarSortHeader("noGbPfa", "PFA no GB", {
-          align: "center",
-          title: "PFA without Guardband",
-        })}
-      {visibleSidebarColumns.noGbPfr &&
-        renderSidebarSortHeader("noGbPfr", "PFR no GB", {
-          align: "center",
-          title: "PFR without Guardband",
-        })}
-      {visibleSidebarColumns.noGbCalInt &&
-        renderSidebarSortHeader("noGbCalInt", "Cal Int no GB", {
-          align: "center",
-          title: "Calibration Interval without Guardband",
-        })}
-      {visibleSidebarColumns.noGbMeasRel &&
-        renderSidebarSortHeader("noGbMeasRel", "Target REOP no GB", {
-          align: "center",
-          title: "Targeted R_REOP without Guardband",
-        })}
+          {orderedVisibleColumns.map((key) =>
+            renderSidebarSortHeader(key, ...(headerConfig[key] || [key])),
+          )}
         </div>
       </div>
+    );
+  };
+
+  const renderFunctionPointActions = (fnGroup) => {
+    const uutOptions = (fnGroup.uutGroups || []).filter(
+      (group) => !group.isUnassigned,
+    );
+    if (uutOptions.length === 0) return null;
+
+    const settings = getFunctionPointSettings(currentSessionData, fnGroup.id);
+    const settingsOpen = openFunctionSettingsId === fnGroup.id;
+
+    return (
+      <>
+        <div
+          className={`function-point-settings${settingsOpen ? " is-open" : ""}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className={`function-point-settings-button${settingsOpen ? " is-active" : ""}`}
+            data-tour="function-settings"
+            title={`${fnGroup.name} function settings`}
+            aria-label={`${fnGroup.name} function settings`}
+            aria-expanded={settingsOpen}
+            onClick={() =>
+              setOpenFunctionSettingsId((current) =>
+                current === fnGroup.id ? null : fnGroup.id,
+              )
+            }
+          >
+            <FontAwesomeIcon icon={faCog} />
+          </button>
+          {settingsOpen && (
+            <div
+              className="function-point-settings-menu"
+              data-tour="function-settings-menu"
+              role="dialog"
+              aria-label={`${fnGroup.name} function settings`}
+            >
+              <div className="function-point-settings-heading">
+                <strong>Function Settings</strong>
+              </div>
+              <div className="function-point-type-options" role="radiogroup" aria-label="New point type">
+                {[
+                  ["direct", "Direct"],
+                  ["derived", "Derived"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={settings.mode === value}
+                    className={settings.mode === value ? "is-selected" : ""}
+                    onClick={() => updateFunctionPointSettings(fnGroup, { mode: value })}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {settings.mode === "derived" && (
+                <label className="function-point-setting-check">
+                  <input
+                    type="checkbox"
+                    checked={settings.reuseEquation}
+                    onChange={(event) =>
+                      updateFunctionPointSettings(fnGroup, {
+                        reuseEquation: event.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    <strong>Reuse the first point's equation</strong>
+                    <small>New derived points start with the same equation and variables.</small>
+                  </span>
+                </label>
+              )}
+              <label className="function-point-setting-check">
+                <input
+                  type="checkbox"
+                  checked={settings.reuseBudget}
+                  onChange={(event) =>
+                    updateFunctionPointSettings(fnGroup, {
+                      reuseBudget: event.target.checked,
+                    })
+                  }
+                />
+                <span>
+                  <strong>Reuse the first point's budget</strong>
+                  <small>New points carry over entire budget of initial point.</small>
+                </span>
+              </label>
+            </div>
+          )}
+        </div>
+        <div
+          className="function-point-actions"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="btn-icon-only small function-point-add-button"
+            data-tour="add-measurement-point"
+            onClick={() => {
+              setExpandedFunctions((previous) =>
+                new Set(previous).add(fnGroup.id),
+              );
+              setPendingPointUnitChoice(null);
+              openQuickAddPoint(fnGroup, null, settings);
+            }}
+            title={
+              settings.mode === "derived"
+                ? "Add derived point"
+                : "Add direct point"
+            }
+            aria-label={
+              settings.mode === "derived"
+                ? "Add derived point"
+                : "Add direct point"
+            }
+          >
+            <FontAwesomeIcon icon={faPlus} size="xs" />
+          </button>
+          {pendingPointUnitChoice?.functionId === fnGroup.id && (
+              <div
+                className="budget-settings-menu point-unit-picker function-point-unit-picker"
+                data-tour="measurement-point-menu"
+                role="menu"
+                aria-label="Choose measurement point unit"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <h5 className="point-unit-picker-title">Choose unit</h5>
+                {pendingPointUnitChoice.units.map((unit) => (
+                  <button
+                    key={unit}
+                    type="button"
+                    role="menuitem"
+                    onClick={() =>
+                      handleQuickAddPoint(
+                        fnGroup,
+                        pendingPointUnitChoice.uutId,
+                        pendingPointUnitChoice.settings,
+                        unit,
+                      )
+                    }
+                  >
+                    {getUnitDisplayLabel(unit)}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="point-unit-picker-cancel"
+                  onClick={() => setPendingPointUnitChoice(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+        </div>
+      </>
     );
   };
 
@@ -4155,6 +5604,13 @@ function App() {
           reports={bugReports}
           onSave={saveBugReport}
           onDelete={handleDeleteBugReport}
+        />
+        <GuidedWalkthrough
+          isOpen={isWalkthroughOpen}
+          steps={walkthroughSteps}
+          stepIndex={walkthroughStepIndex}
+          onStepChange={setWalkthroughStepIndex}
+          onClose={() => setIsWalkthroughOpen(false)}
         />
         {currentSessionData && (
           <>
@@ -4233,13 +5689,13 @@ function App() {
           />
         )}
 
-        <div className="content-area uncertainty-analysis-page">
+        <div className="content-area uncertainty-analysis-page" ref={zoomRootRef}>
           {/* Module chrome — mirrors the AC-Shunt module's .app-chrome header
               (brand block on the left, a meta-icon tool cluster on the right).
               The floating draggable toolbar was removed; the global window
               chrome + theme toggle live in the workbench top bar above. */}
-          <header className="app-chrome">
-            <div className="app-chrome-bar">
+          <header className="app-chrome app-chrome-zoom-surface">
+            <div className="app-chrome-bar scoped-zoom-content">
               <div className="app-chrome-brand">
                 <div
                   className="app-chrome-brand-mark"
@@ -4277,7 +5733,13 @@ function App() {
                   <button
                     type="button"
                     className={`app-chrome-meta-icon${isInstrumentBuilderOpen ? " is-active" : ""}`}
-                    onClick={() => handleOpenLibrary()}
+                    onClick={() => {
+                      if (isInstrumentBuilderOpen) {
+                        setIsInstrumentBuilderOpen(false);
+                      } else {
+                        handleOpenLibrary();
+                      }
+                    }}
                     title="Instrument builder"
                     aria-label="Instrument builder"
                   >
@@ -4343,12 +5805,46 @@ function App() {
                   <button
                     type="button"
                     className="app-chrome-meta-icon"
+                    data-tour="help-walkthrough"
+                    onClick={() => {
+                      setWalkthroughStepIndex(0);
+                      setIsWalkthroughOpen(true);
+                    }}
+                    title="Open walkthrough"
+                    aria-label="Open walkthrough"
+                  >
+                    <FontAwesomeIcon icon={faQuestionCircle} />
+                  </button>
+                  <button
+                    type="button"
+                    className="app-chrome-meta-icon"
                     onClick={() => setIsBugReportOpen(true)}
                     title="Report an issue"
                     aria-label="Report an issue"
                   >
                     <FontAwesomeIcon icon={faBug} />
                   </button>
+                  {showThemeToggle && (
+                    <button
+                      type="button"
+                      className="app-chrome-meta-icon"
+                      onClick={toggleTheme}
+                      title={
+                        theme === "dark"
+                          ? "Switch to light mode"
+                          : "Switch to dark mode"
+                      }
+                      aria-label={
+                        theme === "dark"
+                          ? "Switch to light mode"
+                          : "Switch to dark mode"
+                      }
+                    >
+                      <FontAwesomeIcon
+                        icon={theme === "dark" ? faSun : faMoon}
+                      />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -4377,121 +5873,192 @@ function App() {
                 style={{ alignItems: "flex-end" }}
               >
                 <div className="session-controls">
-                  <label htmlFor="session-select">Analysis Session</label>
-                  <select
-                    id="session-select"
-                    className="session-selector"
-                    value={selectedSessionId || ""}
-                    onChange={(e) =>
-                      handleSelectSession(Number(e.target.value))
-                    }
-                  >
-                    {sessions.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
+                  <label htmlFor={sessions.length > 0 ? "session-select" : undefined}>
+                    Analysis Session
+                  </label>
+                  {sessions.length > 0 ? (
+                    <select
+                      id="session-select"
+                      className="session-selector"
+                      value={selectedSessionId || ""}
+                      onChange={(e) =>
+                        handleSelectSession(Number(e.target.value))
+                      }
+                    >
+                      {sessions.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="session-empty-label" role="status">
+                      No sessions yet
+                    </div>
+                  )}
                 </div>
                 <div className="sidebar-view-controls">
                   <button
                     onClick={handleAddNewSession}
+                    data-tour="add-session"
                     title="Add New Session"
                     className="sidebar-action-button"
                   >
                     <FontAwesomeIcon icon={faPlus} />
                   </button>
-                  <button
-                    onClick={() => handleDeleteSession(selectedSessionId)}
-                    title="Delete Session"
-                    className="sidebar-action-button delete"
-                  >
-                    <FontAwesomeIcon icon={faTrashAlt} />
-                  </button>
+                  {sessions.length > 0 && (
+                    <button
+                      onClick={() => handleDeleteSession(selectedSessionId)}
+                      title="Delete Session"
+                      className="sidebar-action-button delete"
+                    >
+                      <FontAwesomeIcon icon={faTrashAlt} />
+                    </button>
+                  )}
                 </div>
               </div>
 
               {/* === SIDEBAR LIST === */}
               <div className="measurement-point-list">
-                <div className="scoped-zoom-content">
-                {/* 1. DASHBOARD HOME BUTTON */}
-                <SidebarSessionHeader
-                  sessionData={currentSessionData}
-                  onUpdate={updateSession}
-                  isSessionInfoOpen={isSessionInfoOpen}
-                  onSessionInfoOpenChange={setIsSessionInfoOpen}
-                  isRiskInputsOpen={isRiskInputsOpen}
-                  onRiskInputsOpenChange={setIsRiskInputsOpen}
-                  isMitigationInputsOpen={isMitigationInputsOpen}
-                  onMitigationInputsOpenChange={setIsMitigationInputsOpen}
-                  isActive={
-                    selectedSessionId &&
-                    !selectedFunctionId &&
-                    !selectedUutId &&
-                    !selectedTestPointId
-                  }
-                  onSelect={() => handleSelectSession(selectedSessionId)}
-                />
+                <div className="sidebar-session-info-zoom-surface">
+                  <div className="scoped-zoom-content">
+                    {/* Session metadata stays in the sidebar; Instrument Overview
+                        now lives in the first workspace tab. */}
+                    <SidebarSessionHeader
+                      sessionData={currentSessionData}
+                      onUpdate={updateSession}
+                      isSessionInfoOpen={isSessionInfoOpen}
+                      onSessionInfoOpenChange={setIsSessionInfoOpen}
+                      isRiskInputsOpen={isRiskInputsOpen}
+                      onRiskInputsOpenChange={setIsRiskInputsOpen}
+                      isMitigationInputsOpen={isMitigationInputsOpen}
+                      onMitigationInputsOpenChange={setIsMitigationInputsOpen}
+                    />
+                  </div>
+                </div>
 
-                {/* 2. GLOBAL ACTIONS ROW (Refined & Organic) */}
+                <div className="measurement-points-zoom-surface">
+                  <div className="scoped-zoom-content">
+
+                {/* 3. MEASUREMENT POINTS */}
                 <div className="sidebar-global-actions">
-                  <button
-                    type="button"
-                    className="sidebar-section-toggle"
-                    onClick={() =>
-                      setIsMeasurementPointsOpen((open) => !open)
-                    }
-                    aria-expanded={isMeasurementPointsOpen}
-                  >
+                  <div className="sidebar-section-toggle sidebar-measurement-title-toggle">
                     <span className="sidebar-section-title">
                       Measurement Points
                     </span>
-                    <FontAwesomeIcon
-                      icon={
-                        isMeasurementPointsOpen
-                          ? faChevronDown
-                          : faChevronRight
-                      }
-                    />
-                  </button>
+                  </div>
 
                   <div className="sidebar-actions-group">
                     {/* Eyeball Button Removed - Moved to HeaderToolbox */}
 
-                    {/* Expand/Collapse All */}
-                    <button
-                      onClick={handleToggleExpandAll}
-                      title={isGlobalExpanded ? "Collapse All" : "Expand All"}
-                      className="sidebar-action-btn-organic"
-                    >
-                      <FontAwesomeIcon
-                        icon={
-                          isGlobalExpanded
-                            ? faCompressArrowsAlt
-                            : faExpandArrowsAlt
-                        }
-                      />
-                    </button>
-
-                    {/* Column Filter Menu */}
-                    <div className="sidebar-column-menu" ref={columnMenuRef}>
-                      <button
-                        onClick={() => setIsColumnMenuOpen(!isColumnMenuOpen)}
-                        title="Filter visible columns"
-                        className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
-                      >
-                        <FontAwesomeIcon icon={faSlidersH} />
-                      </button>
-
-                      {isColumnMenuOpen && (
-                        <div
-                          className="sidebar-filter-dropdown"
-                          style={{ top: "100%", right: "auto", left: 0 }}
+                      <>
+                        {/* Expand/Collapse All */}
+                        <button
+                          onClick={handleToggleExpandAll}
+                          title={isGlobalExpanded ? "Collapse All" : "Expand All"}
+                          className="sidebar-action-btn-organic"
                         >
-                          {[
+                          <FontAwesomeIcon
+                            icon={
+                              isGlobalExpanded
+                                ? faCompressArrowsAlt
+                                : faExpandArrowsAlt
+                            }
+                          />
+                        </button>
+
+                        {/* Column Order Menu */}
+                        <div
+                          className="sidebar-column-menu"
+                          ref={columnOrderMenuRef}
+                        >
+                          <button
+                            onClick={() => {
+                              setIsColumnOrderMenuOpen((open) => !open);
+                              setIsColumnMenuOpen(false);
+                            }}
+                            title="Reorder columns"
+                            aria-label="Reorder columns"
+                            className={`sidebar-action-btn-organic ${isColumnOrderMenuOpen ? "active" : ""}`}
+                          >
+                            <FontAwesomeIcon icon={faArrowsLeftRight} />
+                          </button>
+
+                          {isColumnOrderMenuOpen && (
+                            <div className="sidebar-column-order-dropdown">
+                              <div className="sidebar-column-order-panel">
+                                <div className="sidebar-column-order-heading">
+                                  <span>Column order</span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setSidebarColumnOrder(
+                                        DEFAULT_SIDEBAR_COLUMN_ORDER,
+                                      )
+                                    }
+                                  >
+                                    Reset
+                                  </button>
+                                </div>
+                                <div className="sidebar-column-order-list">
+                                  {sidebarColumnOrder.map((key, index) => (
+                                    <div
+                                      className={`sidebar-column-order-item${
+                                        sidebarColumns[key] ? " is-visible" : ""
+                                      }`}
+                                      key={key}
+                                    >
+                                      <span>{SIDEBAR_COLUMN_LABELS[key]}</span>
+                                      <div className="sidebar-column-order-actions">
+                                        <button
+                                          type="button"
+                                          title={`Move ${SIDEBAR_COLUMN_LABELS[key]} left`}
+                                          aria-label={`Move ${SIDEBAR_COLUMN_LABELS[key]} left`}
+                                          disabled={index === 0}
+                                          onClick={() => moveSidebarColumn(key, -1)}
+                                        >
+                                          <FontAwesomeIcon icon={faChevronUp} />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          title={`Move ${SIDEBAR_COLUMN_LABELS[key]} right`}
+                                          aria-label={`Move ${SIDEBAR_COLUMN_LABELS[key]} right`}
+                                          disabled={
+                                            index === sidebarColumnOrder.length - 1
+                                          }
+                                          onClick={() => moveSidebarColumn(key, 1)}
+                                        >
+                                          <FontAwesomeIcon icon={faChevronDown} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Column Filter Menu */}
+                        <div className="sidebar-column-menu" ref={columnMenuRef}>
+                          <button
+                            onClick={() => {
+                              setIsColumnMenuOpen((open) => !open);
+                              setIsColumnOrderMenuOpen(false);
+                            }}
+                            title="Filter visible columns"
+                            className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
+                          >
+                            <FontAwesomeIcon icon={faSlidersH} />
+                          </button>
+
+                          {isColumnMenuOpen && (
+                            <div className="sidebar-filter-dropdown">
+                              {[
                             {
                               group: "Measurement",
                               cols: [
+                                { key: "uut", label: "UUT" },
                                 { key: "section", label: "Section" },
                                 { key: "value", label: "Value" },
                                 { key: "qualifier", label: "Qualifier" },
@@ -4517,7 +6084,7 @@ function App() {
                               cols: [
                                 {
                                   key: "observedReop",
-                                  label: "R_REOP @ test pt TUR",
+                                  label: "REOP @ test pt TUR",
                                 },
                                 { key: "pfa", label: "PFA" },
                                 { key: "pfr", label: "PFR" },
@@ -4536,7 +6103,7 @@ function App() {
                                 { key: "gbCalInt", label: "Cal Int with GB" },
                                 {
                                   key: "gbMeasRel",
-                                  label: "Targeted R_REOP w/ GB",
+                                  label: "Targeted REOP w/ GB",
                                 },
                               ],
                             },
@@ -4548,7 +6115,7 @@ function App() {
                                 { key: "noGbCalInt", label: "Cal Int w/o GB" },
                                 {
                                   key: "noGbMeasRel",
-                                  label: "Targeted R_REOP w/o GB",
+                                  label: "Targeted REOP w/o GB",
                                 },
                               ],
                             },
@@ -4612,18 +6179,39 @@ function App() {
                               </div>
                             );
                           })}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
+                      </>
                   </div>
                 </div>
 
-                {isMeasurementPointsOpen &&
-                  sidebarData.map((fnGroup) => {
-                    const isFnActive =
-                      selectedFunctionId === fnGroup.id &&
-                      !selectedUutId &&
-                      !selectedTestPointId;
+                {currentTestPoints.length === 0 && (
+                  <div className="measurement-points-empty-state" role="status">
+                    <FontAwesomeIcon icon={faMicroscope} aria-hidden="true" />
+                    <div>
+                      <strong>Ready for your first measurement point</strong>
+                      <div className="measurement-points-empty-copy">
+                        <p>
+                          Instruments are organized by Function, grouping them
+                          by capability (such as DC Voltage or Pressure) while
+                          keeping multi-mode operations separate.
+                        </p>
+                        <p>
+                          Select or create a Function to define the measurement
+                          category.
+                        </p>
+                        <p>Add the UUTs that perform that Function.</p>
+                        <p>
+                          Add Measurement Points to define the exact test values
+                          and tolerances for each UUT.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {sidebarData.map((fnGroup) => {
                     const isFnExpanded = expandedFunctions.has(fnGroup.id);
                     // The Unassigned bucket renders its points directly under the
                     // function header (no real UUT to nest under).
@@ -4635,25 +6223,26 @@ function App() {
                         <div
                           key={fnGroup.id}
                           className="measurement-group-container"
+                          style={{
+                            "--sidebar-function-color":
+                              fnGroup.color || "var(--primary-color)",
+                            "--function-input-accent":
+                              fnGroup.color || "var(--primary-color)",
+                          }}
                         >
-                          <div
-                            className={`area-header-sticky ${isFnActive ? "active" : ""}`}
-                            onClick={() => handleSelectFunction(fnGroup.id)}
-                          >
-                            <FontAwesomeIcon
-                              icon={
-                                isFnExpanded ? faChevronDown : faChevronRight
-                              }
-                              onClick={(e) =>
-                                toggleFunctionExpand(e, fnGroup.id)
-                              }
-                              style={{
-                                opacity: 0.6,
-                                marginRight: "8px",
-                                fontSize: "0.75em",
-                                width: "10px",
-                              }}
-                            />
+                          <div className="area-header-sticky">
+                            <button
+                              type="button"
+                              className="function-sidebar-collapse-button"
+                              onClick={(e) => toggleFunctionExpand(e, fnGroup.id)}
+                              title={isFnExpanded ? "Collapse function" : "Expand function"}
+                              aria-label={isFnExpanded ? "Collapse function" : "Expand function"}
+                              aria-expanded={isFnExpanded}
+                            >
+                              <FontAwesomeIcon
+                                icon={isFnExpanded ? faChevronDown : faChevronRight}
+                              />
+                            </button>
                             <FontAwesomeIcon
                               icon={faLayerGroup}
                               style={{ opacity: 0.6 }}
@@ -4661,12 +6250,12 @@ function App() {
                             />
                             <span className="area-label">{fnGroup.name}</span>
                           </div>
-                          {isFnExpanded && (
+                          {isFnExpanded && pts.length > 0 && (
                             <div className="tree-branch">
                               <div className="sidebar-points-scroll-wrapper">
                                 {renderSidebarColumnHeaders()}
-                                {pts.map((tp) =>
-                                  renderSidebarPointRow(tp, null),
+                                {pts.map((tp, index) =>
+                                  renderSidebarPointRow(tp, fnGroup, pts, index),
                                 )}
                               </div>
                             </div>
@@ -4675,34 +6264,31 @@ function App() {
                       );
                     }
 
+                    const points = sortSidebarPoints(fnGroup.points || []);
                     return (
                       <div
                         key={fnGroup.id}
                         className="measurement-group-container"
+                        style={{
+                          "--sidebar-function-color":
+                            fnGroup.color || "var(--primary-color)",
+                          "--function-input-accent":
+                            fnGroup.color || "var(--primary-color)",
+                        }}
                       >
-                        <div
-                          className={`area-header-sticky ${isFnActive ? "active" : ""}`}
-                          onClick={() => handleSelectFunction(fnGroup.id)}
-                        >
-                          <FontAwesomeIcon
-                            icon={isFnExpanded ? faChevronDown : faChevronRight}
+                        <div className="area-header-sticky">
+                          <button
+                            type="button"
+                            className="function-sidebar-collapse-button"
                             onClick={(e) => toggleFunctionExpand(e, fnGroup.id)}
-                            style={{
-                              opacity: 0.6,
-                              marginRight: "8px",
-                              fontSize: "0.75em",
-                              width: "10px",
-                            }}
-                          />
-                          <FontAwesomeIcon
-                            icon={faCube}
-                            style={{
-                              color:
-                                fnGroup.color || "var(--primary-color)",
-                              opacity: isFnActive ? 1 : 0.7,
-                            }}
-                            size="sm"
-                          />
+                            title={isFnExpanded ? "Collapse function" : "Expand function"}
+                            aria-label={isFnExpanded ? "Collapse function" : "Expand function"}
+                            aria-expanded={isFnExpanded}
+                          >
+                            <FontAwesomeIcon
+                              icon={isFnExpanded ? faChevronDown : faChevronRight}
+                            />
+                          </button>
                           <span
                             className="area-label"
                             style={{
@@ -4712,247 +6298,23 @@ function App() {
                           >
                             {fnGroup.name}
                           </span>
+                          {renderFunctionPointActions(fnGroup)}
                         </div>
 
-                        {isFnExpanded && (
+                        {isFnExpanded && points.length > 0 && (
                           <div className="tree-branch">
-                            {fnGroup.uutGroups.map((group) => {
-                              const uutKey = `${fnGroup.id}::${group.id}`;
-                              const isUutExpanded = expandedUuts.has(uutKey);
-                              const isUutSelected =
-                                selectedUutId === group.id &&
-                                selectedFunctionId === fnGroup.id &&
-                                !selectedTestPointId;
-                              const uutHasPoints = group.points.length > 0;
-                              if (!uutHasPoints && !isGlobalExpanded)
-                                return null;
-                              const isDragOver = dragOverTargetId === uutKey;
-                              const sortedPoints = sortSidebarPoints(
-                                group.points,
-                              );
-
-                              return (
-                                <div
-                                  key={group.id}
-                                  style={{ marginBottom: "10px" }}
-                                >
-                                  <div
-                                    className={`uut-row ${isUutSelected ? "active" : ""} ${isDragOver ? "drag-over" : ""}`}
-                                    onClick={() =>
-                                      handleSelectUut(group.id, fnGroup.id)
-                                    }
-                                    onDragOver={(e) => handleDragOver(e, uutKey)}
-                                    onDragLeave={handleDragLeave}
-                                    onDrop={(e) => handleDrop(e, group.id, null)}
-                                    onContextMenu={(e) => {
-                                      e.preventDefault();
-                                      setContextMenu({
-                                        x: e.pageX,
-                                        y: e.pageY,
-                                        items: [
-                                          {
-                                            label: "Paste Point Here",
-                                            action: () =>
-                                              handlePastePoint(group.id, null),
-                                            icon: faPaste,
-                                            className:
-                                              clipboardKind !== "point" ||
-                                              !clipboardPoint
-                                                ? "disabled"
-                                                : "",
-                                          },
-                                          {
-                                            label: "Copy UUT",
-                                            action: () => handleCopyUut(group),
-                                            icon: faCopy,
-                                          },
-                                          {
-                                            label: "Edit UUT",
-                                            action: () => handleEditUut(group),
-                                            icon: faEdit,
-                                          },
-                                          {
-                                            label: "Delete UUT",
-                                            action: () =>
-                                              handleDeleteUut(group.id),
-                                            icon: faTrashAlt,
-                                            className: "destructive",
-                                          },
-                                        ],
-                                      });
-                                    }}
-                                  >
-                                    <div className="uut-info">
-                                      <FontAwesomeIcon
-                                        icon={
-                                          isUutExpanded
-                                            ? faChevronDown
-                                            : faChevronRight
-                                        }
-                                        onClick={(e) =>
-                                          toggleUutExpand(e, uutKey)
-                                        }
-                                        style={{
-                                          opacity: 0.6,
-                                          marginRight: "8px",
-                                          fontSize: "0.75em",
-                                          width: "10px",
-                                        }}
-                                      />
-                                      <FontAwesomeIcon
-                                        icon={faMicroscope}
-                                        style={{ opacity: 0.6 }}
-                                      />
-                                      <span
-                                        title={formatInstrumentIdentity(group)}
-                                      >
-                                        {formatInstrumentIdentity(group)}
-                                      </span>
-                                    </div>
-                                    <div className="uut-actions-group">
-                                      {(() => {
-                                        const pointMode =
-                                          newPointModeByUut[uutKey] || "direct";
-                                        const setMode = (mode) =>
-                                          setNewPointModeByUut((m) => ({
-                                            ...m,
-                                            [uutKey]: mode,
-                                          }));
-                                        return (
-                                          <>
-                                            <div
-                                              className="point-mode-control"
-                                              role="group"
-                                              aria-label="Direct / Derived: what the add button creates"
-                                              onClick={(e) => e.stopPropagation()}
-                                              title="What the + button adds"
-                                            >
-                                              <span className={`point-mode-label ${pointMode === "direct" ? "is-active" : ""}`}>
-                                                Direct
-                                              </span>
-                                              <label className="direction-toggle-switch">
-                                                <input
-                                                  type="checkbox"
-                                                  checked={pointMode === "derived"}
-                                                  aria-label="Create derived measurement points"
-                                                  onChange={(e) =>
-                                                    setMode(
-                                                      e.target.checked
-                                                        ? "derived"
-                                                        : "direct",
-                                                    )
-                                                  }
-                                                />
-                                                <span className="direction-toggle-slider" />
-                                              </label>
-                                              <span className={`point-mode-label ${pointMode === "derived" ? "is-active" : ""}`}>
-                                                Derived
-                                              </span>
-                                            </div>
-                                            <button
-                                              className="btn-icon-only small"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                // Ensure the UUT is expanded so
-                                                // the new row is visible (and can
-                                                // open into inline value-edit).
-                                                setExpandedUuts((prev) =>
-                                                  new Set(prev).add(uutKey),
-                                                );
-                                                openQuickAddPoint(
-                                                  fnGroup,
-                                                  group.id,
-                                                  pointMode,
-                                                );
-                                              }}
-                                              title={
-                                                pointMode === "derived"
-                                                  ? "Add derived point"
-                                                  : "Add direct point"
-                                              }
-                                            >
-                                              <FontAwesomeIcon
-                                                icon={faPlus}
-                                                size="xs"
-                                              />
-                                            </button>
-                                            {pendingPointUnitChoice?.functionId ===
-                                              fnGroup.id &&
-                                              pendingPointUnitChoice?.uutId ===
-                                                group.id && (
-                                                <div
-                                                  className="budget-settings-menu point-unit-picker"
-                                                  role="menu"
-                                                  aria-label="Choose measurement point unit"
-                                                  onClick={(e) =>
-                                                    e.stopPropagation()
-                                                  }
-                                                >
-                                                  <h5 className="point-unit-picker-title">
-                                                    Choose unit
-                                                  </h5>
-                                                  {pendingPointUnitChoice.units.map(
-                                                    (unit) => (
-                                                      <button
-                                                        key={unit}
-                                                        type="button"
-                                                        role="menuitem"
-                                                        onClick={(e) => {
-                                                          e.stopPropagation();
-                                                          handleQuickAddPoint(
-                                                            fnGroup,
-                                                            group.id,
-                                                            pendingPointUnitChoice.mode,
-                                                            unit,
-                                                          );
-                                                        }}
-                                                      >
-                                                        {getUnitDisplayLabel(unit)}
-                                                      </button>
-                                                    ),
-                                                  )}
-                                                  <button
-                                                    type="button"
-                                                    className="point-unit-picker-cancel"
-                                                    onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      setPendingPointUnitChoice(
-                                                        null,
-                                                      );
-                                                    }}
-                                                  >
-                                                    Cancel
-                                                  </button>
-                                                </div>
-                                              )}
-                                          </>
-                                        );
-                                      })()}
-                                    </div>
-                                  </div>
-
-                                  {isUutExpanded && (
-                                    <div style={{ paddingLeft: "15px" }}>
-                                      <div className="sidebar-points-scroll-wrapper">
-                                        {renderSidebarColumnHeaders()}
-                                        {sortedPoints.length === 0 ? (
-                                          <div className="empty-branch-msg"></div>
-                                        ) : (
-                                          sortedPoints.map((tp) =>
-                                            renderSidebarPointRow(tp, group.id),
-                                          )
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
+                            <div className="sidebar-points-scroll-wrapper">
+                              {renderSidebarColumnHeaders()}
+                              {points.map((tp, index) =>
+                                renderSidebarPointRow(tp, fnGroup, points, index),
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
                     );
                   })}
+                  </div>
                 </div>
               </div>
             </aside>
@@ -5000,13 +6362,21 @@ function App() {
                     onRangeSelectionChange={setActiveRangeIndices}
                     selectedTablePointIds={selectedTablePointIds}
                     setSelectedTablePointIds={setSelectedTablePointIds}
+                    onInstrumentSelection={() => {
+                      setSelectedSidebarPointIds([]);
+                      setSelectedTablePointIds([]);
+                      setSelectedUutId(null);
+                    }}
                     preferredAnalysisMode={analysisMode}
-                    onAnalysisModeChange={setAnalysisMode}
+                    onAnalysisModeChange={handleAnalysisModeChange}
                     preferredShowContribution={showContribution}
                     onShowContributionChange={setShowContribution}
-                    collapsedFunctionKeys={collapsedInstrumentFunctionKeys}
-                    setCollapsedFunctionKeys={setCollapsedInstrumentFunctionKeys}
+                    overviewCollapsedFunctionKeys={collapsedOverviewInstrumentFunctionKeys}
+                    setOverviewCollapsedFunctionKeys={setCollapsedOverviewInstrumentFunctionKeys}
+                    detailCollapsedFunctionKeys={collapsedDetailInstrumentFunctionKeys}
+                    setDetailCollapsedFunctionKeys={setCollapsedDetailInstrumentFunctionKeys}
                     keyboardShortcutsEnabled={!isInstrumentBuilderOpen}
+                    scrollPositionsRef={analysisScrollPositionsRef}
                     onSelectUut={handleSelectUut}
                     onSelectTestPoint={handleSelectTestPoint}
                     onDefineTestPoint={handleAddNewTestPoint}

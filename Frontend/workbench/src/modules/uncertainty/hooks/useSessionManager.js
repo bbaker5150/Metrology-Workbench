@@ -127,6 +127,8 @@ const useSessionManager = () => {
       // Legacy/Fallback fields (kept for backward compatibility or simple sessions)
       uutDescription: "",
       uutTolerance: {},
+      detailSectionOrder: ["instruments", "equation", "budget"],
+      detailCollapsedSections: [],
       testPoints: [],
 
       uncReq: {
@@ -144,6 +146,7 @@ const useSessionManager = () => {
 
   // --- State ---
   const [sessions, setSessions] = useState([]);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [instruments, setInstruments] = useState([]);
   const [customEquations, setCustomEquations] = useState([]);
   const [bugReports, setBugReports] = useState([]);
@@ -157,6 +160,7 @@ const useSessionManager = () => {
   // per-session map made Ctrl+Z depend on whichever session happened to be
   // selected and left add/delete/import outside undo entirely.
   const undoHistoryRef = useRef([]);
+  const undoSequenceRef = useRef(0);
   const persistTimersRef = useRef(new Map());
   const pendingPersistRef = useRef(new Map());
   const persistQueuesRef = useRef(new Map());
@@ -280,6 +284,8 @@ const useSessionManager = () => {
       }
     } catch (err) {
       console.error("Failed to load sessions from backend", err);
+    } finally {
+      setSessionsLoaded(true);
     }
   }, [replaceSessions]);
 
@@ -548,7 +554,9 @@ const useSessionManager = () => {
   const deleteInstrument = useCallback(async (instrumentId) => {
     replaceInstruments((prev) => prev.filter((i) => i.id !== instrumentId));
     try {
-      await axios.delete(`${UNCERTAINTY_API}/instruments/${instrumentId}/`);
+      await axios.delete(`${UNCERTAINTY_API}/instruments/${instrumentId}/`, {
+        params: { owner: getDeviceKey() },
+      });
     } catch (e) {
       console.error("Failed to delete instrument from backend", e);
     }
@@ -690,7 +698,25 @@ const useSessionManager = () => {
       const changeGroup = getSessionChangeGroup(previousSession, updatedSession);
       if (!changeGroup) return;
 
-      recordUndoSnapshot(previousSession, changeGroup);
+      const isDiscreteCollectionChange = ["testPoints", "uuts", "tmdes"].some(
+        (key) => {
+          const before = Array.isArray(previousSession?.[key])
+            ? previousSession[key]
+            : [];
+          const after = Array.isArray(updatedSession?.[key])
+            ? updatedSession[key]
+            : [];
+          if (before.length !== after.length) return true;
+          return before.some(
+            (item, index) => String(item?.id) !== String(after[index]?.id),
+          );
+        },
+      );
+      const undoGroup = isDiscreteCollectionChange
+        ? `${changeGroup}:discrete:${++undoSequenceRef.current}`
+        : changeGroup;
+
+      recordUndoSnapshot(previousSession, undoGroup);
       replaceSessions((prevSessions) =>
         prevSessions.map((session) =>
           session.id === updatedSession.id ? updatedSession : session,
@@ -1080,9 +1106,25 @@ const useSessionManager = () => {
       if (!getSessionChangeGroup(session, updatedSession)) return;
 
       const updatedKeys = Object.keys(updatedData).sort().join(",");
+      const currentPoint = session.testPoints.find(
+        (testPoint) => testPoint.id === selectedTestPointId,
+      );
+      const isDiscreteBudgetChange = ["components", "tmdeTolerances"].some(
+        (key) => {
+          if (!Object.prototype.hasOwnProperty.call(updatedData, key)) return false;
+          const before = Array.isArray(currentPoint?.[key]) ? currentPoint[key] : [];
+          const after = Array.isArray(updatedData[key]) ? updatedData[key] : [];
+          if (before.length !== after.length) return true;
+          return before.some(
+            (item, index) => String(item?.id) !== String(after[index]?.id),
+          );
+        },
+      );
       recordUndoSnapshot(
         session,
-        `point:${selectedTestPointId}:${updatedKeys}`,
+        isDiscreteBudgetChange
+          ? `point:${selectedTestPointId}:${updatedKeys}:discrete:${++undoSequenceRef.current}`
+          : `point:${selectedTestPointId}:${updatedKeys}`,
       );
       replaceSessions((prevSessions) =>
         prevSessions.map((item) =>
@@ -1138,6 +1180,7 @@ const useSessionManager = () => {
 
   return {
     sessions,
+    sessionsLoaded,
     instruments,
     customEquations,
     saveCustomEquation,

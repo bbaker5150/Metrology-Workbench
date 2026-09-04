@@ -3766,6 +3766,7 @@ input:checked+.slider:before {
   overflow: hidden;
   /* Containing block for the sub-prompt sheet (.corrections-subprompt-overlay). */
   position: relative;
+  isolation: isolate;
 }
 
 .corrections-modal-header {
@@ -3780,7 +3781,7 @@ input:checked+.slider:before {
      so the modal can always be dismissed, even while a password/confirm
      prompt is up. */
   position: relative;
-  z-index: 6;
+  z-index: 100;
   background-color: var(--content-background);
 }
 
@@ -3789,14 +3790,17 @@ input:checked+.slider:before {
    modal header's close button. */
 .corrections-subprompt-overlay {
   position: absolute;
-  inset: 0;
+  /* Keep the nested prompt's hit-testing region below the modal chrome.
+     The header also has the higher stacking level, but excluding it from the
+     overlay altogether guarantees that the close control remains clickable. */
+  inset: 69px 0 0;
   z-index: 4;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
   background: rgba(15, 23, 42, 0.5);
-  border-radius: 14px;
+  border-radius: 0 0 14px 14px;
 }
 
 body.dark-mode .corrections-subprompt-overlay {
@@ -3815,6 +3819,12 @@ body.dark-mode .corrections-subprompt-overlay {
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
+}
+
+.corrections-modal-close {
+  position: relative;
+  z-index: 101;
+  pointer-events: auto;
 }
 
 /* Compact pill toggle used in the modal header (denser than in-body version) */
@@ -6490,6 +6500,208 @@ body.dark-mode .corrections-card-select:focus-visible {
   background: color-mix(in srgb, var(--input-background) 92%, #1f9d55 8%);
 }
 
+.reader-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.reader-profile-scope-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.reader-profile-card {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.reader-profile-card-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 13px;
+}
+
+.reader-profile-card-header strong {
+  color: var(--text-color);
+  font-size: 0.7rem;
+  line-height: 1.25;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.reader-profile-card .form-section-group {
+  align-items: end;
+}
+
+.reader-profile-switches {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.reader-profile-switches.full-width {
+  grid-column: 1 / -1;
+}
+
+.reader-profile-switch-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.reader-profile-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--input-background);
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+}
+
+.reader-profile-switch:hover {
+  border-color: var(--primary-color);
+}
+
+.reader-profile-switch:has(input:checked) {
+  border-color: var(--primary-color);
+  background: var(--primary-color-soft, rgba(0, 123, 255, 0.09));
+}
+
+.reader-profile-switch input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--primary-color);
+}
+
+.reader-profile-delay {
+  width: min(100%, 320px);
+}
+
+.reader-profile-point-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.reader-profile-point-save-control {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+}
+
+.reader-profile-point-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-color-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.reader-profile-point-save:hover:not(:disabled) {
+  background: transparent;
+  color: var(--primary-color);
+  transform: none;
+}
+
+.reader-profile-point-save svg {
+  opacity: 1;
+  transition: filter 150ms ease, transform 150ms ease;
+}
+
+.reader-profile-point-save.is-saved {
+  background: transparent;
+  box-shadow: none;
+  color: #22c55e;
+}
+
+.reader-profile-point-save.is-saved svg {
+  filter:
+    drop-shadow(0 0 3px color-mix(in srgb, #22c55e 85%, transparent))
+    drop-shadow(0 0 7px color-mix(in srgb, #22c55e 60%, transparent));
+  transform: scale(1.12);
+}
+
+.reader-profile-point-save:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.reader-profile-point-save-control .reader-setting-tooltip {
+  right: 0;
+  left: auto;
+}
+
+.reader-setting-tooltip-trigger {
+  position: relative;
+}
+
+.reader-setting-tooltip {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 1200;
+  display: none;
+  width: max-content;
+  max-width: min(280px, 72vw);
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--content-background);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.18);
+  color: var(--text-color);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 1.45;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  pointer-events: none;
+}
+
+.reader-setting-tooltip-trigger:hover .reader-setting-tooltip,
+.reader-setting-tooltip-trigger:focus-within .reader-setting-tooltip {
+  display: block;
+}
+
+@media (max-width: 860px) {
+  .reader-profile-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* --- Custom Dropdown (canonical, shared) --- */
 .custom-dropdown-container {
   position: relative;
@@ -6917,6 +7129,10 @@ button.custom-dropdown-trigger:hover {
   align-items: center;
   gap: 8px;
   font-weight: 500;
+  /* Preserve SI symbol casing even when another workbench module defines
+     uppercase label chrome (for example, mA and Hz must never become MA/HZ). */
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 /* --- Context Menu (cohesive with app modal/panel design system) --- */
@@ -7956,7 +8172,6 @@ body.dark-mode .chart-options-form-group.checkbox-group:hover {
 .stat-card.active {
   border-left-color: var(--primary-color);
   box-shadow: 0 4px 12px rgba(0, 123, 255, 0.1);
-  transform: scale(1.02);
 }
 
 .stat-card h6 {
@@ -7964,6 +8179,16 @@ body.dark-mode .chart-options-form-group.checkbox-group:hover {
   font-size: 0.9rem;
   font-weight: 500;
   color: var(--text-color);
+}
+
+.stat-card--drift {
+  border-left-color: var(--warning-color, #d69e2e);
+}
+
+.stat-card--drift .stat-details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .stat-details {
@@ -10418,6 +10643,71 @@ body.dark-mode .isp-zero-cal-btn--compact:hover:not(:disabled) svg {
   cursor: not-allowed;
 }
 
+.reader-input-select {
+  min-width: 7.25rem;
+  height: 1.875rem;
+  padding: 0 1.75rem 0 0.625rem;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--input-background);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.reader-input-select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary-color) 42%, transparent);
+  outline-offset: 1px;
+  border-color: var(--primary-color);
+}
+
+.reader-input-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.reader-switch-options {
+  display: inline-flex;
+  align-items: end;
+  gap: 12px;
+  padding-left: 4px;
+}
+
+.reader-switch-option {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  color: var(--text-color-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+}
+
+.reader-switch-option .reader-input-select {
+  min-width: 7rem;
+}
+
+.reader-switch-delay-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-color-muted);
+}
+
+.reader-switch-delay-control .reader-input-select {
+  width: 5.5rem;
+  min-width: 5.5rem;
+  padding-right: 0.625rem;
+}
+
+@media (max-width: 880px) {
+  .reader-switch-options {
+    flex-basis: 100%;
+    padding-left: 0;
+  }
+}
+
 /* --- Status flags body --- */
 .status-card-body {
   padding: 14px 18px;
@@ -12270,4 +12560,55 @@ body.dark-mode .window-stability-section {
   background: var(--content-background); 
   color: var(--primary-color);
   box-shadow: inset 0 -2px 0 var(--primary-color);
+}
+
+.corrections-imported-inputs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--background-color);
+}
+
+.corrections-imported-inputs-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-color-muted);
+}
+
+.corrections-imported-inputs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.corrections-imported-input,
+.corrections-imported-inputs-empty {
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.corrections-imported-input {
+  padding: 6px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.corrections-imported-input.is-complete {
+  color: var(--success-color, #15803d);
+  background: color-mix(in srgb, var(--success-color, #15803d) 12%, transparent);
+}
+
+.corrections-imported-input.is-partial {
+  color: var(--warning-color, #b45309);
+  background: color-mix(in srgb, var(--warning-color, #b45309) 14%, transparent);
+}
+
+.corrections-imported-inputs-empty {
+  color: var(--text-color-muted);
 }

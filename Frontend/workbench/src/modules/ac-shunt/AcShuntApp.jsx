@@ -75,34 +75,58 @@ const getActiveReport = (device) => {
 
 // Helper functions for corrections (getShuntCorrectionForPoint, getTVCCorrectionForPoint)
 const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntSn, shuntsData) => {
-  if (!point || !shuntRangeInAmps || !shuntsData || shuntsData.length === 0 || !shuntSn)
+  if (!point || !shuntsData || shuntsData.length === 0)
     return { correction: "N/A", uncertainty: "N/A" };
 
   const pointCurrent = parseFloat(point.current);
+  const pointFrequency = Number(point.frequency);
   const epsilon = 1e-9;
+  const sourceReportId = point.forward?.correction_report ?? point.reverse?.correction_report;
 
-  // Prefer a manual device over an imported one when both exist.
-  const shunt = [...shuntsData]
+  if (sourceReportId !== null && sourceReportId !== undefined) {
+    for (const shunt of shuntsData) {
+      const sourceReport = (shunt.reports || []).find(
+        (report) => Number(report.id) === Number(sourceReportId)
+      );
+      if (!sourceReport) continue;
+      const correction = (sourceReport.corrections || []).find(
+        (entry) =>
+          Math.abs(parseFloat(entry.current) - pointCurrent) < epsilon &&
+          Number(entry.frequency) === pointFrequency
+      );
+      return correction
+        ? { correction: correction.correction, uncertainty: correction.uncertainty }
+        : { correction: "N/A", uncertainty: "N/A" };
+    }
+  }
+
+  if (!shuntRangeInAmps || !shuntSn) {
+    return { correction: "N/A", uncertainty: "N/A" };
+  }
+
+  // Prefer a manual value when one exists, but keep searching imported
+  // reports when the manual device is only a partial table.
+  const candidateShunts = [...shuntsData]
     .filter(
       (s) =>
         String(s.serial_number) === String(shuntSn) &&
         Math.abs(parseFloat(s.range) - shuntRangeInAmps) < epsilon
     )
-    .sort((a, b) => (b.is_manual ? 1 : 0) - (a.is_manual ? 1 : 0))[0];
+    .sort((a, b) => (b.is_manual ? 1 : 0) - (a.is_manual ? 1 : 0));
 
-  const activeReport = getActiveReport(shunt);
-  if (activeReport && Array.isArray(activeReport.corrections)) {
-    const correction = activeReport.corrections.find(
+  for (const shunt of candidateShunts) {
+    const activeReport = getActiveReport(shunt);
+    const correction = (activeReport?.corrections || []).find(
       (c) =>
         Math.abs(parseFloat(c.current) - pointCurrent) < epsilon &&
-        parseFloat(c.frequency) === point.frequency
+        Number(c.frequency) === pointFrequency
     );
-    return correction
-      ? {
+    if (correction) {
+      return {
         correction: correction.correction,
         uncertainty: correction.uncertainty,
-      }
-      : { correction: "N/A", uncertainty: "N/A" };
+      };
+    }
   }
   return { correction: "N/A", uncertainty: "N/A" };
 };
@@ -435,7 +459,12 @@ function AppContent() {
     roleDowngradeNotice,
     clearRoleDowngradeNotice,
     pairedRun,
-    timerState
+    timerState,
+    stdReaderModel,
+    tiReaderModel,
+    switchDriverAddress,
+    readerSwitchDriverAddress,
+    readerSwitchSettlingTime,
   } = useInstruments();
 
   const isBulkRunning = bulkRunProgress && bulkRunProgress.total > 0;
@@ -530,7 +559,7 @@ function AppContent() {
 
   const sessionInfoPanelTitle =
     selectedSessionName ||
-    (selectedSessionId != null ? `Session #${selectedSessionId}` : "—");
+    (selectedSessionId != null ? `#${selectedSessionId}` : "—");
 
   const showChromeStatusCluster =
     Boolean(dbInfo) ||
@@ -821,6 +850,8 @@ function AppContent() {
     if (!isCollecting || !activeCollectionDetails) return null;
 
     let tpSettings = {};
+    let activeFrequency = activeCollectionDetails.frequency ?? null;
+    const liveMeasurementParams = activeCollectionDetails.measurement_params || {};
     if (activeCollectionDetails.tpId && uniqueTestPoints) {
       const tp = uniqueTestPoints.find(p =>
         String(p.forward?.id) === String(activeCollectionDetails.tpId) ||
@@ -828,22 +859,61 @@ function AppContent() {
       );
       if (tp) {
         const isReverse = String(tp.reverse?.id) === String(activeCollectionDetails.tpId);
-        tpSettings = (isReverse ? tp.reverse?.settings : tp.forward?.settings) || {};
+        const activePoint = isReverse ? tp.reverse : tp.forward;
+        tpSettings = activePoint?.settings || {};
+        activeFrequency = activePoint?.frequency ?? activeFrequency;
       }
     }
+
+    const readSetting = (key, fallback) => (
+      liveMeasurementParams[key]
+      ?? activeCollectionDetails[key]
+      ?? tpSettings[key]
+      ?? calibrationConfigs?.[key]
+      ?? fallback
+    );
 
     return {
       command: activeCollectionDetails.command,
       is_pre_batch: activeCollectionDetails.is_pre_batch,
-      nplc: activeCollectionDetails.nplc ?? tpSettings.nplc ?? calibrationConfigs?.nplc ?? 20,
-      num_samples: activeCollectionDetails.num_samples ?? tpSettings.num_samples ?? calibrationConfigs?.num_samples ?? 35,
-      initial_warm_up_time: activeCollectionDetails.initial_warm_up_time ?? tpSettings.initial_warm_up_time ?? calibrationConfigs?.initial_warm_up_time ?? 0,
-      settling_time: activeCollectionDetails.settling_time ?? tpSettings.settling_time ?? calibrationConfigs?.settling_time ?? 120,
-      n_cycles: activeCollectionDetails.n_cycles ?? tpSettings.n_cycles ?? calibrationConfigs?.n_cycles ?? 3,
+      nplc: readSetting('nplc', 20),
+      num_samples: readSetting('num_samples', 35),
+      initial_warm_up_time: readSetting('initial_warm_up_time', 0),
+      settling_time: readSetting('settling_time', 120),
+      input_switch_settling_time: readSetting('input_switch_settling_time', 1),
+      n_cycles: readSetting('n_cycles', 3),
+      frequency: activeFrequency,
+      stability_check_method: readSetting('stability_check_method', 'sliding_window'),
+      stability_window: liveMeasurementParams.window
+        ?? readSetting('stability_window', 30),
+      ignore_instability_after_lock: readSetting('ignore_instability_after_lock', false),
+      f8508_dc_filter_enabled: readSetting('f8508_dc_filter_enabled', true),
+      f8508_dc_resolution: readSetting('f8508_dc_resolution', 7),
+      f8508_dc_fast_enabled: readSetting('f8508_dc_fast_enabled', false),
+      f8508_ac_filter_hz: readSetting('f8508_ac_filter_hz', null),
+      f8508_ac_resolution: readSetting('f8508_ac_resolution', 6),
+      f8508_ac_transfer_enabled: readSetting('f8508_ac_transfer_enabled', true),
+      f8508_ac_dc_coupled: readSetting('f8508_ac_dc_coupled', false),
+      f5790_filter_mode: readSetting('f5790_filter_mode', 'MEDIUM'),
+      f5790_filter_restart: readSetting('f5790_filter_restart', 'MEDIUM'),
+      f5790_hires_enabled: readSetting('f5790_hires_enabled', true),
+      f5790_range_mode: readSetting('f5790_range_mode', '2.2'),
+      f5790_input_switch_settling_time: readSetting('f5790_input_switch_settling_time', 30),
+      has_switch_driver: Boolean(switchDriverAddress),
+      has_reader_switch: Boolean(readerSwitchDriverAddress),
+      reader_switch_settling_time: Number(readerSwitchSettlingTime) || 0,
       use_char_minus_readings: activeCollectionDetails.use_char_minus_readings ?? tpSettings.use_char_minus_readings ?? calibrationConfigs?.use_char_minus_readings ?? false,
       use_char_plus2_readings: activeCollectionDetails.use_char_plus2_readings ?? tpSettings.use_char_plus2_readings ?? calibrationConfigs?.use_char_plus2_readings ?? false
     };
-  }, [isCollecting, activeCollectionDetails, uniqueTestPoints, calibrationConfigs]);
+  }, [
+    isCollecting,
+    activeCollectionDetails,
+    uniqueTestPoints,
+    calibrationConfigs,
+    switchDriverAddress,
+    readerSwitchDriverAddress,
+    readerSwitchSettlingTime,
+  ]);
 
   // Initializes the hook by passing activeSettings into calibrationSettings
   const estimatedTime = useCalibrationETA({
@@ -852,7 +922,8 @@ function AppContent() {
     bulkRunProgress,
     calibrationSettings: activeSettings,
     selectedTPCount: selectedTPs.size,
-    pairedRun
+    pairedRun,
+    readerModels: [stdReaderModel, tiReaderModel],
   });
 
   const handleDragEnd = (event) => {

@@ -59,7 +59,16 @@ CALIBRATION_HOST_ONLY_COMMANDS = frozenset({
     'operation_cancelled',
 })
 
-from npsl_tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A, Instrument8100
+from npsl_tools.instruments import (
+    Instrument11713C,
+    Instrument3458A,
+    Instrument5730A,
+    Instrument5790A,
+    Instrument5790B,
+    Instrument34420A,
+    Instrument8508A,
+    Instrument8100,
+)
 from .models import (
     CalibrationReadings,
     CalibrationResults,
@@ -113,12 +122,299 @@ def _clear_live_state(session_id):
 
 INSTRUMENT_CLASS_MAP = {
     '5730A': Instrument5730A,
+    '5790A': Instrument5790A,
     '5790B': Instrument5790B,
     '3458A': Instrument3458A,
     '34420A': Instrument34420A,
+    '8508A': Instrument8508A,
     '11713C': Instrument11713C,
     '8100': Instrument8100
 }
+
+
+def _open_reader(reader_class, model, address, input_terminal=None):
+    """Construct a reader using its model-specific connection contract."""
+
+    if reader_class == Instrument34420A:
+        return _inst(reader_class, gpib=address)
+    if reader_class == Instrument8508A:
+        return _inst(
+            reader_class,
+            gpib=address,
+            input_terminal=input_terminal or "FRONT",
+        )
+    return _inst(reader_class, model=model, gpib=address)
+
+
+def _is_5790_class(reader_class):
+    return bool(
+        reader_class
+        and isinstance(reader_class, type)
+        and issubclass(reader_class, Instrument5790B)
+    )
+
+
+def _open_reader_pair(std_class, std_model, std_address, std_input,
+                      ti_class, ti_model, ti_address, ti_input):
+    """Open logical readers while sharing one VISA session when appropriate."""
+    if (
+        std_address
+        and std_address == ti_address
+        and _is_5790_class(std_class)
+        and _is_5790_class(ti_class)
+    ):
+        shared = _open_reader(std_class, std_model, std_address, std_input)
+        shared.standard_role_input = str(std_input or 'INPUT1').upper()
+        shared.test_role_input = str(ti_input or 'INPUT2').upper()
+        return shared, shared
+    return (
+        _open_reader(std_class, std_model, std_address, std_input),
+        _open_reader(ti_class, ti_model, ti_address, ti_input),
+    )
+
+
+def _shared_5790_reader_pair(std_reader, ti_reader):
+    return (
+        isinstance(std_reader, Instrument5790B)
+        and isinstance(ti_reader, Instrument5790B)
+        and (
+            std_reader is ti_reader
+            or getattr(std_reader, 'gpib', None) == getattr(ti_reader, 'gpib', None)
+        )
+    )
+
+
+def _source_drive_voltage_for_test_point(
+    test_point_data,
+    amplifier_range=None,
+    *,
+    infer_range=False,
+):
+    """Return the 5730A drive voltage for an AC-shunt test point.
+
+    A normal 8100 signal path must use its explicitly selected current range.
+    A shared dual-input 5790 quick setup has no 8100 assignment, so it uses
+    the smallest supported 8100-equivalent range containing the point. This
+    preserves the established 0-to-2 V source scaling without requiring a
+    fictitious amplifier assignment in the session.
+    """
+
+    try:
+        current = abs(float((test_point_data or {}).get('current')))
+    except (TypeError, ValueError):
+        raise ValueError(
+            "The selected test point does not contain a valid source-current value."
+        )
+    if not math.isfinite(current) or current <= 0:
+        raise ValueError("The selected test-point current must be greater than 0.")
+
+    try:
+        selected_range = float(amplifier_range)
+    except (TypeError, ValueError):
+        selected_range = None
+
+    if selected_range is None and infer_range:
+        selected_range = next(
+            (
+                value
+                for value in (0.002, 0.02, 0.2, 2.0, 20.0, 100.0)
+                if current <= value
+            ),
+            None,
+        )
+
+    if selected_range is None:
+        raise ValueError(
+            "An amplifier range is required for the AC Shunt signal path."
+        )
+    if (
+        not math.isfinite(selected_range)
+        or selected_range <= 0
+        or current > selected_range
+    ):
+        raise ValueError(
+            "The selected test point is outside its available source-current range."
+        )
+
+    voltage = (current / selected_range) * 2.0
+    if not math.isfinite(voltage) or voltage <= 0 or voltage > 1000:
+        raise ValueError(
+            "The source drive voltage must be greater than 0 V and no more than 1000 V."
+        )
+    return voltage
+
+
+def _5790_profile_settings(measurement_params):
+    params = measurement_params or {}
+    mode = str(params.get('f5790_filter_mode') or 'MEDIUM').upper()
+    restart = str(params.get('f5790_filter_restart') or 'MEDIUM').upper()
+    range_mode = str(params.get('f5790_range_mode') or '2.2').upper()
+    switch_delay = params.get('f5790_input_switch_settling_time')
+    if switch_delay is None:
+        switch_delay = 30.0
+    return {
+        'filter_mode': mode if mode in {'OFF', 'FAST', 'MEDIUM', 'SLOW'} else 'MEDIUM',
+        'filter_restart': restart if restart in {'FINE', 'MEDIUM', 'COARSE'} else 'MEDIUM',
+        'hires_enabled': bool(params.get('f5790_hires_enabled', True)),
+        'range_mode': range_mode if range_mode in {'0.022', '0.07', '0.22', '0.7', '2.2'} else '2.2',
+        'input_switch_delay': max(
+            0.0,
+            min(300.0, float(switch_delay)),
+        ),
+    }
+
+
+def _8508_ac_filter_for_frequency(frequency):
+    """Choose the highest 8508A RMS filter that supports the source."""
+
+    frequency = abs(float(frequency or 0))
+    if frequency < 40:
+        return 10
+    if frequency < 100:
+        return 40
+    return 100
+
+
+def _8508_ac_scan_delay(filter_hz, resolution=6):
+    """Return the manual Table 4-2 FRONT/REAR scan delay in seconds."""
+
+    scan_delays = {
+        5: {100: 0.5, 40: 1.25, 10: 5.0, 1: 50.0},
+        6: {100: 1.25, 40: 3.25, 10: 12.5, 1: 125.0},
+    }
+    return scan_delays[resolution][filter_hz]
+
+
+def _8508_dc_delay(filter_enabled=True, resolution=7):
+    delays = {
+        5: {False: 0.08, True: 0.8},
+        6: {False: 0.1, True: 1.0},
+        7: {False: 1.0, True: 5.0},
+        8: {False: 5.0, True: 10.0},
+    }
+    return delays[int(resolution)][bool(filter_enabled)]
+
+
+def _8508_expected_y5020_voltage(test_point_data):
+    """Return the nominal Y5020 output (10 mOhm shunt) for a test point."""
+
+    try:
+        current = abs(float((test_point_data or {}).get('current')))
+    except (TypeError, ValueError):
+        raise ValueError("The selected test point does not contain a valid current.")
+    if not math.isfinite(current) or current <= 0:
+        raise ValueError("The selected test-point current must be greater than 0.")
+    return current * 0.01
+
+
+def _8508_profile_settings(measurement_params, frequency):
+    """Normalize a persisted 8508A AC/DC profile for one test point."""
+
+    params = measurement_params or {}
+    ac_filter = int(
+        params.get('f8508_ac_filter_hz')
+        or _8508_ac_filter_for_frequency(frequency)
+    )
+    if ac_filter not in (10, 40, 100):
+        ac_filter = _8508_ac_filter_for_frequency(frequency)
+    ac_resolution = int(params.get('f8508_ac_resolution') or 6)
+    if ac_resolution not in (5, 6):
+        ac_resolution = 6
+    dc_resolution = int(params.get('f8508_dc_resolution') or 7)
+    if dc_resolution not in (5, 6, 7, 8):
+        dc_resolution = 7
+
+    dc_filter = bool(params.get('f8508_dc_filter_enabled', True))
+    return {
+        'dc_filter_enabled': dc_filter,
+        'dc_resolution': dc_resolution,
+        'dc_fast_enabled': bool(params.get('f8508_dc_fast_enabled', False)),
+        'ac_filter_hz': ac_filter,
+        'ac_resolution': ac_resolution,
+        'ac_transfer_enabled': bool(
+            params.get('f8508_ac_transfer_enabled', True)
+        ),
+        'ac_dc_coupled': bool(
+            params.get('f8508_ac_dc_coupled', float(frequency or 0) < 40)
+        ),
+    }
+
+
+def _8508_recommended_switch_delay(measurement_params, frequency):
+    """Recommend one FRONT/REAR delay safe for both AC and DC stages."""
+
+    profile = _8508_profile_settings(measurement_params, frequency)
+    return max(
+        _8508_ac_scan_delay(
+            profile['ac_filter_hz'], profile['ac_resolution']
+        ),
+        _8508_dc_delay(
+            profile['dc_filter_enabled'], profile['dc_resolution']
+        ),
+    )
+
+
+def _shared_8508_reader_pair(std_reader, ti_reader):
+    """Return True when both roles address one physical 8508A.
+
+    A paired acquisition must visit both terminals, but an initial stability
+    search only needs one representative signal. Keeping this distinction in
+    one helper prevents the generic two-meter/34420A path from changing.
+    """
+
+    return (
+        isinstance(std_reader, Instrument8508A)
+        and isinstance(ti_reader, Instrument8508A)
+        and std_reader.gpib == ti_reader.gpib
+    )
+
+
+def _configure_8508_for_y5020(
+    instrument,
+    is_ac_reading,
+    frequency,
+    expected_voltage,
+    measurement_params=None,
+):
+    """Program an 8508A to read the Y5020 shunt output directly."""
+
+    range_setting = abs(float(expected_voltage))
+    profile = _8508_profile_settings(measurement_params, frequency)
+    recommended_delay = _8508_recommended_switch_delay(
+        measurement_params, frequency
+    )
+    requested_delay = (measurement_params or {}).get(
+        'input_switch_settling_time'
+    )
+    try:
+        switch_delay = float(requested_delay)
+    except (TypeError, ValueError):
+        switch_delay = recommended_delay
+    if not math.isfinite(switch_delay) or switch_delay < 0:
+        switch_delay = recommended_delay
+
+    instrument.set_trigger_source("INT")
+
+    if is_ac_reading:
+        instrument.configure_ac_voltage(
+            range_setting=range_setting,
+            filter_hz=profile['ac_filter_hz'],
+            resolution=profile['ac_resolution'],
+            transfer=profile['ac_transfer_enabled'],
+            two_wire=True,
+            dc_coupled=profile['ac_dc_coupled'],
+            spot_correction=False,
+        )
+    else:
+        instrument.configure_dc_voltage(
+            range_setting=range_setting,
+            resolution=profile['dc_resolution'],
+            filter_enabled=profile['dc_filter_enabled'],
+            fast=profile['dc_fast_enabled'],
+            two_wire=True,
+        )
+    instrument.set_input_switch_delay(min(65_000.0, switch_delay))
+
 
 class InstrumentStatusConsumer(AsyncWebsocketConsumer):
     instrument_instance = None
@@ -231,6 +527,8 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
         try:
             if self.instrument_class in [Instrument34420A, Instrument11713C]:
                 instance = self.instrument_class(gpib=self.gpib_address)
+            elif self.instrument_class == Instrument8508A:
+                instance = self.instrument_class(gpib=self.gpib_address)
             else: # Classes that do take a 'model' argument
                 instance = self.instrument_class(model=self.instrument_model, gpib=self.gpib_address)
             return instance
@@ -241,9 +539,13 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
     @sync_to_async(thread_sensitive=True)
     def close_instrument_sync(self):
         if self.instrument_instance:
-            connection = getattr(self.instrument_instance, 'resource', None) or getattr(self.instrument_instance, 'device', None)
-            if connection and hasattr(connection, 'close'):
-                connection.close()
+            close = getattr(self.instrument_instance, "close", None)
+            if callable(close):
+                close()
+            else:
+                connection = getattr(self.instrument_instance, 'resource', None) or getattr(self.instrument_instance, 'device', None)
+                if connection and hasattr(connection, 'close'):
+                    connection.close()
 
     @sync_to_async(thread_sensitive=True)
     def get_status_sync(self):
@@ -503,11 +805,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         command = data.get('command')
 
-        # Live chart sync for session observers (remotes on collect-readings).
+        # Live chart sync for any client that opens or reconnects mid-run.
         # The server itself is the source of truth for the in-flight buffer, so
-        # a remote joining mid-run gets a complete snapshot directly from the
-        # consumer's state — no host-browser relay required. Runs regardless of
-        # self.state so late joiners can still catch up during an active run.
+        # a host or observer joining mid-run gets a complete snapshot directly
+        # from the consumer's state — no host-browser relay required. Runs
+        # regardless of self.state so late joiners can catch up during an active run.
         if command == 'request_live_sync':
             state = _peek_live_state(self.session_id)
             await self.send(text_data=json.dumps({
@@ -556,6 +858,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
         if command == 'stop_collection':
             if self.supervisor is not None:
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'status_update',
+                    'message': 'Stopping calibration safely...',
+                }))
                 await self.supervisor.stop_task()
             await self.broadcast(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
             return
@@ -653,6 +959,464 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     @sync_to_async(thread_sensitive=False)
     def _take_one_reading(self, instrument):
         return instrument.read_instrument()
+
+    async def _announce_reader_switch_delay(self, duration, role, source):
+        """Expose a physical/input routing dwell to every live client.
+
+        Reader switching happens below the normal measurement-stage timer.
+        Publishing the dwell before sleeping prevents the action bar from
+        appearing frozen between the initial settling countdown and the first
+        sequential 5790 reading.
+        """
+        duration = max(0.0, float(duration or 0.0))
+        if duration <= 0:
+            return
+        session_id = getattr(self, 'session_id', None)
+        if session_id is not None:
+            state = _get_live_state(session_id)
+            state['isCollecting'] = True
+            state['timerState'] = {
+                'isActive': True,
+                'label': f"{role} reader switch",
+                'duration': duration,
+                'endsAt': time.time() + duration,
+            }
+        await self.broadcast(text_data=json.dumps({
+            'type': 'reader_switch_delay_update',
+            'duration': duration,
+            'role': role,
+            'source': source,
+            'label': f"{role} reader switch",
+        }))
+
+    async def _announce_reader_acquisition(self, role, source='reader'):
+        """Keep the action bar explicit while a sequential reader is queried."""
+        await self.broadcast(text_data=json.dumps({
+            'type': 'reader_acquisition_update',
+            'role': role,
+            'source': source,
+            'label': f"Acquiring {role} reading",
+        }))
+
+    @staticmethod
+    def _5790_input_delay(instrument, input_name):
+        """Return the required dwell when a 5790 input selection will change."""
+        if not isinstance(instrument, Instrument5790B):
+            return 0.0
+        desired = str(input_name or 'INPUT2').strip().upper()
+        active = str(getattr(instrument, 'active_input', '') or '').strip().upper()
+        if active == desired:
+            return 0.0
+        return max(0.0, float(getattr(instrument, 'input_switch_delay', 0.0) or 0.0))
+
+    async def _wait_for_stop_or_timeout(self, duration):
+        """Wait for a hardware dwell while remaining immediately stoppable.
+
+        Instrument switch delays used to run as ``time.sleep`` calls inside a
+        ``sync_to_async`` worker.  Cancelling the calibration could not stop
+        that sleeping thread, and all fail-safe standby commands queued behind
+        it.  Keep timing in the event loop instead and race it against the
+        shared stop event so both explicit cancellation and a cooperative stop
+        release the run immediately.
+
+        Returns ``True`` when the complete dwell elapsed and ``False`` when a
+        stop request won the race.
+        """
+        duration = max(0.0, float(duration or 0.0))
+        if duration <= 0:
+            return not self.stop_event.is_set()
+        if self.stop_event.is_set():
+            return False
+        try:
+            await asyncio.wait_for(self.stop_event.wait(), timeout=duration)
+        except asyncio.TimeoutError:
+            return True
+        return False
+
+    async def _take_5790_input_reading(self, instrument, input_name, role):
+        """Select, dwell, and read one 5790 input without blocking shutdown."""
+        input_name = str(input_name or 'INPUT2').strip().upper()
+        delay = self._5790_input_delay(instrument, input_name)
+        changed = delay > 0 or str(
+            getattr(instrument, 'active_input', '') or ''
+        ).strip().upper() != input_name
+
+        if changed:
+            # The VISA write remains serialized, but the long settling dwell
+            # deliberately does not occupy the worker thread.
+            await sync_to_async(
+                instrument.set_input,
+                thread_sensitive=True,
+            )(input_name)
+            await self._announce_reader_switch_delay(delay, role, '5790_input')
+            if not await self._wait_for_stop_or_timeout(delay):
+                raise asyncio.CancelledError
+
+        if self.stop_event.is_set():
+            raise asyncio.CancelledError
+        await self._announce_reader_acquisition(role, '5790_input')
+        return await sync_to_async(
+            instrument.read_instrument,
+            thread_sensitive=True,
+        )()
+
+    async def _take_5790_input_batch(
+        self,
+        instrument,
+        input_name,
+        role,
+        sample_count,
+        *,
+        inter_sample_delay=1.0,
+        on_sample=None,
+    ):
+        """Acquire a complete role batch without changing 5790 inputs.
+
+        A shared 5790 has one measurement engine.  Keeping one input selected
+        for the operator-requested sample count avoids restarting its filter
+        and input-settling cycle between every Standard/TI reading.  The short
+        inter-sample dwell is event-loop based so Stop remains responsive.
+        """
+        sample_count = max(0, int(sample_count or 0))
+        inter_sample_delay = max(0.0, float(inter_sample_delay or 0.0))
+        input_name = str(input_name or 'INPUT2').strip().upper()
+        points = []
+
+        await self.broadcast(text_data=json.dumps({
+            'type': 'status_update',
+            'message': (
+                f"Acquiring {sample_count} {role} sample"
+                f"{'s' if sample_count != 1 else ''} on {input_name}..."
+            ),
+        }))
+        for sample_index in range(sample_count):
+            if self.stop_event.is_set():
+                raise asyncio.CancelledError
+            value = await self._take_5790_input_reading(
+                instrument,
+                input_name,
+                role,
+            )
+            point = {
+                'value': value,
+                'timestamp': time.time(),
+                'is_stable': True,
+            }
+            points.append(point)
+            if on_sample is not None:
+                await on_sample(point, sample_index + 1)
+            if sample_index < sample_count - 1 and inter_sample_delay:
+                if not await self._wait_for_stop_or_timeout(inter_sample_delay):
+                    raise asyncio.CancelledError
+        return points
+
+    async def _take_shared_5790_batches(
+        self,
+        std_reader,
+        ti_reader,
+        sample_count,
+        *,
+        inter_sample_delay=1.0,
+        on_sample=None,
+    ):
+        """Read Standard N times, switch once, then read TI N times."""
+        if not _shared_5790_reader_pair(std_reader, ti_reader):
+            raise ValueError("Shared 5790 batch acquisition requires one physical 5790")
+
+        std_input = getattr(
+            std_reader,
+            'standard_role_input',
+            getattr(self, '_standard_reader_input', 'INPUT1'),
+        )
+        ti_input = getattr(
+            ti_reader,
+            'test_role_input',
+            getattr(self, '_test_reader_input', 'INPUT2'),
+        )
+
+        async def publish_role_sample(role, point, sample_index):
+            if on_sample is not None:
+                await on_sample(role, point, sample_index)
+
+        async def publish_standard_sample(point, sample_index):
+            await publish_role_sample('std', point, sample_index)
+
+        async def publish_test_sample(point, sample_index):
+            await publish_role_sample('ti', point, sample_index)
+
+        standard_points = await self._take_5790_input_batch(
+            std_reader,
+            std_input,
+            'Standard',
+            sample_count,
+            inter_sample_delay=inter_sample_delay,
+            on_sample=publish_standard_sample,
+        )
+        test_points = await self._take_5790_input_batch(
+            ti_reader,
+            ti_input,
+            'Test instrument',
+            sample_count,
+            inter_sample_delay=inter_sample_delay,
+            on_sample=publish_test_sample,
+        )
+        return standard_points, test_points
+
+    async def _initialize_reader_switch(self, session_details):
+        """Open and bind the optional switch dedicated to instrument routing.
+
+        Keeping this lifecycle separate from the legacy source switch allows
+        a bench to use one 11713C for instruments, one for sources, or two
+        independent 11713Cs for both jobs.
+        """
+        self._reader_switch = None
+        std_model = str((session_details or {}).get('std_reader_model') or '').upper()
+        ti_model = str((session_details or {}).get('ti_reader_model') or '').upper()
+        self._standard_reader_input = str(
+            (session_details or {}).get('std_reader_input')
+            or ('FRONT' if '8508' in std_model else 'INPUT2')
+        ).upper()
+        self._test_reader_input = str(
+            (session_details or {}).get('ti_reader_input')
+            or ('REAR' if '8508' in ti_model else 'INPUT2')
+        ).upper()
+        address = (session_details or {}).get('reader_switch_driver_address')
+        if not address:
+            return None
+
+        reader_switch = await sync_to_async(_inst, thread_sensitive=True)(
+            Instrument11713C,
+            gpib=address,
+        )
+        self._reader_switch = reader_switch
+        self._reader_switch_standard_route = (
+            (session_details or {}).get('reader_switch_standard_route') or 'OPEN'
+        )
+        self._reader_switch_settling_time = max(
+            0.0,
+            float((session_details or {}).get('reader_switch_settling_time') or 0),
+        )
+        return reader_switch
+
+    async def _release_reader_switch(self, reader_switch):
+        """Return an instrument switch to its passive route and close it safely."""
+        try:
+            if reader_switch:
+                await sync_to_async(reader_switch.deactivate_all, thread_sensitive=True)()
+        except Exception as exc:
+            print(f"[INSTRUMENT-SWITCH] Failed to return switch to passive route: {exc}", flush=True)
+        try:
+            if reader_switch and hasattr(reader_switch, 'close'):
+                await sync_to_async(reader_switch.close, thread_sensitive=True)()
+        except Exception as exc:
+            print(f"[INSTRUMENT-SWITCH] Failed to close switch resource: {exc}", flush=True)
+        finally:
+            self._reader_switch = None
+
+    async def _standby_active_outputs(self, sources=(), amplifier=None):
+        """Place every energized output instrument into standby independently.
+
+        Stop must never depend on a reset command or on another instrument's
+        cleanup succeeding.  In particular, ``*RST`` does not reliably force
+        every 5730A firmware revision out of OPERATE.  Send the instrument's
+        explicit standby command first, isolate failures per device, and let
+        the remaining resource/switch cleanup continue afterwards.
+        """
+        unique_sources = []
+        seen = set()
+        for source in sources or ():
+            if source is None or id(source) in seen:
+                continue
+            seen.add(id(source))
+            unique_sources.append(source)
+
+        for source in unique_sources:
+            try:
+                standby = getattr(source, 'set_standby', None)
+                if callable(standby):
+                    await sync_to_async(standby, thread_sensitive=True)()
+                else:
+                    set_operate_standby = getattr(source, 'set_operate_standby', None)
+                    if callable(set_operate_standby):
+                        await sync_to_async(
+                            set_operate_standby,
+                            thread_sensitive=True,
+                        )(False)
+                    else:
+                        reset = getattr(source, 'reset', None)
+                        if callable(reset):
+                            await sync_to_async(reset, thread_sensitive=True)()
+            except Exception as exc:
+                print(
+                    f"[SAFE-SHUTDOWN] Failed to place source in standby: {exc}",
+                    flush=True,
+                )
+
+        if amplifier is not None:
+            try:
+                standby = getattr(amplifier, 'set_standby', None)
+                if callable(standby):
+                    await sync_to_async(standby, thread_sensitive=True)()
+                else:
+                    reset = getattr(amplifier, 'reset', None)
+                    if callable(reset):
+                        await sync_to_async(reset, thread_sensitive=True)()
+            except Exception as exc:
+                print(
+                    f"[SAFE-SHUTDOWN] Failed to place amplifier in standby: {exc}",
+                    flush=True,
+                )
+
+    async def _deactivate_source_switch(self, switch_driver):
+        """Return the source switch to its passive route without blocking shutdown."""
+        if switch_driver is None:
+            return
+        try:
+            await sync_to_async(
+                switch_driver.deactivate_all,
+                thread_sensitive=True,
+            )()
+        except Exception as exc:
+            print(
+                f"[SAFE-SHUTDOWN] Failed to deactivate source switch: {exc}",
+                flush=True,
+            )
+
+    async def _close_instruments(self, instruments):
+        """Close each instrument resource; one close failure must not block others."""
+        seen = set()
+        for instrument in instruments or ():
+            if instrument is None or id(instrument) in seen:
+                continue
+            seen.add(id(instrument))
+            close = getattr(instrument, 'close', None)
+            if not callable(close):
+                continue
+            try:
+                await sync_to_async(close, thread_sensitive=True)()
+            except Exception as exc:
+                print(
+                    f"[SAFE-SHUTDOWN] Failed to close instrument resource: {exc}",
+                    flush=True,
+                )
+
+    async def _take_reader_pair(
+        self,
+        std_reader,
+        ti_reader,
+        target_tvc="BOTH",
+        *,
+        reverse_order=False,
+    ):
+        """Read the logical Standard/TI pair using the active bench topology.
+
+        Independent readers are normally queried concurrently.  When an
+        instrument-routing 11713C is active, however, the Standard and Test
+        Instrument feed one common input on a single reader; route and read TI
+        first, then STD, and still return the stable ``(standard, test)``
+        contract.
+        """
+
+        take_std = target_tvc in ("STD", "BOTH") and std_reader is not None
+        take_ti = target_tvc in ("TI", "BOTH") and ti_reader is not None
+        if take_std and take_ti and _shared_8508_reader_pair(std_reader, ti_reader):
+            return await sync_to_async(std_reader.read_pair, thread_sensitive=False)(
+                ti_reader,
+                reverse_order=reverse_order,
+            )
+
+        reader_switch = getattr(self, '_reader_switch', None)
+        if reader_switch and (take_std or take_ti):
+            standard_route = getattr(self, '_reader_switch_standard_route', 'OPEN')
+            delay = max(0.0, float(getattr(self, '_reader_switch_settling_time', 1.0) or 0))
+            values = {'STD': None, 'TI': None}
+            order = []
+            if take_ti:
+                order.append((
+                    'TI',
+                    ti_reader,
+                    getattr(ti_reader, 'test_role_input', getattr(self, '_test_reader_input', 'INPUT2')),
+                ))
+            if take_std:
+                order.append((
+                    'STD',
+                    std_reader,
+                    getattr(std_reader, 'standard_role_input', getattr(self, '_standard_reader_input', 'INPUT2')),
+                ))
+            shared_5790 = _shared_5790_reader_pair(std_reader, ti_reader)
+            for role, instrument, input_name in order:
+                await sync_to_async(reader_switch.select_instrument, thread_sensitive=True)(
+                    role,
+                    standard_route=standard_route,
+                )
+                await self.broadcast(text_data=json.dumps({
+                    # Retain the event name for existing clients while exposing
+                    # the corrected physical meaning in the payload.
+                    'type': 'reader_switch_status_update',
+                    'active_reader': role,
+                    'active_instrument': role,
+                }))
+                if delay:
+                    await self._announce_reader_switch_delay(
+                        delay,
+                        'Standard' if role == 'STD' else 'Test instrument',
+                        'external_route',
+                    )
+                    if not await self._wait_for_stop_or_timeout(delay):
+                        raise asyncio.CancelledError
+                if shared_5790:
+                    values[role] = await self._take_5790_input_reading(
+                        instrument,
+                        input_name,
+                        'Standard' if role == 'STD' else 'Test instrument',
+                    )
+                else:
+                    values[role] = await self._take_one_reading(instrument)
+            return values['STD'], values['TI']
+
+        if (take_std or take_ti) and _shared_5790_reader_pair(std_reader, ti_reader):
+            values = {'STD': None, 'TI': None}
+            # One 5790 measurement engine cannot be queried concurrently.
+            # Visit TI first, then Standard, and return the stable (STD, TI)
+            # contract used by every other reader topology.
+            order = []
+            if take_ti:
+                order.append((
+                    'TI',
+                    ti_reader,
+                    getattr(
+                        ti_reader,
+                        'test_role_input',
+                        getattr(self, '_test_reader_input', 'INPUT2'),
+                    ),
+                ))
+            if take_std:
+                order.append((
+                    'STD',
+                    std_reader,
+                    getattr(
+                        std_reader,
+                        'standard_role_input',
+                        getattr(self, '_standard_reader_input', 'INPUT1'),
+                    ),
+                ))
+            for role, instrument, input_name in order:
+                values[role] = await self._take_5790_input_reading(
+                    instrument,
+                    input_name,
+                    'Standard' if role == 'STD' else 'Test instrument',
+                )
+            return values['STD'], values['TI']
+
+        tasks = [
+            self._take_one_reading(std_reader) if take_std else asyncio.sleep(0),
+            self._take_one_reading(ti_reader) if take_ti else asyncio.sleep(0),
+        ]
+        results = await asyncio.gather(*tasks)
+        return (
+            results[0] if take_std else None,
+            results[1] if take_ti else None,
+        )
 
     @staticmethod
     def _project_dc_from_ripple(samples, frequency, harmonics=2):
@@ -798,17 +1562,24 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     # any viewer joining mid-run gets an authoritative snapshot from a single
     # source of truth (see ``request_live_sync`` handler in ``receive``).
 
-    def _buffer_set_stage(self, stage, tp_id=None, total=0):
+    def _buffer_set_stage(self, stage, tp_id=None, total=0, cycle_index=None):
         """Record that ``stage`` is now in flight for ``tp_id`` and reset its arrays."""
         state = _get_live_state(self.session_id)
         state['isCollecting'] = True
         # The stage is now underway — retire any warm-up/settling countdown
         # so a late joiner sees "Collecting", not a stale timer.
         state['timerState'] = {'isActive': False}
-        state['activeCollectionDetails'] = {'stage': stage, 'tpId': tp_id, 'readingKey': stage}
+        state['activeCollectionDetails'] = {
+            'stage': stage,
+            'tpId': tp_id,
+            'readingKey': stage,
+            'cycle_index': cycle_index,
+        }
         state['liveReadings'][stage] = []
         state['tiLiveReadings'][stage] = []
         state['collectionProgress'] = {'count': 0, 'total': total}
+        state['slidingWindowStatus'] = None
+        state['stabilizationStatus'] = None
 
     def _buffer_set_batch_point(self, test_point):
         """Mark a new test point in a batch run: wipe per-TP live arrays and refresh focus."""
@@ -821,7 +1592,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             frequency = test_point.get('frequency')
             state['focusedTPKey'] = f"{current}-{frequency}"
 
-    def _buffer_append_sample(self, stage, std_raw, ti_raw, count, total):
+    def _buffer_append_sample(
+        self, stage, std_raw, ti_raw, count, total, cycle_index=None,
+    ):
         """Upsert the latest STD/TI sample into the buffer, deduped by x=count."""
         state = _get_live_state(self.session_id)
 
@@ -834,6 +1607,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 'y': raw.get('value'),
                 't': int(ts * 1000),
                 'is_stable': raw.get('is_stable', True),
+                'cycle': cycle_index,
             }
 
         def _upsert(bucket, point):
@@ -846,10 +1620,104 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     arr[i] = point
                     return
             arr.append(point)
+            if total and len(arr) > int(total):
+                del arr[:-int(total)]
 
         _upsert(state['liveReadings'], _to_cached(std_raw))
         _upsert(state['tiLiveReadings'], _to_cached(ti_raw))
         state['collectionProgress'] = {'count': count, 'total': total}
+
+    def _buffer_replace_search_window(
+        self, stage, std_points, ti_points, total, cycle_index=None,
+    ):
+        """Mirror the exact sliding-search window for reconnecting clients.
+
+        An unstable window discards its oldest point before the next attempt.
+        Replacing, rather than upserting at a reused x index, keeps the server
+        snapshot identical to the live charts and prevents a rejected sample
+        from appearing to survive while a newer reading looks skipped.
+        """
+        state = _get_live_state(self.session_id)
+
+        def _to_cached(points):
+            cached = []
+            for index, raw in enumerate(points or [], start=1):
+                ts = raw.get('timestamp', 0) or 0
+                cached.append({
+                    'x': index,
+                    'y': raw.get('value'),
+                    't': int(ts * 1000),
+                    'is_stable': raw.get('is_stable', True),
+                    'cycle': cycle_index,
+                })
+            return cached
+
+        state['liveReadings'][stage] = _to_cached(std_points)
+        state['tiLiveReadings'][stage] = _to_cached(ti_points)
+        active_count = len(std_points or []) or len(ti_points or [])
+        state['collectionProgress'] = {'count': active_count, 'total': total}
+
+    def _buffer_record_broadcast(self, payload):
+        """Mirror transient events needed to hydrate a mid-run client."""
+        if not isinstance(payload, dict) or not getattr(self, 'session_id', None):
+            return
+        state = _get_live_state(self.session_id)
+        event_type = payload.get('type')
+
+        if event_type == 'calibration_stage_update':
+            details = dict(state.get('activeCollectionDetails') or {})
+            details.update({
+                'stage': payload.get('stage'),
+                'readingKey': payload.get('stage'),
+                'tpId': payload.get('tpId', details.get('tpId')),
+                'cycle_index': payload.get(
+                    'cycle_index', details.get('cycle_index'),
+                ),
+            })
+            state['activeCollectionDetails'] = details
+            state['isCollecting'] = True
+        elif event_type == 'cycle_progress_update':
+            details = dict(state.get('activeCollectionDetails') or {})
+            details['cycle_index'] = payload.get('cycle_index')
+            if payload.get('tpId') is not None:
+                details['tpId'] = payload.get('tpId')
+            state['activeCollectionDetails'] = details
+            state['isCollecting'] = True
+        elif event_type == 'sliding_window_update':
+            state['slidingWindowStatus'] = {
+                'ppm': payload.get('stdev_ppm', payload.get('ppm')),
+                'std_ppm': payload.get('std_stdev_ppm'),
+                'ti_ppm': payload.get('ti_stdev_ppm'),
+                'is_stable': payload.get('is_stable'),
+                'instability_events': payload.get('instability_events'),
+                'max_retries': payload.get('max_retries'),
+                'phase': payload.get('phase'),
+                'window_count': payload.get('window_count'),
+                'window_size': payload.get('window_size'),
+            }
+            state['stabilizationStatus'] = None
+            state['timerState'] = {'isActive': False}
+        elif event_type == 'stabilization_update':
+            state['stabilizationStatus'] = dict(payload)
+            state['slidingWindowStatus'] = None
+            state['timerState'] = {'isActive': False}
+        elif event_type == 'reader_switch_delay_update':
+            duration = max(0.0, float(payload.get('duration') or 0.0))
+            state['timerState'] = {
+                'isActive': duration > 0,
+                'duration': duration,
+                'endsAt': time.time() + duration,
+                'label': payload.get('label') or 'Reader switch',
+            }
+        elif event_type == 'reader_acquisition_update':
+            state['timerState'] = {
+                'isActive': True,
+                'isIndeterminate': True,
+                'duration': 0,
+                'label': payload.get('label') or 'Acquiring reader',
+            }
+        elif event_type == 'dual_reading_update':
+            state['timerState'] = {'isActive': False}
 
     def _buffer_clear(self):
         _clear_live_state(self.session_id)
@@ -870,15 +1738,35 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             def _addr(value):
                 return value if mock else ws.resolve_resource(value)
 
+            ac_source_address = _addr(session.ac_source_address)
+            dc_source_address = _addr(session.dc_source_address)
+            # A source-routing relay has work to do only when AC and DC are
+            # provided by two distinct physical sources.  Keep a saved switch
+            # assignment intact for modular bench setup, but do not actuate it
+            # when one 5730A is assigned to both logical source roles.
+            source_switch_address = (
+                _addr(session.switch_driver_address)
+                if ac_source_address
+                and dc_source_address
+                and ac_source_address != dc_source_address
+                else None
+            )
+
             return {
-                'ac_source_address': _addr(session.ac_source_address),
-                'dc_source_address': _addr(session.dc_source_address),
+                'ac_source_address': ac_source_address,
+                'dc_source_address': dc_source_address,
                 'std_reader_address': _addr(session.standard_reader_address),
                 'std_reader_model': session.standard_reader_model,
+                'std_reader_input': session.standard_reader_input,
                 'ti_reader_address': _addr(session.test_reader_address),
                 'ti_reader_model': session.test_reader_model,
+                'ti_reader_input': session.test_reader_input,
                 'amplifier_address': _addr(session.amplifier_address),
-                'switch_driver_address': _addr(session.switch_driver_address),
+                'switch_driver_address': source_switch_address,
+                'reader_switch_driver_address': _addr(session.reader_switch_driver_address),
+                'reader_switch_driver_model': session.reader_switch_driver_model,
+                'reader_switch_standard_route': session.reader_switch_standard_route or 'OPEN',
+                'reader_switch_settling_time': session.reader_switch_settling_time,
             }
         except CalibrationSession.DoesNotExist: return None
 
@@ -897,7 +1785,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"{instrument_name} pre-check failed. Reading: {reading_abs:.4f}V, Expected: ~{expected_value:.4f}V"}))
             return False
 
-    async def _configure_sources(self, test_point_data, bypass_tvc, amplifier_range, ac_source=None, dc_source=None):
+    async def _configure_sources(
+        self,
+        test_point_data,
+        bypass_tvc,
+        amplifier_range,
+        ac_source=None,
+        dc_source=None,
+        measurement_params=None,
+    ):
         if isinstance(test_point_data, list) and test_point_data:
             config_point = test_point_data[0]
         elif isinstance(test_point_data, dict):
@@ -906,8 +1802,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             print("[CONFIGURE_SOURCES] Warning: No valid test point data provided. Skipping.")
             return
 
-        input_current = float(config_point.get('current'))
-        voltage = (input_current / float(amplifier_range)) * 2
+        measurement_params = measurement_params or {}
+        voltage = _source_drive_voltage_for_test_point(
+            config_point,
+            amplifier_range,
+            infer_range=bool(
+                measurement_params.get('_direct_5790_source_mode', False)
+            ),
+        )
 
         if ac_source:
             frequency = float(config_point.get('frequency', 0))
@@ -921,12 +1823,147 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         if dc_source:
             await sync_to_async(dc_source.set_output, thread_sensitive=True)(voltage=voltage, frequency=0)
 
+    @staticmethod
+    def _validate_reader_assignments(data, session_details):
+        """Validate the model-selected 34420A or 8508A acquisition workflow."""
+
+        measurement_params = dict(data.get('measurement_params') or {})
+        measurement_params.pop('direct_source_test_mode', None)
+        measurement_params.pop('direct_source_voltage', None)
+        measurement_params.pop('_direct_5790_source_mode', None)
+        data['measurement_params'] = measurement_params
+
+        details = session_details or {}
+        instrument_switch_address = details.get('reader_switch_driver_address')
+        std_is_5790 = '5790' in str(details.get('std_reader_model') or '').upper()
+        ti_is_5790 = '5790' in str(details.get('ti_reader_model') or '').upper()
+        shared_5790 = bool(
+            std_is_5790
+            and ti_is_5790
+            and details.get('std_reader_address')
+            and details.get('std_reader_address') == details.get('ti_reader_address')
+        )
+        if instrument_switch_address:
+            if not details.get('std_reader_address') or not details.get('ti_reader_address'):
+                raise RuntimeError(
+                    "Instrument routing requires both Standard and Test Instrument assignments."
+                )
+            if not shared_5790:
+                raise RuntimeError(
+                    "Instrument routing requires one shared 5790A/B assigned to both "
+                    "Standard and Test Instrument roles."
+                )
+            if instrument_switch_address == details.get('switch_driver_address'):
+                raise RuntimeError(
+                    "Assign separate physical switch drivers for source and instrument routing."
+                )
+        if shared_5790:
+            inputs = {
+                str(details.get('std_reader_input') or '').upper(),
+                str(details.get('ti_reader_input') or '').upper(),
+            }
+            if instrument_switch_address and len(inputs) != 1:
+                raise RuntimeError(
+                    "An instrument-routed shared 5790A/B must use the same physical "
+                    "input for its Standard and Test Instrument roles."
+                )
+            if not instrument_switch_address and inputs != {'INPUT1', 'INPUT2'}:
+                raise RuntimeError(
+                    "Assign a shared 5790 Standard and Test role to opposite INPUT1/INPUT2 inputs."
+                )
+
+        # The shared dual-input 5790 quick workflow intentionally has no 8100.
+        # Mark it server-side so a client cannot opt another topology into
+        # inferred source scaling merely by adding a payload flag.
+        measurement_params['_direct_5790_source_mode'] = bool(
+            shared_5790
+            and not instrument_switch_address
+            and not details.get('amplifier_address')
+        )
+
+        std_is_8508 = '8508' in str(details.get('std_reader_model') or '').upper()
+        ti_is_8508 = '8508' in str(details.get('ti_reader_model') or '').upper()
+        if std_is_8508 != ti_is_8508:
+            raise RuntimeError(
+                "Use the 8508A for both Standard and Test reader roles, or use "
+                "the existing 34420A workflow for both roles."
+            )
+        if not std_is_8508:
+            return
+        # TVC characterization belongs exclusively to the preserved
+        # 34420A/A40B workflow. Ignore stale per-point flags when a session is
+        # reassigned to the direct Y5020/8508A workflow.
+        measurement_params['characterize_std_first'] = False
+        measurement_params['characterize_test_first'] = False
+        if details.get('std_reader_address') != details.get('ti_reader_address'):
+            raise RuntimeError(
+                "The 8508A workflow requires both reader roles to use the same "
+                "physical 8508A."
+            )
+        terminals = {
+            str(details.get('std_reader_input') or '').upper(),
+            str(details.get('ti_reader_input') or '').upper(),
+        }
+        if terminals != {'FRONT', 'REAR'}:
+            raise RuntimeError(
+                "Assign the 8508A Standard and Test roles to opposite FRONT/REAR inputs."
+            )
+
+    async def _report_source_routing_state(self, session_details):
+        """Make an un-routed dual-source setup visible before acquisition."""
+
+        ac_address = session_details.get("ac_source_address")
+        dc_address = session_details.get("dc_source_address")
+        if (
+            ac_address
+            and dc_address
+            and ac_address != dc_address
+            and not session_details.get("switch_driver_address")
+        ):
+            message = (
+                "Source routing warning: separate AC and DC calibrators are "
+                "assigned, but no switch driver is assigned. Both sources are "
+                "placed in OPERATE and the app cannot reroute them between "
+                "AC/DC stages; verify an independent hardware routing method "
+                "before accepting these readings."
+            )
+            print(f"[SOURCE ROUTING] {message}", flush=True)
+            await self.broadcast(text_data=json.dumps({
+                "type": "status_update",
+                "message": message,
+            }))
+
     async def _activate_sources(self, ac_source=None, dc_source=None):
         if ac_source:
             await sync_to_async(ac_source.set_operate, thread_sensitive=True)()
         if dc_source:
             if ac_source is not dc_source:
                 await sync_to_async(dc_source.set_operate, thread_sensitive=True)()
+
+    async def _prepare_ac_warmup_route(self, switch_driver, session_details):
+        """Put the source switch on the energized AC path before warm-up.
+
+        A stopped or manually-troubleshot run may leave the 11713C on DC.
+        Warm-up is intended to precondition the AC-open signal path, so make
+        that state explicit instead of relying on whichever stage ran last.
+        """
+        if switch_driver is None and session_details.get('switch_driver_address'):
+            switch_driver = await sync_to_async(_inst, thread_sensitive=True)(
+                Instrument11713C,
+                gpib=session_details.get('switch_driver_address'),
+            )
+        if switch_driver is not None:
+            await self.broadcast(text_data=json.dumps({
+                'type': 'status_update',
+                'message': 'Routing the energized AC source to AC Open for warm-up...',
+            }))
+            await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
+            await self.broadcast(text_data=json.dumps({
+                'type': 'switch_status_update',
+                'active_source': 'AC',
+            }))
+            await asyncio.sleep(1)
+        return switch_driver
 
     async def _perform_warmup(self, warmup_time, tp_id=None):
         if not warmup_time or warmup_time <= 0:
@@ -981,6 +2018,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             print("[TVC_CHAR] Fetching session details...", flush=True)
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
+            self._validate_reader_assignments(data, session_details)
+            if '8508' in str(session_details.get('std_reader_model') or '').upper():
+                raise RuntimeError(
+                    "TVC characterization is available only for the 34420A/A40B workflow."
+                )
 
             std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
             std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
@@ -1009,11 +2051,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+            std_reader, ti_reader = await sync_to_async(
+                _open_reader_pair,
+                thread_sensitive=True,
+            )(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input"),
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input"),
+            )
+            self._standard_reader_input = str(session_details.get("std_reader_input") or "INPUT2").upper()
+            self._test_reader_input = str(session_details.get("ti_reader_input") or "INPUT2").upper()
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
+
                 await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {char_source_kind} source for Characterization..."}))
                 if char_source_kind == 'AC':
                     await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
@@ -1044,11 +2094,18 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     data.get('bypass_tvc'),
                     data.get('amplifier_range'),
                     ac_source=ac_source,
-                    dc_source=dc_source
+                    dc_source=dc_source,
+                    measurement_params=data.get('measurement_params'),
                 )
             else:
                 configure_kwargs = {'ac_source': ac_source} if char_source_kind == 'AC' else {'dc_source': dc_source}
-                await self._configure_sources(original_tp, data.get('bypass_tvc'), data.get('amplifier_range'), **configure_kwargs)
+                await self._configure_sources(
+                    original_tp,
+                    data.get('bypass_tvc'),
+                    data.get('amplifier_range'),
+                    measurement_params=data.get('measurement_params'),
+                    **configure_kwargs,
+                )
 
             if session_details.get('amplifier_address'):
                 amplifier = await sync_to_async(_inst, thread_sensitive=True)(
@@ -1066,6 +2123,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await self._activate_sources(**activate_kwargs)
 
             if warmup_time > 0:
+                switch_driver = await self._prepare_ac_warmup_route(switch_driver, session_details)
                 await self._perform_warmup(warmup_time, tp_id=original_tp.get('id'))
 
             settling_time, num_samples = float(data.get('settling_time', 5.0)), data.get('num_samples', 8)
@@ -1121,7 +2179,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 success = await self._perform_single_measurement(
                     stage, num_samples, ppm_shifted_tp, data.get('bypass_tvc'),
                     data.get('amplifier_range'), active_source, std_reader, ti_reader,
-                    amplifier, settling_time, nplc_setting, measurement_params
+                    amplifier, settling_time, nplc_setting, measurement_params,
                 )
                 
                 if not success: 
@@ -1162,20 +2220,22 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
-            if switch_driver and hasattr(switch_driver, 'close'):
-                await sync_to_async(switch_driver.close, thread_sensitive=True)()
-            # Reset whichever source(s) we actually instantiated. When
-            # AC and DC share the same physical unit, the set dedupes for us.
-            for src in filter(None, {ac_source, dc_source}):
-                await sync_to_async(src.reset, thread_sensitive=True)()
-            if amplifier and not characterization_completed:
-                await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
-            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
-                if hasattr(inst, 'close'):
-                    if inst is amplifier and characterization_completed:
-                        await sync_to_async(inst.close, thread_sensitive=True)(reset=False)
-                    else:
-                        await sync_to_async(inst.close, thread_sensitive=True)()
+            await self._standby_active_outputs(
+                (ac_source, dc_source),
+                amplifier if (not characterization_completed or self.stop_event.is_set()) else None,
+            )
+            await self._deactivate_source_switch(switch_driver)
+            await self._close_instruments((switch_driver, std_reader, ti_reader, ac_source, dc_source))
+            if amplifier:
+                try:
+                    await sync_to_async(amplifier.close, thread_sensitive=True)(
+                        reset=not characterization_completed or self.stop_event.is_set(),
+                    )
+                except Exception as exc:
+                    print(
+                        f"[SAFE-SHUTDOWN] Failed to close amplifier resource: {exc}",
+                        flush=True,
+                    )
 
     def _is_low_frequency_ac(self, reading_type_base, test_point_data):
         """Helper to detect if the current stage is low-frequency AC."""
@@ -1397,26 +2457,25 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         target_tvc = test_point_data.get('target_tvc', 'BOTH')
         
         # --- 1. Calculate Source Drive Voltage ---
-        # This is the command voltage sent to the 5730A to drive the transconductance amplifier
-        input_current = float(test_point_data.get('current'))
-        source_drive_voltage = (input_current / float(amplifier_range)) * 2
+        direct_5790_source_mode = bool(
+            amplifier_instrument is None
+            and _shared_5790_reader_pair(
+                std_reader_instrument,
+                ti_reader_instrument,
+            )
+        )
+        source_drive_voltage = _source_drive_voltage_for_test_point(
+            test_point_data,
+            amplifier_range,
+            infer_range=direct_5790_source_mode,
+        )
         if 'neg' in reading_type_base: 
             source_drive_voltage = -source_drive_voltage
         
         abs_source_drive = abs(source_drive_voltage)
-        frequency = float(test_point_data.get('frequency', 0)) if is_ac_reading else 0
+        point_frequency = float(test_point_data.get('frequency', 0))
+        source_frequency = point_frequency if is_ac_reading else 0
         ignore_after_lock = measurement_params.get('ignore_instability_after_lock', False)
-
-        # --- Low Frequency AC Detection ---
-        is_lf_ac = self._is_low_frequency_ac(reading_type_base, test_point_data)
-        lf_settings_enabled = bool(measurement_params.get('enable_low_frequency_settings', False))
-        effective_lf_ac = is_lf_ac and lf_settings_enabled
-        enable_11hz_filter = effective_lf_ac and bool(measurement_params.get('enable_11hz_filter', False))
-        hp_enabled = effective_lf_ac and bool(measurement_params.get('lf_harmonic_projection', False))
-
-        # --- 2. Determine Expected TVC Output Voltage ---
-        # Used strictly for the 34420A on the real workbench to safely engage the analog filter
-        expected_tvc_output_v = float(test_point_data.get('expected_tvc_output_mv', 10.0)) / 1000.0
 
         # Instrument Configuration (Standard and TI) - Targeted Isolation
         instruments_to_config = []
@@ -1424,6 +2483,28 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             instruments_to_config.append(std_reader_instrument)
         if target_tvc in ['TI', 'BOTH'] and ti_reader_instrument:
             instruments_to_config.append(ti_reader_instrument)
+        # A single 5790A/B may represent both logical roles.  Reprogramming
+        # its filter/range twice resets its acquisition state twice and creates
+        # a long, unexplained pause before the first reading.  Configure every
+        # physical reader exactly once per stage.
+        instruments_to_config = list({id(instrument): instrument for instrument in instruments_to_config}.values())
+
+        # --- Low Frequency AC Detection ---
+        # Harmonic projection is part of the legacy 34420A/A40B path only.
+        uses_only_34420_readers = bool(instruments_to_config) and all(
+            isinstance(instrument, Instrument34420A)
+            for instrument in instruments_to_config
+        )
+        is_lf_ac = self._is_low_frequency_ac(reading_type_base, test_point_data)
+        lf_settings_enabled = bool(measurement_params.get('enable_low_frequency_settings', False))
+        effective_lf_ac = is_lf_ac and lf_settings_enabled and uses_only_34420_readers
+        enable_11hz_filter = effective_lf_ac and bool(measurement_params.get('enable_11hz_filter', False))
+        hp_enabled = effective_lf_ac and bool(measurement_params.get('lf_harmonic_projection', False))
+
+        # --- 2. Determine Expected TVC Output Voltage ---
+        # Used strictly for the 34420A on the real workbench to safely engage the analog filter
+        expected_tvc_output_v = float(test_point_data.get('expected_tvc_output_mv', 10.0)) / 1000.0
+        expected_y5020_output_v = _8508_expected_y5020_voltage(test_point_data)
 
         for instrument in instruments_to_config:
             if isinstance(instrument, Instrument34420A) and nplc_setting is not None:
@@ -1443,24 +2524,64 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     except Exception as e:
                         pass
             
-            elif isinstance(instrument, Instrument5790B): 
-                # TEST LAB: The 5790B reads the RAW source voltage directly.
-                await sync_to_async(instrument.set_range, thread_sensitive=True)(value=abs_source_drive)
-                await sync_to_async(instrument.resource.write, thread_sensitive=True)("HIRES OFF")
-                # Automatically apply SLOW digital filter for LF AC to combat ripple
-                if effective_lf_ac:
-                    await sync_to_async(instrument.resource.write, thread_sensitive=True)("DFILT SLOW,COARSE")
-                else:
-                    await sync_to_async(instrument.resource.write, thread_sensitive=True)("DFILT FAST,COARSE")
+            elif isinstance(instrument, Instrument5790B):
+                profile = _5790_profile_settings(measurement_params)
+                await sync_to_async(
+                    instrument.configure_acquisition,
+                    thread_sensitive=True,
+                )(
+                    **profile,
+                    point_value=abs_source_drive,
+                )
             
             elif isinstance(instrument, Instrument3458A): 
                 # TEST LAB: The 3458A reads the RAW source voltage directly.
                 await sync_to_async(instrument.configure_measurement, thread_sensitive=True)(
-                    **{'function': 'ACV' if is_ac_reading else 'DCV', 'expected_value': abs_source_drive, 'frequency': frequency}
+                    **{'function': 'ACV' if is_ac_reading else 'DCV', 'expected_value': abs_source_drive, 'frequency': source_frequency}
                 )
 
-        # Tell the SOURCE to output the drive voltage
-        await sync_to_async(source_instrument.set_output, thread_sensitive=True)(voltage=source_drive_voltage, frequency=frequency)
+            elif isinstance(instrument, Instrument8508A):
+                await sync_to_async(
+                    _configure_8508_for_y5020,
+                    thread_sensitive=True,
+                )(
+                    instrument,
+                    is_ac_reading,
+                    point_frequency,
+                    expected_y5020_output_v,
+                    measurement_params,
+                )
+
+        configured_8508 = next(
+            (
+                instrument
+                for instrument in instruments_to_config
+                if isinstance(instrument, Instrument8508A)
+            ),
+            None,
+        )
+        if configured_8508 is not None:
+            profile = await sync_to_async(
+                configured_8508.get_acquisition_profile,
+                thread_sensitive=True,
+            )()
+            std_terminal = getattr(std_reader_instrument, "input_terminal", None)
+            ti_terminal = getattr(ti_reader_instrument, "input_terminal", None)
+            message = (
+                f"8508A profile: {profile['measurement_command']}; "
+                f"trigger {profile['trigger_source']}; "
+                f"terminal-switch settle {profile['input_switch_delay_s']:g}s; "
+                f"Standard={getattr(std_terminal, 'value', std_terminal) or 'N/A'}, "
+                f"TI={getattr(ti_terminal, 'value', ti_terminal) or 'N/A'}."
+            )
+            print(f"[8508A] {reading_type_base}: {message}", flush=True)
+            await self.broadcast(text_data=json.dumps({
+                "type": "status_update",
+                "message": message,
+            }))
+
+        # The selected source continues through the existing switch/8100 path.
+        await sync_to_async(source_instrument.set_output, thread_sensitive=True)(voltage=source_drive_voltage, frequency=source_frequency)
         
         try:
             await asyncio.sleep(1.5)
@@ -1507,12 +2628,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             
             # Calculate the mathematically perfect duration
             duration = self._cycle_average_duration(
-                frequency, num_samples, nplc_setting=nplc_setting,
+                point_frequency, num_samples, nplc_setting=nplc_setting,
             )
 
             await self.broadcast(text_data=json.dumps({
                 'type': 'status_update',
-                'message': f"Capturing {frequency}Hz for {duration:.1f}s (Harmonic Projection)...",
+                'message': f"Capturing {point_frequency}Hz for {duration:.1f}s (Harmonic Projection)...",
             }))
 
             start_time = time.time()
@@ -1521,12 +2642,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             sample_count = 0
 
             while (time.time() - start_time) < duration and not self.stop_event.is_set():
-                tasks = []
-                tasks.append(self._take_one_reading(std_reader_instrument) if target_tvc in ['STD', 'BOTH'] and std_reader_instrument else asyncio.sleep(0))
-                tasks.append(self._take_one_reading(ti_reader_instrument) if target_tvc in ['TI', 'BOTH'] and ti_reader_instrument else asyncio.sleep(0))
-
-                results = await asyncio.gather(*tasks)
-                std_reading_val, ti_reading_val = results[0], results[1]
+                std_reading_val, ti_reading_val = await self._take_reader_pair(
+                    std_reader_instrument,
+                    ti_reader_instrument,
+                    target_tvc,
+                    reverse_order=bool(sample_count % 2),
+                )
                 # Approximate the integration midpoint: the gather completes at
                 # end-of-integration, so subtract half the integration window.
                 # This matters for the drift term, which evaluates at a specific
@@ -1541,7 +2662,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if ti_point: collected_ti.append(ti_point)
                 sample_count += 1
 
-                self._buffer_append_sample(reading_type_base, std_point, ti_point, sample_count, sample_count)
+                self._buffer_append_sample(
+                    reading_type_base,
+                    std_point,
+                    ti_point,
+                    sample_count,
+                    sample_count,
+                    cycle_index=cycle_index,
+                )
 
                 await self.broadcast(text_data=json.dumps({
                     'type': 'dual_reading_update',
@@ -1550,7 +2678,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     'count': sample_count,
                     'stable_count': sample_count,
                     'total': '∞',
-                    'stage': reading_type_base
+                    'stage': reading_type_base,
+                    'cycle_index': cycle_index,
                 }))
                 await asyncio.sleep(0.05)
 
@@ -1562,7 +2691,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     if not points:
                         return None
                     dc_value, residual_ppm, n_used = CalibrationConsumer._project_dc_from_ripple(
-                        points, frequency, harmonics=harmonics,
+                        points, point_frequency, harmonics=harmonics,
                     )
                     if math.isfinite(residual_ppm):
                         note = (
@@ -1607,42 +2736,68 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         # BRANCH 2: STANDARD SLIDING WINDOW (DC & High Freq AC)
         # =====================================================================
         else:
+            use_shared_5790_batches = bool(
+                target_tvc == 'BOTH'
+                and getattr(self, '_reader_switch', None) is None
+                and _shared_5790_reader_pair(
+                    std_reader_instrument,
+                    ti_reader_instrument,
+                )
+            )
+
             # Stability Logic Setup
             stability_method = measurement_params.get('stability_check_method', 'sliding_window')
             max_retries = measurement_params.get('max_attempts', 50)
             instability_events = 0
-            window_size = measurement_params.get('window', 30)
+            # A stability window cannot require more readings than the stage
+            # itself will retain.  Capping it here prevents a configuration
+            # such as N=6/window=10 from searching forever.
+            window_size = max(
+                2,
+                min(int(measurement_params.get('window', 30)), int(num_samples)),
+            )
             threshold_ppm = measurement_params.get('threshold_ppm', 10)
 
             # Temporary buffers for search phase
             stable_candidate_std = []
             stable_candidate_ti = []
+            slide_search_window_before_next = False
 
            # Treat the first characterization stage like "Cycle 1" (finds lock), 
             # and subsequent stages like "Cycle 2+" (bypasses lock to avoid thermal shock aborts).
             is_subsequent_char_stage = ('char' in reading_type_base) and (reading_type_base != 'char_plus1')
 
-            # When the operator has bypass-after-initial enabled and we're on
-            # any cycle past the first (or a subsequent char stage), skip the initial-stability search
-            # entirely...
+            # A shared 5790 must take one complete Standard role batch and one
+            # complete TI role batch per stage. Re-running the initial sliding
+            # gate would repeat the entire physical stage (STD/TI/STD/TI),
+            # despite the requested sample count already being satisfied.
+            # Continue calculating/reporting stability for that batch, but do
+            # not turn it into a second acquisition. The existing bypass-after-
+            # initial behavior remains unchanged for every other topology.
             skip_initial_check = (
                 stability_method == 'sliding_window'
-                and ignore_after_lock
                 and (
-                    (cycle_index is not None and cycle_index > 1) or
-                    is_subsequent_char_stage
+                    use_shared_5790_batches
+                    or (
+                        ignore_after_lock
+                        and (
+                            (cycle_index is not None and cycle_index > 1)
+                            or is_subsequent_char_stage
+                        )
+                    )
                 )
             )
 
             # --- LOGGING INSTRUMENTATION ---
-            if skip_initial_check:
+            if skip_initial_check and use_shared_5790_batches:
+                print(f"[STABILITY] Monitoring one shared-5790 role batch for stage: {reading_type_base} (Cycle: {cycle_index})", flush=True)
+            elif skip_initial_check:
                 print(f"[STABILITY] Bypassing search phase for stage: {reading_type_base} (Cycle: {cycle_index})", flush=True)
             else:
                 print(f"[STABILITY] Search phase ENABLED for stage: {reading_type_base} (Cycle: {cycle_index})", flush=True)
             # -------------------------------
 
             initial_stability_achieved = skip_initial_check
-
             def calc_ppm(points):
                 """Welford's Algorithm for high-precision variance calculation."""
                 if len(points) < 2: return float('inf')
@@ -1658,8 +2813,57 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 return (stdev_val / abs(mean_val)) * 1_000_000 if abs(mean_val) > 1e-9 else 0
 
             await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': "Monitoring stability..."}))
+            # Transition the live action bar immediately when the ordinary
+            # settling timer ends. Sequential 5790 acquisition can spend
+            # several seconds routing readers before its first complete pair,
+            # so waiting for that pair made the stability area look blank.
+            await self.broadcast(text_data=json.dumps({
+                'type': 'sliding_window_update',
+                'ppm': None,
+                'stdev_ppm': None,
+                'std_stdev_ppm': None,
+                'ti_stdev_ppm': None,
+                'is_stable': False,
+                'instability_events': 0,
+                'max_retries': max_retries,
+                'phase': 'monitoring' if skip_initial_check else 'filling',
+                'window_count': 0,
+                'window_size': window_size,
+            }))
 
             # Replaces raw final_std_readings length with the dynamic targeted check
+            pair_index = 0
+            pending_reader_pairs = deque()
+            shared_5790_sample_delay = max(
+                0.0,
+                float(measurement_params.get('f5790_inter_sample_delay', 1.0)),
+            )
+
+            async def stream_shared_5790_sample(role, point, sample_index):
+                """Publish a physical shared-5790 reading as soon as it arrives."""
+                std_point = point if role == 'std' else None
+                ti_point = point if role == 'ti' else None
+                self._buffer_append_sample(
+                    reading_type_base,
+                    std_point,
+                    ti_point,
+                    sample_index,
+                    num_samples,
+                    cycle_index=cycle_index,
+                )
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'dual_reading_update',
+                    'std_reading': std_point,
+                    'ti_reading': ti_point,
+                    'count': sample_index,
+                    'stable_count': get_target_length(),
+                    'total': num_samples,
+                    'stage': reading_type_base,
+                    'cycle_index': cycle_index,
+                    'reader_role': role,
+                    'live_physical_sample': True,
+                }))
+
             while get_target_length() < num_samples and not self.stop_event.is_set():
                 # 1. Global Abort Check (Applies to both Search and Collection phases)
                 if instability_events >= max_retries:
@@ -1674,34 +2878,104 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     return False
 
                 # 2. Take Readings (Targeted Instrument Querying)
-                tasks = []
-                if target_tvc in ['STD', 'BOTH'] and std_reader_instrument:
-                    tasks.append(self._take_one_reading(std_reader_instrument))
+                if use_shared_5790_batches:
+                    if not pending_reader_pairs:
+                        std_batch, ti_batch = await self._take_shared_5790_batches(
+                            std_reader_instrument,
+                            ti_reader_instrument,
+                            num_samples,
+                            inter_sample_delay=shared_5790_sample_delay,
+                            on_sample=stream_shared_5790_sample,
+                        )
+                        pending_reader_pairs.extend(zip(std_batch, ti_batch))
+                    std_point, ti_point = pending_reader_pairs.popleft()
                 else:
-                    tasks.append(asyncio.sleep(0)) # Dummy task
+                    std_reading_val, ti_reading_val = await self._take_reader_pair(
+                        std_reader_instrument,
+                        ti_reader_instrument,
+                        target_tvc,
+                        reverse_order=bool(pair_index % 2),
+                    )
+                    pair_index += 1
 
-                if target_tvc in ['TI', 'BOTH'] and ti_reader_instrument:
-                    tasks.append(self._take_one_reading(ti_reader_instrument))
-                else:
-                    tasks.append(asyncio.sleep(0)) # Dummy task
+                    timestamp = time.time()
 
-                results = await asyncio.gather(*tasks)
-                
-                std_reading_val = results[0] if target_tvc in ['STD', 'BOTH'] else None
-                ti_reading_val = results[1] if target_tvc in ['TI', 'BOTH'] else None
-                
-                timestamp = time.time()
-                
-                # None creation protects downstream arrays from bloating with fake points
-                std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True} if std_reading_val is not None else None
-                ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
+                    # None creation protects downstream arrays from bloating with fake points
+                    std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True} if std_reading_val is not None else None
+                    ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
+                just_locked_initial_window = False
 
                 if stability_method == 'sliding_window':
+                    if slide_search_window_before_next:
+                        if stable_candidate_std:
+                            stable_candidate_std.pop(0)
+                        if stable_candidate_ti:
+                            stable_candidate_ti.pop(0)
+                        slide_search_window_before_next = False
                     if std_point: stable_candidate_std.append(std_point)
                     if ti_point: stable_candidate_ti.append(ti_point)
 
-                    # Route the window length checks and math to whichever array is actively growing
+                    # Route the progress check to whichever logical role is
+                    # active.  BOTH readers always advance as one pair, even
+                    # when a single physical 5790/8508 must acquire them
+                    # sequentially.
                     primary_candidates = stable_candidate_std if target_tvc in ['STD', 'BOTH'] else stable_candidate_ti
+
+                    def current_role_metrics(*, accepted_iteration=False):
+                        # During the initial gate, only the candidate window is
+                        # eligible. Once it passes, the operator-facing metric
+                        # is the standard deviation of every accepted reading
+                        # in this iteration, not merely the last W samples.
+                        std_points = (
+                            final_std_readings
+                            if accepted_iteration and final_std_readings
+                            else stable_candidate_std[-window_size:]
+                        )
+                        ti_points = (
+                            final_ti_readings
+                            if accepted_iteration and final_ti_readings
+                            else stable_candidate_ti[-window_size:]
+                        )
+                        std_ppm = calc_ppm(std_points) if len(std_points) >= 2 else None
+                        ti_ppm = calc_ppm(ti_points) if len(ti_points) >= 2 else None
+                        if target_tvc == 'STD':
+                            controlling_ppm = std_ppm
+                        elif target_tvc == 'TI':
+                            controlling_ppm = ti_ppm
+                        else:
+                            finite_metrics = [
+                                metric for metric in (std_ppm, ti_ppm)
+                                if metric is not None and math.isfinite(metric)
+                            ]
+                            # BOTH roles must pass.  The maximum is therefore
+                            # the conservative scalar retained for older
+                            # clients while the role-specific values below
+                            # keep the live UI unambiguous.
+                            controlling_ppm = max(finite_metrics) if len(finite_metrics) == 2 else None
+                        return std_ppm, ti_ppm, controlling_ppm
+
+                    def stability_payload(
+                        std_ppm,
+                        ti_ppm,
+                        controlling_ppm,
+                        is_stable,
+                        *,
+                        phase,
+                        window_count,
+                    ):
+                        return {
+                            'type': 'sliding_window_update',
+                            'ppm': controlling_ppm,
+                            'stdev_ppm': controlling_ppm,
+                            'std_stdev_ppm': std_ppm,
+                            'ti_stdev_ppm': ti_ppm,
+                            'is_stable': is_stable,
+                            'instability_events': instability_events,
+                            'max_retries': max_retries,
+                            'phase': phase,
+                            'window_count': window_count,
+                            'window_size': window_size,
+                        }
 
                     if skip_initial_check:
                         # Bypass-mode follow-up cycles: no search phase, no
@@ -1714,18 +2988,31 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             stable_candidate_std.pop(0)
                         if len(stable_candidate_ti) > window_size:
                             stable_candidate_ti.pop(0)
-                        current_ppm = (
-                            calc_ppm(primary_candidates[-window_size:])
-                            if len(primary_candidates) >= 2 else None
+                        std_ppm, ti_ppm, current_ppm = current_role_metrics(
+                            accepted_iteration=True,
                         )
-                        await self.broadcast(text_data=json.dumps({
-                            'type': 'sliding_window_update',
-                            'ppm': current_ppm,
-                            'stdev_ppm': current_ppm,
-                            'is_stable': True,
-                            'instability_events': 0,
-                            'max_retries': max_retries,
-                        }))
+                        monitored_metrics = []
+                        if target_tvc in ['STD', 'BOTH'] and std_ppm is not None:
+                            monitored_metrics.append(std_ppm)
+                        if target_tvc in ['TI', 'BOTH'] and ti_ppm is not None:
+                            monitored_metrics.append(ti_ppm)
+                        is_currently_stable = (
+                            all(
+                                math.isfinite(metric) and metric < threshold_ppm
+                                for metric in monitored_metrics
+                            )
+                            if monitored_metrics else True
+                        )
+                        await self.broadcast(text_data=json.dumps(
+                            stability_payload(
+                                std_ppm,
+                                ti_ppm,
+                                current_ppm,
+                                is_currently_stable,
+                                phase='monitoring',
+                                window_count=min(len(primary_candidates), window_size),
+                            )
+                        ))
                         # Keep the status bar informative — show the rolling
                         # PPM so an operator can still eyeball stability even
                         # though we're not gating collection on it.
@@ -1736,26 +3023,58 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             'type': 'status_update',
                             'message': (
                                 f"Stdev: {ppm_text} "
-                                f"(cycle {cycle_index}, initial check skipped)"
+                                + (
+                                    "(complete shared-5790 role batch)"
+                                    if use_shared_5790_batches
+                                    else f"(cycle {cycle_index}, initial check skipped)"
+                                )
                             ),
                         }))
                     elif len(primary_candidates) >= window_size:
                         # Analyze current window
-                        current_window = primary_candidates[-window_size:]
-                        current_ppm = calc_ppm(current_window)
-                        is_currently_stable = current_ppm < threshold_ppm
+                        std_ppm, ti_ppm, current_ppm = current_role_metrics()
+                        required_metrics = []
+                        if target_tvc in ['STD', 'BOTH']:
+                            required_metrics.append(std_ppm)
+                        if target_tvc in ['TI', 'BOTH']:
+                            required_metrics.append(ti_ppm)
+                        is_currently_stable = bool(required_metrics) and all(
+                            metric is not None
+                            and math.isfinite(metric)
+                            and metric < threshold_ppm
+                            for metric in required_metrics
+                        )
 
                         # --- EVALUATE STABILITY & INCREMENT BEFORE SENDING ---
                         if not initial_stability_achieved:
                             if is_currently_stable:
                                 initial_stability_achieved = True
-                                if std_point: final_std_readings.extend(stable_candidate_std)
-                                if ti_point: final_ti_readings.extend(stable_candidate_ti)
+                                just_locked_initial_window = True
+                                for candidate in stable_candidate_std:
+                                    candidate['is_stable'] = True
+                                for candidate in stable_candidate_ti:
+                                    candidate['is_stable'] = True
+                                # The search window is already a valid paired
+                                # acquisition. Promote it directly into the
+                                # saved sample set instead of clearing the
+                                # charts and collecting the same N again.
+                                if std_point:
+                                    final_std_readings.extend(stable_candidate_std)
+                                if ti_point:
+                                    final_ti_readings.extend(stable_candidate_ti)
                             else:
                                 # SEARCH PHASE: Unstable. Increment retry count and slide window
                                 instability_events += 1
-                                if std_point: stable_candidate_std.pop(0)
-                                if ti_point: stable_candidate_ti.pop(0)
+                                if std_point:
+                                    std_point['is_stable'] = False
+                                if ti_point:
+                                    ti_point['is_stable'] = False
+                                # Keep the exact failed window visible while
+                                # the operator reviews its metric/retry count.
+                                # Slide immediately before the next pair is
+                                # appended so no acquisition is hidden or
+                                # displayed against the wrong statistic.
+                                slide_search_window_before_next = True
                         else:
                             # COLLECTION PHASE: Monitor but keep all samples
                             if not is_currently_stable and not ignore_after_lock:
@@ -1763,15 +3082,33 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             if std_point: final_std_readings.append(std_point)
                             if ti_point: final_ti_readings.append(ti_point)
 
+                        # The stability decision above intentionally uses the
+                        # gate window. The displayed statistic switches to the
+                        # accepted iteration immediately after lock/promotion.
+                        if initial_stability_achieved:
+                            std_ppm, ti_ppm, current_ppm = current_role_metrics(
+                                accepted_iteration=True,
+                            )
+
                         # --- NOW SEND UPDATES WITH THE ACCURATE METRICS ---
-                        await self.broadcast(text_data=json.dumps({
-                            'type': 'sliding_window_update',
-                            'ppm': current_ppm,
-                            'stdev_ppm': current_ppm,
-                            'is_stable': is_currently_stable,
-                            'instability_events': instability_events,
-                            'max_retries': max_retries
-                        }))
+                        await self.broadcast(text_data=json.dumps(
+                            stability_payload(
+                                std_ppm,
+                                ti_ppm,
+                                current_ppm,
+                                is_currently_stable,
+                                phase=(
+                                    'monitoring'
+                                    if initial_stability_achieved
+                                    else 'searching'
+                                ),
+                                window_count=(
+                                    get_target_length()
+                                    if initial_stability_achieved
+                                    else min(len(primary_candidates), window_size)
+                                ),
+                            )
+                        ))
                         
                         await self.broadcast(text_data=json.dumps({
                             'type': 'status_update',
@@ -1789,17 +3126,25 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             'message': f"Filling initial window... [{len(primary_candidates)}/{window_size}]"
                         }))
                         
-                        temp_ppm = calc_ppm(primary_candidates) if len(primary_candidates) > 1 else None
-                        temp_is_stable = (temp_ppm < threshold_ppm) if temp_ppm is not None else True
-                        
-                        await self.broadcast(text_data=json.dumps({
-                            'type': 'sliding_window_update',
-                            'ppm': temp_ppm,
-                            'stdev_ppm': temp_ppm,
-                            'is_stable': temp_is_stable,
-                            'instability_events': instability_events,
-                            'max_retries': max_retries
-                        }))
+                        std_ppm, ti_ppm, temp_ppm = current_role_metrics()
+                        available_metrics = [
+                            metric for metric in (std_ppm, ti_ppm)
+                            if metric is not None and math.isfinite(metric)
+                        ]
+                        temp_is_stable = bool(available_metrics) and all(
+                            metric < threshold_ppm for metric in available_metrics
+                        )
+
+                        await self.broadcast(text_data=json.dumps(
+                            stability_payload(
+                                std_ppm,
+                                ti_ppm,
+                                temp_ppm,
+                                temp_is_stable,
+                                phase='filling',
+                                window_count=len(primary_candidates),
+                            )
+                        ))
                 else:
                     if std_point: final_std_readings.append(std_point)
                     if ti_point: final_ti_readings.append(ti_point)
@@ -1813,17 +3158,62 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 # Mirror every sample into the server-side live buffer so late-
                 # joining remotes reconstruct the chart from a single source of
                 # truth instead of stitching a host snapshot to DB historicals.
-                self._buffer_append_sample(reading_type_base, std_point, ti_point, current_count, num_samples)
+                search_window_snapshot = None
+                if (
+                    stability_method == 'sliding_window'
+                    and (
+                        not initial_stability_achieved
+                        or just_locked_initial_window
+                    )
+                ):
+                    search_window_snapshot = {
+                        'std': list(stable_candidate_std),
+                        'ti': list(stable_candidate_ti),
+                    }
+                    self._buffer_replace_search_window(
+                        reading_type_base,
+                        search_window_snapshot['std'],
+                        search_window_snapshot['ti'],
+                        num_samples,
+                        cycle_index=cycle_index,
+                    )
+                else:
+                    self._buffer_append_sample(
+                        reading_type_base,
+                        std_point,
+                        ti_point,
+                        current_count,
+                        num_samples,
+                        cycle_index=cycle_index,
+                    )
 
-                await self.broadcast(text_data=json.dumps({
-                    'type': 'dual_reading_update',
-                    'std_reading': std_point,
-                    'ti_reading': ti_point,
-                    'count': current_count,
-                    'stable_count': get_target_length(),
-                    'total': num_samples,
-                    'stage': reading_type_base
-                }))
+                # Shared-5790 points were already published at the exact time
+                # each physical reading arrived. Re-broadcasting reconstructed
+                # pairs here made both charts appear to fill all at once. The
+                # only follow-up this path needs is a final search-window
+                # snapshot when stability evaluation changed point flags.
+                should_publish_processed_pair = not use_shared_5790_batches
+                should_publish_shared_snapshot = bool(
+                    use_shared_5790_batches
+                    and search_window_snapshot is not None
+                    and not pending_reader_pairs
+                )
+                if should_publish_processed_pair or should_publish_shared_snapshot:
+                    await self.broadcast(text_data=json.dumps({
+                        'type': 'dual_reading_update',
+                        'std_reading': (
+                            None if use_shared_5790_batches else std_point
+                        ),
+                        'ti_reading': (
+                            None if use_shared_5790_batches else ti_point
+                        ),
+                        'count': current_count,
+                        'stable_count': get_target_length(),
+                        'total': num_samples,
+                        'stage': reading_type_base,
+                        'cycle_index': cycle_index,
+                        'window_snapshot': search_window_snapshot,
+                    }))
 
                 await asyncio.sleep(0.05)
         
@@ -1859,9 +3249,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     
     async def collect_single_reading_set(self, data):
         ac_source, dc_source, std_reader_instrument, ti_reader_instrument, amplifier_instrument, switch_driver = None, None, None, None, None, None
+        reader_switch = None
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
+            self._validate_reader_assignments(data, session_details)
+            await self._report_source_routing_state(session_details)
             
             std_addr = session_details.get('std_reader_address')
             ti_addr = session_details.get('ti_reader_address')
@@ -1898,15 +3291,22 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader_instrument = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
-            ti_reader_instrument = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+            std_reader_instrument, ti_reader_instrument = await sync_to_async(
+                _open_reader_pair,
+                thread_sensitive=True,
+            )(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input"),
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input"),
+            )
+            reader_switch = await self._initialize_reader_switch(session_details)
             
             await self._configure_sources(
                 data.get('test_point'), 
                 data.get('bypass_tvc'), 
                 data.get('amplifier_range'), 
                 ac_source=ac_source, 
-                dc_source=dc_source
+                dc_source=dc_source,
+                measurement_params=data.get('measurement_params'),
             )
 
             if session_details.get('amplifier_address'):
@@ -1927,6 +3327,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             warmup_time = data.get('initial_warm_up_time') or 0
             
             if warmup_time > 0:
+                switch_driver = await self._prepare_ac_warmup_route(switch_driver, session_details)
                 await self._perform_warmup(warmup_time, tp_id=(data.get('test_point') or {}).get('id'))
 
             source_instrument = ac_source if is_ac_reading else dc_source
@@ -1957,7 +3358,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 amplifier_instrument, 
                 float(data.get('settling_time', 0.0)), 
                 data.get('nplc'), 
-                data.get('measurement_params')
+                data.get('measurement_params'),
             )
             
             if success and not self.stop_event.is_set():
@@ -1973,26 +3374,32 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
+            await self._standby_active_outputs(
+                (ac_source, dc_source),
+                amplifier_instrument,
+            )
             if switch_driver:
-                await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
+                await self._deactivate_source_switch(switch_driver)
                 await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': 'AC'}))
-                if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
-            
-            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
-            for source in sources_to_shutdown:
-                await sync_to_async(source.reset, thread_sensitive=True)()
 
-            if amplifier_instrument: await sync_to_async(amplifier_instrument.set_standby, thread_sensitive=True)()
-            
-            for inst in filter(None, {std_reader_instrument, ti_reader_instrument, amplifier_instrument, ac_source, dc_source}):
-                if hasattr(inst, 'close'):
-                    await sync_to_async(inst.close, thread_sensitive=True)()
+            await self._release_reader_switch(reader_switch)
+            await self._close_instruments((
+                switch_driver,
+                std_reader_instrument,
+                ti_reader_instrument,
+                amplifier_instrument,
+                ac_source,
+                dc_source,
+            ))
 
     async def run_full_calibration_sequence(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier = None, None, None, None, None
+        reader_switch = None
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
+            self._validate_reader_assignments(data, session_details)
+            await self._report_source_routing_state(session_details)
 
             std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
             std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
@@ -2007,15 +3414,22 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+            std_reader, ti_reader = await sync_to_async(
+                _open_reader_pair,
+                thread_sensitive=True,
+            )(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input"),
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input"),
+            )
+            reader_switch = await self._initialize_reader_switch(session_details)
 
             await self._configure_sources(
                 data.get('test_point'), 
                 data.get('bypass_tvc'), 
                 data.get('amplifier_range'), 
                 ac_source=ac_source, 
-                dc_source=dc_source
+                dc_source=dc_source,
+                measurement_params=data.get('measurement_params'),
             )
             
             if session_details.get('amplifier_address'):
@@ -2036,6 +3450,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             warmup_time = data.get('initial_warm_up_time') or 0
             
             if warmup_time > 0:
+                switch_driver = await self._prepare_ac_warmup_route(switch_driver, session_details)
                 await self._perform_warmup(warmup_time, tp_id=(data.get('test_point') or {}).get('id'))
 
             settling_time, num_samples, nplc_setting, measurement_params = float(data.get('settling_time', 5.0)), data.get('num_samples', 8), data.get('nplc'), data.get('measurement_params')
@@ -2075,7 +3490,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         source_instrument = ac_source if 'ac' in stage else dc_source
                         if not source_instrument: raise Exception(f"Required {'AC' if 'ac' in stage else 'DC'} Source is not assigned.")
 
-                        self._buffer_set_stage(stage, tp_id=(data.get('test_point') or {}).get('id'), total=num_samples)
+                        self._buffer_set_stage(
+                            stage,
+                            tp_id=(data.get('test_point') or {}).get('id'),
+                            total=num_samples,
+                            cycle_index=cycle_index,
+                        )
                         await self.broadcast(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples, 'cycle_index': cycle_index, 'tpId': (data.get('test_point') or {}).get('id')}))
 
                         success = await self._perform_single_measurement(
@@ -2123,21 +3543,24 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
-            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
-            for source in sources_to_shutdown:
-                await sync_to_async(source.reset, thread_sensitive=True)()
-            if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
-            
-            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
-                if hasattr(inst, 'close'):
-                    await sync_to_async(inst.close, thread_sensitive=True)()
+            await self._standby_active_outputs((ac_source, dc_source), amplifier)
+            await self._release_reader_switch(reader_switch)
+            await self._close_instruments((
+                std_reader,
+                ti_reader,
+                amplifier,
+                ac_source,
+                dc_source,
+            ))
 
     async def run_full_calibration_batch(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier, switch_driver = None, None, None, None, None, None
+        reader_switch = None
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
 
+            self._validate_reader_assignments(data, session_details)
             test_points_to_run = data.get('test_points', [])
             if not test_points_to_run:
                 raise Exception("No test points provided for batch run.")
@@ -2154,18 +3577,26 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
             
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+            std_reader, ti_reader = await sync_to_async(
+                _open_reader_pair,
+                thread_sensitive=True,
+            )(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input"),
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input"),
+            )
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
+
+            reader_switch = await self._initialize_reader_switch(session_details)
             
             await self._configure_sources(
                 test_points_to_run,
                 data.get('bypass_tvc'), 
                 data.get('amplifier_range'), 
                 ac_source=ac_source, 
-                dc_source=dc_source
+                dc_source=dc_source,
+                measurement_params=data.get('measurement_params'),
             )
             
             if session_details.get('amplifier_address'):
@@ -2185,6 +3616,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             # ``warmup_time > 0`` comparison; ``or 0`` coerces null/0/'' to 0.
             warmup_time = data.get('initial_warm_up_time') or 0
             if warmup_time > 0:
+                switch_driver = await self._prepare_ac_warmup_route(switch_driver, session_details)
                 await self._perform_warmup(warmup_time, tp_id=(test_points_to_run[0].get('id') if test_points_to_run else None))
 
             nplc_setting, measurement_params = data.get('nplc'), data.get('measurement_params')
@@ -2194,6 +3626,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 
                 current_settling_time = float(point_data.get('settling_time', data.get('settling_time', 5.0)))
                 current_num_samples = int(point_data.get('num_samples', data.get('num_samples', 8)))
+                point_nplc = point_data.get('nplc', nplc_setting)
+                point_measurement_params = (
+                    point_data.get('measurement_params') or measurement_params
+                )
 
                 self._buffer_set_batch_point(point_data)
                 await self.broadcast(text_data=json.dumps({
@@ -2235,7 +3671,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         source_instrument = ac_source if 'ac' in stage else dc_source
                         if not source_instrument: raise Exception(f"Required source for stage '{stage}' is not assigned.")
 
-                        self._buffer_set_stage(stage, tp_id=point_data.get('id'), total=current_num_samples)
+                        self._buffer_set_stage(
+                            stage,
+                            tp_id=point_data.get('id'),
+                            total=current_num_samples,
+                            cycle_index=cycle_index,
+                        )
                         await self.broadcast(text_data=json.dumps({
                             'type': 'calibration_stage_update',
                             'stage': stage,
@@ -2252,8 +3693,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             data.get('amplifier_range'),
                             source_instrument, std_reader, ti_reader, amplifier,
                             current_settling_time,
-                            nplc_setting,
-                            measurement_params,
+                            point_nplc,
+                            point_measurement_params,
                             cycle_index=cycle_index,
                         )
 
@@ -2283,19 +3724,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
+            await self._standby_active_outputs((ac_source, dc_source), amplifier)
             if switch_driver:
-                await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
-                if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
+                await self._deactivate_source_switch(switch_driver)
 
-            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
-            for source in sources_to_shutdown:
-                await sync_to_async(source.reset, thread_sensitive=True)()
-
-            if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
-
-            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
-                if hasattr(inst, 'close'):
-                    await sync_to_async(inst.close, thread_sensitive=True)()
+            await self._release_reader_switch(reader_switch)
+            await self._close_instruments((
+                switch_driver,
+                std_reader,
+                ti_reader,
+                amplifier,
+                ac_source,
+                dc_source,
+            ))
 
     # ------------------------------------------------------------------
     # Paired AC-DC batch (Forward pass → flip prompt → Reverse pass).
@@ -2338,6 +3779,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             current_settling_time = float(point_data.get('settling_time', data.get('settling_time', 5.0)))
             current_num_samples = int(point_data.get('num_samples', data.get('num_samples', 8)))
+            point_nplc = point_data.get('nplc', nplc_setting)
+            point_measurement_params = (
+                point_data.get('measurement_params') or measurement_params
+            )
 
             self._buffer_set_batch_point(point_data)
             await self.broadcast(text_data=json.dumps({
@@ -2392,7 +3837,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     if not source_instrument:
                         raise Exception(f"Required source for stage '{stage}' is not assigned.")
 
-                    self._buffer_set_stage(stage, tp_id=point_data.get('id'), total=current_num_samples)
+                    self._buffer_set_stage(
+                        stage,
+                        tp_id=point_data.get('id'),
+                        total=current_num_samples,
+                        cycle_index=cycle_index,
+                    )
                     await self.broadcast(text_data=json.dumps({
                         'type': 'calibration_stage_update',
                         'stage': stage,
@@ -2409,8 +3859,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         amplifier_range,
                         source_instrument, std_reader, ti_reader, amplifier,
                         current_settling_time,
-                        nplc_setting,
-                        measurement_params,
+                        point_nplc,
+                        point_measurement_params,
                         cycle_index=cycle_index,
                     )
                     if not success:
@@ -2449,11 +3899,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                mirrors the pair-level mean δ and u_A onto both rows.
         """
         ac_source, dc_source, std_reader, ti_reader, amplifier, switch_driver = None, None, None, None, None, None
+        reader_switch = None
         try:
             session_details = await self.get_session_details()
             if not session_details:
                 raise Exception("Session not found.")
 
+            self._validate_reader_assignments(data, session_details)
             forward_points = data.get('forward_points') or []
             reverse_points = data.get('reverse_points') or []
             if not forward_points or not reverse_points:
@@ -2477,11 +3929,18 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+            std_reader, ti_reader = await sync_to_async(
+                _open_reader_pair,
+                thread_sensitive=True,
+            )(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input"),
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input"),
+            )
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
+
+            reader_switch = await self._initialize_reader_switch(session_details)
 
             # Configure sources / amplifier using the first point as a probe
             # (matches run_full_calibration_batch's behavior).
@@ -2492,6 +3951,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 data.get('amplifier_range'),
                 ac_source=ac_source,
                 dc_source=dc_source,
+                measurement_params=data.get('measurement_params'),
             )
 
             if session_details.get('amplifier_address'):
@@ -2508,6 +3968,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             warmup_time = data.get('initial_warm_up_time') or 0
             if warmup_time > 0:
+                switch_driver = await self._prepare_ac_warmup_route(switch_driver, session_details)
                 await self._perform_warmup(warmup_time, tp_id=(forward_points[0].get('id') if forward_points else None))
 
             # ----- Forward pass -----
@@ -2575,33 +4036,17 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
-            if switch_driver:
-                try:
-                    await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
-                except Exception:
-                    pass
-                if hasattr(switch_driver, 'close'):
-                    await sync_to_async(switch_driver.close, thread_sensitive=True)()
-
-            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
-            for source in sources_to_shutdown:
-                try:
-                    await sync_to_async(source.reset, thread_sensitive=True)()
-                except Exception:
-                    pass
-
-            if amplifier:
-                try:
-                    await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
-                except Exception:
-                    pass
-
-            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
-                if hasattr(inst, 'close'):
-                    try:
-                        await sync_to_async(inst.close, thread_sensitive=True)()
-                    except Exception:
-                        pass
+            await self._standby_active_outputs((ac_source, dc_source), amplifier)
+            await self._deactivate_source_switch(switch_driver)
+            await self._release_reader_switch(reader_switch)
+            await self._close_instruments((
+                switch_driver,
+                std_reader,
+                ti_reader,
+                amplifier,
+                ac_source,
+                dc_source,
+            ))
 
     @database_sync_to_async
     def _maybe_recompute_pair_for_single_direction(self, test_point_data):
@@ -2643,10 +4088,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
     async def run_single_stage_batch(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier = None, None, None, None, None
+        reader_switch = None
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
 
+            self._validate_reader_assignments(data, session_details)
             stage = data.get('reading_type')
             test_points_to_run = data.get('test_points', [])
             if not stage or not test_points_to_run:
@@ -2664,15 +4111,22 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+            std_reader, ti_reader = await sync_to_async(
+                _open_reader_pair,
+                thread_sensitive=True,
+            )(
+                std_reader_class, std_model, std_addr, session_details.get("std_reader_input"),
+                ti_reader_class, ti_model, ti_addr, session_details.get("ti_reader_input"),
+            )
+            reader_switch = await self._initialize_reader_switch(session_details)
 
             await self._configure_sources(
                 test_points_to_run,
                 data.get('bypass_tvc'), 
                 data.get('amplifier_range'), 
                 ac_source=ac_source, 
-                dc_source=dc_source
+                dc_source=dc_source,
+                measurement_params=data.get('measurement_params'),
             )
             
             if session_details.get('amplifier_address'):
@@ -2692,14 +4146,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             # ``warmup_time > 0`` comparison; ``or 0`` coerces null/0/'' to 0.
             warmup_time = data.get('initial_warm_up_time') or 0
             if warmup_time > 0:
+                switch_driver = await self._prepare_ac_warmup_route(switch_driver, session_details)
                 await self._perform_warmup(warmup_time, tp_id=(test_points_to_run[0].get('id') if test_points_to_run else None))
 
             source_instrument = ac_source if 'ac' in stage else dc_source
             if not source_instrument: raise Exception(f"Required source for stage '{stage}' is not assigned.")
 
-            switch_driver = None
-            if session_details.get('switch_driver_address'):
+            if switch_driver is None and session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
+            if switch_driver is not None:
                 required_switch_state = 'AC' if 'ac' in stage else 'DC'
                 await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source for batch run..."}))
                 if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
@@ -2714,6 +4169,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
                 current_settling_time = float(point_data.get('settling_time', data.get('settling_time', 5.0)))
                 current_num_samples = int(point_data.get('num_samples', data.get('num_samples', 8)))
+                point_nplc = point_data.get('nplc', nplc_setting)
+                point_measurement_params = (
+                    point_data.get('measurement_params') or measurement_params
+                )
 
                 self._buffer_set_batch_point(point_data)
                 await self.broadcast(text_data=json.dumps({
@@ -2739,8 +4198,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     data.get('amplifier_range'), 
                     source_instrument, std_reader, ti_reader, amplifier, 
                     current_settling_time, 
-                    nplc_setting, 
-                    measurement_params
+                    point_nplc,
+                    point_measurement_params,
                 )
                 
                 if not success: continue
@@ -2756,19 +4215,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         finally:
             self.state = "IDLE"
             self._buffer_clear()
+            await self._standby_active_outputs((ac_source, dc_source), amplifier)
             if switch_driver:
-                await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
-                if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
+                await self._deactivate_source_switch(switch_driver)
 
-            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
-            for source in sources_to_shutdown:
-                await sync_to_async(source.reset, thread_sensitive=True)()
-
-            if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
-            
-            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
-                if hasattr(inst, 'close'):
-                    await sync_to_async(inst.close, thread_sensitive=True)()
+            await self._release_reader_switch(reader_switch)
+            await self._close_instruments((
+                switch_driver,
+                std_reader,
+                ti_reader,
+                amplifier,
+                ac_source,
+                dc_source,
+            ))
 
     async def save_readings_to_db(self, reading_type_full, readings_list, test_point):
         """
@@ -2980,6 +4439,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
     async def broadcast(self, text_data):
         """Intercepts the text_data and broadcasts it to ALL clients in the session."""
+        try:
+            self._buffer_record_broadcast(json.loads(text_data))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            # Buffering is best-effort and must never suppress the live event.
+            pass
         await self.channel_layer.group_send(
             self.session_group_name,
             {

@@ -374,7 +374,7 @@ export async function downloadFullSessionExcel({ uniqueTestPoints, sessionName, 
     "TI Forward δ (ppm)",
     "TI Reverse δ (ppm)",
     "TI Paired/Avg δ (ppm)",
-    "Type A Uncertainty (ppm)"
+    "Type A Standard Uncertainty (k=1, ppm)"
   ];
   applyHeaderRow(hdrUut, 8);
 

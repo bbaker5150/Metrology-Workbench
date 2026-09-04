@@ -2,13 +2,17 @@
  * @file InstrumentStatusPanel.js
  * @brief Displays the status of connected hardware instruments and allows role assignment.
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
 import { FaSave, FaUndo, FaTimes, FaSearch, FaSync, FaEdit, FaCreativeCommonsZero } from 'react-icons/fa';
 import { API_BASE_URL } from '../../constants/constants';
+import {
+    isDiscoveredInstrumentAvailable,
+    isSameInstrumentAddress,
+} from '../../utils/instrumentStatus';
 
-const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B'];
+const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790A', '5790B', '8508A'];
 const ACDC_ASSIGNABLE_MODELS = ['5730A'];
 const AMPLIFIER_MODELS = ['8100'];
 const SUPPORTED_STATUS_MODELS = ['5730', '5790'];
@@ -27,9 +31,16 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         runZeroCal,
         discoveredInstruments, setDiscoveredInstruments,
         stdInstrumentAddress, setStdInstrumentAddress, stdReaderModel, setStdReaderModel, stdReaderSN, setStdReaderSN,
+        stdReaderInput, setStdReaderInput,
         tiInstrumentAddress, setTiInstrumentAddress, tiReaderModel, setTiReaderModel, tiReaderSN, setTiReaderSN,
+        tiReaderInput, setTiReaderInput,
         acSourceAddress, setAcSourceAddress, acSourceSN, setAcSourceSN, dcSourceAddress, setDcSourceAddress, dcSourceSN, setDcSourceSN,
         switchDriverAddress, setSwitchDriverAddress, switchDriverModel, setSwitchDriverModel, switchDriverSN, setSwitchDriverSN,
+        readerSwitchDriverAddress, setReaderSwitchDriverAddress,
+        readerSwitchDriverModel, setReaderSwitchDriverModel,
+        readerSwitchDriverSN, setReaderSwitchDriverSN,
+        readerSwitchStandardRoute, setReaderSwitchStandardRoute,
+        readerSwitchSettlingTime, setReaderSwitchSettlingTime,
         amplifierAddress, setAmplifierAddress, amplifierSN, setAmplifierSN, isCollecting,
         
         // NEW DESTRUCTURES: Exposing the locking mechanism from the context
@@ -42,19 +53,28 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
     const [localIp, setLocalIp] = useState('');
     const [editingIp, setEditingIp] = useState(null);
     const [editingName, setEditingName] = useState('');
+    const scanGenerationRef = useRef(0);
 
+    // Discovery results are intentionally memory-only. The previous global
+    // localStorage cache reused one bench topology across every session.
     useEffect(() => {
-        if (selectedSessionId) {
-            const savedInstruments = localStorage.getItem(`discoveredInstruments`);
-            if (savedInstruments) {
-                setDiscoveredInstruments(JSON.parse(savedInstruments));
-            } else {
-                setDiscoveredInstruments([]);
-            }
-        } else {
-            setDiscoveredInstruments([]);
-        }
-    }, [selectedSessionId, setDiscoveredInstruments]);
+        localStorage.removeItem('discoveredInstruments');
+    }, []);
+
+    // Invalidate any in-flight request when the session changes (or this
+    // panel unmounts) so a slow response from the prior session cannot
+    // repopulate the new session with stale instruments.
+    useEffect(() => {
+        scanGenerationRef.current += 1;
+        setIsScanning(false);
+        setLocalIp('');
+        setActiveWorkstationIp('');
+        setEditingIp(null);
+        setEditingName('');
+        return () => {
+            scanGenerationRef.current += 1;
+        };
+    }, [selectedSessionId]);
 
     useEffect(() => {
         if (isRemoteViewer || isCollecting) return;
@@ -142,42 +162,6 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         }
     }, [workstations, activeWorkstationIp, claimedWorkstations, myClientId]);
 
-    const resetInstrumentAddress = async () => {
-        setStdInstrumentAddress(null);
-        setStdReaderModel(null);
-        setStdReaderSN(null);
-        setTiInstrumentAddress(null);
-        setTiReaderModel(null);
-        setTiReaderSN(null);
-        setAcSourceSN(null);
-        setAcSourceAddress(null);
-        setDcSourceSN(null);
-        setDcSourceAddress(null);
-        setAmplifierSN(null);
-        setAmplifierAddress(null);
-
-        const payload = {
-            test_reader_model: null,
-            test_reader_serial: null,
-            test_reader_address: null,
-            standard_reader_model: null,
-            standard_reader_serial: null,
-            standard_reader_address: null,
-            ac_source_serial: null,
-            ac_source_address: null,
-            dc_source_serial: null,
-            dc_source_address: null,
-            amplifier_serial: null,
-            amplifier_address: null,
-        };
-
-        try {
-            await axios.patch(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/`, payload);
-        } catch (error) {
-            console.error('Failed to reset instrument addresses:', error);
-        }
-    };
-
     const handleInitializeInstruments = async () => {
         if (!selectedSessionId) {
             showNotification("Please select a session first.", "warning");
@@ -202,48 +186,23 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
     };
 
     const handleScanInstruments = async () => {
+        if (!selectedSessionId) {
+            showNotification('Please select a session before scanning for instruments.', 'warning');
+            return;
+        }
+        const scanGeneration = ++scanGenerationRef.current;
         setIsScanning(true);
         setDiscoveredInstruments([]);
 
         try {
             const response = await axios.get(`${API_BASE_URL}/instruments/discover/`);
+            if (scanGeneration !== scanGenerationRef.current) return;
             const instruments = Array.isArray(response.data.instruments) ? response.data.instruments : [];
-
-            const info = await axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/`);
-
-            const testReaderAddress = info.data.test_reader_address;
-            const standardReaderAddress = info.data.standard_reader_address;
-            const acSourceAddress = info.data.ac_source_address;
-            const dcSourceAddress = info.data.dc_source_address;
-
-            const infoContainsVisa =
-                (testReaderAddress && testReaderAddress.startsWith("visa://")) ||
-                (standardReaderAddress && standardReaderAddress.startsWith("visa://")) ||
-                (acSourceAddress && acSourceAddress.startsWith("visa://")) ||
-                (dcSourceAddress && dcSourceAddress.startsWith("visa://"));
-
-            const instrumentsContainNonVisa = instruments.some(instrument => instrument.address && !instrument.address.startsWith("visa://"));
-
-            const infoContainsNonVisa = (testReaderAddress && !testReaderAddress.startsWith("visa://")) ||
-                (standardReaderAddress && !standardReaderAddress.startsWith("visa://")) ||
-                (acSourceAddress && !acSourceAddress.startsWith("visa://")) ||
-                (dcSourceAddress && !dcSourceAddress.startsWith("visa://"));
-
-            const instrumentsContainVisa = instruments.some(instrument => instrument.address && instrument.address.startsWith("visa://"));
-
-            if (
-                (infoContainsVisa && instrumentsContainNonVisa) ||
-                (infoContainsNonVisa && instrumentsContainVisa)
-            ) {
-                resetInstrumentAddress();
-            }
 
             const serverIp = response.data.server_ip || response.data.local_ip || '';
 
             setLocalIp(serverIp);
             setDiscoveredInstruments(instruments);
-
-            localStorage.setItem(`discoveredInstruments`, JSON.stringify(instruments));
 
             instruments.forEach(inst => {
                 const modelMatch = inst.identity.match(/(\d{4}[A-Z]?)/);
@@ -253,11 +212,15 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                 }
             });
 
-            showNotification(`Scan complete. Found ${instruments.length - 1} instrument(s).`, 'success');
+            showNotification(`Scan complete. Found ${instruments.length} instrument(s).`, 'success');
         } catch (error) {
-            showNotification('Failed to scan for instruments.', 'error');
+            if (scanGeneration === scanGenerationRef.current) {
+                showNotification('Failed to scan for instruments.', 'error');
+            }
         } finally {
-            setIsScanning(false);
+            if (scanGeneration === scanGenerationRef.current) {
+                setIsScanning(false);
+            }
         }
     };
 
@@ -287,7 +250,10 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
     const getModelFromIdentity = (identity) => {
         if (!identity) return null;
         const parts = identity.split(',');
-        if (parts.length > 1 && parts[1]) return parts[1].trim();
+        if (parts.length > 1 && parts[1]) {
+            const model = parts[1].trim();
+            return model.startsWith('8508A') ? '8508A' : model;
+        }
         const allKnownModels = [...ASSIGNABLE_MODELS, ...ACDC_ASSIGNABLE_MODELS, ...AMPLIFIER_MODELS];
         for (const model of allKnownModels) if (identity.includes(model)) return model;
         return identity.trim();
@@ -323,16 +289,93 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         const newAddress = isChecked ? instrument.address : null;
         const newModel = isChecked ? getModelFromIdentity(instrument.identity) : null;
         const newSN = isChecked ? getSNFromIdentity(instrument.identity) : null;
+        const is5790 = /^5790[AB]$/.test(newModel || '');
+        const sameReader = isSameInstrumentAddress(
+            newAddress,
+            role === 'standard' ? tiInstrumentAddress : stdInstrumentAddress,
+        );
+        const externalInstrumentSwitch = Boolean(readerSwitchDriverAddress);
         if (role === 'standard') {
+            const input = newModel === '8508A'
+                ? (sameReader ? (tiReaderInput === 'FRONT' ? 'REAR' : 'FRONT') : 'FRONT')
+                : is5790
+                    ? (sameReader
+                        ? (externalInstrumentSwitch ? (tiReaderInput || 'INPUT2') : 'INPUT1')
+                        : 'INPUT2')
+                    : null;
+            if (input) setStdReaderInput(input);
             setStdInstrumentAddress(newAddress);
             setStdReaderModel(newModel);
             setStdReaderSN(newSN);
-            handleRoleAssignment({ standard_reader_address: newAddress, standard_reader_model: newModel, standard_reader_serial: newSN });
+            const payload = {
+                standard_reader_address: newAddress,
+                standard_reader_model: newModel,
+                standard_reader_serial: newSN,
+                standard_reader_input: isChecked ? input : null,
+            };
+            if (isChecked && is5790 && sameReader) {
+                const pairedInput = externalInstrumentSwitch ? input : 'INPUT2';
+                setTiReaderInput(pairedInput);
+                payload.test_reader_input = pairedInput;
+            }
+            handleRoleAssignment(payload);
         } else if (role === 'test') {
+            const input = newModel === '8508A'
+                ? (sameReader ? (stdReaderInput === 'FRONT' ? 'REAR' : 'FRONT') : 'REAR')
+                : is5790
+                    ? (sameReader && externalInstrumentSwitch ? (stdReaderInput || 'INPUT2') : 'INPUT2')
+                    : null;
+            if (input) setTiReaderInput(input);
             setTiInstrumentAddress(newAddress);
             setTiReaderModel(newModel);
             setTiReaderSN(newSN);
-            handleRoleAssignment({ test_reader_address: newAddress, test_reader_model: newModel, test_reader_serial: newSN });
+            const payload = {
+                test_reader_address: newAddress,
+                test_reader_model: newModel,
+                test_reader_serial: newSN,
+                test_reader_input: isChecked ? input : null,
+            };
+            if (isChecked && is5790 && sameReader) {
+                const pairedInput = externalInstrumentSwitch ? input : 'INPUT1';
+                setStdReaderInput(pairedInput);
+                payload.standard_reader_input = pairedInput;
+            }
+            handleRoleAssignment(payload);
+        }
+    };
+
+    const handleReaderInputChange = (role, input) => {
+        const opposite = input.startsWith('INPUT')
+            ? (input === 'INPUT1' ? 'INPUT2' : 'INPUT1')
+            : (input === 'FRONT' ? 'REAR' : 'FRONT');
+        const shared5790 = (
+            /^5790[AB]$/.test(stdReaderModel || '')
+            && /^5790[AB]$/.test(tiReaderModel || '')
+            && isSameInstrumentAddress(stdInstrumentAddress, tiInstrumentAddress)
+        );
+        const keepSameInput = shared5790 && Boolean(readerSwitchDriverAddress);
+        if (role === 'standard') {
+            setStdReaderInput(input);
+            const payload = { standard_reader_input: input };
+            if (keepSameInput) {
+                setTiReaderInput(input);
+                payload.test_reader_input = input;
+            } else if (isSameInstrumentAddress(stdInstrumentAddress, tiInstrumentAddress) && tiReaderInput === input) {
+                setTiReaderInput(opposite);
+                payload.test_reader_input = opposite;
+            }
+            handleRoleAssignment(payload);
+        } else {
+            setTiReaderInput(input);
+            const payload = { test_reader_input: input };
+            if (keepSameInput) {
+                setStdReaderInput(input);
+                payload.standard_reader_input = input;
+            } else if (isSameInstrumentAddress(tiInstrumentAddress, stdInstrumentAddress) && stdReaderInput === input) {
+                setStdReaderInput(opposite);
+                payload.standard_reader_input = opposite;
+            }
+            handleRoleAssignment(payload);
         }
     };
 
@@ -358,18 +401,96 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         }
     };
 
-    const handleSwitchDriverRoleChange = (instrument, isChecked) => {
+    const handleSourceSwitchRoleChange = (instrument, isChecked) => {
         const newAddress = isChecked ? instrument.address : null;
         const newModel = isChecked ? getModelFromIdentity(instrument.identity) : null;
         const newSN = isChecked ? getSNFromIdentity(instrument.identity) : null;
         setSwitchDriverAddress(newAddress);
         setSwitchDriverModel(newModel);
         setSwitchDriverSN(newSN);
-        handleRoleAssignment({ switch_driver_address: newAddress, switch_driver_model: newModel, switch_driver_serial: newSN });
+        const payload = { switch_driver_address: newAddress, switch_driver_model: newModel, switch_driver_serial: newSN };
+        if (isChecked && isSameInstrumentAddress(readerSwitchDriverAddress, instrument.address)) {
+            setReaderSwitchDriverAddress(null);
+            setReaderSwitchDriverModel(null);
+            setReaderSwitchDriverSN(null);
+            Object.assign(payload, {
+                reader_switch_driver_address: null,
+                reader_switch_driver_model: null,
+                reader_switch_driver_serial: null,
+            });
+            const shared5790 = (
+                /^5790[AB]$/.test(stdReaderModel || '')
+                && /^5790[AB]$/.test(tiReaderModel || '')
+                && isSameInstrumentAddress(stdInstrumentAddress, tiInstrumentAddress)
+            );
+            if (shared5790) {
+                setStdReaderInput('INPUT1');
+                setTiReaderInput('INPUT2');
+                Object.assign(payload, {
+                    standard_reader_input: 'INPUT1',
+                    test_reader_input: 'INPUT2',
+                });
+            }
+        }
+        handleRoleAssignment(payload);
+    };
+
+    const handleReaderSwitchRoleChange = (instrument, isChecked) => {
+        const newAddress = isChecked ? instrument.address : null;
+        const newModel = isChecked ? getModelFromIdentity(instrument.identity) : null;
+        const newSN = isChecked ? getSNFromIdentity(instrument.identity) : null;
+        setReaderSwitchDriverAddress(newAddress);
+        setReaderSwitchDriverModel(newModel);
+        setReaderSwitchDriverSN(newSN);
+        const payload = {
+            reader_switch_driver_address: newAddress,
+            reader_switch_driver_model: newModel,
+            reader_switch_driver_serial: newSN,
+        };
+        const shared5790 = (
+            /^5790[AB]$/.test(stdReaderModel || '')
+            && /^5790[AB]$/.test(tiReaderModel || '')
+            && isSameInstrumentAddress(stdInstrumentAddress, tiInstrumentAddress)
+        );
+        if (shared5790) {
+            if (isChecked) {
+                const commonInput = stdReaderInput || tiReaderInput || 'INPUT2';
+                setStdReaderInput(commonInput);
+                setTiReaderInput(commonInput);
+                Object.assign(payload, {
+                    standard_reader_input: commonInput,
+                    test_reader_input: commonInput,
+                });
+            } else {
+                setStdReaderInput('INPUT1');
+                setTiReaderInput('INPUT2');
+                Object.assign(payload, {
+                    standard_reader_input: 'INPUT1',
+                    test_reader_input: 'INPUT2',
+                });
+            }
+        }
+        if (isChecked && isSameInstrumentAddress(switchDriverAddress, instrument.address)) {
+            setSwitchDriverAddress(null);
+            setSwitchDriverModel(null);
+            setSwitchDriverSN(null);
+            Object.assign(payload, {
+                switch_driver_address: null,
+                switch_driver_model: null,
+                switch_driver_serial: null,
+            });
+        }
+        handleRoleAssignment(payload);
+    };
+
+    const updateReaderSwitchOption = (field, value) => {
+        if (field === 'reader_switch_standard_route') setReaderSwitchStandardRoute(value);
+        if (field === 'reader_switch_settling_time') setReaderSwitchSettlingTime(value);
+        handleRoleAssignment({ [field]: value });
     };
 
     const activeInstruments = workstations.find(ws => ws.ip === activeWorkstationIp)?.instruments || [];
-    const hasAssignedInstruments = stdInstrumentAddress || tiInstrumentAddress || acSourceAddress || dcSourceAddress || switchDriverAddress || amplifierAddress;
+    const hasAssignedInstruments = stdInstrumentAddress || tiInstrumentAddress || acSourceAddress || dcSourceAddress || switchDriverAddress || readerSwitchDriverAddress || amplifierAddress;
 
     const assignedRoleChips = [
         stdInstrumentAddress && { key: 'std', label: 'Standard DMM', identity: [stdReaderModel, stdReaderSN && `S/N ${stdReaderSN}`].filter(Boolean).join(' '), address: stdInstrumentAddress },
@@ -377,7 +498,8 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         acSourceAddress && { key: 'ac', label: 'AC Source', identity: acSourceSN ? `S/N ${acSourceSN}` : '—', address: acSourceAddress },
         dcSourceAddress && { key: 'dc', label: 'DC Source', identity: dcSourceSN ? `S/N ${dcSourceSN}` : '—', address: dcSourceAddress },
         amplifierAddress && { key: 'amp', label: 'Amplifier', identity: amplifierSN ? `S/N ${amplifierSN}` : '—', address: amplifierAddress },
-        switchDriverAddress && { key: 'sw', label: 'Switch Driver', identity: [switchDriverModel, switchDriverSN && `S/N ${switchDriverSN}`].filter(Boolean).join(' '), address: switchDriverAddress },
+        switchDriverAddress && { key: 'sw-source', label: 'Source Switch', identity: [switchDriverModel, switchDriverSN && `S/N ${switchDriverSN}`].filter(Boolean).join(' '), address: switchDriverAddress },
+        readerSwitchDriverAddress && { key: 'sw-reader', label: 'Instrument Switch', identity: [readerSwitchDriverModel, readerSwitchDriverSN && `S/N ${readerSwitchDriverSN}`].filter(Boolean).join(' '), address: readerSwitchDriverAddress },
     ].filter(Boolean);
 
     return (
@@ -392,8 +514,8 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                         type="button"
                         onClick={handleScanInstruments}
                         className="cal-results-excel-icon-btn"
-                        disabled={isScanning || isRemoteViewer}
-                        title={isScanning ? "Scanning..." : "Scan for Instruments"}
+                        disabled={isScanning || !selectedSessionId || isRemoteViewer}
+                        title={!selectedSessionId ? "Select a session before scanning" : isScanning ? "Scanning..." : "Scan for Instruments"}
                         aria-label="Scan for instruments"
                     >
                         <FaSearch />
@@ -488,7 +610,12 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                         activeInstruments.map(inst => {
                             const status = instrumentStatuses[inst.address];
                             const isFetching = isFetchingStatuses[inst.address];
-                            let isConnected = status && status.wsConnectionState === 'Status Received' && !status.error;
+                            // A successful discovery already opened the VISA resource and
+                            // obtained its identity. ISR/status-register polling is optional
+                            // metadata and must not make a live 5730A (or a reader without
+                            // ISR support, such as the 34420A) look disconnected or lock its
+                            // persisted role assignment after reopening a session.
+                            const isConnected = isDiscoveredInstrumentAvailable(inst);
                             const isAssignable = ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
                             const isAcDcAssignable = ACDC_ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
                             const isAmplifierAssignable = AMPLIFIER_MODELS.some(m => inst.identity.includes(m));
@@ -500,11 +627,8 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                             let model = '';
                             if (parts.length > 1 && parts[1]) {
                                 model = parts[1].trim();
+                                if (model.startsWith('8508A')) model = '8508A';
                             }
-                            if (model === "34420A" || model === "8100" || model === "11713C") {
-                                isConnected = true;
-                            }
-
                             const is5730A = model.includes('5730');
 
                             const isZeroing = instrumentStatuses[inst.address]?.wsConnectionState === "Zeroing in Progress..."
@@ -518,7 +642,12 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                             <p className="instrument-address">{inst.address}</p>
                                         </div>
                                         <div className="status-card-actions-pill">
-                                            <div className={`status-badge ${isConnected ? 'connected' : 'disconnected'}${is5730A ? ' has-adjacent-action' : ''}`}>
+                                                <div
+                                                    className={`status-badge ${isConnected ? 'connected' : 'disconnected'}${is5730A ? ' has-adjacent-action' : ''}`}
+                                                    title={status?.error
+                                                        ? `Instrument discovered; status details unavailable: ${status.error}`
+                                                        : (isConnected ? 'Instrument identified during the latest discovery scan.' : 'Instrument was not identified during discovery.')}
+                                                >
                                                 <span className="status-badge-icon">●</span>
                                                 {isConnected ? 'Connected' : 'Disconnected'}
                                             </div>
@@ -547,12 +676,46 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                 <div className="role-assignment">
                                                     <span className="role-assignment-label">Reader Role</span>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`std-role-${inst.address}`} checked={stdInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || !isConnected || (stdInstrumentAddress && stdInstrumentAddress !== inst.address) || isRemoteViewer} />
+                                                        <input type="checkbox" id={`std-role-${inst.address}`} checked={isSameInstrumentAddress(stdInstrumentAddress, inst.address)} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`std-role-${inst.address}`}>Standard</label>
+                                                        {(model === '8508A' || /^5790[AB]$/.test(model)) && isSameInstrumentAddress(stdInstrumentAddress, inst.address) && (
+                                                            <select
+                                                                className="reader-input-select"
+                                                                value={stdReaderInput || (model === '8508A' ? 'FRONT' : 'INPUT2')}
+                                                                onChange={(event) => handleReaderInputChange('standard', event.target.value)}
+                                                                disabled={isRemoteViewer || isCollecting}
+                                                                aria-label={`${model} Standard input`}
+                                                            >
+                                                                {model === '8508A' ? (<>
+                                                                    <option value="FRONT">Front input</option>
+                                                                    <option value="REAR">Rear input</option>
+                                                                </>) : (<>
+                                                                    <option value="INPUT1">Input 1</option>
+                                                                    <option value="INPUT2">Input 2</option>
+                                                                </>)}
+                                                            </select>
+                                                        )}
                                                     </div>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`test-role-${inst.address}`} checked={tiInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'test', e.target.checked)} disabled={!selectedSessionId || !isConnected || (tiInstrumentAddress && tiInstrumentAddress !== inst.address)} />
+                                                        <input type="checkbox" id={`test-role-${inst.address}`} checked={isSameInstrumentAddress(tiInstrumentAddress, inst.address)} onChange={(e) => handleStdTiRoleChange(inst, 'test', e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`test-role-${inst.address}`}>Test Instrument</label>
+                                                        {(model === '8508A' || /^5790[AB]$/.test(model)) && isSameInstrumentAddress(tiInstrumentAddress, inst.address) && (
+                                                            <select
+                                                                className="reader-input-select"
+                                                                value={tiReaderInput || (model === '8508A' ? 'REAR' : 'INPUT2')}
+                                                                onChange={(event) => handleReaderInputChange('test', event.target.value)}
+                                                                disabled={isRemoteViewer || isCollecting}
+                                                                aria-label={`${model} Test Instrument input`}
+                                                            >
+                                                                {model === '8508A' ? (<>
+                                                                    <option value="FRONT">Front input</option>
+                                                                    <option value="REAR">Rear input</option>
+                                                                </>) : (<>
+                                                                    <option value="INPUT1">Input 1</option>
+                                                                    <option value="INPUT2">Input 2</option>
+                                                                </>)}
+                                                            </select>
+                                                        )}
                                                     </div>
                                                 </div>
                                             )}
@@ -560,11 +723,11 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                 <div className="role-assignment">
                                                     <span className="role-assignment-label">Source Function</span>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`ac-role-${inst.address}`} checked={acSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'ac', e.target.checked)} disabled={!selectedSessionId || !isConnected || (acSourceAddress && acSourceAddress !== inst.address)} />
+                                                        <input type="checkbox" id={`ac-role-${inst.address}`} checked={isSameInstrumentAddress(acSourceAddress, inst.address)} onChange={(e) => handleAcDcCheckboxChange(inst, 'ac', e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`ac-role-${inst.address}`}>AC Source</label>
                                                     </div>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`dc-role-${inst.address}`} checked={dcSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'dc', e.target.checked)} disabled={!selectedSessionId || !isConnected || (dcSourceAddress && dcSourceAddress !== inst.address)} />
+                                                        <input type="checkbox" id={`dc-role-${inst.address}`} checked={isSameInstrumentAddress(dcSourceAddress, inst.address)} onChange={(e) => handleAcDcCheckboxChange(inst, 'dc', e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`dc-role-${inst.address}`}>DC Source</label>
                                                     </div>
                                                 </div>
@@ -573,18 +736,59 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                                                 <div className="role-assignment">
                                                     <span className="role-assignment-label">Amplifier Role</span>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`amp-role-${inst.address}`} checked={amplifierAddress === inst.address} onChange={(e) => handleAmplifierRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || (amplifierAddress && amplifierAddress !== inst.address)} />
+                                                        <input type="checkbox" id={`amp-role-${inst.address}`} checked={isSameInstrumentAddress(amplifierAddress, inst.address)} onChange={(e) => handleAmplifierRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
                                                         <label htmlFor={`amp-role-${inst.address}`}>Amplifier</label>
                                                     </div>
                                                 </div>
                                             )}
                                             {isSwitchDriverAssignable && (
                                                 <div className="role-assignment">
-                                                    <span className="role-assignment-label">Utility Role</span>
+                                                    <span className="role-assignment-label">Routing Role</span>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`switch-driver-role-${inst.address}`} checked={switchDriverAddress === inst.address} onChange={(e) => handleSwitchDriverRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || (switchDriverAddress && switchDriverAddress !== inst.address)} />
-                                                        <label htmlFor={`switch-driver-role-${inst.address}`}>Switch Driver</label>
+                                                        <input type="checkbox" id={`source-switch-role-${inst.address}`} checked={isSameInstrumentAddress(switchDriverAddress, inst.address)} onChange={(e) => handleSourceSwitchRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
+                                                        <label htmlFor={`source-switch-role-${inst.address}`}>Sources</label>
                                                     </div>
+                                                    <div className="checkbox-group">
+                                                        <input type="checkbox" id={`reader-switch-role-${inst.address}`} checked={isSameInstrumentAddress(readerSwitchDriverAddress, inst.address)} onChange={(e) => handleReaderSwitchRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || isRemoteViewer || isCollecting} />
+                                                        <label htmlFor={`reader-switch-role-${inst.address}`}>Instruments</label>
+                                                    </div>
+                                                    {isSameInstrumentAddress(readerSwitchDriverAddress, inst.address) && (
+                                                        <div className="reader-switch-options">
+                                                            <label className="reader-switch-option">
+                                                                <span>Standard path</span>
+                                                                <select
+                                                                    className="reader-input-select"
+                                                                    value={readerSwitchStandardRoute || 'OPEN'}
+                                                                    onChange={(event) => updateReaderSwitchOption('reader_switch_standard_route', event.target.value)}
+                                                                    disabled={isRemoteViewer || isCollecting}
+                                                                    title="Physical relay route wired to the Standard instrument; the Test instrument uses the opposite route"
+                                                                    aria-label="Standard instrument relay route"
+                                                                >
+                                                                    <option value="OPEN">Open / NC</option>
+                                                                    <option value="CLOSED">Closed / NO</option>
+                                                                </select>
+                                                            </label>
+                                                            <label className="reader-switch-option">
+                                                                <span>Switch delay</span>
+                                                                <span className="reader-switch-delay-control">
+                                                                    <input
+                                                                        className="reader-input-select"
+                                                                        type="number"
+                                                                        min="0"
+                                                                        max="300"
+                                                                        step="0.1"
+                                                                        value={readerSwitchSettlingTime ?? 1}
+                                                                        onChange={(event) => setReaderSwitchSettlingTime(event.target.value)}
+                                                                        onBlur={(event) => updateReaderSwitchOption('reader_switch_settling_time', Number(event.target.value) || 0)}
+                                                                        disabled={isRemoteViewer || isCollecting}
+                                                                        title="Delay after changing instruments before taking the next reading"
+                                                                        aria-label="Instrument switch settling delay in seconds"
+                                                                    />
+                                                                    <span>s</span>
+                                                                </span>
+                                                            </label>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>

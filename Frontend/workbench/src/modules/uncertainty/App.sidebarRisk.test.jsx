@@ -1,9 +1,775 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import { SidebarPointItem } from "./App";
+import {
+  copyPointBudget,
+  DEFAULT_SIDEBAR_COLUMN_ORDER,
+  getConsecutiveSidebarCellGroup,
+  getConsecutiveSidebarCellGroupDuringEdit,
+  getSidebarColumnMinWidth,
+  getUutReassignmentPointIds,
+  normalizeSidebarColumnOrder,
+  pastePointBudget,
+  SidebarPointItem,
+} from "./App";
 
 vi.mock("plotly.js-dist", () => ({ default: {} }));
+
+describe("measurement-point value editing", () => {
+  test("normalizes saved column order without losing newly added columns", () => {
+    const normalized = normalizeSidebarColumnOrder([
+      "value",
+      "uut",
+      "value",
+      "unknown",
+    ]);
+
+    expect(normalized.slice(0, 2)).toEqual(["value", "uut"]);
+    expect(new Set(normalized).size).toBe(DEFAULT_SIDEBAR_COLUMN_ORDER.length);
+    expect(normalized).toEqual(
+      expect.arrayContaining(DEFAULT_SIDEBAR_COLUMN_ORDER),
+    );
+  });
+
+  test("keeps UUT limit columns wide enough for full-precision values", () => {
+    expect(getSidebarColumnMinWidth("lowLimit")).toBe(82);
+    expect(getSidebarColumnMinWidth("highLimit")).toBe(82);
+    expect(getSidebarColumnMinWidth("section")).toBe(44);
+  });
+
+  test("places point cells into the saved visual column order", () => {
+    const { container } = render(
+      <SidebarPointItem
+        point={{
+          id: "p1",
+          section: "4.1",
+          testPointInfo: { parameter: { value: 1, unit: "V" } },
+        }}
+        uutName="Bench DMM"
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true, section: true, value: true }}
+        columnOrder={["value", "uut", "section"]}
+      />,
+    );
+
+    const row = container.querySelector(".point-grid-item");
+    expect(row.style.gridTemplateAreas).toBe('"value uut section"');
+    expect(
+      [...row.querySelectorAll("[data-sidebar-column]")]
+        .sort((a, b) =>
+          ["value", "uut", "section"].indexOf(a.style.gridArea) -
+          ["value", "uut", "section"].indexOf(b.style.gridArea),
+        )
+        .map((cell) => cell.dataset.sidebarColumn),
+    ).toEqual(["value", "uut", "section"]);
+  });
+
+  test("groups consecutive repeated categorical cells", () => {
+    const points = [
+      { id: "p1", section: "4.2.11" },
+      { id: "p2", section: "4.2.11" },
+      { id: "p3", section: "4.2.12" },
+    ];
+
+    expect(
+      getConsecutiveSidebarCellGroup(points, 0, (point) => point.section),
+    ).toEqual({
+      isStart: true,
+      isEnd: false,
+      span: 2,
+      pointIds: ["p1", "p2"],
+    });
+    expect(
+      getConsecutiveSidebarCellGroup(points, 1, (point) => point.section),
+    ).toEqual({
+      isStart: false,
+      isEnd: true,
+      span: 2,
+      pointIds: ["p1", "p2"],
+    });
+    expect(
+      getConsecutiveSidebarCellGroup(points, 2, (point) => point.section),
+    ).toEqual({ isStart: true, isEnd: true, span: 1, pointIds: ["p3"] });
+  });
+
+  const renderGroupedUutRow = (props) =>
+    render(
+      <SidebarPointItem
+        point={{ id: "p1", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
+        uutName="Bench DMM"
+        currentUutId="uut-1"
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true, value: true }}
+        {...props}
+      />,
+    );
+
+  test("highlights a merged cell when any point in its run is selected", () => {
+    const groupedUut = { isStart: true, span: 2, pointIds: ["p1", "p2"] };
+    const { container } = renderGroupedUutRow({
+      cellGroups: { uut: groupedUut },
+      highlightedPointIds: ["p2"],
+    });
+
+    // The shared cell belongs to both points, so selecting either one lights
+    // it. It is marked on the cell rather than on the absolutely positioned
+    // label: each row paints its own slice of the run, which keeps the shared
+    // block aligned with the point rows and keeps the label clear of it.
+    expect(container.querySelector(".point-uut-selector-cell")).toHaveClass(
+      "point-grouped-cell--highlighted",
+    );
+    expect(
+      container.querySelector(".point-grouped-cell-content"),
+    ).not.toHaveClass("is-highlighted");
+    expect(container.querySelector(".point-selection-contour")).toBeNull();
+  });
+
+  test("temporarily splits a shared cell around its edited member", () => {
+    const points = ["p1", "p2", "p3", "p4"].map((id) => ({
+      id,
+      qualifier: "Hz",
+    }));
+    const pendingEdit = { pointId: "p2", field: "qualifier" };
+    const groupAt = (index) =>
+      getConsecutiveSidebarCellGroupDuringEdit(
+        points,
+        index,
+        (point) => point.qualifier,
+        "qualifier",
+        pendingEdit,
+      );
+
+    expect(groupAt(0)).toEqual({
+      isStart: true,
+      isEnd: true,
+      span: 1,
+      pointIds: ["p1"],
+    });
+    expect(groupAt(1)).toEqual({
+      isStart: true,
+      isEnd: true,
+      span: 1,
+      pointIds: ["p2"],
+    });
+    expect(groupAt(2)).toEqual({
+      isStart: true,
+      isEnd: false,
+      span: 2,
+      pointIds: ["p3", "p4"],
+    });
+  });
+
+  test("leaves an unshared merged run unhighlighted", () => {
+    const groupedUut = { isStart: true, span: 2, pointIds: ["p1", "p2"] };
+    const { container } = renderGroupedUutRow({
+      cellGroups: { uut: groupedUut },
+      highlightedPointIds: ["p9"],
+    });
+
+    expect(container.querySelector(".point-uut-selector-cell")).not.toHaveClass(
+      "point-grouped-cell--highlighted",
+    );
+  });
+
+  test("marks a continuation cell so it can bridge the row seam above it", () => {
+    const groupedUut = {
+      isStart: false,
+      isEnd: true,
+      span: 2,
+      pointIds: ["p1", "p2"],
+    };
+    const { container } = renderGroupedUutRow({
+      point: { id: "p2", testPointInfo: { parameter: { value: 2, unit: "V" } } },
+      cellGroups: { uut: groupedUut },
+    });
+
+    const cell = container.querySelector(".point-uut-selector-cell");
+    expect(cell).toHaveClass("point-grouped-cell--continuation");
+    // The leading column starts after the row's inline padding, so its fill
+    // has to reach further left than the other merged columns.
+    expect(cell).toHaveClass("point-grouped-cell--leading");
+    expect(cell).not.toHaveClass("point-grouped-cell--start");
+    // Last row of the run: its fill stops at the row edge instead of reaching
+    // through the seam below, which is a real divider.
+    expect(cell).not.toHaveClass("point-grouped-cell--has-next");
+  });
+
+  test("tags a merged cell with its run so hover can reach the whole cell", () => {
+    const { container } = renderGroupedUutRow({
+      cellGroups: {
+        uut: { isStart: false, isEnd: true, span: 2, pointIds: ["p1", "p2"] },
+      },
+    });
+
+    // Every cell of a run carries the same key, which is how hovering one row
+    // lights the whole shared cell the way selecting a point does.
+    expect(
+      container.querySelector(".point-uut-selector-cell").dataset.run,
+    ).toBe("uut:p1");
+  });
+
+  test("leaves an unmerged cell out of run hovering", () => {
+    const { container } = renderGroupedUutRow({
+      cellGroups: { uut: { isStart: true, isEnd: true, span: 1, pointIds: ["p1"] } },
+    });
+
+    // A single-row cell is tinted by its own row, so it needs no run key.
+    expect(
+      container.querySelector(".point-uut-selector-cell").dataset.run,
+    ).toBeUndefined();
+  });
+
+  test("pins a dragged column to its width and leaves the rest alone", () => {
+    const { container } = renderGroupedUutRow({
+      cellGroups: {},
+      columnWidths: { uut: 260 },
+      visibleColumns: { uut: true, section: true, value: true },
+    });
+
+    const template =
+      container.querySelector(".point-grid-item").style.gridTemplateColumns;
+    // The resized column is pinned; Section keeps its default track, so the
+    // rows stay in step with the header they are measured against.
+    expect(template).toContain("260px");
+    expect(template).toContain("50px");
+  });
+
+  test("marks every row of a run but the last as reaching through the seam", () => {
+    const { container } = renderGroupedUutRow({
+      cellGroups: {
+        uut: { isStart: true, isEnd: false, span: 2, pointIds: ["p1", "p2"] },
+      },
+    });
+
+    // Consecutive fills have to overlap rather than meet: a shared edge on a
+    // fractional device pixel let the row seam show through a merged cell
+    // under display scaling.
+    expect(container.querySelector(".point-uut-selector-cell")).toHaveClass(
+      "point-grouped-cell--has-next",
+    );
+  });
+
+  test("centers a grouped label without increasing the point row height", () => {
+    const groupedUut = { isStart: true, span: 4, pointIds: ["p1", "p2", "p3", "p4"] };
+    const { container } = render(
+      <SidebarPointItem
+        point={{ id: "p1", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
+        uutName="Bench DMM"
+        currentUutId="uut-1"
+        cellGroups={{ uut: groupedUut }}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true, value: true }}
+      />,
+    );
+
+    const cell = container.querySelector(".point-uut-selector-cell");
+    const content = container.querySelector(".point-grouped-cell-content");
+    expect(cell).not.toHaveStyle({ height: "115px" });
+    expect(content).toHaveClass("point-grouped-cell-content--uut");
+    expect(content).toHaveClass("is-leading-column");
+    expect(content).toHaveStyle({
+      "--point-cell-group-top": "-5px",
+      "--point-cell-group-height": "115px",
+    });
+  });
+
+  test("routes a shared Section click to the selected member of the run", () => {
+    const onRequestSharedMemberEdit = vi.fn();
+    render(
+      <SidebarPointItem
+        point={{
+          id: "p1",
+          section: "3.1.2",
+          testPointInfo: { parameter: { value: 1, unit: "V" } },
+        }}
+        cellGroups={{
+          section: {
+            isStart: true,
+            isEnd: false,
+            span: 2,
+            pointIds: ["p1", "p2"],
+          },
+        }}
+        preferredSharedEditPointId="p2"
+        onRequestSharedMemberEdit={onRequestSharedMemberEdit}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ section: true, value: true }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("3.1.2"));
+    expect(onRequestSharedMemberEdit).toHaveBeenCalledWith("p2", "section");
+  });
+
+  test("edits only a selected continuation member of a shared Section", () => {
+    const onSave = vi.fn();
+    const onAutoEditFieldConsumed = vi.fn();
+    const { container } = render(
+      <SidebarPointItem
+        point={{
+          id: "p2",
+          section: "3.1.2",
+          testPointInfo: { parameter: { value: 2, unit: "V" } },
+        }}
+        cellGroups={{
+          section: {
+            isStart: false,
+            isEnd: true,
+            span: 2,
+            pointIds: ["p1", "p2"],
+          },
+        }}
+        autoEditField="section"
+        onAutoEditFieldConsumed={onAutoEditFieldConsumed}
+        onSelect={vi.fn()}
+        onSave={onSave}
+        visibleColumns={{ section: true, value: true }}
+      />,
+    );
+
+    const editor = screen.getByDisplayValue("3.1.2");
+    expect(editor).toHaveFocus();
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe("3.1.2".length);
+    editor.setSelectionRange(2, 2);
+    fireEvent.doubleClick(editor);
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe("3.1.2".length);
+    expect(
+      container.querySelector(".point-grouped-cell--editing-member"),
+    ).toBeInTheDocument();
+    expect(onAutoEditFieldConsumed).not.toHaveBeenCalled();
+
+    fireEvent.change(editor, { target: { value: "3.1.3" } });
+    fireEvent.blur(editor);
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "p2", section: "3.1.3" }),
+    );
+    expect(onAutoEditFieldConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  test("edits only a selected continuation member of a shared Qualifier", () => {
+    const onSave = vi.fn();
+    const { container } = render(
+      <SidebarPointItem
+        point={{
+          id: "p2",
+          testPointInfo: {
+            parameter: { value: 2, unit: "V" },
+            qualifier: { name: "Frequency", unit: "Hz", value: "60" },
+          },
+        }}
+        cellGroups={{
+          qualifier: {
+            isStart: false,
+            isEnd: true,
+            span: 2,
+            pointIds: ["p1", "p2"],
+          },
+        }}
+        autoEditField="qualifier"
+        onAutoEditFieldConsumed={vi.fn()}
+        onSelect={vi.fn()}
+        onSave={onSave}
+        visibleColumns={{ qualifier: true, value: true }}
+      />,
+    );
+
+    expect(container.querySelector(".point-qualifier")).toBeInTheDocument();
+    const editor = screen.getByDisplayValue("60");
+    expect(editor).toHaveFocus();
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe("60".length);
+    editor.setSelectionRange(1, 1);
+    fireEvent.doubleClick(editor);
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe("60".length);
+    expect(editor).toHaveClass("qualifier-editor");
+    expect(editor.closest(".point-qualifier")).toHaveClass(
+      "point-qualifier--editing",
+      "point-grouped-cell--editing-member",
+    );
+    fireEvent.change(editor, { target: { value: "400" } });
+    fireEvent.blur(editor);
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "p2",
+        testPointInfo: expect.objectContaining({
+          qualifier: expect.objectContaining({ value: "400" }),
+        }),
+      }),
+    );
+  });
+
+  test("completes the shared Section click handoff and splits only the selected point", async () => {
+    const onSave = vi.fn();
+    const initialPoints = [
+      {
+        id: "p1",
+        section: "1",
+        testPointInfo: { parameter: { value: 1, unit: "V" } },
+      },
+      {
+        id: "p2",
+        section: "1",
+        testPointInfo: { parameter: { value: 2, unit: "V" } },
+      },
+      {
+        id: "p3",
+        section: "1",
+        testPointInfo: { parameter: { value: 3, unit: "V" } },
+      },
+    ];
+
+    const SharedSectionHarness = () => {
+      const [points, setPoints] = React.useState(initialPoints);
+      const [pendingEdit, setPendingEdit] = React.useState(null);
+      return (
+        <div className="sidebar-points-scroll-wrapper">
+          {points.map((point, index) => (
+            <div data-testid={`row-${point.id}`} key={point.id}>
+              <SidebarPointItem
+                point={point}
+                cellGroups={{
+                  section: getConsecutiveSidebarCellGroup(
+                    points,
+                    index,
+                    (candidate) => candidate.section,
+                  ),
+                }}
+                preferredSharedEditPointId="p2"
+                onRequestSharedMemberEdit={(pointId, field) =>
+                  setPendingEdit({ pointId, field })
+                }
+                autoEditField={
+                  pendingEdit?.pointId === point.id ? pendingEdit.field : null
+                }
+                onAutoEditFieldConsumed={() => setPendingEdit(null)}
+                onSelect={vi.fn()}
+                onSave={(updatedPoint) => {
+                  onSave(updatedPoint);
+                  setPoints((current) =>
+                    current.map((candidate) =>
+                      candidate.id === updatedPoint.id
+                        ? updatedPoint
+                        : candidate,
+                    ),
+                  );
+                }}
+                visibleColumns={{ section: true, value: true }}
+              />
+            </div>
+          ))}
+        </div>
+      );
+    };
+
+    const { container } = render(<SharedSectionHarness />);
+    fireEvent.click(
+      container.querySelector(
+        '[data-testid="row-p1"] .point-section .point-grouped-cell-label',
+      ),
+    );
+
+    const selectedEditor = within(screen.getByTestId("row-p2")).getByDisplayValue(
+      "1",
+    );
+    fireEvent.change(selectedEditor, { target: { value: "2" } });
+    fireEvent.blur(selectedEditor);
+
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "p2", section: "2" }),
+      ),
+    );
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  test("completes the shared Qualifier click handoff and splits only the selected point", async () => {
+    const onSave = vi.fn();
+    const initialPoints = ["p1", "p2", "p3"].map((id, index) => ({
+      id,
+      testPointInfo: {
+        parameter: { value: index + 1, unit: "V" },
+        qualifier: { name: "Frequency", unit: "Hz", value: "60" },
+      },
+    }));
+
+    const SharedQualifierHarness = () => {
+      const [points, setPoints] = React.useState(initialPoints);
+      const [pendingEdit, setPendingEdit] = React.useState(null);
+      return (
+        <div className="sidebar-points-scroll-wrapper">
+          {points.map((point, index) => (
+            <div data-testid={`qualifier-row-${point.id}`} key={point.id}>
+              <SidebarPointItem
+                point={point}
+                cellGroups={{
+                  qualifier: getConsecutiveSidebarCellGroupDuringEdit(
+                    points,
+                    index,
+                    (candidate) => candidate.testPointInfo.qualifier.value,
+                    "qualifier",
+                    pendingEdit,
+                  ),
+                }}
+                preferredSharedEditPointId="p2"
+                onRequestSharedMemberEdit={(pointId, field) =>
+                  setPendingEdit({ pointId, field })
+                }
+                autoEditField={
+                  pendingEdit?.pointId === point.id ? pendingEdit.field : null
+                }
+                onAutoEditFieldConsumed={() => setPendingEdit(null)}
+                onSelect={vi.fn()}
+                onSave={(updatedPoint) => {
+                  onSave(updatedPoint);
+                  setPoints((current) =>
+                    current.map((candidate) =>
+                      candidate.id === updatedPoint.id
+                        ? updatedPoint
+                        : candidate,
+                    ),
+                  );
+                }}
+                visibleColumns={{ qualifier: true, value: true }}
+              />
+            </div>
+          ))}
+        </div>
+      );
+    };
+
+    const { container } = render(<SharedQualifierHarness />);
+    fireEvent.click(
+      container.querySelector(
+        '[data-testid="qualifier-row-p1"] .point-qualifier .point-grouped-cell-label',
+      ),
+    );
+
+    const selectedEditor = within(
+      screen.getByTestId("qualifier-row-p2"),
+    ).getByDisplayValue("60");
+    expect(
+      screen
+        .getByTestId("qualifier-row-p1")
+        .querySelector(".point-grouped-cell-content--qualifier"),
+    ).toBeNull();
+    expect(selectedEditor.closest(".point-grouped-cell")).toBeNull();
+    fireEvent.change(selectedEditor, { target: { value: "400" } });
+    fireEvent.blur(selectedEditor);
+
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "p2",
+          testPointInfo: expect.objectContaining({
+            qualifier: expect.objectContaining({ value: "400" }),
+          }),
+        }),
+      ),
+    );
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  test("copies and replaces only uncertainty-budget fields", () => {
+    const source = {
+      id: "source",
+      components: [{ id: "component-1", name: "Repeatability" }],
+      tmdeTolerances: [{ id: "tmde-1" }],
+      inputCorrelations: { a: { b: 0.5 } },
+      equationString: "a+b",
+    };
+    const target = {
+      id: "target",
+      components: [{ id: "old" }],
+      coverageFactorMode: "manual",
+      equationString: "x*y",
+      testPointInfo: { parameter: { value: 10, unit: "V" } },
+    };
+
+    const budget = copyPointBudget(source);
+    const pasted = pastePointBudget(target, budget);
+
+    expect(pasted.components).toEqual(source.components);
+    expect(pasted.components).not.toBe(source.components);
+    expect(pasted.tmdeTolerances).toEqual(source.tmdeTolerances);
+    expect(pasted.inputCorrelations).toEqual(source.inputCorrelations);
+    expect(pasted).not.toHaveProperty("coverageFactorMode");
+    expect(pasted.equationString).toBe("x*y");
+    expect(pasted.testPointInfo).toEqual(target.testPointInfo);
+  });
+
+  test("opens the simplified UUT cell on demand without exposing database ids", async () => {
+    const onUutChange = vi.fn();
+    render(
+      <SidebarPointItem
+        point={{ id: "point-uut", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
+        uutName="Bench DMM"
+        currentUutId="uut-1"
+        uutOptions={[
+          { id: "uut-1", label: "Bench DMM" },
+          { id: "uut-2", label: "Backup DMM" },
+        ]}
+        onUutChange={onUutChange}
+        isSelected
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ uut: true }}
+      />,
+    );
+
+    expect(screen.queryByRole("listbox", { name: "UUT" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "UUT" }));
+    const list = await screen.findByRole("listbox", { name: "UUT" });
+    expect(list.querySelector("small")).toBeNull();
+    fireEvent.click(within(list).getByRole("option", { name: "Backup DMM" }));
+    expect(onUutChange).toHaveBeenCalledWith("uut-2");
+  });
+
+  test("reassigns all selected point rows from a selected UUT cell", () => {
+    expect(
+      getUutReassignmentPointIds({
+        selectedPointIds: ["p2", "p3"],
+        currentPointId: "p2",
+      }),
+    ).toEqual(["p2", "p3"]);
+    expect(
+      getUutReassignmentPointIds({
+        selectedPointIds: ["p2", "p3"],
+        currentPointId: "p1",
+      }),
+    ).toEqual(["p1"]);
+  });
+
+  test("does not expose obsolete drag behavior on measurement-point rows", () => {
+    const { container } = render(
+      <SidebarPointItem
+        point={{
+          id: "point-not-draggable",
+          testPointInfo: { parameter: { value: 25, unit: "psi" } },
+        }}
+        isSelected={false}
+        isActivePoint={false}
+        isTableSelected={false}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{ value: true }}
+      />,
+    );
+
+    expect(container.querySelector(".point-grid-item")).not.toHaveAttribute(
+      "draggable",
+    );
+  });
+
+  test("selects an unselected point and focuses its value input with one click", () => {
+    const onSelect = vi.fn();
+    render(
+      <SidebarPointItem
+        point={{
+          id: "point-inline-value",
+          testPointInfo: { parameter: { value: 25, unit: "psi" } },
+        }}
+        isSelected={false}
+        isActivePoint={false}
+        isTableSelected={false}
+        onSelect={onSelect}
+        onSave={vi.fn()}
+        visibleColumns={{
+          section: false,
+          value: true,
+          qualifier: false,
+          tolerance: false,
+          lowLimit: false,
+          highLimit: false,
+          standardUncertainty: false,
+          measurementUncertainty: false,
+          tmdeLow: false,
+          tmdeHigh: false,
+          pfa: false,
+          pfr: false,
+          tur: false,
+          tar: false,
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle("25 psi"));
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    const input = document.querySelector(".sidebar-inline-input.value");
+    expect(input).toHaveValue("25");
+    expect(input).toHaveAttribute("size", "2");
+    expect(input).toHaveFocus();
+  });
+
+  test("advances value entry after Enter commits the current point", async () => {
+    const onSave = vi.fn();
+    const onAdvanceValue = vi.fn();
+    render(
+      <SidebarPointItem
+        point={{
+          id: "point-enter",
+          testPointInfo: { parameter: { value: "", unit: "V" } },
+        }}
+        isSelected
+        onSelect={vi.fn()}
+        onSave={onSave}
+        onAdvanceValue={onAdvanceValue}
+        visibleColumns={{ value: true }}
+      />,
+    );
+
+    fireEvent.click(document.querySelector(".point-value"));
+    const input = document.querySelector(".sidebar-inline-input.value");
+    fireEvent.change(input, { target: { value: "10" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        testPointInfo: expect.objectContaining({
+          parameter: expect.objectContaining({ value: "10" }),
+        }),
+      }),
+    );
+    await waitFor(() => expect(onAdvanceValue).toHaveBeenCalledOnce());
+  });
+
+  test("opens an already-mounted blank row when value focus advances", async () => {
+    const common = {
+      point: {
+        id: "point-precreated",
+        testPointInfo: { parameter: { value: "", unit: "V" } },
+      },
+      isSelected: false,
+      onSelect: vi.fn(),
+      onSave: vi.fn(),
+      onAutoEditConsumed: vi.fn(),
+      visibleColumns: { value: true },
+    };
+    const { rerender } = render(
+      <SidebarPointItem {...common} autoEditValue={false} />,
+    );
+
+    rerender(<SidebarPointItem {...common} autoEditValue />);
+
+    await waitFor(() =>
+      expect(document.querySelector(".sidebar-inline-input.value")).toHaveFocus(),
+    );
+    expect(common.onAutoEditConsumed).toHaveBeenCalledOnce();
+  });
+});
 
 describe("measurement-point Risk 8 metric interactions", () => {
   test("re-evaluates metric colors against the live risk requirements", () => {
@@ -11,7 +777,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
       point: {
         id: "point-thresholds",
         testPointInfo: { parameter: { value: 1, unit: "V" } },
-        riskMetrics: { pfa: 1.5, pfr: 1.5, tur: 3, tar: 3 },
+        riskMetrics: { pfa: 1.5, pfr: 1.6, tur: 3, tar: 3.1 },
       },
       isSelected: true,
       isActivePoint: true,
@@ -27,14 +793,14 @@ describe("measurement-point Risk 8 metric interactions", () => {
     const { rerender } = render(
       <SidebarPointItem {...common} riskRequirements={{ reqPFA: 2, neededTUR: 3 }} />,
     );
-    expect(screen.getByTitle(/^PFA/)).toHaveStyle({ color: "var(--status-good)" });
-    expect(screen.getByTitle(/^TUR/)).toHaveStyle({ color: "var(--status-good)" });
+    expect(screen.getByTitle("1.5")).toHaveStyle({ color: "var(--status-good)" });
+    expect(screen.getByTitle("3")).toHaveStyle({ color: "var(--status-good)" });
 
     rerender(<SidebarPointItem {...common} riskRequirements={{ reqPFA: 1, neededTUR: 4 }} />);
-    expect(screen.getByTitle(/^PFA/)).toHaveStyle({ color: "var(--status-warning)" });
-    expect(screen.getByTitle(/^PFR/)).toHaveStyle({ color: "var(--status-warning)" });
-    expect(screen.getByTitle(/^TUR/)).toHaveStyle({ color: "var(--status-warning)" });
-    expect(screen.getByTitle(/^TAR/)).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("1.5")).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("1.6")).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("3")).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("3.1")).toHaveStyle({ color: "var(--status-warning)" });
   });
 
   test("does not show a Risk 8 badge and Ctrl-click requests the PFA breakdown", () => {
@@ -84,7 +850,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
     );
 
     expect(screen.queryByText("Risk 8")).not.toBeInTheDocument();
-    const pfa = screen.getByTitle("PFA — Ctrl+click for breakdown");
+    const pfa = screen.getByTitle("0.11");
     fireEvent.click(pfa, { ctrlKey: true });
 
     expect(onSelect).toHaveBeenCalledWith({
@@ -94,7 +860,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
     });
     expect(onShowRiskBreakdown).toHaveBeenCalledWith("pfa");
 
-    fireEvent.click(screen.getByTitle("PFR — Ctrl+click for breakdown"), {
+    fireEvent.click(screen.getByTitle("0.12"), {
       ctrlKey: true,
     });
     expect(onShowRiskBreakdown).toHaveBeenNthCalledWith(2, "pfr");
@@ -120,7 +886,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
             gbPfr: 4.18,
             gbCalInt: 5.40849,
             gbMeasRel: 86.47,
-            noGbPfa: 2,
+            noGbPfa: 2.01,
             noGbPfr: 3.61,
             noGbCalInt: 4.69473132,
             noGbMeasRel: 88.27,
@@ -165,33 +931,66 @@ describe("measurement-point Risk 8 metric interactions", () => {
       />,
     );
 
-    expect(screen.getByTitle("R_REOP at test-point TUR - Ctrl+click for breakdown")).toHaveTextContent("84.18%");
-    expect(screen.getByTitle("Maximum R_REOP - Ctrl+click for breakdown")).toHaveTextContent("100.00%");
-    expect(screen.getByTitle("R_meas - Ctrl+click for breakdown")).toHaveTextContent("85.69%");
-    expect(screen.getByTitle("Targeted R_REOP with GB - Ctrl+click for breakdown")).toHaveTextContent("86.47%");
-    expect(screen.getByTitle("Calibration Interval with Guard Banding")).toHaveTextContent(
+    expect(screen.getByTitle("84.18")).toHaveTextContent("84.18%");
+    expect(screen.getByTitle("100")).toHaveTextContent("100.00%");
+    expect(screen.getByTitle("85.69")).toHaveTextContent("85.69%");
+    expect(screen.getByTitle("86.47")).toHaveTextContent("86.47%");
+    expect(screen.getByTitle("5.40849")).toHaveTextContent(
       "5.40849",
     );
-    expect(screen.getByTitle("PFA without GB - Ctrl+click for breakdown")).toHaveTextContent("2.00%");
-    expect(screen.getByTitle("PFR without GB - Ctrl+click for breakdown")).toHaveTextContent("3.61%");
-    expect(screen.getByTitle("Calibration Interval without Guard Banding - Ctrl+click for breakdown")).toHaveTextContent(
+    expect(screen.getByTitle("2.01")).toHaveTextContent("2.01%");
+    expect(screen.getByTitle("3.61")).toHaveTextContent("3.61%");
+    expect(screen.getByTitle("4.69473132")).toHaveTextContent(
       "4.69473132",
     );
-    expect(screen.getByTitle("Targeted R_REOP without GB - Ctrl+click for breakdown")).toHaveTextContent("88.27%");
+    expect(screen.getByTitle("88.27")).toHaveTextContent("88.27%");
 
     const interactiveMetrics = [
-      ["R_REOP at test-point TUR - Ctrl+click for breakdown", "observedreop"],
-      ["Maximum R_REOP - Ctrl+click for breakdown", "maxreop"],
-      ["R_meas - Ctrl+click for breakdown", "truereop"],
-      ["Targeted R_REOP with GB - Ctrl+click for breakdown", "gbmeasrel"],
-      ["PFA without GB - Ctrl+click for breakdown", "nogbpfa"],
-      ["PFR without GB - Ctrl+click for breakdown", "nogbpfr"],
-      ["Calibration Interval without Guard Banding - Ctrl+click for breakdown", "calint"],
-      ["Targeted R_REOP without GB - Ctrl+click for breakdown", "measrel"],
+      ["84.18", "observedreop"],
+      ["100", "maxreop"],
+      ["85.69", "truereop"],
+      ["86.47", "gbmeasrel"],
+      ["2.01", "nogbpfa"],
+      ["3.61", "nogbpfr"],
+      ["4.69473132", "calint"],
+      ["88.27", "measrel"],
     ];
-    interactiveMetrics.forEach(([title, modalType]) => {
-      fireEvent.click(screen.getByTitle(title), { ctrlKey: true });
+    interactiveMetrics.forEach(([titlePattern, modalType]) => {
+      fireEvent.click(screen.getByTitle(titlePattern), { ctrlKey: true });
       expect(onShowRiskBreakdown).toHaveBeenLastCalledWith(modalType);
     });
+  });
+
+  test("hover titles retain full precision while cells stay compact", () => {
+    render(
+      <SidebarPointItem
+        point={{
+          id: "point-precision",
+          testPointInfo: { parameter: { value: 1, unit: "V" } },
+          combined_uncertainty_absolute_base: 0.00999981624765,
+          expanded_uncertainty_absolute_base: 0.0199996324953,
+          riskMetrics: { tur: 3.141592653589793, pfa: 0.123456789012345 },
+        }}
+        isSelected
+        isActivePoint
+        isTableSelected={false}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        visibleColumns={{
+          value: false,
+          standardUncertainty: true,
+          measurementUncertainty: true,
+          tur: true,
+          pfa: true,
+        }}
+      />,
+    );
+
+    expect(screen.getByTitle("0.00999981624765"))
+      .toHaveTextContent("0.01000");
+    expect(screen.getByTitle("0.0199996324953"))
+      .toHaveTextContent("0.02000");
+    expect(screen.getByTitle("3.141592653589793")).toHaveTextContent("3.14");
+    expect(screen.getByTitle("0.123456789012345")).toHaveTextContent("0.12%");
   });
 });

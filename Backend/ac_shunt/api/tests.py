@@ -653,6 +653,56 @@ class CalibrationRunLockTests(TestCase):
         self.assertFalse(ok_b)
         self.assertEqual(holder_b, a.pk)
 
+    def test_unassigned_sessions_on_different_hosts_run_in_parallel(self):
+        a = CalibrationSession.objects.create(session_name='Host A session')
+        b = CalibrationSession.objects.create(session_name='Host B session')
+
+        with self.settings(AC_SHUNT_WORKSTATION_ID='lab-host-a'):
+            self.assertEqual(
+                session_state.acquire_run_lock(a.pk, 'chan-a'),
+                (True, a.pk),
+            )
+        with self.settings(AC_SHUNT_WORKSTATION_ID='lab-host-b'):
+            self.assertEqual(
+                session_state.acquire_run_lock(b.pk, 'chan-b'),
+                (True, b.pk),
+            )
+
+        locks = CalibrationRunLock.objects.order_by('workstation__identifier')
+        self.assertEqual(locks.count(), 2)
+        self.assertEqual(
+            [lock.workstation.identifier for lock in locks],
+            ['host-lab-host-a', 'host-lab-host-b'],
+        )
+
+    def test_unassigned_sessions_on_same_host_still_block_each_other(self):
+        a = CalibrationSession.objects.create(session_name='Session A')
+        b = CalibrationSession.objects.create(session_name='Session B')
+
+        with self.settings(AC_SHUNT_WORKSTATION_ID='shared-lab-host'):
+            self.assertEqual(
+                session_state.acquire_run_lock(a.pk, 'chan-a'),
+                (True, a.pk),
+            )
+            self.assertEqual(
+                session_state.acquire_run_lock(b.pk, 'chan-b'),
+                (False, a.pk),
+            )
+
+    def test_legacy_default_workstation_is_scoped_to_physical_host(self):
+        default = Workstation.get_default()
+        a = CalibrationSession.objects.create(
+            session_name='Legacy A', workstation=default
+        )
+        b = CalibrationSession.objects.create(
+            session_name='Legacy B', workstation=default
+        )
+
+        with self.settings(AC_SHUNT_WORKSTATION_ID='legacy-host-a'):
+            self.assertTrue(session_state.acquire_run_lock(a.pk, 'chan-a')[0])
+        with self.settings(AC_SHUNT_WORKSTATION_ID='legacy-host-b'):
+            self.assertTrue(session_state.acquire_run_lock(b.pk, 'chan-b')[0])
+
 
 class CalibrationSessionWorkstationTests(TestCase):
     """Backward-compat guarantees for the new nullable FK."""
@@ -948,6 +998,7 @@ class SupervisorLifecycleTests(_SupervisorAsyncTestCase):
 
     async def test_stop_task_sets_stop_event_and_cancels(self):
         observed_stop = []
+        cleanup_complete = asyncio.Event()
 
         async def work():
             try:
@@ -957,6 +1008,8 @@ class SupervisorLifecycleTests(_SupervisorAsyncTestCase):
             except asyncio.CancelledError:
                 observed_stop.append('cancelled')
                 raise
+            finally:
+                cleanup_complete.set()
 
         await self.sup.start_task('cancellable', work())
         # Give it one scheduler tick so the loop is actually running.
@@ -965,6 +1018,7 @@ class SupervisorLifecycleTests(_SupervisorAsyncTestCase):
         await asyncio.sleep(0.01)
 
         self.assertTrue(self.sup.stop_event.is_set())
+        self.assertTrue(cleanup_complete.is_set())
         # Either path is acceptable — the important invariant is that
         # stop_task completed and the task no longer runs.
         self.assertTrue(observed_stop)

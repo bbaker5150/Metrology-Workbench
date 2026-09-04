@@ -1,5 +1,9 @@
 import React from "react";
 import { FaTimes } from "react-icons/fa";
+import {
+  TYPE_A_COVERAGE_FACTOR,
+  expandedTypeAUncertainty,
+} from "../../utils/uncertaintyPresentation";
 
 const RangeSummaryTable = ({ title, results, prefix }) => {
   const READING_TYPES = [
@@ -47,7 +51,8 @@ const RangeSummaryTable = ({ title, results, prefix }) => {
 };
 
 const ModalFinalResultCard = ({ value, uncertainty, nCycles }) => {
-  const hasUA = uncertainty !== null && uncertainty !== undefined;
+  const expandedUncertainty = expandedTypeAUncertainty(uncertainty);
+  const hasUA = expandedUncertainty !== null;
   return (
     <div className="final-result-card modal-result-card">
       <h4>Calculated AC-DC Difference</h4>
@@ -55,14 +60,14 @@ const ModalFinalResultCard = ({ value, uncertainty, nCycles }) => {
         {value != null ? parseFloat(value).toFixed(3) : "---"}
         {hasUA && (
           <span style={{ fontWeight: 500, opacity: 0.8 }}>
-            &nbsp;±&nbsp;{parseFloat(uncertainty).toFixed(3)}
+            &nbsp;±&nbsp;{expandedUncertainty.toFixed(3)}
           </span>
         )}
         <span> PPM</span>
       </p>
       {hasUA && nCycles ? (
         <p style={{ margin: "4px 0 0 0", fontSize: "0.78rem", opacity: 0.7 }}>
-          Type A (u_A = s/√N), N = {nCycles}
+          Expanded Type A (U_A = {TYPE_A_COVERAGE_FACTOR}u_A, k = {TYPE_A_COVERAGE_FACTOR}, approx. 95%), N = {nCycles}
         </p>
       ) : null}
     </div>

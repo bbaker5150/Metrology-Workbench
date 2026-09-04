@@ -10,7 +10,7 @@
 // wildcard path /uncertainty/*, so internal navigation lives in the <Routes>
 // below and the shell never knows about it.
 import React, { useEffect } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route } from "react-router";
 import { UncertaintyProvider } from "./contexts/UncertaintyContext";
 import UncertalyticsApp from "./App";
 import "./UncertaintyApp.css";

@@ -39,6 +39,7 @@ eventual Redis swap a drop-in replacement.
 from __future__ import annotations
 
 import re
+import socket
 from typing import Any, Optional
 
 from django.conf import settings
@@ -169,6 +170,11 @@ def _initial_live_state() -> dict:
         'tiLiveReadings': {},
         'collectionProgress': {'count': 0, 'total': 0},
         'focusedTPKey': None,
+        # Latest operator-facing stability payloads. Live clients receive
+        # these incrementally, while a client joining mid-cycle needs the
+        # current values included in its authoritative snapshot.
+        'slidingWindowStatus': None,
+        'stabilizationStatus': None,
         # Pre-measurement countdown (warm-up / settling). Carried in the
         # snapshot so a remote joining mid-warm-up — which has missed the
         # one-shot ``status_update`` broadcast — still sees the timer and
@@ -514,6 +520,48 @@ def _runlock_stale_seconds() -> int:
     return int(getattr(settings, 'CALIBRATION_RUNLOCK_STALE_SECONDS', 90))
 
 
+def _local_run_workstation(Workstation):
+    """Return the physical host's implicit workstation for run locking.
+
+    Multiple Electron/local-backend installations may share one database.
+    Treating every unassigned session as the single global default workstation
+    makes a run on one computer block every other computer. A hostname-scoped
+    row preserves single-flight protection per physical host while explicit
+    workstation assignments (central/remote VISA benches) remain authoritative.
+    """
+
+    configured = str(
+        getattr(settings, 'AC_SHUNT_WORKSTATION_ID', '') or ''
+    ).strip()
+    identity = configured or socket.gethostname().strip() or 'unknown-host'
+    slug = re.sub(r'[^a-z0-9]+', '-', identity.lower()).strip('-')
+    slug = slug or 'unknown-host'
+    identifier = f'host-{slug}'[:100]
+    marker = f'host:{identity}'
+    name = f'Local Workstation ({identity})'[:100]
+
+    workstation, created = Workstation.objects.get_or_create(
+        identifier=identifier,
+        defaults={
+            'name': name,
+            'location': 'Local',
+            'is_active': True,
+            'is_default': False,
+            'instrument_addresses': [marker],
+            'notes': (
+                'Automatically scoped to this application host so local '
+                'calibrations on separate computers do not share a run lock.'
+            ),
+        },
+    )
+    if not created:
+        addresses = workstation.instrument_addresses or []
+        if isinstance(addresses, list) and marker not in addresses:
+            workstation.instrument_addresses = [*addresses, marker]
+            workstation.save(update_fields=['instrument_addresses'])
+    return workstation
+
+
 def acquire_run_lock(session_id, owner_channel) -> tuple[bool, Optional[int]]:
     """Atomically acquire the run lock for ``session_id``'s bench.
 
@@ -530,7 +578,13 @@ def acquire_run_lock(session_id, owner_channel) -> tuple[bool, Optional[int]]:
     except CalibrationSession.DoesNotExist:
         return False, None
 
-    ws = session.workstation or Workstation.get_default()
+    # The legacy default row is a database-wide fallback, not a physical
+    # bench identity. In shared-database local installations, scope null/default
+    # sessions to the backend host. Explicit non-default workstation links are
+    # still honored for centrally hosted remote-VISA benches.
+    ws = session.workstation
+    if ws is None or ws.is_default:
+        ws = _local_run_workstation(Workstation)
     stale = _runlock_stale_seconds()
     now = timezone.now()
 

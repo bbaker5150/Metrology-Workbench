@@ -16,6 +16,7 @@ function AnimatedModalShell({
   const [isRendered, setIsRendered] = useState(isOpen);
   const overlayRef = useRef(null);
   const panelRef = useRef(null);
+  const backdropPressStartedRef = useRef(false);
 
   useEffect(() => {
     if (isOpen) setIsRendered(true);
@@ -69,11 +70,27 @@ function AnimatedModalShell({
 
   if (!isRendered) return null;
 
+  const handleBackdropPointerDown = (event) => {
+    backdropPressStartedRef.current = event.target === event.currentTarget;
+  };
+
+  const handleBackdropClick = (event) => {
+    const startedOnBackdrop = backdropPressStartedRef.current;
+    backdropPressStartedRef.current = false;
+    if (startedOnBackdrop && event.target === event.currentTarget) {
+      onClose();
+    }
+  };
+
   return (
     <div
       ref={overlayRef}
       className="modal-overlay modal-overlay--animated"
-      onClick={onClose}
+      onPointerDown={handleBackdropPointerDown}
+      onPointerCancel={() => {
+        backdropPressStartedRef.current = false;
+      }}
+      onClick={handleBackdropClick}
     >
       <div
         ref={panelRef}

@@ -147,8 +147,11 @@ function SessionManager({
     selectedSessionId,
     setSelectedSessionId,
     setSelectedSessionName,
-    setStdInstrumentAddress, setStdReaderModel, setStdReaderSN, setTiInstrumentAddress, setTiReaderModel, setTiReaderSN,
+    setStdInstrumentAddress, setStdReaderModel, setStdReaderSN, setStdReaderInput,
+    setTiInstrumentAddress, setTiReaderModel, setTiReaderSN, setTiReaderInput,
     setAcSourceAddress, setAcSourceSN, setDcSourceAddress, setDcSourceSN, setSwitchDriverAddress, setSwitchDriverModel, setSwitchDriverSN,
+    setReaderSwitchDriverAddress, setReaderSwitchDriverModel, setReaderSwitchDriverSN,
+    setReaderSwitchStandardRoute, setReaderSwitchSettlingTime,
     setAmplifierAddress, setAmplifierSN, setStandardTvcSn, setTestTvcSn, setStandardInstrumentSerial, setTestInstrumentSerial, setFailedTPKeys,
     activeHostSessionIds,
     observeSession,
@@ -174,9 +177,11 @@ function SessionManager({
       setStdInstrumentAddress(session.standard_reader_address || null);
       setStdReaderModel(session.standard_reader_model || null);
       setStdReaderSN(session.standard_reader_serial || null);
+      setStdReaderInput(session.standard_reader_input || (/^5790[AB]$/.test(session.standard_reader_model || "") ? "INPUT2" : "FRONT"));
       setTiInstrumentAddress(session.test_reader_address || null);
       setTiReaderModel(session.test_reader_model || null);
       setTiReaderSN(session.test_reader_serial || null);
+      setTiReaderInput(session.test_reader_input || (/^5790[AB]$/.test(session.test_reader_model || "") ? "INPUT2" : "REAR"));
       setAcSourceAddress(session.ac_source_address || null);
       setAcSourceSN(session.ac_source_serial || null);
       setDcSourceAddress(session.dc_source_address || null);
@@ -184,6 +189,11 @@ function SessionManager({
       setSwitchDriverAddress(session.switch_driver_address || null);
       setSwitchDriverModel(session.switch_driver_model || null);
       setSwitchDriverSN(session.switch_driver_serial || null);
+      setReaderSwitchDriverAddress(session.reader_switch_driver_address || null);
+      setReaderSwitchDriverModel(session.reader_switch_driver_model || null);
+      setReaderSwitchDriverSN(session.reader_switch_driver_serial || null);
+      setReaderSwitchStandardRoute(session.reader_switch_standard_route || "OPEN");
+      setReaderSwitchSettlingTime(session.reader_switch_settling_time ?? 1);
       setAmplifierAddress(session.amplifier_address || null);
       setAmplifierSN(session.amplifier_serial || null);
       setStandardTvcSn(session.standard_tvc_serial || null);

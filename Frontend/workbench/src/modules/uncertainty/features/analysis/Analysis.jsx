@@ -10,7 +10,15 @@
  * 4. Handles instrument (UUT/TMDE) selection and editing logic.
  */
 
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useMemo,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
 import { v4 as uuidv4 } from "uuid";
 
 // --- Custom Hooks ---
@@ -21,7 +29,13 @@ import { useRiskCalculation } from "./hooks/useRiskCalculation";
 import UncertaintyPanel from "./components/UncertaintyPanel";
 import RiskAnalysisDashboard from "./components/RiskAnalysisDashboard";
 import RiskMitigationDashboard from "./components/RiskMitigationDashboard";
-import SessionNotesWorkspace from "./components/SessionNotesWorkspace";
+
+// The document editor is intentionally loaded only when Notes is opened. This
+// keeps the calculation workspace fast while Notes retains its full formatting,
+// table, Office-paste, and media toolset.
+const SessionNotesWorkspace = lazy(() =>
+  import("./components/SessionNotesWorkspace"),
+);
 
 // --- Modals ---
 import NotificationModal from "../../components/modals/NotificationModal";
@@ -44,6 +58,8 @@ import {
 } from "../../utils/tmdeReconcile";
 import {
   getBudgetComponentsFromTolerance,
+  getUutResolutionComponent,
+  removeSavedBudgetComponent,
   refreshLinkedTypeBComponents,
 } from "./utils/budgetUtils";
 import { getInstrumentRangeRows } from "../../utils/instrumentFunctionSelection";
@@ -104,15 +120,23 @@ function Analysis({
   setCurrentUutSelection,
   selectedTablePointIds = [],
   setSelectedTablePointIds = () => {},
+  onInstrumentSelection = () => {},
   activeRangeIndices,
   onRangeSelectionChange,
-  preferredAnalysisMode = "uncertaintyTool",
+  preferredAnalysisMode = "overview",
   onAnalysisModeChange = () => {},
   preferredShowContribution = false,
   onShowContributionChange = () => {},
+  overviewCollapsedFunctionKeys,
+  setOverviewCollapsedFunctionKeys,
+  detailCollapsedFunctionKeys,
+  setDetailCollapsedFunctionKeys,
+  // Legacy aliases keep direct Analysis consumers working while App now owns
+  // distinct overview/detail accordion state.
   collapsedFunctionKeys,
   setCollapsedFunctionKeys,
   keyboardShortcutsEnabled = true,
+  scrollPositionsRef,
 }) {
   // =========================================================================
   // 1. STATE MANAGEMENT
@@ -123,10 +147,18 @@ function Analysis({
   // surfaced in the measurement-point sidebar — until the logic and design are
   // refined. The modes and their content stay wired so re-enabling is just a
   // matter of listing them here again.
-  const VISIBLE_ANALYSIS_MODES = ["uncertaintyTool", "notes"];
+  const VISIBLE_ANALYSIS_MODES = ["overview", "uncertaintyTool", "notes"];
   const analysisMode = VISIBLE_ANALYSIS_MODES.includes(preferredAnalysisMode)
     ? preferredAnalysisMode
-    : "uncertaintyTool";
+    : "overview";
+  const resolvedOverviewCollapsedFunctionKeys =
+    overviewCollapsedFunctionKeys ?? collapsedFunctionKeys;
+  const resolvedSetOverviewCollapsedFunctionKeys =
+    setOverviewCollapsedFunctionKeys ?? setCollapsedFunctionKeys;
+  const resolvedDetailCollapsedFunctionKeys =
+    detailCollapsedFunctionKeys ?? collapsedFunctionKeys;
+  const resolvedSetDetailCollapsedFunctionKeys =
+    setDetailCollapsedFunctionKeys ?? setCollapsedFunctionKeys;
   const showContribution = preferredShowContribution;
   const setShowContribution = useCallback(
     (nextValue) => {
@@ -155,6 +187,49 @@ function Analysis({
 
   // --- Selection State ---
   const [selectedTmdeIds, setSelectedTmdeIds] = useState([]);
+  const analysisContentRef = useRef(null);
+  const fallbackScrollPositionsRef = useRef({});
+  const tabScrollPositionsRef = scrollPositionsRef || fallbackScrollPositionsRef;
+  const scrollPositionKey = useCallback(
+    (mode) => `${sessionData?.id || "session"}:${mode}`,
+    [sessionData?.id],
+  );
+
+  const changeAnalysisMode = useCallback(
+    (nextMode) => {
+      if (analysisContentRef.current) {
+        tabScrollPositionsRef.current[scrollPositionKey(analysisMode)] =
+          analysisContentRef.current.scrollTop;
+      }
+      onAnalysisModeChange(nextMode);
+    },
+    [
+      analysisMode,
+      onAnalysisModeChange,
+      scrollPositionKey,
+      tabScrollPositionsRef,
+    ],
+  );
+
+  useEffect(() => {
+    const content = analysisContentRef.current;
+    if (!content) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      content.scrollTop =
+        tabScrollPositionsRef.current[scrollPositionKey(analysisMode)] || 0;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [analysisMode, scrollPositionKey, tabScrollPositionsRef]);
+
+  useEffect(
+    () => () => {
+      if (analysisContentRef.current) {
+        tabScrollPositionsRef.current[scrollPositionKey(analysisMode)] =
+          analysisContentRef.current.scrollTop;
+      }
+    },
+    [analysisMode, scrollPositionKey, tabScrollPositionsRef],
+  );
 
   // =========================================================================
   // 2. MEMOIZED DATA & LOOKUPS
@@ -212,6 +287,51 @@ function Analysis({
     // already-added budget row without reintroducing equation-variable assignment.
     const refreshedTmdeComponents = rawComponents
       .map((component) => {
+        if (component?.uutResolutionBudgetSource) {
+          const source = Array.isArray(uutToleranceData)
+            ? uutToleranceData.map((tolerance, index) =>
+                index === 0
+                  ? {
+                      ...tolerance,
+                      includeResolutionInBudget: true,
+                      ...(tolerance?.tolerances &&
+                      typeof tolerance.tolerances === "object"
+                        ? {
+                            tolerances: {
+                              ...tolerance.tolerances,
+                              includeResolutionInBudget: true,
+                            },
+                          }
+                        : {}),
+                    }
+                  : tolerance,
+              )
+            : {
+                ...uutToleranceData,
+                includeResolutionInBudget: true,
+                ...(uutToleranceData?.tolerances &&
+                typeof uutToleranceData.tolerances === "object"
+                  ? {
+                      tolerances: {
+                        ...uutToleranceData.tolerances,
+                        includeResolutionInBudget: true,
+                      },
+                    }
+                  : {}),
+              };
+          const replacement = getUutResolutionComponent(source, uutNominal);
+          return replacement
+            ? {
+                ...component,
+                ...replacement,
+                id: component.id,
+                componentId: component.componentId || component.id,
+                isCore: false,
+                isBudgetInstance: true,
+                uutResolutionBudgetSource: true,
+              }
+            : null;
+        }
         if (!component?.tmdeBudgetSourceId) return component;
         const sourceId = component.tmdeBudgetSourceId;
         const master = (sessionData.tmdes || []).find(
@@ -240,8 +360,35 @@ function Analysis({
           ranges[0];
         if (!selectedRange) return null;
         const referencePoint = getReferencePoint(component);
+        const resolutionLinked =
+          String(component.tmdeBudgetComponentKind || "").toLowerCase() ===
+          "resolution";
+        const selectedSource = resolutionLinked
+          ? {
+              ...selectedRange,
+              includeResolutionInBudget: true,
+              ...(selectedRange?.tolerance &&
+              typeof selectedRange.tolerance === "object"
+                ? {
+                    tolerance: {
+                      ...selectedRange.tolerance,
+                      includeResolutionInBudget: true,
+                    },
+                  }
+                : {}),
+              ...(selectedRange?.tolerances &&
+              typeof selectedRange.tolerances === "object"
+                ? {
+                    tolerances: {
+                      ...selectedRange.tolerances,
+                      includeResolutionInBudget: true,
+                    },
+                  }
+                : {}),
+            }
+          : selectedRange;
         const resolved = getBudgetComponentsFromTolerance(
-          selectedRange,
+          selectedSource,
           referencePoint,
         );
         const replacement = resolved.find(
@@ -292,6 +439,7 @@ function Analysis({
     sessionData.tmdes,
     instruments,
     uutNominal,
+    uutToleranceData,
   ]);
 
   // =========================================================================
@@ -571,6 +719,48 @@ function Analysis({
   };
 
   const handleRemoveComponent = (id, component = null) => {
+    // Every repeated budget selection is persisted as its own component row.
+    // Resolve this against the saved collection rather than trusting the
+    // calculated table copy to retain every metadata flag. Remove only that
+    // exact instance, regardless of the instrument/source it was copied from.
+    const savedRemoval = removeSavedBudgetComponent(
+      testPointData.components,
+      id,
+    );
+    if (savedRemoval.removed) {
+      onDataSave({ components: savedRemoval.components });
+      return;
+    }
+
+    // A TMDE resolution is opted in on its own point instance. Clearing that
+    // flag must leave the TMDE accuracy row—and the instrument assignment—intact.
+    if (component?.isResolution && component?.sourceTmdeId) {
+      const sourceId = String(component.sourceTmdeId);
+      onDataSave({
+        tmdeTolerances: tmdeTolerancesData.map((tmde) => {
+          if (
+            String(tmde.id) !== sourceId &&
+            String(tmde.sourceId) !== sourceId
+          ) {
+            return tmde;
+          }
+          return {
+            ...tmde,
+            includeResolutionInBudget: false,
+            ...(tmde.tolerance && typeof tmde.tolerance === "object"
+              ? {
+                  tolerance: {
+                    ...tmde.tolerance,
+                    includeResolutionInBudget: false,
+                  },
+                }
+              : {}),
+          };
+        }),
+      });
+      return;
+    }
+
     // The UUT resolution is opted into the budget from the add menu, so removing
     // it here simply opts it back out on the point's tolerance.
     if (component?.isResolution || id === "uut_resolution") {
@@ -593,11 +783,21 @@ function Analysis({
 
     if (component?.sourceTmdeId) {
       const sourceId = String(component.sourceTmdeId);
-      const updatedTolerances = tmdeTolerancesData.filter(
+      const matchIndex = tmdeTolerancesData.findIndex(
         (tmde) =>
-          String(tmde.id) !== sourceId && String(tmde.sourceId) !== sourceId,
+          String(tmde.id) === sourceId || String(tmde.sourceId) === sourceId,
       );
-      if (updatedTolerances.length < tmdeTolerancesData.length) {
+      if (matchIndex >= 0) {
+        const matched = tmdeTolerancesData[matchIndex];
+        const quantity = Number(matched?.quantity);
+        const updatedTolerances =
+          Number.isFinite(quantity) && quantity > 1
+            ? tmdeTolerancesData.map((tmde, index) =>
+                index === matchIndex
+                  ? { ...tmde, quantity: quantity - 1 }
+                  : tmde,
+              )
+            : tmdeTolerancesData.filter((_, index) => index !== matchIndex);
         onDataSave({ tmdeTolerances: updatedTolerances });
         return;
       }
@@ -638,7 +838,7 @@ function Analysis({
       editingComponent.id.toString().includes("repeatability");
     const newId = isEditing
       ? editingComponent.id
-      : `repeatability_${Date.now()}`;
+      : `repeatability_${Date.now()}_${uuidv4()}`;
     // Route into the right subbudget: explicit scope on add, else preserve the
     // existing component's variable on edit.
     const variableType = scope?.variableType ?? editingComponent?.variableType;
@@ -791,10 +991,19 @@ function Analysis({
   // =========================================================================
 
   const analysisTabs = (
-    <div className="analysis-tabs">
+    <div className="analysis-tabs" data-tour="analysis-tabs">
       {VISIBLE_ANALYSIS_MODES.map((mode) => (
         <button
           key={mode}
+          data-tour={
+            mode === "overview"
+              ? "tab-overview"
+              : mode === "uncertaintyTool"
+                ? "tab-budget"
+                : mode === "notes"
+                  ? "tab-notes"
+                  : undefined
+          }
           className={analysisMode === mode ? "active" : ""}
           onClick={() => {
             if (mode === "riskmitigation") {
@@ -808,10 +1017,12 @@ function Analysis({
                 });
               }
             }
-            onAnalysisModeChange(mode);
+            changeAnalysisMode(mode);
           }}
         >
-          {mode === "uncertaintyTool"
+          {mode === "overview"
+            ? "Instrument Overview"
+            : mode === "uncertaintyTool"
             ? "Uncertainty Budget"
             : mode === "notes"
               ? "Notes"
@@ -824,14 +1035,23 @@ function Analysis({
   );
 
   const notesWorkspace = (
-    <SessionNotesWorkspace
-      sessionData={sessionData}
-      sessionImageCache={sessionImageCache}
-      onSessionImageCacheChange={onSessionImageCacheChange}
-      onLoadSessionImages={onLoadSessionImages}
-      onSessionSave={onSessionSave}
-      onNotesSave={onNotesSave}
-    />
+    <Suspense
+      fallback={(
+        <div className="session-notes-loading" role="status" aria-live="polite">
+          <span className="session-notes-loading-mark" aria-hidden="true" />
+          <span>Preparing editor</span>
+        </div>
+      )}
+    >
+      <SessionNotesWorkspace
+        sessionData={sessionData}
+        sessionImageCache={sessionImageCache}
+        onSessionImageCacheChange={onSessionImageCacheChange}
+        onLoadSessionImages={onLoadSessionImages}
+        onSessionSave={onSessionSave}
+        onNotesSave={onNotesSave}
+      />
+    </Suspense>
   );
 
   return (
@@ -907,6 +1127,7 @@ function Analysis({
         <>
           {analysisTabs}
           <div
+            ref={analysisContentRef}
             className="analysis-content"
             style={{ flex: 1, overflowY: "auto", padding: "20px" }}
           >
@@ -922,9 +1143,10 @@ function Analysis({
             setNotification={setNotification}
             currentUutSelection={currentUutSelection}
             selectedTablePointIds={selectedTablePointIds}
-            collapsedFunctionKeys={collapsedFunctionKeys}
-            setCollapsedFunctionKeys={setCollapsedFunctionKeys}
+            collapsedFunctionKeys={resolvedOverviewCollapsedFunctionKeys}
+            setCollapsedFunctionKeys={resolvedSetOverviewCollapsedFunctionKeys}
             keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+            onInstrumentSelection={onInstrumentSelection}
             // Actions & Navigation
             onDefineTestPoint={handleDefineTestPoint}
             handleOpenSessionEditor={handleOpenSessionEditor}
@@ -955,10 +1177,39 @@ function Analysis({
           {analysisTabs}
 
           <div
+            ref={analysisContentRef}
             className="analysis-content"
             style={{ flex: 1, overflowY: "auto", padding: "20px" }}
           >
             {analysisMode === "notes" && notesWorkspace}
+
+            {analysisMode === "overview" && (
+              <UncertaintyPanel
+                testPointData={{ viewMode: "session", id: sessionData.id }}
+                sessionData={sessionData}
+                onSessionSave={onSessionSave}
+                instruments={instruments}
+                onSaveInstrument={onSaveInstrument}
+                onInstrumentSynced={onInstrumentSynced}
+                setNotification={setNotification}
+                currentUutSelection={currentUutSelection}
+                selectedTablePointIds={selectedTablePointIds}
+                collapsedFunctionKeys={resolvedOverviewCollapsedFunctionKeys}
+                setCollapsedFunctionKeys={resolvedSetOverviewCollapsedFunctionKeys}
+                keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+                onInstrumentSelection={onInstrumentSelection}
+                onDefineTestPoint={handleDefineTestPoint}
+                handleOpenSessionEditor={handleOpenSessionEditor}
+                onDeleteTestPoint={onDeleteTestPoint}
+                onSaveTestPoint={handleSaveTestPointInfo}
+                onSelectUut={onSelectUut}
+                onSelectTestPoint={onSelectTestPoint}
+                setSelectedTablePointIds={setSelectedTablePointIds}
+                setCurrentUutSelection={setCurrentUutSelection}
+                onDeleteUut={onDeleteUut}
+                onDeleteTmdeDefinition={onDeleteTmdeDefinition}
+              />
+            )}
 
             {analysisMode === "uncertaintyTool" && (
               <>
@@ -979,8 +1230,8 @@ function Analysis({
                 // UI State
                 showContribution={showContribution}
                 setShowContribution={setShowContribution}
-                collapsedFunctionKeys={collapsedFunctionKeys}
-                setCollapsedFunctionKeys={setCollapsedFunctionKeys}
+                collapsedFunctionKeys={resolvedDetailCollapsedFunctionKeys}
+                setCollapsedFunctionKeys={resolvedSetDetailCollapsedFunctionKeys}
                 keyboardShortcutsEnabled={keyboardShortcutsEnabled}
                 // Handlers: Components
                 onAddManualComponent={handleAddInlineManualComponent}
@@ -1028,6 +1279,7 @@ function Analysis({
                 setNotification={setNotification}
                 activeRangeIndices={activeRangeIndices}
                 onRangeSelectionChange={onRangeSelectionChange}
+                onInstrumentSelection={onInstrumentSelection}
               />
               </>
             )}

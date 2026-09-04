@@ -26,8 +26,17 @@ import {
   recordSessionFormHistory,
 } from "../../utils/sessionFieldHistory";
 
+export const formatSessionDate = (date = new Date()) => new Intl.DateTimeFormat("en-US", {
+  month: "2-digit",
+  day: "2-digit",
+  year: "numeric",
+}).format(date).replace(/\//g, "-");
+
+export const formatDefaultSessionName = (sessionNumber, model, serial, date = new Date()) =>
+  `#${sessionNumber}, ${model.trim() || "TI Model"}, ${serial.trim() || "TI Serial"}, (${formatSessionDate(date)})`;
+
 const initialFormData = {
-  sessionName: `Calibration Session - ${new Date().toLocaleString()}`,
+  sessionName: "",
   testInstrument: "",
   testInstrumentSerial: "",
   standardInstrumentModel: "",
@@ -246,12 +255,16 @@ function SessionDetailsForm({
     setStdReaderModel,
     stdReaderSN,
     setStdReaderSN,
+    stdReaderInput,
+    setStdReaderInput,
     tiInstrumentAddress,
     setTiInstrumentAddress,
     tiReaderModel,
     setTiReaderModel,
     tiReaderSN,
     setTiReaderSN,
+    tiReaderInput,
+    setTiReaderInput,
     acSourceAddress,
     setAcSourceAddress,
     acSourceSN,
@@ -266,6 +279,16 @@ function SessionDetailsForm({
     setSwitchDriverModel,
     switchDriverSN,
     setSwitchDriverSN,
+    readerSwitchDriverAddress,
+    setReaderSwitchDriverAddress,
+    readerSwitchDriverModel,
+    setReaderSwitchDriverModel,
+    readerSwitchDriverSN,
+    setReaderSwitchDriverSN,
+    readerSwitchStandardRoute,
+    setReaderSwitchStandardRoute,
+    readerSwitchSettlingTime,
+    setReaderSwitchSettlingTime,
     amplifierAddress,
     setAmplifierAddress,
     amplifierSN,
@@ -280,6 +303,10 @@ function SessionDetailsForm({
   const [isLoading, setIsLoading] = useState(false);
   const [fieldHistoryTick, setFieldHistoryTick] = useState(0);
   const [isEditingName, setIsEditingName] = useState(false);
+  const nextSessionNumber = useMemo(
+    () => Math.max(0, ...sessionsList.map((session) => Number(session.id) || 0)) + 1,
+    [sessionsList]
+  );
 
   const shuntSerialPool = useMemo(
     () => mergeSuggestions([], shuntSerials),
@@ -343,9 +370,12 @@ function SessionDetailsForm({
         });
       }
     } else {
-      setFormData({ ...initialFormData, sessionName: `Calibration Session - ${new Date().toLocaleString()}` });
+      setFormData({
+        ...initialFormData,
+        sessionName: formatDefaultSessionName(nextSessionNumber, "", ""),
+      });
     }
-  }, [selectedSessionId, sessionsList]);
+  }, [selectedSessionId, sessionsList, nextSessionNumber]);
 
   const handleChange = (e) => {
     let { name, value } = e.target;
@@ -358,35 +388,12 @@ function SessionDetailsForm({
       const next = { ...prev, [name]: value };
 
       // Only auto-enforce if it is a NEW session
-      if (name === "testInstrument" && !selectedSessionId) {
-        const dateStr = new Intl.DateTimeFormat("en-US", {
-          month: "2-digit",
-          day: "2-digit",
-          year: "numeric",
-        })
-          .format(new Date())
-          .replace(/\//g, "-");
-
-        if (value.trim()) {
-          const match = value.match(/(\d+(?:\.\d+)?\s*m?a)/i);
-          let currentPart = "";
-
-          if (match) {
-            // Remove all spaces first (e.g., "100 mAs" -> "100ma")
-            const cleanMatch = match[1].replace(/\s+/g, "");
-
-            // Replace the unit suffix cleanly in one shot
-            const formattedMatch = cleanMatch.replace(/(m?)a$/i, (m, milli) => {
-              return milli ? "mA" : "A";
-            });
-
-            currentPart = ` @ ${formattedMatch}`;
-          }
-
-          next.sessionName = `${value.trim()}${currentPart} (${dateStr})`;
-        } else {
-          next.sessionName = `Calibration Session - ${new Date().toLocaleString()}`;
-        }
+      if (!selectedSessionId && (name === "testInstrument" || name === "testInstrumentSerial")) {
+        next.sessionName = formatDefaultSessionName(
+          nextSessionNumber,
+          name === "testInstrument" ? value : next.testInstrument,
+          name === "testInstrumentSerial" ? value : next.testInstrumentSerial
+        );
       }
 
       return next;
@@ -437,9 +444,11 @@ function SessionDetailsForm({
       standard_reader_address: stdInstrumentAddress,
       standard_reader_model: stdReaderModel,
       standard_reader_serial: stdReaderSN,
+      standard_reader_input: /^(8508A|5790[AB])$/.test(stdReaderModel || "") ? stdReaderInput : null,
       test_reader_address: tiInstrumentAddress,
       test_reader_model: tiReaderModel,
       test_reader_serial: tiReaderSN,
+      test_reader_input: /^(8508A|5790[AB])$/.test(tiReaderModel || "") ? tiReaderInput : null,
       ac_source_address: acSourceAddress,
       dc_source_address: dcSourceAddress,
       ac_source_serial: acSourceSN,
@@ -447,6 +456,11 @@ function SessionDetailsForm({
       switch_driver_address: switchDriverAddress,
       switch_driver_model: switchDriverModel,
       switch_driver_serial: switchDriverSN,
+      reader_switch_driver_address: readerSwitchDriverAddress,
+      reader_switch_driver_model: readerSwitchDriverModel,
+      reader_switch_driver_serial: readerSwitchDriverSN,
+      reader_switch_standard_route: readerSwitchStandardRoute,
+      reader_switch_settling_time: Number(readerSwitchSettlingTime) || 0,
       amplifier_address: amplifierAddress,
       amplifier_serial: amplifierSN,
     };
@@ -469,9 +483,11 @@ function SessionDetailsForm({
       setStdInstrumentAddress(savedSession.standard_reader_address || null);
       setStdReaderModel(savedSession.standard_reader_model || null);
       setStdReaderSN(savedSession.standard_reader_serial || null);
+      setStdReaderInput(savedSession.standard_reader_input || (/^5790[AB]$/.test(savedSession.standard_reader_model || "") ? "INPUT2" : "FRONT"));
       setTiInstrumentAddress(savedSession.test_reader_address || null);
       setTiReaderModel(savedSession.test_reader_model || null);
       setTiReaderSN(savedSession.test_reader_serial || null);
+      setTiReaderInput(savedSession.test_reader_input || (/^5790[AB]$/.test(savedSession.test_reader_model || "") ? "INPUT2" : "REAR"));
       setAcSourceAddress(savedSession.ac_source_address || null);
       setAcSourceSN(savedSession.ac_source_serial || null);
       setDcSourceAddress(savedSession.dc_source_address || null);
@@ -479,6 +495,11 @@ function SessionDetailsForm({
       setSwitchDriverAddress(savedSession.switch_driver_address || null);
       setSwitchDriverModel(savedSession.switch_driver_model || null);
       setSwitchDriverSN(savedSession.switch_driver_serial || null);
+      setReaderSwitchDriverAddress(savedSession.reader_switch_driver_address || null);
+      setReaderSwitchDriverModel(savedSession.reader_switch_driver_model || null);
+      setReaderSwitchDriverSN(savedSession.reader_switch_driver_serial || null);
+      setReaderSwitchStandardRoute(savedSession.reader_switch_standard_route || "OPEN");
+      setReaderSwitchSettlingTime(savedSession.reader_switch_settling_time ?? 1);
       setAmplifierAddress(savedSession.amplifier_address || null);
       setAmplifierSN(savedSession.amplifier_serial || null);
       setStandardTvcSn(savedSession.standard_tvc_serial || null);

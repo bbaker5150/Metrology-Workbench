@@ -467,6 +467,38 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     };
   }, [selectedShuntDevice, selectedShuntReport, shuntView]);
 
+  const importedInputs = useMemo(() => {
+    if (!selectedShuntReport) return [];
+    const reportId = Number(selectedShuntReport.id);
+    return pivotedShuntData.rows
+      .map((row) => {
+        const required = new Set(
+          (selectedShuntReport.corrections || [])
+            .filter((entry) => Math.abs(Number(entry.current) - Number(row.current)) <= 1e-9)
+            .map((entry) => Number(entry.frequency))
+        );
+        const present = new Set();
+        (uniqueTestPoints || []).forEach((point) => {
+          if (Math.abs(Number(point.current) - Number(row.current)) > 1e-9) return;
+          const sourceIds = [
+            point.forward?.correction_report,
+            point.reverse?.correction_report,
+          ].filter((value) => value !== null && value !== undefined).map(Number);
+          if (sourceIds.length > 0 && !sourceIds.includes(reportId)) return;
+          const frequency = Number(point.frequency);
+          if (required.has(frequency)) present.add(frequency);
+        });
+        if (present.size === 0) return null;
+        return {
+          current: Number(row.current),
+          present: present.size,
+          total: required.size,
+          complete: required.size > 0 && present.size === required.size,
+        };
+      })
+      .filter(Boolean);
+  }, [pivotedShuntData, selectedShuntReport, uniqueTestPoints]);
+
   // =====================================================================
   //  Editor open helpers
   // =====================================================================
@@ -663,13 +695,40 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         else setSelectedTvcReportId(res.data?.id ?? null);
       } else {
         // report-edit
+        const devicePayload = isShunt
+          ? {
+              model_name: editorForm.model_name || "A40B",
+              serial_number: String(editorForm.serial_number),
+              range: parseFloat(editorForm.range || 0),
+              remark: editorForm.remark || "",
+            }
+          : {
+              serial_number: parseInt(editorForm.serial_number, 10),
+              test_voltage: parseFloat(editorForm.test_voltage || 0),
+            };
+        await axios.patch(
+          `${API_BASE_URL}/${isShunt ? "shunts" : "tvcs"}/${editorForm.deviceId}/`,
+          devicePayload
+        );
         const base = `${API_BASE_URL}/${isShunt ? "shunts" : "tvcs"}/${editorForm.deviceId}/reports/${editorForm.reportId}/`;
         await axios.put(base, reportPayload);
         await fetchData();
-        if (isShunt) setSelectedShuntReportId(editorForm.reportId);
-        else setSelectedTvcReportId(editorForm.reportId);
+        if (isShunt) {
+          setSelectedShuntKey(
+            makeDeviceKey(
+              String(editorForm.serial_number),
+              parseFloat(editorForm.range || 0),
+              selectedShuntDevice?.is_manual
+            )
+          );
+          setSelectedShuntReportId(editorForm.reportId);
+        } else {
+          setAuxiliaryTvcSn(String(editorForm.serial_number));
+          setSelectedTvcReportId(editorForm.reportId);
+        }
       }
 
+      if (onUpdate) await onUpdate();
       notify("Report of Calibration saved.", "success");
       setIsEditorOpen(false);
       setEditorForm(initialEditorState);
@@ -806,7 +865,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       }
       const response = await axios.post(
         `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/append/`,
-        { points: newPoints }
+        { points: newPoints, correction_report_id: selectedShuntReport?.id ?? null }
       );
       notify(response.data?.message || "Test points generated and Amplifier range configured!", "success");
       if (onUpdate) await onUpdate();
@@ -1029,6 +1088,26 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
             </button>
           </div>
         </div>
+        <div className="corrections-imported-inputs" aria-live="polite">
+          <span className="corrections-imported-inputs-label">Inputs imported</span>
+          {importedInputs.length > 0 ? (
+            <div className="corrections-imported-inputs-list">
+              {importedInputs.map((input) => (
+                <span
+                  key={input.current}
+                  className={`corrections-imported-input${input.complete ? " is-complete" : " is-partial"}`}
+                  title={input.complete
+                    ? `All ${input.total} frequencies for ${input.current}A are in this session.`
+                    : `${input.present} of ${input.total} frequencies for ${input.current}A remain in this session.`}
+                >
+                  {input.current}A{input.complete ? "" : ` · partial ${input.present}/${input.total}`}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="corrections-imported-inputs-empty">None in this session</span>
+          )}
+        </div>
       </>
     );
   };
@@ -1118,7 +1197,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       editorMode === "device-new" ? "New device" : editorMode === "report-new" ? "New report" : "Editing report";
     const value1Label = isShunt ? "Correction (ppm)" : "AC/DC Diff (ppm)";
     const value2Label = isShunt ? "Uncertainty (ppm)" : "Expanded Unc (ppm)";
-    const identityLocked = editorMode !== "device-new";
+    const identityLocked = editorMode === "report-new";
 
     return (
       <div className="corrections-manual-form">
@@ -1152,6 +1231,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                       <label>Model name</label>
                       <input
                         type="text"
+                        disabled={identityLocked}
                         value={editorForm.model_name ?? ""}
                         onChange={(e) => setEditorForm((p) => ({ ...p, model_name: e.target.value }))}
                         placeholder="e.g. A40B"
@@ -1178,6 +1258,16 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                         placeholder="e.g. 0.01"
                       />
                     </div>
+                    <div className="corrections-form-field corrections-form-field--wide">
+                      <label>Description / remark</label>
+                      <input
+                        type="text"
+                        disabled={identityLocked}
+                        value={editorForm.remark ?? ""}
+                        onChange={(e) => setEditorForm((p) => ({ ...p, remark: e.target.value }))}
+                        placeholder="Optional device description"
+                      />
+                    </div>
                   </>
                 ) : (
                   <>
@@ -1196,6 +1286,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                       <input
                         type="text"
                         inputMode="decimal"
+                        disabled={identityLocked}
                         value={editorForm.test_voltage ?? ""}
                         onChange={(e) => setEditorForm((p) => ({ ...p, test_voltage: e.target.value }))}
                         placeholder="e.g. 1.0"
@@ -1500,7 +1591,13 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                 </button>
               </div>
             )}
-            <button onClick={handleShellClose} className="cal-results-excel-icon-btn" title="Close" aria-label="Close">
+            <button
+              type="button"
+              onClick={handleShellClose}
+              className="cal-results-excel-icon-btn corrections-modal-close"
+              title="Close"
+              aria-label="Close"
+            >
               <FaTimes aria-hidden />
             </button>
           </div>

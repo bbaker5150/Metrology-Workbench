@@ -11,6 +11,10 @@ import axios from "axios";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import useCycleAnalytics from "../../hooks/useCycleAnalytics";
+import {
+  TYPE_A_COVERAGE_FACTOR,
+  expandedTypeAUncertainty,
+} from "../../utils/uncertaintyPresentation";
 
 const READING_TYPES = [
   { label: "AC Open", value: "ac_open_readings", color: "rgb(75, 192, 192)" },
@@ -77,7 +81,8 @@ const MathDisplay = React.memo(({ math }) => {
 
 const ResultsKpi = ({ title, value, formula, uncertainty = null, nCycles = null }) => {
   const isCalculated = value !== null && value !== undefined;
-  const hasUncertainty = uncertainty !== null && uncertainty !== undefined;
+  const expandedUncertainty = expandedTypeAUncertainty(uncertainty);
+  const hasUncertainty = expandedUncertainty !== null;
   return (
     <div
       className={`cal-results-kpi${isCalculated ? "" : " cal-results-kpi--empty"}`}
@@ -89,14 +94,14 @@ const ResultsKpi = ({ title, value, formula, uncertainty = null, nCycles = null 
         </span>
         {hasUncertainty && (
           <span className="cal-results-kpi-uncertainty">
-            &nbsp;±&nbsp;{parseFloat(uncertainty).toFixed(3)}
+            &nbsp;±&nbsp;{expandedUncertainty.toFixed(3)}
           </span>
         )}
         <span className="cal-results-kpi-unit">ppm</span>
       </div>
       {hasUncertainty && nCycles ? (
         <p className="cal-results-kpi-uA-caption">
-          Type A (u_A = s/√N), N = {nCycles}
+          Expanded Type A (U_A = {TYPE_A_COVERAGE_FACTOR}u_A, k = {TYPE_A_COVERAGE_FACTOR}, approx. 95%), N = {nCycles}
         </p>
       ) : null}
       {formula && (
@@ -1129,14 +1134,14 @@ function CalibrationResults({
                               </span>
                               {overviewStats.overallUA != null && (
                                 <span className="cal-calc-kpi-uncertainty">
-                                  &nbsp;±&nbsp;{overviewStats.overallUA.toFixed(3)}
+                                  &nbsp;±&nbsp;{expandedTypeAUncertainty(overviewStats.overallUA).toFixed(3)}
                                 </span>
                               )}
                               <span className="cal-calc-kpi-unit">ppm</span>
                             </div>
                             {overviewStats.cyclePairs.length > 0 && (
                               <p className="cal-results-overview-caption">
-                                Mean across {
+                                Expanded Type A (k = {TYPE_A_COVERAGE_FACTOR}, approx. 95%) · Mean across {
                                   overviewStats.cyclePairs.filter((p) => p.avg != null).length
                                 }{" "}
                                 paired cycle{
@@ -1162,7 +1167,7 @@ function CalibrationResults({
                                 <div className="cal-calc-kpi-value-row">
                                   <span className="cal-calc-kpi-num">{overviewStats.fwdMean.toFixed(3)}</span>
                                   {overviewStats.fwdUA != null && (
-                                    <span className="cal-calc-kpi-uncertainty">&nbsp;±&nbsp;{overviewStats.fwdUA.toFixed(3)}</span>
+                                    <span className="cal-calc-kpi-uncertainty">&nbsp;±&nbsp;{expandedTypeAUncertainty(overviewStats.fwdUA).toFixed(3)}</span>
                                   )}
                                   <span className="cal-calc-kpi-unit">ppm</span>
                                 </div>
@@ -1178,7 +1183,7 @@ function CalibrationResults({
                                 <div className="cal-calc-kpi-value-row">
                                   <span className="cal-calc-kpi-num">{overviewStats.revMean.toFixed(3)}</span>
                                   {overviewStats.revUA != null && (
-                                    <span className="cal-calc-kpi-uncertainty">&nbsp;±&nbsp;{overviewStats.revUA.toFixed(3)}</span>
+                                    <span className="cal-calc-kpi-uncertainty">&nbsp;±&nbsp;{expandedTypeAUncertainty(overviewStats.revUA).toFixed(3)}</span>
                                   )}
                                   <span className="cal-calc-kpi-unit">ppm</span>
                                 </div>

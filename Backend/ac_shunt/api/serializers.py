@@ -326,12 +326,117 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'session_name', 'test_instrument_model', 'test_instrument_serial',
             'test_reader_model', 'test_reader_serial', 'test_reader_address', 'standard_instrument_model',
-            'standard_instrument_serial', 'standard_reader_model', 'standard_reader_serial', 'standard_reader_address',
+            'test_reader_input', 'standard_instrument_serial', 'standard_reader_model', 'standard_reader_serial',
+            'standard_reader_address', 'standard_reader_input',
             'ac_source_address', 'dc_source_address', 'ac_source_serial', 'dc_source_serial', 'switch_driver_address',
-            'switch_driver_model', 'switch_driver_serial', 'amplifier_address', 'amplifier_serial', 'temperature', 'humidity',
+            'switch_driver_model', 'switch_driver_serial',
+            'reader_switch_driver_address', 'reader_switch_driver_model', 'reader_switch_driver_serial',
+            'reader_switch_standard_route', 'reader_switch_settling_time',
+            'amplifier_address', 'amplifier_serial', 'temperature', 'humidity',
             'created_at', 'notes', 'standard_tvc_serial', 'test_tvc_serial',
             'workstation', 'workstation_id',
         ]
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        instance = self.instance
+
+        def value(name):
+            if name in attrs:
+                return attrs[name]
+            return getattr(instance, name, None) if instance is not None else None
+
+        std_model = value("standard_reader_model")
+        ti_model = value("test_reader_model")
+        std_address = value("standard_reader_address")
+        ti_address = value("test_reader_address")
+        instrument_switch_address = value("reader_switch_driver_address")
+        source_switch_address = value("switch_driver_address")
+        def is_5790(model):
+            return str(model or "").upper() in {"5790A", "5790B"}
+
+        std_default = "INPUT2" if is_5790(std_model) else "FRONT"
+        ti_default = "INPUT2" if is_5790(ti_model) else "REAR"
+        std_input = (value("standard_reader_input") or std_default).upper()
+        ti_input = (value("test_reader_input") or ti_default).upper()
+
+        reader_route = (value("reader_switch_standard_route") or "OPEN").upper()
+        if reader_route not in {"OPEN", "CLOSED"}:
+            raise serializers.ValidationError({
+                "reader_switch_standard_route": "Select OPEN/NC or CLOSED/NO."
+            })
+        attrs.setdefault("reader_switch_standard_route", reader_route)
+
+        reader_delay = value("reader_switch_settling_time")
+        if reader_delay is not None and not 0 <= float(reader_delay) <= 300:
+            raise serializers.ValidationError({
+                "reader_switch_settling_time": "Reader switch delay must be between 0 and 300 seconds."
+            })
+
+        for field, model, terminal in (
+            ("standard_reader_input", std_model, std_input),
+            ("test_reader_input", ti_model, ti_input),
+        ):
+            if model == "8508A":
+                if terminal not in {"FRONT", "REAR"}:
+                    raise serializers.ValidationError({field: "Select FRONT or REAR."})
+                attrs[field] = terminal
+            elif is_5790(model):
+                if terminal not in {"INPUT1", "INPUT2"}:
+                    raise serializers.ValidationError({field: "Select Input 1 or Input 2."})
+                attrs[field] = terminal
+
+        if (
+            std_model == "8508A"
+            and ti_model == "8508A"
+            and std_address
+            and std_address == ti_address
+            and std_input == ti_input
+        ):
+            raise serializers.ValidationError(
+                {
+                    "test_reader_input": (
+                        "A single 8508A must use different terminals for the "
+                        "Standard and Test Instrument roles."
+                    )
+                }
+            )
+        shared_5790 = (
+            is_5790(std_model)
+            and is_5790(ti_model)
+            and std_address
+            and std_address == ti_address
+        )
+        complete_reader_assignment = bool(std_address and ti_address and std_model and ti_model)
+        if instrument_switch_address:
+            if complete_reader_assignment and not shared_5790:
+                raise serializers.ValidationError({
+                    "reader_switch_driver_address": (
+                        "Instrument switching requires one shared 5790A/B "
+                        "assigned to both reader roles."
+                    )
+                })
+            if shared_5790 and std_input != ti_input:
+                raise serializers.ValidationError({
+                    "test_reader_input": (
+                        "When an external instrument switch is used, the "
+                        "shared 5790A/B roles must use the same physical input."
+                    )
+                })
+            if source_switch_address and source_switch_address == instrument_switch_address:
+                raise serializers.ValidationError({
+                    "reader_switch_driver_address": (
+                        "Source and instrument routing require separate physical switches."
+                    )
+                })
+        elif shared_5790 and std_input == ti_input:
+            raise serializers.ValidationError({
+                "test_reader_input": (
+                    "Without an external instrument switch, a shared 5790A/B "
+                    "must use different INPUT1/INPUT2 terminals."
+                )
+            })
+        return attrs
 
 class CalibrationTVCCorrectionsSerializer(serializers.ModelSerializer):
     Standard = serializers.DictField(required=False)
@@ -374,6 +479,19 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
             'num_samples',
             'settling_time',
             'nplc',
+            'input_switch_settling_time',
+            'f8508_dc_filter_enabled',
+            'f8508_dc_resolution',
+            'f8508_dc_fast_enabled',
+            'f8508_ac_filter_hz',
+            'f8508_ac_resolution',
+            'f8508_ac_transfer_enabled',
+            'f8508_ac_dc_coupled',
+            'f5790_filter_mode',
+            'f5790_filter_restart',
+            'f5790_hires_enabled',
+            'f5790_range_mode',
+            'f5790_input_switch_settling_time',
             'stability_check_method',
             'stability_window',
             'stability_threshold_ppm',
@@ -401,6 +519,51 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
         double-counts collected cycles. Min value is enforced by the model's
         validator.
         """
+        return value
+
+    def validate_input_switch_settling_time(self, value):
+        if value is not None and not 0 <= value <= 65000:
+            raise serializers.ValidationError(
+                "The 8508A input-switch delay must be between 0 and 65000 seconds."
+            )
+        return value
+
+    def validate_f8508_dc_resolution(self, value):
+        if value not in (5, 6, 7, 8):
+            raise serializers.ValidationError("DC resolution must be 5, 6, 7, or 8.")
+        return value
+
+    def validate_f8508_ac_resolution(self, value):
+        if value not in (5, 6):
+            raise serializers.ValidationError("AC resolution must be 5 or 6.")
+        return value
+
+    def validate_f8508_ac_filter_hz(self, value):
+        if value not in (10, 40, 100):
+            raise serializers.ValidationError("AC filter must be 10, 40, or 100 Hz.")
+        return value
+
+    def validate_f5790_filter_mode(self, value):
+        value = str(value).upper()
+        if value not in {"OFF", "FAST", "MEDIUM", "SLOW"}:
+            raise serializers.ValidationError("5790 filter must be Off, Fast, Medium, or Slow.")
+        return value
+
+    def validate_f5790_filter_restart(self, value):
+        value = str(value).upper()
+        if value not in {"FINE", "MEDIUM", "COARSE"}:
+            raise serializers.ValidationError("5790 filter restart must be Fine, Medium, or Coarse.")
+        return value
+
+    def validate_f5790_range_mode(self, value):
+        value = str(value).upper()
+        if value not in {"0.022", "0.07", "0.22", "0.7", "2.2"}:
+            raise serializers.ValidationError("Select a supported Y5020 range.")
+        return value
+
+    def validate_f5790_input_switch_settling_time(self, value):
+        if not 0 <= value <= 300:
+            raise serializers.ValidationError("5790 input-switch delay must be between 0 and 300 seconds.")
         return value
 
 class FormattedReadingsField(serializers.Field):
@@ -471,9 +634,17 @@ class TestPointSerializer(serializers.ModelSerializer):
     settings = CalibrationSettingsSerializer(required=False)
     readings = CalibrationReadingsSerializer(required=False)
     results = CalibrationResultsSerializer(required=False)
+    correction_report = serializers.PrimaryKeyRelatedField(
+        queryset=ShuntReport.objects.all(),
+        required=False,
+        allow_null=True,
+    )
     class Meta:
         model = TestPoint
-        fields = ['id', 'current', 'frequency', 'direction', 'is_stability_failed', 'settings', 'readings', 'results']
+        fields = [
+            'id', 'current', 'frequency', 'direction', 'is_stability_failed',
+            'correction_report', 'settings', 'readings', 'results',
+        ]
     
     def update(self, instance, validated_data):
         settings_data = validated_data.pop('settings', None)

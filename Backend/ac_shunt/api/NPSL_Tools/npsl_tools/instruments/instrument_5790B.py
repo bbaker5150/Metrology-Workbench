@@ -8,6 +8,7 @@ from .fluke_instrument import FlukeInstrument
 from .instrument import Instrument 
 from .utils import BoolSetting
 from enum import Enum
+import time
 
 class DFILT_5790B_MODE(int, Enum):
     OFF = 1
@@ -51,20 +52,31 @@ class Instrument5790B(FlukeInstrument):
         resource : pyvisa.resources.Resource
             PyVisa Resource that connects to the instrument
     """
+    VALID_INPUTS = {"INPUT1", "INPUT2"}
+    VALID_FILTER_MODES = {"OFF", "SLOW", "MEDIUM", "FAST"}
+    VALID_FILTER_RESTARTS = {"FINE", "COARSE", "MEDIUM"}
+
     def __init__(self, model: str, gpib: str, timeout: float=60000):
         # Re-enable the parent identity check by calling the FlukeInstrument constructor.
         # This will raise an error if the connected device is not a 5790B.
         super().__init__(model=model, gpib=gpib, timeout=timeout)
         
         self.set_auto_range()
-        self.resource.write("INPUT INPUT2")
+        self.set_input("INPUT2")
+        self.input_switch_delay = 30.0
 
     def read_instrument(self):
         """
-        Unified method to take a reading. Manually triggers, waits for the
-        operation to complete, and then gets the value using MEAS?.
+        Return the 5790's current measurement value without starting a new
+        measurement transaction.
+
+        ``MEAS?`` waits for a fresh operation to complete inside the
+        instrument.  That hidden wait competes with the AC-shunt workflow's
+        explicit settling and stability timers and can exhaust the VISA
+        timeout.  ``VAL?`` reports the most recently completed reading and is
+        therefore the correct command for the workflow's paced acquisition.
         """
-        voltage, _, _ = self.send_MEAS()
+        voltage, _, _ = self.send_Value()
         return voltage
 
     def _parse_cal_steps(self, query: str, test_points: list = []):
@@ -135,20 +147,94 @@ class Instrument5790B(FlukeInstrument):
     def get_hires(self): return bool(int(self.resouce.query("HIRES?")))
     def set_extguard(self, enabled: bool): self.resource.write(f"EXTGUARD {'ON' if enabled else 'OFF'};*CLS")
 
-    def send_VAL(self):
+    def send_Value(self):
         """Query the "VAL?" command to the 5790B."""
         output = self.resource.query("VAL?").strip()
         output = output.split(',')
         return float(output[0]), float(output[1]), MEASUREMENT_STATUS_5790B(int(output[2]))
 
+    def send_VAL(self):
+        """Backward-compatible alias for :meth:`send_Value`."""
+        return self.send_Value()
+
     def send_MEAS(self):
-        """Query the "MEAS?" command to the 5790B."""
-        output = self.resource.query("MEAS?").strip()
-        output = output.split(',')
-        return float(output[0]), float(output[1]), MEASUREMENT_STATUS_5790B(int(output[2]))
+        """Deprecated compatibility alias; intentionally does not send MEAS?."""
+        return self.send_Value()
     
     def set_auto_range(self): 
         self.resource.write("RANGE AUTO")
+
+    def set_input(self, input_name: str):
+        input_name = str(input_name or "INPUT2").strip().upper()
+        if input_name not in self.VALID_INPUTS:
+            raise ValueError("5790 input must be INPUT1 or INPUT2")
+        self.resource.write(f"INPUT {input_name}")
+        self.active_input = input_name
+
+    def configure_acquisition(
+        self,
+        *,
+        filter_mode="MEDIUM",
+        filter_restart="MEDIUM",
+        hires=True,
+        hires_enabled=None,
+        range_mode="2.2",
+        point_value=None,
+        input_switch_delay=30.0,
+    ):
+        """Apply the operator-selected 5790A/B reading profile.
+
+        The Alpha and Bravo share this command surface. ``range_mode`` is one
+        of the five physical Y5020 ranges expressed in volts. Slow digital
+        filtering can take more than 60 seconds below 200 Hz, so the VISA
+        timeout is raised to avoid a false timeout.
+        """
+        mode = str(filter_mode or "MEDIUM").strip().upper()
+        restart = str(filter_restart or "MEDIUM").strip().upper()
+        range_mode = str(range_mode or "2.2").strip().upper()
+        if mode not in self.VALID_FILTER_MODES:
+            raise ValueError("5790 filter mode must be OFF, FAST, MEDIUM, or SLOW")
+        if restart not in self.VALID_FILTER_RESTARTS:
+            raise ValueError("5790 filter restart must be FINE, MEDIUM, or COARSE")
+        if range_mode not in {"0.022", "0.07", "0.22", "0.7", "2.2"}:
+            raise ValueError("5790 range must be 22 mV, 70 mV, 220 mV, 700 mV, or 2.2 V")
+
+        if mode == "OFF":
+            self.resource.write("DFILT OFF")
+        else:
+            self.resource.write(f"DFILT {mode},{restart}")
+        # ``f5790_hires_enabled`` is the persisted API field.  Accept that
+        # spelling directly while preserving ``hires`` for existing callers.
+        # This prevents a settings payload from failing at the start of a run
+        # merely because the UI/API and driver used different keyword names.
+        if hires_enabled is not None:
+            hires = hires_enabled
+        self.set_hires(bool(hires))
+        self.set_range(float(range_mode))
+
+        delay = float(input_switch_delay or 0)
+        if delay < 0 or delay > 300:
+            raise ValueError("5790 input-switch delay must be between 0 and 300 seconds")
+        self.input_switch_delay = delay
+        if hasattr(self.resource, "timeout"):
+            minimum_timeout = 130000 if mode == "SLOW" else (90000 if mode == "MEDIUM" else 60000)
+            self.resource.timeout = max(float(self.resource.timeout or 0), minimum_timeout)
+
+    def read_input(self, input_name: str, *, settle: bool = True):
+        """Select one main input and take a fresh reading.
+
+        ``settle=False`` is used by the asynchronous calibration orchestrator,
+        which performs the switch dwell outside this synchronous driver so a
+        Stop request can interrupt it immediately.  The default preserves the
+        safe standalone-driver behavior for other callers.
+        """
+        input_name = str(input_name or "INPUT2").strip().upper()
+        changed = getattr(self, "active_input", None) != input_name
+        if changed:
+            self.set_input(input_name)
+            if settle and self.input_switch_delay:
+                time.sleep(self.input_switch_delay)
+        return self.read_instrument()
         
     def set_range(self, value: float):
         self.resource.write(f"RANGE {value}")

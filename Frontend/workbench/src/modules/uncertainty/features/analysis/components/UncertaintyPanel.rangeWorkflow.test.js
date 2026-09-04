@@ -1,14 +1,819 @@
 import { describe, expect, it } from "vitest";
 import { makeFunctionKey } from "../../../utils/functionGrouping";
 import {
+  addBlankFunctionToInstrument,
+  addRangeToItem,
+  applyTmdeIdentityToPoints,
+  countTmdeBudgetUses,
+  buildFunctionGroupedRows,
   getDeleteSelectionTarget,
+  getBudgetRangeWarnings,
+  getUsableBudgetRangeChoices,
+  localizeSharedInstrumentEdit,
   rangeIsBlank,
   removeRangeFromItem,
+  removeInstrumentCustomColumn,
   removeSelectedRangesFromItem,
   resolveUutRangeHelper,
   sortRangesAscending,
   sortRangesInItem,
+  synchronizeLocalInstrumentDefinitions,
 } from "./UncertaintyPanel";
+
+describe("active function units", () => {
+  it("shows units from instruments used in the table, not every persisted function unit", () => {
+    const rows = buildFunctionGroupedRows(
+      [
+        {
+          type: "item",
+          index: 0,
+          item: {
+            id: "uut-1",
+            instrument: {
+              functions: [
+                {
+                  name: "Voltage",
+                  ranges: [{ id: "r1", min: 0, max: 10, unit: "V" }],
+                },
+              ],
+            },
+          },
+        },
+      ],
+      {
+        functionGroups: [
+          { name: "Voltage", units: ["V", "mV", "kV", "µV"] },
+        ],
+        uuts: [],
+        tmdes: [],
+        testPoints: [],
+      },
+      "uut",
+    );
+
+    expect(rows[0].type).toBe("function");
+    expect(rows[0].fn.activeUnits).toEqual(["V"]);
+  });
+});
+
+describe("budget range warnings", () => {
+  const component = {
+    id: "budget-range-component",
+    name: "Meter - Accuracy",
+    isBudgetInstance: true,
+    tmdeBudgetRangeId: "range-2",
+    tmdeBudgetRange: {
+      rangeId: "range-2",
+      min: 10,
+      max: 20,
+      unit: "V",
+    },
+  };
+
+  it("warns when a direct point uses a range outside its measurement value", () => {
+    const warnings = getBudgetRangeWarnings({
+      components: [component],
+      measurementType: "direct",
+      directNominal: { value: 3, unit: "V" },
+    });
+
+    expect(warnings.final).toHaveLength(1);
+    expect(warnings.final[0].reason).toMatch(/below this selected TMDE range/i);
+  });
+
+  it("warns on the affected derived input budget only", () => {
+    const warnings = getBudgetRangeWarnings({
+      components: [{ ...component, variableType: "Weight" }],
+      measurementType: "derived",
+      groups: [
+        {
+          kind: "input",
+          variableType: "Weight",
+          nominalPoint: { value: 3, unit: "V" },
+        },
+        {
+          kind: "input",
+          variableType: "Length",
+          nominalPoint: { value: 12, unit: "V" },
+        },
+      ],
+    });
+
+    expect(Object.keys(warnings)).toEqual(["Weight"]);
+    expect(warnings.Weight).toHaveLength(1);
+  });
+
+  it("does not warn when the selected range contains the nominal", () => {
+    expect(
+      getBudgetRangeWarnings({
+        components: [component],
+        measurementType: "direct",
+        directNominal: { value: 12, unit: "V" },
+      }),
+    ).toEqual({});
+  });
+});
+
+describe("shared instrument inline editing", () => {
+  it("removes a custom column definition and its saved row values", () => {
+    const next = removeInstrumentCustomColumn(
+      {
+        instrumentCustomColumns: {
+          uut: [
+            { key: "owner", label: "Owner" },
+            { key: "location", label: "Location" },
+          ],
+          tmde: [{ key: "lab", label: "Lab" }],
+        },
+        uuts: [
+          { id: "uut-1", customFields: { owner: "A", location: "North" } },
+        ],
+        tmdes: [{ id: "tmde-1", customFields: { lab: "Primary" } }],
+      },
+      "uut",
+      "owner",
+    );
+
+    expect(next.instrumentCustomColumns.uut).toEqual([
+      { key: "location", label: "Location" },
+    ]);
+    expect(next.uuts[0].customFields).toEqual({ location: "North" });
+    expect(next.instrumentCustomColumns.tmde).toEqual([
+      { key: "lab", label: "Lab" },
+    ]);
+    expect(next.tmdes[0].customFields).toEqual({ lab: "Primary" });
+  });
+
+  it("creates any number of blank ranges without requiring intermediate values", () => {
+    const item = {
+      id: "uut-row",
+      instrument: {
+        functions: [
+          {
+            id: "voltage",
+            name: "Voltage",
+            ranges: [{ id: "range-1", min: 0, max: 10, unit: "V" }],
+          },
+        ],
+      },
+    };
+    const firstAddition = addRangeToItem(item, "range-1");
+    const secondAddition = addRangeToItem(firstAddition.item, "range-1");
+    const ranges = secondAddition.item.instrument.functions[0].ranges;
+
+    expect(ranges).toHaveLength(3);
+    expect(ranges.slice(1)).toEqual([
+      expect.objectContaining({ min: "", max: "", unit: "V" }),
+      expect.objectContaining({ min: "", max: "", unit: "V" }),
+    ]);
+  });
+
+  it("updates existing TMDE budget labels when a nickname is assigned once", () => {
+    const tmde = {
+      id: "tmde-row",
+      nickname: "Bench Meter",
+      name: "Original Meter",
+      instrument: { id: "local-meter", model: "DMM-1" },
+    };
+    const [point] = applyTmdeIdentityToPoints(
+      [
+        {
+          id: "point-1",
+          tmdeTolerances: [{ sourceId: "tmde-row", name: "Original Meter" }],
+          components: [
+            {
+              sourceTmdeId: "tmde-row",
+              name: "Original Meter - Accuracy",
+              tmdeBudgetComponentKind: "Accuracy",
+              sourcePointLabel: "Original Meter · 5 V",
+            },
+          ],
+        },
+      ],
+      tmde,
+    );
+
+    expect(point.tmdeTolerances[0].nickname).toBe("Bench Meter");
+    expect(point.components[0]).toEqual(
+      expect.objectContaining({
+        name: "Bench Meter - Accuracy",
+        tmdeIdentity: "Bench Meter",
+        sourcePointLabel: "Bench Meter · 5 V",
+      }),
+    );
+  });
+
+  it("forks an edited shared definition to a linked local copy", () => {
+    const sharedDefinition = {
+      id: "shared-dmm",
+      scope: "validated",
+      manufacturer: "Acme",
+      model: "DMM-1",
+      description: "Shared DMM",
+      functions: [
+        {
+          id: "voltage",
+          name: "Voltage",
+          unit: "V",
+          ranges: [{ id: "range-1", min: 0, max: 10, unit: "V" }],
+        },
+      ],
+    };
+    const editedItem = {
+      id: "uut-row",
+      description: "Shared DMM",
+      instrument: {
+        ...sharedDefinition,
+        functions: [
+          {
+            ...sharedDefinition.functions[0],
+            ranges: [
+              ...sharedDefinition.functions[0].ranges,
+              { id: "range-2", min: 10, max: 20, unit: "V" },
+            ],
+          },
+        ],
+      },
+    };
+
+    const localized = localizeSharedInstrumentEdit(editedItem, [sharedDefinition]);
+
+    expect(localized.id).toBe("uut-row");
+    expect(localized.instrument).toEqual(
+      expect.objectContaining({
+        scope: "local",
+        sourceId: "shared-dmm",
+        libraryInstrumentId: "shared-dmm",
+        localOverride: true,
+      }),
+    );
+    expect(localized.instrument.id).not.toBe("shared-dmm");
+    expect(localized.instrument.functions[0].ranges).toHaveLength(2);
+    expect(localized.instrument.validatedSnapshot.functions[0].ranges).toHaveLength(1);
+
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      { uuts: [{ ...editedItem, instrument: sharedDefinition }], tmdes: [] },
+      localized,
+      "uut",
+    );
+    expect(synchronized.uuts[0].instrument.scope).toBe("local");
+    expect(synchronized.uuts[0].instrument.functions[0].ranges).toHaveLength(2);
+  });
+
+  it("replaces the exact shared TMDE row after it is localized", () => {
+    const sharedDefinition = {
+      id: "shared-meter",
+      scope: "validated",
+      functions: [
+        {
+          id: "current",
+          name: "Current",
+          unit: "A",
+          ranges: [{ id: "range-1", min: 0, max: 1, unit: "A" }],
+        },
+      ],
+    };
+    const sharedRow = {
+      id: "tmde-row",
+      name: "Shared Meter",
+      instrument: sharedDefinition,
+    };
+    const editedRow = {
+      ...sharedRow,
+      instrument: {
+        ...sharedDefinition,
+        functions: [
+          {
+            ...sharedDefinition.functions[0],
+            ranges: [
+              ...sharedDefinition.functions[0].ranges,
+              { id: "range-2", min: 1, max: 10, unit: "A" },
+            ],
+          },
+        ],
+      },
+    };
+    const localized = localizeSharedInstrumentEdit(editedRow, [sharedDefinition]);
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      { uuts: [], tmdes: [sharedRow] },
+      localized,
+      "tmde",
+    );
+
+    expect(synchronized.tmdes[0].instrument.scope).toBe("local");
+    expect(synchronized.tmdes[0].instrument.sourceId).toBe("shared-meter");
+    expect(synchronized.tmdes[0].instrument.functions[0].ranges).toHaveLength(2);
+  });
+});
+
+describe("add-to-budget range filtering", () => {
+  const multiFunctionInstrument = {
+    id: "multi-function",
+    functions: [
+      {
+        id: "weight",
+        name: "Weight",
+        unit: "kg",
+        ranges: [
+          {
+            id: "weight-range",
+            min: 0,
+            max: 100,
+            unit: "kg",
+            tolerance: {
+              floor: { high: 0.1, low: -0.1, unit: "kg", distribution: "1.732" },
+            },
+          },
+        ],
+      },
+      {
+        id: "voltage",
+        name: "DC Voltage",
+        unit: "V",
+        ranges: [
+          {
+            id: "voltage-range",
+            min: 0,
+            max: 10,
+            unit: "V",
+            tolerance: {
+              floor: { high: 0.01, low: -0.01, unit: "V", distribution: "1.732" },
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  it("shows only accuracy ranges that resolve for the budget quantity", () => {
+    const choices = getUsableBudgetRangeChoices(
+      multiFunctionInstrument,
+      { value: 5, unit: "kg" },
+      {
+        functionKey: makeFunctionKey("Weight", "kg"),
+        requireFunctionMatch: true,
+      },
+    );
+
+    expect(choices.map((range) => range.id)).toEqual(["weight-range"]);
+  });
+
+  it("does not offer an incompatible voltage accuracy to a weight budget", () => {
+    expect(
+      getUsableBudgetRangeChoices(
+        {
+          id: "voltage-only",
+          functions: multiFunctionInstrument.functions.slice(1),
+        },
+        { value: 5, unit: "kg" },
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("local instrument role synchronization", () => {
+  it("uses one edited definition for matching local UUT and TMDE rows", () => {
+    const originalDefinition = {
+      id: "local-dmm",
+      scope: "local",
+      manufacturer: "Acme",
+      model: "DMM-1",
+      description: "Bench DMM",
+      functions: [
+        {
+          id: "voltage",
+          name: "Voltage",
+          ranges: [{ id: "v1", min: 0, max: 10, tolerances: {} }],
+        },
+      ],
+    };
+    const session = {
+      uuts: [
+        {
+          id: "uut-row",
+          description: "Bench DMM",
+          instrument: originalDefinition,
+        },
+      ],
+      tmdes: [
+        {
+          id: "tmde-row",
+          name: "Bench DMM",
+          instrument: {
+            ...originalDefinition,
+            measurementArea: "Electrical",
+            measurementAreaColor: "#123456",
+          },
+        },
+      ],
+    };
+    const updatedTmde = {
+      ...session.tmdes[0],
+      instrument: {
+        ...session.tmdes[0].instrument,
+        functions: [
+          {
+            ...session.tmdes[0].instrument.functions[0],
+            ranges: [
+              {
+                id: "v1",
+                min: 0,
+                max: 10,
+                tolerances: { floor: { high: "0.1", low: "-0.1" } },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      session,
+      updatedTmde,
+      "tmde",
+    );
+
+    expect(synchronized.tmdes[0]).toBe(updatedTmde);
+    expect(
+      synchronized.uuts[0].instrument.functions[0].ranges[0].tolerances.floor.high,
+    ).toBe("0.1");
+    expect(synchronized.tmdes[0].instrument.measurementArea).toBe("Electrical");
+  });
+
+  it("preserves the TMDE distribution when tolerance is edited from the UUT table", () => {
+    const uutDefinition = {
+      id: "local-voltmeter",
+      scope: "local",
+      description: "Local Voltmeter",
+      functions: [
+        {
+          id: "voltage",
+          name: "Voltage",
+          ranges: [
+            {
+              id: "v1",
+              min: 0,
+              max: 10,
+              tolerances: {
+                reading: {
+                  high: "0.1",
+                  low: "-0.1",
+                  distribution: "not_set",
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const tmdeDefinition = {
+      ...uutDefinition,
+      functions: [
+        {
+          ...uutDefinition.functions[0],
+          ranges: [
+            {
+              ...uutDefinition.functions[0].ranges[0],
+              tolerances: {
+                reading: {
+                  high: "0.1",
+                  low: "-0.1",
+                  distribution: "2.449",
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const session = {
+      uuts: [
+        {
+          id: "uut-row",
+          description: "Local Voltmeter",
+          instrument: uutDefinition,
+        },
+      ],
+      tmdes: [
+        {
+          id: "tmde-row",
+          name: "Local Voltmeter",
+          instrument: tmdeDefinition,
+        },
+      ],
+    };
+    const updatedUut = {
+      ...session.uuts[0],
+      instrument: {
+        ...uutDefinition,
+        functions: [
+          {
+            ...uutDefinition.functions[0],
+            ranges: [
+              {
+                ...uutDefinition.functions[0].ranges[0],
+                tolerances: {
+                  reading: {
+                    high: "0.2",
+                    low: "-0.2",
+                    distribution: "not_set",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      session,
+      updatedUut,
+      "uut",
+    );
+
+    const uutReading =
+      synchronized.uuts[0].instrument.functions[0].ranges[0].tolerances.reading;
+    const tmdeReading =
+      synchronized.tmdes[0].instrument.functions[0].ranges[0].tolerances.reading;
+    expect(uutReading).toMatchObject({
+      high: "0.2",
+      low: "-0.2",
+      distribution: "2.449",
+    });
+    expect(tmdeReading).toEqual(uutReading);
+  });
+
+  it("keeps a TMDE distribution edit authoritative for both local roles", () => {
+    const definition = {
+      id: "local-meter",
+      scope: "local",
+      functions: [
+        {
+          id: "voltage",
+          name: "Voltage",
+          ranges: [
+            {
+              id: "v1",
+              tolerances: {
+                reading: {
+                  high: "0.1",
+                  low: "-0.1",
+                  distribution: "1.732",
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const session = {
+      uuts: [{ id: "uut-row", instrument: definition }],
+      tmdes: [{ id: "tmde-row", instrument: definition }],
+    };
+    const updatedTmde = {
+      ...session.tmdes[0],
+      instrument: {
+        ...definition,
+        functions: [
+          {
+            ...definition.functions[0],
+            ranges: [
+              {
+                ...definition.functions[0].ranges[0],
+                tolerances: {
+                  reading: {
+                    high: "0.1",
+                    low: "-0.1",
+                    distribution: "2.449",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      session,
+      updatedTmde,
+      "tmde",
+    );
+
+    expect(
+      synchronized.uuts[0].instrument.functions[0].ranges[0].tolerances.reading
+        .distribution,
+    ).toBe("2.449");
+    expect(
+      synchronized.tmdes[0].instrument.functions[0].ranges[0].tolerances.reading
+        .distribution,
+    ).toBe("2.449");
+  });
+
+  it("does not copy a distribution onto a newly added unmatched range", () => {
+    const existingRange = {
+      id: "existing-range",
+      tolerances: {
+        reading: {
+          high: "0.1",
+          low: "-0.1",
+          distribution: "2.449",
+        },
+      },
+    };
+    const definition = {
+      id: "local-meter",
+      scope: "local",
+      functions: [
+        {
+          id: "voltage",
+          name: "Voltage",
+          ranges: [existingRange],
+        },
+      ],
+    };
+    const session = {
+      uuts: [{ id: "uut-row", instrument: definition }],
+      tmdes: [{ id: "tmde-row", instrument: definition }],
+    };
+    const newRange = {
+      id: "new-range",
+      tolerances: {
+        reading: {
+          high: "0.2",
+          low: "-0.2",
+          distribution: "not_set",
+        },
+      },
+    };
+    const updatedUut = {
+      ...session.uuts[0],
+      instrument: {
+        ...definition,
+        functions: [
+          {
+            ...definition.functions[0],
+            ranges: [newRange, existingRange],
+          },
+        ],
+      },
+    };
+
+    const synchronized = synchronizeLocalInstrumentDefinitions(
+      session,
+      updatedUut,
+      "uut",
+    );
+
+    expect(
+      synchronized.tmdes[0].instrument.functions[0].ranges[0].tolerances.reading
+        .distribution,
+    ).toBe("not_set");
+    expect(
+      synchronized.tmdes[0].instrument.functions[0].ranges[1].tolerances.reading
+        .distribution,
+    ).toBe("2.449");
+  });
+
+  it("recognizes derived/manual budget source identities for TMDE badges", () => {
+    const tmde = { id: "tmde-row", instrument: { id: "local-weight" } };
+    expect(
+      countTmdeBudgetUses(
+        [
+          { tmdeBudgetSourceId: "tmde-row" },
+          { typeBSourceTmdeId: "local-weight" },
+        ],
+        tmde,
+      ),
+    ).toBe(2);
+  });
+});
+
+describe("addBlankFunctionToInstrument", () => {
+  it("adds a blank destination function without carrying source specifications", () => {
+    const source = {
+      id: "uut-1",
+      instrument: {
+        id: "dmm-1",
+        scope: "local",
+        functions: [
+          {
+            id: "voltage",
+            name: "Voltage",
+            unit: "V",
+            ranges: [
+              {
+                id: "v-range",
+                min: "0",
+                max: "10",
+                unit: "V",
+                tolerances: { reading: { value: "1" } },
+                resolution: "0.001",
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const updated = addBlankFunctionToInstrument(source, {
+      key: "resistance",
+      name: "Resistance",
+      unit: "Ohm",
+    });
+
+    expect(updated.instrument.functions).toHaveLength(2);
+    expect(updated.instrument.functions[0]).toEqual(source.instrument.functions[0]);
+    expect(updated.instrument.functions[1]).toEqual(
+      expect.objectContaining({
+        name: "Resistance",
+        unit: "Ohm",
+      }),
+    );
+    expect(updated.instrument.functions[1].ranges).toHaveLength(1);
+    expect(updated.instrument.functions[1].ranges[0]).toMatchObject({
+      min: "",
+      max: "",
+      unit: "Ohm",
+      resolution: "",
+      tolerances: {},
+      functionName: "Resistance",
+    });
+  });
+
+  it("scopes legacy instance ranges to the source and leaves a cross-function drop blank", () => {
+    const source = {
+      id: "uut-pressure",
+      ranges: [
+        {
+          id: "pressure-range",
+          min: "0",
+          max: "100",
+          unit: "psig",
+          tolerances: { reading: { high: "1", low: "-1" } },
+        },
+      ],
+      instrument: {
+        id: "pressure-instrument",
+        functions: [
+          { id: "pressure", name: "Pressure", unit: "psig", ranges: [] },
+        ],
+      },
+    };
+
+    const updated = addBlankFunctionToInstrument(
+      source,
+      { key: "flow", name: "Flow", unit: "gpm" },
+      makeFunctionKey("Pressure"),
+    );
+    const pressure = resolveUutRangeHelper(
+      updated,
+      {},
+      null,
+      null,
+      makeFunctionKey("Pressure"),
+    );
+    const flow = resolveUutRangeHelper(
+      updated,
+      {},
+      null,
+      null,
+      makeFunctionKey("Flow"),
+    );
+
+    expect(pressure.ranges).toHaveLength(1);
+    expect(pressure.activeRange).toMatchObject({
+      id: "pressure-range",
+      unit: "psig",
+      functionName: "Pressure",
+    });
+    expect(flow.ranges).toHaveLength(1);
+    expect(flow.activeRange).toMatchObject({
+      unit: "gpm",
+      min: "",
+      max: "",
+      tolerances: {},
+      functionName: "Flow",
+    });
+    expect(flow.activeRange.tolerances).not.toHaveProperty("reading");
+  });
+
+  it("does not duplicate a function the instrument already supports", () => {
+    const source = {
+      instrument: {
+        functions: [{ name: "Resistance", unit: "Ohm", ranges: [] }],
+      },
+    };
+
+    expect(
+      addBlankFunctionToInstrument(source, {
+        name: "Resistance",
+        unit: "kOhm",
+      }),
+    ).toBe(source);
+  });
+});
 
 // rangeIsBlank backs clear-to-delete: a range is removed only once BOTH bounds
 // are cleared (a half-filled range stays put).

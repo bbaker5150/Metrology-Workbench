@@ -19,8 +19,8 @@ export const RISK_INPUT_FIELDS = [
   },
   {
     name: "measRelCalcAssumed",
-    sidebarLabel: "Assumed R_REOP",
-    label: "Assumed R_REOP",
+    sidebarLabel: "Assumed REOP",
+    label: "Assumed REOP",
     tooltip:
       "Estimated probability, expressed as a percent, that the unit remains within tolerance at the end of its current calibration interval. This is the starting reliability for risk and interval calculations.",
   },
@@ -43,15 +43,15 @@ export const MITIGATION_INPUT_FIELDS = [
   },
   {
     name: "reliability",
-    sidebarLabel: "R_REOP Required",
-    label: "R_REOP Required",
+    sidebarLabel: "REOP Required",
+    label: "REOP Required",
     tooltip:
       "Minimum required probability, expressed as a percent, that the unit remains within tolerance at the end of the recommended calibration interval.",
   },
   {
     name: "calInt",
-    sidebarLabel: "Cal Int for assumed R_REOP",
-    label: "Cal Int for assumed R_REOP",
+    sidebarLabel: "Cal Int for assumed REOP",
+    label: "Cal Int for assumed REOP",
     tooltip:
       "Current calibration interval, in months, associated with the assumed end-of-period reliability. The selected reliability-decay model uses it as the time reference when recommending a new interval.",
   },

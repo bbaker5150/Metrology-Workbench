@@ -73,6 +73,8 @@ describe("EquationLibraryMenu", () => {
         onDeleteCustom={onDeleteCustom}
         onSaveCurrent={onSaveCurrent}
         canSaveCurrent
+        measurementAreas={[{ id: "electrical", name: "Electrical" }]}
+        defaultMeasurementArea="Electrical"
       />,
     );
 
@@ -85,7 +87,16 @@ describe("EquationLibraryMenu", () => {
     expect(onDeleteCustom).toHaveBeenCalledWith(custom[0]);
 
     fireEvent.click(screen.getByRole("button", { name: /Save current/i }));
+    expect(screen.getByText("Save current equation")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Equation name"), {
+      target: { value: "Current equation" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save equation/i }));
     expect(onSaveCurrent).toHaveBeenCalledTimes(1);
+    expect(onSaveCurrent).toHaveBeenCalledWith({
+      name: "Current equation",
+      measurementArea: "Electrical",
+    });
   });
 
   it("disables save-current with a reason when the editor equation is invalid", () => {

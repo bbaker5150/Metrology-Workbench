@@ -12,6 +12,19 @@ export const getVisibleSidebarPointOrder = (
   (sidebarData || []).forEach((fnGroup) => {
     if (!expandedFunctions.has(fnGroup.id)) return;
 
+    // Current measurement-point tables are function-scoped and preserve point
+    // chronology; the owning UUT is selected in the row itself. Retain the
+    // legacy nested traversal below for older fixtures/saved view models.
+    if (Array.isArray(fnGroup.points)) {
+      sortPoints(fnGroup.points).forEach((point) => {
+        entries.push({
+          pointId: point.id,
+          contextUutId: point.associatedUutIds?.[0] || null,
+        });
+      });
+      return;
+    }
+
     (fnGroup.uutGroups || []).forEach((group) => {
       const isUnassigned = fnGroup.isUnassigned || group.isUnassigned;
       // The Unassigned bucket renders points directly under the function node,

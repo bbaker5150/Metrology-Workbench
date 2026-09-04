@@ -31,9 +31,11 @@ export const InstrumentContextProvider = ({ children }) => {
   const [stdInstrumentAddress, setStdInstrumentAddress] = useState(null);
   const [stdReaderModel, setStdReaderModel] = useState(null);
   const [stdReaderSN, setStdReaderSN] = useState(null);
+  const [stdReaderInput, setStdReaderInput] = useState("FRONT");
   const [tiInstrumentAddress, setTiInstrumentAddress] = useState(null);
   const [tiReaderModel, setTiReaderModel] = useState(null);
   const [tiReaderSN, setTiReaderSN] = useState(null);
+  const [tiReaderInput, setTiReaderInput] = useState("REAR");
   const [acSourceAddress, setAcSourceAddress] = useState(null);
   const [acSourceSN, setAcSourceSN] = useState(null);
   const [dcSourceAddress, setDcSourceAddress] = useState(null);
@@ -41,6 +43,11 @@ export const InstrumentContextProvider = ({ children }) => {
   const [switchDriverAddress, setSwitchDriverAddress] = useState(null);
   const [switchDriverModel, setSwitchDriverModel] = useState(null);
   const [switchDriverSN, setSwitchDriverSN] = useState(null);
+  const [readerSwitchDriverAddress, setReaderSwitchDriverAddress] = useState(null);
+  const [readerSwitchDriverModel, setReaderSwitchDriverModel] = useState(null);
+  const [readerSwitchDriverSN, setReaderSwitchDriverSN] = useState(null);
+  const [readerSwitchStandardRoute, setReaderSwitchStandardRoute] = useState("OPEN");
+  const [readerSwitchSettlingTime, setReaderSwitchSettlingTime] = useState(1);
   const [amplifierAddress, setAmplifierAddress] = useState(null);
   const [amplifierSN, setAmplifierSN] = useState(null);
 
@@ -138,6 +145,7 @@ export const InstrumentContextProvider = ({ children }) => {
   const lastLiveSyncSigRef = useRef({ sig: null, ts: 0 });
   const hostSyncWs = useRef(null);
   const selectedSessionIdRef = useRef(selectedSessionId);
+  const discoverySessionIdRef = useRef(null);
   // Mirror the active cycle (set by calibration_stage_update) so the
   // dual_reading_update handler can tag live points without re-rendering
   // every time `activeCollectionDetails` changes.
@@ -168,6 +176,36 @@ export const InstrumentContextProvider = ({ children }) => {
   // Keep a ref of the session ID to avoid stale closures in the WebSocket events
   useEffect(() => {
     selectedSessionIdRef.current = selectedSessionId;
+  }, [selectedSessionId]);
+
+  // Instrument discovery describes the physical topology that was present
+  // for one session. Never carry that topology, its status responses, or its
+  // open status sockets into another session; the operator must explicitly
+  // scan again after selecting a different session.
+  useEffect(() => {
+    const nextSessionId = selectedSessionId == null ? null : String(selectedSessionId);
+    if (discoverySessionIdRef.current === nextSessionId) return;
+    discoverySessionIdRef.current = nextSessionId;
+
+    Object.values(statusWs.current).forEach((socket) => {
+      if (!socket) return;
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      try {
+        socket.close();
+      } catch {
+        // The socket may already have been disposed by the browser.
+      }
+    });
+    statusWs.current = {};
+    isFetchingStatusesRef.current = {};
+    zeroingInstrumentsRef.current = {};
+    setDiscoveredInstruments([]);
+    setInstrumentStatuses({});
+    setIsFetchingStatuses({});
+    setZeroingInstruments({});
   }, [selectedSessionId]);
 
   // --- Switch Driver WebSocket Logic ---
@@ -353,9 +391,11 @@ export const InstrumentContextProvider = ({ children }) => {
     setStdInstrumentAddress(null);
     setStdReaderModel(null);
     setStdReaderSN(null);
+    setStdReaderInput("FRONT");
     setTiInstrumentAddress(null);
     setTiReaderModel(null);
     setTiReaderSN(null);
+    setTiReaderInput("REAR");
     setAcSourceAddress(null);
     setAcSourceSN(null);
     setDcSourceAddress(null);
@@ -363,6 +403,11 @@ export const InstrumentContextProvider = ({ children }) => {
     setSwitchDriverAddress(null);
     setSwitchDriverModel(null);
     setSwitchDriverSN(null);
+    setReaderSwitchDriverAddress(null);
+    setReaderSwitchDriverModel(null);
+    setReaderSwitchDriverSN(null);
+    setReaderSwitchStandardRoute("OPEN");
+    setReaderSwitchSettlingTime(1);
     setAmplifierAddress(null);
     setAmplifierSN(null);
     setStandardTvcSn(null);
@@ -462,10 +507,10 @@ export const InstrumentContextProvider = ({ children }) => {
     readingWs.current.onopen = () => {
       setReadingWsState(readingWs.current.readyState);
       
-      // Ask the Host for its live chart data if joining late!
-      if (isRemoteViewer) {
-        readingWs.current.send(JSON.stringify({ command: "request_live_sync" }));
-      }
+      // Hydrate from the authoritative server buffer. This is essential for
+      // observers joining mid-cycle and also repairs an operator reconnect
+      // without waiting for another reading event.
+      readingWs.current.send(JSON.stringify({ command: "request_live_sync" }));
     };
 
     readingWs.current.onclose = () => {
@@ -524,15 +569,15 @@ export const InstrumentContextProvider = ({ children }) => {
 
       if (data.type === "live_state_sync") {
         // Authoritative snapshot from the server-side live buffer. Apply it
-        // unconditionally so late-joining remotes see every completed stage,
-        // and so a remote joining between runs correctly resets to idle.
+        // unconditionally so a late-joining host or observer sees the current
+        // cycle, and so a client joining between runs correctly resets to idle.
         //
         // The server stores ``t`` as an integer millisecond epoch so the
         // payload stays JSON-friendly; every other code path that fills
         // ``liveReadings`` uses ``new Date(...)``. Rehydrate on arrival so
         // the chart tooltip's ``toLocaleTimeString`` call finds the Date
         // shape it expects, regardless of which path produced the point.
-        if (isRemoteViewer) {
+        {
           // StrictMode + WS reconnects can deliver the same snapshot twice
           // within a few hundred ms. Fingerprint on the fields that actually
           // drive renders so an identical replay is a no-op. We stringify
@@ -545,6 +590,9 @@ export const InstrumentContextProvider = ({ children }) => {
             tr: data.tiLiveReadings || null,
             p: data.collectionProgress || null,
             f: data.focusedTPKey || null,
+            sw: data.slidingWindowStatus || null,
+            ss: data.stabilizationStatus || null,
+            t: data.timerState || null,
           });
           const now = Date.now();
           const prev = lastLiveSyncSigRef.current;
@@ -570,7 +618,9 @@ export const InstrumentContextProvider = ({ children }) => {
           };
 
           setIsCollecting(Boolean(data.isCollecting));
-          setActiveCollectionDetails(data.activeCollectionDetails || null);
+          const syncedDetails = data.activeCollectionDetails || null;
+          setActiveCollectionDetails(syncedDetails);
+          activeCycleRef.current = syncedDetails?.cycle_index ?? null;
 
           // Rehydrate a pre-measurement countdown (warm-up / settling) from
           // the snapshot. A remote joining mid-warm-up missed the one-shot
@@ -580,27 +630,55 @@ export const InstrumentContextProvider = ({ children }) => {
           // countdown is correct despite client/server skew. An already-
           // expired (or inactive) timer resets to idle.
           const syncedTimer = data.timerState;
-          if (syncedTimer && syncedTimer.isActive && data.serverNow != null) {
-            const remainingSeconds = syncedTimer.endsAt - data.serverNow;
-            if (remainingSeconds > 0) {
+          if (syncedTimer && syncedTimer.isActive) {
+            if (syncedTimer.isIndeterminate) {
               setTimerState({
                 isActive: true,
-                duration: syncedTimer.duration,
-                targetTime: Date.now() + remainingSeconds * 1000,
-                label: syncedTimer.label || "Warm-up",
+                isIndeterminate: true,
+                duration: 0,
+                label: syncedTimer.label || "Acquiring reader",
               });
+            } else if (data.serverNow != null && syncedTimer.endsAt != null) {
+              const remainingSeconds = syncedTimer.endsAt - data.serverNow;
+              if (remainingSeconds > 0) {
+                setTimerState({
+                  isActive: true,
+                  duration: syncedTimer.duration,
+                  targetTime: Date.now() + remainingSeconds * 1000,
+                  label: syncedTimer.label || "Warm-up",
+                });
+              } else {
+                setTimerState({ isActive: false, duration: 0, label: "" });
+              }
             } else {
+              // An active snapshot must describe either a countdown or an
+              // indeterminate acquisition. Do not preserve a timer from an
+              // older stage if a malformed/legacy snapshot describes neither.
               setTimerState({ isActive: false, duration: 0, label: "" });
             }
-          } else if (!data.isCollecting) {
-            // Snapshot says the run is fully idle — clear any stale timer the
-            // remote may have been showing from a previous run.
+          } else {
+            // No timer is active for the current stage. Clear any countdown
+            // retained from the previously-rendered stage or run.
             setTimerState({ isActive: false, duration: 0, label: "" });
           }
           setLiveReadings({ ...initialLiveReadings, ...rehydrateStageMap(data.liveReadings) });
           setTiLiveReadings({ ...initialLiveReadings, ...rehydrateStageMap(data.tiLiveReadings) });
           if (data.collectionProgress) setCollectionProgress(data.collectionProgress);
-          if (data.focusedTPKey) setFocusedTPKey(data.focusedTPKey);
+          setFocusedTPKey(data.focusedTPKey || null);
+          setSlidingWindowStatus(data.slidingWindowStatus || null);
+          const syncedStabilization = data.stabilizationStatus;
+          if (
+            syncedStabilization &&
+            Number.isFinite(Number(syncedStabilization.reading))
+          ) {
+            setStabilizationStatus(
+              `[${syncedStabilization.count}/${syncedStabilization.max_attempts}] ` +
+              `Reading: ${Number(syncedStabilization.reading).toFixed(6)} V, ` +
+              `Stdev: ${syncedStabilization.stdev_ppm} PPM`
+            );
+          } else {
+            setStabilizationStatus(null);
+          }
           setDataRefreshTrigger((prev) => prev + 1);
         }
         return;
@@ -703,6 +781,13 @@ export const InstrumentContextProvider = ({ children }) => {
         setLiveReadings(dropCurrentCycleForStage);
         setTiLiveReadings(dropCurrentCycleForStage);
         setTimerState({ isActive: false, duration: 0, label: "" });
+      } else if (data.type === "paired_collection_reset") {
+        const key = data.stage;
+        if (key) {
+          setLiveReadings((prev) => ({ ...prev, [key]: [] }));
+          setTiLiveReadings((prev) => ({ ...prev, [key]: [] }));
+        }
+        setCollectionProgress({ count: 0, total: Number(data.total) || 0 });
       } else if (data.type === "dual_reading_update") {
         setIsCollecting(true);
         const key = data.stage;
@@ -726,6 +811,22 @@ export const InstrumentContextProvider = ({ children }) => {
             } else {
               newReadings.push(point);
             }
+            // A live stage represents one active cycle.  Sequential readers
+            // can deliver at different wall-clock times, but neither series
+            // should ever render more than the operator-requested sample
+            // count while the pair is completing.
+            const total = Number(data.total);
+            if (Number.isFinite(total) && total > 0) {
+              const thisCycle = newReadings.filter((candidate) => candidate?.cycle === pointCycle);
+              if (thisCycle.length > total) {
+                const overflow = thisCycle.length - total;
+                const remove = new Set(thisCycle.slice(0, overflow));
+                return {
+                  ...prevReadings,
+                  [key]: newReadings.filter((candidate) => !remove.has(candidate)),
+                };
+              }
+            }
             return { ...prevReadings, [key]: newReadings };
           };
 
@@ -734,28 +835,55 @@ export const InstrumentContextProvider = ({ children }) => {
           const liveCycle =
             data.cycle_index != null ? data.cycle_index : activeCycleRef.current;
 
-          // ONLY parse and update STD readings if the data is not null
-          if (stdReadingData !== null && stdReadingData !== undefined) {
-            const stdPoint = {
-              x: data.count,
-              y: stdReadingData.value,
-              t: new Date(stdReadingData.timestamp * 1000),
-              is_stable: stdReadingData.is_stable,
+          const replaceSearchWindow = (prevReadings, rawPoints) => {
+            const priorCycles = (prevReadings[key] || []).filter(
+              (point) => point?.cycle !== liveCycle
+            );
+            const currentWindow = (rawPoints || []).map((rawPoint, index) => ({
+              x: index + 1,
+              y: rawPoint.value,
+              t: new Date(rawPoint.timestamp * 1000),
+              is_stable: rawPoint.is_stable,
               cycle: liveCycle,
-            };
-            setLiveReadings((readings) => updateReadings(readings, stdPoint));
-          }
+            }));
+            return { ...prevReadings, [key]: [...priorCycles, ...currentWindow] };
+          };
 
-          // ONLY parse and update TI readings if the data is not null
-          if (tiReadingData !== null && tiReadingData !== undefined) {
-            const tiPoint = {
-              x: data.count,
-              y: tiReadingData.value,
-              t: new Date(tiReadingData.timestamp * 1000),
-              is_stable: tiReadingData.is_stable,
-              cycle: liveCycle,
-            };
-            setTiLiveReadings((readings) => updateReadings(readings, tiPoint));
+          // During the initial stability search, the backend sends the exact
+          // evaluated window after an unstable attempt. Replace that window
+          // atomically so the rejected oldest point disappears and the newly
+          // acquired point cannot look skipped because an x index was reused.
+          if (data.window_snapshot) {
+            setLiveReadings((readings) =>
+              replaceSearchWindow(readings, data.window_snapshot.std)
+            );
+            setTiLiveReadings((readings) =>
+              replaceSearchWindow(readings, data.window_snapshot.ti)
+            );
+          } else {
+            // ONLY parse and update STD readings if the data is not null
+            if (stdReadingData !== null && stdReadingData !== undefined) {
+              const stdPoint = {
+                x: data.count,
+                y: stdReadingData.value,
+                t: new Date(stdReadingData.timestamp * 1000),
+                is_stable: stdReadingData.is_stable,
+                cycle: liveCycle,
+              };
+              setLiveReadings((readings) => updateReadings(readings, stdPoint));
+            }
+
+            // ONLY parse and update TI readings if the data is not null
+            if (tiReadingData !== null && tiReadingData !== undefined) {
+              const tiPoint = {
+                x: data.count,
+                y: tiReadingData.value,
+                t: new Date(tiReadingData.timestamp * 1000),
+                is_stable: tiReadingData.is_stable,
+                cycle: liveCycle,
+              };
+              setTiLiveReadings((readings) => updateReadings(readings, tiPoint));
+            }
           }
         }
 
@@ -779,16 +907,39 @@ export const InstrumentContextProvider = ({ children }) => {
         setTimerState({ isActive: false, duration: 0, label: "" });
       } else if (data.type === "sliding_window_update") {
         setStabilizationStatus(null);
-        setSlidingWindowStatus(
-          data.stdev_ppm === null
-            ? null
-            : {
-              ppm: data.stdev_ppm,
-              is_stable: data.is_stable,
-              instability_events: data.instability_events,
-              max_retries: data.max_retries
-            }
-        );
+        setSlidingWindowStatus({
+          ppm: data.stdev_ppm ?? null,
+          std_ppm: data.std_stdev_ppm ?? null,
+          ti_ppm: data.ti_stdev_ppm ?? null,
+          is_stable: data.is_stable,
+          instability_events: data.instability_events,
+          max_retries: data.max_retries,
+          phase: data.phase ?? null,
+          window_count: data.window_count ?? null,
+          window_size: data.window_size ?? null,
+        });
+        // The first stability event is deliberately emitted before the first
+        // sequential reader pair. Retire the completed settling countdown so
+        // the action bar immediately changes to Filling/Searching instead of
+        // remaining on a stale 0-second timer.
+        setTimerState({ isActive: false, duration: 0, label: "" });
+      } else if (data.type === "reader_switch_delay_update") {
+        const duration = Math.max(0, Number(data.duration) || 0);
+        setIsCollecting(true);
+        setTimerState({
+          isActive: duration > 0,
+          duration,
+          targetTime: Date.now() + duration * 1000,
+          label: data.label || "Reader switch",
+        });
+      } else if (data.type === "reader_acquisition_update") {
+        setIsCollecting(true);
+        setTimerState({
+          isActive: true,
+          isIndeterminate: true,
+          duration: 0,
+          label: data.label || "Acquiring reader",
+        });
       } else if (data.type === "batch_progress_update") {
         const { test_point, current, total } = data;
         if (current > 1) clearLiveReadings();
@@ -796,6 +947,16 @@ export const InstrumentContextProvider = ({ children }) => {
           const pointKey = `${test_point.current}-${test_point.frequency}`;
           setFocusedTPKey(pointKey);
           setBulkRunProgress({ current, total, pointKey });
+          setActiveCollectionDetails((prev) => ({
+            ...(prev || {}),
+            tpId: test_point.id ?? prev?.tpId,
+            frequency: test_point.frequency ?? prev?.frequency,
+            num_samples: test_point.num_samples ?? prev?.num_samples,
+            settling_time: test_point.settling_time ?? prev?.settling_time,
+            nplc: test_point.nplc ?? prev?.nplc,
+            measurement_params: test_point.measurement_params
+              ?? prev?.measurement_params,
+          }));
 
           setIsCollecting(true);
         }
@@ -1143,11 +1304,19 @@ export const InstrumentContextProvider = ({ children }) => {
         is_pre_batch: params.is_pre_batch,
         readingKey: readingKey,
         stage: readingKey,
+        frequency: params.test_point?.frequency
+          ?? params.test_points?.[0]?.frequency
+          ?? params.forward_points?.[0]?.frequency,
         nplc: params.nplc,
         num_samples: params.num_samples,
         settling_time: params.settling_time,
         initial_warm_up_time: params.initial_warm_up_time,
         n_cycles: params.n_cycles || params.test_points?.[0]?.n_cycles || params.forward_points?.[0]?.n_cycles,
+        measurement_params: params.test_point_id
+          ? params.measurement_params
+          : params.test_points?.[0]?.measurement_params
+            ?? params.forward_points?.[0]?.measurement_params
+            ?? params.measurement_params,
       };
       
       setActiveCollectionDetails(initialDetails);
@@ -1198,12 +1367,16 @@ export const InstrumentContextProvider = ({ children }) => {
     setStdReaderModel,
     stdReaderSN,
     setStdReaderSN,
+    stdReaderInput,
+    setStdReaderInput,
     tiInstrumentAddress,
     setTiInstrumentAddress,
     tiReaderModel,
     setTiReaderModel,
     tiReaderSN,
     setTiReaderSN,
+    tiReaderInput,
+    setTiReaderInput,
     acSourceAddress,
     setAcSourceAddress,
     acSourceSN,
@@ -1219,6 +1392,16 @@ export const InstrumentContextProvider = ({ children }) => {
     setSwitchDriverModel,
     switchDriverSN,
     setSwitchDriverSN,
+    readerSwitchDriverAddress,
+    setReaderSwitchDriverAddress,
+    readerSwitchDriverModel,
+    setReaderSwitchDriverModel,
+    readerSwitchDriverSN,
+    setReaderSwitchDriverSN,
+    readerSwitchStandardRoute,
+    setReaderSwitchStandardRoute,
+    readerSwitchSettlingTime,
+    setReaderSwitchSettlingTime,
     amplifierAddress,
     setAmplifierAddress,
     amplifierSN,

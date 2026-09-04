@@ -1,8 +1,10 @@
 # api/views.py
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import pyvisa
-import re
 import socket
+import time
 from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
 from rest_framework.decorators import api_view
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -33,8 +35,8 @@ from .serializers import (
 )
 
 from npsl_tools.instruments import (
-    Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, 
-    Instrument34420A, Instrument8100
+    Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790A, Instrument5790B,
+    Instrument34420A, Instrument8508A, Instrument8100
 )
 
 
@@ -63,30 +65,88 @@ def _server_ip_for_request(request):
 
 INSTRUMENT_CLASS_MAP = {
     '5730A': Instrument5730A,
+    '5790A': Instrument5790A,
     '5790B': Instrument5790B,
     '3458A': Instrument3458A,
     '34420A': Instrument34420A,
+    '8508A': Instrument8508A,
     '11713C': Instrument11713C,
     '8100': Instrument8100
 }
 
+
+IDENTITY_OPEN_TIMEOUT_MS = 3_000
+IDENTITY_QUERY_BUDGET_MS = 5_000
+IDENTITY_MAX_WORKERS = 8
+
+
+def _ordered_unique_resources(resources):
+    """Return every VISA resource once without hiding local instruments.
+
+    NI-VISA may expose a mixture of local resources (for example
+    ``GPIB0::4::INSTR``) and remote-server resources
+    (``visa://host/GPIB0::4::INSTR``).  The previous discovery code treated
+    those groups as mutually exclusive: the presence of any remote resource
+    caused every local resource to be discarded.  That made instruments
+    visible in NI MAX disappear from the workbench scan.
+
+    Exact duplicate strings are removed case-insensitively.  Local and remote
+    addresses are otherwise retained because the same GPIB bus/address on two
+    workstations represents two different physical instruments.
+    """
+    seen = set()
+    unique = []
+    for resource in resources or ():
+        address = str(resource).strip()
+        if not address:
+            continue
+        key = address.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(address)
+
+    # Keep the result deterministic while presenting local resources first.
+    return sorted(
+        unique,
+        key=lambda address: (
+            address.casefold().startswith("visa://"),
+            address.casefold(),
+        ),
+    )
+
+
 def get_instrument_identity(rm, address):
     """
     Attempts to identify an instrument by trying a series of common commands.
+
+    The two identity dialects share one five-second query budget. This remains
+    much more forgiving than the former 500 ms window without making a
+    nonresponsive resource block for five seconds per command.
     """
     identity_commands = ['*IDN?', 'ID?']
     
     try:
-        instrument = rm.open_resource(address, open_timeout=500)
-        instrument.timeout = 500
-        instrument.clear() # Clear buffer before sending commands
+        instrument = rm.open_resource(address, open_timeout=IDENTITY_OPEN_TIMEOUT_MS)
+        query_deadline = time.monotonic() + (IDENTITY_QUERY_BUDGET_MS / 1_000)
 
         for command in identity_commands:
+            remaining_ms = int((query_deadline - time.monotonic()) * 1_000)
+            if remaining_ms <= 0:
+                break
+
+            # Reserve roughly half the total budget for the legacy ID? dialect
+            # used by instruments such as the 3458A.
+            instrument.timeout = max(
+                250,
+                min(remaining_ms, IDENTITY_QUERY_BUDGET_MS // 2),
+            )
             try:
                 if command == 'ID?':
                     instrument.read_termination = "\r\n"
                 else:
                     instrument.read_termination = "\n"
+                instrument.write_termination = "\n"
 
                 identity = instrument.query(command).strip()
 
@@ -112,6 +172,57 @@ def get_instrument_identity(rm, address):
     finally:
         if 'instrument' in locals() and hasattr(instrument, 'close'):
             instrument.close()
+
+
+def _identify_resources(rm, addresses):
+    """Identify independent VISA resources concurrently, preserving order.
+
+    VISA aliases that open but do not answer either identity dialect are
+    logged for diagnosis and omitted from the user-facing inventory. The UI
+    therefore reports instruments, not every serial/network resource NI-VISA
+    happens to enumerate.
+    """
+    if not addresses:
+        return []
+
+    identities = {}
+    worker_count = min(IDENTITY_MAX_WORKERS, len(addresses))
+    with ThreadPoolExecutor(
+        max_workers=worker_count,
+        thread_name_prefix="visa-discovery",
+    ) as executor:
+        futures = {
+            executor.submit(get_instrument_identity, rm, address): address
+            for address in addresses
+        }
+        for future in as_completed(futures):
+            address = futures[future]
+            try:
+                identities[address] = future.result()
+            except Exception as exc:
+                # get_instrument_identity already converts expected VISA
+                # failures into a diagnostic string. Keep this final guard so
+                # one unexpected driver exception cannot abort the full scan.
+                identities[address] = f"N/A - General Error: {exc}"
+
+    discovered = [
+        {"address": address, "identity": identities[address]}
+        for address in addresses
+    ]
+    identified = [
+        instrument
+        for instrument in discovered
+        if instrument["identity"]
+        and not str(instrument["identity"]).lstrip().upper().startswith("N/A")
+    ]
+    unidentified = [
+        instrument
+        for instrument in discovered
+        if instrument not in identified
+    ]
+    if unidentified:
+        print(f"Ignoring unidentified VISA resources: {unidentified}")
+    return identified
 
 
 @api_view(['GET'])
@@ -149,49 +260,14 @@ def discover_instruments(request):
         print(f"Error initializing VISA resource manager: {e}")
         return JsonResponse({'error': 'Could not initialize VISA resource manager.', 'details': str(e)}, status=500)
 
-    # --- Robust De-duplication Logic ---
-    visa_network_resources = []
-    local_resources = []
+    # Keep both local and remote VISA resources. They are not interchangeable:
+    # a remote resource on one workstation and a local resource with the same
+    # GPIB address may be two different instruments.
+    final_addresses = _ordered_unique_resources(resources)
 
-    for address in resources:
-        if 'visa://' in address.lower():
-            visa_network_resources.append(address)
-        else:
-            local_resources.append(address)
+    print(f"De-duplicated instrument addresses: {final_addresses}")
 
-    final_addresses = []
-    instrument_map = {}
-
-    if visa_network_resources:
-        print("Network instruments found. Prioritizing VISA network addresses.")
-        for address in visa_network_resources:
-            ip_match = re.search(r'visa:\/\/([0-9.]+)(:[0-9]+)?', address)
-            core_match = re.search(r'GPIB\d*::\d+::INSTR', address)
-            
-            if ip_match and core_match:
-                ip = ip_match.group(1)
-                core_address = core_match.group(0)
-                unique_key = f"{ip}-{core_address}"
-                instrument_map[unique_key] = address
-
-        final_addresses = sorted(list(instrument_map.values()))
-    else:
-        print("No network instruments found. Falling back to local addresses.")
-        local_map = {}
-        for address in local_resources:
-            core_match = re.search(r'GPIB\d*::\d+::INSTR', address)
-            local_map[core_match] = address
-        final_addresses = sorted(list(local_map.values()))
-
-    print(f"De-duplicated, prioritized instrument addresses: {final_addresses}")
-
-    instrument_list = []
-    for address in final_addresses:
-        identity = get_instrument_identity(rm, address)
-        instrument_list.append({
-            'address': address,
-            'identity': identity
-        })
+    instrument_list = _identify_resources(rm, final_addresses)
 
     response_data = {
         "instruments": instrument_list,
@@ -285,6 +361,27 @@ class ShuntReportViewSet(_ReportViewSetMixin, viewsets.ModelViewSet):
     parent_lookup_kwarg = 'shunt_pk'
     parent_field = 'shunt'
 
+    def perform_update(self, serializer):
+        super().perform_update(serializer)
+        report = serializer.instance
+
+        # A report can be edited while its points are being measured. Refresh
+        # every automatically sourced result immediately so the calculation
+        # view and subsequent cycle math use the newly saved value. Explicit
+        # per-point overrides from the calculator remain authoritative.
+        linked_points = report.test_points.select_related('results').all()
+        for point in linked_points:
+            results = getattr(point, 'results', None)
+            if results is None or results.corrections_manually_overridden:
+                continue
+            results.delta_std_known = None
+            results.save(update_fields=['delta_std_known'])
+            results.fetch_automatic_corrections()
+            results.calculate_ac_dc_difference()
+            results.recompute_cycle_deltas()
+            results.recompute_cycle_aggregates()
+            results.recompute_pair_aggregate()
+
 
 class TVCReportViewSet(_ReportViewSetMixin, viewsets.ModelViewSet):
     queryset = TVCReport.objects.all()
@@ -351,18 +448,18 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         
         assigned_instruments = [
-            ("Standard Reader", session.standard_reader_model, session.standard_reader_address),
-            ("Test Reader", session.test_reader_model, session.test_reader_address),
-            ("AC Source", "5730A", session.ac_source_address),
-            ("DC Source", "5730A", session.dc_source_address),
-            ("Switch Driver", session.switch_driver_model, session.switch_driver_address),
-            ("Amplifier", "8100", session.amplifier_address),
+            ("Standard Reader", session.standard_reader_model, session.standard_reader_address, session.standard_reader_input),
+            ("Test Reader", session.test_reader_model, session.test_reader_address, session.test_reader_input),
+            ("AC Source", "5730A", session.ac_source_address, None),
+            ("DC Source", "5730A", session.dc_source_address, None),
+            ("Switch Driver", session.switch_driver_model, session.switch_driver_address, None),
+            ("Amplifier", "8100", session.amplifier_address, None),
         ]
 
         initialized = []
         errors = []
 
-        for role, model, address in assigned_instruments:
+        for role, model, address, input_terminal in assigned_instruments:
             if not model or not address:
                 continue
 
@@ -376,6 +473,11 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
                 # Instantiating the class runs its __init__ method, which performs the initialization
                 if instrument_class in [Instrument34420A, Instrument11713C]:
                      instrument = instrument_class(gpib=address)
+                elif instrument_class == Instrument8508A:
+                     instrument = instrument_class(
+                         gpib=address,
+                         input_terminal=input_terminal or "FRONT",
+                     )
                 else:
                      instrument = instrument_class(model=model, gpib=address)
                 
@@ -386,9 +488,13 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
             finally:
                 # Ensure the VISA resource is closed after initialization
                 if instrument:
-                    connection = getattr(instrument, 'resource', None) or getattr(instrument, 'device', None)
-                    if connection and hasattr(connection, 'close'):
-                        connection.close()
+                    close = getattr(instrument, "close", None)
+                    if callable(close):
+                        close()
+                    else:
+                        connection = getattr(instrument, 'resource', None) or getattr(instrument, 'device', None)
+                        if connection and hasattr(connection, 'close'):
+                            connection.close()
         
         if errors:
             return Response(
@@ -838,6 +944,7 @@ class TestPointViewSet(viewsets.ModelViewSet):
                 'settings',
                 'readings',
                 'results',
+                'correction_report',
                 'test_point_set__session__calibration__configurations',
             )
             .prefetch_related('results__cycles')
@@ -981,6 +1088,30 @@ class TestPointViewSet(viewsets.ModelViewSet):
             # ONLY remove the initial warm up time so it isn't copied to subsequent points
             common_settings_data.pop('initial_warm_up_time', None)
 
+            # 8508A acquisition settings belong to one current/frequency
+            # point and must never be changed through Apply All. Strip them
+            # server-side as a second line of defense so a stale client or
+            # direct API call cannot alter or spread a point-specific reader
+            # setup through this endpoint.
+            point_specific_8508_fields = {
+                'input_switch_settling_time',
+                'f8508_dc_filter_enabled',
+                'f8508_dc_resolution',
+                'f8508_dc_fast_enabled',
+                'f8508_ac_filter_hz',
+                'f8508_ac_resolution',
+                'f8508_ac_transfer_enabled',
+                'f8508_ac_dc_coupled',
+                'f5790_filter_mode',
+                'f5790_filter_restart',
+                'f5790_hires_enabled',
+                'f5790_range_mode',
+                'f5790_input_switch_settling_time',
+            }
+            for field_name in point_specific_8508_fields:
+                full_warmup_settings.pop(field_name, None)
+                common_settings_data.pop(field_name, None)
+
             # Get all unique (current, frequency) pairs for the session
             unique_points = test_point_set.points.values('current', 'frequency').distinct()
 
@@ -1043,6 +1174,64 @@ class TestPointViewSet(viewsets.ModelViewSet):
             traceback.print_exc()
             return Response({"detail": f"An unexpected error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @action(detail=False, methods=['post'], url_path='actions/apply-reader-settings-to-all')
+    def apply_reader_settings_to_all(self, request, session_pk=None):
+        """Apply one reader profile to every existing point/direction.
+
+        Reader settings remain point-specific during ordinary saves. This
+        explicit action is the operator's opt-in shortcut and is deliberately
+        restricted to the selected reader family's fields server-side.
+        """
+        reader_type = str(request.data.get('reader_type') or '').strip().lower()
+        settings_data = request.data.get('settings') or {}
+        allowed_by_reader = {
+            '8508': {
+                'input_switch_settling_time',
+                'f8508_dc_filter_enabled',
+                'f8508_dc_resolution',
+                'f8508_dc_fast_enabled',
+                'f8508_ac_filter_hz',
+                'f8508_ac_resolution',
+                'f8508_ac_transfer_enabled',
+                'f8508_ac_dc_coupled',
+            },
+            '5790': {
+                'f5790_filter_mode',
+                'f5790_filter_restart',
+                'f5790_hires_enabled',
+                'f5790_range_mode',
+                'f5790_input_switch_settling_time',
+            },
+        }
+        allowed_fields = allowed_by_reader.get(reader_type)
+        if allowed_fields is None:
+            return Response(
+                {'detail': "reader_type must be '8508' or '5790'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        defaults = {
+            key: value for key, value in settings_data.items()
+            if key in allowed_fields
+        }
+        if not defaults:
+            return Response(
+                {'detail': 'No valid reader settings were supplied.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        test_point_set = get_object_or_404(TestPointSet, session_id=session_pk)
+        points = list(test_point_set.points.all())
+        with transaction.atomic():
+            for point in points:
+                CalibrationSettings.objects.update_or_create(
+                    test_point=point,
+                    defaults=defaults,
+                )
+        return Response({
+            'message': f'{reader_type.upper()} settings applied to all measurement points.',
+            'updated_points': len(points),
+        })
+
     @action(detail=False, methods=['post'], url_path='actions/update-order')
     def update_order(self, request, session_pk=None):
         """
@@ -1080,6 +1269,10 @@ class TestPointViewSet(viewsets.ModelViewSet):
         points_data = request.data.get('points', [])
         try:
             tp_set, created_tp_set = TestPointSet.objects.get_or_create(session_id=session_pk)
+            correction_report = None
+            correction_report_id = request.data.get('correction_report_id')
+            if correction_report_id is not None:
+                correction_report = get_object_or_404(ShuntReport, pk=correction_report_id)
             existing = tp_set.points.values_list('current', 'frequency', 'direction')
             existing_set = { (str(c), f, d) for c, f, d in existing }
 
@@ -1108,6 +1301,7 @@ class TestPointViewSet(viewsets.ModelViewSet):
                         TestPoint(
                             test_point_set=tp_set,
                             order=pair_orders[pair_key],
+                            correction_report=correction_report,
                             **point,
                         )
                     )
@@ -1352,6 +1546,9 @@ class TestPointViewSet(viewsets.ModelViewSet):
                 'eta_std', 'eta_ti', 'delta_std', 'delta_ti', 'delta_std_known',
             )
             mirrored_keys = [k for k in CORRECTION_FIELDS if k in request.data]
+            if mirrored_keys:
+                saved_results.corrections_manually_overridden = True
+                saved_results.save(update_fields=['corrections_manually_overridden'])
             opposite = 'Reverse' if test_point.direction == 'Forward' else 'Forward'
             sibling_results = None
             if mirrored_keys:
@@ -1365,7 +1562,8 @@ class TestPointViewSet(viewsets.ModelViewSet):
                     sibling_results, _ = CalibrationResults.objects.get_or_create(test_point=sibling_tp)
                     for f in mirrored_keys:
                         setattr(sibling_results, f, getattr(saved_results, f))
-                    sibling_results.save(update_fields=mirrored_keys)
+                    sibling_results.corrections_manually_overridden = True
+                    sibling_results.save(update_fields=[*mirrored_keys, 'corrections_manually_overridden'])
                 except TestPoint.DoesNotExist:
                     sibling_results = None
 
@@ -1387,6 +1585,27 @@ class TestPointViewSet(viewsets.ModelViewSet):
 
         except TestPoint.DoesNotExist:
             return Response({"detail": "Test point not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['get'], url_path='resolved-corrections')
+    def resolved_corrections(self, request, session_pk=None, pk=None):
+        """Return the correction factors the calculator will actually use.
+
+        This is intentionally available before readings exist so operators can
+        audit or edit the values before (and during) a measurement run.
+        """
+        test_point = self.get_object()
+        results, _ = CalibrationResults.objects.get_or_create(test_point=test_point)
+        results.fetch_automatic_corrections()
+        results.refresh_from_db()
+        return Response({
+            'eta_std': results.eta_std,
+            'eta_ti': results.eta_ti,
+            'delta_std': results.delta_std,
+            'delta_ti': results.delta_ti,
+            'delta_std_known': results.delta_std_known,
+            'corrections_manually_overridden': results.corrections_manually_overridden,
+            'correction_report_id': test_point.correction_report_id,
+        })
                         
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()

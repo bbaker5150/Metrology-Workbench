@@ -108,6 +108,9 @@ function CalibrationChart({
   // the y-axis can scale to the live trace; the other iterations stay in
   // the legend as crossed-out entries the user can click to re-show.
   activeStage = null,
+  // The in-flight cycle is authoritative in auto mode even while it has zero
+  // readings. This prevents the previous cycle from flashing between stages.
+  activeCycle = null,
 }) {
   const chartRef = useRef(null);
   const [yAxisUnit, setYAxisUnit] = useState("voltage");
@@ -194,8 +197,8 @@ function CalibrationChart({
     [chartData]
   );
   const effectiveCycle = useMemo(
-    () => resolveEffectiveCycle(selectedCycle, availableCycles),
-    [selectedCycle, availableCycles]
+    () => resolveEffectiveCycle(selectedCycle, availableCycles, activeCycle),
+    [selectedCycle, availableCycles, activeCycle]
   );
 
   // Scope visibility to the active iteration during live collection. We

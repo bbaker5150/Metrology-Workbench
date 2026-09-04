@@ -29,6 +29,11 @@ import CycleStatisticsTracker from "./CycleStatisticsTracker";
 import useCycleAnalytics from "../../hooks/useCycleAnalytics";
 import { listAvailableCycles, resolveEffectiveCycle } from "../../utils/resolveEffectiveCycle";
 import { resolveSessionNCycles } from "../../utils/resolveSessionNCycles";
+import {
+  exclude8508PointSettings,
+  select5790PointSettings,
+  select8508PointSettings,
+} from "../../utils/calibrationSettingsScope";
 import CalibrationStatusBar from "./CalibrationStatusBar";
 import { downloadFullSessionExcel } from "./sessionExcelExport";
 import {
@@ -48,6 +53,31 @@ const overviewCardClass = (isEmpty, accent = false) =>
   ]
     .filter(Boolean)
     .join(" ");
+
+const ReaderSettingTooltip = ({ children }) => (
+  <span className="reader-setting-tooltip" role="tooltip">
+    {children}
+  </span>
+);
+
+const calculateIterationPpm = (readings) => {
+  if (!Array.isArray(readings) || readings.length < 2) return null;
+  const values = readings
+    .filter((point) => point?.is_stable !== false)
+    .map((point) => Number(point?.y))
+    .filter(Number.isFinite);
+  if (values.length < 2) return null;
+
+  let mean = 0;
+  let m2 = 0;
+  values.forEach((value, index) => {
+    const delta = value - mean;
+    mean += delta / (index + 1);
+    m2 += delta * (value - mean);
+  });
+  if (Math.abs(mean) <= 1e-9) return 0;
+  return (Math.sqrt(m2 / (values.length - 1)) / Math.abs(mean)) * 1e6;
+};
 
 const CorrectionFactorsModal = ({
   isOpen,
@@ -91,8 +121,8 @@ const CorrectionFactorsModal = ({
         </div>
 
         <p style={{ marginBottom: "20px" }}>
-          Enter known correction factors. These will be applied to all completed
-          directions.
+          Review or update the correction factors used for this measurement
+          point. Changes apply to both directions and subsequent calculations.
         </p>
 
         <div className="modal-form-grid">
@@ -274,8 +304,9 @@ const SubNav = ({ activeTab, setActiveTab }) => (
 // alive across unmount/remount for the app session without any persistence.
 let rememberedCalSubTab = "settings";
 
-// Readings sub-tab: stacked vs. side-by-side chart layout (session only).
-let rememberedReadingsChartLayout = "stacked";
+// Readings sub-tab: side-by-side is the default, while an explicit user
+// choice is still remembered for the rest of the app session.
+let rememberedReadingsChartLayout = "sideBySide";
 
 const LINE_FREQUENCY_HZ = 60;
 const CYCLE_CLEAN_TOLERANCE = 1e-6;
@@ -294,10 +325,59 @@ const formatCycleCount = (value) => {
   return value.toFixed(3);
 };
 
+const get8508AcFilterForFrequency = (frequency) => {
+  const hz = Math.abs(Number(frequency) || 0);
+  if (hz < 40) return 10;
+  if (hz < 100) return 40;
+  return 100;
+};
+
+const get8508RecommendedSwitchDelay = (settings, frequency) => {
+  const acResolution = Number(settings?.f8508_ac_resolution) === 5 ? 5 : 6;
+  const acFilter = [10, 40, 100].includes(Number(settings?.f8508_ac_filter_hz))
+    ? Number(settings.f8508_ac_filter_hz)
+    : get8508AcFilterForFrequency(frequency);
+  const acDelays = {
+    5: { 100: 0.5, 40: 1.25, 10: 5 },
+    6: { 100: 1.25, 40: 3.25, 10: 12.5 },
+  };
+  const dcResolution = [5, 6, 7, 8].includes(Number(settings?.f8508_dc_resolution))
+    ? Number(settings.f8508_dc_resolution)
+    : 7;
+  const dcFilterEnabled = settings?.f8508_dc_filter_enabled !== false;
+  const dcDelays = {
+    5: { on: 0.8, off: 0.08 },
+    6: { on: 1, off: 0.1 },
+    7: { on: 5, off: 1 },
+    8: { on: 10, off: 5 },
+  };
+  return Math.max(
+    acDelays[acResolution][acFilter],
+    dcDelays[dcResolution][dcFilterEnabled ? "on" : "off"]
+  );
+};
+
+const get8508SmartDefaults = (frequency) => ({
+  f8508_dc_filter_enabled: true,
+  f8508_dc_resolution: 7,
+  f8508_dc_fast_enabled: false,
+  f8508_ac_filter_hz: get8508AcFilterForFrequency(frequency),
+  f8508_ac_resolution: 6,
+  f8508_ac_transfer_enabled: true,
+  f8508_ac_dc_coupled: (Number(frequency) || 0) < 40,
+});
+
 const DEFAULT_CALIBRATION_SETTINGS = {
   initial_warm_up_time: 0,
   num_samples: 6,
   settling_time: 45,
+  input_switch_settling_time: 5,
+  ...get8508SmartDefaults(100),
+  f5790_filter_mode: "MEDIUM",
+  f5790_filter_restart: "MEDIUM",
+  f5790_hires_enabled: true,
+  f5790_range_mode: "2.2",
+  f5790_input_switch_settling_time: 30,
   nplc: 100,
   stability_check_method: 'sliding_window',
   stability_window: 6,
@@ -326,6 +406,7 @@ const SETTINGS_FIELD_BOUNDS = {
   initial_warm_up_time: { min: 0, int: true, fallback: 0 },
   num_samples: { min: 2, int: true, fallback: 2 },
   settling_time: { min: 0, int: false, fallback: 0 },
+  input_switch_settling_time: { min: 0, max: 65_000, int: false, fallback: 5 },
   n_cycles: { min: 2, int: true, fallback: 2 },
   stability_window: { min: 2, int: true, fallback: 2 }, // upper bound (num_samples) passed in per-call
   stability_threshold_ppm: { min: 0, minExclusive: true, int: false, fallback: 10 },
@@ -409,6 +490,18 @@ function Calibration({
     hostSessionKnown,
   } = useInstruments();
   const { theme } = useTheme();
+  const normalizedReaderModels = [stdReaderModel, tiReaderModel]
+    .filter(Boolean)
+    .map((model) => String(model).toUpperCase());
+  const has34420Reader = normalizedReaderModels.some((model) =>
+    model.includes("34420")
+  );
+  const has8508Reader = normalizedReaderModels.some((model) =>
+    model.includes("8508")
+  );
+  const has5790Reader = normalizedReaderModels.some((model) =>
+    model.includes("5790")
+  );
 
   const [activeTab, setActiveTabState] = useState(rememberedCalSubTab);
   const setActiveTab = useCallback((value) => {
@@ -422,6 +515,13 @@ function Calibration({
     initial_warm_up_time: 0,
     num_samples: 35,
     settling_time: 120,
+    input_switch_settling_time: 5,
+    ...get8508SmartDefaults(100),
+    f5790_filter_mode: "MEDIUM",
+    f5790_filter_restart: "MEDIUM",
+    f5790_hires_enabled: true,
+    f5790_range_mode: "2.2",
+    f5790_input_switch_settling_time: 30,
     nplc: 20,
     stability_check_method: 'sliding_window',
     stability_window: 30,
@@ -439,6 +539,17 @@ function Calibration({
     lf_harmonics: 2,
     n_cycles: 3,
   });
+  // Keep the advisory value live while the operator experiments with the
+  // 8508A profile. This calculation is intentionally performed on every
+  // settings render so no profile control can leave the tooltip stale.
+  // The operator-entered delay remains untouched; only an unset delay follows
+  // the recommendation automatically.
+  const recommended8508SwitchDelay = get8508RecommendedSwitchDelay(
+    calibrationSettings,
+    focusedTP?.frequency
+  );
+  const [is8508SettingsSaved, setIs8508SettingsSaved] = useState(false);
+  const [is5790SettingsSaved, setIs5790SettingsSaved] = useState(false);
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
     eta_ti: "",
@@ -463,6 +574,13 @@ function Calibration({
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const collectionPromise = useRef(null);
   const lastAutoFocusedKey = useRef(null);
+  const save8508ConfirmationTimeout = useRef(null);
+
+  useEffect(() => () => {
+    if (save8508ConfirmationTimeout.current) {
+      window.clearTimeout(save8508ConfirmationTimeout.current);
+    }
+  }, []);
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   const [isHarmonicInfoOpen, setIsHarmonicInfoOpen] = useState(false);
@@ -527,32 +645,38 @@ function Calibration({
     showNotification,
   ]);
 
-  const livePpm = useMemo(() => {
-    if (!isCollecting || !activeCollectionDetails?.stage) return null;
-    const currentReadings = liveReadings[activeCollectionDetails.stage];
-    if (!currentReadings || currentReadings.length < 2) return null;
-
-    // 1. Enforce the sliding window
-    const windowSize = calibrationSettings.stability_window || 30;
-    const values = currentReadings.slice(-windowSize).map((p) => p.y);
-
-    if (values.length < 2) return null;
-
-    // 2. Use Welford's Algorithm for high-precision variance
-    let mean = 0;
-    let M2 = 0;
-    values.forEach((val, index) => {
-      const delta = val - mean;
-      mean += delta / (index + 1);
-      M2 += delta * (val - mean);
+  const activeCycleReadings = useCallback((stageReadings) => {
+    const cycle = activeCollectionDetails?.cycle_index;
+    if (cycle == null) return stageReadings || [];
+    return (stageReadings || []).filter((point) => {
+      const pointCycle = Number.isFinite(point?.cycle) ? Number(point.cycle) : 1;
+      return pointCycle === Number(cycle);
     });
+  }, [activeCollectionDetails?.cycle_index]);
 
-    const variance = M2 / (values.length - 1);
-    const stdDev = Math.sqrt(variance);
-    const ppm = (stdDev / Math.abs(mean)) * 1e6;
+  const liveStdPpm = useMemo(() => {
+    if (!isCollecting || !activeCollectionDetails?.stage) return null;
+    return calculateIterationPpm(
+      activeCycleReadings(liveReadings[activeCollectionDetails.stage])
+    );
+  }, [
+    liveReadings,
+    isCollecting,
+    activeCollectionDetails?.stage,
+    activeCycleReadings,
+  ]);
 
-    return ppm;
-  }, [liveReadings, isCollecting, activeCollectionDetails, calibrationSettings.stability_window]);
+  const liveTiPpm = useMemo(() => {
+    if (!isCollecting || !activeCollectionDetails?.stage) return null;
+    return calculateIterationPpm(
+      activeCycleReadings(tiLiveReadings[activeCollectionDetails.stage])
+    );
+  }, [
+    tiLiveReadings,
+    isCollecting,
+    activeCollectionDetails?.stage,
+    activeCycleReadings,
+  ]);
 
   const latestStdReading = useMemo(() => {
     if (!isCollecting || !activeCollectionDetails?.stage) return null;
@@ -627,12 +751,14 @@ function Calibration({
     } else if (collectionStatus === "error") {
       if (collectionPromise.current) {
         collectionPromise.current.reject(
-          new Error("Collection failed with an error.")
+          new Error(
+            lastMessage?.message || "Collection failed with an error."
+          )
         );
         collectionPromise.current = null;
       }
     }
-  }, [collectionStatus]);
+  }, [collectionStatus, lastMessage]);
 
   // useEffect(() => {
   //   if (lastMessage?.type === "warning") {
@@ -962,6 +1088,11 @@ function Calibration({
   }, []);
 
   const samplingAdvisor = useMemo(() => {
+    // This advisor describes coherent TVC-output sampling in units of NPLC.
+    // The 8508A direct-reading path is timed by RESL/filter/terminal switching
+    // instead, so presenting this guidance there would be misleading.
+    if (!has34420Reader) return null;
+
     const frequency = parseFloat(focusedTP?.frequency);
     const nplc = parseFloat(calibrationSettings.nplc);
     const samples = parseInt(calibrationSettings.num_samples, 10);
@@ -1040,7 +1171,7 @@ function Calibration({
       recommended: bestNearby || null,
       nearbyCleanCounts,
     };
-  }, [focusedTP?.frequency, calibrationSettings.nplc, calibrationSettings.num_samples]);
+  }, [focusedTP?.frequency, calibrationSettings.nplc, calibrationSettings.num_samples, has34420Reader]);
 
   const applyRecommendedSampleCount = useCallback((count) => {
     setCalibrationSettings((prev) => ({
@@ -1278,9 +1409,17 @@ function Calibration({
     const isFirstTestPoint =
       orderedTestPoints.length > 0 &&
       currentFocusedTP.key === orderedTestPoints[0].key;
+    const frequency = Number(currentFocusedTP.frequency) || 0;
+    const smart8508Defaults = get8508SmartDefaults(frequency);
+    const recommended8508Delay = get8508RecommendedSwitchDelay(
+      smart8508Defaults,
+      frequency
+    );
 
     const defaultSettings = {
       ...DEFAULT_CALIBRATION_SETTINGS,
+      ...smart8508Defaults,
+      input_switch_settling_time: recommended8508Delay,
       initial_warm_up_time: isFirstTestPoint ? 1800 : 0,
       num_samples: 6,
       settling_time: 45,
@@ -1316,7 +1455,17 @@ function Calibration({
 
     if (pointForDirection?.settings && Object.keys(pointForDirection.settings).length > 0) {
       const loaded = { ...defaultSettings, ...pointForDirection.settings };
+      if (loaded.input_switch_settling_time == null) {
+        loaded.input_switch_settling_time = get8508RecommendedSwitchDelay(
+          loaded,
+          frequency
+        );
+      }
       if (sessionNCycles != null) loaded.n_cycles = sessionNCycles;
+      if (has8508Reader) {
+        loaded.characterize_std_first = false;
+        loaded.characterize_test_first = false;
+      }
       setCalibrationSettings(loaded);
     } else {
       setCalibrationSettings({
@@ -1324,7 +1473,7 @@ function Calibration({
         n_cycles: sessionNCycles != null ? sessionNCycles : defaultSettings.n_cycles,
       });
     }
-  }, [focusedTP, activeDirection, orderedTestPoints]);
+  }, [focusedTP, activeDirection, orderedTestPoints, has8508Reader]);
 
   const buildMeasurementParams = useCallback((settings) => {
     const lowFrequencyEnabled = settings.enable_low_frequency_settings ?? DEFAULT_CALIBRATION_SETTINGS.enable_low_frequency_settings;
@@ -1335,6 +1484,22 @@ function Calibration({
       threshold_ppm: parseFloat(settings.stability_threshold_ppm) || DEFAULT_CALIBRATION_SETTINGS.stability_threshold_ppm,
       max_attempts: parseInt(settings.stability_max_attempts, 10) || DEFAULT_CALIBRATION_SETTINGS.stability_max_attempts,
       ppm_threshold: parseFloat(settings.iqr_filter_ppm_threshold) || DEFAULT_CALIBRATION_SETTINGS.iqr_filter_ppm_threshold,
+      input_switch_settling_time: clampSettingField(
+        "input_switch_settling_time",
+        settings.input_switch_settling_time ?? DEFAULT_CALIBRATION_SETTINGS.input_switch_settling_time
+      ),
+      f8508_dc_filter_enabled: settings.f8508_dc_filter_enabled !== false,
+      f8508_dc_resolution: Number(settings.f8508_dc_resolution) || 7,
+      f8508_dc_fast_enabled: Boolean(settings.f8508_dc_fast_enabled),
+      f8508_ac_filter_hz: Number(settings.f8508_ac_filter_hz) || 100,
+      f8508_ac_resolution: Number(settings.f8508_ac_resolution) || 6,
+      f8508_ac_transfer_enabled: settings.f8508_ac_transfer_enabled !== false,
+      f8508_ac_dc_coupled: Boolean(settings.f8508_ac_dc_coupled),
+      f5790_filter_mode: settings.f5790_filter_mode || "MEDIUM",
+      f5790_filter_restart: settings.f5790_filter_restart || "MEDIUM",
+      f5790_hires_enabled: Boolean(settings.f5790_hires_enabled),
+      f5790_range_mode: settings.f5790_range_mode || "2.2",
+      f5790_input_switch_settling_time: Number(settings.f5790_input_switch_settling_time) || 0,
       ignore_instability_after_lock: settings.ignore_instability_after_lock ?? DEFAULT_CALIBRATION_SETTINGS.ignore_instability_after_lock,
       enable_low_frequency_settings: lowFrequencyEnabled,
       enable_11hz_filter: lowFrequencyEnabled && (settings.enable_11hz_filter ?? DEFAULT_CALIBRATION_SETTINGS.enable_11hz_filter),
@@ -1353,6 +1518,22 @@ function Calibration({
       initial_warm_up_time: parseFloat(settings.initial_warm_up_time) || DEFAULT_CALIBRATION_SETTINGS.initial_warm_up_time,
       num_samples: parseInt(settings.num_samples, 10) || DEFAULT_CALIBRATION_SETTINGS.num_samples,
       settling_time: parseFloat(settings.settling_time) || DEFAULT_CALIBRATION_SETTINGS.settling_time,
+      input_switch_settling_time: clampSettingField(
+        "input_switch_settling_time",
+        settings.input_switch_settling_time ?? DEFAULT_CALIBRATION_SETTINGS.input_switch_settling_time
+      ),
+      f8508_dc_filter_enabled: settings.f8508_dc_filter_enabled !== false,
+      f8508_dc_resolution: Number(settings.f8508_dc_resolution) || 7,
+      f8508_dc_fast_enabled: Boolean(settings.f8508_dc_fast_enabled),
+      f8508_ac_filter_hz: Number(settings.f8508_ac_filter_hz) || 100,
+      f8508_ac_resolution: Number(settings.f8508_ac_resolution) || 6,
+      f8508_ac_transfer_enabled: settings.f8508_ac_transfer_enabled !== false,
+      f8508_ac_dc_coupled: Boolean(settings.f8508_ac_dc_coupled),
+      f5790_filter_mode: settings.f5790_filter_mode || "MEDIUM",
+      f5790_filter_restart: settings.f5790_filter_restart || "MEDIUM",
+      f5790_hires_enabled: Boolean(settings.f5790_hires_enabled),
+      f5790_range_mode: settings.f5790_range_mode || "2.2",
+      f5790_input_switch_settling_time: Number(settings.f5790_input_switch_settling_time) || 0,
       nplc: parseFloat(settings.nplc) || DEFAULT_CALIBRATION_SETTINGS.nplc,
       stability_check_method: settings.stability_check_method || DEFAULT_CALIBRATION_SETTINGS.stability_check_method,
       stability_window: parseInt(settings.stability_window, 10) || DEFAULT_CALIBRATION_SETTINGS.stability_window,
@@ -1360,8 +1541,12 @@ function Calibration({
       stability_max_attempts: parseInt(settings.stability_max_attempts, 10) || DEFAULT_CALIBRATION_SETTINGS.stability_max_attempts,
       iqr_filter_ppm_threshold: parseFloat(settings.iqr_filter_ppm_threshold) || DEFAULT_CALIBRATION_SETTINGS.iqr_filter_ppm_threshold,
       ignore_instability_after_lock: settings.ignore_instability_after_lock ?? DEFAULT_CALIBRATION_SETTINGS.ignore_instability_after_lock,
-      characterize_test_first: settings.characterize_test_first ?? DEFAULT_CALIBRATION_SETTINGS.characterize_test_first,
-      characterize_std_first: settings.characterize_std_first ?? DEFAULT_CALIBRATION_SETTINGS.characterize_std_first,
+      characterize_test_first: has8508Reader
+        ? false
+        : settings.characterize_test_first ?? DEFAULT_CALIBRATION_SETTINGS.characterize_test_first,
+      characterize_std_first: has8508Reader
+        ? false
+        : settings.characterize_std_first ?? DEFAULT_CALIBRATION_SETTINGS.characterize_std_first,
       characterization_source: settings.characterization_source === "AC" ? "AC" : "DC",
       enable_low_frequency_settings: lowFrequencyEnabled,
       enable_11hz_filter: lowFrequencyEnabled && (settings.enable_11hz_filter ?? DEFAULT_CALIBRATION_SETTINGS.enable_11hz_filter),
@@ -1372,7 +1557,7 @@ function Calibration({
       lf_harmonics: parseInt(settings.lf_harmonics, 10) || DEFAULT_CALIBRATION_SETTINGS.lf_harmonics,
       n_cycles: Math.max(2, parseInt(settings.n_cycles, 10) || DEFAULT_CALIBRATION_SETTINGS.n_cycles),
     };
-  }, []);
+  }, [has8508Reader]);
 
   const handleCorrectionInputChange = (e) =>
     setCorrectionInputs((prev) => ({
@@ -1380,19 +1565,35 @@ function Calibration({
       [e.target.name]: e.target.value,
     }));
 
-  const handleOpenCorrectionModal = () => {
+  const handleOpenCorrectionModal = async () => {
     const primaryPoint = activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
     const existingResults = primaryPoint?.results || {};
 
     setCorrectionInputs({
-      eta_std: existingResults.eta_std || "",
-      eta_ti: existingResults.eta_ti || "",
+      eta_std: existingResults.eta_std ?? "",
+      eta_ti: existingResults.eta_ti ?? "",
       delta_std: existingResults.delta_std ?? "",
       delta_ti: existingResults.delta_ti ?? "",
       delta_std_known: existingResults.delta_std_known ?? "",
     });
 
     setIsCorrectionModalOpen(true);
+    if (!primaryPoint?.id) return;
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${primaryPoint.id}/resolved-corrections/`
+      );
+      const resolved = response.data || {};
+      setCorrectionInputs({
+        eta_std: resolved.eta_std ?? "",
+        eta_ti: resolved.eta_ti ?? "",
+        delta_std: resolved.delta_std ?? "",
+        delta_ti: resolved.delta_ti ?? "",
+        delta_std_known: resolved.delta_std_known ?? "",
+      });
+    } catch (error) {
+      showNotification("Could not refresh correction inputs.", "error");
+    }
   };
 
   const validateInstrumentAssignments = useCallback((operationLabel = "start calibration") => {
@@ -1545,6 +1746,9 @@ function Calibration({
     if (!validateInstrumentAssignments("start batch calibration")) {
       return;
     }
+    // The primary action-bar play button starts a live run. Put the operator
+    // where the incoming Standard and TI samples are visible immediately.
+    setActiveTab("readings");
     setFailedTPKeys(new Set());
 
     const runBatchSequence = async () => {
@@ -1569,6 +1773,8 @@ function Calibration({
           // Explicitly pass the individual point settings for the backend
           settling_time: parseFloat(ptSettings.settling_time),
           num_samples: parseInt(ptSettings.num_samples, 10),
+          nplc: parseFloat(ptSettings.nplc),
+          measurement_params: buildMeasurementParams(ptSettings),
         };
       });
       if (pointsToRunData.length === 0) {
@@ -1601,8 +1807,8 @@ function Calibration({
       let characterizationJustRan = false;
 
       // 1. Characterize TVCs (if opted in)
-      const charStd = firstPointSettings.characterize_std_first;
-      const charTi = firstPointSettings.characterize_test_first;
+      const charStd = has34420Reader && firstPointSettings.characterize_std_first;
+      const charTi = has34420Reader && firstPointSettings.characterize_test_first;
 
       if ((charStd || charTi) && firstPointInBatch) {
         let targetTvc = "BOTH";
@@ -1789,6 +1995,8 @@ function Calibration({
         settling_time: parseFloat(ptSettings.settling_time),
         num_samples: parseInt(ptSettings.num_samples, 10),
         n_cycles: Math.max(2, parseInt(ptSettings.n_cycles, 10) || 3),
+        nplc: parseFloat(ptSettings.nplc),
+        measurement_params: buildMeasurementParams(ptSettings),
       };
     };
 
@@ -2053,6 +2261,8 @@ function Calibration({
               direction: activeDirection,
               settling_time: parseFloat(ptSettings.settling_time),
               num_samples: parseInt(ptSettings.num_samples, 10),
+              nplc: parseFloat(ptSettings.nplc),
+              measurement_params: buildMeasurementParams(ptSettings),
             };
           });
 
@@ -2236,8 +2446,15 @@ function Calibration({
           orderedTestPoints.length > 0 &&
           focusedTP.key === orderedTestPoints[0].key;
 
+        const frequency = Number(focusedTP.frequency) || 0;
+        const smart8508Defaults = get8508SmartDefaults(frequency);
         const defaultSettings = {
           ...DEFAULT_CALIBRATION_SETTINGS,
+          ...smart8508Defaults,
+          input_switch_settling_time: get8508RecommendedSwitchDelay(
+            smart8508Defaults,
+            frequency
+          ),
           initial_warm_up_time: isFirstTestPoint ? 1800 : 0,
         };
 
@@ -2372,7 +2589,11 @@ function Calibration({
         return;
       }
 
-      const fullSettingsPayload = buildSettingsPayload(calibrationSettings);
+      // Reader acquisition behavior is point-specific. Never allow Apply All
+      // to overwrite 8508A or 5790A/B profiles selected for another point.
+      const commonSettingsPayload = exclude8508PointSettings(
+        buildSettingsPayload(calibrationSettings)
+      );
 
       try {
         let { forward, reverse } = focusedTP;
@@ -2407,7 +2628,7 @@ function Calibration({
         await axios.post(
           `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/actions/apply-settings-to-all/`,
           {
-            settings: fullSettingsPayload,
+            settings: commonSettingsPayload,
             focused_test_point_id: sourcePointId,
           }
         );
@@ -2428,10 +2649,127 @@ function Calibration({
       isOpen: true,
       title: `Apply Settings to All ${activeDirection} Points?`,
       message:
-        `This will apply the common settings (Samples, Settling Time, Stability Threshold, etc.) to ALL test points in the ${activeDirection} direction.\n\nThe 'Initial Warm-up Wait' will only be saved for this specific point and will not affect others. The opposite direction will not be modified.`,
+        `This will apply shared calibration and stability settings to ALL test points in the ${activeDirection} direction.\n\n8508A and 5790A/B acquisition settings remain specific to each test point and are excluded. The 'Initial Warm-up Wait' also remains specific to this point. The opposite direction will not be modified.`,
       onConfirm: confirmAction,
       onCancel: () =>
         setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
+    });
+  };
+
+  const handle8508SettingsSave = async () => {
+    if (isRemoteViewer) return;
+    if (!focusedTP || !selectedSessionId) {
+      return showNotification("No test point selected.", "error");
+    }
+
+    const pointSettings = select8508PointSettings(
+      buildSettingsPayload(calibrationSettings)
+    );
+    const directionName = activeDirection;
+    let pointToUpdate =
+      directionName === "Forward" ? focusedTP.forward : focusedTP.reverse;
+
+    try {
+      if (!pointToUpdate) {
+        pointToUpdate = (
+          await axios.post(
+            `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
+            {
+              current: focusedTP.current,
+              frequency: focusedTP.frequency,
+              direction: directionName,
+            }
+          )
+        ).data;
+      }
+
+      await axios.patch(
+        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${pointToUpdate.id}/`,
+        { settings: pointSettings }
+      );
+
+      if (save8508ConfirmationTimeout.current) {
+        window.clearTimeout(save8508ConfirmationTimeout.current);
+      }
+      setIs8508SettingsSaved(true);
+      save8508ConfirmationTimeout.current = window.setTimeout(() => {
+        setIs8508SettingsSaved(false);
+        save8508ConfirmationTimeout.current = null;
+      }, 1600);
+      showNotification(
+        `8508A settings saved for ${formatCurrent(focusedTP.current)} @ ${formatFrequency(focusedTP.frequency)} (${directionName}).`,
+        "success"
+      );
+      onDataUpdate();
+    } catch (error) {
+      setIs8508SettingsSaved(false);
+      showNotification("Error saving 8508A settings for this point.", "error");
+    }
+  };
+
+  const handle5790SettingsSave = async () => {
+    if (isRemoteViewer) return;
+    if (!focusedTP || !selectedSessionId) {
+      return showNotification("No test point selected.", "error");
+    }
+    const directionName = activeDirection;
+    let pointToUpdate = directionName === "Forward" ? focusedTP.forward : focusedTP.reverse;
+    try {
+      if (!pointToUpdate) {
+        pointToUpdate = (await axios.post(
+          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
+          { current: focusedTP.current, frequency: focusedTP.frequency, direction: directionName }
+        )).data;
+      }
+      await axios.patch(
+        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${pointToUpdate.id}/`,
+        { settings: select5790PointSettings(buildSettingsPayload(calibrationSettings)) }
+      );
+      setIs5790SettingsSaved(true);
+      window.setTimeout(() => setIs5790SettingsSaved(false), 1600);
+      showNotification(
+        `5790 settings saved for ${formatCurrent(focusedTP.current)} @ ${formatFrequency(focusedTP.frequency)} (${directionName}).`,
+        "success"
+      );
+      onDataUpdate();
+    } catch (error) {
+      setIs5790SettingsSaved(false);
+      showNotification("Error saving 5790 settings for this point.", "error");
+    }
+  };
+
+  const handleReaderSettingsSaveAll = (readerType) => {
+    if (isRemoteViewer || !selectedSessionId) return;
+    const is5790 = readerType === "5790";
+    const label = is5790 ? "5790A/B" : "8508A";
+    const settings = is5790
+      ? select5790PointSettings(buildSettingsPayload(calibrationSettings))
+      : select8508PointSettings(buildSettingsPayload(calibrationSettings));
+
+    const confirmAction = async () => {
+      try {
+        const response = await axios.post(
+          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/actions/apply-reader-settings-to-all/`,
+          { reader_type: readerType, settings }
+        );
+        showNotification(
+          `${label} settings applied to ${response.data.updated_points} measurement points.`,
+          "success"
+        );
+        onDataUpdate();
+      } catch (error) {
+        showNotification(`Error applying ${label} settings to all points.`, "error");
+      } finally {
+        setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
+      }
+    };
+
+    setConfirmationModal({
+      isOpen: true,
+      title: `Apply ${label} Settings to All Points?`,
+      message: `This replaces the ${label} reader profile on every existing Forward and Reverse measurement point in this session.`,
+      onConfirm: confirmAction,
+      onCancel: () => setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
     });
   };
 
@@ -2478,8 +2816,23 @@ function Calibration({
   // the chart about "what is the latest cycle right now."
   const stdAvailableCycles = listAvailableCycles(stdChartData);
   const tiAvailableCycles = listAvailableCycles(tiChartData);
-  const stdEffectiveCycle = resolveEffectiveCycle(stdChartCycle, stdAvailableCycles);
-  const tiEffectiveCycle = resolveEffectiveCycle(tiChartCycle, tiAvailableCycles);
+  const activeLiveCycle = (
+    isCurrentTPActive
+    && activeCollectionDetails?.cycle_index != null
+    && Number.isFinite(Number(activeCollectionDetails?.cycle_index))
+  )
+    ? Number(activeCollectionDetails.cycle_index)
+    : null;
+  const stdEffectiveCycle = resolveEffectiveCycle(
+    stdChartCycle,
+    stdAvailableCycles,
+    activeLiveCycle,
+  );
+  const tiEffectiveCycle = resolveEffectiveCycle(
+    tiChartCycle,
+    tiAvailableCycles,
+    activeLiveCycle,
+  );
   const showStdChart =
     isCurrentTPActive ||
     Object.values(historicalReadings).some((arr) => arr && arr.length > 0);
@@ -2495,9 +2848,6 @@ function Calibration({
     return readingType ? readingType.label : stageKey.replace(/_/g, " ");
   };
 
-  const isCalculationReady =
-    focusedTP &&
-    (hasAllReadings(focusedTP.forward) || hasAllReadings(focusedTP.reverse));
   const dropdownOptions = useMemo(() => {
     // Characterization is a single-point operation regardless of how many
     // test points the user has checkboxed in the sidebar: per the
@@ -2548,46 +2898,67 @@ function Calibration({
     handleCharacterizationRequest,
   ]);
 
-  const displayPpm = slidingWindowStatus?.ppm ?? livePpm;
+  // Prefer the chart's own active-cycle/window data.  The backend values are
+  // retained as a reconnect fallback, but must never let the status bar show
+  // a different statistic than the visible Standard/TI stability cards.
+  const displayStdPpm = liveStdPpm ?? slidingWindowStatus?.std_ppm;
+  const displayTiPpm = liveTiPpm ?? slidingWindowStatus?.ti_ppm;
+  const displayPpm = slidingWindowStatus?.ppm ?? (
+    [displayStdPpm, displayTiPpm].filter(Number.isFinite).length > 0
+      ? Math.max(...[displayStdPpm, displayTiPpm].filter(Number.isFinite))
+      : null
+  );
 
   // Derive the count directly from the live chart data
   const currentLiveReadingCount = isCollecting && activeCollectionDetails?.stage
     ? (liveReadings[activeCollectionDetails.stage]?.length || 0)
     : 0;
 
-  const activeWindowCount = Math.min(
-    currentLiveReadingCount,
-    calibrationSettings.stability_window
-  );
+  const activeWindowCount =
+    slidingWindowStatus?.window_count ?? currentLiveReadingCount;
 
   // Cleanly capture retry metrics from context state
-  const instabilityCount = slidingWindowStatus?.instability_events || 0;
-  const maxRetries = slidingWindowStatus?.max_retries || calibrationSettings.stability_max_attempts;
+  const instabilityCount = slidingWindowStatus?.instability_events ?? 0;
+  const maxRetries = slidingWindowStatus?.max_retries ?? calibrationSettings.stability_max_attempts;
 
-  // Determine the exact phase of the sliding window for intuitive UI feedback
+  // The backend owns the stability state machine. Display its explicit phase
+  // instead of inferring it from chart/progress lengths (sequential readers
+  // can be routing while neither count has advanced yet).
   let windowPhaseText = "";
-  if (collectionProgress.count > 0) {
-    // Phase 3: Initial stability achieved, now locking in the required samples
+  const windowPhase = slidingWindowStatus?.phase;
+  const displayedWindowSize =
+    slidingWindowStatus?.window_size ?? calibrationSettings.stability_window;
+  if (windowPhase === "monitoring") {
+    windowPhaseText = `Iteration (${activeWindowCount} accepted)`;
+  } else if (windowPhase === "searching") {
+    windowPhaseText = `Searching (Sliding ${displayedWindowSize})`;
+  } else if (windowPhase === "filling") {
+    windowPhaseText = `Filling (${activeWindowCount}/${displayedWindowSize})`;
+  } else if (collectionProgress.count > 0) {
+    // Compatibility for non-window/legacy payloads that do not yet declare
+    // a phase (for example the harmonic-projection summary event).
     windowPhaseText = `Monitoring (Last ${activeWindowCount})`;
   } else if (instabilityCount > 0) {
-    // Phase 2: Window is full but unstable. Currently sliding and testing new points.
-    windowPhaseText = `Searching (Sliding ${calibrationSettings.stability_window})`;
+    windowPhaseText = `Searching (Sliding ${displayedWindowSize})`;
   } else {
-    // Phase 1: Gathering the very first batch of points for the window
-    windowPhaseText = `Filling (${activeWindowCount}/${calibrationSettings.stability_window})`;
+    windowPhaseText = `Filling (${activeWindowCount}/${displayedWindowSize})`;
   }
 
   const isStableNow = useMemo(() => {
     if (slidingWindowStatus) {
       return slidingWindowStatus.is_stable;
     }
-    if (livePpm !== null) {
-      return livePpm < calibrationSettings.stability_threshold_ppm;
+    const liveMetrics = [liveStdPpm, liveTiPpm].filter(Number.isFinite);
+    if (liveMetrics.length > 0) {
+      return liveMetrics.every(
+        (ppm) => ppm < calibrationSettings.stability_threshold_ppm
+      );
     }
     return true;
   }, [
     slidingWindowStatus,
-    livePpm,
+    liveStdPpm,
+    liveTiPpm,
     calibrationSettings.stability_threshold_ppm,
   ]);
 
@@ -2603,13 +2974,6 @@ function Calibration({
 
   const handleSaveCorrections = async (currentCorrectionInputs) => {
     if (isRemoteViewer) {
-      return;
-    }
-    if (isCollecting || isBulkRunning) {
-      showNotification(
-        "Corrections are view-only while calibration is running.",
-        "info"
-      );
       return;
     }
 
@@ -2659,7 +3023,7 @@ function Calibration({
         onSubmit={handleSaveCorrections}
         initialValues={correctionInputs}
         onInputChange={handleCorrectionInputChange}
-        isReadOnly={isCollecting || isBulkRunning || isRemoteViewer}
+        isReadOnly={isRemoteViewer}
       />
       <HarmonicProjectionInfoModal
         isOpen={isHarmonicInfoOpen}
@@ -2737,6 +3101,8 @@ function Calibration({
               latestTiReading={latestTiReading}
               calibrationSettings={calibrationSettings}
               displayPpm={displayPpm}
+              displayStdPpm={displayStdPpm}
+              displayTiPpm={displayTiPpm}
               isStableNow={isStableNow}
               windowPhaseText={windowPhaseText}
               instabilityCount={instabilityCount}
@@ -2991,29 +3357,31 @@ function Calibration({
                                   disabled={isRemoteViewer}
                                 />
                               </div>
-                              <div className="form-section">
-                                <label htmlFor="nplc">
-                                  Reader integration (NPLC)
-                                </label>
-                                <select
-                                  id="nplc"
-                                  name="nplc"
-                                  value={calibrationSettings.nplc || 20}
-                                  onChange={(e) =>
-                                    setCalibrationSettings((prev) => ({
-                                      ...prev,
-                                      nplc: parseFloat(e.target.value),
-                                    }))
-                                  }
-                                  disabled={isRemoteViewer}
-                                >
-                                  {NPLC_OPTIONS.map((val) => (
-                                    <option key={val} value={val}>
-                                      {val} PLC
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
+                              {has34420Reader && (
+                                <div className="form-section">
+                                  <label htmlFor="nplc">
+                                    34420A integration (NPLC)
+                                  </label>
+                                  <select
+                                    id="nplc"
+                                    name="nplc"
+                                    value={calibrationSettings.nplc || 20}
+                                    onChange={(e) =>
+                                      setCalibrationSettings((prev) => ({
+                                        ...prev,
+                                        nplc: parseFloat(e.target.value),
+                                      }))
+                                    }
+                                    disabled={isRemoteViewer}
+                                  >
+                                    {NPLC_OPTIONS.map((val) => (
+                                      <option key={val} value={val}>
+                                        {val} PLC
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
                               <div className="form-section form-section--samples">
                                 <label htmlFor="num_samples"># of samples</label>
                                 <input
@@ -3250,6 +3618,328 @@ function Calibration({
                                 )}
                             </div>
                           </div>
+                          {has8508Reader && (
+                            <div className="settings-form-group settings-form-group--8508">
+                              <div className="reader-profile-scope-header">
+                                <span className="settings-form-group-eyebrow">
+                                  8508A Settings
+                                </span>
+                              </div>
+                              <div className="reader-profile-grid">
+                                <section className="reader-profile-card" aria-labelledby="reader-profile-dc-title">
+                                  <div className="reader-profile-card-header">
+                                    <strong id="reader-profile-dc-title">DC Readings</strong>
+                                  </div>
+                                  <div className="form-section-group">
+                                    <div className="form-section reader-setting-tooltip-trigger">
+                                      <label htmlFor="f8508_dc_resolution">
+                                        Resolution
+                                        <ReaderSettingTooltip>
+                                          Selects DC measurement resolution. Higher RESL values provide finer readings but require more acquisition and settling time.
+                                        </ReaderSettingTooltip>
+                                      </label>
+                                      <select
+                                        id="f8508_dc_resolution"
+                                        value={calibrationSettings.f8508_dc_resolution ?? 7}
+                                        onChange={(e) => setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          f8508_dc_resolution: Number(e.target.value),
+                                        }))}
+                                        disabled={isRemoteViewer}
+                                      >
+                                        {[5, 6, 7, 8].map((value) => (
+                                          <option key={value} value={value}>RESL{value}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div className="reader-profile-switches full-width">
+                                      <div className="reader-profile-switch-field reader-setting-tooltip-trigger">
+                                        <label className="reader-profile-switch">
+                                          <input
+                                            type="checkbox"
+                                            checked={calibrationSettings.f8508_dc_filter_enabled !== false}
+                                            onChange={(e) => setCalibrationSettings((prev) => ({
+                                              ...prev,
+                                              f8508_dc_filter_enabled: e.target.checked,
+                                            }))}
+                                            disabled={isRemoteViewer}
+                                          />
+                                          <span>Filter</span>
+                                        </label>
+                                        <ReaderSettingTooltip>
+                                          Enables the DC input filter to reduce measurement noise. Filtering improves stability but increases response and settling time.
+                                        </ReaderSettingTooltip>
+                                      </div>
+                                      <div className="reader-profile-switch-field reader-setting-tooltip-trigger">
+                                        <label className="reader-profile-switch">
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean(calibrationSettings.f8508_dc_fast_enabled)}
+                                            onChange={(e) => setCalibrationSettings((prev) => ({
+                                              ...prev,
+                                              f8508_dc_fast_enabled: e.target.checked,
+                                            }))}
+                                            disabled={isRemoteViewer}
+                                          />
+                                          <span>Fast</span>
+                                        </label>
+                                        <ReaderSettingTooltip>
+                                          Enables faster DC conversions at the expense of noise rejection and reading stability. Leave off for the default precision workflow.
+                                        </ReaderSettingTooltip>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </section>
+
+                                <section className="reader-profile-card" aria-labelledby="reader-profile-ac-title">
+                                  <div className="reader-profile-card-header">
+                                    <strong id="reader-profile-ac-title">AC Readings</strong>
+                                  </div>
+                                  <div className="form-section-group">
+                                    <div className="form-section reader-setting-tooltip-trigger">
+                                      <label htmlFor="f8508_ac_filter_hz">
+                                        RMS filter
+                                        <ReaderSettingTooltip>
+                                          Selects the AC RMS filter profile. Use the filter appropriate for the test frequency; lower-frequency profiles require longer settling.
+                                        </ReaderSettingTooltip>
+                                      </label>
+                                      <select
+                                        id="f8508_ac_filter_hz"
+                                        value={calibrationSettings.f8508_ac_filter_hz ?? get8508AcFilterForFrequency(focusedTP?.frequency)}
+                                        onChange={(e) => setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          f8508_ac_filter_hz: Number(e.target.value),
+                                        }))}
+                                        disabled={isRemoteViewer}
+                                      >
+                                        {[100, 40, 10].map((value) => (
+                                          <option key={value} value={value}>FILT{value}HZ</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div className="form-section reader-setting-tooltip-trigger">
+                                      <label htmlFor="f8508_ac_resolution">
+                                        Resolution
+                                        <ReaderSettingTooltip>
+                                          Selects AC measurement resolution. RESL6 provides finer readings than RESL5, with a corresponding increase in acquisition time.
+                                        </ReaderSettingTooltip>
+                                      </label>
+                                      <select
+                                        id="f8508_ac_resolution"
+                                        value={calibrationSettings.f8508_ac_resolution ?? 6}
+                                        onChange={(e) => setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          f8508_ac_resolution: Number(e.target.value),
+                                        }))}
+                                        disabled={isRemoteViewer}
+                                      >
+                                        {[5, 6].map((value) => (
+                                          <option key={value} value={value}>RESL{value}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div className="reader-profile-switches full-width">
+                                      <div className="reader-profile-switch-field reader-setting-tooltip-trigger">
+                                        <label className="reader-profile-switch">
+                                          <input
+                                            type="checkbox"
+                                            checked={calibrationSettings.f8508_ac_transfer_enabled !== false}
+                                            onChange={(e) => setCalibrationSettings((prev) => ({
+                                              ...prev,
+                                              f8508_ac_transfer_enabled: e.target.checked,
+                                            }))}
+                                            disabled={isRemoteViewer}
+                                          />
+                                          <span>Transfer</span>
+                                        </label>
+                                        <ReaderSettingTooltip>
+                                          Enables the 8508A transfer mode used for closely spaced AC and DC comparisons, helping reduce drift between stages.
+                                        </ReaderSettingTooltip>
+                                      </div>
+                                      <div className="reader-profile-switch-field reader-setting-tooltip-trigger">
+                                        <label className="reader-profile-switch">
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean(calibrationSettings.f8508_ac_dc_coupled)}
+                                            onChange={(e) => setCalibrationSettings((prev) => ({
+                                              ...prev,
+                                              f8508_ac_dc_coupled: e.target.checked,
+                                            }))}
+                                            disabled={isRemoteViewer}
+                                          />
+                                          <span>DC coupled</span>
+                                        </label>
+                                        <ReaderSettingTooltip>
+                                          Uses the DC-coupled RMS path so DC content is included in the AC reading. It is recommended for configured points at or below 40 Hz.
+                                        </ReaderSettingTooltip>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </section>
+                              </div>
+
+                              <div className="reader-profile-delay">
+                                <div className="form-section reader-setting-tooltip-trigger">
+                                  <label htmlFor="input_switch_settling_time">
+                                    Front / rear switch delay (sec)
+                                    <ReaderSettingTooltip>
+                                      {`Waits after changing 8508A input terminals before accepting a reading, preventing stale or transient samples. Recommended minimum for the current AC/DC settings: ${Number(recommended8508SwitchDelay.toFixed(2))} s.`}
+                                    </ReaderSettingTooltip>
+                                  </label>
+                                  <input
+                                    type="number"
+                                    id="input_switch_settling_time"
+                                    name="input_switch_settling_time"
+                                    min="0"
+                                    max="65000"
+                                    step="0.1"
+                                    value={calibrationSettings.input_switch_settling_time ?? recommended8508SwitchDelay}
+                                    onChange={(e) => setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      input_switch_settling_time: e.target.value,
+                                    }))}
+                                    onBlur={handleSettingBlur("input_switch_settling_time")}
+                                    disabled={isRemoteViewer}
+                                  />
+                                </div>
+                              </div>
+                              <div className="reader-profile-point-actions">
+                                <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
+                                  <button
+                                    type="button"
+                                    className="reader-profile-point-save"
+                                    onClick={() => handleReaderSettingsSaveAll("8508")}
+                                    disabled={isRemoteViewer}
+                                    aria-label="Apply 8508A settings to all measurement points"
+                                  >
+                                    <LuSaveAll aria-hidden="true" />
+                                  </button>
+                                  <ReaderSettingTooltip>
+                                    Apply these 8508A settings to every measurement point.
+                                  </ReaderSettingTooltip>
+                                </span>
+                                <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
+                                  <button
+                                    type="button"
+                                    className={`reader-profile-point-save${is8508SettingsSaved ? " is-saved" : ""}`}
+                                    onClick={handle8508SettingsSave}
+                                    disabled={isRemoteViewer}
+                                    aria-label="Save 8508A settings for this test point"
+                                  >
+                                    <FaCheck aria-hidden="true" />
+                                  </button>
+                                  <ReaderSettingTooltip>
+                                    Update 8508A settings for this test point only.
+                                  </ReaderSettingTooltip>
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                          {has5790Reader && (
+                            <div className="settings-form-group settings-form-group--8508">
+                              <div className="reader-profile-scope-header">
+                                <span className="settings-form-group-eyebrow">
+                                  5790A/B Settings
+                                </span>
+                              </div>
+                              <div className="reader-profile-grid">
+                                <section className="reader-profile-card" aria-labelledby="reader-profile-5790-filter-title">
+                                  <div className="reader-profile-card-header">
+                                    <strong id="reader-profile-5790-filter-title">Measurement filtering</strong>
+                                  </div>
+                                  <div className="form-section-group">
+                                    <div className="form-section reader-setting-tooltip-trigger">
+                                      <label htmlFor="f5790_filter_mode">Digital filter
+                                        <ReaderSettingTooltip>
+                                          Selects the 5790 digital filter. Fast is the responsive default; Medium and Slow improve stability but can substantially increase measurement time.
+                                        </ReaderSettingTooltip>
+                                      </label>
+                                      <select id="f5790_filter_mode" value={calibrationSettings.f5790_filter_mode || "MEDIUM"}
+                                        onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_filter_mode: e.target.value }))}
+                                        disabled={isRemoteViewer}>
+                                        {['OFF', 'FAST', 'MEDIUM', 'SLOW'].map((value) => <option key={value} value={value}>{value}</option>)}
+                                      </select>
+                                    </div>
+                                    <div className="form-section reader-setting-tooltip-trigger">
+                                      <label htmlFor="f5790_filter_restart">Filter restart
+                                        <ReaderSettingTooltip>
+                                          Controls how aggressively the filter restarts after an input change. Coarse is the fastest default; Fine retains the most filtering continuity.
+                                        </ReaderSettingTooltip>
+                                      </label>
+                                      <select id="f5790_filter_restart" value={calibrationSettings.f5790_filter_restart || "MEDIUM"}
+                                        onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_filter_restart: e.target.value }))}
+                                        disabled={isRemoteViewer || calibrationSettings.f5790_filter_mode === 'OFF'}>
+                                        {['FINE', 'MEDIUM', 'COARSE'].map((value) => <option key={value} value={value}>{value}</option>)}
+                                      </select>
+                                    </div>
+                                  </div>
+                                </section>
+                                <section className="reader-profile-card" aria-labelledby="reader-profile-5790-range-title">
+                                  <div className="reader-profile-card-header">
+                                  </div>
+                                  <div className="form-section-group">
+                                    <div className="form-section reader-setting-tooltip-trigger">
+                                      <label htmlFor="f5790_range_mode">Range
+                                        <ReaderSettingTooltip>
+                                          Select the physical Y5020 input range used by the 5790.
+                                        </ReaderSettingTooltip>
+                                      </label>
+                                      <select id="f5790_range_mode" value={calibrationSettings.f5790_range_mode || "2.2"}
+                                        onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_range_mode: e.target.value }))}
+                                        disabled={isRemoteViewer}>
+                                        <option value="0.022">22 mV</option>
+                                        <option value="0.07">70 mV</option>
+                                        <option value="0.22">220 mV</option>
+                                        <option value="0.7">700 mV</option>
+                                        <option value="2.2">2.2 V</option>
+                                      </select>
+                                    </div>
+                                    <div className="reader-profile-switches full-width">
+                                      <div className="reader-profile-switch-field reader-setting-tooltip-trigger">
+                                        <label className="reader-profile-switch">
+                                          <input type="checkbox" checked={Boolean(calibrationSettings.f5790_hires_enabled)}
+                                            onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_hires_enabled: e.target.checked }))}
+                                            disabled={isRemoteViewer} />
+                                          <span>High resolution</span>
+                                        </label>
+                                        <ReaderSettingTooltip>Enables the 5790 high-resolution display and measurement mode.</ReaderSettingTooltip>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </section>
+                              </div>
+                              <div className="reader-profile-delay">
+                                <div className="form-section reader-setting-tooltip-trigger">
+                                  <label htmlFor="f5790_input_switch_settling_time">Input switch delay (sec)
+                                    <ReaderSettingTooltip>
+                                      Waits after changing INPUT1/INPUT2 on a shared 5790 before requesting the next measurement. It is not added when separate 5790s are used.
+                                    </ReaderSettingTooltip>
+                                  </label>
+                                  <input type="number" id="f5790_input_switch_settling_time" min="0" max="300" step="0.1"
+                                    value={calibrationSettings.f5790_input_switch_settling_time ?? 30}
+                                    onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_input_switch_settling_time: e.target.value }))}
+                                    disabled={isRemoteViewer} />
+                                </div>
+                              </div>
+                              <div className="reader-profile-point-actions">
+                                <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
+                                  <button type="button" className="reader-profile-point-save"
+                                    onClick={() => handleReaderSettingsSaveAll("5790")} disabled={isRemoteViewer}
+                                    aria-label="Apply 5790 settings to all measurement points">
+                                    <LuSaveAll aria-hidden="true" />
+                                  </button>
+                                  <ReaderSettingTooltip>Apply these 5790A/B settings to every measurement point.</ReaderSettingTooltip>
+                                </span>
+                                <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
+                                  <button type="button" className={`reader-profile-point-save${is5790SettingsSaved ? " is-saved" : ""}`}
+                                    onClick={handle5790SettingsSave} disabled={isRemoteViewer} aria-label="Save 5790 settings for this test point">
+                                    <FaCheck aria-hidden="true" />
+                                  </button>
+                                  <ReaderSettingTooltip>Update 5790A/B settings for this test point only.</ReaderSettingTooltip>
+                                </span>
+                              </div>
+                            </div>
+                          )}
                           {/* --- LOW FREQUENCY AC SECTION ---
                               Hidden while LF-specific calibration behavior is parked.
                               Keep the settings/state/payload logic intact so the section can
@@ -3402,6 +4092,7 @@ function Calibration({
                             </div>
                           )}
 
+                          {has34420Reader && (
                           <div className="settings-form-group">
                             <span className="settings-form-group-eyebrow">
                               Characterization
@@ -3473,6 +4164,7 @@ function Calibration({
                               </div>
                             </div>
                           </div>
+                          )}
 
                           <div className="form-section-action-icons">
                             <button
@@ -3590,6 +4282,7 @@ function Calibration({
                                   selectedCycle={stdChartCycle}
                                   onCycleChange={setStdChartCycle}
                                   activeStage={activeStageKey}
+                                  activeCycle={activeLiveCycle}
                                 />
                                 <LiveStabilityTracker
                                   title="Standard Instrument Stability"
@@ -3602,6 +4295,8 @@ function Calibration({
                                   }
                                   activeCycle={stdEffectiveCycle}
                                   activeChartView={activeChartView}
+                                  isCollecting={isCollecting && isCurrentTPActive}
+                                  stabilityWindow={calibrationSettings.stability_window}
                                 />
 
                               </div>
@@ -3627,6 +4322,7 @@ function Calibration({
                                   selectedCycle={tiChartCycle}
                                   onCycleChange={setTiChartCycle}
                                   activeStage={activeStageKey}
+                                  activeCycle={activeLiveCycle}
                                 />
                                 <LiveStabilityTracker
                                   title="Test Instrument Stability"
@@ -3639,6 +4335,8 @@ function Calibration({
                                   }
                                   activeCycle={tiEffectiveCycle}
                                   activeChartView={activeChartView}
+                                  isCollecting={isCollecting && isCurrentTPActive}
+                                  stabilityWindow={calibrationSettings.stability_window}
                                 />
 
                               </div>
@@ -3697,16 +4395,12 @@ function Calibration({
                               <button
                                 type="button"
                                 onClick={handleOpenCorrectionModal}
-                                disabled={
-                                  isCalculatingAverages ||
-                                  !isCalculationReady
-                                }
                                 className="cal-results-excel-icon-btn"
                                 aria-label="Calculate AC-DC difference"
                                 title={
-                                  isCollecting || isBulkRunning
-                                    ? "View correction inputs (editing disabled while running)"
-                                    : "View or Edit Correction Inputs"
+                                  isRemoteViewer
+                                    ? "View correction inputs"
+                                    : "View or edit correction inputs"
                                 }
                               >
                                 <FaCalculator aria-hidden />

@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTrashAlt, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faTrashAlt, faSave } from "@fortawesome/free-solid-svg-icons";
 import { equationLibrary } from "../../../utils/equationLibrary";
+import submitOnEnter from "../../../utils/submitOnEnter";
 
 /**
  * Popover content for the measurement-equation library.
@@ -25,8 +26,28 @@ const EquationLibraryMenu = ({
   onSaveCurrent,
   canSaveCurrent = false,
   saveDisabledReason = "",
+  measurementAreas = [],
+  defaultMeasurementArea = "",
 }) => {
   const [filter, setFilter] = useState("");
+  const [isSaveFormOpen, setIsSaveFormOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveArea, setSaveArea] = useState(defaultMeasurementArea);
+
+  const cancelSave = () => {
+    setIsSaveFormOpen(false);
+    setSaveName("");
+    setSaveArea(defaultMeasurementArea);
+  };
+
+  const submitSave = (event) => {
+    event.preventDefault();
+    const name = saveName.trim();
+    const measurementArea = saveArea.trim();
+    if (!name || !measurementArea || !onSaveCurrent) return;
+    const saved = onSaveCurrent({ name, measurementArea });
+    if (saved !== false) cancelSave();
+  };
 
   const customGroups = useMemo(() => {
     const byArea = new Map();
@@ -108,19 +129,67 @@ const EquationLibraryMenu = ({
           <button
             type="button"
             className="equation-library-save-btn"
+            aria-label="Save current equation"
             disabled={!canSaveCurrent}
             title={
               canSaveCurrent
-                ? "Save the editor's current equation to your library"
+                ? "Save current equation"
                 : saveDisabledReason ||
                   "Enter a valid equation in the editor to save it"
             }
-            onClick={onSaveCurrent}
+            onClick={() => setIsSaveFormOpen((open) => !open)}
           >
-            <FontAwesomeIcon icon={faPlus} size="xs" /> Save current
+            <FontAwesomeIcon icon={faSave} />
           </button>
         )}
       </div>
+
+      {isSaveFormOpen && (
+        <div className="equation-library-save-form" onKeyDown={submitOnEnter(submitSave)}>
+          <div className="equation-library-save-heading">
+            Save current equation
+          </div>
+          <label>
+            <span>Equation name</span>
+            <input
+              type="text"
+              value={saveName}
+              onChange={(event) => setSaveName(event.target.value)}
+              placeholder="e.g. Capacitive reactance"
+              autoFocus
+            />
+          </label>
+          <label>
+            <span>Measurement area</span>
+            <input
+              type="text"
+              list="equation-library-measurement-areas"
+              value={saveArea}
+              onChange={(event) => setSaveArea(event.target.value)}
+              placeholder="e.g. Electrical"
+            />
+          </label>
+          <datalist id="equation-library-measurement-areas">
+            {measurementAreas.map((area) => (
+              <option key={area.id || area.name || area} value={area.name || area} />
+            ))}
+          </datalist>
+          <div className="equation-library-save-actions">
+            <button type="button" onClick={cancelSave}>Cancel</button>
+            {/* Not a form — see BugReportModal. The disabled guard is what
+                enforces the two fields, so nothing is lost by giving up the
+                browser's `required` validation along with the submit. */}
+            <button
+              type="button"
+              onClick={submitSave}
+              className="is-primary"
+              disabled={!saveName.trim() || !saveArea.trim()}
+            >
+              Save equation
+            </button>
+          </div>
+        </div>
+      )}
 
       {customSections.map(({ area, equations }) => (
         <div key={`custom-${area}`} className="add-point-symbol-category">

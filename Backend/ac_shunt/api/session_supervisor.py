@@ -67,25 +67,22 @@ logger = logging.getLogger(__name__)
 # Mutations go through ``_REGISTRY_LOCK`` — two concurrent ``connect()``
 # calls for the same session would otherwise race on ``get_or_create``.
 _SUPERVISORS: dict[int, "SessionSupervisor"] = {}
-_REGISTRY_LOCK = asyncio.Lock()
-
+_REGISTRY_LOCK: Optional[asyncio.Lock] = None
 
 # --- Public accessors --------------------------------------------------------
 
 async def get_or_create_supervisor(session_id: int) -> "SessionSupervisor":
-    """Return the singleton supervisor for ``session_id``, creating on first use.
+    """Return the singleton supervisor for ``session_id``, creating on first use."""
+    global _REGISTRY_LOCK
+    if _REGISTRY_LOCK is None:
+        _REGISTRY_LOCK = asyncio.Lock()
 
-    Safe to call from every consumer ``connect``. The lock serialises the
-    short critical section; everything else (attach/detach, start/stop)
-    happens on the returned instance without holding the registry lock.
-    """
     async with _REGISTRY_LOCK:
         sup = _SUPERVISORS.get(session_id)
         if sup is None:
             sup = SessionSupervisor(session_id)
             _SUPERVISORS[session_id] = sup
         return sup
-
 
 def peek_supervisor(session_id: int) -> Optional["SessionSupervisor"]:
     """Non-blocking peek used for tests and diagnostics.
@@ -304,11 +301,36 @@ class SessionSupervisor:
                 )
 
     async def stop_task(self) -> None:
-        """Explicit cancel path (user clicked "Stop Collection")."""
+        """Explicit stop path (user clicked ``Stop Collection``).
+
+        Cancellation is intentional here because it interrupts long settling
+        sleeps immediately.  The important safety guarantee is that this
+        method does not return until the run coroutine's ``finally`` block has
+        finished returning sources, amplifiers, and switches to standby.  The
+        former fire-and-forget cancellation let the UI report "stopped" while
+        hardware cleanup was still in flight.
+        """
         self.stop_event.set()
+        # Release operator gates so a task cannot remain parked in a prompt
+        # while Stop is trying to tear the bench down.
+        self.confirmation_status = 'cancelled'
+        self.confirmation_event.set()
+        self.flip_resume_event.set()
         task = self.task
         if task and not task.done():
             task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                # Expected: _run_wrapped has already executed the calibration
+                # coroutine's cleanup before propagating cancellation.
+                pass
+            except Exception:
+                # Cleanup errors are logged by the run wrapper.  Do not leave
+                # Stop wedged, but retain a traceback for bench diagnostics.
+                logger.exception(
+                    "[supervisor:%s] run raised while stopping", self.session_id
+                )
         if self._grace_task and not self._grace_task.done():
             self._grace_task.cancel()
             self._grace_task = None

@@ -7,7 +7,8 @@ import {
   instrumentHasFunction,
   rankInstrumentsForFunction,
   getFunctionDependencies,
-  getFunctionDependencyMessage,
+  getFunctionDeletionConfirmationMessage,
+  deleteFunctionCascade,
   rangesForFunction,
   functionsForLibrary,
   resolveSessionFunctions,
@@ -171,8 +172,8 @@ describe("function deletion dependencies", () => {
     expect(dependencies.uuts).toEqual([]);
     expect(dependencies.tmdes).toEqual([]);
     expect(dependencies.measurementPoints).toHaveLength(1);
-    expect(getFunctionDependencyMessage(dependencies)).toBe(
-      "This function still has 1 measurement point. Delete it before deleting the function.",
+    expect(getFunctionDeletionConfirmationMessage(dependencies, voltageFunction)).toBe(
+      "Delete the Voltage function and its 1 measurement point? All ranges and specifications belonging to this function will also be removed. This cannot be undone.",
     );
   });
 
@@ -198,9 +199,95 @@ describe("function deletion dependencies", () => {
       voltageFunction,
     );
 
-    expect(getFunctionDependencyMessage(dependencies)).toBe(
-      "This function still has 1 UUT, 1 TMDE, and 2 measurement points. Delete them before deleting the function.",
+    expect(getFunctionDeletionConfirmationMessage(dependencies, voltageFunction)).toBe(
+      "Delete the Voltage function and its 1 UUT, 1 TMDE, and 2 measurement points? All ranges and specifications belonging to this function will also be removed. This cannot be undone.",
     );
+  });
+
+  it("removes UUT dependencies while preserving other instrument functions", () => {
+    const session = {
+      functionGroups: [
+        { name: "Voltage", kind: "uut" },
+        { name: "Voltage", kind: "tmde" },
+        { name: "Resistance", kind: "uut" },
+      ],
+      uuts: [
+        {
+          id: "multi",
+          ranges: [
+            { id: "v-instance", functionName: "Voltage" },
+            { id: "r-instance", functionName: "Resistance" },
+          ],
+          instrument: {
+            functions: [
+              { name: "Voltage", ranges: [{ id: "v-range" }] },
+              { name: "Resistance", ranges: [{ id: "r-range" }] },
+            ],
+          },
+        },
+        {
+          id: "voltage-only",
+          instrument: {
+            functions: [{ name: "Voltage", ranges: [{ id: "v2-range" }] }],
+          },
+        },
+      ],
+      tmdes: [
+        {
+          id: "tmde-voltage",
+          instrument: { functions: [{ name: "Voltage", ranges: [] }] },
+        },
+      ],
+      testPoints: [
+        { id: "voltage-point", ...point("Voltage", "V") },
+        { id: "resistance-point", ...point("Resistance", "ohm") },
+      ],
+    };
+
+    const next = deleteFunctionCascade(session, {
+      ...voltageFunction,
+      kind: "uut",
+    });
+
+    expect(next.uuts.map(({ id }) => id)).toEqual(["multi"]);
+    expect(instrumentFunctions(next.uuts[0]).map(({ name }) => name)).toEqual([
+      "Resistance",
+    ]);
+    expect(next.uuts[0].ranges).toEqual([
+      { id: "r-instance", functionName: "Resistance" },
+    ]);
+    expect(next.tmdes).toEqual(session.tmdes);
+    expect(next.testPoints.map(({ id }) => id)).toEqual(["resistance-point"]);
+    expect(next.functionGroups).toEqual([
+      { name: "Voltage", kind: "tmde" },
+      { name: "Resistance", kind: "uut" },
+    ]);
+  });
+
+  it("removes only the TMDE side of a table-scoped function", () => {
+    const session = {
+      functionGroups: [
+        { name: "Voltage", kind: "uut" },
+        { name: "Voltage", kind: "tmde" },
+      ],
+      uuts: [
+        { id: "uut", instrument: { functions: [{ name: "Voltage" }] } },
+      ],
+      tmdes: [
+        { id: "tmde", instrument: { functions: [{ name: "Voltage" }] } },
+      ],
+      testPoints: [{ id: "point", ...point("Voltage", "V") }],
+    };
+
+    const next = deleteFunctionCascade(session, {
+      ...voltageFunction,
+      kind: "tmde",
+    });
+
+    expect(next.uuts).toEqual(session.uuts);
+    expect(next.testPoints).toEqual(session.testPoints);
+    expect(next.tmdes).toEqual([]);
+    expect(next.functionGroups).toEqual([{ name: "Voltage", kind: "uut" }]);
   });
 });
 

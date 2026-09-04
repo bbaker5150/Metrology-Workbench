@@ -10,6 +10,14 @@ import * as math from "mathjs";
 const UNIT_ALIASES = Object.freeze({
   ohm: "Ohm",
   "Ω": "Ohm",
+  // Keep legacy spellings/conventions readable by the conversion engine, but
+  // expose one canonical choice in selectors. These aliases previously had
+  // identical display labels and were the source of visually duplicated unit
+  // options.
+  inch: "in",
+  "in.": "in",
+  "in-oz": "in-ozf",
+  "ozf-in": "in-ozf",
 });
 const canonicalUnit = (unit) => UNIT_ALIASES[unit] || unit;
 
@@ -256,8 +264,10 @@ export const unitSystem = {
     const quantity = unitSystem.getQuantity(baseUnit);
     if (!quantity) return ["ppm", "%"];
 
-    return Object.keys(unitSystem.units).filter(
-      (u) => unitSystem.units[u].quantity === quantity
+    return getUniqueUnits(
+      Object.keys(unitSystem.units).filter(
+        (u) => unitSystem.units[u].quantity === quantity,
+      ),
     );
   },
 
@@ -396,6 +406,23 @@ export const getUniqueUnitDisplayLabels = (units = []) => {
   }, []);
 };
 
+// Return one canonical unit key for every displayed unit. Unit selectors must
+// use keys (not labels) as their values, so this companion to
+// getUniqueUnitDisplayLabels retains the first canonical key while removing
+// legacy aliases that render identically (for example in/inch and the three
+// historical inch-ounce spellings).
+export const getUniqueUnits = (units = []) => {
+  const seen = new Set();
+  return (Array.isArray(units) ? units : [units]).reduce((result, unit) => {
+    const canonical = canonicalUnit(String(unit ?? "").trim());
+    const label = String(getUnitDisplayLabel(canonical) || "").trim();
+    if (!canonical || !label || seen.has(label)) return result;
+    seen.add(label);
+    result.push(canonical);
+    return result;
+  }, []);
+};
+
 export const unitCategories = {
   Voltage: ["V", "mV", "uV", "kV", "nV", "TV"],
   Current: ["A", "mA", "uA", "nA", "pA", "kA"],
@@ -415,7 +442,7 @@ export const unitCategories = {
   Volume: ["m^3", "L", "mL", "gal", "fl-oz"],
   Velocity: ["m/s", "km/h", "mph", "ft/s", "kn"],
   Force: ["N", "kN", "lbf", "ozf", "kgf"],
-  Torque: ["N-m", "N-cm", "lb-in", "lb-ft", "ozf-in", "in-oz", "in-ozf", "kgf-m", "kgf-cm"],
+  Torque: ["N-m", "N-cm", "lb-in", "lb-ft", "in-ozf", "kgf-m", "kgf-cm"],
   Flow: [
     "m^3/s",
     "L/min",
@@ -572,18 +599,18 @@ export const DISTRIBUTION_NOT_SET = "not_set";
 
 export const errorDistributions = [
   { value: DISTRIBUTION_NOT_SET, label: "Not Set" },
-  { value: "1.732", label: "Rectangular" },
-  { value: "3.464", label: "Rectangular (resolution)" },
-  { value: "2.449", label: "Triangular" },
-  { value: "4.899", label: "Triangular (resolution)" },
-  { value: "1.414", label: "U-Shaped" },
-  { value: "1.645", label: "Normal (90%)" },
-  { value: "1.960", label: "Normal (95%)" },
-  { value: "2.000", label: "Normal (95.45%)" },
-  { value: "2.576", label: "Normal (99%)" },
-  { value: "3.000", label: "Normal (99.73%)" },
-  { value: "4.179", label: "Rayleigh" },
-  { value: "1.000", label: "Normal (k=1)" },
+  { value: "1.732", label: "Rectangular", shortLabel: "k = 1.732" },
+  { value: "3.464", label: "Rectangular (resolution)", shortLabel: "k = 3.464" },
+  { value: "2.449", label: "Triangular", shortLabel: "k = 2.449" },
+  { value: "4.899", label: "Triangular (resolution)", shortLabel: "k = 4.899" },
+  { value: "1.414", label: "U-Shaped", shortLabel: "k = 1.414" },
+  { value: "1.645", label: "Normal (90%)", shortLabel: "k = 1.645" },
+  { value: "1.960", label: "Normal (95%)", shortLabel: "k = 1.960" },
+  { value: "2.000", label: "Normal (95.45%)", shortLabel: "k = 2.000" },
+  { value: "2.576", label: "Normal (99%)", shortLabel: "k = 2.576" },
+  { value: "3.000", label: "Normal (99.73%)", shortLabel: "k = 3.000" },
+  { value: "4.179", label: "Rayleigh", shortLabel: "k = 4.179" },
+  { value: "1.000", label: "Normal", shortLabel: "k = 1.000" },
 ];
 
 // The UI and persisted instrument schema intentionally retain the historical
@@ -1229,7 +1256,13 @@ export const getToleranceErrorSummary = (toleranceObject, referencePoint) => {
 };
 
 export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
-  if (!toleranceObject || !referencePoint || !referencePoint.value) {
+  if (
+    !toleranceObject ||
+    !referencePoint ||
+    referencePoint.value === "" ||
+    referencePoint.value === null ||
+    referencePoint.value === undefined
+  ) {
     return { high: "N/A", low: "N/A" };
   }
 
@@ -1256,9 +1289,10 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
     }
     const label = getUnitDisplayLabel(nominalUnit || "");
     const formatted = `${limitInNominalUnit.toPrecision(7)} ${label}`;
+    const rawLimit = String(limitInNominalUnit);
     return singleSided.direction === "low"
-      ? { low: formatted, high: "—" }
-      : { low: "—", high: formatted };
+      ? { low: formatted, high: "—", rawLow: rawLimit, rawHigh: "—" }
+      : { low: "—", high: formatted, rawLow: "—", rawHigh: rawLimit };
   }
 
   const { breakdown } = calculateUncertaintyFromToleranceObject(
@@ -1270,7 +1304,13 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
     const nominal = `${parseFloat(referencePoint.value).toPrecision(
       7,
     )} ${getUnitDisplayLabel(referencePoint.unit || "")}`;
-    return { high: nominal, low: nominal };
+    const rawNominal = String(parseFloat(referencePoint.value));
+    return {
+      high: nominal,
+      low: nominal,
+      rawHigh: rawNominal,
+      rawLow: rawNominal,
+    };
   }
 
   const nominalValue = parseFloat(referencePoint.value);
@@ -1303,6 +1343,8 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
   return {
     high: `${snappedHigh.toPrecision(7)} ${nominalUnitLabel}`,
     low: `${snappedLow.toPrecision(7)} ${nominalUnitLabel}`,
+    rawHigh: String(snappedHigh),
+    rawLow: String(snappedLow),
   };
 };
 
@@ -1567,10 +1609,11 @@ const describeDimensions = (dimensions) => {
   const known = knownLabels.find(([, candidate]) => dimensionsEqual(dimensions, candidate));
   if (known) return known[0];
 
-  return DIMENSION_KEYS
-    .filter((key) => Math.abs(dimensions[key]) > 1e-10)
-    .map((key) => `${key}${dimensions[key] === 1 ? "" : `^${dimensions[key]}`}`)
-    .join(" ") || "Dimensionless";
+  // Raw dimensional symbols such as "M L" are implementation details, not a
+  // useful instruction to someone fixing an equation. Known quantities above
+  // retain their friendly names; unknown combinations get a plain-language
+  // fallback.
+  return "incompatible units";
 };
 
 // 8.0 evaluates an Excel formula numerically; it does not require the user to
@@ -2264,7 +2307,10 @@ export const calculateDerivedUncertainty = (
           combinedUncertaintyNative: NaN,
           breakdown: [],
           nominalResult: NaN,
-          error: `Unit mismatch: the equation produces ${resultDescription}, but the target unit '${targetUnit}' is ${targetDescription}.${torqueHint}`,
+          error:
+            resultDescription === "incompatible units"
+              ? `Unit mismatch: equation units do not match the expected value for '${targetUnit}'.${torqueHint}`
+              : `Unit mismatch: the equation produces ${resultDescription}, but the target unit '${targetUnit}' is ${targetDescription}.${torqueHint}`,
           unitMismatch: {
             result: resultDescription,
             target: targetDescription,

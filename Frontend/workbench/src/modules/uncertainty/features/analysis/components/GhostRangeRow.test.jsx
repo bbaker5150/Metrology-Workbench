@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   GhostRangeRow,
   InlineToleranceCell,
   InlineDistributionCell,
   ResolutionCellInput,
   RangeCell,
+  getRangeColumnClickContext,
+  handoffMaterializedRangeToTolerance,
+  getBudgetRangeChoices,
+  getVisibleRangeRows,
+  getAutoGrownInstrumentTableHeight,
+  getDisplayedInstrumentTableHeight,
+  applyToleranceCaseChange,
   removeRangeFromItem,
 } from "./UncertaintyPanel";
 
@@ -19,12 +26,147 @@ const renderGhost = (onMaterialize, unit = "V") =>
   render(
     <table>
       <tbody>
-        <GhostRangeRow unit={unit} onMaterialize={onMaterialize} />
+        <GhostRangeRow
+          unit={unit}
+          dataGroup="uut:test-instrument"
+          onMaterialize={onMaterialize}
+        />
       </tbody>
     </table>,
   );
 
+describe("instrument table automatic height", () => {
+  it("grows for the first three instruments without shrinking on collapse", () => {
+    expect(
+      getAutoGrownInstrumentTableHeight({
+        currentHeight: 260,
+        contentHeight: 420,
+        instrumentCount: 3,
+      }),
+    ).toBe(420);
+    expect(
+      getAutoGrownInstrumentTableHeight({
+        currentHeight: 420,
+        contentHeight: 180,
+        instrumentCount: 3,
+      }),
+    ).toBe(420);
+    expect(
+      getAutoGrownInstrumentTableHeight({
+        currentHeight: 420,
+        contentHeight: 620,
+        instrumentCount: 4,
+      }),
+    ).toBe(420);
+    expect(
+      getDisplayedInstrumentTableHeight({
+        preferredHeight: 420,
+        contentHeight: 180,
+      }),
+    ).toBe(180);
+    expect(
+      getDisplayedInstrumentTableHeight({
+        preferredHeight: 420,
+        contentHeight: 620,
+      }),
+    ).toBe(420);
+  });
+});
+
 describe("GhostRangeRow", () => {
+  it("marks its blank inputs as part of the expanded range column", () => {
+    renderGhost(vi.fn());
+    const minimum = screen.getByLabelText("New range minimum");
+
+    expect(minimum.closest("[data-range-cell]")).toHaveAttribute(
+      "data-range-cell",
+      "true",
+    );
+    expect(minimum.closest("[data-range-group]")).toHaveAttribute(
+      "data-range-group",
+      "uut:test-instrument",
+    );
+  });
+
+  it("identifies a tolerance click as a range-column editor handoff", () => {
+    const { container } = render(
+      <table>
+        <tbody>
+          <tr data-range-group="uut:test-instrument">
+            <td data-range-tolerance-key="uut:test-instrument:r1">
+              <button type="button">Not Set</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>,
+    );
+
+    expect(
+      getRangeColumnClickContext(container.querySelector("button")),
+    ).toEqual({
+      key: "uut:test-instrument",
+      inRangeColumn: false,
+      toleranceKey: "uut:test-instrument:r1",
+    });
+  });
+
+  it("keeps a newly materialized tolerance request alive through range collapse", () => {
+    let pendingKey = null;
+    let expandedKeys = new Set([
+      "uut:test-instrument",
+      "tmde:other-instrument",
+    ]);
+
+    handoffMaterializedRangeToTolerance({
+      kind: "uut",
+      itemId: "test-instrument",
+      newRangeId: "new-range",
+      setPendingToleranceRangeKey: (key) => {
+        pendingKey = key;
+      },
+      setExpandedRangeKeys: (update) => {
+        expandedKeys = update(expandedKeys);
+      },
+    });
+
+    expect(pendingKey).toBe("uut:test-instrument:new-range");
+    expect([...expandedKeys]).toEqual(["tmde:other-instrument"]);
+  });
+
+  it("keeps every function-scoped range visible in the simplified view", () => {
+    const ranges = [
+      { id: "r1", min: 0, max: 10, unit: "V" },
+      { id: "r2", min: 10, max: 20, unit: "V" },
+      { id: "r3", min: 20, max: 30, unit: "V" },
+    ];
+
+    expect(getVisibleRangeRows(ranges, 1, ranges[1], false)).toEqual([
+      { range: ranges[0], index: 0, key: "r1" },
+      { range: ranges[1], index: 1, key: "r2" },
+      { range: ranges[2], index: 2, key: "r3" },
+    ]);
+  });
+
+  it("offers every TMDE range as an explicit budget-source choice", () => {
+    const choices = getBudgetRangeChoices({
+      instrument: {
+        functions: [
+          {
+            id: "voltage",
+            name: "Voltage",
+            unit: "V",
+            ranges: [
+              { id: "v-low", min: 0, max: 10, unit: "V" },
+              { id: "v-high", min: 10, max: 20, unit: "V" },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(choices.map((range) => range.rangeId)).toEqual(["v-low", "v-high"]);
+  });
+
   it("does not materialize while tabbing min → max within the row", () => {
     const onMaterialize = vi.fn();
     renderGhost(onMaterialize);
@@ -80,7 +222,7 @@ describe("GhostRangeRow", () => {
     );
   });
 
-  it("tabs through the new range unit before opening tolerance", () => {
+  it("tabs through the new range unit into the next blank range", async () => {
     const onMaterialize = vi.fn();
     renderGhost(onMaterialize);
 
@@ -92,19 +234,22 @@ describe("GhostRangeRow", () => {
     fireEvent.keyDown(max, { key: "Tab" });
 
     expect(onMaterialize).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("New range unit")).toHaveClass(
+      "inline-unit-select--compact",
+    );
     const unitBase = screen.getByRole("button", { name: "New range unit base unit" });
     const unitPrefix = screen.getByLabelText("New range unit prefix");
     fireEvent.keyDown(unitBase, { key: "Tab" });
     expect(onMaterialize).not.toHaveBeenCalled();
     fireEvent.keyDown(unitPrefix, { key: "Tab" });
 
-    expect(onMaterialize).toHaveBeenCalledWith(
-      { min: "0", max: "10", unit: "V" },
-      { openTolerance: true },
-    );
+    expect(onMaterialize).toHaveBeenCalledWith({ min: "0", max: "10", unit: "V" });
+    await waitFor(() => {
+      expect(screen.getByLabelText("New range minimum")).toHaveFocus();
+    });
   });
 
-  it("tabs directly from a non-scalable unit into tolerance", () => {
+  it("tabs directly from a non-scalable unit into the next blank range", async () => {
     const onMaterialize = vi.fn();
     renderGhost(onMaterialize, "psig");
 
@@ -119,10 +264,14 @@ describe("GhostRangeRow", () => {
       { key: "Tab" },
     );
 
-    expect(onMaterialize).toHaveBeenCalledWith(
-      { min: "0", max: "10", unit: "psig" },
-      { openTolerance: true },
-    );
+    expect(onMaterialize).toHaveBeenCalledWith({
+      min: "0",
+      max: "10",
+      unit: "psig",
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("New range minimum")).toHaveFocus();
+    });
   });
 
   it("lets the new range choose a different unit before it materializes", () => {
@@ -133,7 +282,7 @@ describe("GhostRangeRow", () => {
     fireEvent.change(screen.getByPlaceholderText("Search units..."), {
       target: { value: "g" },
     });
-    fireEvent.click(screen.getByRole("option", { name: "g Scaled" }));
+    fireEvent.click(screen.getByRole("option", { name: "g Mass" }));
     fireEvent.click(screen.getByLabelText("New range unit prefix"));
     fireEvent.click(screen.getByRole("option", { name: /Kilo k/ }));
 
@@ -186,6 +335,36 @@ describe("inline resolution distribution", () => {
     expect(screen.getByPlaceholderText("—")).toBeInTheDocument();
   });
 
+  it("reopens resolution after a tolerance commit remounts the table row", () => {
+    const onOpenRequest = vi.fn();
+    const onOpenRequestHandled = vi.fn();
+    const commonProps = {
+      value: "",
+      unit: "V",
+      onCommit: vi.fn(),
+      onCommitUnit: vi.fn(),
+      onOpenRequest,
+      onOpenRequestHandled,
+    };
+    const { rerender } = render(
+      <ResolutionCellInput key="before-tolerance-commit" {...commonProps} />,
+    );
+
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Set resolution" }));
+    expect(onOpenRequest).toHaveBeenCalledOnce();
+
+    rerender(
+      <ResolutionCellInput
+        key="after-tolerance-commit"
+        {...commonProps}
+        openRequested
+      />,
+    );
+
+    expect(onOpenRequestHandled).toHaveBeenCalledOnce();
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+  });
+
   it("shows the full custom distribution menu", () => {
     const onCommitDistribution = vi.fn();
     render(
@@ -200,10 +379,20 @@ describe("inline resolution distribution", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "0.001 V" }));
-    fireEvent.click(screen.getByRole("button", { name: "Resolution distribution" }));
-    expect(screen.getByRole("option", { name: /Triangular\s+2\.449/ })).toBeInTheDocument();
+    const distributionTrigger = screen.getByRole("button", {
+      name: "Resolution distribution",
+    });
+    expect(distributionTrigger).toHaveTextContent("Rectangular");
+    expect(distributionTrigger).not.toHaveTextContent("k =");
+    expect(
+      distributionTrigger.closest(".inline-menu-select").style.getPropertyValue(
+        "--inline-unit-width",
+      ),
+    ).toBe("144px");
+    fireEvent.click(distributionTrigger);
+    expect(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Normal \(95%\)/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("option", { name: /Triangular\s+2\.449/ }));
+    fireEvent.click(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ }));
 
     expect(onCommitDistribution).toHaveBeenCalledWith("2.449");
   });
@@ -217,11 +406,11 @@ describe("inline resolution distribution", () => {
     fireEvent.click(screen.getByRole("button", { name: /Rectangular/ }));
     fireEvent.click(screen.getByRole("button", { name: "Spec band distribution" }));
 
-    expect(screen.getByRole("option", { name: /Triangular\s+2\.449/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /U-Shaped/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Rayleigh/ })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("option", { name: /Triangular\s+2\.449/ }));
+    fireEvent.click(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ }));
     expect(onChange).toHaveBeenCalledWith("2.449");
   });
 
@@ -231,8 +420,8 @@ describe("inline resolution distribution", () => {
     expect(screen.getByText("Not Set")).toHaveClass(
       "inline-tolerance-summary",
       "is-empty",
-      "is-static",
     );
+    expect(screen.getByRole("button", { name: "Not Set" })).toBeEnabled();
   });
 
   it("keeps a portaled distribution menu open while focus moves into its options", () => {
@@ -243,7 +432,7 @@ describe("inline resolution distribution", () => {
     expect(unsetDistribution).toHaveClass("inline-tolerance-summary", "is-empty");
     fireEvent.click(unsetDistribution);
     fireEvent.click(screen.getByRole("button", { name: "Spec band distribution" }));
-    const option = screen.getByRole("option", { name: /Triangular\s+2\.449/ });
+    const option = screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ });
     const trigger = screen.getByRole("button", { name: "Spec band distribution" });
 
     // In Chromium the trigger blurs before the portaled option receives its
@@ -271,7 +460,7 @@ describe("inline resolution distribution", () => {
     fireEvent.click(screen.getByRole("button", { name: "0.001 V" }));
     fireEvent.click(screen.getByRole("button", { name: "Resolution distribution" }));
     const option = screen.getByRole("option", {
-      name: /Triangular \(resolution\)\s+4\.899/,
+      name: /Triangular \(resolution\)\s+k = 4\.899/,
     });
     expect(option).toBeInTheDocument();
     fireEvent.click(option);
@@ -281,6 +470,18 @@ describe("inline resolution distribution", () => {
 });
 
 describe("inline range editing", () => {
+  it("removes a zero-only tolerance term when editing ends", () => {
+    expect(
+      applyToleranceCaseChange({}, "reading", {
+        value: "0",
+        high: "0",
+        low: "0",
+        unit: "%",
+        _unitExplicit: true,
+      }),
+    ).toEqual({});
+  });
+
   it("labels an all-values range as Not Set", () => {
     render(
       <RangeCell
@@ -311,7 +512,7 @@ describe("inline range editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to set a range"));
+    fireEvent.click(screen.getByTitle("Set range"));
 
     expect(onEnsureInitialRange).toHaveBeenCalledOnce();
     rerender(
@@ -338,7 +539,7 @@ describe("inline range editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to set a range"));
+    fireEvent.click(screen.getByTitle("Set range"));
 
     expect(onExpandAll).not.toHaveBeenCalled();
     expect(screen.queryByText("Set rangeâ€¦")).not.toBeInTheDocument();
@@ -346,65 +547,78 @@ describe("inline range editing", () => {
     expect(screen.getByPlaceholderText("max")).toBeInTheDocument();
   });
 
-  it("can clear range bounds and return to the all-values Not Set state", () => {
-    const onPatchRange = vi.fn();
-    const props = {
-      editable: true,
-      onEditBound: vi.fn(),
-      onEditUnit: vi.fn(),
-      onPatchRange,
-    };
-    const { rerender } = render(
-      <RangeCell
-        ranges={[{ id: "range-1", min: 0, max: 10, unit: "V" }]}
-        activeRange={{ id: "range-1", min: 0, max: 10, unit: "V" }}
-        {...props}
-      />,
-    );
-
-    fireEvent.click(screen.getByTitle("Click to edit range"));
-    fireEvent.click(screen.getByRole("button", { name: "Clear range" }));
-
-    expect(onPatchRange).toHaveBeenCalledWith({
-      min: "",
-      max: "",
-      value: "",
-      isSingleValue: false,
-    });
-    rerender(
+  it("offers add range from the first blank editor before bounds are entered", () => {
+    const onAddRange = vi.fn();
+    render(
       <RangeCell
         ranges={[{ id: "range-1", min: "", max: "", unit: "V" }]}
         activeRange={{ id: "range-1", min: "", max: "", unit: "V" }}
-        {...props}
+        editable
+        onAddRange={onAddRange}
+        onEditBound={vi.fn()}
+        onEditUnit={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: "Not Set" })).toBeInTheDocument();
+
+    expect(screen.queryByRole("button", { name: "Add range" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Set range"));
+    fireEvent.click(screen.getByRole("button", { name: "Add range" }));
+
+    expect(onAddRange).toHaveBeenCalledOnce();
   });
 
-  it("removes only the active range when clearing one of several ranges", () => {
-    const onPatchRange = vi.fn();
-    const onClearRange = vi.fn();
-    const ranges = [
-      { id: "all-values", min: "", max: "", unit: "V" },
-      { id: "range-2", min: 0, max: 10, unit: "V" },
-    ];
+  it("does not render a clear/delete control beside the unit while editing", () => {
     render(
       <RangeCell
-        ranges={ranges}
-        activeRange={ranges[1]}
+        ranges={[{ id: "range-1", min: 0, max: 10, unit: "V" }]}
+        activeRange={{ id: "range-1", min: 0, max: 10, unit: "V" }}
         editable
         onEditBound={vi.fn()}
         onEditUnit={vi.fn()}
-        onPatchRange={onPatchRange}
+        onPatchRange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle("Edit range"));
+    expect(screen.queryByRole("button", { name: "Clear range" })).not.toBeInTheDocument();
+  });
+
+  it("clears a blanked single-value range through the row removal path", () => {
+    const onClearRange = vi.fn();
+    render(
+      <RangeCell
+        ranges={[
+          {
+            id: "range-2",
+            isSingleValue: true,
+            value: 10,
+            min: 10,
+            max: 10,
+            unit: "V",
+          },
+        ]}
+        activeRange={{
+          id: "range-2",
+          isSingleValue: true,
+          value: 10,
+          min: 10,
+          max: 10,
+          unit: "V",
+        }}
+        editable
+        onEditBound={vi.fn()}
+        onEditUnit={vi.fn()}
+        onPatchRange={vi.fn()}
         onClearRange={onClearRange}
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to edit range"));
-    fireEvent.click(screen.getByRole("button", { name: "Clear range" }));
+    fireEvent.click(screen.getByTitle("Edit range"));
+    const value = screen.getByPlaceholderText("value");
+    fireEvent.change(value, { target: { value: "" } });
+    fireEvent.blur(value);
 
     expect(onClearRange).toHaveBeenCalledOnce();
-    expect(onPatchRange).not.toHaveBeenCalled();
   });
 
   it("dismisses blank range inputs with Escape without committing a bound", () => {
@@ -420,7 +634,7 @@ describe("inline range editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to set a range"));
+    fireEvent.click(screen.getByTitle("Set range"));
     fireEvent.keyDown(screen.getByPlaceholderText("min"), { key: "Escape" });
 
     expect(onEditBound).not.toHaveBeenCalled();
@@ -448,7 +662,7 @@ describe("inline range editing", () => {
       </div>,
     );
 
-    fireEvent.click(screen.getByTitle("Click to set a range"));
+    fireEvent.click(screen.getByTitle("Set range"));
     expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Set tolerance" }));
@@ -486,7 +700,7 @@ describe("inline range editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show all ranges" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit ranges" }));
 
     expect(onExpandAll).toHaveBeenCalledOnce();
     expect(screen.queryByPlaceholderText("min")).not.toBeInTheDocument();
@@ -506,12 +720,15 @@ describe("inline range editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to set a range"));
+    fireEvent.click(screen.getByTitle("Set range"));
     const max = screen.getByPlaceholderText("max");
     fireEvent.change(max, { target: { value: "10" } });
     fireEvent.keyDown(max, { key: "Tab" });
 
     expect(onOpenTolerance).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Range unit")).toHaveClass(
+      "inline-unit-select--compact",
+    );
     const unitBase = screen.getByRole("button", { name: "Range unit base unit" });
     const unitPrefix = screen.getByLabelText("Range unit prefix");
     fireEvent.blur(max, { relatedTarget: unitBase });
@@ -521,6 +738,29 @@ describe("inline range editing", () => {
 
     expect(onEditBound).toHaveBeenCalledWith("max", "10");
     expect(onOpenTolerance).toHaveBeenCalledOnce();
+  });
+
+  it("returns focus to the range unit after selecting it with Enter", async () => {
+    render(
+      <RangeCell
+        ranges={[{ id: "range-1", min: 0, max: 10, unit: "V" }]}
+        activeRange={{ id: "range-1", min: 0, max: 10, unit: "V" }}
+        editable
+        onEditBound={vi.fn()}
+        onEditUnit={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle("Edit range"));
+    const unitBase = screen.getByRole("button", {
+      name: "Range unit base unit",
+    });
+    fireEvent.click(unitBase);
+    fireEvent.keyDown(screen.getByPlaceholderText("Search units..."), {
+      key: "Enter",
+    });
+
+    await waitFor(() => expect(document.activeElement).toBe(unitBase));
   });
 
   it("removes a range together with its tolerance and resolution data", () => {
@@ -589,6 +829,78 @@ describe("inline range editing", () => {
     expect(screen.getAllByPlaceholderText("0").length).toBeGreaterThan(0);
   });
 
+  it("collapses an expanded tolerance on Escape or a click in another column", async () => {
+    render(
+      <div>
+        <InlineToleranceCell
+          tolerance={{ reading: { high: "1", low: "-1", unit: "%" } }}
+          activeRange={{ id: "range-1", min: 0, max: 10, unit: "V" }}
+          editable
+          onCommit={vi.fn()}
+        />
+        <button type="button">Other column</button>
+      </div>,
+    );
+
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
+    fireEvent.keyDown(screen.getAllByPlaceholderText("0")[0], { key: "Escape" });
+    expect(screen.getByTitle("Edit tolerance")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Other column" }));
+    fireEvent.click(screen.getByRole("button", { name: "Other column" }));
+    await waitFor(() =>
+      expect(screen.getByTitle("Edit tolerance")).toBeInTheDocument(),
+    );
+  });
+
+  it("collapses range, resolution, and distribution editors outside their columns", async () => {
+    render(
+      <div>
+        <RangeCell
+          ranges={[{ id: "range-1", min: 0, max: 10, unit: "V" }]}
+          activeIndex={0}
+          activeRange={{ id: "range-1", min: 0, max: 10, unit: "V" }}
+          editable
+          onEditBound={vi.fn()}
+          onEditUnit={vi.fn()}
+          onPatchRange={vi.fn()}
+        />
+        <ResolutionCellInput
+          value="0.01"
+          unit="V"
+          distribution="3.464"
+          onCommit={vi.fn()}
+          onCommitUnit={vi.fn()}
+          onCommitDistribution={vi.fn()}
+        />
+        <InlineDistributionCell divisor="1.732" onChange={vi.fn()} />
+        <button type="button">Outside column</button>
+      </div>,
+    );
+
+    const outside = screen.getByRole("button", { name: "Outside column" });
+
+    fireEvent.click(screen.getByTitle("Edit range"));
+    expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
+    fireEvent.pointerDown(outside);
+    await waitFor(() =>
+      expect(screen.getByTitle("Edit range")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTitle("Edit resolution"));
+    expect(screen.getByPlaceholderText("—")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByTitle("Edit resolution")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Edit distribution"));
+    expect(screen.getByLabelText("Spec band distribution")).toBeInTheDocument();
+    fireEvent.pointerDown(outside);
+    await waitFor(() =>
+      expect(screen.getByTitle("Edit distribution")).toBeInTheDocument(),
+    );
+  });
+
   it("authors a workbook-style single-sided unknown upper limit", () => {
     const onCommit = vi.fn();
     render(
@@ -601,6 +913,8 @@ describe("inline range editing", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
+    fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
+    fireEvent.click(screen.getByTitle("Single-sided tolerance"));
     fireEvent.click(screen.getByRole("radio", { name: "Measurement unknown" }));
     fireEvent.change(screen.getByLabelText("Measurement unknown Upper limit"), {
       target: { value: "600" },
@@ -630,6 +944,8 @@ describe("inline range editing", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
+    fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
+    fireEvent.click(screen.getByTitle("Single-sided tolerance"));
     fireEvent.click(screen.getByRole("button", { name: "Single-sided direction" }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Low" }));
 
@@ -642,7 +958,7 @@ describe("inline range editing", () => {
     );
   });
 
-  it("offers IV only the double-sided shapes", () => {
+  it("keeps single-sided disabled until the global mode is asymmetric", () => {
     render(
       <InlineToleranceCell
         tolerance={{}}
@@ -653,12 +969,10 @@ describe("inline range editing", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
-    fireEvent.click(screen.getAllByTitle("Tolerance shape: Symmetric")[0]);
-
-    expect(screen.getByRole("menuitemradio", { name: /Asymmetric/ })).toBeInTheDocument();
-    expect(
-      screen.queryByRole("menuitemradio", { name: /Single-sided/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByTitle("Single-sided tolerances are asymmetric")).toBeDisabled();
+    fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
+    expect(screen.getByTitle("Single-sided tolerance")).toBeEnabled();
+    expect(screen.queryByTitle(/Tolerance shape:/)).not.toBeInTheDocument();
   });
 
   it("offers percent, ppm, and ppb units for IV tolerance", () => {
@@ -673,13 +987,15 @@ describe("inline range editing", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
-    fireEvent.click(screen.getByRole("button", { name: "IV %" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "IV tolerance unit" }),
+    );
 
-    expect(screen.getByRole("menuitemradio", { name: "%" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitemradio", { name: "ppm" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitemradio", { name: "ppb" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "%" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "ppm" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "ppb" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "ppm" }));
+    fireEvent.click(screen.getByRole("option", { name: "ppm" }));
     expect(onCommit).toHaveBeenLastCalledWith(
       "reading",
       expect.objectContaining({ unit: "ppm" }),
@@ -698,16 +1014,41 @@ describe("inline range editing", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
-    fireEvent.click(screen.getByRole("button", { name: "% FS" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Range/FS tolerance unit" }),
+    );
 
-    expect(screen.getByRole("menuitemradio", { name: "%" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitemradio", { name: "ppm" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitemradio", { name: "ppb" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "%" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "ppm" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "ppb" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "ppb" }));
+    fireEvent.click(screen.getByRole("option", { name: "ppb" }));
     expect(onCommit).toHaveBeenLastCalledWith(
       "range",
       expect.objectContaining({ unit: "ppb" }),
+    );
+  });
+
+  it("retains a floor unit selected before a floor magnitude is entered", () => {
+    const onCommit = vi.fn();
+    render(
+      <InlineToleranceCell
+        tolerance={{}}
+        activeRange={{ id: "range-1", min: 0, max: 10, unit: "V" }}
+        editable
+        onCommit={onCommit}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Tolerance unit base unit" }),
+    );
+    fireEvent.click(screen.getByRole("option", { name: "% Other" }));
+
+    expect(onCommit).toHaveBeenLastCalledWith(
+      "floor",
+      expect.objectContaining({ unit: "%", _unitExplicit: true }),
     );
   });
 });

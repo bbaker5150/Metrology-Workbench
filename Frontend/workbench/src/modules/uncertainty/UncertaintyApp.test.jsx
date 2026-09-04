@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeAll, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 
 // The analysis tree transitively imports the full Plotly bundle; stub it so the
 // jsdom smoke test doesn't load it. (Charts only render once a point is
@@ -69,6 +70,9 @@ beforeAll(() => {
       disconnect() {}
     };
   }
+  if (!window.PointerEvent) {
+    window.PointerEvent = window.MouseEvent;
+  }
 });
 
 beforeEach(() => {
@@ -85,6 +89,234 @@ beforeEach(() => {
 });
 
 describe("UncertaintyApp", () => {
+  test("starts the guided walkthrough without rendering an empty session dropdown", async () => {
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    expect(await screen.findByText("No sessions yet")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Analysis Session" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("dialog", { name: "Uncertalytics walkthrough" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Start an analysis session")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Add New Session"));
+    expect(await screen.findByRole("combobox", { name: "Analysis Session" })).toBeInTheDocument();
+    await waitFor(
+      () =>
+        expect(
+          screen.getByText("Complete the session information"),
+        ).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+  });
+
+  test("opens the walkthrough again from the header help button", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 100,
+        name: "Help Session",
+        measurementAreas: [],
+        uuts: [],
+        tmdes: [],
+        testPoints: [],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const helpButton = await screen.findByRole("button", { name: "Open walkthrough" });
+    expect(screen.queryByRole("dialog", { name: "Uncertalytics walkthrough" })).not.toBeInTheDocument();
+    fireEvent.click(helpButton);
+    expect(
+      screen.getByRole("dialog", { name: "Uncertalytics walkthrough" }),
+    ).toBeInTheDocument();
+  });
+
+  test("starts the walkthrough when the final existing session is deleted", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 102,
+        name: "Last Session",
+        measurementAreas: [],
+        uuts: [],
+        tmdes: [],
+        testPoints: [],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const deleteButton = await screen.findByTitle("Delete Session");
+    expect(
+      screen.queryByRole("dialog", { name: "Uncertalytics walkthrough" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(deleteButton);
+    const confirmation = await screen.findByRole("alertdialog", {
+      name: "Delete Session",
+    });
+    fireEvent.click(within(confirmation).getByRole("button", { name: /Delete/i }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "Uncertalytics walkthrough" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Start an analysis session")).toBeInTheDocument();
+  });
+
+  test("adds points chronologically and assigns the UUT from the row", async () => {
+    const voltageFunction = {
+      id: "fn-voltage",
+      name: "Voltage",
+      unit: "V",
+      ranges: [{ id: "range-v", min: 0, max: 10, unit: "V" }],
+    };
+    apiMock.state.sessions = [
+      {
+        id: 99,
+        name: "Multi UUT Session",
+        measurementAreas: [],
+        functionGroups: [{ name: "Voltage", unit: "V", kind: "uut" }],
+        uuts: [
+          {
+            id: "uut-one",
+            description: "Primary DMM",
+            instrument: { manufacturer: "Mock", model: "100", functions: [voltageFunction] },
+          },
+          {
+            id: "uut-two",
+            description: "Backup DMM",
+            instrument: { manufacturer: "Mock", model: "200", functions: [voltageFunction] },
+          },
+        ],
+        tmdes: [],
+        testPoints: [],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const addPoint = await screen.findByRole("button", { name: "Add direct point" });
+    expect(
+      screen.queryByRole("combobox", { name: /UUT for new Voltage measurement point/i }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(addPoint);
+    const uutSelect = await screen.findByRole(
+      "button",
+      { name: "UUT" },
+      { timeout: 15000 },
+    );
+    fireEvent.click(uutSelect);
+    const uutList = await screen.findByRole("listbox", { name: "UUT" });
+    expect(within(uutList).getByRole("option", { name: /Mock 100 Primary DMM/i })).toBeInTheDocument();
+    expect(within(uutList).getByRole("option", { name: /Mock 200 Backup DMM/i })).toBeInTheDocument();
+    fireEvent.click(within(uutList).getByRole("option", { name: /Mock 100 Primary DMM/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "UUT" })).toHaveTextContent(
+        /Mock 100 Primary DMM/i,
+      ),
+    );
+    expect(
+      screen.queryByText("Ready for your first measurement point"),
+    ).not.toBeInTheDocument();
+  });
+
+  test("toggles the instrument builder from its header button", async () => {
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const builderButton = await screen.findByRole("button", {
+      name: "Instrument builder",
+    });
+    fireEvent.click(builderButton);
+    expect(screen.getByText("Select Instrument from Library")).toBeInTheDocument();
+
+    fireEvent.click(builderButton);
+    expect(screen.queryByText("Select Instrument from Library")).not.toBeInTheDocument();
+  });
+
+  test("adds an optional UUT column to the current session", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 109,
+        name: "Custom Columns",
+        measurementAreas: [],
+        functionGroups: [{ name: "Voltage", unit: "V", kind: "uut" }],
+        uuts: [
+          {
+            id: "uut-custom-column",
+            description: "Custom UUT",
+            instrument: {
+              functions: [{ name: "Voltage", unit: "V", ranges: [] }],
+            },
+          },
+        ],
+        tmdes: [],
+        testPoints: [],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add UUT column" }));
+    const columnName = await screen.findByRole("textbox", { name: "Column name" });
+    fireEvent.change(columnName, {
+      target: { value: "ICP use code" },
+    });
+    fireEvent.keyDown(columnName, { key: "Enter" });
+    expect(await screen.findByRole("columnheader", { name: "ICP use code" })).toBeInTheDocument();
+  });
+
   test("mounts the ported Uncertalytics app under the workbench shell", async () => {
     render(
       <ThemeProvider>
@@ -123,9 +355,9 @@ describe("UncertaintyApp", () => {
     expect(screen.getByText("Risk")).toBeInTheDocument();
     expect(screen.getByText("Mitigation (GB + Int)")).toBeInTheDocument();
     expect(screen.getByText("Mitigation (Int Only)")).toBeInTheDocument();
-    expect(screen.getByText("R_REOP @ test pt TUR")).toBeInTheDocument();
-    expect(screen.getByText("Targeted R_REOP w/ GB")).toBeInTheDocument();
-    expect(screen.getByText("Targeted R_REOP w/o GB")).toBeInTheDocument();
+    expect(screen.getByText("REOP @ test pt TUR")).toBeInTheDocument();
+    expect(screen.getByText("Targeted REOP w/ GB")).toBeInTheDocument();
+    expect(screen.getByText("Targeted REOP w/o GB")).toBeInTheDocument();
     const riskGroupToggle = screen.getByRole("checkbox", {
       name: "Toggle all Risk columns",
     });
@@ -147,7 +379,7 @@ describe("UncertaintyApp", () => {
     ).not.toBeInTheDocument();
   });
 
-  test("splits workbook risk and mitigation inputs into independent sidebar sections", async () => {
+  test("nests expanded risk and mitigation inputs inside Session Info", async () => {
     apiMock.state.sessions = [
       {
         id: 101,
@@ -181,20 +413,165 @@ describe("UncertaintyApp", () => {
       </ThemeProvider>,
     );
 
+    const overviewTab = await screen.findByRole("button", {
+      name: "Instrument Overview",
+    });
+    expect(overviewTab).toBeInTheDocument();
+    const tabs = within(overviewTab.closest(".analysis-tabs")).getAllByRole("button");
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "Instrument Overview",
+      "Uncertainty Budget",
+      "Notes",
+    ]);
+    expect(
+      within(document.querySelector(".results-sidebar")).queryByRole("button", {
+        name: "Instrument Overview",
+      }),
+    ).not.toBeInTheDocument();
+    const sessionInfoToggle = screen.getByRole("button", { name: /Session Info/i });
+    expect(sessionInfoToggle).toHaveAttribute("aria-expanded", "true");
     expect(await screen.findByText("Risk Inputs")).toBeInTheDocument();
     expect(screen.getByText("Mitigation Inputs")).toBeInTheDocument();
+    expect(document.querySelector(".session-info-content")).toContainElement(
+      screen.getByText("Risk Inputs"),
+    );
+    expect(document.querySelector(".session-info-content")).toContainElement(
+      screen.getByText("Mitigation Inputs"),
+    );
+    expect(screen.getByRole("button", { name: /Risk Inputs/i })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: /Mitigation Inputs/i }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Document Date")).toBeInTheDocument();
     expect(screen.getByText("Confidence (%)")).toBeInTheDocument();
-    expect(screen.getByText("Assumed R_REOP")).toBeInTheDocument();
+    expect(screen.getByText("Assumed REOP")).toBeInTheDocument();
     expect(screen.getByText("TUR Needed")).toBeInTheDocument();
     expect(screen.getByText("PFA Required")).toBeInTheDocument();
-    expect(screen.getByText("R_REOP Required")).toBeInTheDocument();
-    expect(screen.getByText("Cal Int for assumed R_REOP")).toBeInTheDocument();
+    expect(screen.getByText("REOP Required")).toBeInTheDocument();
+    expect(screen.getByText("Cal Int for assumed REOP")).toBeInTheDocument();
     const assumedReliabilityHelp = screen
-      .getByText("Assumed R_REOP")
+      .getByText("Assumed REOP")
       .closest(".session-header-label");
     expect(assumedReliabilityHelp.title).toMatch(/probability/i);
     expect(assumedReliabilityHelp.title).not.toMatch(/workbook/i);
     expect(screen.queryByText("Uncertainty Requirements")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Ready for your first measurement point"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Instruments are organized by Function/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Select or create a Function/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Add the UUTs that perform that Function/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Add Measurement Points to define the exact test values/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Add a UUT using Add Instrument in the function header."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Add a TMDE using Add Instrument in the function header."),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Risk Inputs/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Mitigation Inputs/i }));
+    fireEvent.click(sessionInfoToggle);
+    expect(screen.queryByText("Risk Inputs")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mitigation Inputs")).not.toBeInTheDocument();
+
+    fireEvent.click(sessionInfoToggle);
+    expect(screen.getByRole("button", { name: /Risk Inputs/i })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: /Mitigation Inputs/i }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Confidence (%)")).toBeInTheDocument();
+    expect(screen.getByText("PFA Required")).toBeInTheDocument();
+  });
+
+  test("tabs directly through the editable Session Info fields", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 102,
+        name: "Keyboard Session",
+        analyst: "",
+        organization: "",
+        document: "",
+        documentDate: "",
+        measurementAreas: [],
+        uuts: [],
+        tmdes: [],
+        testPoints: [],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const nameDisplay = await screen.findByTitle("Edit Session Name");
+    fireEvent.focus(nameDisplay);
+    const nameInput = screen.getByRole("textbox", { name: "Session Name" });
+    expect(nameInput).toHaveFocus();
+
+    fireEvent.change(nameInput, { target: { value: "Updated Session" } });
+    fireEvent.keyDown(nameInput, { key: "Tab" });
+    const organizationInput = screen.getByRole("textbox", { name: "Organization" });
+    expect(organizationInput).toHaveFocus();
+
+    fireEvent.keyDown(organizationInput, { key: "Tab" });
+    const analystInput = screen.getByRole("textbox", { name: "Analyst" });
+    expect(analystInput).toHaveFocus();
+
+    fireEvent.keyDown(analystInput, { key: "Tab" });
+    const documentInput = screen.getByRole("textbox", { name: "Doc ID" });
+    expect(documentInput).toHaveFocus();
+
+    fireEvent.keyDown(documentInput, { key: "Tab" });
+    const dateInput = screen.getByLabelText("Document Date");
+    expect(dateInput).toHaveFocus();
+
+    fireEvent.keyDown(dateInput, { key: "Tab" });
+    const confidenceInput = screen.getByRole("spinbutton", { name: "Confidence (%)" });
+    expect(confidenceInput).toHaveFocus();
+  });
+
+  test("keeps measurement-point actions visible without a redundant accordion", async () => {
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    await screen.findByText(/No Session Available/i);
+    expect(screen.getByTitle("Expand All")).toBeInTheDocument();
+    expect(screen.getByTitle("Filter visible columns")).toBeInTheDocument();
+
+    expect(screen.getByTitle("Expand All")).toBeInTheDocument();
+    expect(screen.getByTitle("Filter visible columns")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Measurement Points/ }),
+    ).not.toBeInTheDocument();
   });
 
   test("replaces floating notes, images, and help with the session Notes tab", async () => {
@@ -229,6 +606,98 @@ describe("UncertaintyApp", () => {
     expect(await screen.findByRole("region", { name: "Session notes" })).toBeInTheDocument();
     expect(screen.getByText("Legacy note")).toBeInTheDocument();
   });
+
+  test("selects the first point for Uncertainty Budget and preserves every tab scroll position", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 103,
+        name: "Tab State Session",
+        measurementAreas: [],
+        uuts: [
+          {
+            id: "uut-tabs",
+            description: "Tab UUT",
+            instrument: {
+              functions: [
+                {
+                  id: "fn-tabs",
+                  name: "Voltage",
+                  unit: "V",
+                  ranges: [{ id: "range-tabs", min: 0, max: 10, unit: "V" }],
+                },
+              ],
+            },
+          },
+        ],
+        tmdes: [],
+        testPoints: [
+          {
+            id: "point-tabs",
+            associatedUutIds: ["uut-tabs"],
+            measurementType: "direct",
+            testPointInfo: {
+              parameter: { name: "Voltage", value: "5", unit: "V" },
+            },
+            uutTolerance: {
+              functionName: "Voltage",
+              rangeId: "range-tabs",
+              min: 0,
+              max: 10,
+              unit: "V",
+            },
+            tmdeTolerances: [],
+            components: [],
+          },
+        ],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const overviewTab = await screen.findByRole("button", {
+      name: "Instrument Overview",
+    });
+    const notesTab = screen.getByRole("button", { name: "Notes" });
+    const budgetTab = screen.getByRole("button", { name: "Uncertainty Budget" });
+    document.querySelector(".analysis-content").scrollTop = 111;
+
+    fireEvent.click(notesTab);
+    await screen.findByRole("region", { name: "Session notes" });
+    document.querySelector(".analysis-content").scrollTop = 222;
+
+    fireEvent.click(budgetTab);
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Uncertainty Budget" }),
+      ).toHaveClass("active");
+      expect(
+        document.querySelector(".detailed-view-section-layout"),
+      ).toBeInTheDocument();
+    });
+    document.querySelector(".analysis-content").scrollTop = 333;
+
+    fireEvent.click(screen.getByRole("button", { name: "Instrument Overview" }));
+    await waitFor(() => {
+      expect(document.querySelector(".analysis-content").scrollTop).toBe(111);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
+    await waitFor(() => {
+      expect(document.querySelector(".analysis-content").scrollTop).toBe(222);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Uncertainty Budget" }));
+    await waitFor(() => {
+      expect(document.querySelector(".analysis-content").scrollTop).toBe(333);
+    });
+  }, 30000);
 
   test("renders named function headers in the sidebar", async () => {
     apiMock.state.sessions = [
@@ -315,6 +784,247 @@ describe("UncertaintyApp", () => {
     ).toBe(true);
   });
 
+  test("keeps instrument tables full-width with left-aligned function controls", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 106,
+        name: "Instrument Layout Session",
+        measurementAreas: [],
+        uuts: [
+          {
+            id: "uut-layout",
+            description: "Layout UUT",
+            instrument: {
+              functions: [
+                {
+                  id: "fn-layout-uut",
+                  name: "Voltage",
+                  unit: "V",
+                  ranges: [{ id: "range-layout-uut", min: 0, max: 10, unit: "V" }],
+                },
+              ],
+            },
+          },
+        ],
+        tmdes: [
+          {
+            id: "tmde-layout",
+            description: "Layout TMDE",
+            instrument: {
+              functions: [
+                {
+                  id: "fn-layout-tmde",
+                  name: "Voltage",
+                  unit: "V",
+                  ranges: [{ id: "range-layout-tmde", min: 0, max: 10, unit: "V" }],
+                },
+              ],
+            },
+          },
+        ],
+        testPoints: [],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const uutName = await screen.findByText("Layout UUT");
+    const uutTable = uutName.closest("table");
+    const uutRow = uutName.closest("tr");
+    expect(uutRow).toHaveClass("instrument-function-row");
+    expect(
+      uutRow.style.getPropertyValue("--instrument-function-color"),
+    ).not.toBe("");
+    expect(uutTable).toHaveStyle({ width: "100%", minWidth: "1200px" });
+    const widths = Array.from(uutTable.querySelectorAll("col")).map((column) =>
+      Number.parseFloat(column.style.width),
+    );
+    expect(widths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(100, 5);
+    expect(widths.at(-1)).toBeLessThan(widths[0]);
+
+    const descriptionResizeHandle = within(uutTable).getByRole("button", {
+      name: "Resize Description column",
+    });
+    fireEvent.keyDown(descriptionResizeHandle, { key: "ArrowRight" });
+    const resizedWidths = Array.from(uutTable.querySelectorAll("col")).map(
+      (column) => Number.parseFloat(column.style.width),
+    );
+    expect(resizedWidths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(
+      100,
+      5,
+    );
+    expect(resizedWidths[0]).toBeGreaterThan(widths[0]);
+    expect(resizedWidths[1]).toBeLessThan(widths[1]);
+    expect(resizedWidths.at(-1)).toBeCloseTo(widths.at(-1), 5);
+
+    const cardHeader = uutTable
+      .closest(".panel-card")
+      .querySelector(".instrument-panel-card-header");
+    expect(within(cardHeader).getByText("Unit Under Test")).toBeInTheDocument();
+
+    const voltageFunction = Array.from(
+      uutTable.querySelectorAll(".function-header-identity"),
+    ).find((header) => header.textContent.includes("Voltage"));
+    expect(voltageFunction).toBeInTheDocument();
+    expect(
+      voltageFunction
+        .closest("tr")
+        .style.getPropertyValue("--instrument-function-color"),
+    ).toBe(uutRow.style.getPropertyValue("--instrument-function-color"));
+    const functionActions = voltageFunction.parentElement.querySelector(
+      ".function-header-actions",
+    );
+    expect(
+      functionActions,
+    ).toContainElement(
+      within(voltageFunction.parentElement).getByRole("button", {
+        name: "Add UUT with this function",
+      }),
+    );
+    expect(
+      within(functionActions).getByRole("button", { name: "Delete Function" }),
+    ).toHaveClass("function-header-destructive-btn");
+
+    fireEvent.click(uutRow);
+    expect(uutRow).toHaveClass("selected-row");
+    expect(
+      within(functionActions).getByRole("button", {
+        name: "Delete Selected Instrument",
+      }),
+    ).toHaveClass("function-header-destructive-btn", "btn-delete-selection");
+    expect(
+      within(cardHeader).queryByRole("button", {
+        name: "Delete Selected Instrument",
+      }),
+    ).not.toBeInTheDocument();
+
+    const addInstrumentButton = within(functionActions).getByRole("button", {
+      name: "Add UUT with this function",
+    });
+    fireEvent.click(addInstrumentButton);
+    await waitFor(() => {
+      expect(screen.getByText("Layout UUT").closest("tr")).toHaveClass(
+        "selected-row",
+      );
+    });
+
+    fireEvent.contextMenu(screen.getByText("Layout UUT").closest("tr"), {
+      clientX: 120,
+      clientY: 160,
+    });
+    expect(await screen.findByText("Copy")).toBeInTheDocument();
+    expect(screen.getByText("Cut")).toBeInTheDocument();
+    expect(screen.getByText("Delete")).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+
+    const heightHandle = within(uutTable.closest(".panel-card")).getByRole(
+      "button",
+      { name: "Resize UUT table height" },
+    );
+    const tableContainer = uutTable.closest(".instrument-panel-table-container");
+    uutTable.getBoundingClientRect = () => ({
+      top: 0,
+      right: 1200,
+      bottom: 390,
+      left: 0,
+      width: 1200,
+      height: 390,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+    fireEvent.pointerDown(heightHandle, { clientY: 100 });
+    fireEvent.pointerMove(document, { clientY: 200 });
+    fireEvent.pointerUp(document);
+    await waitFor(() => {
+      expect(tableContainer.style.height).toBe("390px");
+      expect(tableContainer.style.flex).toBe("0 0 auto");
+      expect(
+        window.localStorage.getItem(
+          "uncertalytics:overview:uut:instrument-table-height:v1",
+        ),
+      ).toBe("390");
+    });
+
+    const currentUutRow = screen.getByText("Layout UUT").closest("tr");
+    fireEvent.click(
+      within(currentUutRow).getByRole("button", { name: "Set tolerance" }),
+    );
+    await waitFor(() => {
+      expect(
+        uutTable.querySelector(".inline-tolerance-editor--all"),
+      ).toBeInTheDocument();
+      expect(uutTable.querySelector("tr.inline-range-row")).toBeInTheDocument();
+    });
+    expect(uutTable.querySelector(".range-row-add")).not.toBeInTheDocument();
+    expect(uutTable.querySelector(".range-row-delete")).not.toBeInTheDocument();
+    fireEvent.pointerDown(descriptionResizeHandle, { clientX: 100 });
+    fireEvent.pointerMove(document, { clientX: 120 });
+    fireEvent.pointerUp(document);
+    expect(
+      uutTable.querySelector(".inline-tolerance-editor--all"),
+    ).toBeInTheDocument();
+
+    const rangeSummaryButton = within(uutTable).getByRole("button", {
+      name: "0 to 10 V",
+    });
+    userEvent.click(rangeSummaryButton);
+    await waitFor(() => {
+      expect(within(uutTable).getByPlaceholderText("min")).toBeInTheDocument();
+      expect(
+        uutTable.querySelector(".inline-tolerance-editor--all"),
+      ).not.toBeInTheDocument();
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+    expect(within(uutTable).getByPlaceholderText("min")).toBeInTheDocument();
+
+    const activeRangeRow = within(uutTable)
+      .getByPlaceholderText("min")
+      .closest("tr");
+    const toleranceSummaryButton = within(activeRangeRow).getByRole("button", {
+      name: "Set tolerance",
+    });
+    userEvent.click(toleranceSummaryButton);
+    await waitFor(() => {
+      expect(
+        uutTable.querySelector(".inline-tolerance-editor--all"),
+      ).toBeInTheDocument();
+      expect(within(uutTable).queryByPlaceholderText("min")).not.toBeInTheDocument();
+      expect(
+        within(uutTable).getByTitle("Asymmetric tolerance"),
+      ).toBeInTheDocument();
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+    fireEvent.click(within(uutTable).getByTitle("Asymmetric tolerance"));
+    expect(
+      within(uutTable).getByTitle("Asymmetric tolerance"),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => {
+      expect(
+        uutTable.querySelector(".inline-tolerance-editor--all"),
+      ).not.toBeInTheDocument();
+    });
+    const collapsedUutRow = screen.getByText("Layout UUT").closest("tr");
+    fireEvent.click(
+      within(collapsedUutRow).getByRole("button", { name: "Edit ranges" }),
+    );
+    await waitFor(() => {
+      expect(uutTable.querySelector(".range-row-add")).toBeInTheDocument();
+      expect(uutTable.querySelector(".range-row-delete")).toBeInTheDocument();
+    });
+  });
+
   test("keeps UUT functions visible when they have no measurement points", async () => {
     apiMock.state.sessions = [
       {
@@ -342,9 +1052,52 @@ describe("UncertaintyApp", () => {
               ],
             },
           },
+          {
+            id: "uut-with-point",
+            description: "Reference Pressure UUT",
+            instrument: {
+              manufacturer: "Fluke",
+              model: "2700G",
+              functions: [
+                {
+                  id: "fn-pressure-2",
+                  name: "Pressure",
+                  unit: "psig",
+                  ranges: [],
+                },
+              ],
+            },
+          },
+          {
+            id: "uut-empty-temperature",
+            description: "Temperature Standard",
+            instrument: {
+              manufacturer: "Fluke",
+              model: "1524",
+              functions: [
+                {
+                  id: "fn-temperature",
+                  name: "Temperature",
+                  unit: "degC",
+                  ranges: [],
+                },
+              ],
+            },
+          },
         ],
         tmdes: [],
-        testPoints: [],
+        testPoints: [
+          {
+            id: "pressure-point",
+            associatedUutIds: ["uut-with-point"],
+            testPointInfo: {
+              parameter: { name: "Pressure", value: "10", unit: "psig" },
+            },
+            tmdeTolerances: [],
+            specifications: {},
+            components: [],
+          },
+        ],
         uncReq: {},
       },
     ];
@@ -362,7 +1115,168 @@ describe("UncertaintyApp", () => {
     expect(
       functionRows.some((row) => row.classList.contains("area-label")),
     ).toBe(true);
+    const functionHeaders = functionRows
+      .filter((row) => row.classList.contains("area-label"))
+      .map((row) => row.closest(".area-header-sticky"));
+    functionHeaders.forEach((header) => {
+      const toggle = within(header).getByRole("button", {
+        name: /^(Expand|Collapse) function$/,
+      });
+      if (toggle.getAttribute("aria-expanded") === "false") {
+        fireEvent.click(toggle);
+      }
+    });
+    const uutSelect = await screen.findByRole("button", { name: "UUT" });
+    fireEvent.click(uutSelect);
+    const uutList = await screen.findByRole("listbox", { name: "UUT" });
+    expect(
+      within(uutList).getByRole("option", { name: /Fluke 700G Pressure Standard/i }),
+    ).toBeInTheDocument();
+    expect(document.querySelector(".uut-row")).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "Add direct point" })[0],
+    ).toBeInTheDocument();
+    const emptyFunctionGroup = (await screen.findAllByText("Temperature"))
+      .find((row) => row.classList.contains("area-label"))
+      .closest(".measurement-group-container");
+    const emptyFunctionToggle = within(emptyFunctionGroup).getByRole("button", {
+      name: /^(Expand|Collapse) function$/,
+    });
+    if (emptyFunctionToggle.getAttribute("aria-expanded") === "false") {
+      fireEvent.click(emptyFunctionToggle);
+    }
+    expect(emptyFunctionToggle).toHaveAttribute("aria-expanded", "true");
+    expect(
+      emptyFunctionGroup.querySelector(".sidebar-column-header-stack"),
+    ).toBeNull();
+    expect(emptyFunctionGroup.querySelector(".point-grid-item")).toBeNull();
+    expect(screen.queryByText("No measurement points")).not.toBeInTheDocument();
   });
+
+  test("applies persistent function settings when adding subsequent points", async () => {
+    apiMock.state.sessions = [
+      {
+        id: 104,
+        name: "Function Template Session",
+        functionGroups: [],
+        measurementAreas: [],
+        uuts: [
+          {
+            id: "uut-template",
+            description: "Template UUT",
+            instrument: {
+              functions: [
+                {
+                  id: "fn-template",
+                  name: "Torque",
+                  unit: "lb-ft",
+                  ranges: [
+                    { id: "range-template", min: 0, max: 100, unit: "lb-ft" },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        tmdes: [],
+        testPoints: [
+          {
+            id: "point-template",
+            associatedUutIds: ["uut-template"],
+            measurementType: "derived",
+            equationString: "T=L*W",
+            equationName: "Torque",
+            variableMappings: { L: "Length", W: "Force" },
+            variableNominals: {
+              L: { value: 2, unit: "ft" },
+              W: { value: 10, unit: "lb" },
+            },
+            inputCorrelations: { "L:W": 0.2 },
+            components: [{ id: "operator", name: "Operator", value: 0.1 }],
+            tmdeTolerances: [{ id: "tmde-copy", name: "Standard" }],
+            budgetPropagationMethod: "montecarlo",
+            monteCarloTrials: 25000,
+            testPointInfo: {
+              parameter: { name: "Torque", value: 20, unit: "lb-ft" },
+            },
+            uutTolerance: {
+              functionName: "Torque",
+              rangeId: "range-template",
+              min: 0,
+              max: 100,
+              unit: "lb-ft",
+            },
+          },
+        ],
+        uncReq: {},
+      },
+    ];
+
+    render(
+      <ThemeProvider>
+        <NotificationProvider>
+          <MemoryRouter>
+            <UncertaintyApp />
+          </MemoryRouter>
+        </NotificationProvider>
+      </ThemeProvider>,
+    );
+
+    const settingsButton = await screen.findByRole("button", {
+      name: "Torque function settings",
+    });
+    const functionName = screen
+      .getAllByText("Torque")
+      .find((node) => node.classList.contains("area-label"));
+    expect(settingsButton.closest(".function-point-settings").previousElementSibling)
+      .toBe(functionName);
+    fireEvent.click(settingsButton);
+    expect(screen.getByText("Function Settings")).toBeInTheDocument();
+    expect(screen.queryByText("Applied to this function")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("New points carry over entire budget of initial point."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("checkbox", { name: /Reuse the first point's equation/i }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Derived" }));
+    expect(
+      screen.getByRole("checkbox", { name: /Reuse the first point's equation/i }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Reuse the first point's equation/i }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Reuse the first point's budget/i }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add derived point" }));
+
+    await waitFor(() => {
+      const savedSession = apiMock.put.mock.calls
+        .map((call) => call[1])
+        .find((session) => session?.id === 104 && session.testPoints?.length === 2);
+      expect(savedSession).toBeTruthy();
+      const created = savedSession.testPoints.find(
+        (point) => point.id !== "point-template",
+      );
+      expect(created).toMatchObject({
+        measurementType: "derived",
+        equationString: "T=L*W",
+        equationName: "Torque",
+        variableMappings: { L: "Length", W: "Force" },
+        inputCorrelations: { "L:W": 0.2 },
+        components: [{ id: "operator", name: "Operator", value: 0.1 }],
+        tmdeTolerances: [{ id: "tmde-copy", name: "Standard" }],
+        budgetPropagationMethod: "montecarlo",
+        monteCarloTrials: 25000,
+      });
+      expect(savedSession.functionGroups[0].pointCreationSettings).toEqual({
+        mode: "derived",
+        reuseEquation: true,
+        reuseBudget: true,
+      });
+    });
+  }, 15000);
 
   test("keeps Delete scoped to the open instrument builder", async () => {
     apiMock.state.sessions = [
@@ -554,27 +1468,47 @@ describe("UncertaintyApp", () => {
       "Mitigation (Int Only)",
     ]);
     expect(columnGroups.map((group) => group.style.gridColumn)).toEqual([
-      "span 6",
+      "span 7",
       "span 2",
       "span 1",
       "span 1",
     ]);
-    const modeToggle = screen.getByRole("checkbox", {
-      name: "Create derived measurement points",
-    });
-    expect(modeToggle).not.toBeChecked();
-    fireEvent.click(modeToggle);
-    expect(modeToggle).toBeChecked();
+    fireEvent.click(screen.getByTitle("Filter visible columns"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Section" }));
+    expect(
+      screen.getByRole("button", { name: "Sort by Section" }),
+    ).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Voltage function settings" }),
+    );
+    const derivedOption = screen.getByRole("radio", { name: "Derived" });
+    expect(derivedOption).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(derivedOption);
+    expect(derivedOption).toHaveAttribute("aria-checked", "true");
     expect(
       screen.getByRole("button", { name: "Add derived point" }),
     ).toBeInTheDocument();
+    // Function settings update existing points too; switch back so this test
+    // can continue through the direct-point budget workflow below.
+    fireEvent.click(screen.getByRole("radio", { name: "Direct" }));
 
     const pointRow = document.querySelector(".point-grid-item");
     const columnHeader = document.querySelector(".sidebar-column-headers");
+    const pointFunctionGroup = pointRow.closest(".measurement-group-container");
+    expect(
+      pointFunctionGroup.style.getPropertyValue("--sidebar-function-color"),
+    ).not.toBe("");
+    expect(
+      pointFunctionGroup.style.getPropertyValue("--function-input-accent"),
+    ).toBe(
+      pointFunctionGroup.style.getPropertyValue("--sidebar-function-color"),
+    );
     expect(pointRow.style.gridTemplateColumns).toBe(
       columnHeader.style.gridTemplateColumns,
     );
-    expect(pointRow.style.gridTemplateColumns).toMatch(/^\d+px /);
+    // The UUT track starts wide enough for a full instrument identity.
+    expect(pointRow.style.gridTemplateColumns).toMatch(/^minmax\(200px, 1\.35fr\) /);
     expect(pointRow.style.gridTemplateColumns).not.toContain("ch");
     fireEvent.click(pointRow);
     expect(pointRow).toHaveClass("active-point");
@@ -594,9 +1528,9 @@ describe("UncertaintyApp", () => {
     expect(
       screen.queryByText("Manual Component", { selector: "h3" }),
     ).not.toBeInTheDocument();
-  }, 15000);
+  }, 30000);
 
-  test("preserves instrument function accordions across points and session overview", async () => {
+  test("opens the relevant UUT function and collapses irrelevant functions in detail", async () => {
     apiMock.state.sessions = [
       {
         id: 3,
@@ -626,6 +1560,19 @@ describe("UncertaintyApp", () => {
                       tolerances: {
                         reading: { high: "1", low: "-1", unit: "%" },
                       },
+                    },
+                  ],
+                },
+                {
+                  id: "fn-pressure",
+                  name: "Pressure",
+                  unit: "psi",
+                  ranges: [
+                    {
+                      id: "range-pressure",
+                      min: "0",
+                      max: "100",
+                      unit: "psi",
                     },
                   ],
                 },
@@ -701,10 +1648,14 @@ describe("UncertaintyApp", () => {
       </ThemeProvider>,
     );
 
-    const collapseButton = await screen.findByRole("button", {
+    const collapseButtons = await screen.findAllByRole("button", {
       name: "Collapse function instruments",
     });
-    fireEvent.click(collapseButton);
+    const voltageOverviewCollapse = collapseButtons.find((button) =>
+      button.closest("tr")?.textContent.includes("Voltage"),
+    );
+    expect(voltageOverviewCollapse).toBeDefined();
+    fireEvent.click(voltageOverviewCollapse);
     expect(
       screen.getByRole("button", { name: "Expand function instruments" }),
     ).toBeInTheDocument();
@@ -713,23 +1664,67 @@ describe("UncertaintyApp", () => {
       expect(document.querySelectorAll(".point-grid-item")).toHaveLength(2);
     });
     fireEvent.click(document.querySelectorAll(".point-grid-item")[0]);
+    const firstPointCollapsed = await screen.findByRole("button", {
+      name: "Expand function instruments",
+    });
+    expect(firstPointCollapsed.closest("tr")).toHaveTextContent("Pressure");
+
+    const activeUutRow = document.querySelector("tr.active-point-uut-row");
+    const activeUutTable = activeUutRow?.closest("table");
+    const toleranceButton = activeUutRow?.querySelector(
+      "td.cell-tolerance button.inline-tolerance-summary",
+    );
+    expect(toleranceButton).toBeInTheDocument();
+    userEvent.click(toleranceButton);
+    await waitFor(() => {
+      expect(
+        activeUutTable.querySelector(".inline-tolerance-editor--all"),
+      ).toBeInTheDocument();
+    });
+    const rangeButton = activeUutTable.querySelector(
+      "td[data-range-cell] button.inline-tolerance-summary",
+    );
+    expect(rangeButton).toBeInTheDocument();
+    userEvent.click(rangeButton);
+    await waitFor(() => {
+      expect(
+        activeUutTable.querySelector(
+          "td[data-range-cell] .inline-range-editor.is-editing",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        activeUutTable.querySelector(".inline-tolerance-editor--all"),
+      ).not.toBeInTheDocument();
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
     expect(
-      await screen.findByRole("button", { name: "Expand function instruments" }),
+      activeUutTable.querySelector(
+        "td[data-range-cell] .inline-range-editor.is-editing",
+      ),
     ).toBeInTheDocument();
 
     await waitFor(() => {
       expect(document.querySelectorAll(".point-grid-item")).toHaveLength(2);
     });
     fireEvent.click(document.querySelectorAll(".point-grid-item")[1]);
-    expect(
-      await screen.findByRole("button", { name: "Expand function instruments" }),
-    ).toBeInTheDocument();
+    const secondPointCollapsed = await screen.findByRole("button", {
+      name: "Expand function instruments",
+    });
+    expect(secondPointCollapsed.closest("tr")).toHaveTextContent("Pressure");
 
-    fireEvent.click(screen.getByRole("button", { name: "Session Overview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Instrument Overview" }));
+    const overviewCollapsed = await screen.findByRole("button", {
+      name: "Expand function instruments",
+    });
+    expect(overviewCollapsed.closest("tr")).toHaveTextContent("Voltage");
     expect(
-      await screen.findByRole("button", { name: "Expand function instruments" }),
-    ).toBeInTheDocument();
-  }, 15000);
+      screen
+        .getAllByRole("button", { name: "Collapse function instruments" })
+        .some((button) =>
+          button.closest("tr")?.textContent.includes("Pressure"),
+        ),
+    ).toBe(true);
+  }, 30000);
 
   test("zooms a table around the cursor without zooming the page", async () => {
     render(
@@ -743,8 +1738,13 @@ describe("UncertaintyApp", () => {
     );
     await screen.findByText(/No Session Available/i);
 
+    const card = document.createElement("div");
+    card.className = "panel-card";
+    const header = document.createElement("div");
+    header.className = "panel-card-header";
     const surface = document.createElement("div");
-    surface.className = "panel-table-container";
+    surface.className =
+      "panel-table-container instrument-panel-table-container";
     surface.scrollLeft = 40;
     surface.scrollTop = 60;
     surface.getBoundingClientRect = () => ({
@@ -763,7 +1763,9 @@ describe("UncertaintyApp", () => {
     const cell = document.createElement("td");
     table.appendChild(cell);
     surface.appendChild(table);
-    document.body.appendChild(surface);
+    card.appendChild(header);
+    card.appendChild(surface);
+    document.body.appendChild(card);
 
     fireEvent.wheel(cell, {
       ctrlKey: true,
@@ -774,11 +1776,62 @@ describe("UncertaintyApp", () => {
 
     expect(surface.dataset.zoomLevel).toBe("1.1");
     expect(table.style.zoom).toBe("1.1");
+    expect(header.style.zoom).toBe("1.1");
     expect(surface.scrollLeft).toBeCloseTo(59);
     expect(surface.scrollTop).toBeCloseTo(76);
     expect(document.documentElement.style.zoom || "").toBe("");
 
-    surface.remove();
+    const appHeaderSurface = document.querySelector(
+      ".app-chrome-zoom-surface",
+    );
+    const appHeaderContent = appHeaderSurface.querySelector(
+      ":scope > .scoped-zoom-content",
+    );
+    fireEvent.wheel(appHeaderContent, {
+      ctrlKey: true,
+      deltaY: -100,
+      clientX: 200,
+      clientY: 70,
+    });
+    expect(appHeaderSurface.dataset.zoomLevel).toBe("1.1");
+    expect(appHeaderContent.style.zoom).toBe("1.1");
+
+    const resultsSurface = document.createElement("div");
+    resultsSurface.className = "budget-results-zoom-surface";
+    resultsSurface.dataset.scopedZoomKey = "budget-results:test";
+    const resultsContent = document.createElement("div");
+    resultsContent.className = "scoped-zoom-content";
+    resultsSurface.appendChild(resultsContent);
+    document.body.appendChild(resultsSurface);
+    fireEvent.wheel(resultsContent, {
+      ctrlKey: true,
+      deltaY: -100,
+      clientX: 10,
+      clientY: 10,
+    });
+    expect(resultsSurface.dataset.zoomLevel).toBe("1.1");
+    expect(resultsContent.style.zoom).toBe("1.1");
+
+    window.localStorage.setItem(
+      "uncertalytics:uut:instrument-column-widths:v2",
+      JSON.stringify({ description: 999 }),
+    );
+    fireEvent.keyDown(window, { key: "0", ctrlKey: true });
+    expect(
+      window.localStorage.getItem(
+        "uncertalytics:uut:instrument-column-widths:v2",
+      ),
+    ).toBeNull();
+    await waitFor(() => {
+      expect(
+        JSON.parse(
+          window.localStorage.getItem("uncertalytics.uiSizing.v1") || "{}",
+        ).scopedZoomLevels,
+      ).toEqual({});
+    });
+
+    card.remove();
+    resultsSurface.remove();
   });
 
   test("zooms the measurement equation area around the cursor", async () => {

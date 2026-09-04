@@ -37,28 +37,45 @@ const getActiveReport = (device) => {
 
 // Helper functions (getShuntCorrectionForPoint, getTVCCorrectionForPoint, etc.)
 const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntSn, shuntsData) => {
-  if (!point || !shuntRangeInAmps || !shuntsData || shuntsData.length === 0 || !shuntSn) {
+  if (!point || !shuntsData || shuntsData.length === 0) {
     return { correction: "N/A", uncertainty: "N/A" };
   }
   const pointCurrent = parseFloat(point.current);
+  const pointFrequency = Number(point.frequency);
   const epsilon = 1e-9;
-  const shunt = [...shuntsData]
+  const sourceReportId = point.forward?.correction_report ?? point.reverse?.correction_report;
+  if (sourceReportId !== null && sourceReportId !== undefined) {
+    for (const shunt of shuntsData) {
+      const report = (shunt.reports || []).find((item) => Number(item.id) === Number(sourceReportId));
+      if (!report) continue;
+      const correction = (report.corrections || []).find(
+        (entry) =>
+          Math.abs(parseFloat(entry.current) - pointCurrent) < epsilon &&
+          Number(entry.frequency) === pointFrequency
+      );
+      return correction
+        ? { correction: correction.correction, uncertainty: correction.uncertainty }
+        : { correction: "N/A", uncertainty: "N/A" };
+    }
+  }
+  if (!shuntRangeInAmps || !shuntSn) return { correction: "N/A", uncertainty: "N/A" };
+
+  const candidateShunts = [...shuntsData]
     .filter(
       (s) =>
         String(s.serial_number) === String(shuntSn) &&
         Math.abs(parseFloat(s.range) - shuntRangeInAmps) < epsilon
     )
-    .sort((a, b) => (b.is_manual ? 1 : 0) - (a.is_manual ? 1 : 0))[0];
-  const activeReport = getActiveReport(shunt);
-  if (activeReport && Array.isArray(activeReport.corrections)) {
-    const correction = activeReport.corrections.find(
+    .sort((a, b) => (b.is_manual ? 1 : 0) - (a.is_manual ? 1 : 0));
+  for (const shunt of candidateShunts) {
+    const correction = (getActiveReport(shunt)?.corrections || []).find(
       (c) =>
         Math.abs(parseFloat(c.current) - pointCurrent) < epsilon &&
-        parseFloat(c.frequency) === point.frequency
+        Number(c.frequency) === pointFrequency
     );
-    return correction
-      ? { correction: correction.correction, uncertainty: correction.uncertainty }
-      : { correction: "N/A", uncertainty: "N/A" };
+    if (correction) {
+      return { correction: correction.correction, uncertainty: correction.uncertainty };
+    }
   }
   return { correction: "N/A", uncertainty: "N/A" };
 };
@@ -638,7 +655,7 @@ function TestPointSidebar({
             type="button"
             onClick={onViewCorrections}
             className="cal-results-excel-icon-btn"
-            disabled={isBulkRunning || isCollecting || !selectedSessionId}
+            disabled={!selectedSessionId}
             aria-label="View corrections data"
             title="View corrections data"
           >

@@ -1,5 +1,7 @@
 import {
+  calculateUncertaintyFromToleranceObject,
   convertToPPM,
+  convertPpmToUnit,
   distributionDivisorValue,
   getUnitDisplayLabel,
 } from "../../../utils/uncertaintyMath";
@@ -16,6 +18,86 @@ const distributionLabel = (divisor) =>
   oldErrorDistributions.find(
     (item) => Number(item.value) === Number(divisor),
   )?.label || `k=${divisor}`;
+
+const TOLERANCE_TERM_KEYS = [
+  "reading",
+  "range",
+  "floor",
+  "db",
+  "singleSided",
+];
+
+// Manual rows use the same structured tolerance editor as instruments, while
+// their distribution is authored in the adjacent budget column. Keep both
+// surfaces backed by one divisor so selecting a distribution immediately
+// updates every entered term (including terms temporarily hidden by the
+// symmetry/sidedness toggles).
+export const applyManualToleranceDistribution = (
+  tolerance = {},
+  divisor = "1.732",
+) => {
+  const next = { ...(tolerance || {}), bandDistribution: String(divisor) };
+  const applyToTerms = (terms = {}) =>
+    Object.fromEntries(
+      Object.entries(terms).map(([key, term]) => [
+        key,
+        term && typeof term === "object"
+          ? { ...term, distribution: String(divisor) }
+          : term,
+      ]),
+    );
+
+  TOLERANCE_TERM_KEYS.forEach((key) => {
+    if (key === "singleSided") return;
+    if (next[key] && typeof next[key] === "object") {
+      next[key] = { ...next[key], distribution: String(divisor) };
+    }
+  });
+  if (next.readings_iv && typeof next.readings_iv === "object") {
+    next.readings_iv = {
+      ...next.readings_iv,
+      distribution: String(divisor),
+    };
+  }
+  if (next._doubleSidedTerms && typeof next._doubleSidedTerms === "object") {
+    next._doubleSidedTerms = applyToTerms(next._doubleSidedTerms);
+  }
+  return next;
+};
+
+const toleranceHasMagnitude = (tolerance = {}) =>
+  TOLERANCE_TERM_KEYS.some((key) => {
+    const term = tolerance?.[key];
+    return [term?.value, term?.high, term?.low, term?.limit].some(
+      (value) =>
+        value !== undefined &&
+        value !== null &&
+        String(value).trim() !== "" &&
+        Number.isFinite(Number(value)),
+    );
+  });
+
+const toleranceDistributionLabel = (breakdown = [], tolerance = {}) => {
+  const labels = Array.from(
+    new Set(breakdown.map((item) => item?.distributionLabel).filter(Boolean)),
+  );
+  if (labels.length === 1) return labels[0];
+  if (labels.length > 1) return "Mixed tolerance distributions";
+
+  const authoredDivisors = TOLERANCE_TERM_KEYS.map(
+    (key) => tolerance?.[key]?.distribution,
+  ).filter(Boolean);
+  const authoredLabels = Array.from(
+    new Set(
+      authoredDivisors.map((divisor) =>
+        divisor === "not_set" ? "Not Set" : distributionLabel(divisor),
+      ),
+    ),
+  );
+  if (authoredLabels.length === 1) return authoredLabels[0];
+  if (authoredLabels.length > 1) return "Mixed tolerance distributions";
+  return "Not Set";
+};
 
 const nativeStandardUncertainty = ({ ppm, raw, divisor, unit, referencePoint }) => {
   if (!RELATIVE_UNITS.has(unit)) {
@@ -77,10 +159,33 @@ export const createInlineManualComponent = ({
     originalInput: {
       inputMode: "tolerance",
       toleranceLimit: "",
+      tolerance: { bandDistribution: "1.732" },
       standardUncertainty: "",
       errorDistributionDivisor: "1.732",
       unit,
       useFiniteDof: false,
+    },
+  };
+};
+
+const legacyManualTolerance = (component = {}) => {
+  const original = component.originalInput || {};
+  const magnitude = positiveNumber(
+    original.toleranceLimit ??
+      (component.manualInputMode === "tolerance" ? component.manualRawValue : null),
+  );
+  if (magnitude === null) return {};
+  const unit = original.unit || component.manualUnit || component.unit_native || "ppm";
+  const distribution = String(
+    original.errorDistributionDivisor || component.distributionDivisor || "1.732",
+  );
+  return {
+    floor: {
+      high: String(magnitude),
+      low: String(-magnitude),
+      unit,
+      distribution,
+      symmetric: true,
     },
   };
 };
@@ -98,6 +203,13 @@ export const getInlineManualDraft = (component = {}) => ({
     component.originalInput?.toleranceLimit ??
     (component.manualInputMode === "tolerance" ? component.manualRawValue : "") ??
     "",
+  tolerance:
+    component.originalInput?.tolerance &&
+    Object.keys(component.originalInput.tolerance).length > 0
+      ? component.originalInput.tolerance
+      : component.tolerance && Object.keys(component.tolerance).length > 0
+        ? component.tolerance
+        : legacyManualTolerance(component),
   standardUncertainty:
     component.originalInput?.standardUncertainty ??
     (component.manualInputMode === "standard" ? component.manualRawValue : "") ??
@@ -143,8 +255,39 @@ export const normalizeInlineManualComponent = ({
   let valueNative = 0;
   let unitNative = referencePoint?.unit || unit;
   let validation = null;
+  const tolerance =
+    draft.tolerance && typeof draft.tolerance === "object"
+      ? draft.tolerance
+      : {};
+  const usesStructuredTolerance =
+    inputMode === "tolerance" && toleranceHasMagnitude(tolerance);
+  const structuredResult = usesStructuredTolerance
+    ? calculateUncertaintyFromToleranceObject(tolerance, referencePoint, true)
+    : null;
 
-  if (raw !== null) {
+  if (usesStructuredTolerance) {
+    const calculatedPpm = Number(structuredResult?.standardUncertainty);
+    if (Number.isFinite(calculatedPpm) && calculatedPpm > 0) {
+      value = calculatedPpm;
+      const convertedNative = convertPpmToUnit(
+        calculatedPpm,
+        referencePoint?.unit,
+        referencePoint,
+      );
+      if (Number.isFinite(Number(convertedNative))) {
+        valueNative = Number(convertedNative);
+        unitNative = referencePoint?.unit || unit;
+      } else {
+        validation = String(
+          convertedNative || "Unable to resolve the tolerance at this nominal.",
+        );
+      }
+    } else {
+      validation = tolerance.singleSided
+        ? "A single-sided acceptance limit does not define a Type B standard uncertainty by itself."
+        : "Set a distribution for each entered tolerance term and provide a valid nominal value.";
+    }
+  } else if (raw !== null) {
     const converted = convertToPPM(
       raw,
       unit,
@@ -176,7 +319,12 @@ export const normalizeInlineManualComponent = ({
       ? "Normal"
       : inputMode === "standard"
         ? "Standard uncertainty (k=1)"
-        : distributionLabel(toleranceDivisor);
+        : usesStructuredTolerance
+          ? toleranceDistributionLabel(
+              structuredResult?.breakdown,
+              tolerance,
+            )
+          : distributionLabel(toleranceDivisor);
   const rawValue = raw === null ? "" : raw;
 
   return {
@@ -202,6 +350,7 @@ export const normalizeInlineManualComponent = ({
       ...(component.originalInput || {}),
       inputMode,
       toleranceLimit: draft.toleranceLimit ?? "",
+      tolerance,
       standardUncertainty: draft.standardUncertainty ?? "",
       // Preserve the user's last tolerance distribution even while direct
       // standard-uncertainty mode is active, so switching back restores the

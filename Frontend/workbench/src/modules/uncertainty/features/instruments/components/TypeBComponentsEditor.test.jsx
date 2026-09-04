@@ -35,7 +35,7 @@ describe("TypeBComponentsEditor", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to edit tolerance"));
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
     expect(screen.getByText("Distribution")).toBeInTheDocument();
     const distribution = screen.getByLabelText("Spec distribution");
     expect(distribution.closest(".typeb-distribution-field")).not.toBeNull();
@@ -96,16 +96,14 @@ describe("TypeBComponentsEditor", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("Click to edit tolerance"));
-    const shapeButtons = screen.getAllByTitle(/Tolerance shape:/);
-    fireEvent.pointerDown(shapeButtons[2]);
-    fireEvent.click(shapeButtons[2]);
-    const asymmetricOption = await screen.findByRole("menuitemradio", { name: /Asymmetric/ });
-    fireEvent.pointerDown(asymmetricOption);
-    fireEvent.click(asymmetricOption);
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
+    fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
 
     await waitFor(() =>
-      expect(screen.getAllByTitle("Tolerance shape: Asymmetric").length).toBeGreaterThan(0),
+      expect(screen.getByTitle("Asymmetric tolerance")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
     );
     const latest = onChange.mock.lastCall?.[0]?.[0];
     expect(latest?.tolerance?.floor?.symmetric).toBe(false);
@@ -132,7 +130,7 @@ describe("TypeBComponentsEditor", () => {
     fireEvent.click(unitButton);
     const search = await screen.findByPlaceholderText("Search units...");
     fireEvent.change(search, { target: { value: "lb" } });
-    const poundOption = await screen.findByRole("option", { name: "lb lb" });
+    const poundOption = await screen.findByRole("option", { name: "lb Mass" });
     fireEvent.click(poundOption);
 
     expect(onChange).toHaveBeenCalledWith(

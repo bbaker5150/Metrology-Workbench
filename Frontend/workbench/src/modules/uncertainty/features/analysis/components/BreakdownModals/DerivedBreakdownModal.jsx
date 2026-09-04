@@ -275,7 +275,7 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                             <Latex>{`$$ \\bar{y} = \\frac{1}{N}\\sum_{k=1}^{N} y_k = ${formatNumberForLatex(Number(monteCarlo.meanBase), 7)} $$`}</Latex>
                             <Latex>{`$$ u_{MC} = \\sqrt{\\frac{\\sum_{k=1}^{N}(y_k-\\bar{y})^2}{N-1}} = ${formatNumberForLatex(Number(monteCarlo.standardUncertaintyBase), 7)} \\text{ (base unit)} $$`}</Latex>
                             <Latex>{`$$ f(\\bar{\\mathbf{x}}) = ${formatNumberForLatex(Number(monteCarlo.nominalResultBase), 7)} \\text{ (base unit)} $$`}</Latex>
-                            <p>The <Latex>{'$N-1$'}</Latex> denominator matches the Risk 8.0 workbook. The MC result enters the final budget once; its input rows are not counted again.</p>
+                            <p>The <Latex>{'$N-1$'}</Latex> denominator produces the unbiased sample standard deviation. The Monte Carlo result enters the final budget once; its input rows are not counted again.</p>
                         </div>
                         <div className="breakdown-step">
                             <h5>Final Budget Combination</h5>

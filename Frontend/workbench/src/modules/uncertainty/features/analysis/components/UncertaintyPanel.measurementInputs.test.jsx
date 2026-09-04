@@ -4,6 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   MeasurementInputNameCell,
   MeasurementInputNominalCell,
+  MeasurementInputSymbolCell,
+  reconcileEquationVariableState,
+  renameEquationVariable,
 } from "./UncertaintyPanel";
 
 const NameHarness = () => {
@@ -29,6 +32,40 @@ const NominalHarness = () => {
 };
 
 describe("measurement input compact editors", () => {
+  it("renames a variable directly from the Variable column", () => {
+    const onCommit = vi.fn();
+    render(<MeasurementInputSymbolCell symbol="a" onCommit={onCommit} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Rename equation variable a" }),
+    );
+    const input = screen.getByRole("textbox", { name: "Equation variable a" });
+    fireEvent.change(input, { target: { value: "b" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onCommit).toHaveBeenCalledOnce();
+    expect(onCommit).toHaveBeenCalledWith("b");
+  });
+
+  it("renames exact equation tokens without changing the result symbol or longer names", () => {
+    expect(renameEquationVariable("T = a * area + max(a, aa)", "a", "b"))
+      .toBe("T = b * area + max(b, aa)");
+  });
+
+  it("carries the display name and nominal when the equation editor performs a simple rename", () => {
+    expect(
+      reconcileEquationVariableState({
+        variables: ["b"],
+        currentMappings: { a: "Applied Weight" },
+        currentNominals: { a: { value: "25", unit: "lb" } },
+      }),
+    ).toEqual({
+      mappings: { b: "Applied Weight" },
+      nominals: { b: { value: "25", unit: "lb" } },
+      simpleRename: { from: "a", to: "b" },
+    });
+  });
+
   it("shows a clean name string, opens its input on click, and collapses away", () => {
     render(<NameHarness />);
 
@@ -77,6 +114,26 @@ describe("measurement input compact editors", () => {
     ).toHaveTextContent("3.5 V");
   });
 
+  it("shows an inferred unit with no nominal value as Not Set", () => {
+    render(
+      <MeasurementInputNominalCell
+        symbol="m"
+        name="Mass"
+        value=""
+        unit="lb"
+        onValueChange={vi.fn()}
+        onUnitChange={vi.fn()}
+      />,
+    );
+
+    const summary = screen.getByRole("button", {
+      name: "Edit nominal for equation variable m",
+    });
+    expect(summary).toHaveTextContent("Not Set");
+    expect(summary).not.toHaveTextContent("lb");
+    expect(summary).toHaveClass("is-empty");
+  });
+
   it("keeps the nominal editor open while using the portaled unit menu", () => {
     const onUnitChange = vi.fn();
     render(
@@ -103,13 +160,10 @@ describe("measurement input compact editors", () => {
     const search = screen.getByPlaceholderText("Search units...");
     fireEvent.mouseDown(search);
     fireEvent.change(search, { target: { value: "deg" } });
-    const degreeOption = screen
-      .getAllByRole("option")
-      .find(
-        (option) =>
-          option.textContent.endsWith("deg") &&
-          !option.textContent.includes("degF"),
-      );
+    // A unit option shows its display label, then its function. "deg" is
+    // written as the degree sign, and is still reachable by typing "deg"
+    // because the search matches a unit's key as well as its label.
+    const degreeOption = screen.getByRole("option", { name: "\u00b0 Angle" });
     expect(degreeOption).toBeTruthy();
     fireEvent.click(degreeOption);
 

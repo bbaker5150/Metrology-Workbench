@@ -14,6 +14,7 @@ import {
 } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 import {
+  applyManualToleranceDistribution,
   getInlineManualDraft,
   normalizeInlineManualComponent,
 } from "../utils/manualComponentUtils";
@@ -26,6 +27,8 @@ import {
   faProjectDiagram,
   faExclamationTriangle,
   faChartBar,
+  faArrowUp,
+  faArrowDown,
 } from "@fortawesome/free-solid-svg-icons";
 
 const DIST_OPTIONS = [
@@ -55,23 +58,49 @@ const formatNumber = (value, sigFigs = 4) => {
   return n.toPrecision(sigFigs);
 };
 
-// Results cards are a calculation readout, not a compact table column. Keep
-// enough significant digits to expose the actual combined/expanded result
-// instead of making a value such as 0.0019992 look like 0.002000. Twelve
-// significant digits suppress normal binary floating-point noise while
-// preserving substantially more calculation precision than the table rows.
+// Result cards should expose useful precision without leaking floating-point
+// noise. Eight significant digits keeps small metrology values readable while
+// avoiding readouts such as 0.00999981624765.
 const formatCalculatedResult = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return "N/A";
   if (n === 0) return "0";
-
-  const magnitude = Math.floor(Math.log10(Math.abs(n)));
-  const decimalPlaces = Math.min(20, Math.max(0, 12 - magnitude - 1));
-  return n
-    .toFixed(decimalPlaces)
-    .replace(/(\.\d*?[1-9])0+$/, "$1")
-    .replace(/\.0+$/, "");
+  return String(Number(n.toPrecision(8)));
 };
+
+const fullPrecisionValue = (value) => {
+  if (value === undefined || value === null || value === "") return "N/A";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return numeric === Infinity ? "Infinity" : "N/A";
+  return String(value);
+};
+
+const BudgetOrderControls = ({ onMoveUp, onMoveDown }) => (
+  <span className="budget-order-controls" aria-label="Component order">
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onMoveUp?.();
+      }}
+      title="Move component up"
+      aria-label="Move component up"
+    >
+      <FontAwesomeIcon icon={faArrowUp} />
+    </button>
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onMoveDown?.();
+      }}
+      title="Move component down"
+      aria-label="Move component down"
+    >
+      <FontAwesomeIcon icon={faArrowDown} />
+    </button>
+  </span>
+);
 
 const simplifyBudgetLabel = (label = "") =>
   String(label).replace(
@@ -110,11 +139,27 @@ const shouldShowDofColumn = (items = []) =>
 const getComponentDisplayName = (component) => {
   const quantity = component.quantity || 1;
   const name =
+    (component.isBudgetInstance ? component.name : null) ||
     component.sourceDisplayName ||
     component.tmdeIdentity ||
     component.name ||
     "Uncertainty component";
   return quantity > 1 ? `${name} (Qty: ${quantity})` : name;
+};
+
+const enumerateComponentDisplayNames = (
+  components = [],
+  getLabel = getComponentDisplayName,
+) => {
+  const counts = new Map();
+  return components.map((component, index) => {
+    const baseLabel = String(
+      getLabel(component, index) || "Uncertainty component",
+    ).trim();
+    const occurrence = (counts.get(baseLabel) || 0) + 1;
+    counts.set(baseLabel, occurrence);
+    return occurrence === 1 ? baseLabel : `${baseLabel} (${occurrence})`;
+  });
 };
 
 const isInstrumentLinkedTypeB = (component = {}) =>
@@ -248,7 +293,7 @@ const ManualValueCell = ({ component, onCommit, suffix }) => {
     return (
       <span
         className="budget-editable-value"
-        title="Click to edit the entered value"
+        title="Edit value"
         onClick={begin}
         style={{
           cursor: "pointer",
@@ -290,16 +335,35 @@ const InlineManualComponentRow = ({
   referencePoint,
   showDof,
   sigFigs,
+  ToleranceEditorComponent,
+  applyToleranceChange,
+  formatToleranceSummary,
   onCommit,
   onRemove,
+  onMoveUp,
+  onMoveDown,
 }) => {
   const rowRef = useRef(null);
   const nameInputRef = useRef(null);
   const [editing, setEditing] = useState(Boolean(component.inlineDraft));
   const [draft, setDraft] = useState(() => getInlineManualDraft(component));
+  const draftRef = useRef(draft);
+  const pendingFinishRef = useRef(null);
+
+  const updateDraft = (updater) => {
+    setDraft((current) => {
+      const next = typeof updater === "function" ? updater(current) : updater;
+      draftRef.current = next;
+      return next;
+    });
+  };
 
   useEffect(() => {
-    if (!editing) setDraft(getInlineManualDraft(component));
+    if (!editing) {
+      const next = getInlineManualDraft(component);
+      draftRef.current = next;
+      setDraft(next);
+    }
   }, [component, editing]);
 
   useEffect(() => {
@@ -309,15 +373,44 @@ const InlineManualComponentRow = ({
     return () => window.cancelAnimationFrame(frame);
   }, [component.inlineDraft]);
 
+  useEffect(
+    () => () => {
+      if (pendingFinishRef.current) {
+        window.clearTimeout(pendingFinishRef.current);
+      }
+    },
+    [],
+  );
+
   const finish = () => {
-    onCommit?.(draft);
+    if (pendingFinishRef.current) {
+      window.clearTimeout(pendingFinishRef.current);
+      pendingFinishRef.current = null;
+    }
+    onCommit?.(draftRef.current);
     setEditing(false);
   };
 
   useEffect(() => {
     if (!editing) return undefined;
     const handleOutsidePointer = (event) => {
-      if (!rowRef.current?.contains(event.target)) finish();
+      if (
+        event.target?.closest?.(
+          ".inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-unit-menu",
+        )
+      ) {
+        return;
+      }
+      if (!rowRef.current?.contains(event.target)) {
+        // Pointer-down happens before the focused tolerance input's blur. Give
+        // that blur one event turn to commit its final term into draftRef, then
+        // persist the exact draft the user can see rather than the prior empty
+        // value (which used to make the row snap back to "Not Set").
+        if (pendingFinishRef.current) {
+          window.clearTimeout(pendingFinishRef.current);
+        }
+        pendingFinishRef.current = window.setTimeout(finish, 0);
+      }
     };
     document.addEventListener("pointerdown", handleOutsidePointer, true);
     return () =>
@@ -338,6 +431,16 @@ const InlineManualComponentRow = ({
   const std = getComponentStdUncertainty(preview, referencePoint?.unit);
   const inputMode =
     draft.type === "A" ? "standard" : draft.inputMode || "tolerance";
+  const toleranceDistribution = String(
+    draft.tolerance?.reading?.distribution ||
+      draft.tolerance?.range?.distribution ||
+      draft.tolerance?.floor?.distribution ||
+      draft.tolerance?.readings_iv?.distribution ||
+      draft.tolerance?.db?.distribution ||
+      draft.tolerance?.bandDistribution ||
+      draft.errorDistributionDivisor ||
+      "1.732",
+  );
   const unitOptions = useMemo(() => {
     const relevant = referencePoint?.unit
       ? unitSystem.getRelevantUnits(referencePoint.unit)
@@ -348,19 +451,22 @@ const InlineManualComponentRow = ({
   }, [draft.unit, referencePoint?.unit]);
 
   const setEntryMode = (nextMode) => {
-    setDraft((current) => {
+    updateDraft((current) => {
       const divisor =
         distributionDivisorValue(current.errorDistributionDivisor) ||
         distributionDivisorValue("1.732");
       if (nextMode === "standard") {
         const tolerance = Number(current.toleranceLimit);
+        const calculatedTolerance = Number(preview?.value_native);
         return {
           ...current,
           inputMode: "standard",
           standardUncertainty:
             current.standardUncertainty ||
-            (Number.isFinite(tolerance) && tolerance > 0
-              ? String(tolerance / divisor)
+            (Number.isFinite(calculatedTolerance) && calculatedTolerance > 0
+              ? String(calculatedTolerance)
+              : Number.isFinite(tolerance) && tolerance > 0
+                ? String(tolerance / divisor)
               : ""),
         };
       }
@@ -378,20 +484,23 @@ const InlineManualComponentRow = ({
   };
 
   const handleTypeChange = (type) => {
-    setDraft((current) => {
+    updateDraft((current) => {
       if (type !== "A") return { ...current, type: "B" };
       const divisor =
         distributionDivisorValue(current.errorDistributionDivisor) ||
         distributionDivisorValue("1.732");
       const tolerance = Number(current.toleranceLimit);
+      const calculatedTolerance = Number(preview?.value_native);
       return {
         ...current,
         type: "A",
         inputMode: "standard",
         standardUncertainty:
           current.standardUncertainty ||
-          (Number.isFinite(tolerance) && tolerance > 0
-            ? String(tolerance / divisor)
+          (Number.isFinite(calculatedTolerance) && calculatedTolerance > 0
+            ? String(calculatedTolerance)
+            : Number.isFinite(tolerance) && tolerance > 0
+              ? String(tolerance / divisor)
             : ""),
       };
     });
@@ -400,11 +509,8 @@ const InlineManualComponentRow = ({
   const handleRowKeyDown = (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      setDraft(getInlineManualDraft(component));
+      updateDraft(getInlineManualDraft(component));
       setEditing(false);
-    } else if (event.key === "Enter" && event.target.tagName !== "SELECT") {
-      event.preventDefault();
-      finish();
     }
   };
 
@@ -428,10 +534,14 @@ const InlineManualComponentRow = ({
     const isStandard =
       component.type === "A" || original.inputMode === "standard";
     const tolerance = Number(original.toleranceLimit);
+    const structuredTolerance = original.tolerance || component.tolerance || {};
+    const structuredSummary = formatToleranceSummary?.(structuredTolerance)?.[0];
     const toleranceText =
-      !isStandard && Number.isFinite(tolerance) && tolerance > 0
-        ? `${tolerance} ${getUnitDisplayLabel(original.unit || component.manualUnit)}`
-        : "—";
+      !isStandard && structuredSummary && structuredSummary !== "-"
+        ? structuredSummary
+        : !isStandard && Number.isFinite(tolerance) && tolerance > 0
+          ? `${tolerance} ${getUnitDisplayLabel(original.unit || component.manualUnit)}`
+          : "Not Set";
     return (
       <tr
         ref={rowRef}
@@ -442,15 +552,26 @@ const InlineManualComponentRow = ({
         }
         onClick={() => setEditing(true)}
       >
-        <td>{component.name || "Manual component"}</td>
+        <td className="budget-source-cell has-order-controls">
+          <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
+          {component.name || (
+            <span className="inline-tolerance-summary is-empty budget-inline-not-set">
+              Not Set
+            </span>
+          )}
+        </td>
         <td>{toleranceText}</td>
         <td>{component.distribution || "Not Set"}</td>
         <td>{component.type || "B"}</td>
         {showDof && <td>{formatDof(component.dof)}</td>}
         <td>
-          {Number(std.value) > 0
-            ? `${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}`
-            : "—"}
+          {Number(std.value) > 0 ? (
+            `${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}`
+          ) : (
+            <span className="inline-tolerance-summary is-empty budget-inline-not-set">
+              Not Set
+            </span>
+          )}
         </td>
         <td className="action-cell">{removeAction}</td>
       </tr>
@@ -467,7 +588,7 @@ const InlineManualComponentRow = ({
         aria-label={label}
         value={draft[field]}
         onChange={(event) =>
-          setDraft((current) => ({
+          updateDraft((current) => ({
             ...current,
             [field]: event.target.value,
           }))
@@ -478,7 +599,7 @@ const InlineManualComponentRow = ({
         aria-label={`${label} unit`}
         value={draft.unit}
         onChange={(event) =>
-          setDraft((current) => ({ ...current, unit: event.target.value }))
+          updateDraft((current) => ({ ...current, unit: event.target.value }))
         }
       >
         {unitOptions.map((unit) => (
@@ -496,24 +617,62 @@ const InlineManualComponentRow = ({
       className="budget-inline-manual-row is-editing"
       onKeyDown={handleRowKeyDown}
     >
-      <td>
+      <td className="budget-source-cell has-order-controls">
+        <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
         <input
           ref={nameInputRef}
           type="text"
           className="budget-inline-input budget-inline-name"
           aria-label="Error source name"
-          placeholder="Error source name"
           value={draft.name}
           onChange={(event) =>
-            setDraft((current) => ({ ...current, name: event.target.value }))
+            updateDraft((current) => ({ ...current, name: event.target.value }))
           }
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              finish();
+            }
+          }}
         />
       </td>
-      <td>
+      <td className="budget-inline-tolerance-cell">
         {draft.type === "A" ? (
           <span className="budget-inline-empty">—</span>
         ) : inputMode === "tolerance" ? (
-          magnitudeInput("toleranceLimit", "Tolerance limit")
+          ToleranceEditorComponent ? (
+            <ToleranceEditorComponent
+              tolerance={draft.tolerance || {}}
+              activeRange={{
+                id: component.id,
+                max: referencePoint?.value,
+                unit: referencePoint?.unit || draft.unit || "",
+              }}
+              editable
+              openRequested
+              onCommit={(typeKey, nextTerm) =>
+                updateDraft((current) => {
+                  const nextTolerance = applyToleranceChange
+                    ? applyToleranceChange(
+                        current.tolerance || {},
+                        typeKey,
+                        nextTerm,
+                      )
+                    : { ...(current.tolerance || {}), [typeKey]: nextTerm };
+                  return {
+                    ...current,
+                    tolerance: applyManualToleranceDistribution(
+                      nextTolerance,
+                      current.errorDistributionDivisor || "1.732",
+                    ),
+                    toleranceLimit: "",
+                  };
+                })
+              }
+            />
+          ) : (
+            magnitudeInput("toleranceLimit", "Tolerance limit")
+          )
         ) : (
           <button
             type="button"
@@ -533,11 +692,15 @@ const InlineManualComponentRow = ({
           <select
             className="mini-select budget-inline-distribution"
             aria-label="Error limit distribution"
-            value={draft.errorDistributionDivisor}
+            value={toleranceDistribution}
             onChange={(event) =>
-              setDraft((current) => ({
+              updateDraft((current) => ({
                 ...current,
                 errorDistributionDivisor: event.target.value,
+                tolerance: applyManualToleranceDistribution(
+                  current.tolerance,
+                  event.target.value,
+                ),
               }))
             }
           >
@@ -567,10 +730,10 @@ const InlineManualComponentRow = ({
         ) : (
           <button
             type="button"
-            className="budget-inline-mode-button"
+            className="inline-tolerance-summary is-empty budget-inline-not-set-action"
             onClick={() => setEntryMode("standard")}
           >
-            Enter standard uncertainty
+            Not Set
           </button>
         )}
       </td>
@@ -629,14 +792,20 @@ const ResultsCard = ({
       <div className="budget-results-title">
         {title}
       </div>
-      <div className="budget-results-row">
+      <div
+        className="budget-results-row"
+        title={fullPrecisionValue(results?.combined)}
+      >
         <span>Combined Uncertainty</span>
         <strong>
           {formatCalculatedResult(results?.combined)}
           {unitSuffix}
         </strong>
       </div>
-      <div className="budget-results-row">
+      <div
+        className="budget-results-row"
+        title={fullPrecisionValue(results?.effective_dof)}
+      >
         <span className="budget-results-dof-label">
           <label
             className="direction-toggle-switch"
@@ -653,11 +822,17 @@ const ResultsCard = ({
         </span>
         <strong>{effDofDisplay}</strong>
       </div>
-      <div className="budget-results-row">
+      <div
+        className="budget-results-row"
+        title={fullPrecisionValue(results?.k_value)}
+      >
         <span>Coverage Factor (k)</span>
         <strong>{formatNumber(results?.k_value, sigFigs)}</strong>
       </div>
-      <div className="budget-results-row">
+      <div
+        className="budget-results-row"
+        title={fullPrecisionValue(results?.expanded)}
+      >
         <span>Expanded Uncertainty</span>
         <strong>
           {formatCalculatedResult(results?.expanded)}
@@ -687,6 +862,10 @@ const UncertaintyBudgetTable = ({
   onOpenRepeatability,
   setNotification,
   onComponentUpdate,
+  onMoveComponent,
+  ToleranceEditorComponent,
+  applyToleranceChange,
+  formatToleranceSummary,
   onOpenCorrelation,
   onBudgetSettingsChange,
   useEffectiveDofByGroup = {},
@@ -694,6 +873,7 @@ const UncertaintyBudgetTable = ({
   monteCarloTrials = 10000,
   onPropagationMethodChange,
   onMonteCarloTrialsChange,
+  rangeWarningsByGroup = {},
 }) => {
   // Effective DOF is toggled per (sub)budget. Persist the change as a patch to
   // the keyed map (variableType / "equation" / "final"). Default ON.
@@ -714,8 +894,6 @@ const UncertaintyBudgetTable = ({
   // Per-(sub)budget sig figs are no longer user-configurable — the tables render
   // at a fixed precision. Kept as a helper so existing call sites are untouched.
   const getGroupSigFigs = () => uiSigFigs;
-
-  const budgetTitle = "Uncertainty Budget";
 
   const groups = useMemo(() => {
     if (calcResults?.calculatedBudgetGroups?.length) {
@@ -753,6 +931,18 @@ const UncertaintyBudgetTable = ({
       },
     ];
   }, [calcResults, components, derivedName, derivedUnit]);
+
+  // Budget rows can be updated through several paths (inline manual edits,
+  // instrument-linked specifications, resolution inclusion, and propagation
+  // controls). Some of those paths preserve nested object identities. Use a
+  // content signature so the open chart always follows the displayed budget,
+  // even when React receives a structurally shared calculation result.
+  const contributionRevision = JSON.stringify({
+    components: calcResults?.calculatedBudgetComponents || components || [],
+    groups: calcResults?.calculatedBudgetGroups || groups,
+    monteCarloInfluence: calcResults?.monteCarlo?.influenceFractions || [],
+    budgetPropagationMethod,
+  });
 
   const renderDistributionCell = (component) => {
     if (component.isPropagationSummary) {
@@ -888,6 +1078,26 @@ const UncertaintyBudgetTable = ({
 
   const renderComponentTable = (group) => {
     const showDof = shouldShowDofColumn(group.components || []);
+    // %IV on a final-budget manual component is defined by the selected UUT
+    // measurement point. Input-variable subbudgets instead use that variable's
+    // nominal. Do not let a calculated group summary replace either reference.
+    const manualReferencePoint =
+      group.kind === "input"
+        ? group.nominalPoint || {
+            value: group.nominalValue,
+            unit: group.unit,
+          }
+        : referencePoint;
+    // Manual rows are authored in the order they were added, but generated
+    // rows (such as UUT resolution) can be rebuilt after them. Keep all manual
+    // additions at the bottom without disturbing either group's stable order.
+    const orderedComponents = [
+      ...(group.components || []).filter(
+        (component) => !isStandaloneManualComponent(component),
+      ),
+      ...(group.components || []).filter(isStandaloneManualComponent),
+    ];
+    const displayNames = enumerateComponentDisplayNames(orderedComponents);
     return (
     <table className="uncertainty-budget-table">
       <thead>
@@ -902,41 +1112,37 @@ const UncertaintyBudgetTable = ({
         </tr>
       </thead>
       <tbody className="component-group-tbody">
-        {(group.components || []).map((component) => {
+        {orderedComponents.map((component, componentIndex) => {
           if (isStandaloneManualComponent(component)) {
             return (
               <InlineManualComponentRow
                 key={component.id}
                 component={component}
-                referencePoint={
-                  group.nominalPoint || {
-                    value: group.nominalValue ?? referencePoint?.value,
-                    unit: group.unit || referencePoint?.unit,
-                  }
-                }
+                referencePoint={manualReferencePoint}
                 showDof={showDof}
                 sigFigs={getGroupSigFigs(group)}
+                ToleranceEditorComponent={ToleranceEditorComponent}
+                applyToleranceChange={applyToleranceChange}
+                formatToleranceSummary={formatToleranceSummary}
                 onCommit={(inlineManualDraft) =>
                   onComponentUpdate?.(
                     component.id,
                     {
                       inlineManualDraft,
-                      referencePoint:
-                        group.nominalPoint || {
-                          value: group.nominalValue ?? referencePoint?.value,
-                          unit: group.unit || referencePoint?.unit,
-                        },
+                      referencePoint: manualReferencePoint,
                     },
                     component,
                   )
                 }
                 onRemove={onRemove}
+                onMoveUp={() => onMoveComponent?.(component.id, -1)}
+                onMoveDown={() => onMoveComponent?.(component.id, 1)}
               />
             );
           }
           const std = getComponentStdUncertainty(component, group.unit);
           const tolLimit = getComponentToleranceLimit(component, std);
-          const displayName = getComponentDisplayName(component);
+          const displayName = displayNames[componentIndex];
           const isStdEntry = isStandardUncertaintyEntry(component);
           // The entered magnitude of a manual Type-B is editable inline. A
           // tolerance-mode entry edits the Tolerance Limit cell; a directly-
@@ -950,7 +1156,19 @@ const UncertaintyBudgetTable = ({
               key={component.id}
               onContextMenu={(e) => onRowContextMenu?.(e, component)}
             >
-              <td>
+              <td
+                className={`budget-source-cell${
+                  onMoveComponent && !component.isPropagationSummary
+                    ? " has-order-controls"
+                    : ""
+                }`}
+              >
+                {onMoveComponent && !component.isPropagationSummary && (
+                  <BudgetOrderControls
+                    onMoveUp={() => onMoveComponent(component.id, -1)}
+                    onMoveDown={() => onMoveComponent(component.id, 1)}
+                  />
+                )}
                 {displayName}
                 <DeviationFlag component={component} />
               </td>
@@ -1103,28 +1321,216 @@ const UncertaintyBudgetTable = ({
     </>
   );
 
-  const contributionData = useMemo(() => {
-    const finalGroupComponents = groups.find((group) => group.kind === "final")?.components;
-    const sourceComponents =
-      measurementType === "derived" && finalGroupComponents?.length
-        ? finalGroupComponents
-        : calcResults?.calculatedBudgetComponents || [];
-    if (!showContribution || sourceComponents.length === 0) return null;
-    return Object.fromEntries(
-      sourceComponents.map((item) => {
-        const value =
-          item.isPropagationSummary
-            ? item.value_native || item.value || 0
-            : measurementType === "derived"
-            ? item.contribution || 0
-            : item.value_native || item.value || 0;
-        const label = item.name?.startsWith("Input: ")
-          ? item.name.substring(7)
-          : item.name;
-        return [label || "Uncertainty component", Math.abs(Number(value) || 0)];
-      }),
+  const contributionChart = useMemo(() => {
+    if (!showContribution) return null;
+
+    // Object keys drive the Plotly category labels. Preserve repeated source
+    // names instead of silently replacing an earlier contributor.
+    const toChartData = (items, getValue) => {
+      const data = {};
+      const labels = enumerateComponentDisplayNames(
+        items,
+        (item) =>
+          String(
+            item?.name || item?.label || "Uncertainty component",
+          ).replace(/^Input:\s*/, ""),
+      );
+      items.forEach((item, index) => {
+        const value = Math.abs(Number(getValue(item, index)) || 0);
+        if (value > 0) data[labels[index]] = value;
+      });
+      return data;
+    };
+    const asChart = (data, options = {}) =>
+      Object.keys(data).length > 0
+        ? { data, revision: contributionRevision, ...options }
+        : null;
+
+    if (measurementType === "derived") {
+      const equationGroup = groups.find((group) => group.kind === "equation");
+      const equationRows = equationGroup?.rows || [];
+      const method = equationGroup?.method || budgetPropagationMethod;
+      const finalComponents =
+        groups.find((group) => group.kind === "final")?.components || [];
+      const standaloneComponents = finalComponents.filter(
+        (component) => !component.isPropagationSummary,
+      );
+      const propagationSummary = finalComponents.find(
+        (component) => component.isPropagationSummary,
+      );
+      const nativeEquationStandardUncertainty = [
+        propagationSummary?.contribution,
+        propagationSummary?.value_native,
+        propagationSummary?.value,
+        equationGroup?.results?.combined,
+      ]
+        .map(Number)
+        .find((value) => Number.isFinite(value) && value > 0);
+      const equationVariance = Number.isFinite(
+        nativeEquationStandardUncertainty,
+      )
+        ? nativeEquationStandardUncertainty ** 2
+        : 0;
+      const standaloneVarianceRows = standaloneComponents.map((component) => {
+        const standardUncertainty = Math.abs(
+          Number(
+            component.contribution ??
+              component.value_native ??
+              component.value,
+          ) || 0,
+        );
+        return {
+          ...component,
+          chartVariance: standardUncertainty ** 2,
+        };
+      });
+      const inputGroups = groups.filter((group) => group.kind === "input");
+      const expandEquationSourceRows = (row) => {
+        const inputGroup = inputGroups.find(
+          (group) =>
+            (row.variable && group.variable === row.variable) ||
+            (row.variableType && group.variableType === row.variableType),
+        );
+        const sourceRows = (inputGroup?.components || [])
+          .map((component) => {
+            const standardUncertainty = Math.abs(
+              Number(
+                getComponentStdUncertainty(component, inputGroup?.unit).value,
+              ) || 0,
+            );
+            const quantity = Math.max(1, Number(component.quantity) || 1);
+            return {
+              ...component,
+              name:
+                component.name ||
+                component.sourceDisplayName ||
+                component.tmdeIdentity ||
+                row.name,
+              sourceVariance: standardUncertainty ** 2 * quantity,
+            };
+          })
+          .filter((component) => component.sourceVariance > 0);
+        const sourceVarianceTotal = sourceRows.reduce(
+          (sum, component) => sum + component.sourceVariance,
+          0,
+        );
+        if (sourceVarianceTotal <= 0 || sourceRows.length === 0) return [row];
+        return sourceRows.map((component) => ({
+          ...component,
+          chartVariance:
+            (component.sourceVariance / sourceVarianceTotal) *
+            Math.max(0, Number(row.chartVariance) || 0),
+        }));
+      };
+
+      if (method === "montecarlo") {
+        const fallbackInfluences = calcResults?.monteCarlo?.influenceFractions || [];
+        const rawInfluences = equationRows.map((row, index) =>
+          Math.max(
+            0,
+            Number(row.influence ?? fallbackInfluences[index]) || 0,
+          ),
+        );
+        const influenceTotal = rawInfluences.reduce(
+          (sum, influence) => sum + influence,
+          0,
+        );
+        const allocatedEquationRows = equationRows.map((row, index) => ({
+            ...row,
+            chartVariance:
+              (influenceTotal > 0
+                ? rawInfluences[index] / influenceTotal
+                : 0) * equationVariance,
+          }));
+        const chartRows = [
+          ...allocatedEquationRows.flatMap(expandEquationSourceRows),
+          ...standaloneVarianceRows,
+        ];
+        return asChart(
+          toChartData(chartRows, (row) => row.chartVariance),
+          {
+            unit: "",
+            valueMode: "share",
+            valueLabel: "Variance contribution",
+            title: "Monte Carlo uncertainty contribution",
+          },
+        );
+      }
+
+      // Taylor propagation rows contain c_i * u_i in the derived point's
+      // native unit. First find each row's relative share of the equation
+      // variance, then allocate the ACTUAL equation variance back across those
+      // rows. The reconciliation matters when correlation or nonlinear terms
+      // make the equation result differ from the plain RSS of its displayed
+      // first-order rows. Standalone final-budget sources then join the exact
+      // same variance pool used by Monte Carlo.
+      const taylorRows = equationRows.map((row) => {
+        const contribution = Math.abs(Number(row.contribution) || 0);
+        return { ...row, rawVariance: contribution ** 2 };
+      });
+      const taylorRowVariance = taylorRows.reduce(
+        (sum, row) => sum + row.rawVariance,
+        0,
+      );
+      const reconciledEquationVariance =
+        equationVariance > 0 ? equationVariance : taylorRowVariance;
+      const allocatedTaylorRows = taylorRows.map((row) => ({
+          ...row,
+          chartVariance:
+            taylorRowVariance > 0
+              ? (row.rawVariance / taylorRowVariance) *
+                reconciledEquationVariance
+              : 0,
+        }));
+      const chartRows = [
+        ...allocatedTaylorRows.flatMap(expandEquationSourceRows),
+        ...standaloneVarianceRows,
+      ];
+      return asChart(
+        toChartData(chartRows, (row) => row.chartVariance),
+        {
+          unit: "",
+          valueMode: "share",
+          valueLabel: "Variance contribution",
+          title: "Taylor series uncertainty contribution",
+        },
+      );
+    }
+
+    const sourceComponents = calcResults?.calculatedBudgetComponents || [];
+    const sourceRows = sourceComponents.map((component) => {
+      const standardUncertainty = Math.abs(
+        Number(
+          component.contribution ??
+            component.value_native ??
+            component.value,
+        ) || 0,
+      );
+      const quantity = Math.max(1, Number(component.quantity) || 1);
+      return {
+        ...component,
+        chartVariance: standardUncertainty ** 2 * quantity,
+      };
+    });
+    return asChart(
+      toChartData(sourceRows, (item) => item.chartVariance),
+      {
+        unit: "",
+        valueMode: "share",
+        valueLabel: "Variance contribution",
+        title: "Uncertainty contribution",
+      },
     );
-  }, [calcResults?.calculatedBudgetComponents, groups, measurementType, showContribution]);
+  }, [
+    budgetPropagationMethod,
+    calcResults?.calculatedBudgetComponents,
+    calcResults?.monteCarlo?.influenceFractions,
+    contributionRevision,
+    derivedUnit,
+    groups,
+    measurementType,
+    showContribution,
+  ]);
   const isMonteCarlo = budgetPropagationMethod === "montecarlo";
   const setMonteCarloEnabled = (enabled) =>
     onPropagationMethodChange?.(enabled ? "montecarlo" : "equation");
@@ -1162,14 +1568,6 @@ const UncertaintyBudgetTable = ({
   // effective DOF (which raises k via the Student-t quantile).
   return (
     <div className="budget-stack">
-      <div className="budget-stack-header">
-        <div>
-          <h3 className="panel-section-title">
-            {budgetTitle}
-          </h3>
-        </div>
-      </div>
-
       {groups.map((group) => (
         <React.Fragment key={group.id}>
           <section className="budget-section-row">
@@ -1181,7 +1579,6 @@ const UncertaintyBudgetTable = ({
                 <div className="budget-section-title-actions">
                   {group.kind === "final" && (
                     <>
-                      {!isDirect && renderPropagationControl()}
                       <button
                         type="button"
                         className={`budget-contribution-button${showContribution ? " is-active" : ""}`}
@@ -1194,12 +1591,25 @@ const UncertaintyBudgetTable = ({
                       </button>
                     </>
                   )}
+                  {group.kind === "equation" && !isDirect &&
+                    renderPropagationControl()}
                   {group.kind === "equation"
                     ? renderEquationActions()
                     : canAddTmdeForGroup(group) && (
+                      <>
+                        {(rangeWarningsByGroup[groupDofKey(group)] || []).length > 0 && (
+                          <span
+                            className="budget-range-warning"
+                            title="Selected range does not include the nominal"
+                            aria-label="Selected range does not include the nominal"
+                          >
+                            <FontAwesomeIcon icon={faExclamationTriangle} />
+                          </span>
+                        )}
                         <button
                           type="button"
                           className="btn-add-item"
+                          data-tour="budget-add-component"
                           title="Add component to budget"
                           aria-label="Add component to budget"
                           onClick={(event) =>
@@ -1208,17 +1618,21 @@ const UncertaintyBudgetTable = ({
                         >
                           <FontAwesomeIcon icon={faPlus} size="xs" />
                         </button>
+                      </>
                       )}
                 </div>
               </div>
-              <div className="budget-section-table-wrap">
+              <div
+                className="budget-section-table-wrap"
+                data-scoped-zoom-key={`budget-table:${group.kind}:${group.variableType || group.id}`}
+              >
                 {group.kind === "equation"
                   ? renderEquationTable(group)
                   : renderComponentTable(group)}
               </div>
               {group.kind === "final" && calcResults && (
                 <div className="budget-final-support">
-                  {contributionData && (
+                  {contributionChart && (
                     <Suspense
                       fallback={
                         <div className="budget-contribution-loading" role="status">
@@ -1227,29 +1641,38 @@ const UncertaintyBudgetTable = ({
                       }
                     >
                       <PercentageBarGraph
-                        data={contributionData}
-                        unit={derivedUnit}
+                        data={contributionChart.data}
+                        revision={contributionChart.revision}
+                        unit={contributionChart.unit}
+                        valueMode={contributionChart.valueMode}
+                        valueLabel={contributionChart.valueLabel}
+                        title={contributionChart.title}
                       />
                     </Suspense>
                   )}
                 </div>
               )}
             </div>
-            <ResultsCard
-              title={group.kind === "final" ? "Final Results" : "Results"}
-              results={
-                group.results
-              }
-              unit={group.kind === "final" ? derivedUnit : group.unit || derivedUnit}
-              sigFigs={getGroupSigFigs(group)}
-              isFinal={group.kind === "final"}
-              useEffectiveDof={
-                (useEffectiveDofByGroup[groupDofKey(group)] ?? true) !== false
-              }
-              onToggleEffectiveDof={(checked) =>
-                handleToggleEffectiveDof(groupDofKey(group), checked)
-              }
-            />
+            <div
+              className="budget-results-zoom-surface"
+              data-scoped-zoom-key={`budget-results:${group.kind}:${group.variableType || group.id}`}
+            >
+              <div className="scoped-zoom-content">
+                <ResultsCard
+                  title={group.kind === "final" ? "Final Results" : "Results"}
+                  results={group.results}
+                  unit={group.kind === "final" ? derivedUnit : group.unit || derivedUnit}
+                  sigFigs={getGroupSigFigs(group)}
+                  isFinal={group.kind === "final"}
+                  useEffectiveDof={
+                    (useEffectiveDofByGroup[groupDofKey(group)] ?? true) !== false
+                  }
+                  onToggleEffectiveDof={(checked) =>
+                    handleToggleEffectiveDof(groupDofKey(group), checked)
+                  }
+                />
+              </div>
+            </div>
           </section>
         </React.Fragment>
       ))}

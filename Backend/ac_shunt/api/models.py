@@ -78,6 +78,7 @@ class CalibrationSession(models.Model):
     standard_reader_model = models.CharField(max_length=100, blank=True, null=True)
     standard_reader_serial = models.CharField(max_length=100, blank=True, null=True)
     standard_reader_address = models.CharField(max_length=100, blank=True, null=True)
+    standard_reader_input = models.CharField(max_length=6, blank=True, null=True)
 
     # Test Instrument (The Unit Under Test, e.g., another A40B Shunt)
     test_instrument_model = models.CharField(max_length=100, blank=True, null=True)
@@ -87,6 +88,7 @@ class CalibrationSession(models.Model):
     test_reader_model = models.CharField(max_length=100, blank=True, null=True)
     test_reader_serial = models.CharField(max_length=100, blank=True, null=True)
     test_reader_address = models.CharField(max_length=100, blank=True, null=True)
+    test_reader_input = models.CharField(max_length=6, blank=True, null=True)
     
     # AC/DC Source Addresses
     ac_source_serial = models.CharField(max_length=100, blank=True, null=True)
@@ -98,6 +100,20 @@ class CalibrationSession(models.Model):
     switch_driver_address = models.CharField(max_length=100, blank=True, null=True)
     switch_driver_model = models.CharField(max_length=100, blank=True, null=True)
     switch_driver_serial = models.CharField(max_length=100, blank=True, null=True)
+
+    # Optional, independent reader-routing switch.  The legacy switch_driver
+    # fields above remain the source-routing assignment so existing sessions
+    # and the established two-source workflow are unchanged.  Keeping the two
+    # routes independent permits a future bench to use two identical 11713Cs.
+    reader_switch_driver_address = models.CharField(max_length=100, blank=True, null=True)
+    reader_switch_driver_model = models.CharField(max_length=100, blank=True, null=True)
+    reader_switch_driver_serial = models.CharField(max_length=100, blank=True, null=True)
+    reader_switch_standard_route = models.CharField(
+        max_length=6,
+        choices=(("OPEN", "Open / NC"), ("CLOSED", "Closed / NO")),
+        default="OPEN",
+    )
+    reader_switch_settling_time = models.FloatField(default=1.0)
 
     # Amplifier Address
     amplifier_address = models.CharField(max_length=255, null=True, blank=True)
@@ -159,6 +175,17 @@ class TestPoint(models.Model):
     direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES, default='Forward')
     order = models.IntegerField(default=0, help_text="Custom sort order for the test point pair")
     is_stability_failed = models.BooleanField(default=False)
+    correction_report = models.ForeignKey(
+        'ShuntReport',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='test_points',
+        help_text=(
+            "The exact AC-shunt Report of Calibration used when this point "
+            "was generated. Legacy points may leave this blank."
+        ),
+    )
 
     def __str__(self):
         return f"ID: {self.id} | {self.direction} | Current: {self.current}, Frequency: {self.frequency}"
@@ -225,6 +252,26 @@ class CalibrationSettings(models.Model):
     num_samples = models.IntegerField(default=35, null=True, blank=True)
     settling_time = models.IntegerField(default=120, null=True, blank=True)
     nplc = models.FloatField(default=20, null=True, blank=True, help_text="Integration time in Power Line Cycles for 34420A")
+    input_switch_settling_time = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Operator-selected 8508A FRONT/REAR switch delay in seconds.",
+    )
+    f8508_dc_filter_enabled = models.BooleanField(default=True)
+    f8508_dc_resolution = models.PositiveSmallIntegerField(default=7)
+    f8508_dc_fast_enabled = models.BooleanField(default=False)
+    f8508_ac_filter_hz = models.PositiveSmallIntegerField(default=100)
+    f8508_ac_resolution = models.PositiveSmallIntegerField(default=6)
+    f8508_ac_transfer_enabled = models.BooleanField(default=True)
+    f8508_ac_dc_coupled = models.BooleanField(default=False)
+    f5790_filter_mode = models.CharField(max_length=10, default="MEDIUM")
+    f5790_filter_restart = models.CharField(max_length=10, default="MEDIUM")
+    f5790_hires_enabled = models.BooleanField(default=True)
+    f5790_range_mode = models.CharField(max_length=8, default="2.2")
+    f5790_input_switch_settling_time = models.FloatField(
+        default=30.0,
+        help_text="Delay after switching INPUT1/INPUT2 on a shared 5790A/B.",
+    )
     stability_window = models.IntegerField(default=30, null=True, blank=True)
     stability_threshold_ppm = models.FloatField(default=10, null=True, blank=True)
     stability_max_attempts = models.IntegerField(default=10, null=True, blank=True)
@@ -630,33 +677,48 @@ class CalibrationResults(models.Model):
         target_current = float(self.test_point.current)
 
         # 1. Shunt Correction
-        if self.delta_std_known is None and session.standard_instrument_serial:
-            cal_config = getattr(session.calibration, 'configurations', None)
-            if cal_config and cal_config.ac_shunt_range:
-                from .models import Shunt
-                # Prefer a manual override when both manual and imported rows
-                # exist for the same (serial, range, current).
-                shunt = (
-                    Shunt.objects
-                    .filter(
+        if not self.corrections_manually_overridden or self.delta_std_known is None:
+            # Points generated from the Corrections modal retain their exact
+            # source report. This avoids re-discovering the correction through
+            # mutable session identity fields (the old path that could silently
+            # fall through to 0 ppm for imported reports).
+            source_report = getattr(self.test_point, 'correction_report', None)
+            if source_report is not None:
+                corr = source_report.corrections.filter(
+                    current__gte=target_current - 1e-9,
+                    current__lte=target_current + 1e-9,
+                    frequency=int(target_freq),
+                ).first()
+                if corr is not None:
+                    self.delta_std_known = corr.correction
+
+            # Legacy/manual points do not have a source report. Preserve the
+            # session-based lookup, but search each matching device until an
+            # actual point is found. A partial manual entry must not mask a
+            # complete imported report with the same serial and range.
+            if self.delta_std_known is None and session.standard_instrument_serial:
+                cal_config = getattr(session.calibration, 'configurations', None)
+                if cal_config and cal_config.ac_shunt_range:
+                    matching_shunts = Shunt.objects.filter(
                         serial_number=session.standard_instrument_serial,
-                        range=cal_config.ac_shunt_range,
-                    )
-                    .order_by('-is_manual')
-                    .first()
-                )
-                if shunt:
-                    # Corrections live under the device's active Report of
-                    # Calibration; older reports are retained for history but
-                    # never feed live math.
-                    active_report = shunt.reports.filter(is_active=True).first()
-                    if active_report:
+                        range__gte=float(cal_config.ac_shunt_range) - 1e-9,
+                        range__lte=float(cal_config.ac_shunt_range) + 1e-9,
+                    ).order_by('-is_manual', 'id')
+                    for shunt in matching_shunts:
+                        active_report = (
+                            shunt.reports.filter(is_active=True).first()
+                            or resolve_active_report(shunt.reports.all())
+                        )
+                        if active_report is None:
+                            continue
                         corr = active_report.corrections.filter(
-                            current=target_current,
-                            frequency=target_freq,
+                            current__gte=target_current - 1e-9,
+                            current__lte=target_current + 1e-9,
+                            frequency=int(target_freq),
                         ).first()
-                        if corr:
+                        if corr is not None:
                             self.delta_std_known = corr.correction
+                            break
 
         # 2. TVC Interpolation Logic
         def get_tvc_corr(serial):
@@ -701,8 +763,24 @@ class CalibrationResults(models.Model):
                 return None
             return None
 
-        if self.delta_std is None: self.delta_std = get_tvc_corr(session.standard_tvc_serial)
-        if self.delta_ti is None: self.delta_ti = get_tvc_corr(session.test_tvc_serial)
+        # The 8508A reads both Y5020 shunt outputs directly. It retains the
+        # known Standard shunt correction above, but has no intervening TVC
+        # gain or AC-DC correction terms. The 34420A/A40B workflow continues
+        # to use its existing TVC corrections and characterized eta values.
+        uses_8508 = (
+            '8508' in str(session.standard_reader_model or '').upper()
+            and '8508' in str(session.test_reader_model or '').upper()
+        )
+        if uses_8508:
+            self.delta_std = 0.0
+            self.delta_ti = 0.0
+            self.eta_std = 1.0
+            self.eta_ti = 1.0
+        else:
+            if self.delta_std is None:
+                self.delta_std = get_tvc_corr(session.standard_tvc_serial)
+            if self.delta_ti is None:
+                self.delta_ti = get_tvc_corr(session.test_tvc_serial)
 
         # Set defaults so math doesn't crash
         if self.eta_std is None: self.eta_std = 1.0
@@ -1038,6 +1116,13 @@ class CalibrationResults(models.Model):
     delta_std = models.FloatField(null=True, blank=True, help_text="Known AC-DC difference of the Standard TVC in PPM")
     delta_ti = models.FloatField(null=True, blank=True, help_text="Known AC-DC difference of the TI TVC in PPM")
     delta_std_known = models.FloatField(null=True, blank=True, help_text="Known AC-DC difference of the Standard Shunt in PPM")
+    corrections_manually_overridden = models.BooleanField(
+        default=False,
+        help_text=(
+            "True when the operator saved correction factors from the "
+            "calculation view; automatic report lookups must then preserve them."
+        ),
+    )
 
     delta_uut_ppm = models.FloatField(null=True, blank=True, help_text="Legacy single-pass UUT AC-DC difference in PPM (pre-N-cycle workflow)")
     delta_uut_ppm_avg = models.FloatField(null=True, blank=True, help_text="Per-direction mean δ across this TestPoint's cycles (ppm). Diagnostic only — the headline AC-DC δ is pair_delta_uut_ppm.")

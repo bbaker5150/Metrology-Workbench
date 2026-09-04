@@ -1,5 +1,15 @@
 # Getting Started with Create React App
 
+## Notes editor
+
+The uncertainty Notes workspace uses the Apache-2.0 licensed DOCX Editor core
+and React adapter maintained by the `heyirisai/docx-editor` project. The
+experimental editor is pinned to version 1.11.0, runs locally in the packaged
+application, and requires no license key, account, hosted service, or runtime
+network connection. Notes are stored per analysis session as versioned native
+DOCX payloads; importing and downloading `.docx` files preserves document
+layout, tables, images, comments, and tracked changes.
+
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
 ## Available Scripts
