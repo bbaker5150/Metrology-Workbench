@@ -8,8 +8,8 @@ from django.test import TestCase
 from openpyxl import Workbook, load_workbook
 from rest_framework.test import APIRequestFactory
 
-from . import excel, importer, views
-from .models import MeasurementArea, ROCRecord
+from . import area_registry, excel, importer, views
+from .models import ROCRecord
 
 
 class ReportsScaffoldTests(TestCase):
@@ -28,14 +28,18 @@ class ReportsCrudTests(TestCase):
 
     def test_seed_command_is_idempotent(self):
         call_command("seed_rocs")
-        self.assertEqual(MeasurementArea.objects.count(), 3)
         self.assertEqual(ROCRecord.objects.count(), 3)
         call_command("seed_rocs")  # re-running must not duplicate rows
-        self.assertEqual(MeasurementArea.objects.count(), 3)
         self.assertEqual(ROCRecord.objects.count(), 3)
 
-    def test_areas_endpoint_lists_seeded_areas(self):
-        call_command("seed_rocs")
+    def test_area_registry_lists_areas_with_no_seeding(self):
+        # Areas are files, not DB rows -- available even on a fresh DB.
+        codes = {area["code"] for area in area_registry.list_areas()}
+        self.assertEqual(codes, {"AC_SHUNT", "RESISTANCE", "TEMPERATURE"})
+        self.assertIsNotNone(area_registry.get_area("AC_SHUNT"))
+        self.assertIsNone(area_registry.get_area("NOT_A_REAL_AREA"))
+
+    def test_areas_endpoint_lists_areas(self):
         request = APIRequestFactory().get("/api/reports/areas/")
         response = views.areas(request)
         self.assertEqual(response.status_code, 200)
@@ -78,11 +82,24 @@ class ReportsExcelTests(TestCase):
             response["Content-Type"],
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        # A corrupt/empty workbook would raise here. No area_code in the
-        # payload -- cellmap.area_map() falls back to AC_SHUNT's real
-        # ROC1/ROC2 template (see excel.py/cellmap.py).
+        # A corrupt/empty workbook would raise here. Every area shares this
+        # one ROC1/ROC2 layout now (see cellmap.TEMPLATE), so no area_code
+        # in the payload is needed to pick a template. ROC2 is the real,
+        # certificate-style page 2 (build_workbook's own polished grid,
+        # matching the PDF preview) -- present because this record has a
+        # table; Data Entry is the separate, hand-editable form for
+        # round-tripping through Excel Import.
         workbook = load_workbook(BytesIO(response.content))
-        self.assertEqual(workbook.sheetnames, ["ROC1", "Data Entry"])
+        self.assertEqual(workbook.sheetnames, ["ROC1", "ROC2", "Data Entry"])
+        self.assertEqual(workbook["ROC1"]["Z52"].value, "Page 1 of 2")
+        self.assertEqual(workbook["ROC2"]["A7"].value, "Data")  # table title (not tied)
+        # ROC2's data cells are tied to Data Entry (a live formula, not a
+        # duplicated literal) -- editing the number in Data Entry updates
+        # the certificate's own copy of it in Excel.
+        self.assertEqual(workbook["ROC2"]["A10"].value, "=IF('Data Entry'!A62=\"\",\"\",'Data Entry'!A62)")
+        self.assertEqual(workbook["Data Entry"]["A62"].value, 1.0)
+        # ROC2's table cells aren't a fill-in form -- no yellow input fill.
+        self.assertIsNone(workbook["ROC2"]["A10"].fill.patternType)
         # Round-tripping the generated workbook through the importer is a
         # more robust check than pinning exact cell coordinates here.
         parsed = importer.parse_workbook(BytesIO(response.content))
@@ -93,15 +110,26 @@ class ReportsExcelTests(TestCase):
         self.assertEqual(parsed["tables"][0]["rows"][0][0], 1.0)
         self.assertEqual(parsed["tables"][0]["rows"][1][0], 2.0)
 
-    def test_temperature_template_splits_certificate_and_raw_data(self):
-        call_command("seed_rocs")
-        request = APIRequestFactory().get("/api/reports/roc/template/", {"area": "TEMPERATURE"})
+    def test_every_area_shares_the_canonical_layout(self):
+        # All three areas' ROC Template downloads build the same Data Entry
+        # form (cellmap.TEMPLATE); saved-record exports (not tested here)
+        # additionally build the shared AC_SHUNT-derived ROC1 certificate.
+        for code in ("AC_SHUNT", "RESISTANCE", "TEMPERATURE"):
+            request = APIRequestFactory().get("/api/reports/roc/template/", {"area": code})
+            response = views.roc_template(request)
+            self.assertEqual(response.status_code, 200)
+            workbook = load_workbook(BytesIO(response.content))
+            self.assertEqual(workbook.sheetnames, ["Data Entry"])
+            # The Data Entry sheet's "Measurement Area" field carries the
+            # area for round-tripping through Excel Import (see
+            # importer.py's parse_workbook).
+            self.assertEqual(workbook["Data Entry"]["A5"].value, "Measurement Area")
+            self.assertEqual(workbook["Data Entry"]["B5"].value, code)
+
+    def test_roc_template_for_an_unknown_area_returns_404(self):
+        request = APIRequestFactory().get("/api/reports/roc/template/", {"area": "NOT_A_REAL_AREA"})
         response = views.roc_template(request)
-        workbook = load_workbook(BytesIO(response.content))
-        self.assertEqual(workbook.sheetnames, ["Report of Calibration", "Data Entry"])
-        self.assertEqual(workbook["Report of Calibration"].print_area, "'Report of Calibration'!$A$1:$AZ$61")
-        self.assertEqual(workbook["Data Entry"]["A4"].value, "REPORT FIELDS")
-        self.assertEqual(workbook["Data Entry"]["A5"].value, "RoC #")
+        self.assertEqual(response.status_code, 404)
 
     def test_export_preserves_reference_certificate_cell_structure(self):
         reference = load_workbook(excel.TEMPLATES_DIR / "roc_ac_shunt.xlsx")["ROC1"]
@@ -135,25 +163,50 @@ class ReportsExcelTests(TestCase):
         load_workbook(BytesIO(response.content))  # raises if malformed
 
     def test_roc_template_for_a_known_area(self):
-        call_command("seed_rocs")
         request = APIRequestFactory().get("/api/reports/roc/template/", {"area": "AC_SHUNT"})
         response = views.roc_template(request)
         self.assertEqual(response.status_code, 200)
         workbook = load_workbook(BytesIO(response.content))  # raises if malformed
-        # A page 2 to fill in and upload back through Excel Import, even
-        # though this blank record has no table data of its own yet.
-        self.assertEqual(workbook.sheetnames, ["ROC1", "Data Entry"])
+        # Just the Data Entry form to fill in and upload back through Excel
+        # Import -- no certificate page, since there's no record yet to put
+        # on one (see excel.py's build_blank_template_workbook).
+        self.assertEqual(workbook.sheetnames, ["Data Entry"])
         ws = workbook["Data Entry"]
         # Every field from Manual Input appears as a label/input pair, in
-        # ManualInputForm.jsx's order.
+        # ManualInputForm.jsx's order -- area_code leads so a round-tripped
+        # upload always carries its area (see importer.py).
         self.assertEqual(ws["A4"].value, "REPORT FIELDS")
-        self.assertEqual(ws["A5"].value, "RoC #")
+        self.assertEqual(ws["A5"].value, "Measurement Area")
+        self.assertEqual(ws["B5"].value, "AC_SHUNT")
         self.assertEqual(ws["B5"].fill.fgColor.rgb, "00FFF2CC")
-        self.assertEqual(ws["A6"].value, "Nomenclature")
+        self.assertEqual(ws["A6"].value, "RoC #")
+        self.assertEqual(ws["A7"].value, "Nomenclature")
         self.assertEqual([label for _, label in excel.cellmap.DATA_ENTRY_FIELDS][-1], "Approver Title")
         # Front-page statements and the calibration table(s) both follow.
         self.assertIn("FRONT-PAGE STATEMENTS", [ws.cell(row=r, column=1).value for r in range(1, 30)])
         self.assertIn("CALIBRATION DATA TABLE(S)", [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)])
+        # No frozen panes -- the sheet scrolls freely top to bottom.
+        self.assertIsNone(ws.freeze_panes)
+
+    def test_roc_parse_round_trips_a_blank_template_download(self):
+        # The blank ROC Template has no certificate page (build_
+        # blank_template_workbook) -- Excel Import must still accept it and
+        # read the area back from the Data Entry sheet alone.
+        call_command("seed_rocs")
+        generated = views.roc_template(APIRequestFactory().get("/api/reports/roc/template/", {"area": "RESISTANCE"}))
+        upload = SimpleUploadedFile(
+            "roc_template.xlsx", generated.content,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        request = APIRequestFactory().post("/api/reports/roc/parse/", {"file": upload}, format="multipart")
+        response = views.roc_parse(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["area_code"], "RESISTANCE")
+        self.assertEqual(response.data["nomenclature"], "Resistance Standard")
+        # The default calibration table shell has headers but no real data
+        # rows yet -- _scan_tables stops at the first blank row.
+        self.assertEqual(len(response.data["tables"]), 1)
+        self.assertEqual(response.data["tables"][0]["rows"], [])
 
     def test_roc_parse_round_trips_a_generated_workbook(self):
         call_command("seed_rocs")

@@ -1,11 +1,29 @@
 """
-Parse an uploaded ROC workbook (a filled-in copy of one of this module's own
-templates, or a real lab-original NPSL workbook) back into the same payload
-shape ``excel.py`` writes from and ``ROCRecordSerializer`` speaks.
+Parse an uploaded ROC workbook (a filled-in copy of this module's one
+canonical template, or a workbook hand-conformed to its layout) back into
+the same payload shape ``excel.py`` writes from and ``ROCRecordSerializer``
+speaks.
 
 Uses the exact same ``cellmap.py`` as the writer for every fixed field, so
 the two directions can't drift out of sync — a cell that moves in
-``cellmap.py`` moves for both reading and writing at once.
+``cellmap.py`` moves for both reading and writing at once. Since every area
+now shares one layout (``cellmap.TEMPLATE``), which *area* a workbook
+belongs to is no longer needed to know where to read cells from -- it's
+just metadata, recovered from the Data Entry sheet's "Measurement Area"
+field when present (see ``area_code`` in ``cellmap.DATA_ENTRY_FIELDS``),
+else from the caller-supplied ``area_hint`` (the frontend's Excel Import
+area dropdown), else left blank.
+
+Whenever a "Data Entry" sheet is present -- every one of this app's own
+downloads has one, blank template or prefilled -- ``parse_workbook`` reads
+*only* that sheet and ignores the certificate page entirely, even a
+prefilled one with real values on it: the certificate page's REPORT
+FIELDS / FRONT-PAGE STATEMENTS cells are live formulas pointing right back
+at the Data Entry sheet (see excel.py's ``build_workbook``), so Data Entry
+is the one place a value is guaranteed to be real rather than a formula
+result. Only a workbook with no Data Entry sheet at all -- a genuine lab-
+original, or one hand-conformed to the certificate layout -- falls back to
+reading the certificate page and its own page-2 data table directly.
 
 The measurement-data table(s) can't be read that way (see cellmap.py's
 ``table_start_row`` docstring: shape varies per instrument), so
@@ -22,7 +40,7 @@ from datetime import date, datetime
 
 from openpyxl import load_workbook
 
-from . import cellmap
+from . import area_registry, cellmap
 
 _MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
 MAX_SCAN_COLUMN = 60
@@ -46,23 +64,6 @@ def _parse_date(value):
         month = _MONTHS.index(text[2:5].upper()) + 1
         return date(int(text[5:]), month, int(text[:2])).isoformat()
     return text
-
-
-def _detect_area_code(workbook, hint=None):
-    sheet_names = set(workbook.sheetnames)
-    # Prefer an exact two-sheet match (page1 + a distinct page2) first.
-    for area_code, cfg in cellmap.AREA_TEMPLATES.items():
-        if cfg["page1_sheet"] != cfg["page2_sheet"] and {cfg["page1_sheet"], cfg["page2_sheet"]} <= sheet_names:
-            return area_code
-    # Single-sheet areas (TEMPERATURE), or any area's record that had no
-    # table data when generated (its page-2 sheet is dropped -- see
-    # excel.py's build_workbook) -- match on page1_sheet alone.
-    for area_code, cfg in cellmap.AREA_TEMPLATES.items():
-        if cfg["page1_sheet"] in sheet_names:
-            return area_code
-    if hint in cellmap.AREA_TEMPLATES:
-        return hint
-    return None
 
 
 def _row_populated_columns(ws, row, max_col=MAX_SCAN_COLUMN):
@@ -223,49 +224,54 @@ def parse_workbook(file_obj, area_hint=None):
             "an old .xls export needs to be re-saved as .xlsx first)."
         ) from exc
 
-    area_code = _detect_area_code(workbook, area_hint)
-    if not area_code:
-        raise UnsupportedWorkbook(
-            "This workbook doesn't look like a ROC template for any known "
-            "measurement area (expected sheets like 'ROC1'/'ROC2', 'ROC'/'Roc "
-            "Data', or 'Report of Calibration')."
-        )
-    area = cellmap.area_map(area_code)
-    ws1 = workbook[area["page1_sheet"]]
-    # A record generated with no table data drops its page-2 sheet entirely
-    # (see excel.py's build_workbook) -- nothing to scan for tables then.
+    area = cellmap.TEMPLATE
     data_entry_ws = workbook["Data Entry"] if "Data Entry" in workbook.sheetnames else None
-    ws2 = workbook[area["page2_sheet"]] if area["page2_sheet"] in workbook.sheetnames else None
+    if area["page1_sheet"] not in workbook.sheetnames and data_entry_ws is None:
+        raise UnsupportedWorkbook(
+            f"This workbook doesn't look like a ROC template (expected a "
+            f"'{area['page1_sheet']}' or 'Data Entry' sheet)."
+        )
 
-    data = {"area_code": area_code, "area_name": area_code.replace("_", " ").title()}
-    for name, cell_ref in area["fields"].items():
-        value = ws1[cell_ref].value
-        if name in DATE_FIELDS:
-            value = _parse_date(value)
-        data[name] = "" if value is None else value
-
-    statements = []
-    for kind, cell_ref in area["statements"].items():
-        text = ws1[cell_ref].value
-        if text not in (None, ""):
-            statements.append({"kind": kind, "text": str(text)})
-
-    data["inline_results"] = []
-    data["tables"] = _scan_tables(ws2, area["table_start_row"]) if ws2 is not None else []
+    area_code = area_hint or ""
+    data = {"area_code": area_code, "area_name": area_code.replace("_", " ").title() if area_code else ""}
 
     if data_entry_ws is not None:
-        # This is one of the app's own downloads (blank template or
-        # prefilled ROC) -- its Data Entry form is the friendlier surface a
-        # user actually hand-edits, so its values win over the certificate
-        # page's for anything it has non-blank (see _parse_data_entry_sheet).
+        # One of the app's own downloads (blank template, or a prefilled
+        # draft/saved-record export with both pages -- see excel.py's
+        # build_blank_template_workbook / build_template_workbook). Read
+        # *only* the Data Entry form: it's the one place every field,
+        # statement, inline result, and calibration table is guaranteed to
+        # be a real, current value -- the certificate page's own copies are
+        # live formulas pointing right back at these same Data Entry cells
+        # (see build_workbook), so re-reading them here would just be
+        # reading this same data a second, formula-shaped way.
         form = _parse_data_entry_sheet(data_entry_ws)
         data.update(form["fields"])
-        if form["statements"]:
-            by_kind = {s["kind"]: s for s in statements}
-            by_kind.update({s["kind"]: s for s in form["statements"]})
-            statements = [by_kind[kind] for kind, _ in cellmap.DATA_ENTRY_STATEMENTS if kind in by_kind]
+        data["statements"] = form["statements"]
         data["inline_results"] = form["inline_results"]
         data["tables"] = form["tables"]
+    else:
+        # A real lab-original workbook (or one hand-conformed to the
+        # certificate layout) with no Data Entry sheet of its own -- read
+        # the certificate page and its real page-2 data table(s) directly.
+        ws1 = workbook[area["page1_sheet"]]
+        ws2 = workbook[area["page2_sheet"]] if area["page2_sheet"] in workbook.sheetnames else None
+        for name, cell_ref in area["fields"].items():
+            value = ws1[cell_ref].value
+            if name in DATE_FIELDS:
+                value = _parse_date(value)
+            data[name] = "" if value is None else value
 
-    data["statements"] = statements
+        statements = []
+        for kind, cell_ref in area["statements"].items():
+            text = ws1[cell_ref].value
+            if text not in (None, ""):
+                statements.append({"kind": kind, "text": str(text)})
+        data["statements"] = statements
+        data["inline_results"] = []
+        data["tables"] = _scan_tables(ws2, area["table_start_row"]) if ws2 is not None else []
+
+    if data["area_code"]:
+        known_area = area_registry.get_area(data["area_code"])
+        data["area_name"] = known_area["area_name"] if known_area else data["area_code"].replace("_", " ").title()
     return data

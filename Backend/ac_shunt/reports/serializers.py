@@ -7,16 +7,7 @@ Both models are flat enough (regular columns + a few JSON blobs) that plain
 """
 from rest_framework import serializers
 
-from .models import MeasurementArea, ROCRecord
-
-
-class MeasurementAreaSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = MeasurementArea
-        fields = [
-            "code", "name", "default_nomenclature", "submitted_label",
-            "statements",
-        ]
+from .models import ROCRecord
 
 
 class ROCRecordSerializer(serializers.ModelSerializer):
