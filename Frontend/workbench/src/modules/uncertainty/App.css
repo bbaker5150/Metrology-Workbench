@@ -12354,6 +12354,70 @@ input.inline-function-input:focus {
   justify-content: flex-end;
   gap: 4px;
   min-width: 0;
+  position: sticky;
+  right: 6px;
+  z-index: 6;
+  padding-left: 6px;
+  background: inherit;
+}
+
+/* Keep the table identity and its actions available while a fully expanded
+   instrument table moves through the main analysis scroller. */
+.uncertainty-module .instrument-panel-card-header {
+  position: sticky;
+  top: 43px;
+  z-index: 24;
+  background-color: var(--component-bg);
+}
+
+/* Narrow instrument columns stay compact at rest, but an active editor opens
+   over the neighboring cells so no field is clipped or mistaken for missing. */
+.uncertainty-module
+  .instrument-equipment-table
+  td:has(:is(input, select, [contenteditable="true"]):focus) {
+  position: relative;
+  z-index: 40;
+  overflow: visible !important;
+}
+
+.uncertainty-module
+  .instrument-equipment-table
+  td:has(.inline-desc-subinput:focus)
+  .inline-desc-fields,
+.uncertainty-module
+  .instrument-equipment-table
+  td:has(.inline-range-editor :focus)
+  .inline-range-editor,
+.uncertainty-module
+  .instrument-equipment-table
+  td:has(.inline-tolerance-editor :focus)
+  .inline-tolerance-editor,
+.uncertainty-module
+  .instrument-equipment-table
+  td:has(.inline-resolution-editor :focus)
+  .inline-resolution-editor {
+  position: relative;
+  z-index: 41;
+  min-width: min(360px, calc(100vw - 48px));
+  padding: 6px;
+  border: 1px solid var(--function-input-accent, var(--primary-color));
+  border-radius: 6px;
+  background: var(--component-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  box-sizing: border-box;
+}
+
+.uncertainty-module .point-grid-item .point-section,
+.uncertainty-module
+  .point-grid-item
+  .point-section
+  .point-edit-affordance,
+.uncertainty-module
+  .point-grid-item
+  .point-section
+  .sidebar-inline-input {
+  text-align: center;
+  justify-content: center;
 }
 
 .function-header-destructive-btn {
@@ -19832,4 +19896,35 @@ body.dark-mode
     var(--instrument-function-color) 34%,
     var(--content-background)
   ) !important;
+}
+/* Instrument context menus use the same compact visual language as the unit
+   picker: one quiet surface, short rows, and restrained hover fills. */
+.uncertainty-module .context-menu,
+body.uncertainty-active .context-menu {
+  min-width: 220px;
+  padding: 6px;
+  border-radius: 6px;
+  background-color: var(--component-bg);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+.uncertainty-module .context-menu li,
+body.uncertainty-active .context-menu li {
+  min-height: 28px;
+  padding: 5px 8px;
+  gap: 10px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+}
+
+.uncertainty-module .context-menu li:not(.context-menu-divider):hover,
+body.uncertainty-active .context-menu li:not(.context-menu-divider):hover {
+  background-color: rgba(var(--primary-rgb), 0.1);
+  color: var(--primary-color);
+}
+
+.uncertainty-module .context-menu li.destructive:hover,
+body.uncertainty-active .context-menu li.destructive:hover {
+  background-color: color-mix(in srgb, var(--status-bad) 12%, transparent);
+  color: var(--status-bad);
 }

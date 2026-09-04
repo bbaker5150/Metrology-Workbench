@@ -90,7 +90,10 @@ import {
   getInstrumentRangeRows,
   resolveInstrumentSelection,
 } from "./utils/instrumentFunctionSelection";
-import { computeRiskMetricsMap } from "./utils/riskCompute";
+import {
+  computeRiskMetricsMap,
+  recalculatePointUncertaintyFields,
+} from "./utils/riskCompute";
 import {
   associateUutWithPoint,
   resolvePointAreaId,
@@ -162,12 +165,29 @@ const POINT_BUDGET_FIELDS = [
   "useEffectiveDofByGroup",
 ];
 
-export const copyPointBudget = (point = {}) =>
-  Object.fromEntries(
-    POINT_BUDGET_FIELDS.filter((field) =>
+const POINT_DERIVED_BUDGET_FIELDS = [
+  // A derived point's equation is part of the budget definition. Copy its
+  // expression and input metadata with the component rows so the pasted
+  // budget can be evaluated immediately.
+  "equationString",
+  "variableMappings",
+  "variableNominals",
+];
+
+export const copyPointBudget = (point = {}) => {
+  const fields = [...POINT_BUDGET_FIELDS];
+  if (
+    point.measurementType === "derived" ||
+    String(point.equationString || "").trim()
+  ) {
+    fields.push(...POINT_DERIVED_BUDGET_FIELDS);
+  }
+  return Object.fromEntries(
+    fields.filter((field) =>
       Object.prototype.hasOwnProperty.call(point, field),
     ).map((field) => [field, clonePointSettingValue(point[field])]),
   );
+};
 
 export const pastePointBudget = (point = {}, budget = {}) => {
   const next = { ...point };
@@ -176,6 +196,13 @@ export const pastePointBudget = (point = {}, budget = {}) => {
       next[field] = clonePointSettingValue(budget[field]);
     } else {
       delete next[field];
+    }
+  });
+  POINT_DERIVED_BUDGET_FIELDS.forEach((field) => {
+    // A direct-source budget must not erase an existing derived equation.
+    // Equation metadata is only replaced when it was explicitly copied.
+    if (Object.prototype.hasOwnProperty.call(budget, field)) {
+      next[field] = clonePointSettingValue(budget[field]);
     }
   });
   return next;
@@ -497,9 +524,6 @@ const DEFAULT_SIDEBAR_COLUMNS = {
   noGbCalInt: false,
   noGbMeasRel: false,
 };
-// Preserve authored chronology until the user explicitly selects a column sort.
-const DEFAULT_SIDEBAR_SORT = { key: "", direction: "asc" };
-
 const getUiPreferencesStorageKey = (sessionId) =>
   `${UNCERTAINTY_UI_PREFERENCES_PREFIX}:${sessionId}`;
 
@@ -642,15 +666,6 @@ const getScopedZoomContents = (surface) => {
   return [table, panelHeader, budgetHeader].filter(Boolean);
 };
 
-const parseSortableNumber = (value) => {
-  if (value === undefined || value === null || value === "") return null;
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  const match = String(value).match(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?/i);
-  if (!match) return null;
-  const parsed = Number(match[0]);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
 // Keep the value column wide enough for the longest saved measurement point.
 // This must be an absolute pixel track: `ch` is resolved against each grid's
 // own font, so the smaller header font and bold selected-row font produced
@@ -663,42 +678,6 @@ const getSidebarValueColumnWidth = (points = []) => {
     return Math.max(max, valueLength + (unitLength ? unitLength + 1 : 0));
   }, 0);
   return `${Math.max(88, longest * 8 + 12)}px`;
-};
-
-const getPointToleranceSortValue = (point) => {
-  const summary = getToleranceErrorSummary(
-    point.uutTolerance,
-    point.testPointInfo?.parameter,
-  );
-  return parseSortableNumber(summary);
-};
-
-const getPointLimitSortValue = (point, key) => {
-  const limits = getAbsoluteLimits(
-    point.uutTolerance,
-    point.testPointInfo?.parameter,
-  );
-  if (!limits || limits.low === "N/A") return null;
-  return parseSortableNumber(key === "lowLimit" ? limits.low : limits.high);
-};
-
-const getPointTmdeLimitSortValue = (point, key) => {
-  if (point.measurementType === "derived") {
-    const values = getTmdeAbsoluteLimitEntries(point.tmdeTolerances)
-      .map((entry) =>
-        parseSortableNumber(key === "tmdeLow" ? entry.low : entry.high),
-      )
-      .filter((value) => value !== null);
-    if (values.length === 0) return null;
-    return key === "tmdeLow" ? Math.min(...values) : Math.max(...values);
-  }
-
-  const limits = getTmdeAbsoluteLimits(
-    point.tmdeTolerances,
-    point.testPointInfo?.parameter,
-  );
-  if (!limits || limits.low === "N/A") return null;
-  return parseSortableNumber(key === "tmdeLow" ? limits.low : limits.high);
 };
 
 const readUiSizingPreferences = () => {
@@ -953,7 +932,8 @@ export const SidebarPointItem = ({
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      const shouldAdvance = editingField === "value";
+      const shouldAdvance =
+        editingField === "value" && (e.ctrlKey || e.metaKey);
       e.target.blur(); // Triggers onBlur which commits
       if (shouldAdvance) {
         requestAnimationFrame(() => onAdvanceValue?.());
@@ -2463,7 +2443,6 @@ function App({ showThemeToggle = false }) {
   const [sidebarColumnOrder, setSidebarColumnOrder] = useState(
     DEFAULT_SIDEBAR_COLUMN_ORDER,
   );
-  const [sidebarSort, setSidebarSort] = useState(DEFAULT_SIDEBAR_SORT);
   // Keep explicitly enabled columns visible even if their current values are
   // blank. Hiding Section in that state made its filter appear broken and
   // prevented users from entering the first section value.
@@ -2506,99 +2485,10 @@ function App({ showThemeToggle = false }) {
     ],
   );
 
-  const handleSidebarSort = useCallback((key) => {
-    setSidebarSort((current) => ({
-      key,
-      direction:
-        current.key === key && current.direction === "asc" ? "desc" : "asc",
-    }));
-  }, []);
-
-  const getSidebarSortValue = useCallback(
-    (point, key) => {
-      const risk = pointRiskMap[point.id] || point.riskMetrics || {};
-      switch (key) {
-        case "uut": {
-          const uutId = (point.associatedUutIds || [])[0];
-          const uut = (currentSessionData?.uuts || []).find(
-            (candidate) => String(candidate.id) === String(uutId),
-          );
-          return formatInstrumentIdentity(uut || { name: "Unassigned" });
-        }
-        case "section":
-          return point.section || "";
-        case "value":
-          return parseSortableNumber(point.testPointInfo?.parameter?.value);
-        case "qualifier":
-          return parseSortableNumber(point.testPointInfo?.qualifier?.value);
-        case "tolerance":
-          return getPointToleranceSortValue(point);
-        case "lowLimit":
-        case "highLimit":
-          return getPointLimitSortValue(point, key);
-        case "tmdeLow":
-        case "tmdeHigh":
-          return getPointTmdeLimitSortValue(point, key);
-        case "standardUncertainty":
-          return parseSortableNumber(point.combined_uncertainty);
-        case "measurementUncertainty":
-          return parseSortableNumber(point.expanded_uncertainty);
-        case "pfa":
-        case "pfr":
-        case "tur":
-        case "tar":
-        case "observedReop":
-        case "maxReop":
-        case "trueReop":
-        case "gbPfa":
-        case "gbPfr":
-        case "gbMult":
-        case "gbLow":
-        case "gbHigh":
-        case "gbCalInt":
-        case "gbMeasRel":
-        case "noGbPfa":
-        case "noGbPfr":
-        case "noGbCalInt":
-        case "noGbMeasRel":
-          return risk[key];
-        default:
-          return "";
-      }
-    },
-    [currentSessionData?.uuts, pointRiskMap],
-  );
-
-  const sortSidebarPoints = useCallback(
-    (points) => {
-      if (!sidebarSort.key) return [...points];
-      const directionMultiplier = sidebarSort.direction === "asc" ? 1 : -1;
-      return [...points].sort((a, b) => {
-        const aValue = getSidebarSortValue(a, sidebarSort.key);
-        const bValue = getSidebarSortValue(b, sidebarSort.key);
-        const aNumber = parseSortableNumber(aValue);
-        const bNumber = parseSortableNumber(bValue);
-        const aMissing =
-          aValue === undefined || aValue === null || String(aValue) === "";
-        const bMissing =
-          bValue === undefined || bValue === null || String(bValue) === "";
-
-        if (aMissing && bMissing) return 0;
-        if (aMissing) return 1;
-        if (bMissing) return -1;
-
-        if (aNumber !== null && bNumber !== null) {
-          return (aNumber - bNumber) * directionMultiplier;
-        }
-
-        return String(aValue).localeCompare(String(bValue), undefined, {
-          numeric: true,
-          sensitivity: "base",
-        }) * directionMultiplier;
-      });
-    },
-    [getSidebarSortValue, sidebarSort],
-  );
+  // Measurement-point chronology is authored by the user. Never reorder it as
+  // a side effect of clicking a header; qualifiers such as 1, 2, 10 are values,
+  // not an instruction to rewrite the procedure order.
+  const sortSidebarPoints = useCallback((points) => [...points], []);
 
   // Drag the divider at a column's right edge to size it, the way the UUT and
   // TMDE tables resize. Only the dragged column is pinned; the rest keep their
@@ -2642,29 +2532,20 @@ function App({ showThemeToggle = false }) {
     });
   }, []);
 
-  const renderSidebarSortHeader = useCallback(
+  const renderSidebarColumnHeader = useCallback(
     (key, label, { align = "left", title = label, className = "" } = {}) => {
-      const isActive = sidebarSort.key === key;
-      const directionLabel = sidebarSort.direction === "asc" ? "ascending" : "descending";
       return (
         <div
           key={key}
           className={`sidebar-column-header-cell sidebar-column-header-cell--${key} ${className}`}
         >
-          <button
-            type="button"
-            className={`sidebar-sort-header sidebar-sort-header--${key} ${isActive ? "active" : ""}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleSidebarSort(key);
-            }}
-            title={`Sort by ${title}${isActive ? ` (${directionLabel})` : ""}`}
-            aria-label={`Sort by ${title}`}
-            aria-sort={isActive ? directionLabel : "none"}
+          <span
+            className={`sidebar-sort-header sidebar-sort-header--${key}`}
+            title={title}
             style={{ textAlign: align }}
           >
             <span>{label}</span>
-          </button>
+          </span>
           <span
             className="sidebar-column-resizer"
             role="separator"
@@ -2679,9 +2560,7 @@ function App({ showThemeToggle = false }) {
       );
     },
     [
-      handleSidebarSort,
       resetSidebarColumnWidth,
-      sidebarSort,
       startSidebarColumnResize,
     ],
   );
@@ -2902,10 +2781,6 @@ function App({ showThemeToggle = false }) {
     setSidebarColumnOrder(
       normalizeSidebarColumnOrder(preferences.sidebarColumnOrder),
     );
-    setSidebarSort({
-      ...DEFAULT_SIDEBAR_SORT,
-      ...(preferences.sidebarSort || {}),
-    });
     setSidebarWidth(
       Number.isFinite(sizingPreferences.sidebarWidth)
         ? sizingPreferences.sidebarWidth
@@ -2949,7 +2824,6 @@ function App({ showThemeToggle = false }) {
     const preferences = {
       sidebarColumns,
       sidebarColumnOrder,
-      sidebarSort,
       isSessionInfoOpen,
       isRiskInputsOpen,
       isMitigationInputsOpen,
@@ -2991,7 +2865,6 @@ function App({ showThemeToggle = false }) {
     showContribution,
     sidebarColumns,
     sidebarColumnOrder,
-    sidebarSort,
   ]);
 
   useEffect(() => {
@@ -3306,9 +3179,18 @@ function App({ showThemeToggle = false }) {
       }
       const ids = new Set((targetPointIds || []).map(String));
       if (ids.size === 0) return;
-      const nextPoints = (currentSessionData.testPoints || []).map((point) =>
+      const pastedPoints = (currentSessionData.testPoints || []).map((point) =>
         ids.has(String(point.id))
           ? pastePointBudget(point, clipboardBudget)
+          : point,
+      );
+      const calculationSession = {
+        ...currentSessionData,
+        testPoints: pastedPoints,
+      };
+      const nextPoints = pastedPoints.map((point) =>
+        ids.has(String(point.id))
+          ? recalculatePointUncertaintyFields(point, calculationSession)
           : point,
       );
       updateSession({ ...currentSessionData, testPoints: nextPoints });
@@ -5275,8 +5157,22 @@ function App({ showThemeToggle = false }) {
                 ]
               : []),
             {
-              label: "Delete Point",
-              action: () => handleDeleteTestPoint(p.id),
+              label: `Delete ${
+                selectedSidebarPointIds.includes(p.id)
+                  ? selectedSidebarPointIds.length
+                  : 1
+              } Point${
+                selectedSidebarPointIds.includes(p.id) &&
+                selectedSidebarPointIds.length !== 1
+                  ? "s"
+                  : ""
+              }`,
+              action: () =>
+                handleDeleteTestPoint(
+                  selectedSidebarPointIds.includes(p.id)
+                    ? selectedSidebarPointIds
+                    : p.id,
+                ),
               icon: faTrashAlt,
               className: "destructive",
             },
@@ -5315,7 +5211,7 @@ function App({ showThemeToggle = false }) {
     }, []);
     const headerConfig = {
       uut: ["UUT"],
-      section: ["Sect.", { align: "right", title: "Section" }],
+      section: ["Sect.", { align: "center", title: "Section" }],
       value: [
         "Value",
         {
@@ -5404,7 +5300,7 @@ function App({ showThemeToggle = false }) {
           }}
         >
           {orderedVisibleColumns.map((key) =>
-            renderSidebarSortHeader(key, ...(headerConfig[key] || [key])),
+            renderSidebarColumnHeader(key, ...(headerConfig[key] || [key])),
           )}
         </div>
       </div>

@@ -38,6 +38,8 @@ import {
   faRedo,
   faArrowUp,
   faArrowDown,
+  faEye,
+  faEyeSlash,
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
@@ -2304,7 +2306,10 @@ export const EditableDescriptionCell = ({
   const combinedDescription =
     [local.make, local.model, local.name].filter(Boolean).join(" ") ||
     "Click to add description";
-  const displayDescription = String(local.nickname || "").trim() || combinedDescription;
+  const tag = String(local.nickname || "").trim();
+  const displayDescription = tag
+    ? `${tag} — ${combinedDescription}`
+    : combinedDescription;
   return (
     <div ref={anchorRef} className="inline-desc-cell">
       {editing ? (
@@ -2831,11 +2836,10 @@ const getInstrumentTableContentHeight = (container) => {
 };
 
 const clampInstrumentTableHeight = (requestedHeight, contentHeight = null) => {
-  const absoluteMaximum = 1600;
   const maximum =
     Number.isFinite(contentHeight) && contentHeight > 0
-      ? Math.min(absoluteMaximum, contentHeight)
-      : absoluteMaximum;
+      ? contentHeight
+      : 100000;
   const minimum = Math.min(180, maximum);
   return Math.max(
     minimum,
@@ -2846,11 +2850,8 @@ const clampInstrumentTableHeight = (requestedHeight, contentHeight = null) => {
 export const getAutoGrownInstrumentTableHeight = ({
   currentHeight,
   contentHeight,
-  instrumentCount,
 }) => {
   if (
-    instrumentCount < 1 ||
-    instrumentCount > 3 ||
     !Number.isFinite(contentHeight) ||
     contentHeight <= 0
   ) {
@@ -2869,15 +2870,15 @@ export const getDisplayedInstrumentTableHeight = ({
   preferredHeight,
   contentHeight,
 }) => {
-  if (!Number.isFinite(preferredHeight) || preferredHeight <= 0) return null;
-  if (!Number.isFinite(contentHeight) || contentHeight <= 0) {
-    return preferredHeight;
-  }
+  const hasPreferred = Number.isFinite(preferredHeight) && preferredHeight > 0;
+  const hasContent = Number.isFinite(contentHeight) && contentHeight > 0;
+  if (!hasPreferred) return hasContent ? contentHeight : null;
+  if (!hasContent) return preferredHeight;
   return Math.min(preferredHeight, contentHeight);
 };
 
 const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
-  const storageKey = `uncertalytics:${view}:${kind}:instrument-table-height:v1`;
+  const storageKey = `uncertalytics:${view}:${kind}:instrument-table-height:v2`;
   const containerRef = useRef(null);
   const [contentHeight, setContentHeight] = useState(null);
   const [height, setHeight] = useState(() => {
@@ -2914,27 +2915,6 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
       setContentHeight((current) =>
         current === measuredContentHeight ? current : measuredContentHeight,
       );
-      if (instrumentCount < 1 || instrumentCount > 3) return;
-      setHeight((currentHeight) => {
-        const nextHeight = getAutoGrownInstrumentTableHeight({
-          currentHeight,
-          contentHeight: measuredContentHeight,
-          instrumentCount,
-        });
-        // Content collapsing (for example, Detailed View hiding irrelevant
-        // functions) must not overwrite the height the user established.
-        // Automatic sizing only grows while the table contains its first three
-        // instruments; later instruments scroll within that established frame.
-        if (nextHeight === currentHeight) {
-          return currentHeight;
-        }
-        try {
-          window.localStorage.setItem(storageKey, String(nextHeight));
-        } catch {
-          // Automatic growth remains visible when preference storage is blocked.
-        }
-        return nextHeight;
-      });
     };
 
     syncToContent();
@@ -2943,7 +2923,7 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
     const observer = new ResizeObserver(syncToContent);
     observer.observe(table);
     return () => observer.disconnect();
-  }, [instrumentCount, storageKey]);
+  }, [instrumentCount]);
 
   const startResize = useCallback(
     (event) => {
@@ -5188,15 +5168,37 @@ const isInlineRowControlTarget = (target) =>
     "input, select, textarea, button, .inline-desc-search, .react-select__control, .react-select__menu",
   );
 
-const handleRowSelection = (e, id, setSelected) => {
+const handleRowSelection = (
+  e,
+  id,
+  setSelected,
+  orderedIds = [],
+  selectionAnchorRef = null,
+) => {
   // Let inline editors handle their own clicks; only bare row areas toggle
   // selection (so the user can still select an instrument to copy/cut/delete).
   if (isInlineRowControlTarget(e.target)) {
     return;
   }
+  const anchorId = selectionAnchorRef?.current;
+  const anchorIndex = orderedIds.findIndex((candidate) => sameId(candidate, anchorId));
+  const targetIndex = orderedIds.findIndex((candidate) => sameId(candidate, id));
+  if (e.shiftKey && anchorIndex >= 0 && targetIndex >= 0) {
+    const range = orderedIds.slice(
+      Math.min(anchorIndex, targetIndex),
+      Math.max(anchorIndex, targetIndex) + 1,
+    );
+    setSelected((previous) =>
+      e.ctrlKey || e.metaKey
+        ? Array.from(new Set([...previous, ...range]))
+        : range,
+    );
+    return;
+  }
   setSelected((prev) =>
     getNextInstrumentSelection(prev, id, e.ctrlKey || e.metaKey),
   );
+  if (selectionAnchorRef) selectionAnchorRef.current = id;
 };
 
 // --- HELPER: Decompose Tolerance into a compact single-line spec ---
@@ -5335,11 +5337,12 @@ export const getSpecRows = (tolerance) => {
     return [`±(${inner})`];
   }
 
-  // Mixed/asymmetric: every term carries its own sign so they still share ONE
-  // line (no component is dropped). e.g. "±2% IV + +1/-0.5% FS".
+  // Mixed/asymmetric: every term already carries its own operator. Separating
+  // signed terms with whitespace avoids invalid-looking combinations such as
+  // "+ ±5 °F" while retaining every authored component on one line.
   const inner = present
     .map((p) => termText(p.comp, p.cfg.tag, { withSign: true }))
-    .join(" + ");
+    .join(" ");
   return [inner];
 };
 
@@ -5789,6 +5792,17 @@ const filterCollapsedFunctionRows = (rows, collapsedKeys, kind) => {
       return true;
     }
     return !hideCurrentFunctionItems;
+  });
+};
+
+const filterFunctionRows = (rows, predicate) => {
+  let includeCurrentFunction = true;
+  return (rows || []).filter((row) => {
+    if (row.type === "function") {
+      includeCurrentFunction = predicate(row.fn);
+      return includeCurrentFunction;
+    }
+    return includeCurrentFunction;
   });
 };
 
@@ -8289,6 +8303,8 @@ const SummaryDashboard = ({
   // cannot accidentally target a range from a different UUT/TMDE row.
   const [selectedRangeIds, setSelectedRangeIds] = useState({});
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
+  const uutSelectionAnchorRef = useRef(null);
+  const tmdeSelectionAnchorRef = useRef(null);
 
   // Keep the current selection through Add and through a delete confirmation.
   // Prune it only after the backing session rows have actually disappeared.
@@ -8879,7 +8895,13 @@ const SummaryDashboard = ({
       setLastSelectionTarget("uut");
       setSelectedRangeIds({});
     }
-    handleRowSelection(e, id, setSelectedUutIds);
+    handleRowSelection(
+      e,
+      id,
+      setSelectedUutIds,
+      Array.from(new Set(groupedUutRows.filter((row) => row.type === "item").map((row) => row.item.id))),
+      uutSelectionAnchorRef,
+    );
   };
   const handleTmdeClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
@@ -8887,7 +8909,13 @@ const SummaryDashboard = ({
       setLastSelectionTarget("tmde");
       setSelectedRangeIds({});
     }
-    handleRowSelection(e, id, setSelectedTmdeIds);
+    handleRowSelection(
+      e,
+      id,
+      setSelectedTmdeIds,
+      Array.from(new Set(groupedTmdeRows.filter((row) => row.type === "item").map((row) => row.item.id))),
+      tmdeSelectionAnchorRef,
+    );
   };
 
   // NEW: Batch Delete for UUTs
@@ -9046,43 +9074,42 @@ const SummaryDashboard = ({
     }
   };
 
-  const deleteInstrumentRow = (kind, id) => {
-    if (kind === "uut") onDeleteUut?.([id]);
-    else onDeleteTmdeDefinition?.([id]);
-  };
 
   const openInstrumentRowMenu = (e, kind, item) => {
     if (!onSessionSave) return;
     e.preventDefault();
     e.stopPropagation();
-    if (kind === "uut") setSelectedUutIds([item.id]);
-    else setSelectedTmdeIds([item.id]);
+    const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
+    const clickedIsSelected = selectedIds.some((id) => sameId(id, item.id));
+    const targetIds = clickedIsSelected ? selectedIds : [item.id];
+    if (!clickedIsSelected) {
+      if (kind === "uut") setSelectedUutIds([item.id]);
+      else setSelectedTmdeIds([item.id]);
+    }
+    setLastSelectionTarget(kind);
     const canPaste = !!instrumentClipboard && instrumentClipboard.kind === kind;
     const areaId =
       kind === "uut" ? item.measurementAreaId : resolveItemAreaId("tmde", item);
     const items = [
-      { label: "Copy", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
-      { label: "Cut", icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
+      { label: `Copy ${kind.toUpperCase()} Instrument`, icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
+      { label: `Cut ${kind.toUpperCase()} Instrument`, icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
     ];
     if (canPaste) {
       items.push({
-        label: "Paste",
+        label: `Paste ${kind.toUpperCase()} Instrument`,
         icon: faPaste,
         action: () => pasteInstrument(kind, areaId),
       });
     }
     items.push({ type: "divider" });
     items.push({
-      label: "Associated Type B…",
-      icon: faFlask,
-      action: () => setTypeBEditor({ kind, item }),
-    });
-    items.push({ type: "divider" });
-    items.push({
-      label: "Delete",
+      label: selectedInstrumentDeleteLabel(targetIds.length),
       icon: faTrashAlt,
       className: "destructive",
-      action: () => deleteInstrumentRow(kind, item.id),
+      action: () => {
+        if (kind === "uut") onDeleteUut?.(targetIds);
+        else onDeleteTmdeDefinition?.(targetIds);
+      },
     });
     setRowMenu({ x: e.clientX, y: e.clientY, items });
   };
@@ -9144,6 +9171,7 @@ const SummaryDashboard = ({
     const canPaste = !!rangeClipboard && rangeClipboard.kind === kind;
     const canDelete = Boolean(rangeId);
     const items = [
+      { label: `Copy ${kind.toUpperCase()} Instrument`, icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
       { label: "Copy Range", icon: faCopy, action: () => copyRange(kind, item, rangeId) },
     ];
     if (canDelete) {
@@ -10614,6 +10642,12 @@ function DetailedView({
   const [selectedTmdeIds, setSelectedTmdeIds] = useState([]);
   const [selectedRangeIds, setSelectedRangeIds] = useState({});
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
+  const uutSelectionAnchorRef = useRef(null);
+  const tmdeSelectionAnchorRef = useRef(null);
+  const [showIrrelevantUutFunctions, setShowIrrelevantUutFunctions] =
+    useState(false);
+  const [showIrrelevantTmdeFunctions, setShowIrrelevantTmdeFunctions] =
+    useState(false);
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
 
   useEffect(() => {
@@ -10927,35 +10961,40 @@ function DetailedView({
       });
     }
   };
-  const deleteInstrumentRow = (kind, id) => {
-    if (kind === "uut") onDeleteUut?.([id]);
-    else onDeleteTmdeDefinition?.([id]);
-  };
   const openInstrumentRowMenu = (e, kind, item) => {
     if (!onSessionSave) return;
     e.preventDefault();
     e.stopPropagation();
-    if (kind === "uut") setSelectedUutIds([item.id]);
-    else setSelectedTmdeIds([item.id]);
+    const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
+    const clickedIsSelected = selectedIds.some((id) => sameId(id, item.id));
+    const targetIds = clickedIsSelected ? selectedIds : [item.id];
+    if (!clickedIsSelected) {
+      if (kind === "uut") setSelectedUutIds([item.id]);
+      else setSelectedTmdeIds([item.id]);
+    }
+    setLastSelectionTarget(kind);
     const canPaste = !!instrumentClipboard && instrumentClipboard.kind === kind;
     const areaId = resolveDetailAreaId(kind, item);
     const items = [
-      { label: "Copy", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
-      { label: "Cut", icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
+      { label: `Copy ${kind.toUpperCase()} Instrument`, icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
+      { label: `Cut ${kind.toUpperCase()} Instrument`, icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
     ];
     if (canPaste) {
       items.push({
-        label: "Paste",
+        label: `Paste ${kind.toUpperCase()} Instrument`,
         icon: faPaste,
         action: () => pasteInstrument(kind, areaId),
       });
     }
     items.push({ type: "divider" });
     items.push({
-      label: "Delete",
+      label: selectedInstrumentDeleteLabel(targetIds.length),
       icon: faTrashAlt,
       className: "destructive",
-      action: () => deleteInstrumentRow(kind, item.id),
+      action: () => {
+        if (kind === "uut") onDeleteUut?.(targetIds);
+        else onDeleteTmdeDefinition?.(targetIds);
+      },
     });
     setRowMenu({ x: e.clientX, y: e.clientY, items });
   };
@@ -11009,6 +11048,7 @@ function DetailedView({
     const canPaste = !!rangeClipboard && rangeClipboard.kind === kind;
     const canDelete = Boolean(rangeId);
     const items = [
+      { label: `Copy ${kind.toUpperCase()} Instrument`, icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
       { label: "Copy Range", icon: faCopy, action: () => copyRange(kind, item, rangeId) },
     ];
     if (canDelete) {
@@ -12392,7 +12432,13 @@ function DetailedView({
       setLastSelectionTarget("uut");
       setSelectedRangeIds({});
     }
-    handleRowSelection(e, id, setSelectedUutIds);
+    handleRowSelection(
+      e,
+      id,
+      setSelectedUutIds,
+      Array.from(new Set(visibleDetailUutRows.filter((row) => row.type === "item").map((row) => row.item.id))),
+      uutSelectionAnchorRef,
+    );
   };
   const handleTmdeClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
@@ -12400,7 +12446,13 @@ function DetailedView({
       setLastSelectionTarget("tmde");
       setSelectedRangeIds({});
     }
-    handleRowSelection(e, id, setSelectedTmdeIds);
+    handleRowSelection(
+      e,
+      id,
+      setSelectedTmdeIds,
+      Array.from(new Set(visibleDetailTmdeRows.filter((row) => row.type === "item").map((row) => row.item.id))),
+      tmdeSelectionAnchorRef,
+    );
   };
 
   const handleDeleteSelectedUuts = () => {
@@ -12532,6 +12584,24 @@ function DetailedView({
   const activePointUutId =
     testPointData.activeUutId || associatedUutIds[0] || null;
   const activePointFunctionKey = functionKeyOf(testPointData);
+  const isPointRelevantFunction = useCallback(
+    (fn) => {
+      const pointName = functionNamePart(activePointFunctionKey)
+        .trim()
+        .toLowerCase();
+      const pointUnit = functionUnitPart(activePointFunctionKey);
+      const pointQuantity = unitSystem.getQuantity?.(pointUnit) || null;
+      const fnName = String(fn?.name || "").trim().toLowerCase();
+      const fnQuantity = unitSystem.getQuantity?.(fn?.unit || "") || null;
+      return (
+        !activePointFunctionKey ||
+        fn?.key === activePointFunctionKey ||
+        (pointName && fnName === pointName) ||
+        (pointQuantity && fnQuantity === pointQuantity)
+      );
+    },
+    [activePointFunctionKey],
+  );
   const pointFunctionMatchesRow = useCallback(
     (functionKey = null) =>
       !functionKey ||
@@ -13249,59 +13319,43 @@ function DetailedView({
     [buildFullDetailRows, relevantTmdes],
   );
 
-  // On first opening a point, reduce the UUT table to the function that is
-  // relevant to that measurement. Users can still reopen every other function;
-  // this only establishes the detailed view's default accordion state.
-  const collapsedDefaultsPointRef = useRef(null);
   useEffect(() => {
-    const functionRows = detailUutRows.filter((row) => row.type === "function");
-    if (
-      !testPointData?.id ||
-      functionRows.length === 0 ||
-      collapsedDefaultsPointRef.current === testPointData.id
-    ) {
-      return;
-    }
-    collapsedDefaultsPointRef.current = testPointData.id;
-    const pointKey = functionKeyOf(testPointData);
-    const pointName = functionNamePart(pointKey).trim().toLowerCase();
-    const pointUnit = functionUnitPart(pointKey);
-    const pointQuantity = unitSystem.getQuantity?.(pointUnit) || null;
-    setCollapsedFunctionKeys((previous) => {
-      const next = new Set(previous);
-      functionRows.forEach((row) => {
-        const fnName = String(row.fn?.name || "").trim().toLowerCase();
-        const fnQuantity = unitSystem.getQuantity?.(row.fn?.unit || "") || null;
-        const relevant =
-          row.fn?.key === pointKey ||
-          (pointName && fnName === pointName) ||
-          (pointQuantity && fnQuantity === pointQuantity);
-        const collapseKey = functionCollapseStateKey("uut", row.fn);
-        if (relevant) next.delete(collapseKey);
-        else next.add(collapseKey);
-      });
-      return next;
-    });
-  }, [detailUutRows, setCollapsedFunctionKeys, testPointData]);
+    setShowIrrelevantUutFunctions(false);
+    setShowIrrelevantTmdeFunctions(false);
+  }, [testPointData?.id]);
 
   const visibleDetailUutRows = useMemo(
     () =>
       filterCollapsedFunctionRows(
-        detailUutRows,
+        showIrrelevantUutFunctions
+          ? detailUutRows
+          : filterFunctionRows(detailUutRows, isPointRelevantFunction),
         collapsedFunctionKeys,
         "uut",
       ),
-    [collapsedFunctionKeys, detailUutRows],
+    [
+      collapsedFunctionKeys,
+      detailUutRows,
+      isPointRelevantFunction,
+      showIrrelevantUutFunctions,
+    ],
   );
 
   const visibleDetailTmdeRows = useMemo(
     () =>
       filterCollapsedFunctionRows(
-        detailTmdeRows,
+        showIrrelevantTmdeFunctions
+          ? detailTmdeRows
+          : filterFunctionRows(detailTmdeRows, isPointRelevantFunction),
         collapsedFunctionKeys,
         "tmde",
       ),
-    [collapsedFunctionKeys, detailTmdeRows],
+    [
+      collapsedFunctionKeys,
+      detailTmdeRows,
+      isPointRelevantFunction,
+      showIrrelevantTmdeFunctions,
+    ],
   );
 
   // --- HANDLERS ---
@@ -13969,14 +14023,6 @@ function DetailedView({
               )
             : uutNominal),
       });
-      if (!updated.inlineValidation && Number(updated.value) <= 0) {
-        onUpdateTestPoint({
-          components: currentManualComponents.filter(
-            (componentItem) => componentItem.id !== id,
-          ),
-        });
-        return;
-      }
       onUpdateTestPoint({
         components: currentManualComponents.map((componentItem) =>
           componentItem.id === id ? updated : componentItem,
@@ -15130,7 +15176,6 @@ function DetailedView({
                   onClick={() => {
                     const s = budgetTmdePicker.scope;
                     onAddManualComponent?.(s || null);
-                    setBudgetTmdePicker(null);
                   }}
                   onMouseEnter={(e) =>
                     (e.currentTarget.style.background = "var(--input-background)")
@@ -15717,6 +15762,26 @@ function DetailedView({
             <span>{uutTableTitle(sessionData.uuts?.length)}</span>
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
+            <button
+              type="button"
+              className="btn-add-item btn-add-column instrument-visibility-toggle"
+              onClick={() =>
+                setShowIrrelevantUutFunctions((current) => !current)
+              }
+              title={
+                showIrrelevantUutFunctions
+                  ? "Hide functions unrelated to this measurement point"
+                  : "Show all UUT functions"
+              }
+              aria-pressed={showIrrelevantUutFunctions}
+            >
+              <FontAwesomeIcon
+                icon={showIrrelevantUutFunctions ? faEyeSlash : faEye}
+              />
+              <span>
+                {showIrrelevantUutFunctions ? "Relevant Only" : "Show All"}
+              </span>
+            </button>
             <button
               type="button"
               className="btn-add-item btn-add-column"
@@ -16578,6 +16643,26 @@ function DetailedView({
             <div className="panel-card-actions" style={{ position: "relative" }}>
               <button
                 type="button"
+                className="btn-add-item btn-add-column instrument-visibility-toggle"
+                onClick={() =>
+                  setShowIrrelevantTmdeFunctions((current) => !current)
+                }
+                title={
+                  showIrrelevantTmdeFunctions
+                    ? "Hide functions unrelated to this measurement point"
+                    : "Show all TMDE functions"
+                }
+                aria-pressed={showIrrelevantTmdeFunctions}
+              >
+                <FontAwesomeIcon
+                  icon={showIrrelevantTmdeFunctions ? faEyeSlash : faEye}
+                />
+                <span>
+                  {showIrrelevantTmdeFunctions ? "Relevant Only" : "Show All"}
+                </span>
+              </button>
+              <button
+                type="button"
                 className="btn-add-item btn-add-column"
                 onClick={() => requestCustomColumn("tmde")}
                 title="Add TMDE column"
@@ -17395,8 +17480,8 @@ function DetailedView({
         >
           <h3>Ready to Measure</h3>
           <p>
-            Select a UUT Specification Range (top left) and define a Measurement
-            Point (top right) to begin analysis.
+            Add a measurement point from the Measurement Points list, then enter
+            its value to calculate limits, uncertainty, and risk.
           </p>
         </div>
       )}

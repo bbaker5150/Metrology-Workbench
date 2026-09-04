@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { computePointRiskMetrics } from "./riskCompute";
+import {
+  computePointRiskMetrics,
+  computeUncertaintyForPoint,
+} from "./riskCompute";
 
 // End-to-end Layer 3 plumbing: a derived point in MC mode with a fresh
 // persisted summary must produce empirical risk in the sidebar map, and fall
@@ -39,6 +42,45 @@ const sessionData = {
 };
 
 describe("computePointRiskMetrics Layer 3 integration", () => {
+  it("keeps absolute uncertainty and risk finite at a zero-valued point", () => {
+    const point = makePoint({
+      measurementType: "direct",
+      equationString: "",
+      variableMappings: {},
+      testPointInfo: { parameter: { value: 0, unit: "degF" } },
+      uutTolerance: {
+        floor: {
+          high: 3,
+          low: -3,
+          unit: "degF",
+          symmetric: true,
+          distribution: RECT,
+        },
+      },
+      tmdeTolerances: [
+        {
+          id: "temperature-standard",
+          measurementPoint: { value: 0, unit: "degF" },
+          floor: {
+            high: 0.5,
+            low: -0.5,
+            unit: "degF",
+            symmetric: true,
+            distribution: RECT,
+          },
+        },
+      ],
+      components: [],
+    });
+
+    const uncertainty = computeUncertaintyForPoint(point, sessionData);
+    expect(uncertainty?.combined_uncertainty_absolute_base).toBeGreaterThan(0);
+    const metrics = computePointRiskMetrics(point, sessionData);
+    expect(metrics).not.toBeNull();
+    expect(metrics.pfa).toEqual(expect.any(Number));
+    expect(metrics.pfr).toEqual(expect.any(Number));
+  });
+
   it("uses Risk 8.0 Type 2 math for asymmetric sidebar rows", () => {
     const point = makePoint({
       measurementType: "direct",

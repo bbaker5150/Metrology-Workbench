@@ -47,7 +47,16 @@ describe("getSpecRows compact spec line", () => {
     expect(line).toContain("% FS");
     // No component is dropped and the old "of Indicated Value" wording is gone.
     expect(line).not.toContain("Indicated Value");
-    expect(line).toBe("±2% IV + (+1/-0.5)% FS");
+    expect(line).toBe("±2% IV (+1/-0.5)% FS");
+  });
+
+  it("never inserts a plus operator before a symmetric term", () => {
+    const line = getSpecRows({
+      reading: { high: "2", low: "-0.5", unit: "%" },
+      floor: { high: "5", low: "-5", unit: "degF" },
+    })[0];
+    expect(line).toBe("(+2/-0.5)% IV ±5 °F");
+    expect(line).not.toContain("+ ±");
   });
 
   it("falls back to a placeholder when nothing is set", () => {

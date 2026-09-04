@@ -921,9 +921,12 @@ describe("UncertaintyApp", () => {
       clientX: 120,
       clientY: 160,
     });
-    expect(await screen.findByText("Copy")).toBeInTheDocument();
-    expect(screen.getByText("Cut")).toBeInTheDocument();
-    expect(screen.getByText("Delete")).toBeInTheDocument();
+    expect(await screen.findByText("Copy UUT Instrument")).toBeInTheDocument();
+    const instrumentMenu = document.querySelector(".context-menu");
+    expect(within(instrumentMenu).getByText("Cut UUT Instrument")).toBeInTheDocument();
+    expect(
+      within(instrumentMenu).getByText("Delete Selected Instrument"),
+    ).toBeInTheDocument();
     fireEvent.pointerDown(document.body);
 
     const heightHandle = within(uutTable.closest(".panel-card")).getByRole(
@@ -950,7 +953,7 @@ describe("UncertaintyApp", () => {
       expect(tableContainer.style.flex).toBe("0 0 auto");
       expect(
         window.localStorage.getItem(
-          "uncertalytics:overview:uut:instrument-table-height:v1",
+          "uncertalytics:overview:uut:instrument-table-height:v2",
         ),
       ).toBe("390");
     });
@@ -1476,8 +1479,11 @@ describe("UncertaintyApp", () => {
     fireEvent.click(screen.getByTitle("Filter visible columns"));
     fireEvent.click(screen.getByRole("checkbox", { name: "Section" }));
     expect(
-      screen.getByRole("button", { name: "Sort by Section" }),
+      document.querySelector(".sidebar-column-header-cell--section"),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Sort by Section" }),
+    ).not.toBeInTheDocument();
     fireEvent.mouseDown(document.body);
     fireEvent.click(
       screen.getByRole("button", { name: "Voltage function settings" }),
@@ -1525,12 +1531,18 @@ describe("UncertaintyApp", () => {
     );
 
     expect(await screen.findByLabelText("Error source name")).toBeInTheDocument();
+    const stillOpenAddManual = screen.getByRole("button", {
+      name: /Add manual component/i,
+    });
+    expect(stillOpenAddManual).toBeInTheDocument();
+    fireEvent.click(stillOpenAddManual);
+    expect(await screen.findAllByLabelText("Error source name")).toHaveLength(2);
     expect(
       screen.queryByText("Manual Component", { selector: "h3" }),
     ).not.toBeInTheDocument();
   }, 30000);
 
-  test("opens the relevant UUT function and collapses irrelevant functions in detail", async () => {
+  test("shows only the relevant UUT function in detail until Show All is selected", async () => {
     apiMock.state.sessions = [
       {
         id: 3,
@@ -1664,10 +1676,16 @@ describe("UncertaintyApp", () => {
       expect(document.querySelectorAll(".point-grid-item")).toHaveLength(2);
     });
     fireEvent.click(document.querySelectorAll(".point-grid-item")[0]);
-    const firstPointCollapsed = await screen.findByRole("button", {
-      name: "Expand function instruments",
+    const detailUutCard = await waitFor(() => {
+      const card = document.querySelector(".uut-detail-card");
+      expect(card).toBeInTheDocument();
+      return card;
     });
-    expect(firstPointCollapsed.closest("tr")).toHaveTextContent("Pressure");
+    expect(within(detailUutCard).queryByText("Pressure")).not.toBeInTheDocument();
+    fireEvent.click(
+      within(detailUutCard).getByRole("button", { name: "Show All" }),
+    );
+    expect(await within(detailUutCard).findByText("Pressure")).toBeInTheDocument();
 
     const activeUutRow = document.querySelector("tr.active-point-uut-row");
     const activeUutTable = activeUutRow?.closest("table");
@@ -1707,10 +1725,11 @@ describe("UncertaintyApp", () => {
       expect(document.querySelectorAll(".point-grid-item")).toHaveLength(2);
     });
     fireEvent.click(document.querySelectorAll(".point-grid-item")[1]);
-    const secondPointCollapsed = await screen.findByRole("button", {
-      name: "Expand function instruments",
+    await waitFor(() => {
+      expect(
+        within(detailUutCard).queryByText("Pressure"),
+      ).not.toBeInTheDocument();
     });
-    expect(secondPointCollapsed.closest("tr")).toHaveTextContent("Pressure");
 
     fireEvent.click(screen.getByRole("button", { name: "Instrument Overview" }));
     const overviewCollapsed = await screen.findByRole("button", {

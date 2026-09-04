@@ -589,6 +589,8 @@ describe("measurement-point value editing", () => {
       tmdeTolerances: [{ id: "tmde-1" }],
       inputCorrelations: { a: { b: 0.5 } },
       equationString: "a+b",
+      variableMappings: { a: "Voltage", b: "Current" },
+      variableNominals: { a: { value: 1, unit: "V" } },
     };
     const target = {
       id: "target",
@@ -606,8 +608,32 @@ describe("measurement-point value editing", () => {
     expect(pasted.tmdeTolerances).toEqual(source.tmdeTolerances);
     expect(pasted.inputCorrelations).toEqual(source.inputCorrelations);
     expect(pasted).not.toHaveProperty("coverageFactorMode");
-    expect(pasted.equationString).toBe("x*y");
+    expect(pasted.equationString).toBe("a+b");
+    expect(pasted.variableMappings).toEqual(source.variableMappings);
+    expect(pasted.variableNominals).toEqual(source.variableNominals);
     expect(pasted.testPointInfo).toEqual(target.testPointInfo);
+  });
+
+  test("a direct budget paste preserves the target's derived equation", () => {
+    const source = {
+      id: "direct-source",
+      measurementType: "direct",
+      components: [{ id: "component-1", name: "Resolution" }],
+    };
+    const target = {
+      id: "derived-target",
+      measurementType: "derived",
+      equationString: "a/b",
+      variableMappings: { a: "Force", b: "Area" },
+      variableNominals: { a: { value: 10, unit: "N" } },
+    };
+
+    const pasted = pastePointBudget(target, copyPointBudget(source));
+
+    expect(pasted.components).toEqual(source.components);
+    expect(pasted.equationString).toBe("a/b");
+    expect(pasted.variableMappings).toEqual(target.variableMappings);
+    expect(pasted.variableNominals).toEqual(target.variableNominals);
   });
 
   test("opens the simplified UUT cell on demand without exposing database ids", async () => {
@@ -714,7 +740,7 @@ describe("measurement-point value editing", () => {
     expect(input).toHaveFocus();
   });
 
-  test("advances value entry after Enter commits the current point", async () => {
+  test("advances value entry only after Ctrl+Enter commits the current point", async () => {
     const onSave = vi.fn();
     const onAdvanceValue = vi.fn();
     render(
@@ -734,7 +760,7 @@ describe("measurement-point value editing", () => {
     fireEvent.click(document.querySelector(".point-value"));
     const input = document.querySelector(".sidebar-inline-input.value");
     fireEvent.change(input, { target: { value: "10" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -744,6 +770,32 @@ describe("measurement-point value editing", () => {
       }),
     );
     await waitFor(() => expect(onAdvanceValue).toHaveBeenCalledOnce());
+  });
+
+  test("plain Enter commits without creating or advancing a point", () => {
+    const onSave = vi.fn();
+    const onAdvanceValue = vi.fn();
+    render(
+      <SidebarPointItem
+        point={{
+          id: "point-enter-only",
+          testPointInfo: { parameter: { value: "", unit: "V" } },
+        }}
+        isSelected
+        onSelect={vi.fn()}
+        onSave={onSave}
+        onAdvanceValue={onAdvanceValue}
+        visibleColumns={{ value: true }}
+      />,
+    );
+
+    fireEvent.click(document.querySelector(".point-value"));
+    const input = document.querySelector(".sidebar-inline-input.value");
+    fireEvent.change(input, { target: { value: "10" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(onAdvanceValue).not.toHaveBeenCalled();
   });
 
   test("opens an already-mounted blank row when value focus advances", async () => {
