@@ -12,9 +12,25 @@ import {
   getVisibleRangeRows,
   getAutoGrownInstrumentTableHeight,
   getDisplayedInstrumentTableHeight,
+  getInstrumentContextTargetIds,
   applyToleranceCaseChange,
   removeRangeFromItem,
 } from "./UncertaintyPanel";
+
+describe("instrument context menu targeting", () => {
+  it("preserves the complete multi-selection when the clicked instrument is selected", () => {
+    expect(getInstrumentContextTargetIds(["uut-1", "uut-2"], "uut-2")).toEqual([
+      "uut-1",
+      "uut-2",
+    ]);
+  });
+
+  it("targets only the clicked instrument when it is outside the selection", () => {
+    expect(getInstrumentContextTargetIds(["uut-1", "uut-2"], "uut-3")).toEqual([
+      "uut-3",
+    ]);
+  });
+});
 
 // The buffered ghost add-row must:
 //   1. NOT create a range while you tab from min to max (focus stays in the row)
@@ -63,7 +79,7 @@ describe("instrument table automatic height", () => {
         preferredHeight: null,
         contentHeight: 920,
       }),
-    ).toBe(920);
+    ).toBeNull();
     expect(
       getDisplayedInstrumentTableHeight({
         preferredHeight: 420,

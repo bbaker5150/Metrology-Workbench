@@ -4488,15 +4488,17 @@ function App({ showThemeToggle = false }) {
         // pruned the active point's tolerances, so the master row never left
         // the table — that's the "delete doesn't work" bug.
         if (currentSessionData) {
-          const idsSet = new Set(ids);
+          const idsSet = new Set(ids.map((id) => String(id)));
           const updatedTmdes = (currentSessionData.tmdes || []).filter(
-            (t) => !idsSet.has(t.id),
+            (t) => !idsSet.has(String(t.id)),
           );
           const updatedTestPoints = (currentSessionData.testPoints || []).map(
             (tp) => {
               const tols = tp.tmdeTolerances || [];
               const nextTols = tols.filter(
-                (t) => !idsSet.has(t.id) && !idsSet.has(t.sourceId),
+                (t) =>
+                  !idsSet.has(String(t.id)) &&
+                  !idsSet.has(String(t.sourceId)),
               );
               return nextTols.length === tols.length
                 ? tp

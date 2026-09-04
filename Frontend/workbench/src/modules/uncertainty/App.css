@@ -12361,15 +12361,6 @@ input.inline-function-input:focus {
   background: inherit;
 }
 
-/* Keep the table identity and its actions available while a fully expanded
-   instrument table moves through the main analysis scroller. */
-.uncertainty-module .instrument-panel-card-header {
-  position: sticky;
-  top: 43px;
-  z-index: 24;
-  background-color: var(--component-bg);
-}
-
 /* Narrow instrument columns stay compact at rest, but an active editor opens
    over the neighboring cells so no field is clipped or mistaken for missing. */
 .uncertainty-module
@@ -19903,9 +19894,11 @@ body.dark-mode
 body.uncertainty-active .context-menu {
   min-width: 220px;
   padding: 6px;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   background-color: var(--component-bg);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+  box-sizing: border-box;
 }
 
 .uncertainty-module .context-menu li,
@@ -19913,14 +19906,30 @@ body.uncertainty-active .context-menu li {
   min-height: 28px;
   padding: 5px 8px;
   gap: 10px;
+  width: 100%;
+  border: 0;
   border-radius: 4px;
+  background: transparent;
   font-size: 0.82rem;
+  text-align: left;
+  box-sizing: border-box;
 }
 
 .uncertainty-module .context-menu li:not(.context-menu-divider):hover,
 body.uncertainty-active .context-menu li:not(.context-menu-divider):hover {
   background-color: rgba(var(--primary-rgb), 0.1);
-  color: var(--primary-color);
+}
+
+/* Opening a compound editor widens the real table instead of allowing its
+   controls to be clipped by a narrow saved column. Horizontal scrolling keeps
+   every expanded field and its header aligned. */
+.uncertainty-module
+  .instrument-equipment-table:has(
+    .inline-range-editor :is(input, select),
+    .inline-tolerance-editor :is(input, select),
+    .inline-resolution-editor :is(input, select)
+  ) {
+  min-width: 1900px !important;
 }
 
 .uncertainty-module .context-menu li.destructive:hover,

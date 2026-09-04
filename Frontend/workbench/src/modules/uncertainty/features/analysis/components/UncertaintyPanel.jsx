@@ -2592,6 +2592,13 @@ const uutTableTitle = (count) =>
 const selectedInstrumentDeleteLabel = (count) =>
   `Delete Selected Instrument${Number(count) === 1 ? "" : "s"}`;
 
+export const getInstrumentContextTargetIds = (selectedIds, clickedId) => {
+  const currentSelection = Array.isArray(selectedIds) ? selectedIds : [];
+  return currentSelection.some((id) => sameId(id, clickedId))
+    ? [...currentSelection]
+    : [clickedId];
+};
+
 const resolutionDistributionDisplayLabel = (option) =>
   String(option?.label || "").replace(/\s+\(resolution\)$/i, "");
 
@@ -2760,7 +2767,7 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
   return {
     widthFor: (key) =>
       `${((resolvedWidths[key] || 160) / totalWidth) * 100}%`,
-    minimumTableWidth: 1200 + customColumns.length * 160,
+    minimumTableWidth: Math.max(1200, totalWidth),
     startResize,
     resizeBy: (key, delta, tablePixelWidth) =>
       resizePair(key, delta, tablePixelWidth),
@@ -2872,7 +2879,10 @@ export const getDisplayedInstrumentTableHeight = ({
 }) => {
   const hasPreferred = Number.isFinite(preferredHeight) && preferredHeight > 0;
   const hasContent = Number.isFinite(contentHeight) && contentHeight > 0;
-  if (!hasPreferred) return hasContent ? contentHeight : null;
+  // With no user-selected height, let the CSS viewport cap the table. This
+  // preserves an internal scroll area, which is what keeps the native column
+  // headers visible for long instrument lists.
+  if (!hasPreferred) return null;
   if (!hasContent) return preferredHeight;
   return Math.min(preferredHeight, contentHeight);
 };
@@ -8452,6 +8462,9 @@ const SummaryDashboard = ({
     setIdx((prev) => ({ ...prev, [itemId]: index }));
   };
   const selectRangeRow = (event, kind, item, index, rangeId, stateItemId = item.id) => {
+    // A secondary-button press is followed by onContextMenu. Do not collapse a
+    // multi-instrument selection before that menu determines its batch target.
+    if (event.button !== undefined && event.button !== 0) return;
     activateRangeRow(kind, stateItemId, index);
     const rangeCell = event.target?.closest?.("[data-range-cell]");
     if (!rangeCell) {
@@ -9081,7 +9094,7 @@ const SummaryDashboard = ({
     e.stopPropagation();
     const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
     const clickedIsSelected = selectedIds.some((id) => sameId(id, item.id));
-    const targetIds = clickedIsSelected ? selectedIds : [item.id];
+    const targetIds = getInstrumentContextTargetIds(selectedIds, item.id);
     if (!clickedIsSelected) {
       if (kind === "uut") setSelectedUutIds([item.id]);
       else setSelectedTmdeIds([item.id]);
@@ -9160,7 +9173,15 @@ const SummaryDashboard = ({
     if (!onSessionSave) return;
     e.preventDefault();
     e.stopPropagation();
-    activateRangeRow(kind, item.id, index);
+    const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
+    const clickedIsSelected = selectedIds.some((id) => sameId(id, item.id));
+    const targetIds = getInstrumentContextTargetIds(selectedIds, item.id);
+    if (!clickedIsSelected) {
+      if (kind === "uut") setSelectedUutIds([item.id]);
+      else setSelectedTmdeIds([item.id]);
+    }
+    const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
+    setIdx((previous) => ({ ...previous, [item.id]: index }));
     setLastSelectionTarget("range");
     const rangeId = rangeIdOf(range);
     setSelectedRangeIds(
@@ -9197,6 +9218,16 @@ const SummaryDashboard = ({
         action: () => deleteRange(kind, item, rangeId),
       });
     }
+    items.push({ type: "divider" });
+    items.push({
+      label: selectedInstrumentDeleteLabel(targetIds.length),
+      icon: faTrashAlt,
+      className: "destructive",
+      action: () => {
+        if (kind === "uut") onDeleteUut?.(targetIds);
+        else onDeleteTmdeDefinition?.(targetIds);
+      },
+    });
     setRowMenu({ x: e.clientX, y: e.clientY, items });
   };
 
@@ -10967,7 +10998,7 @@ function DetailedView({
     e.stopPropagation();
     const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
     const clickedIsSelected = selectedIds.some((id) => sameId(id, item.id));
-    const targetIds = clickedIsSelected ? selectedIds : [item.id];
+    const targetIds = getInstrumentContextTargetIds(selectedIds, item.id);
     if (!clickedIsSelected) {
       if (kind === "uut") setSelectedUutIds([item.id]);
       else setSelectedTmdeIds([item.id]);
@@ -11037,7 +11068,15 @@ function DetailedView({
     if (!onSessionSave) return;
     e.preventDefault();
     e.stopPropagation();
-    activateRangeRowDetail(kind, item.id, index);
+    const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
+    const clickedIsSelected = selectedIds.some((id) => sameId(id, item.id));
+    const targetIds = getInstrumentContextTargetIds(selectedIds, item.id);
+    if (!clickedIsSelected) {
+      if (kind === "uut") setSelectedUutIds([item.id]);
+      else setSelectedTmdeIds([item.id]);
+    }
+    const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
+    setIdx((previous) => ({ ...previous, [item.id]: index }));
     setLastSelectionTarget("range");
     const rangeId = rangeIdOf(range);
     setSelectedRangeIds(
@@ -11074,6 +11113,16 @@ function DetailedView({
         action: () => deleteRangeDetail(kind, item, rangeId),
       });
     }
+    items.push({ type: "divider" });
+    items.push({
+      label: selectedInstrumentDeleteLabel(targetIds.length),
+      icon: faTrashAlt,
+      className: "destructive",
+      action: () => {
+        if (kind === "uut") onDeleteUut?.(targetIds);
+        else onDeleteTmdeDefinition?.(targetIds);
+      },
+    });
     setRowMenu({ x: e.clientX, y: e.clientY, items });
   };
 
@@ -12089,6 +12138,7 @@ function DetailedView({
     setIdx((prev) => ({ ...prev, [itemId]: index }));
   };
   const selectRangeRowDetail = (event, kind, item, index, rangeId, stateItemId = item.id) => {
+    if (event.button !== undefined && event.button !== 0) return;
     activateRangeRowDetail(kind, stateItemId, index);
     const rangeCell = event.target?.closest?.("[data-range-cell]");
     if (!rangeCell) {
