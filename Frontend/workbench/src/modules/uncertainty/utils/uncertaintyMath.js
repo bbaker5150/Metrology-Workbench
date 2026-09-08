@@ -1091,7 +1091,10 @@ export const calculateUncertaintyFromToleranceObject = (
     const canUsePPM = !isNaN(ppm);
     const u_i_absolute = valueInNominalUnits / divisor;
     
-    if (canUsePPM || !isNaN(u_i_absolute)) {
+    // Acceptance limits depend on the tolerance, not on its uncertainty
+    // distribution. At zero, PPM is undefined; an unset divisor must not drop
+    // the valid absolute band (new UUTs commonly have no distribution yet).
+    if (Number.isFinite(valueInNominalUnits)) {
       const u_i = canUsePPM ? Math.abs(ppm / divisor) : Math.abs(u_i_absolute);
       
       totalLinearTolerance += canUsePPM ? Math.abs(ppm) : 0; 
@@ -1209,7 +1212,9 @@ export const getToleranceErrorSummary = (toleranceObject, referencePoint) => {
     !toleranceObject ||
     Object.keys(toleranceObject).length <= 1 ||
     !referencePoint ||
-    !referencePoint.value
+    referencePoint.value === "" ||
+    referencePoint.value === null ||
+    referencePoint.value === undefined
   ) {
     return "Not Set";
   }

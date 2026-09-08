@@ -43,7 +43,7 @@ const InlineMenuSelect = ({
     setIsOpen(false);
     onOpenChange?.(false);
   };
-  const openMenu = () => {
+  const positionMenu = () => {
     const rect = rootRef.current?.getBoundingClientRect();
     const accentColor = rootRef.current
       ? window
@@ -63,9 +63,38 @@ const InlineMenuSelect = ({
         gap: 4,
       }));
     }
+  };
+  const openMenu = () => {
+    positionMenu();
     setIsOpen(true);
     onOpenChange?.(true);
   };
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    // Opening this selector may collapse another column and change the
+    // trigger's position. Keep the portal anchored after that reflow too.
+    let frame;
+    const reposition = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(positionMenu);
+    };
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(reposition);
+    if (rootRef.current) observer?.observe(rootRef.current);
+    const table = rootRef.current?.closest("table");
+    if (table) observer?.observe(table);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    reposition();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+    // Geometry does not depend on the selected value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, menuWidth, options.length]);
 
   useEffect(() => {
     if (!autoOpen) return undefined;

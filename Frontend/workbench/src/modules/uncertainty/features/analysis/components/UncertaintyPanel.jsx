@@ -42,6 +42,7 @@ import {
   faEyeSlash,
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
+import useInstrumentTableLayout from "../../../hooks/useInstrumentTableLayout";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
 import { getNextInstrumentSelection } from "../../../utils/instrumentSelection";
 import {
@@ -2788,6 +2789,7 @@ const ResizableInstrumentHeader = ({
   <th
     className={`instrument-resizable-header ${className}`.trim()}
     aria-label={label}
+    data-instrument-column={columnKey}
   >
     <span className="instrument-resizable-header-content">{children}</span>
     <button
@@ -2890,6 +2892,7 @@ export const getDisplayedInstrumentTableHeight = ({
 const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
   const storageKey = `uncertalytics:${view}:${kind}:instrument-table-height:v2`;
   const containerRef = useRef(null);
+  const tableLayoutRef = useInstrumentTableLayout(containerRef);
   const [contentHeight, setContentHeight] = useState(null);
   const [height, setHeight] = useState(() => {
     try {
@@ -2988,7 +2991,7 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
   });
 
   return {
-    containerRef,
+    containerRef: tableLayoutRef,
     containerStyle: displayedHeight
       ? {
           height: `${displayedHeight}px`,
@@ -3351,6 +3354,12 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
           title={
             isUnset ? "Set distribution" : "Edit distribution"
           }
+          onMouseDown={(event) => {
+            // Hand off before the previous editor's blur changes row layout
+            // and removes the read-view button that would receive click.
+            event.preventDefault();
+            open(event);
+          }}
           onClick={open}
         >
           {label}

@@ -90,14 +90,14 @@ describe("getToleranceErrorSummary", () => {
     });
   });
 
-  it("calculates nonzero limits around a zero-valued temperature point", () => {
+  it.each(["1.732", DISTRIBUTION_NOT_SET])("calculates zero-temperature limits with distribution %s", (distribution) => {
     const tolerance = {
       floor: {
         high: 3,
         low: -3,
         unit: "degF",
         symmetric: true,
-        distribution: "1.732",
+        distribution,
       },
     };
 

@@ -12361,43 +12361,6 @@ input.inline-function-input:focus {
   background: inherit;
 }
 
-/* Narrow instrument columns stay compact at rest, but an active editor opens
-   over the neighboring cells so no field is clipped or mistaken for missing. */
-.uncertainty-module
-  .instrument-equipment-table
-  td:has(:is(input, select, [contenteditable="true"]):focus) {
-  position: relative;
-  z-index: 40;
-  overflow: visible !important;
-}
-
-.uncertainty-module
-  .instrument-equipment-table
-  td:has(.inline-desc-subinput:focus)
-  .inline-desc-fields,
-.uncertainty-module
-  .instrument-equipment-table
-  td:has(.inline-range-editor :focus)
-  .inline-range-editor,
-.uncertainty-module
-  .instrument-equipment-table
-  td:has(.inline-tolerance-editor :focus)
-  .inline-tolerance-editor,
-.uncertainty-module
-  .instrument-equipment-table
-  td:has(.inline-resolution-editor :focus)
-  .inline-resolution-editor {
-  position: relative;
-  z-index: 41;
-  min-width: min(360px, calc(100vw - 48px));
-  padding: 6px;
-  border: 1px solid var(--function-input-accent, var(--primary-color));
-  border-radius: 6px;
-  background: var(--component-bg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-  box-sizing: border-box;
-}
-
 .uncertainty-module .point-grid-item .point-section,
 .uncertainty-module
   .point-grid-item
@@ -19901,8 +19864,8 @@ body.uncertainty-active .context-menu {
   box-sizing: border-box;
 }
 
-.uncertainty-module .context-menu li,
-body.uncertainty-active .context-menu li {
+.uncertainty-module .context-menu li:not(.context-menu-divider),
+body.uncertainty-active .context-menu li:not(.context-menu-divider) {
   min-height: 28px;
   padding: 5px 8px;
   gap: 10px;
@@ -19920,16 +19883,54 @@ body.uncertainty-active .context-menu li:not(.context-menu-divider):hover {
   background-color: rgba(var(--primary-rgb), 0.1);
 }
 
-/* Opening a compound editor widens the real table instead of allowing its
-   controls to be clipped by a narrow saved column. Horizontal scrolling keeps
-   every expanded field and its header aligned. */
-.uncertainty-module
-  .instrument-equipment-table:has(
-    .inline-range-editor :is(input, select),
-    .inline-tolerance-editor :is(input, select),
-    .inline-resolution-editor :is(input, select)
-  ) {
-  min-width: 1900px !important;
+.context-menu li.context-menu-divider {
+  min-height: 0;
+  height: 0;
+  padding: 0;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--border-color);
+  border-radius: 0;
+  cursor: default;
+}
+
+/* Live widths expand only the columns with editors, without adding a second
+   input-like border/background around the controls or overwriting saved sizes. */
+.uncertainty-module .instrument-equipment-table {
+  width: var(--instrument-live-table-width, 100%) !important;
+}
+.uncertainty-module .instrument-equipment-table col {
+  width: var(--instrument-live-column-width) !important;
+}
+.uncertainty-module .instrument-equipment-table thead th {
+  top: var(--instrument-header-offset, 0px);
+}
+.uncertainty-module .instrument-equipment-table .inline-desc-fields {
+  grid-template-columns: repeat(3, 88px);
+  width: max-content;
+}
+.uncertainty-module .instrument-equipment-table .inline-range-editor.is-editing {
+  width: max-content;
+  min-width: 280px;
+  max-width: none;
+}
+.uncertainty-module .instrument-equipment-table .range-row-cell:has(.is-editing) {
+  width: max-content;
+  grid-template-columns: max-content 24px 24px;
+}
+.uncertainty-module .instrument-equipment-table .inline-tolerance-editor {
+  width: max-content;
+  min-width: 340px;
+  max-width: none;
+}
+.uncertainty-module .instrument-equipment-table .inline-resolution-editor {
+  width: max-content;
+  min-width: 300px;
+  max-width: none;
+}
+.uncertainty-module .instrument-equipment-table .inline-distribution-editor {
+  width: max-content;
+  min-width: 160px;
 }
 
 .uncertainty-module .context-menu li.destructive:hover,
