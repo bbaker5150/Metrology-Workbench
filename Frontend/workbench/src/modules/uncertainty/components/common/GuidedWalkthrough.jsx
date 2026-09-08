@@ -5,6 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowLeft,
@@ -16,7 +17,6 @@ import {
 const CARD_WIDTH = 360;
 const VIEWPORT_GAP = 12;
 const TARGET_GAP = 14;
-const ELEVATED_SURFACE_CLASS = "guided-walkthrough-elevated-surface";
 
 const visibleTarget = (selector) => {
   if (!selector) return null;
@@ -49,30 +49,6 @@ const combineRects = (...rects) => {
     width: right - left,
     height: bottom - top,
   };
-};
-
-const createsStackingContext = (style) => {
-  const opacity = Number.parseFloat(style.opacity);
-  return (
-    (style.position !== "static" && style.zIndex !== "auto") ||
-    Boolean(style.transform && style.transform !== "none") ||
-    Boolean(style.filter && style.filter !== "none") ||
-    Boolean(style.perspective && style.perspective !== "none") ||
-    style.isolation === "isolate" ||
-    (Number.isFinite(opacity) && opacity < 1)
-  );
-};
-
-const elevateRevealedSurface = (surface, elevatedElements) => {
-  let element = surface;
-  while (element && element !== document.body) {
-    const style = window.getComputedStyle(element);
-    if (element === surface || createsStackingContext(style)) {
-      element.classList.add(ELEVATED_SURFACE_CLASS);
-      elevatedElements.add(element);
-    }
-    element = element.parentElement;
-  }
 };
 
 export const getWalkthroughCardPosition = (
@@ -155,20 +131,9 @@ const GuidedWalkthrough = ({
     if (!isOpen || !step) return undefined;
 
     let frame = null;
-    const elevatedElements = new Set();
-    const clearElevatedSurfaces = () => {
-      elevatedElements.forEach((element) =>
-        element.classList.remove(ELEVATED_SURFACE_CLASS),
-      );
-      elevatedElements.clear();
-    };
     const update = () => {
       const target = visibleTarget(step.target);
       const revealedSurface = visibleTarget(step.revealedTarget);
-      clearElevatedSurfaces();
-      if (revealedSurface) {
-        elevateRevealedSurface(revealedSurface, elevatedElements);
-      }
       setHasTarget(Boolean(target));
       setTargetRect(
         combineRects(
@@ -201,7 +166,6 @@ const GuidedWalkthrough = ({
       window.removeEventListener("resize", queueUpdate);
       window.removeEventListener("scroll", queueUpdate, true);
       if (frame != null) window.cancelAnimationFrame(frame);
-      clearElevatedSurfaces();
     };
   }, [isOpen, step]);
 
@@ -235,7 +199,7 @@ const GuidedWalkthrough = ({
   const endsWorkflow = steps[stepIndex + 1]?.workflow !== step.workflow;
   const canAdvance = step.canAdvance !== false;
 
-  return (
+  return createPortal(
     <div className="guided-walkthrough-layer" aria-live="polite">
       {hasTarget && targetRect && (
         <div
@@ -360,7 +324,8 @@ const GuidedWalkthrough = ({
           )}
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 };
 

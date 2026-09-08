@@ -95,7 +95,7 @@ import {
   resolveInstrumentSelection,
 } from "./utils/instrumentFunctionSelection";
 import {
-  computeRiskMetricsMap,
+  computeRiskEvaluationMap,
   recalculatePointUncertaintyFields,
 } from "./utils/riskCompute";
 import {
@@ -2357,9 +2357,9 @@ function App({ showThemeToggle = false }) {
     sidebarColumns.noGbPfr ||
     sidebarColumns.noGbCalInt ||
     sidebarColumns.noGbMeasRel;
-  const pointRiskMap = useMemo(
+  const { metrics: pointRiskMap, statuses: pointRiskStatusMap } = useMemo(
     () =>
-      computeRiskMetricsMap(
+      computeRiskEvaluationMap(
         currentTestPoints,
         currentSessionData,
         mitigationColumnsEnabled,
@@ -2377,7 +2377,17 @@ function App({ showThemeToggle = false }) {
     ],
   );
 
-  const pointDiagnosticsMap = useMemo(() => Object.fromEntries(currentTestPoints.map(point => [point.id, getPointDiagnostics(point, currentSessionData || {}, { riskMetrics: pointRiskMap[point.id] })])), [currentTestPoints, currentSessionData, pointRiskMap]);
+  const pointDiagnosticsMap = useMemo(
+    () => Object.fromEntries(currentTestPoints.map(point => [
+      point.id,
+      getPointDiagnostics(point, currentSessionData || {}, {
+        riskMetrics: pointRiskMap[point.id],
+        riskStatus: pointRiskStatusMap[point.id],
+        visibleColumns: sidebarColumns,
+      }),
+    ])),
+    [currentTestPoints, currentSessionData, pointRiskMap, pointRiskStatusMap, sidebarColumns],
+  );
 
   // Measurement-point chronology is authored by the user. Never reorder it as
   // a side effect of clicking a header; qualifiers such as 1, 2, 10 are values,

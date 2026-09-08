@@ -1,7 +1,9 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import GuidedWalkthrough, { getWalkthroughCardPosition } from "./GuidedWalkthrough";
+import GuidedWalkthrough, {
+  getWalkthroughCardPosition,
+} from "./GuidedWalkthrough";
 
 const steps = [
   {
@@ -21,16 +23,31 @@ const steps = [
 describe("GuidedWalkthrough", () => {
   it("jumps directly between workflows and their steps without requiring setup", () => {
     const onStepChange = vi.fn();
-    render(<GuidedWalkthrough isOpen steps={[
-      { ...steps[0], workflow: "Direct", canAdvance: false },
-      { ...steps[1], workflow: "Derived" },
-    ]} stepIndex={0} onStepChange={onStepChange} onClose={vi.fn()} />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Walkthrough workflow" }), { target: { value: "Derived" } });
+    render(
+      <GuidedWalkthrough
+        isOpen
+        steps={[
+          { ...steps[0], workflow: "Direct", canAdvance: false },
+          { ...steps[1], workflow: "Derived" },
+        ]}
+        stepIndex={0}
+        onStepChange={onStepChange}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Walkthrough workflow" }),
+      { target: { value: "Derived" } },
+    );
     expect(onStepChange).toHaveBeenCalledWith(1);
   });
 
   it("positions a taller tutorial card fully inside a short viewport", () => {
-    const position = getWalkthroughCardPosition({ left: 50, right: 80, top: 420, bottom: 450 }, { width: 800, height: 600 }, 480);
+    const position = getWalkthroughCardPosition(
+      { left: 50, right: 80, top: 420, bottom: 450 },
+      { width: 800, height: 600 },
+      480,
+    );
     expect(position.top).toBeGreaterThanOrEqual(12);
     expect(position.top + 480).toBeLessThanOrEqual(588);
   });
@@ -43,7 +60,10 @@ describe("GuidedWalkthrough", () => {
       ),
     ).toMatchObject({ left: 526, top: 40, width: 360 });
 
-    const centered = getWalkthroughCardPosition(null, { width: 320, height: 500 });
+    const centered = getWalkthroughCardPosition(null, {
+      width: 320,
+      height: 500,
+    });
     expect(centered.left).toBeGreaterThanOrEqual(12);
     expect(centered.width).toBe(296);
   });
@@ -52,7 +72,9 @@ describe("GuidedWalkthrough", () => {
     const onStepChange = vi.fn();
     render(
       <>
-        <button type="button" data-tour="target">Create</button>
+        <button type="button" data-tour="target">
+          Create
+        </button>
         <GuidedWalkthrough
           isOpen
           steps={steps}
@@ -82,11 +104,13 @@ describe("GuidedWalkthrough", () => {
       await screen.findByText(/Complete the preceding setup/i),
     ).toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.getByRole("dialog", { name: "Uncertalytics walkthrough" })).toBeInTheDocument(),
+      expect(
+        screen.getByRole("dialog", { name: "Uncertalytics walkthrough" }),
+      ).toBeInTheDocument(),
     );
   });
 
-  it("elevates a menu revealed by the highlighted action and cleans it up", async () => {
+  it("includes the revealed menu in the spotlight without elevating application containers", async () => {
     const rectSpy = vi
       .spyOn(HTMLElement.prototype, "getBoundingClientRect")
       .mockImplementation(function getRect() {
@@ -138,8 +162,20 @@ describe("GuidedWalkthrough", () => {
 
     const menu = screen.getByRole("menu");
     await waitFor(() =>
-      expect(menu).toHaveClass("guided-walkthrough-elevated-surface"),
+      expect(
+        document.querySelector(".guided-walkthrough-highlight"),
+      ).toHaveStyle({
+        top: "34px",
+        left: "34px",
+        width: "252px",
+        height: "272px",
+      }),
     );
+    expect(menu.className).toBe("");
+    expect(
+      document.querySelector(".guided-walkthrough-layer").parentElement,
+    ).toBe(document.body);
+    expect(screen.getByRole("dialog")).toHaveStyle({ left: "294px" });
 
     rerender(
       <>

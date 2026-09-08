@@ -15,6 +15,7 @@
 // NOT persist anything and makes no network calls — it is purely derived state
 // recomputed in memory, so there are no extra database hits.
 
+import { riskStatusFromResult } from "./mitigationDiagnostics";
 import {
   unitSystem,
   getKValueFromTDistribution,
@@ -515,7 +516,10 @@ export function recalculatePointUncertaintyFields(point, sessionData) {
 
 // --- Pure risk (mirrors useRiskCalculation limit derivation + core metrics) ---
 // Returns { pfa, pfr, tur, tar } (pfa/pfr as percentages) or null.
-export function computePointRiskMetrics(point, sessionData, includeGuardband = false) {
+// onStatus preserves engine explanations even when no numeric summary exists.
+export function computePointRiskMetrics(
+  point, sessionData, includeGuardband = false, onStatus,
+) {
   if (!point || !sessionData) return null;
   const uutNominal = point.testPointInfo?.parameter;
   if (!uutNominal || !isFilledNumber(uutNominal.value) || !uutNominal.unit) {
@@ -545,6 +549,7 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
       reqPFA,
       resolution: resolveResolutionNative(uutToleranceData, uutNominal.unit),
     });
+    onStatus?.(riskStatusFromResult(boundary));
     const summary = toUnknownMeasurementSummary(boundary);
     return summary ? { ...summary, mcStale: false } : null;
   }
@@ -742,6 +747,7 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
           lowerLimit: LLow,
           upperLimit: LUp,
         });
+    onStatus?.(riskStatusFromResult(result));
     const summary = toKnownMeasurementSummary(result);
     if (!summary) return null;
     return {
@@ -998,12 +1004,20 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
   };
 }
 
-// Build a { pointId -> metrics } map for a list of points. Used by App.jsx with
-// useMemo so the whole sidebar reflects the latest inputs in one pass.
-export function computeRiskMetricsMap(points, sessionData, includeGuardband = false) {
-  const map = {};
-  (points || []).forEach((p) => {
-    map[p.id] = computePointRiskMetrics(p, sessionData, includeGuardband);
+// Evaluate once per point and retain engine statuses alongside the numeric map.
+// Existing consumers keep the original metrics-only/null contract below.
+export function computeRiskEvaluationMap(points, sessionData, includeGuardband = false) {
+  const metrics = {};
+  const statuses = {};
+  (points || []).forEach((point) => {
+    metrics[point.id] = computePointRiskMetrics(
+      point, sessionData, includeGuardband,
+      (status) => { statuses[point.id] = status; },
+    );
   });
-  return map;
+  return { metrics, statuses };
+}
+
+export function computeRiskMetricsMap(points, sessionData, includeGuardband = false) {
+  return computeRiskEvaluationMap(points, sessionData, includeGuardband).metrics;
 }

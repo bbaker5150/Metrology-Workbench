@@ -32,7 +32,7 @@ createRoot(document.getElementById('root')).render(<ThemeProvider><NotificationP
 `;
 let server, win, browser, page;
 app.whenReady().then(async () => {
-  const timer = setTimeout(() => app.exit(1), 180000);
+  const timer = setTimeout(() => app.exit(1), 300000);
   let status = 0;
   try {
     const { createServer } = await import("vite");
@@ -172,7 +172,10 @@ app.whenReady().then(async () => {
       await page.getByPlaceholder("Name", { exact: true }).fill(name);
       await page.getByRole("option", { name: new RegExp(identity) }).click();
     }
-    await page.locator(".area-header-sticky").first().hover();
+    await page
+      .locator(".area-header-sticky")
+      .first()
+      .hover({ position: { x: 30, y: 15 } });
     await page.locator('[data-tour="function-settings"]').click();
     await page.getByRole("radio", { name: "Derived", exact: true }).click();
     await page.locator('[data-tour="add-measurement-point"]').click();
@@ -273,6 +276,57 @@ app.whenReady().then(async () => {
       "Complete derived point has no warnings",
     );
     await capture("derived-complete");
+    const toggleMitigations = async (enabled) => {
+      await page
+        .getByRole("button", { name: "Filter visible columns", exact: true })
+        .click();
+      for (const group of ["GB + Int", "Int Only"])
+        await page
+          .getByRole("checkbox", {
+            name: `Toggle all Mitigation (${group}) columns`,
+            exact: true,
+          })
+          .setChecked(enabled);
+      await page
+        .getByRole("button", { name: "Close column filter", exact: true })
+        .click();
+    };
+    await toggleMitigations(true);
+    let mitigationTitle = await derivedRow
+      .locator(".point-diagnostic-warning")
+      .getAttribute("title");
+    assert.match(mitigationTitle, /GB \+ Int/);
+    assert.match(mitigationTitle, /Int Only/);
+    assert.match(
+      mitigationTitle,
+      /No feasible guard-band and interval solution/,
+    );
+    await capture("mitigation-no-solution-warning");
+    const changeInterval = async (value) => {
+      await page
+        .locator(".session-header-field")
+        .filter({ hasText: "Cal Int for assumed REOP" })
+        .locator(".session-header-value")
+        .click();
+      const input = page.getByRole("spinbutton", {
+        name: "Cal Int for assumed REOP",
+        exact: true,
+      });
+      await input.fill(value);
+      await input.press("Enter");
+    };
+    await changeInterval("");
+    mitigationTitle = await derivedRow
+      .locator(".point-diagnostic-warning")
+      .getAttribute("title");
+    assert.match(mitigationTitle, /Enter Cal Int.*positive number of months/);
+    await capture("mitigation-missing-interval-warning");
+    await changeInterval("12");
+    await toggleMitigations(false);
+    assert.equal(
+      await derivedRow.locator(".point-diagnostic-warning").count(),
+      0,
+    );
     await derivedRow.locator(".point-value").click();
     await page.locator(".sidebar-inline-input.value").fill("12");
     await page.locator(".sidebar-inline-input.value").press("Enter");
@@ -293,6 +347,131 @@ app.whenReady().then(async () => {
       await workflow.selectOption({ label: topic });
     await workflow.selectOption({ label: "Derived measurement" });
     const step = page.getByRole("combobox", { name: "Walkthrough step" });
+    const chooseStep = async (topic, title) => {
+      await workflow.selectOption({ label: topic });
+      await step.selectOption(
+        await step
+          .locator("option")
+          .filter({ hasText: title })
+          .getAttribute("value"),
+      );
+    };
+    const assertTutorialAboveMenu = async (selector, name) => {
+      await page.locator(selector).first().waitFor({ state: "visible" });
+      await page.waitForTimeout(350);
+      const result = await page.evaluate((selector) => {
+        const card = document.querySelector(".guided-walkthrough-card");
+        const menu = document.querySelector(selector);
+        const hit = (element) => {
+          const r = element.getBoundingClientRect();
+          const actual = document.elementFromPoint(
+            r.left + r.width / 2,
+            r.top + r.height / 2,
+          );
+          return element.contains(actual);
+        };
+        const m = menu.getBoundingClientRect(),
+          h = document
+            .querySelector(".guided-walkthrough-highlight")
+            .getBoundingClientRect();
+        return {
+          header: hit(card.querySelector(".guided-walkthrough-card-header")),
+          close: hit(card.querySelector('[aria-label="Close walkthrough"]')),
+          navigation: hit(
+            card.querySelector('[aria-label="Walkthrough workflow"]'),
+          ),
+          menuInsideSpotlight:
+            m.left >= h.left &&
+            m.right <= h.right &&
+            m.top >= h.top &&
+            m.bottom <= h.bottom,
+          elevated: document.querySelectorAll(
+            ".guided-walkthrough-elevated-surface",
+          ).length,
+        };
+      }, selector);
+      assert.deepEqual(
+        result,
+        {
+          header: true,
+          close: true,
+          navigation: true,
+          menuInsideSpotlight: true,
+          elevated: 0,
+        },
+        name,
+      );
+      await capture(name);
+    };
+    for (const [topic, title, trigger, menu, name] of [
+      [
+        "Instruments & Measurement Areas",
+        "Create a Measurement Area",
+        '[data-tour="uut-add-function"]',
+        '[data-tour="uut-function-menu"]',
+        "tutorial-uut-menu",
+      ],
+      [
+        "Instruments & Measurement Areas",
+        "Add measuring equipment",
+        '[data-tour="tmde-add-function"]',
+        '[data-tour="tmde-function-menu"]',
+        "tutorial-tmde-menu",
+      ],
+      [
+        "Direct measurement",
+        "Choose the direct workflow",
+        '[data-tour="function-settings"]',
+        '[data-tour="function-settings-menu"]',
+        "tutorial-direct-settings",
+      ],
+      [
+        "Derived measurement",
+        "Choose the derived workflow",
+        '[data-tour="function-settings"]',
+        '[data-tour="function-settings-menu"]',
+        "tutorial-derived-settings",
+      ],
+      [
+        "Derived measurement",
+        "Create the derived target",
+        '[data-tour="add-measurement-point"]',
+        '[data-tour="measurement-point-menu"]',
+        "tutorial-point-menu",
+      ],
+      [
+        "Derived measurement",
+        "Build each input budget",
+        '[data-tour="budget-add-component"]',
+        '[data-tour="budget-component-menu"]',
+        "tutorial-budget-menu",
+      ],
+      [
+        "Budget controls & results",
+        "Compare risk and mitigation",
+        '[data-tour="sidebar-columns"]',
+        ".sidebar-filter-dropdown",
+        "tutorial-column-menu",
+      ],
+    ]) {
+      await chooseStep(topic, title);
+      if (trigger.includes("function-settings"))
+        await page
+          .locator(".area-header-sticky")
+          .first()
+          .hover({ position: { x: 30, y: 15 } });
+      await page.locator(trigger).first().click();
+      await assertTutorialAboveMenu(menu, name);
+      if (menu === ".sidebar-filter-dropdown")
+        await page
+          .getByRole("button", { name: "Close column filter", exact: true })
+          .click();
+      else {
+        await page.keyboard.press("Escape");
+        await page.mouse.click(1480, 15);
+      }
+    }
+    await chooseStep("Derived measurement", "Enter the measurement equation");
     await step.selectOption(
       await step
         .locator("option")
@@ -337,6 +516,27 @@ app.whenReady().then(async () => {
       "Tutorial stays within the smaller viewport",
     );
     await capture("tutorial-small-dark");
+    await chooseStep("Direct measurement", "Choose the direct workflow");
+    await page
+      .locator(".area-header-sticky")
+      .first()
+      .hover({ position: { x: 30, y: 15 } });
+    await page.locator('[data-tour="function-settings"]').first().click();
+    await assertTutorialAboveMenu(
+      '[data-tour="function-settings-menu"]',
+      "tutorial-small-dark-settings",
+    );
+    // The actual menu controls remain usable through the spotlight.
+    const reuse = page
+      .locator('[data-tour="function-settings-menu"]')
+      .getByRole("checkbox", {
+        name: /Reuse the first point's budget/,
+      });
+    await reuse.setChecked(!(await reuse.isChecked()));
+    await page
+      .getByRole("button", { name: "Close walkthrough", exact: true })
+      .click();
+    assert.equal(await page.locator(".guided-walkthrough-layer").count(), 0);
     console.log(
       "PASS: direct and derived creation, instrument selection, both input budgets, range/mismatch warnings, menus, all tutorial workflows, dark theme and small viewport.",
     );

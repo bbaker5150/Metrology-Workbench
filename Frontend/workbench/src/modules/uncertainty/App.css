@@ -16609,14 +16609,6 @@ body.theme-cyberpunk .industry-table tr.selected-row {
   pointer-events: auto;
 }
 
-/* Menus opened by the highlighted control must remain above both the dimming
-   spotlight and the coach card. The walkthrough adds this class only while a
-   step's related menu is visible, including to any ancestor stacking contexts
-   that would otherwise trap the menu beneath the overlay. */
-.guided-walkthrough-elevated-surface {
-  z-index: 12005 !important;
-}
-
 .guided-walkthrough-card-header {
   display: flex;
   align-items: center;

@@ -1,3 +1,4 @@
+import { getMitigationDiagnostics } from "./mitigationDiagnostics";
 import {
   calculateDerivedUncertainty,
   calculateUncertaintyFromToleranceObject,
@@ -96,7 +97,7 @@ export function getBudgetRangeWarnings({
 export function getPointDiagnostics(
   point = {},
   session = {},
-  { riskMetrics } = {},
+  { riskMetrics, riskStatus = {}, visibleColumns = {} } = {},
 ) {
   const warnings = [];
   const nominal = point.testPointInfo?.parameter || {};
@@ -272,6 +273,10 @@ export function getPointDiagnostics(
     if (filled(assumed) && !(Number(assumed) > 0 && Number(assumed) < 100))
       add("Set Assumed REOP between 0% and 100% in session risk inputs.");
   }
+  if (riskStatus.core === "input exceeds MAX REOP")
+    add(
+      `Assumed REOP exceeds the maximum achievable REOP${Number.isFinite(riskStatus.maxReop) ? ` (${Number(riskStatus.maxReop.toPrecision(6))}%)` : ""} for this point. Review the assumed REOP, TUR, uncertainty, and tolerance.`,
+    );
   if (riskMetrics === null && !warnings.length)
     add(
       "Risk could not be calculated from these inputs. Check the budget values, units, distributions and UUT acceptance limits in Uncertainty Budget.",
@@ -280,5 +285,12 @@ export function getPointDiagnostics(
     add(
       "Monte Carlo results are out of date. Recalculate in Uncertainty Budget to refresh risk metrics.",
     );
+  getMitigationDiagnostics({
+    metrics: riskMetrics,
+    status: riskStatus,
+    requirements: session.uncReq,
+    visibleColumns,
+    tolerance,
+  }).forEach(add);
   return warnings;
 }
