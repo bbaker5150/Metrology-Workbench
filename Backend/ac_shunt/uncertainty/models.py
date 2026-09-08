@@ -47,6 +47,8 @@ class Session(models.Model):
     # Instrument- and point-derived functions are recomputed client-side; this
     # only holds the empty scaffolding + saved colors, so a JSON blob suffices.
     function_groups = models.JSONField(default=list, blank=True)
+    # Explicit user organization; null identifies sessions needing legacy migration.
+    measurement_area_groups = models.JSONField(default=None, blank=True, null=True)
     # User-defined ordering for the draggable detailed-workspace sections.
     detail_section_order = models.JSONField(default=list, blank=True)
     # Sections the user collapsed in the detailed workspace. Persist this at
@@ -90,6 +92,7 @@ class Uut(models.Model):
     session = models.ForeignKey(
         Session, on_delete=models.CASCADE, related_name="uuts"
     )
+    measurement_area_names = models.JSONField(default=None, blank=True, null=True)
     cid = models.CharField(max_length=64)
     name = models.CharField(max_length=255, blank=True, default="")
     description = models.CharField(max_length=255, blank=True, default="")
@@ -109,6 +112,7 @@ class SessionTmde(models.Model):
     session = models.ForeignKey(
         Session, on_delete=models.CASCADE, related_name="tmdes"
     )
+    measurement_area_names = models.JSONField(default=None, blank=True, null=True)
     cid = models.CharField(max_length=64)
     name = models.CharField(max_length=255, blank=True, default="")
     quantity = models.FloatField(default=1)

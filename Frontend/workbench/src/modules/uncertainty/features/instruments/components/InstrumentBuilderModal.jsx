@@ -1,3 +1,4 @@
+import { instrumentMatchesSearch } from "../../../utils/functionGrouping";
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
 import Select from "react-select";
@@ -171,12 +172,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
   // --- Library Filtering ---
   const filteredInstruments = useMemo(() => {
     if (!searchTerm) return instruments;
-    const lower = searchTerm.toLowerCase();
-    return instruments.filter(i =>
-      (i.manufacturer || "").toLowerCase().includes(lower) ||
-      (i.model || "").toLowerCase().includes(lower) ||
-      (i.description || "").toLowerCase().includes(lower)
-    );
+    return instruments.filter(instrument => instrumentMatchesSearch(instrument, searchTerm));
   }, [instruments, searchTerm]);
 
   const activeFunction = useMemo(() =>
@@ -447,6 +443,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                   <input
                     type="text"
                     placeholder="Search library..."
+                    aria-label="Search instruments"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     style={{ width: '100%', padding: '10px 10px 10px 35px', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'var(--input-background)', color: 'var(--text-color)' }}

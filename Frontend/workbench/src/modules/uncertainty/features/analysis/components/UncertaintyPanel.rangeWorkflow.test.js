@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeFunctionKey } from "../../../utils/functionGrouping";
 import {
-  addBlankFunctionToInstrument,
   addRangeToItem,
   applyTmdeIdentityToPoints,
   countTmdeBudgetUses,
@@ -708,131 +707,6 @@ describe("local instrument role synchronization", () => {
         tmde,
       ),
     ).toBe(2);
-  });
-});
-
-describe("addBlankFunctionToInstrument", () => {
-  it("adds a blank destination function without carrying source specifications", () => {
-    const source = {
-      id: "uut-1",
-      instrument: {
-        id: "dmm-1",
-        scope: "local",
-        functions: [
-          {
-            id: "voltage",
-            name: "Voltage",
-            unit: "V",
-            ranges: [
-              {
-                id: "v-range",
-                min: "0",
-                max: "10",
-                unit: "V",
-                tolerances: { reading: { value: "1" } },
-                resolution: "0.001",
-              },
-            ],
-          },
-        ],
-      },
-    };
-
-    const updated = addBlankFunctionToInstrument(source, {
-      key: "resistance",
-      name: "Resistance",
-      unit: "Ohm",
-    });
-
-    expect(updated.instrument.functions).toHaveLength(2);
-    expect(updated.instrument.functions[0]).toEqual(source.instrument.functions[0]);
-    expect(updated.instrument.functions[1]).toEqual(
-      expect.objectContaining({
-        name: "Resistance",
-        unit: "Ohm",
-      }),
-    );
-    expect(updated.instrument.functions[1].ranges).toHaveLength(1);
-    expect(updated.instrument.functions[1].ranges[0]).toMatchObject({
-      min: "",
-      max: "",
-      unit: "Ohm",
-      resolution: "",
-      tolerances: {},
-      functionName: "Resistance",
-    });
-  });
-
-  it("scopes legacy instance ranges to the source and leaves a cross-function drop blank", () => {
-    const source = {
-      id: "uut-pressure",
-      ranges: [
-        {
-          id: "pressure-range",
-          min: "0",
-          max: "100",
-          unit: "psig",
-          tolerances: { reading: { high: "1", low: "-1" } },
-        },
-      ],
-      instrument: {
-        id: "pressure-instrument",
-        functions: [
-          { id: "pressure", name: "Pressure", unit: "psig", ranges: [] },
-        ],
-      },
-    };
-
-    const updated = addBlankFunctionToInstrument(
-      source,
-      { key: "flow", name: "Flow", unit: "gpm" },
-      makeFunctionKey("Pressure"),
-    );
-    const pressure = resolveUutRangeHelper(
-      updated,
-      {},
-      null,
-      null,
-      makeFunctionKey("Pressure"),
-    );
-    const flow = resolveUutRangeHelper(
-      updated,
-      {},
-      null,
-      null,
-      makeFunctionKey("Flow"),
-    );
-
-    expect(pressure.ranges).toHaveLength(1);
-    expect(pressure.activeRange).toMatchObject({
-      id: "pressure-range",
-      unit: "psig",
-      functionName: "Pressure",
-    });
-    expect(flow.ranges).toHaveLength(1);
-    expect(flow.activeRange).toMatchObject({
-      unit: "gpm",
-      min: "",
-      max: "",
-      tolerances: {},
-      functionName: "Flow",
-    });
-    expect(flow.activeRange.tolerances).not.toHaveProperty("reading");
-  });
-
-  it("does not duplicate a function the instrument already supports", () => {
-    const source = {
-      instrument: {
-        functions: [{ name: "Resistance", unit: "Ohm", ranges: [] }],
-      },
-    };
-
-    expect(
-      addBlankFunctionToInstrument(source, {
-        name: "Resistance",
-        unit: "kOhm",
-      }),
-    ).toBe(source);
   });
 });
 

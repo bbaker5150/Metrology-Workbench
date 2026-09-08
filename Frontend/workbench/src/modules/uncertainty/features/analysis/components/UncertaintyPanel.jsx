@@ -51,17 +51,23 @@ import {
 } from "../../../utils/tmdeCompatibility";
 import { resolvePointAreaId } from "../../../utils/areaWorkspace";
 import {
-  functionKeyOf,
   makeFunctionKey,
   instrumentFunctions,
   instrumentHasFunction,
-  rankInstrumentsForFunction,
-  resolveSessionFunctions,
-  functionsForLibrary,
-  getFunctionDependencies,
-  getFunctionDeletionConfirmationMessage,
-  deleteFunctionCascade,
+  instrumentMatchesSearch,
 } from "../../../utils/functionGrouping";
+import {
+  measurementAreaKeyOf,
+  resolveSessionMeasurementAreas,
+  instrumentMeasurementAreas,
+  instrumentHasMeasurementArea,
+  addInstrumentMeasurementArea,
+  renameMeasurementArea,
+  migrateMeasurementAreas,
+  getMeasurementAreaDependencies,
+  getMeasurementAreaDeletionConfirmationMessage,
+  deleteMeasurementArea,
+} from "../../../utils/measurementAreaGrouping";
 import {
   detailSectionOrderValue,
   moveDetailSection,
@@ -147,11 +153,13 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
   const areaFields =
     kind === "uut"
       ? {
+          measurementAreaNames: area ? [area.name] : instrumentMeasurementAreas(src).map(a => a.name),
           measurementAreaId: area ? area.id : "",
           measurementArea: area ? area.name : "",
           measurementAreaColor: area ? area.color : "",
         }
       : {
+          measurementAreaNames: area ? [area.name] : instrumentMeasurementAreas(src).map(a => a.name),
           measurementAreaId: area ? area.id : "",
           measurementArea: area ? area.name : "",
         };
@@ -229,171 +237,6 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
   }
 
   return copiedRow;
-};
-
-export const scopeLibraryInstrumentToFunction = (
-  instrument = {},
-  functionKey,
-  fallbackFn = {},
-) => {
-  if (!functionKey) return instrument;
-  const functions = Array.isArray(instrument.functions) ? instrument.functions : [];
-  const selectedName = functionNamePart(functionKey);
-  const selectedUnit = functionUnitPart(functionKey);
-  const functionMatches = (name, unit) => {
-    const candidateKey = makeFunctionKey(name, unit);
-    if (candidateKey === functionKey) return true;
-    if (!selectedName || functionNamePart(candidateKey) !== selectedName) return false;
-    return functionUnitsMatch(selectedUnit, functionUnitPart(candidateKey));
-  };
-  const match = functions.find((fn) => functionMatches(fn.name, fn.unit));
-  const fallbackName = fallbackFn.name || "";
-  const fallbackUnit =
-    fallbackFn.unit !== undefined && fallbackFn.unit !== null
-      ? String(fallbackFn.unit)
-      : "";
-  const matchingRangeRows = match
-    ? []
-    : getInstrumentRangeRows(instrument).filter(
-        (range) => {
-          const name = range.functionName || fallbackName;
-          const unit = range.functionUnit || range.unit || fallbackUnit;
-          return functionMatches(name, unit);
-        },
-      );
-  const scopedFunction = match
-    ? {
-        ...match,
-        name: fallbackName || match.name,
-        unit: fallbackFn.unit !== undefined && fallbackFn.unit !== null ? fallbackUnit : match.unit,
-        ranges: Array.isArray(match.ranges) ? match.ranges : [],
-      }
-    : matchingRangeRows.length > 0
-      ? {
-          id: uuidv4(),
-          name: matchingRangeRows[0].functionName || fallbackName,
-          unit:
-            fallbackFn.unit !== undefined && fallbackFn.unit !== null
-              ? fallbackUnit
-              : matchingRangeRows[0].functionUnit || matchingRangeRows[0].unit,
-          ranges: matchingRangeRows.map(({ source, _index, ...range }) => range),
-        }
-    : {
-        id: uuidv4(),
-        name: fallbackName,
-        unit: fallbackUnit,
-        ranges: [],
-      };
-  return {
-    ...instrument,
-    functions: [scopedFunction],
-  };
-};
-
-// Add a destination function to an existing session instrument without moving
-// or copying any of the source function's specifications. This is deliberately
-// additive: a DMM dragged from Voltage to Resistance remains configured for
-// Voltage and gains a blank Resistance definition ready for its own ranges,
-// non-range tolerance, distribution, and resolution.
-export const addBlankFunctionToInstrument = (
-  item = {},
-  targetFunction = {},
-  sourceFunctionKey = null,
-) => {
-  const name = String(targetFunction.name || "").trim();
-  if (!name) return item;
-
-  const definition = item.instrument || item;
-  const functions = Array.isArray(definition.functions)
-    ? definition.functions
-    : [];
-  const targetKey = makeFunctionKey(name);
-  if (functions.some((fn) => makeFunctionKey(fn?.name) === targetKey)) {
-    return item;
-  }
-
-  const unit = String(
-    targetFunction.unit || targetFunction.units?.[0] || "",
-  ).trim();
-  const newFunctionId = uuidv4();
-  const blankRangeId = uuidv4();
-  const blankRange = {
-    id: blankRangeId,
-    min: "",
-    max: "",
-    unit,
-    resolution: "",
-    tolerances: {},
-    functionId: newFunctionId,
-    functionName: name,
-    functionUnit: unit,
-  };
-  const hasInstanceRanges =
-    item.instrument &&
-    Array.isArray(item.ranges) &&
-    item.ranges.length > 0;
-  const sourceKey = makeFunctionKey(sourceFunctionKey);
-  const sourceFunction =
-    functions.find((fn) => makeFunctionKey(fn?.name) === sourceKey) ||
-    functions[0] ||
-    null;
-  const scopedInstanceRanges = hasInstanceRanges
-    ? [
-        ...item.ranges.map((range) =>
-          range.functionName || !sourceFunction
-            ? range
-            : {
-                ...range,
-                functionId: range.functionId || sourceFunction.id,
-                functionName: sourceFunction.name,
-                functionUnit:
-                  range.functionUnit ||
-                  range.unit ||
-                  sourceFunction.unit ||
-                  sourceFunction.units?.[0] ||
-                  "",
-              },
-        ),
-        blankRange,
-      ]
-    : null;
-  const newFunction = {
-    id: newFunctionId,
-    name,
-    unit,
-    units: Array.from(
-      new Set([...(targetFunction.units || []), unit].filter(Boolean)),
-    ),
-    // Session rows with instance-level ranges keep the new blank row beside
-    // those ranges. Otherwise the function owns it directly. In both schemas
-    // the destination starts with a real, independently editable blank range.
-    ranges: hasInstanceRanges ? [] : [blankRange],
-  };
-  const wasShared =
-    definition.scope === "validated" || computeSyncState(definition) === "green";
-  const nextDefinition = {
-    ...definition,
-    functions: [...functions, newFunction],
-    ...(wasShared
-      ? {
-          scope: "local",
-          sourceId:
-            definition.sourceId ||
-            (definition.scope === "validated" ? definition.id : undefined),
-          validatedSnapshot:
-            definition.validatedSnapshot || buildValidatedSnapshot(definition),
-          localOverride: true,
-        }
-      : {}),
-  };
-
-  return item.instrument
-    ? {
-        ...item,
-        ...(scopedInstanceRanges ? { ranges: scopedInstanceRanges } : {}),
-        instrument: nextDefinition,
-      }
-    : nextDefinition;
 };
 
 // Library-search dropdown shown under the description make/model fields.
@@ -2142,7 +1985,6 @@ export const EditableDescriptionCell = ({
   model = "",
   name = "",
   nickname = "",
-  functionKey = null,
   onCommit,
   instruments = [],
   onPickLibrary,
@@ -2170,12 +2012,7 @@ export const EditableDescriptionCell = ({
   const results = useMemo(() => {
     if (!onPickLibrary) return [];
     const matches = tokens.length
-      ? (instruments || []).filter((inst) => {
-          const hay = `${inst.manufacturer || ""} ${inst.model || ""} ${
-            inst.description || ""
-          }`.toLowerCase();
-          return tokens.every((t) => hay.includes(t));
-        })
+      ? (instruments || []).filter(inst => instrumentMatchesSearch(inst, query))
       : instruments || [];
     // Collapse each shared instrument and its linked local copies into one
     // "family": always surface the shared (in-sync) version, and only also list
@@ -2202,12 +2039,9 @@ export const EditableDescriptionCell = ({
         if (!grp.shared || diffFromSnapshot(loc).length > 0) ordered.push(loc);
       });
     });
-    return rankInstrumentsForFunction(
-      [...ordered, ...standalone],
-      functionKey,
-    );
+    return [...ordered, ...standalone];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instruments, query, onPickLibrary, functionKey]);
+  }, [instruments, query, onPickLibrary]);
 
   const props = (field) => ({
     value: local[field] || "",
@@ -2367,7 +2201,7 @@ export const EditableDescriptionCell = ({
             }}
           >
             {results.map((inst) => {
-              const detail = formatInstrumentRangeDetail(inst, functionKey);
+              const detail = formatInstrumentRangeDetail(inst);
               return (
                 <div
                   key={inst.id}
@@ -2398,6 +2232,7 @@ export const EditableDescriptionCell = ({
                     >
                       {formatInstrumentIdentity(inst)}
                     </span>
+                    <small>{instrumentFunctions(inst).map(fn => fn.name).join(", ")}</small>
                     {detail && (
                       <span
                         style={{
@@ -3196,7 +3031,7 @@ const reorderInstrumentInSession = (
   const list = [...(sessionData[listKey] || [])];
   const candidates = list
     .map((item, index) =>
-      !functionKey || instrumentHasFunction(item, functionKey) ? index : -1,
+      !functionKey || instrumentHasMeasurementArea(item, functionKey) ? index : -1,
     )
     .filter((index) => index >= 0);
   const currentListIndex = list.findIndex(
@@ -5726,7 +5561,7 @@ export const resolveUutRangeHelper = (
 // headers interleaved with item rows carrying `functionKey` + `rowKey` (the bare
 // id for single-function instruments, `${functionKey}::${id}` for multi-function
 // ones so each subsection's range state is independent). Empty subsections are
-// emitted for user-added functions (session.functionGroups) with no instrument.
+// emitted for user-added functions (session.measurementAreaGroups) with no instrument.
 const budgetRangeSnapshot = (range = {}) => {
   const singleValue =
     range.value !== undefined && range.value !== null && range.value !== ""
@@ -5828,14 +5663,14 @@ export const buildFunctionGroupedRows = (
   kind = null,
   { includeEmptyGroups = true, onlyFunctionKey = null, fallbackItemIds = [] } = {},
 ) => {
-  const sessionFunctions = resolveSessionFunctions(sessionData, { kind });
+  const sessionFunctions = resolveSessionMeasurementAreas(sessionData, { kind });
   const fnByKey = new Map(sessionFunctions.map((fn) => [fn.key, fn]));
   const fnOrder = new Map(sessionFunctions.map((fn, index) => [fn.key, index]));
   const groups = new Map();
   const fallbackSet = new Set((fallbackItemIds || []).map(String));
 
   groupedItems.forEach((row) => {
-    const declared = instrumentFunctions(row.item);
+    const declared = instrumentMeasurementAreas(row.item);
     const seenFnKeys = new Set();
     let fnList = (
       declared.length
@@ -5847,7 +5682,7 @@ export const buildFunctionGroupedRows = (
       return true;
     });
     if (onlyFunctionKey) {
-      const matchingKey = matchingInstrumentFunctionKey(row.item, onlyFunctionKey);
+      const matchingKey = onlyFunctionKey;
       fnList = fnList.filter((fn) => fn.key === matchingKey || fn.key === onlyFunctionKey);
       if (fnList.length === 0 && fallbackSet.has(String(row.item?.id))) {
         const resolved = fnByKey.get(onlyFunctionKey);
@@ -5906,7 +5741,7 @@ export const buildFunctionGroupedRows = (
   });
 
   if (includeEmptyGroups) {
-    (sessionData.functionGroups || [])
+    (sessionData.measurementAreaGroups || [])
       .filter((fg) => !kind || !fg.kind || fg.kind === kind)
       .forEach((fg) => {
         const key = makeFunctionKey(fg.name, fg.unit);
@@ -5992,23 +5827,6 @@ const functionPartsMatch = (candidateName, candidateUnit, functionKey = null) =>
   if (candidateKey === functionKey) return true;
   if (!selectedName || functionNamePart(candidateKey) !== selectedName) return false;
   return functionUnitsMatch(selectedUnit, functionUnitPart(candidateKey));
-};
-
-const matchingInstrumentFunctionKey = (source = {}, functionKey = null) => {
-  if (!functionKey) return null;
-  const selectedName = functionNamePart(functionKey);
-  const selectedUnit = functionUnitPart(functionKey);
-  const functions = instrumentFunctions(source);
-  const exact = functions.find((fn) => fn.key === functionKey);
-  if (exact) return exact.key;
-
-  if (!selectedName) return null;
-  const nameMatch = functions.find((fn) => {
-    const candidateName = functionNamePart(fn.key);
-    if (candidateName !== selectedName) return false;
-    return functionUnitsMatch(selectedUnit, functionUnitPart(fn.key));
-  });
-  return nameMatch?.key || null;
 };
 
 const stableSpecString = (value) => {
@@ -6835,17 +6653,18 @@ const SummaryDashboard = ({
   keyboardShortcutsEnabled = true,
   onInstrumentSelection = () => {},
 }) => {
+  sessionData = useMemo(() => migrateMeasurementAreas(sessionData), [sessionData]);
   const latestSessionDataRef = useRef(sessionData);
   latestSessionDataRef.current = sessionData;
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
-  // Add Function picker: null | "uut" | "tmde" (which table's button opened it).
+  // Add Measurement Area picker: null | "uut" | "tmde" (which table's button opened it).
   const [addFunctionMenu, setAddFunctionMenu] = useState(null);
   const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
   const [editingCustomColumnKey, setEditingCustomColumnKey] = useState(null);
   const summaryFunctionColorByKey = useMemo(
     () =>
       new Map(
-        resolveSessionFunctions(sessionData).map((fn) => [fn.key, fn.color]),
+        resolveSessionMeasurementAreas(sessionData).map((fn) => [fn.key, fn.color]),
       ),
     [sessionData],
   );
@@ -7319,7 +7138,7 @@ const SummaryDashboard = ({
     const sourceId = inst.sourceId || (inst.scope === "validated" ? inst.id : undefined);
     const shouldTrack = track || Boolean(sourceId);
     return {
-      ...(existing || {}),
+      ...inst,
       id: pickedLocalId || existing?.id || uuidv4(),
       manufacturer: inst.manufacturer || "",
       model: inst.model || "",
@@ -7344,70 +7163,39 @@ const SummaryDashboard = ({
 
   const applyPickedLibraryUut = (uutId, inst, options = {}) => {
     if (!onSessionSave) return;
-    const { areas, area } = ensureAreaForInstrument(
-      sessionData.measurementAreas || [],
-      inst,
-    );
     let updatedItem = null;
-    const updatedUuts = (sessionData.uuts || []).map((u) =>
-      u.id === uutId
-        ? (updatedItem = {
-            ...u,
-            // Name is the optional third identity field. Do not substitute the
-            // generated Mfr./Model display label here: doing so turned a
-            // manufacturer-only local instrument such as "TEST" into
-            // Mfr.="TEST", Name="TEST" when it was imported elsewhere.
-            description: inst.description || "",
-            libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
-            ...(area
-              ? {
-                  measurementAreaId: area.id,
-                  measurementArea: area.name,
-                  measurementAreaColor: area.color,
-                }
-              : {}),
-            instrument: instrumentDefFromLibrary(u.instrument, inst, options),
-          })
-        : u,
-    );
-    onSessionSave({ ...sessionData, measurementAreas: areas, uuts: updatedUuts });
-    if (updatedItem && (!options.track || options.saveLocal)) saveItemInstrumentToLocalLibrary("uut", updatedItem);
+    const uuts = (sessionData.uuts || []).map(item => item.id === uutId
+      ? (updatedItem = {
+          ...item,
+          description: inst.description || "",
+          ranges: undefined,
+          libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
+          instrument: instrumentDefFromLibrary(item.instrument, inst, options),
+        })
+      : item);
+    onSessionSave({ ...sessionData, uuts });
+    if (updatedItem && (!options.track || options.saveLocal))
+      saveItemInstrumentToLocalLibrary("uut", updatedItem);
   };
 
   const applyPickedLibraryTmde = (tmdeId, inst, options = {}) => {
     if (!onSessionSave) return;
-    const { areas, area } = ensureAreaForInstrument(
-      sessionData.measurementAreas || [],
-      inst,
-      { hiddenFromSidebar: true },
-    );
     let updatedItem = null;
-    const updatedTmdes = (sessionData.tmdes || []).map((t) =>
-      t.id === tmdeId
-        ? (updatedItem = {
-            ...t,
-            name: inst.description || "",
-            isInstrumentBased: true,
-            libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
-            ...(area
-              ? { measurementAreaId: area.id, measurementArea: area.name }
-              : {}),
-            instrument: {
-              ...instrumentDefFromLibrary(t.instrument, inst, options),
-              // TMDE grouping keys off the nested instrument's area name.
-              measurementArea: area ? area.name : inst.measurementArea || "",
-              measurementAreaColor: area
-                ? area.color
-                : inst.measurementAreaColor || "",
-            },
-          })
-        : t,
-    );
-    onSessionSave({ ...sessionData, measurementAreas: areas, tmdes: updatedTmdes });
-    if (updatedItem && (!options.track || options.saveLocal)) saveItemInstrumentToLocalLibrary("tmde", updatedItem);
+    const tmdes = (sessionData.tmdes || []).map(item => item.id === tmdeId
+      ? (updatedItem = {
+          ...item,
+          name: inst.description || "", isInstrumentBased: true,
+          ranges: undefined,
+          libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
+          instrument: instrumentDefFromLibrary(item.instrument, inst, options),
+        })
+      : item);
+    onSessionSave({ ...sessionData, tmdes });
+    if (updatedItem && (!options.track || options.saveLocal))
+      saveItemInstrumentToLocalLibrary("tmde", updatedItem);
   };
 
-  const promptLibraryPick = (kind, itemId, inst, functionKey = null) => {
+  const promptLibraryPick = (kind, itemId, inst) => {
     // Load exactly the entry the user picked — never silently substitute a
     // diverged local copy for the shared one (or vice-versa). Picking the
     // shared (validated) entry gives the in-sync version; picking a local entry
@@ -7416,87 +7204,13 @@ const SummaryDashboard = ({
     const options = isShared
       ? { track: true, localCopy: false }
       : { track: Boolean(inst.sourceId) };
-    const fallbackFn = functionKey
-      ? resolveSessionFunctions(sessionData, { kind }).find((fn) => fn.key === functionKey)
-      : null;
-    const scopedInst = scopeLibraryInstrumentToFunction(inst, functionKey, fallbackFn);
-    if (kind === "uut") applyPickedLibraryUut(itemId, scopedInst, options);
-    else applyPickedLibraryTmde(itemId, scopedInst, options);
-  };
-
-  // --- Reassign an instrument to a different measurement area ---
-  // UUT area lives on the session row; TMDE grouping keys off the nested
-  // instrument's area name, so update both there. A freshly added inline row is
-  // pinned to the top of the table; once it has an area it must flow into that
-  // area's subsection, so we drop the pin here too — otherwise the row stays
-  // stranded above the groups and never appears to "move" into the area.
-  // Moving a shared (in-sync) instrument to a different area detaches it from
-  // the shared definition: keep the link (sourceId/snapshot) so it can be
-  // re-synced, but force it out of sync. Already-local instruments are left as
-  // they are. Only invoked when `markLocal` is requested (drag-and-drop).
-  const markInstrumentLocalIfShared = (instrument) => {
-    if (!instrument) return instrument;
-    if (computeSyncState(instrument) !== "green") return instrument;
-    return {
-      ...instrument,
-      scope: "local",
-      sourceId:
-        instrument.sourceId ||
-        (instrument.scope === "validated" ? instrument.id : undefined),
-      validatedSnapshot:
-        instrument.validatedSnapshot || buildValidatedSnapshot(instrument),
-      localOverride: true,
-    };
-  };
-
-  const handleChangeUutArea = (uutId, areaId, { markLocal = false } = {}) => {
-    if (!onSessionSave) return;
-    const area = (sessionData.measurementAreas || []).find(
-      (a) => String(a.id) === String(areaId),
-    );
-    const updatedUuts = (sessionData.uuts || []).map((u) =>
-      u.id === uutId
-        ? {
-            ...u,
-            measurementAreaId: area ? area.id : "",
-            measurementArea: area ? area.name : "",
-            measurementAreaColor: area ? area.color : "",
-            instrument: markLocal
-              ? markInstrumentLocalIfShared(u.instrument)
-              : u.instrument,
-          }
-        : u,
-    );
-    setPinnedInlineUutIds((prev) => prev.filter((id) => id !== uutId));
-    onSessionSave({ ...sessionData, uuts: updatedUuts });
-  };
-  const handleChangeTmdeArea = (tmdeId, areaId, { markLocal = false } = {}) => {
-    if (!onSessionSave) return;
-    const area = (sessionData.measurementAreas || []).find(
-      (a) => String(a.id) === String(areaId),
-    );
-    const updatedTmdes = (sessionData.tmdes || []).map((t) => {
-      if (t.id !== tmdeId) return t;
-      const withArea = {
-        ...(t.instrument || {}),
-        measurementArea: area ? area.name : "",
-        measurementAreaColor: area ? area.color : "",
-      };
-      return {
-        ...t,
-        measurementAreaId: area ? area.id : "",
-        measurementArea: area ? area.name : "",
-        instrument: markLocal ? markInstrumentLocalIfShared(withArea) : withArea,
-      };
-    });
-    setPinnedInlineTmdeIds((prev) => prev.filter((id) => id !== tmdeId));
-    onSessionSave({ ...sessionData, tmdes: updatedTmdes });
+    if (kind === "uut") applyPickedLibraryUut(itemId, inst, options);
+    else applyPickedLibraryTmde(itemId, inst, options);
   };
 
   // --- Drag a UUT/TMDE row between table groupings ---
-  // Area drops continue to move the session row. Function drops are additive:
-  // they append a blank destination function without touching the source
-  // function's ranges or tolerances.
+  // Area drops are additive: the row also appears in the destination area,
+  // retaining the complete instrument definition in both places.
   const [draggingInstrumentId, setDraggingInstrumentId] = useState(null);
   const [dragOverFunctionTarget, setDragOverFunctionTarget] = useState(null);
   const handleInstrumentDragStart = (kind, item, sourceFunctionKey = null) => (e) => {
@@ -7534,18 +7248,9 @@ const SummaryDashboard = ({
     );
     return area ? area.id : "";
   };
-  const handleInstrumentDropOnArea = (kind, targetAreaId) => (e) => {
-    e.preventDefault();
-    let payload = null;
-    try {
-      payload = JSON.parse(e.dataTransfer.getData("text/plain"));
-    } catch {
-      payload = null;
-    }
-    setDraggingInstrumentId(null);
-    if (!payload || payload.kind !== kind) return;
-    if (kind === "uut") handleChangeUutArea(payload.id, targetAreaId, { markLocal: true });
-    else handleChangeTmdeArea(payload.id, targetAreaId, { markLocal: true });
+  const handleInstrumentDropOnArea = (kind, areaKey) => (event) => {
+    const area = resolveSessionMeasurementAreas(sessionData, { kind }).find(a => a.key === areaKey);
+    if (area) handleInstrumentDropOnFunction(kind, area)(event);
   };
 
   const handleInstrumentDragOverFunction = (kind, fn) => (event) => {
@@ -7573,7 +7278,7 @@ const SummaryDashboard = ({
     let changed = false;
     const nextRows = (sessionData[listKey] || []).map((row) => {
       if (!sameId(row.id, payload.id)) return row;
-      const next = addBlankFunctionToInstrument(
+      const next = addInstrumentMeasurementArea(
         row,
         targetFunction,
         payload.sourceFunctionKey,
@@ -7591,84 +7296,6 @@ const SummaryDashboard = ({
     }
   };
 
-  // Create a new measurement area inline from the area control and assign it,
-  // so a new instrument can define its own area without a sidebar round-trip.
-  const handleCreateUutArea = (uutId, name) => {
-    if (!onSessionSave) return;
-    const trimmed = (name || "").trim();
-    if (!trimmed) return;
-    const { areas, area } = ensureAreaForInstrument(
-      sessionData.measurementAreas || [],
-      { measurementArea: trimmed },
-      { hiddenFromSidebar: true },
-    );
-    if (!area) return;
-    const updatedUuts = (sessionData.uuts || []).map((u) =>
-      u.id === uutId
-        ? {
-            ...u,
-            measurementAreaId: area.id,
-            measurementArea: area.name,
-            measurementAreaColor: area.color,
-          }
-        : u,
-    );
-    setPinnedInlineUutIds((prev) => prev.filter((id) => id !== uutId));
-    onSessionSave({ ...sessionData, measurementAreas: areas, uuts: updatedUuts });
-  };
-  const handleCreateTmdeArea = (tmdeId, name) => {
-    if (!onSessionSave) return;
-    const trimmed = (name || "").trim();
-    if (!trimmed) return;
-    const { areas, area } = ensureAreaForInstrument(
-      sessionData.measurementAreas || [],
-      { measurementArea: trimmed },
-    );
-    if (!area) return;
-    const updatedTmdes = (sessionData.tmdes || []).map((t) =>
-      t.id === tmdeId
-        ? {
-            ...t,
-            measurementAreaId: area.id,
-            measurementArea: area.name,
-            instrument: {
-              ...(t.instrument || {}),
-              measurementArea: area.name,
-              measurementAreaColor: area.color,
-            },
-          }
-        : t,
-    );
-    setPinnedInlineTmdeIds((prev) => prev.filter((id) => id !== tmdeId));
-    onSessionSave({ ...sessionData, measurementAreas: areas, tmdes: updatedTmdes });
-  };
-
-  const handleCommitUutAreaName = (uutId, rawName) => {
-    const trimmed = String(rawName || "").trim();
-    if (!trimmed || trimmed.toLowerCase() === "unassigned") {
-      handleChangeUutArea(uutId, "");
-      return;
-    }
-    const existing = (sessionData.measurementAreas || []).find(
-      (area) => String(area.name || "").toLowerCase() === trimmed.toLowerCase(),
-    );
-    if (existing) handleChangeUutArea(uutId, existing.id);
-    else handleCreateUutArea(uutId, trimmed);
-  };
-
-  const handleCommitTmdeAreaName = (tmdeId, rawName) => {
-    const trimmed = String(rawName || "").trim();
-    if (!trimmed || trimmed.toLowerCase() === "unassigned") {
-      handleChangeTmdeArea(tmdeId, "");
-      return;
-    }
-    const existing = (sessionData.measurementAreas || []).find(
-      (area) => String(area.name || "").toLowerCase() === trimmed.toLowerCase(),
-    );
-    if (existing) handleChangeTmdeArea(tmdeId, existing.id);
-    else handleCreateTmdeArea(tmdeId, trimmed);
-  };
-
   const setRangeToleranceComponent = (kind, item, activeRange, typeKey, component) => {
     if (!onSessionSave) return;
     const rangeKey = rangeIdOf(activeRange);
@@ -7680,9 +7307,9 @@ const SummaryDashboard = ({
     persistInlineItem(kind, updatedItem);
   };
 
-  // --- Add Function workflow ---
+  // --- Add Measurement Area workflow ---
   // Register a function as a subsection (even before any instrument uses it) by
-  // recording it in session.functionGroups. getGroupedInstrumentRows then renders
+  // recording it in session.measurementAreaGroups. getGroupedInstrumentRows then renders
   // an empty subsection whose (+) lets the user add an instrument for it.
   const handleAddFunction = ({ name, unit }) => {
     if (!onSessionSave) return;
@@ -7690,8 +7317,8 @@ const SummaryDashboard = ({
     if (!clean) return;
     const kind = addFunctionMenu?.kind || null;
     const key = makeFunctionKey(clean, unit);
-    const existing = Array.isArray(sessionData.functionGroups)
-      ? sessionData.functionGroups
+    const existing = Array.isArray(sessionData.measurementAreaGroups)
+      ? sessionData.measurementAreaGroups
       : [];
     if (
       existing.some(
@@ -7705,7 +7332,7 @@ const SummaryDashboard = ({
     }
     onSessionSave({
       ...sessionData,
-      functionGroups: [
+      measurementAreaGroups: [
         ...existing,
         { name: clean, unit: String(unit || "").trim(), ...(kind ? { kind } : {}) },
       ],
@@ -7714,62 +7341,30 @@ const SummaryDashboard = ({
     setNewFunctionDraft({ name: "", unit: "" });
   };
 
-  // Add a blank instrument already scoped to one function, so it lands in that
-  // subsection. The user fills in make/model (or picks from the library via the
-  // Description cell). A new instrument's function is the subsection's function.
+  // Start a blank row in the chosen area. Its eventual instrument functions
+  // are independent of this session-only assignment.
   const handleAddInstrumentToFunction = (kind, fn) => {
     if (!onSessionSave) return;
-    const fnDef = {
-      name: fn.name,
-      unit: fn.unit,
-      units: fn.units || (fn.unit ? [fn.unit] : []),
-      // Start with one unbounded specification row. The Range cell remains
-      // visually blank, while Tolerance is immediately editable and applies
-      // to every value until the user chooses finite bounds.
-      ranges: [
-        {
-          id: uuidv4(),
-          min: "",
-          max: "",
-          unit: fn.unit || "",
-          resolution: "",
-          tolerances: {},
-        },
-      ],
+    const item = {
+      id: uuidv4(), name: "", description: "", measurementAreaNames: [fn.name],
+      ...(kind === "tmde" ? { quantity: 1, assetId: "", isInstrumentBased: false } : {}),
+      instrument: { id: uuidv4(), manufacturer: "", model: "", description: "",
+        functions: [{ name: "", unit: "", ranges: [{ id: uuidv4(), min: "", max: "", unit: "", resolution: "", tolerances: {} }] }] },
     };
-    const instrument = {
-      id: uuidv4(),
-      manufacturer: "",
-      model: "",
-      description: "",
-      functions: [fnDef],
-    };
-    if (kind === "uut") {
-      const newUut = { id: uuidv4(), name: "", description: "", instrument };
-      onSessionSave({ ...sessionData, uuts: [...(sessionData.uuts || []), newUut] });
-    } else {
-      const newTmde = {
-        id: uuidv4(),
-        name: "",
-        quantity: 1,
-        assetId: "",
-        isInstrumentBased: false,
-        instrument,
-      };
-      onSessionSave({ ...sessionData, tmdes: [...(sessionData.tmdes || []), newTmde] });
-    }
+    const key = kind === "uut" ? "uuts" : "tmdes";
+    onSessionSave({ ...sessionData, [key]: [...(sessionData[key] || []), item] });
   };
 
-  // Remove the function and its scoped instruments/points after one explicit
-  // confirmation; multi-function instruments retain their other definitions.
+  // Remove this area and its scoped rows/points. Instruments assigned to
+  // other areas retain their complete definitions.
   const handleDeleteFunction = (fn) => {
     if (!onSessionSave) return;
-    const dependencies = getFunctionDependencies(sessionData, fn);
+    const dependencies = getMeasurementAreaDependencies(sessionData, fn);
     confirmViaNotification(setNotification, {
       title: `Delete ${fn.name || "Function"}`,
-      message: getFunctionDeletionConfirmationMessage(dependencies, fn),
+      message: getMeasurementAreaDeletionConfirmationMessage(dependencies, fn),
       confirmText: "Delete",
-      onConfirm: () => onSessionSave(deleteFunctionCascade(sessionData, fn)),
+      onConfirm: () => onSessionSave(deleteMeasurementArea(sessionData, fn)),
     });
   };
 
@@ -7991,11 +7586,11 @@ const SummaryDashboard = ({
   };
 
   // ----- Function subsections (the table's grouping axis) -----
-  // A function's color/name live in session.functionGroups, the same source the
+  // A function's color/name live in session.measurementAreaGroups, the same source the
   // sidebar reads, so a recolor/rename here is reflected in the sidebar tree.
   const upsertFunctionGroup = (fnKey, patch) => {
-    const existing = Array.isArray(sessionData.functionGroups)
-      ? sessionData.functionGroups
+    const existing = Array.isArray(sessionData.measurementAreaGroups)
+      ? sessionData.measurementAreaGroups
       : [];
     const patchKind = patch.kind || null;
     let found = false;
@@ -8018,8 +7613,8 @@ const SummaryDashboard = ({
     // Sync color across BOTH kinds: a function shared by a TMDE and a UUT keeps a
     // single color so the two surfaces read as one organized group. Update every
     // stored entry matching this function key regardless of kind.
-    const existing = Array.isArray(sessionData.functionGroups)
-      ? sessionData.functionGroups
+    const existing = Array.isArray(sessionData.measurementAreaGroups)
+      ? sessionData.measurementAreaGroups
       : [];
     let found = false;
     let next = existing.map((fg) => {
@@ -8041,64 +7636,14 @@ const SummaryDashboard = ({
         },
       ];
     }
-    onSessionSave({ ...sessionData, functionGroups: next });
+    onSessionSave({ ...sessionData, measurementAreaGroups: next });
   };
 
-  // Rename a function across every surface: the stored function-group metadata,
-  // the function name on each instrument that declares it, and the parameter
-  // name on each test point that belongs to it. Keeps the sidebar in sync.
+  // Rename organization across tables and sidebar without changing specifications.
   const handleFunctionRename = (fn, rawName) => {
-    if (!onSessionSave) return;
     const name = String(rawName || "").trim();
-    if (!name || name === fn.name) return;
-
-    const renameInstruments = (list = []) =>
-      list.map((item) => {
-        const inst = item.instrument || item;
-        const fns = Array.isArray(inst.functions) ? inst.functions : null;
-        if (!fns) return item;
-        let changed = false;
-        const nextFns = fns.map((f) => {
-          if (makeFunctionKey(f.name, f.unit) === fn.key) {
-            changed = true;
-            return { ...f, name };
-          }
-          return f;
-        });
-        if (!changed) return item;
-        return item.instrument
-          ? { ...item, instrument: { ...inst, functions: nextFns } }
-          : { ...item, functions: nextFns };
-      });
-
-    const nextPoints =
-      fn.kind === "tmde"
-        ? sessionData.testPoints
-        : (sessionData.testPoints || []).map((tp) => {
-            if (functionKeyOf(tp) !== fn.key) return tp;
-            const parameter = tp.testPointInfo?.parameter || {};
-            return {
-              ...tp,
-              testPointInfo: {
-                ...(tp.testPointInfo || {}),
-                parameter: { ...parameter, name },
-              },
-            };
-          });
-
-    onSessionSave({
-      ...sessionData,
-      functionGroups: upsertFunctionGroup(fn.key, {
-        name,
-        unit: fn.unit,
-        units: fn.units || (fn.unit ? [fn.unit] : []),
-        color: fn.color,
-        ...(fn.kind ? { kind: fn.kind } : {}),
-      }),
-      uuts: fn.kind === "tmde" ? sessionData.uuts : renameInstruments(sessionData.uuts),
-      tmdes: fn.kind === "uut" ? sessionData.tmdes : renameInstruments(sessionData.tmdes),
-      testPoints: nextPoints,
-    });
+    if (onSessionSave && name && name !== fn.name)
+      onSessionSave(renameMeasurementArea(sessionData, fn, name));
   };
 
   const renderFunctionColorSwatch = (fn) => {
@@ -8118,7 +7663,7 @@ const SummaryDashboard = ({
     if (!onSessionSave) return <span style={dotStyle} />;
     return (
       <label
-        title="Change function color"
+        title="Change measurement area color"
         onClick={(e) => e.stopPropagation()}
         style={{
           ...dotStyle,
@@ -8172,8 +7717,8 @@ const SummaryDashboard = ({
           }
         }}
         onBlur={(e) => handleFunctionRename(fn, e.currentTarget.textContent)}
-        title="Edit function name"
-        aria-label="Function subsection name"
+        title="Edit measurement area name"
+        aria-label="Measurement area subsection name"
         role="textbox"
         style={{ color: fn.color }}
       >
@@ -8191,7 +7736,7 @@ const SummaryDashboard = ({
     ) : null;
   };
 
-  // Per-subsection (+) — adds an instrument already scoped to this function.
+  // Per-area (+) starts a blank row with an explicit area assignment.
   // Styled to match the column-header range add/delete controls for a cohesive,
   // tidy look across every table.
   const renderFunctionAddButton = (kind, fn) => {
@@ -8201,8 +7746,8 @@ const SummaryDashboard = ({
         type="button"
         className="btn-add-item btn-add-column function-header-action-btn"
         data-tour={`${kind}-add-instrument`}
-        title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
-        aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
+        title={`Add ${kind === "uut" ? "UUT" : "TMDE"} to this measurement area`}
+        aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} to this measurement area`}
         onClick={(e) => {
           e.stopPropagation();
           handleAddInstrumentToFunction(kind, fn);
@@ -8241,8 +7786,8 @@ const SummaryDashboard = ({
       <button
         type="button"
         className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
-        title="Delete Function"
-        aria-label="Delete Function"
+        title="Delete Measurement Area"
+        aria-label="Delete Measurement Area"
         onClick={(e) => {
           e.stopPropagation();
           handleDeleteFunction(fn);
@@ -8269,8 +7814,8 @@ const SummaryDashboard = ({
       <button
         type="button"
         className="function-header-collapse-btn"
-        title={collapsed ? "Expand function instruments" : "Collapse function instruments"}
-        aria-label={collapsed ? "Expand function instruments" : "Collapse function instruments"}
+        title={collapsed ? "Expand measurement area instruments" : "Collapse measurement area instruments"}
+        aria-label={collapsed ? "Expand measurement area instruments" : "Collapse measurement area instruments"}
         aria-expanded={!collapsed}
         onClick={(e) => {
           e.stopPropagation();
@@ -8314,16 +7859,12 @@ const SummaryDashboard = ({
     </tr>
   );
 
-  // The "Add Function" picker opened from a table's header button: pick a
-  // function declared anywhere in the library, or define a brand-new one.
+  // The "Add Measurement Area" picker opened from a table's header button: pick a
+  // user-authored area already used in the session, or define a new one.
   const renderAddFunctionMenu = (kind) => {
     if (!addFunctionMenu || addFunctionMenu.kind !== kind) return null;
     const rect = addFunctionMenu.rect;
-    const available = functionsForLibrary([
-      ...(instruments || []),
-      ...(sessionData.uuts || []),
-      ...(sessionData.tmdes || []),
-    ]);
+    const available = resolveSessionMeasurementAreas(sessionData);
     const itemStyle = {
       display: "block",
       width: "100%",
@@ -8379,7 +7920,7 @@ const SummaryDashboard = ({
             padding: "2px 6px 6px",
           }}
         >
-          Add function
+          Add measurement area
         </div>
         {available.length > 0 ? (
           <div>
@@ -8402,7 +7943,7 @@ const SummaryDashboard = ({
           </div>
         ) : (
           <div style={{ padding: "6px 10px", opacity: 0.6, fontSize: "0.8em" }}>
-            No library or session instrument functions
+            Create a measurement area to organize your instruments
           </div>
         )}
         <div
@@ -8416,7 +7957,7 @@ const SummaryDashboard = ({
         >
           <input
             type="text"
-            placeholder="New function"
+            placeholder="New measurement area"
             value={newFunctionDraft.name}
             onChange={(e) =>
               setNewFunctionDraft((d) => ({ ...d, name: e.target.value }))
@@ -8441,8 +7982,8 @@ const SummaryDashboard = ({
             disabled={!newFunctionDraft.name.trim()}
             onClick={() => handleAddFunction(newFunctionDraft)}
             className="range-header-action-btn range-header-action-btn--add"
-            title="Add function"
-            aria-label="Add function"
+            title="Add measurement area"
+            aria-label="Add measurement area"
           >
             <FontAwesomeIcon icon={faPlus} size="xs" />
           </button>
@@ -8483,7 +8024,6 @@ const SummaryDashboard = ({
     window.addEventListener("keydown", clearSelection, true);
     return () => window.removeEventListener("keydown", clearSelection, true);
   }, [keyboardShortcutsEnabled, setSelectedUutIds]);
-
 
   // Keep the current selection through Add and through a delete confirmation.
   // Prune it only after the backing session rows have actually disappeared.
@@ -8608,7 +8148,6 @@ const SummaryDashboard = ({
     );
     return { item, ranges, activeRange };
   };
-
 
   // Industry Grade Highlighting State
   const [hoveredCell, setHoveredCell] = useState({
@@ -9277,7 +8816,6 @@ const SummaryDashboard = ({
     }
   };
 
-
   const openInstrumentRowMenu = (e, kind, item) => {
     if (!onSessionSave) return;
     e.preventDefault();
@@ -9568,9 +9106,9 @@ const SummaryDashboard = ({
                   m && m.kind === "uut" ? null : { kind: "uut", rect },
                 );
               }}
-              title="Add Function"
+              title="Add Measurement Area"
             >
-              <span>Add Function</span>
+              <span>Add Measurement Area</span>
             </button>
             {renderAddFunctionMenu("uut")}
           </div>
@@ -9609,7 +9147,7 @@ const SummaryDashboard = ({
               {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={5 + customColumnsFor("uut").length}>
-                    Add a UUT using Add Instrument in the function header.
+                    Add a UUT using Add Instrument in the measurement area header.
                   </td>
                 </tr>
               ) : (
@@ -9632,7 +9170,7 @@ const SummaryDashboard = ({
                     { [uut.id]: localRangeIndices[uutRowKey] },
                     null,
                     null,
-                    uutFnKey,
+                    null,
                   );
 
                   if (
@@ -9743,10 +9281,10 @@ const SummaryDashboard = ({
                                     nickname={uut.nickname}
                                     make={uut.instrument?.manufacturer}
                                     model={uut.instrument?.model}
-                                    functionKey={uutFnKey}
+
                                     instruments={instruments}
                                     onPickLibrary={(inst) =>
-                                      promptLibraryPick("uut", uut.id, inst, uutFnKey)
+                                      promptLibraryPick("uut", uut.id, inst)
                                     }
                                     onCommit={(field, value) =>
                                       handleUutDescriptionEdit(uut.id, field, value)
@@ -9802,7 +9340,7 @@ const SummaryDashboard = ({
                         onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
                         onDrop={
                           showAreaColumn
-                            ? handleInstrumentDropOnArea("uut", resolveItemAreaId("uut", uut))
+                            ? handleInstrumentDropOnArea("uut", uutFnKey)
                             : undefined
                         }
                         style={functionRowStyle(uutFnKey, {
@@ -9830,10 +9368,10 @@ const SummaryDashboard = ({
                               nickname={uut.nickname}
                               make={uut.instrument?.manufacturer}
                               model={uut.instrument?.model}
-                              functionKey={uutFnKey}
+
                               instruments={instruments}
                               onPickLibrary={(inst) =>
-                                promptLibraryPick("uut", uut.id, inst, uutFnKey)
+                                promptLibraryPick("uut", uut.id, inst)
                               }
                               onCommit={(field, value) =>
                                 handleUutDescriptionEdit(uut.id, field, value)
@@ -10107,9 +9645,9 @@ const SummaryDashboard = ({
                   m && m.kind === "tmde" ? null : { kind: "tmde", rect },
                 );
               }}
-              title="Add Function"
+              title="Add Measurement Area"
             >
-              <span>Add Function</span>
+              <span>Add Measurement Area</span>
             </button>
             {renderAddFunctionMenu("tmde")}
           </div>
@@ -10148,7 +9686,7 @@ const SummaryDashboard = ({
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={6 + customColumnsFor("tmde").length}>
-                    Add a TMDE using Add Instrument in the function header.
+                    Add a TMDE using Add Instrument in the measurement area header.
                   </td>
                 </tr>
               ) : (
@@ -10170,7 +9708,7 @@ const SummaryDashboard = ({
                     { [tmde.id]: tmdeRangeIndices[tmdeRowKey] },
                     null,
                     null,
-                    tmdeFnKey,
+                    null,
                   );
                   const { ranges, activeIndex, activeRange } = resolution;
                   const activeTolerance =
@@ -10242,10 +9780,10 @@ const SummaryDashboard = ({
                                     nickname={tmde.nickname}
                                     make={tmde.instrument?.manufacturer}
                                     model={tmde.instrument?.model}
-                                    functionKey={tmdeFnKey}
+
                                     instruments={instruments}
                                     onPickLibrary={(inst) =>
-                                      promptLibraryPick("tmde", tmde.id, inst, tmdeFnKey)
+                                      promptLibraryPick("tmde", tmde.id, inst)
                                     }
                                     onCommit={(field, value) =>
                                       handleTmdeDescriptionEdit(tmde.id, field, value)
@@ -10301,7 +9839,7 @@ const SummaryDashboard = ({
                         onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
                         onDrop={
                           showAreaColumn
-                            ? handleInstrumentDropOnArea("tmde", resolveItemAreaId("tmde", tmde))
+                            ? handleInstrumentDropOnArea("tmde", tmdeFnKey)
                             : undefined
                         }
                         style={functionRowStyle(tmdeFnKey, {
@@ -10329,10 +9867,10 @@ const SummaryDashboard = ({
                               nickname={tmde.nickname}
                               make={tmde.instrument?.manufacturer}
                               model={tmde.instrument?.model}
-                              functionKey={tmdeFnKey}
+
                               instruments={instruments}
                               onPickLibrary={(inst) =>
-                                promptLibraryPick("tmde", tmde.id, inst, tmdeFnKey)
+                                promptLibraryPick("tmde", tmde.id, inst)
                               }
                               onCommit={(field, value) =>
                                 handleTmdeDescriptionEdit(tmde.id, field, value)
@@ -10785,6 +10323,7 @@ function DetailedView({
   keyboardShortcutsEnabled = true,
   onInstrumentSelection = () => {},
 }) {
+  sessionData = useMemo(() => migrateMeasurementAreas(sessionData), [sessionData]);
   const latestSessionDataRef = useRef(sessionData);
   latestSessionDataRef.current = sessionData;
   const [isSymbolMenuOpen, setIsSymbolMenuOpen] = useState(false);
@@ -11077,7 +10616,7 @@ function DetailedView({
     let changed = false;
     const nextRows = (sessionData[listKey] || []).map((row) => {
       if (!sameId(row.id, payload.id)) return row;
-      const next = addBlankFunctionToInstrument(
+      const next = addInstrumentMeasurementArea(
         row,
         targetFunction,
         payload.sourceFunctionKey,
@@ -11750,7 +11289,7 @@ function DetailedView({
     const sourceId = inst.sourceId || (inst.scope === "validated" ? inst.id : undefined);
     const shouldTrack = track || Boolean(sourceId);
     return {
-      ...(existing || {}),
+      ...inst,
       id: pickedLocalId || existing?.id || uuidv4(),
       manufacturer: inst.manufacturer || "",
       model: inst.model || "",
@@ -11773,98 +11312,38 @@ function DetailedView({
     "Instrument";
   const applyPickedLibraryUut = (uutId, inst, options = {}) => {
     if (!onSessionSave) return;
-    // Keep the UUT in its current measurement area instead of relocating it to
-    // the library instrument's stored area — a picked library instrument should
-    // not silently move the UUT to a different area group. Adopt the library
-    // area only if the UUT is currently unassigned.
-    const currentUut = (sessionData.uuts || []).find((u) => u.id === uutId);
-    const hasExistingArea = !!(
-      currentUut?.measurementAreaId || currentUut?.measurementArea
-    );
-    const { areas, area } = hasExistingArea
-      ? { areas: sessionData.measurementAreas || [], area: null }
-      : ensureAreaForInstrument(sessionData.measurementAreas || [], inst);
     let updatedItem = null;
-    const updatedUuts = (sessionData.uuts || []).map((u) =>
-      u.id === uutId
-        ? (updatedItem = {
-            ...u,
-            description: inst.description || "",
-            libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
-            ...(area
-              ? {
-                  measurementAreaId: area.id,
-                  measurementArea: area.name,
-                  measurementAreaColor: area.color,
-                }
-              : {}),
-            instrument: instrumentDefFromLibrary(u.instrument, inst, options),
-          })
-        : u,
-    );
-    onSessionSave({ ...sessionData, measurementAreas: areas, uuts: updatedUuts });
+    const uuts = (sessionData.uuts || []).map(item => item.id === uutId
+      ? (updatedItem = {
+          ...item,
+          description: inst.description || "",
+          ranges: undefined,
+          libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
+          instrument: instrumentDefFromLibrary(item.instrument, inst, options),
+        })
+      : item);
+    onSessionSave({ ...sessionData, uuts });
     if (updatedItem && (!options.track || options.saveLocal))
       saveItemInstrumentToLocalLibrary("uut", updatedItem);
   };
   const applyPickedLibraryTmde = (tmdeId, inst, options = {}) => {
     if (!onSessionSave) return;
-    // Keep the TMDE in its current measurement area (see applyPickedLibraryUut):
-    // the detail table renders relevantTmdes filtered by the active area, so
-    // relocating it to the library instrument's area would hide the row here and
-    // only show it in the Session Overview. Adopt the library area if unassigned.
-    const currentTmde = (sessionData.tmdes || []).find((t) => t.id === tmdeId);
-    const hasExistingArea = !!(currentTmde?.measurementAreaId || currentTmde?.measurementArea);
-    const hasCategory = !!currentTmde?.instrument?.measurementArea;
-    const { areas, area } = hasExistingArea || hasCategory
-      ? { areas: sessionData.measurementAreas || [], area: null }
-      : ensureAreaForInstrument(sessionData.measurementAreas || [], inst, {
-          hiddenFromSidebar: true,
-        });
-    const keepAreaName = hasExistingArea
-      ? currentTmde?.instrument?.measurementArea ||
-        currentTmde?.measurementArea ||
-        ""
-      : "";
-    const keepAreaColor = hasExistingArea
-      ? currentTmde?.instrument?.measurementAreaColor ||
-        currentTmde?.measurementAreaColor ||
-        ""
-      : "";
     let updatedItem = null;
-    const updatedTmdes = (sessionData.tmdes || []).map((t) =>
-      t.id === tmdeId
-        ? (updatedItem = {
-            ...t,
-            name: inst.description || "",
-            isInstrumentBased: true,
-            libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
-            ...(area
-              ? { measurementAreaId: area.id, measurementArea: area.name }
-              : {}),
-            instrument: {
-              ...instrumentDefFromLibrary(t.instrument, inst, options),
-              measurementArea: area
-                ? area.name
-                : keepAreaName || inst.measurementArea || "",
-              measurementAreaColor: area
-                ? area.color
-                : keepAreaColor || inst.measurementAreaColor || "",
-            },
-          })
-        : t,
-    );
-    onSessionSave({ ...sessionData, measurementAreas: areas, tmdes: updatedTmdes });
+    const tmdes = (sessionData.tmdes || []).map(item => item.id === tmdeId
+      ? (updatedItem = {
+          ...item,
+          name: inst.description || "", isInstrumentBased: true,
+          ranges: undefined,
+          libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
+          instrument: instrumentDefFromLibrary(item.instrument, inst, options),
+        })
+      : item);
+    onSessionSave({ ...sessionData, tmdes });
     if (updatedItem && (!options.track || options.saveLocal))
       saveItemInstrumentToLocalLibrary("tmde", updatedItem);
-    // Picking from the library is an inline edit too: rebuild this point's TMDE
-    // instance from the new master so the detail table (which renders the
-    // per-point instance for an assigned TMDE) and the risk calc reflect the
-    // loaded instrument. Without this the master updates (the Session Overview
-    // shows it) but the measurement-point row stays empty. Reselect the range so
-    // the picked instrument lands on a range that covers this point.
     if (updatedItem) refreshPointTmdeInstance(updatedItem, { reselectRange: true });
   };
-  const promptLibraryPick = (kind, itemId, inst, functionKey = null) => {
+  const promptLibraryPick = (kind, itemId, inst) => {
     // Load exactly the entry the user picked — never silently substitute a
     // diverged local copy for the shared one (or vice-versa). Picking the
     // shared (validated) entry gives the in-sync version; picking a local entry
@@ -11873,122 +11352,8 @@ function DetailedView({
     const options = isShared
       ? { track: true, localCopy: false }
       : { track: Boolean(inst.sourceId) };
-    const fallbackFn = functionKey
-      ? resolveSessionFunctions(sessionData, { kind }).find((fn) => fn.key === functionKey)
-      : null;
-    const scopedInst = scopeLibraryInstrumentToFunction(inst, functionKey, fallbackFn);
-    if (kind === "uut") applyPickedLibraryUut(itemId, scopedInst, options);
-    else applyPickedLibraryTmde(itemId, scopedInst, options);
-  };
-  const handleChangeUutArea = (uutId, areaId) => {
-    if (!onSessionSave) return;
-    const area = (sessionData.measurementAreas || []).find((a) => a.id === areaId);
-    const updatedUuts = (sessionData.uuts || []).map((u) =>
-      u.id === uutId
-        ? {
-            ...u,
-            measurementAreaId: area ? area.id : "",
-            measurementArea: area ? area.name : "",
-            measurementAreaColor: area ? area.color : "",
-          }
-        : u,
-    );
-    onSessionSave({ ...sessionData, uuts: updatedUuts });
-  };
-  const handleChangeTmdeArea = (tmdeId, areaId) => {
-    if (!onSessionSave) return;
-    const area = (sessionData.measurementAreas || []).find((a) => a.id === areaId);
-    const updatedTmdes = (sessionData.tmdes || []).map((t) =>
-      t.id === tmdeId
-        ? {
-            ...t,
-            measurementAreaId: area ? area.id : "",
-            measurementArea: area ? area.name : "",
-            instrument: {
-              ...(t.instrument || {}),
-              measurementArea: area ? area.name : "",
-              measurementAreaColor: area ? area.color : "",
-            },
-          }
-        : t,
-    );
-    onSessionSave({ ...sessionData, tmdes: updatedTmdes });
-  };
-
-  // Create a new measurement area inline from the area control and assign it,
-  // so a new instrument can define its own area without a sidebar round-trip.
-  const handleCreateUutArea = (uutId, name) => {
-    if (!onSessionSave) return;
-    const trimmed = (name || "").trim();
-    if (!trimmed) return;
-    const { areas, area } = ensureAreaForInstrument(
-      sessionData.measurementAreas || [],
-      { measurementArea: trimmed },
-      { hiddenFromSidebar: true },
-    );
-    if (!area) return;
-    const updatedUuts = (sessionData.uuts || []).map((u) =>
-      u.id === uutId
-        ? {
-            ...u,
-            measurementAreaId: area.id,
-            measurementArea: area.name,
-            measurementAreaColor: area.color,
-          }
-        : u,
-    );
-    onSessionSave({ ...sessionData, measurementAreas: areas, uuts: updatedUuts });
-  };
-  const handleCreateTmdeArea = (tmdeId, name) => {
-    if (!onSessionSave) return;
-    const trimmed = (name || "").trim();
-    if (!trimmed) return;
-    const { areas, area } = ensureAreaForInstrument(
-      sessionData.measurementAreas || [],
-      { measurementArea: trimmed },
-    );
-    if (!area) return;
-    const updatedTmdes = (sessionData.tmdes || []).map((t) =>
-      t.id === tmdeId
-        ? {
-            ...t,
-            measurementAreaId: area.id,
-            measurementArea: area.name,
-            instrument: {
-              ...(t.instrument || {}),
-              measurementArea: area.name,
-              measurementAreaColor: area.color,
-            },
-          }
-        : t,
-    );
-    onSessionSave({ ...sessionData, measurementAreas: areas, tmdes: updatedTmdes });
-  };
-
-  const handleCommitUutAreaName = (uutId, rawName) => {
-    const trimmed = String(rawName || "").trim();
-    if (!trimmed || trimmed.toLowerCase() === "unassigned") {
-      handleChangeUutArea(uutId, "");
-      return;
-    }
-    const existing = (sessionData.measurementAreas || []).find(
-      (area) => String(area.name || "").toLowerCase() === trimmed.toLowerCase(),
-    );
-    if (existing) handleChangeUutArea(uutId, existing.id);
-    else handleCreateUutArea(uutId, trimmed);
-  };
-
-  const handleCommitTmdeAreaName = (tmdeId, rawName) => {
-    const trimmed = String(rawName || "").trim();
-    if (!trimmed || trimmed.toLowerCase() === "unassigned") {
-      handleChangeTmdeArea(tmdeId, "");
-      return;
-    }
-    const existing = (sessionData.measurementAreas || []).find(
-      (area) => String(area.name || "").toLowerCase() === trimmed.toLowerCase(),
-    );
-    if (existing) handleChangeTmdeArea(tmdeId, existing.id);
-    else handleCreateTmdeArea(tmdeId, trimmed);
+    if (kind === "uut") applyPickedLibraryUut(itemId, inst, options);
+    else applyPickedLibraryTmde(itemId, inst, options);
   };
 
   // --- Range bounds / unit / resolution / add / remove ---
@@ -12818,23 +12183,9 @@ function DetailedView({
   const associatedUutIds = testPointData.associatedUutIds || [];
   const activePointUutId =
     testPointData.activeUutId || associatedUutIds[0] || null;
-  const activePointFunctionKey = functionKeyOf(testPointData);
+  const activePointFunctionKey = measurementAreaKeyOf(testPointData);
   const isPointRelevantFunction = useCallback(
-    (fn) => {
-      const pointName = functionNamePart(activePointFunctionKey)
-        .trim()
-        .toLowerCase();
-      const pointUnit = functionUnitPart(activePointFunctionKey);
-      const pointQuantity = unitSystem.getQuantity?.(pointUnit) || null;
-      const fnName = String(fn?.name || "").trim().toLowerCase();
-      const fnQuantity = unitSystem.getQuantity?.(fn?.unit || "") || null;
-      return (
-        !activePointFunctionKey ||
-        fn?.key === activePointFunctionKey ||
-        (pointName && fnName === pointName) ||
-        (pointQuantity && fnQuantity === pointQuantity)
-      );
-    },
+    fn => !activePointFunctionKey || fn?.key === activePointFunctionKey,
     [activePointFunctionKey],
   );
   const pointFunctionMatchesRow = useCallback(
@@ -12854,7 +12205,7 @@ function DetailedView({
   const detailFunctionColorByKey = useMemo(
     () =>
       new Map(
-        resolveSessionFunctions(sessionData).map((fn) => [fn.key, fn.color]),
+        resolveSessionMeasurementAreas(sessionData).map((fn) => [fn.key, fn.color]),
       ),
     [sessionData],
   );
@@ -12905,7 +12256,7 @@ function DetailedView({
             : activeRangeIndices,
         isActivePointUut ? uutToleranceData : null,
         uutNominal,
-        functionKey,
+        null,
       );
       return resolution;
     },
@@ -12917,8 +12268,8 @@ function DetailedView({
   const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
 
   const upsertFunctionGroupDetail = (fnKey, patch) => {
-    const existing = Array.isArray(sessionData.functionGroups)
-      ? sessionData.functionGroups
+    const existing = Array.isArray(sessionData.measurementAreaGroups)
+      ? sessionData.measurementAreaGroups
       : [];
     const patchKind = patch.kind || null;
     let found = false;
@@ -12941,8 +12292,8 @@ function DetailedView({
     // Sync color across BOTH kinds: a function shared by a TMDE and a UUT keeps a
     // single color so the two surfaces read as one organized group. Update every
     // stored entry matching this function key regardless of kind.
-    const existing = Array.isArray(sessionData.functionGroups)
-      ? sessionData.functionGroups
+    const existing = Array.isArray(sessionData.measurementAreaGroups)
+      ? sessionData.measurementAreaGroups
       : [];
     let found = false;
     let next = existing.map((fg) => {
@@ -12964,58 +12315,13 @@ function DetailedView({
         },
       ];
     }
-    onSessionSave({ ...sessionData, functionGroups: next });
+    onSessionSave({ ...sessionData, measurementAreaGroups: next });
   };
 
   const handleFunctionRename = (fn, rawName) => {
-    if (!onSessionSave) return;
     const name = String(rawName || "").trim();
-    if (!name || name === fn.name) return;
-    const renameInstruments = (list = []) =>
-      list.map((item) => {
-        const inst = item.instrument || item;
-        const fns = Array.isArray(inst.functions) ? inst.functions : null;
-        if (!fns) return item;
-        let changed = false;
-        const nextFns = fns.map((f) => {
-          if (makeFunctionKey(f.name, f.unit) === fn.key) {
-            changed = true;
-            return { ...f, name };
-          }
-          return f;
-        });
-        if (!changed) return item;
-        return item.instrument
-          ? { ...item, instrument: { ...inst, functions: nextFns } }
-          : { ...item, functions: nextFns };
-      });
-    const nextPoints =
-      fn.kind === "tmde"
-        ? sessionData.testPoints
-        : (sessionData.testPoints || []).map((tp) => {
-            if (functionKeyOf(tp) !== fn.key) return tp;
-            const parameter = tp.testPointInfo?.parameter || {};
-            return {
-              ...tp,
-              testPointInfo: {
-                ...(tp.testPointInfo || {}),
-                parameter: { ...parameter, name },
-              },
-            };
-          });
-    onSessionSave({
-      ...sessionData,
-      functionGroups: upsertFunctionGroupDetail(fn.key, {
-        name,
-        unit: fn.unit,
-        units: fn.units || (fn.unit ? [fn.unit] : []),
-        color: fn.color,
-        ...(fn.kind ? { kind: fn.kind } : {}),
-      }),
-      uuts: fn.kind === "tmde" ? sessionData.uuts : renameInstruments(sessionData.uuts),
-      tmdes: fn.kind === "uut" ? sessionData.tmdes : renameInstruments(sessionData.tmdes),
-      testPoints: nextPoints,
-    });
+    if (onSessionSave && name && name !== fn.name)
+      onSessionSave(renameMeasurementArea(sessionData, fn, name));
   };
 
   const handleAddFunction = ({ name, unit }) => {
@@ -13024,8 +12330,8 @@ function DetailedView({
     if (!clean) return;
     const kind = addFunctionMenu?.kind || null;
     const key = makeFunctionKey(clean, unit);
-    const existing = Array.isArray(sessionData.functionGroups)
-      ? sessionData.functionGroups
+    const existing = Array.isArray(sessionData.measurementAreaGroups)
+      ? sessionData.measurementAreaGroups
       : [];
     if (
       existing.some(
@@ -13039,7 +12345,7 @@ function DetailedView({
     }
     onSessionSave({
       ...sessionData,
-      functionGroups: [
+      measurementAreaGroups: [
         ...existing,
         { name: clean, unit: String(unit || "").trim(), ...(kind ? { kind } : {}) },
       ],
@@ -13050,50 +12356,24 @@ function DetailedView({
 
   const handleAddInstrumentToFunction = (kind, fn) => {
     if (!onSessionSave) return;
-    const instrument = {
-      id: uuidv4(),
-      manufacturer: "",
-      model: "",
-      description: "",
-      functions: [{
-        name: fn.name,
-        unit: fn.unit,
-        units: fn.units || (fn.unit ? [fn.unit] : []),
-        ranges: [],
-      }],
+    const item = {
+      id: uuidv4(), name: "", description: "", measurementAreaNames: [fn.name],
+      ...(kind === "tmde" ? { quantity: 1, assetId: "", isInstrumentBased: false } : {}),
+      instrument: { id: uuidv4(), manufacturer: "", model: "", description: "",
+        functions: [{ name: "", unit: "", ranges: [{ id: uuidv4(), min: "", max: "", unit: "", resolution: "", tolerances: {} }] }] },
     };
-    if (kind === "uut") {
-      const newUut = {
-        id: uuidv4(),
-        name: "",
-        description: "",
-        measurementAreaId: activeMeasurementAreaId || "",
-        measurementArea: activeMeasurementArea?.name || "",
-        measurementAreaColor: activeMeasurementArea?.color || "",
-        instrument,
-      };
-      onSessionSave({ ...sessionData, uuts: [...(sessionData.uuts || []), newUut] });
-    } else {
-      const newTmde = {
-        id: uuidv4(),
-        name: "",
-        quantity: 1,
-        assetId: "",
-        isInstrumentBased: false,
-        instrument,
-      };
-      onSessionSave({ ...sessionData, tmdes: [...(sessionData.tmdes || []), newTmde] });
-    }
+    const key = kind === "uut" ? "uuts" : "tmdes";
+    onSessionSave({ ...sessionData, [key]: [...(sessionData[key] || []), item] });
   };
 
   const handleDeleteFunction = (fn) => {
     if (!onSessionSave) return;
-    const dependencies = getFunctionDependencies(sessionData, fn);
+    const dependencies = getMeasurementAreaDependencies(sessionData, fn);
     confirmViaNotification(setNotification, {
       title: `Delete ${fn.name || "Function"}`,
-      message: getFunctionDeletionConfirmationMessage(dependencies, fn),
+      message: getMeasurementAreaDeletionConfirmationMessage(dependencies, fn),
       confirmText: "Delete",
-      onConfirm: () => onSessionSave(deleteFunctionCascade(sessionData, fn)),
+      onConfirm: () => onSessionSave(deleteMeasurementArea(sessionData, fn)),
     });
   };
 
@@ -13112,7 +12392,7 @@ function DetailedView({
     if (!onSessionSave) return <span style={dotStyle} />;
     return (
       <label
-        title="Change function color"
+        title="Change measurement area color"
         onClick={(e) => e.stopPropagation()}
         style={{
           ...dotStyle,
@@ -13164,8 +12444,8 @@ function DetailedView({
           }
         }}
         onBlur={(e) => handleFunctionRename(fn, e.currentTarget.textContent)}
-        title="Edit function name"
-        aria-label="Function subsection name"
+        title="Edit measurement area name"
+        aria-label="Measurement area subsection name"
         role="textbox"
         style={{ color: fn.color }}
       >
@@ -13189,8 +12469,8 @@ function DetailedView({
         type="button"
         className="btn-add-item btn-add-column function-header-action-btn"
         data-tour={`${kind}-add-instrument`}
-        title={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
-        aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} with this function`}
+        title={`Add ${kind === "uut" ? "UUT" : "TMDE"} to this measurement area`}
+        aria-label={`Add ${kind === "uut" ? "UUT" : "TMDE"} to this measurement area`}
         onClick={(e) => {
           e.stopPropagation();
           handleAddInstrumentToFunction(kind, fn);
@@ -13226,8 +12506,8 @@ function DetailedView({
       <button
         type="button"
         className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
-        title="Delete Function"
-        aria-label="Delete Function"
+        title="Delete Measurement Area"
+        aria-label="Delete Measurement Area"
         onClick={(e) => {
           e.stopPropagation();
           handleDeleteFunction(fn);
@@ -13257,8 +12537,8 @@ function DetailedView({
       <button
         type="button"
         className="function-header-collapse-btn"
-        title={collapsed ? "Expand function instruments" : "Collapse function instruments"}
-        aria-label={collapsed ? "Expand function instruments" : "Collapse function instruments"}
+        title={collapsed ? "Expand measurement area instruments" : "Collapse measurement area instruments"}
+        aria-label={collapsed ? "Expand measurement area instruments" : "Collapse measurement area instruments"}
         aria-expanded={!collapsed}
         onClick={(e) => {
           e.stopPropagation();
@@ -13309,11 +12589,7 @@ function DetailedView({
   const renderAddFunctionMenu = (kind) => {
     if (!addFunctionMenu || addFunctionMenu.kind !== kind) return null;
     const rect = addFunctionMenu.rect;
-    const available = functionsForLibrary([
-      ...(instruments || []),
-      ...(sessionData.uuts || []),
-      ...(sessionData.tmdes || []),
-    ]);
+    const available = resolveSessionMeasurementAreas(sessionData);
     const itemStyle = {
       display: "block",
       width: "100%",
@@ -13376,7 +12652,7 @@ function DetailedView({
               padding: "2px 6px 6px",
             }}
           >
-            Add function
+            Add measurement area
           </div>
           {available.length > 0 ? (
             <div>
@@ -13399,7 +12675,7 @@ function DetailedView({
             </div>
           ) : (
             <div style={{ padding: "6px 10px", opacity: 0.6, fontSize: "0.8em" }}>
-              No library or session instrument functions
+              Create a measurement area to organize your instruments
             </div>
           )}
           <div
@@ -13413,7 +12689,7 @@ function DetailedView({
           >
             <input
               type="text"
-              placeholder="New function"
+              placeholder="New measurement area"
               value={newFunctionDraft.name}
               onChange={(e) =>
                 setNewFunctionDraft((d) => ({ ...d, name: e.target.value }))
@@ -13429,8 +12705,8 @@ function DetailedView({
               disabled={!newFunctionDraft.name.trim()}
               onClick={() => handleAddFunction(newFunctionDraft)}
               className="range-header-action-btn range-header-action-btn--add"
-              title="Add function"
-              aria-label="Add function"
+              title="Add measurement area"
+              aria-label="Add measurement area"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
             </button>
@@ -13487,7 +12763,6 @@ function DetailedView({
   useEffect(() => {
     setIsEquationEditorOpen(false);
   }, [isDerived, testPointData?.id]);
-
 
   const relevantTmdes = useMemo(() => {
     // Detail view exposes the same TMDE inventory as Session Overview.
@@ -14334,11 +13609,6 @@ function DetailedView({
       const targetName = String(variableName || "").trim().toLowerCase();
       if (!targetName) return "";
 
-      const sessionFunction = resolveSessionFunctions(sessionData, {
-        kind: "tmde",
-      }).find((fn) => String(fn.name || "").trim().toLowerCase() === targetName);
-      if (sessionFunction?.unit) return sessionFunction.unit;
-
       for (const tmde of relevantTmdes) {
         const match = instrumentFunctions(tmde).find(
           (fn) => String(fn.name || "").trim().toLowerCase() === targetName,
@@ -14469,7 +13739,7 @@ function DetailedView({
         tmdeRangeIndices,
         baseInstance,
         rangeNominal,
-        functionKey,
+        null,
       );
       const activeRange = resolution.activeRange || {};
       const rangeSpecs = { ...activeRange };
@@ -14628,7 +13898,7 @@ function DetailedView({
           tmdeRangeIndices,
           null,
           isDerived ? null : uutNominal,
-          functionKey,
+          null,
         );
         const activeRange = resolution.activeRange || {};
         if (warnIfTmdeAccuracyIncomplete(activeRange)) return;
@@ -14812,7 +14082,7 @@ function DetailedView({
           scope?.nominalPoint?.unit || "",
         );
       }
-      return functionKeyOf(testPointData);
+      return makeFunctionKey(testPointData.testPointInfo?.parameter?.name);
     },
     [isDerived, testPointData],
   );
@@ -15995,14 +15265,14 @@ function DetailedView({
               }
               title={
                 showIrrelevantUutFunctions
-                  ? "Hide functions unrelated to this measurement point"
-                  : "Show all UUT functions"
+                  ? "Hide other measurement areas"
+                  : "Show all UUT measurement areas"
               }
               aria-pressed={showIrrelevantUutFunctions}
               aria-label={
                 showIrrelevantUutFunctions
-                  ? "Show only relevant UUT functions"
-                  : "Show all UUT functions"
+                  ? "Show this UUT measurement area"
+                  : "Show all UUT measurement areas"
               }
             >
               <FontAwesomeIcon
@@ -16018,9 +15288,9 @@ function DetailedView({
                   m && m.kind === "uut" ? null : { kind: "uut", rect },
                 );
               }}
-              title="Add Function"
+              title="Add Measurement Area"
             >
-              <span>Add Function</span>
+              <span>Add Measurement Area</span>
             </button>
             {renderAddFunctionMenu("uut")}
           </div>
@@ -16059,7 +15329,7 @@ function DetailedView({
               {visibleDetailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={5 + customColumnsFor("uut").length}>
-                    Add a UUT using Add Instrument in the function header.
+                    Add a UUT using Add Instrument in the measurement area header.
                   </td>
                 </tr>
               ) : (
@@ -16083,7 +15353,7 @@ function DetailedView({
                     isPointFunctionRow;
                   const isActivePointUut = isActivePointUutForFunction(
                     uut,
-                    uutFnKey,
+                    null,
                   );
                   const specRows = getUutSpecRows(activeRange);
                   const rowSpan = !onSessionSave && specRows.length > 0 ? specRows.length : 1;
@@ -16165,10 +15435,10 @@ function DetailedView({
                                       nickname={uut.nickname}
                                       make={uut.instrument?.manufacturer}
                                       model={uut.instrument?.model}
-                                      functionKey={uutFnKey}
+
                                       instruments={instruments}
                                       onPickLibrary={(inst) =>
-                                        promptLibraryPick("uut", uut.id, inst, uutFnKey)
+                                        promptLibraryPick("uut", uut.id, inst)
                                       }
                                       onCommit={(field, value) =>
                                         handleDetailUutDescEdit(uut.id, field, value)
@@ -16266,10 +15536,10 @@ function DetailedView({
                                 nickname={uut.nickname}
                                 make={uut.instrument?.manufacturer}
                                 model={uut.instrument?.model}
-                                functionKey={uutFnKey}
+
                                 instruments={instruments}
                                 onPickLibrary={(inst) =>
-                                  promptLibraryPick("uut", uut.id, inst, uutFnKey)
+                                  promptLibraryPick("uut", uut.id, inst)
                                 }
                                 onCommit={(field, value) =>
                                   handleDetailUutDescEdit(uut.id, field, value)
@@ -16845,14 +16115,14 @@ function DetailedView({
                 }
                 title={
                   showIrrelevantTmdeFunctions
-                    ? "Hide functions unrelated to this measurement point"
-                    : "Show all TMDE functions"
+                    ? "Hide other measurement areas"
+                    : "Show all TMDE measurement areas"
                 }
                 aria-pressed={showIrrelevantTmdeFunctions}
                 aria-label={
                   showIrrelevantTmdeFunctions
-                    ? "Show only relevant TMDE functions"
-                    : "Show all TMDE functions"
+                    ? "Show this TMDE measurement area"
+                    : "Show all TMDE measurement areas"
                 }
               >
                 <FontAwesomeIcon
@@ -16868,9 +16138,9 @@ function DetailedView({
                     m && m.kind === "tmde" ? null : { kind: "tmde", rect },
                   );
                 }}
-                title="Add Function"
+                title="Add Measurement Area"
               >
-                <span>Add Function</span>
+                <span>Add Measurement Area</span>
               </button>
               {renderAddFunctionMenu("tmde")}
             </div>
@@ -16910,7 +16180,7 @@ function DetailedView({
                 {visibleDetailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
                     <td colSpan={6 + customColumnsFor("tmde").length}>
-                      Add a TMDE using Add Instrument in the function header.
+                      Add a TMDE using Add Instrument in the measurement area header.
                     </td>
                   </tr>
                 ) : (
@@ -16958,7 +16228,7 @@ function DetailedView({
                         },
                         savedTolerance,
                         isDerived ? null : uutNominal,
-                        tmdeFnKey,
+                        null,
                       );
                       const { ranges, activeIndex, activeRange } = resolution;
 
@@ -17058,10 +16328,10 @@ function DetailedView({
                                           nickname={masterTmde.nickname}
                                           make={masterTmde.instrument?.manufacturer}
                                           model={masterTmde.instrument?.model}
-                                          functionKey={tmdeFnKey}
+
                                           instruments={instruments}
                                           onPickLibrary={(inst) =>
-                                            promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
+                                            promptLibraryPick("tmde", masterTmde.id, inst)
                                           }
                                           onCommit={(field, value) =>
                                             handleDetailTmdeDescEdit(masterTmde.id, field, value)
@@ -17169,10 +16439,10 @@ function DetailedView({
                                     nickname={masterTmde.nickname}
                                     make={masterTmde.instrument?.manufacturer}
                                     model={masterTmde.instrument?.model}
-                                    functionKey={tmdeFnKey}
+
                                     instruments={instruments}
                                     onPickLibrary={(inst) =>
-                                      promptLibraryPick("tmde", masterTmde.id, inst, tmdeFnKey)
+                                      promptLibraryPick("tmde", masterTmde.id, inst)
                                     }
                                     onCommit={(field, value) =>
                                       handleDetailTmdeDescEdit(

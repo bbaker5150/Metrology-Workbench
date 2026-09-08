@@ -470,22 +470,22 @@ describe("UncertaintyApp", () => {
       screen.getByText("Ready for your first measurement point"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Instruments are organized by Function/i),
+      screen.getByText(/Instruments are organized by Measurement Area/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Select or create a Function/i),
+      screen.getByText(/Select or create a Measurement Area/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Add the UUTs that perform that Function/i),
+      screen.getByText(/Add any UUTs you need in that Measurement Area/i),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Add Measurement Points to define the exact test values/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Add a UUT using Add Instrument in the function header."),
+      screen.getByText("Add a UUT using Add Instrument in the measurement area header."),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Add a TMDE using Add Instrument in the function header."),
+      screen.getByText("Add a TMDE using Add Instrument in the measurement area header."),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Risk Inputs/i }));
@@ -792,6 +792,38 @@ describe("UncertaintyApp", () => {
     ).toBe(true);
   });
 
+  test("keeps mixed instrument functions and differently named points inside their authored Measurement Area", async () => {
+    apiMock.state.sessions = [{
+      id: 905, name: "Custom measurement areas", uncReq: {}, measurementAreas: [],
+      measurementAreaGroups: [{ name: "Torque", kind: "uut", color: "#abcdef" },
+        { name: "Torque", kind: "tmde", color: "#abcdef" }],
+      uuts: [{ id: "length-uut", measurementAreaNames: ["Torque"], description: "Rule",
+        instrument: { functions: [{ name: "Length", ranges: [{ id: "lr", unit: "m", min: 0, max: 10 }] }] } }],
+      tmdes: [{ id: "weight-tmde", measurementAreaNames: ["Torque"], name: "Mass",
+        instrument: { functions: [{ name: "Weight", ranges: [{ id: "wr", unit: "kg", min: 0, max: 5 }] }] } }],
+      testPoints: [{ id: "moment-point", associatedUutIds: ["length-uut"],
+        testPointInfo: { measurementArea: "Torque", parameter: { name: "Moment", unit: "N·m", value: "5" } },
+        measurementType: "derived", tmdeTolerances: [], components: [], specifications: {} }],
+    }];
+    render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);
+    await screen.findByRole("button", { name: "Torque measurement area settings" });
+    const sidebar = document.querySelector(".measurement-group-container");
+    expect(sidebar.querySelector(".area-label").textContent).toBe("Torque");
+    expect(sidebar.style.getPropertyValue("--sidebar-function-color")).toBe("#abcdef");
+    expect([...document.querySelectorAll(".area-label")].map(node => node.textContent)).toEqual(["Torque"]);
+    const area = screen.getAllByLabelText("Measurement area subsection name")[0];
+    area.textContent = "Lever calibration";
+    fireEvent.blur(area);
+    await screen.findByRole("button", { name: "Lever calibration measurement area settings" });
+    expect([...document.querySelectorAll(".area-label")].map(node => node.textContent)).toEqual(["Lever calibration"]);
+    await waitFor(() => {
+      const saved = apiMock.put.mock.calls.map(call => call[1]).find(data => data.id === 905);
+      expect(saved.testPoints[0].testPointInfo).toEqual({ measurementArea: "Lever calibration", parameter: { name: "Moment", unit: "N·m", value: "5" } });
+      expect(saved.uuts[0].instrument.functions[0].name).toBe("Length");
+      expect(saved.tmdes[0].instrument.functions[0].name).toBe("Weight");
+    });
+  });
+
   test("keeps instrument tables full-width with left-aligned function controls", async () => {
     apiMock.state.sessions = [
       {
@@ -895,11 +927,11 @@ describe("UncertaintyApp", () => {
       functionActions,
     ).toContainElement(
       within(voltageFunction.parentElement).getByRole("button", {
-        name: "Add UUT with this function",
+        name: "Add UUT to this measurement area",
       }),
     );
     expect(
-      within(functionActions).getByRole("button", { name: "Delete Function" }),
+      within(functionActions).getByRole("button", { name: "Delete Measurement Area" }),
     ).toHaveClass("range-header-action-btn--delete");
 
     fireEvent.click(uutRow);
@@ -916,7 +948,7 @@ describe("UncertaintyApp", () => {
     ).not.toBeInTheDocument();
 
     const addInstrumentButton = within(functionActions).getByRole("button", {
-      name: "Add UUT with this function",
+      name: "Add UUT to this measurement area",
     });
     fireEvent.click(addInstrumentButton);
     await waitFor(() => {
@@ -1131,7 +1163,7 @@ describe("UncertaintyApp", () => {
       .map((row) => row.closest(".area-header-sticky"));
     functionHeaders.forEach((header) => {
       const toggle = within(header).getByRole("button", {
-        name: /^(Expand|Collapse) function$/,
+        name: /^(Expand|Collapse) measurement area$/,
       });
       if (toggle.getAttribute("aria-expanded") === "false") {
         fireEvent.click(toggle);
@@ -1151,7 +1183,7 @@ describe("UncertaintyApp", () => {
       .find((row) => row.classList.contains("area-label"))
       .closest(".measurement-group-container");
     const emptyFunctionToggle = within(emptyFunctionGroup).getByRole("button", {
-      name: /^(Expand|Collapse) function$/,
+      name: /^(Expand|Collapse) measurement area$/,
     });
     if (emptyFunctionToggle.getAttribute("aria-expanded") === "false") {
       fireEvent.click(emptyFunctionToggle);
@@ -1164,7 +1196,7 @@ describe("UncertaintyApp", () => {
     expect(screen.queryByText("No measurement points")).not.toBeInTheDocument();
   });
 
-  test("applies persistent function settings when adding subsequent points", async () => {
+  test("applies persistent measurement area settings when adding subsequent points", async () => {
     apiMock.state.sessions = [
       {
         id: 104,
@@ -1234,7 +1266,7 @@ describe("UncertaintyApp", () => {
     );
 
     const settingsButton = await screen.findByRole("button", {
-      name: "Torque function settings",
+      name: "Torque measurement area settings",
     });
     const functionName = screen
       .getAllByText("Torque")
@@ -1242,7 +1274,7 @@ describe("UncertaintyApp", () => {
     expect(settingsButton.closest(".function-point-settings").previousElementSibling)
       .toBe(functionName);
     fireEvent.click(settingsButton);
-    expect(screen.getByText("Function Settings")).toBeInTheDocument();
+    expect(screen.getByText("Measurement Area Settings")).toBeInTheDocument();
     expect(screen.queryByText("Applied to this function")).not.toBeInTheDocument();
     expect(
       screen.getByText("New points carry over entire budget of initial point."),
@@ -1281,7 +1313,7 @@ describe("UncertaintyApp", () => {
         budgetPropagationMethod: "montecarlo",
         monteCarloTrials: 25000,
       });
-      expect(savedSession.functionGroups[0].pointCreationSettings).toEqual({
+      expect(savedSession.measurementAreaGroups[0].pointCreationSettings).toEqual({
         mode: "derived",
         reuseEquation: true,
         reuseBudget: true,
@@ -1494,7 +1526,7 @@ describe("UncertaintyApp", () => {
     ).not.toBeInTheDocument();
     fireEvent.mouseDown(document.body);
     fireEvent.click(
-      screen.getByRole("button", { name: "Voltage function settings" }),
+      screen.getByRole("button", { name: "Voltage measurement area settings" }),
     );
     const derivedOption = screen.getByRole("radio", { name: "Derived" });
     expect(derivedOption).toHaveAttribute("aria-checked", "false");
@@ -1669,7 +1701,7 @@ describe("UncertaintyApp", () => {
     );
 
     const collapseButtons = await screen.findAllByRole("button", {
-      name: "Collapse function instruments",
+      name: "Collapse measurement area instruments",
     });
     const voltageOverviewCollapse = collapseButtons.find((button) =>
       button.closest("tr")?.textContent.includes("Voltage"),
@@ -1677,7 +1709,7 @@ describe("UncertaintyApp", () => {
     expect(voltageOverviewCollapse).toBeDefined();
     fireEvent.click(voltageOverviewCollapse);
     expect(
-      screen.getByRole("button", { name: "Expand function instruments" }),
+      screen.getByRole("button", { name: "Expand measurement area instruments" }),
     ).toBeInTheDocument();
 
     await waitFor(() => {
@@ -1691,7 +1723,7 @@ describe("UncertaintyApp", () => {
     });
     expect(within(detailUutCard).queryByText("Pressure")).not.toBeInTheDocument();
     fireEvent.click(
-      within(detailUutCard).getByRole("button", { name: "Show all UUT functions" }),
+      within(detailUutCard).getByRole("button", { name: "Show all UUT measurement areas" }),
     );
     expect(await within(detailUutCard).findByText("Pressure")).toBeInTheDocument();
 
@@ -1741,12 +1773,12 @@ describe("UncertaintyApp", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Instrument Overview" }));
     const overviewCollapsed = await screen.findByRole("button", {
-      name: "Expand function instruments",
+      name: "Expand measurement area instruments",
     });
     expect(overviewCollapsed.closest("tr")).toHaveTextContent("Voltage");
     expect(
       screen
-        .getAllByRole("button", { name: "Collapse function instruments" })
+        .getAllByRole("button", { name: "Collapse measurement area instruments" })
         .some((button) =>
           button.closest("tr")?.textContent.includes("Pressure"),
         ),

@@ -13,12 +13,12 @@ import { createRoot } from 'react-dom/client';
 import UncertaintyPanel from '/src/modules/uncertainty/features/analysis/components/UncertaintyPanel.jsx';
 import '/src/modules/uncertainty/App.css';
 const range = {id:'r1', min:0,max:10,unit:'V',tolerances:{reading:{high:1,low:-1,unit:'%',symmetric:true,distribution:'1.732'}},measuringResolution:'0.001',measuringResolutionUnit:'V'};
-const makeInstrument = (id) => ({id, description:'Mock DMM '+id,name:'Mock DMM '+id,instrument:{manufacturer:'Mock',model:'DMM',name:'Test',functions:[{name:'Voltage',unit:'V',ranges:[{...range,id:id+'r1'},{...range,id:id+'r2',min:20,max:30}]}]}});
+const makeInstrument = (id) => ({id, measurementAreaNames:['Bench calibration'], description:'Mock DMM '+id,name:'Mock DMM '+id,instrument:{manufacturer:'Mock',model:'DMM',name:'Test',functions:[{name:'Voltage',unit:'V',ranges:[{...range,id:id+'r1'},{...range,id:id+'r2',min:20,max:30}]}]}});
 function Harness() {
- const [session,setSession] = useState({id:'test',name:'Layout regression',functionGroups:[{name:'Voltage',unit:'V',kind:'uut'},{name:'Voltage',unit:'V',kind:'tmde'}],uuts:Array.from({length:10},(_,i)=>makeInstrument('uut'+i)),tmdes:Array.from({length:12},(_,i)=>makeInstrument('tmde'+i)),testPoints:[],uncReq:{}});
+ const [session,setSession] = useState({id:'test',name:'Layout regression',measurementAreaGroups:[{name:'Bench calibration',unit:'V',kind:'uut'},{name:'Bench calibration',unit:'V',kind:'tmde'}],uuts:Array.from({length:10},(_,i)=>makeInstrument('uut'+i)),tmdes:Array.from({length:12},(_,i)=>makeInstrument('tmde'+i)),testPoints:[],uncReq:{}});
  const [selected,setSelected] = useState([]);
  const [view,setView] = useState('session'); window.showDetail=()=>setView('point');
- return <div className="uncertainty-module" style={{height:'100vh',overflow:'auto'}}><div className="analysis-container" style={{display:'block',overflow:'visible',width:'100%'}}><div className="analysis-tabs"><button>Instrument Overview</button><button>Uncertainty Budget</button></div><UncertaintyPanel testPointData={{viewMode:view,id:'test',testPointInfo:{parameter:{name:'Voltage',unit:'V'}},associatedUutIds:['uut0'],components:[]}} tmdeTolerancesData={[]} uutNominal={{value:5,unit:'V'}} sessionData={session} onSessionSave={setSession} currentUutSelection={selected} setCurrentUutSelection={setSelected} setNotification={()=>{}} onInstrumentSynced={()=>{}}/><div style={{height:900}}>End of tables</div></div></div>;
+ return <div className="uncertainty-module" style={{height:'100vh',overflow:'auto'}}><div className="analysis-container" style={{display:'block',overflow:'visible',width:'100%'}}><div className="analysis-tabs"><button>Instrument Overview</button><button>Uncertainty Budget</button></div><UncertaintyPanel testPointData={{viewMode:view,id:'test',testPointInfo:{measurementArea:'Bench calibration',parameter:{name:'Voltage',unit:'V'}},associatedUutIds:['uut0'],components:[]}} tmdeTolerancesData={[]} uutNominal={{value:5,unit:'V'}} sessionData={session} onSessionSave={setSession} currentUutSelection={selected} setCurrentUutSelection={setSelected} setNotification={()=>{}} onInstrumentSynced={()=>{}}/><div style={{height:900}}>End of tables</div></div></div>;
 }
 document.body.classList.add('uncertainty-active');
 for (const kind of ['uut','tmde']) localStorage.setItem('uncertalytics:'+kind+':instrument-column-widths:v2',JSON.stringify({description:90,range:90,tolerance:90,distribution:90,resolution:90,sync:550}));
@@ -58,6 +58,7 @@ app.whenReady().then(async()=>{
   await window.loadURL('http://127.0.0.1:'+server.httpServer.address().port+'/__instrument-smoke');
   for(let i=0;i<300;i++){if(await js(`document.querySelectorAll('.instrument-equipment-table tbody tr').length>10`))break;await pause(100);}
   await capture('initial');
+  assert.deepEqual(await js(`[...document.querySelectorAll('.function-header-name')].map(e=>e.textContent)`), ['Bench calibration','Bench calibration'], 'Both tables use the custom measurement area, independently of Voltage function metadata');
   const uut='[data-tour="uut-table"]';
   const tmde='[data-tour="tmde-table"]';
   window.setSize(1800,900);

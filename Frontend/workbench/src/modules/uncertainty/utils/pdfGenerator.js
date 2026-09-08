@@ -1,9 +1,6 @@
 import { rgb } from "pdf-lib";
-import {
-  resolveSessionFunctions,
-  functionLabelOf,
-  rangesForFunction,
-} from "./functionGrouping";
+import { resolveSessionMeasurementAreas, measurementAreaLabelOf } from "./measurementAreaGrouping";
+import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 import { getUnitDisplayLabel, unitSystem } from "./uncertaintyMath";
 
 const PAGE = {
@@ -159,12 +156,10 @@ const rangeLabel = (range) => {
   return `${range.range || "Range"}${unit}`;
 };
 
-// The ranges a UUT exposes for a single function, decorated with a stable id and
-// display label. Scoped to the function so a range only appears under the
-// subsection whose points it can hold — the same source of truth
-// (rangesForFunction) the instrument tables render from.
+// An area's instruments retain all their functions/ranges. Match points to
+// those ranges using their saved tolerance, independently of the area name.
 const getFunctionRanges = (uut, functionKey, functionUnit) =>
-  rangesForFunction(uut, functionKey).map((range, index) => {
+  getInstrumentRangeRows(uut).map((range, index) => {
     const decorated = { ...range, unit: range.unit || functionUnit };
     return {
       ...decorated,
@@ -180,7 +175,7 @@ const pointMatchesRange = (point, range) => {
       tolerance.min == range.min &&
       tolerance.max == range.max &&
       (tolerance.unit || "") === (range.unit || "") &&
-      (!range.functionName || tolerance.functionName === range.functionName)
+      (!range.functionName || !tolerance.functionName || tolerance.functionName === range.functionName)
     );
   }
 
@@ -321,9 +316,8 @@ const buildUutModel = (uut, uutPoints, functionKey, functionUnit, riskMetricsMap
 };
 
 // Organize the report the same way the app now organizes the workspace:
-// Function (name + unit) -> owning UUT -> range -> points. Functions are the
-// primary axis (matching the sidebar and instrument tables via
-// resolveSessionFunctions); measurement areas are no longer a grouping level.
+// Measurement Area -> owning UUT -> range -> points, using the same authored
+// organization as the sidebar and instrument tables.
 export const buildSessionReportModel = (
   session,
   riskMetricsMap = {},
@@ -335,7 +329,7 @@ export const buildSessionReportModel = (
 
   // Ordered function identities from the shared source of truth, so report
   // sections appear in the same order as the on-screen function groups.
-  const functionOrder = resolveSessionFunctions(session);
+  const functionOrder = resolveSessionMeasurementAreas(session);
   const functionMeta = new Map(functionOrder.map((fn) => [fn.key, fn]));
 
   // functionKey -> Map(uutId -> { uut, points })
@@ -360,7 +354,7 @@ export const buildSessionReportModel = (
       unassignedPoints.push(point);
       return;
     }
-    const { key } = functionLabelOf(point);
+    const { key } = measurementAreaLabelOf(point);
     ensureUut(ensureFn(key), uutById.get(ownerId)).points.push(point);
   });
 
@@ -751,7 +745,7 @@ export const generateOverviewReport = async (
     ["Organization", session.organization || "-"],
     ["Document", session.document || "-"],
     ["Document Date", session.documentDate || "-"],
-    ["Functions", report.functions.length],
+    ["Measurement Areas", report.functions.length],
     ["Measurement Points", report.pointCount],
   ];
 
@@ -813,7 +807,7 @@ export const generateOverviewReport = async (
 
   const functionHeading = (fn) => {
     const unit = fn.unit ? ` (${getUnitDisplayLabel(fn.unit)})` : "";
-    return `Function: ${fn.name}${unit}`;
+    return `Measurement Area: ${fn.name}${unit}`;
   };
 
   report.functions.forEach((fn) => {

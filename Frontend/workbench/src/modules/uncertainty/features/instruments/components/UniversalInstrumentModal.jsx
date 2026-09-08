@@ -1,3 +1,4 @@
+import { instrumentMatchesSearch } from "../../../utils/functionGrouping";
 /**
  * src/features/instruments/components/UniversalInstrumentModal.jsx
  */
@@ -1855,12 +1856,7 @@ const UniversalInstrumentModal = ({
 
     const filteredInstruments = useMemo(() => {
         if (!searchTerm) return instruments;
-        const lower = searchTerm.toLowerCase();
-        return instruments.filter(i =>
-            (i.manufacturer || "").toLowerCase().includes(lower) ||
-            (i.model || "").toLowerCase().includes(lower) ||
-            (i.description || "").toLowerCase().includes(lower)
-        );
+        return instruments.filter(instrument => instrumentMatchesSearch(instrument, searchTerm));
     }, [instruments, searchTerm]);
 
     const selectedInstrument = useMemo(
@@ -2610,6 +2606,7 @@ const UniversalInstrumentModal = ({
                                 <FontAwesomeIcon icon={faSearch} className="search-icon" />
                                 <input
                                     type="text"
+                                    aria-label="Search instruments"
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     autoFocus

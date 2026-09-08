@@ -112,11 +112,14 @@ import {
   getVisibleSidebarPointOrder,
 } from "./utils/sidebarPointSelection";
 import {
-  functionKeyOf,
-  functionLabelOf,
+  measurementAreaKeyOf,
+  measurementAreaLabelOf,
+  resolveSessionMeasurementAreas,
+  instrumentMeasurementAreas,
+} from "./utils/measurementAreaGrouping";
+import {
   instrumentFunctions,
   makeFunctionKey,
-  resolveSessionFunctions,
 } from "./utils/functionGrouping";
 import { formatRangeLabel } from "./utils/rangeFormatting";
 import {
@@ -270,7 +273,7 @@ export const getConsecutiveSidebarCellGroupDuringEdit = (
   });
 
 const getFunctionPointSettings = (sessionData, functionId) => {
-  const stored = (sessionData?.functionGroups || []).find(
+  const stored = (sessionData?.measurementAreaGroups || []).find(
     (group) =>
       makeFunctionKey(group.name) === functionId && group.kind !== "tmde",
   )?.pointCreationSettings;
@@ -1863,7 +1866,7 @@ const pointToleranceMatchesFunction = (point, tolerance) => {
   if (!point || !tolerance || Object.keys(tolerance || {}).length === 0) {
     return false;
   }
-  const pointKey = functionKeyOf(point);
+  const pointKey = makeFunctionKey(point.testPointInfo?.parameter?.name);
   const toleranceName = tolerance.functionName || tolerance.name || "";
   const toleranceUnit = tolerance.functionUnit || tolerance.unit || "";
   if (toleranceName) {
@@ -2253,9 +2256,9 @@ function App({ showThemeToggle = false }) {
       },
       {
         id: "uut-function",
-        title: "Create the UUT function",
+        title: "Create the UUT measurement area",
         description:
-          "Use this add button to create the function being tested, such as Voltage, Weight, or Torque. Existing functions are listed for reuse, and a session can contain as many functions as needed.",
+          "Use this add button to create the measurement area, such as Voltage, Weight, or Torque. Existing measurement areas are listed for reuse, and you can create your own.",
         target: '[data-tour="uut-add-function"]',
         revealedTarget: '[data-tour="uut-function-menu"]',
       },
@@ -2263,9 +2266,9 @@ function App({ showThemeToggle = false }) {
         id: "uut-instrument",
         title: "Add the unit under test",
         description:
-          "Use the + on the function header to add an instrument. Choose a local or shared instrument from the Description suggestions, or enter a new instrument directly through Description, Range, Tolerance, and Resolution.",
+          "Use the + on the measurement area header to add an instrument. Choose a local or shared instrument from the Description suggestions, or enter a new instrument directly through Description, Range, Tolerance, and Resolution.",
         target: '[data-tour="uut-add-instrument"]',
-        hint: "Each range remains aligned with its tolerance and resolution, and any number of UUTs can share this function.",
+        hint: "Each range remains aligned with its tolerance and resolution, and any number of UUTs can share this measurement area.",
       },
       {
         id: "uut-columns",
@@ -2276,9 +2279,9 @@ function App({ showThemeToggle = false }) {
       },
       {
         id: "function-settings",
-        title: "Review Function Settings",
+        title: "Review Measurement Area Settings",
         description:
-          "Hover beside the function name and open the settings button. Keep Direct selected for this walkthrough. Reusing the first point's budget makes later points inherit the complete initial budget.",
+          "Hover beside the measurement area name and open the settings button. Keep Direct selected for this walkthrough. Reusing the first point's budget makes later points inherit the complete initial budget.",
         target: '[data-tour="function-settings"]',
         revealedTarget: '[data-tour="function-settings-menu"]',
       },
@@ -2286,15 +2289,15 @@ function App({ showThemeToggle = false }) {
         id: "measurement-point",
         title: "Create a direct measurement point",
         description:
-          "Select the + on the function header. If several UUTs share the function, choose the instrument from the menu that opens, then enter the measurement value in the new sidebar row.",
+          "Select the + on the measurement area header. If several UUTs share the measurement area, choose the instrument from the menu that opens, then enter the measurement value in the new sidebar row.",
         target: '[data-tour="add-measurement-point"]',
         revealedTarget: '[data-tour="measurement-point-menu"]',
       },
       {
         id: "tmde-function",
-        title: "Create the TMDE function",
+        title: "Create the TMDE measurement area",
         description:
-          "Now repeat the setup for the measuring equipment. Add the function used by the TMDE; it can reuse a function already defined in the session.",
+          "Now repeat the setup for the measuring equipment. Choose the Measurement Area for the TMDE; it can reuse an area already defined in the session.",
         target: '[data-tour="tmde-add-function"]',
         revealedTarget: '[data-tour="tmde-function-menu"]',
       },
@@ -2302,7 +2305,7 @@ function App({ showThemeToggle = false }) {
         id: "tmde-instrument",
         title: "Add the TMDE",
         description:
-          "Use the function's + button to add the measuring instrument, then select a local or shared definition or enter a new Description, Range, Tolerance, and Resolution.",
+          "Use the measurement area's + button to add the measuring instrument, then select a local or shared definition or enter a new Description, Range, Tolerance, and Resolution.",
         target: '[data-tour="tmde-add-instrument"]',
       },
       {
@@ -3525,7 +3528,7 @@ function App({ showThemeToggle = false }) {
   // first matching point.
   const resolveFunctionPoint = (functionKey, uutId = null) => {
     const inScope = (point) => {
-      if (functionKeyOf(point) !== functionKey) return false;
+      if (measurementAreaKeyOf(point) !== functionKey) return false;
       if (!uutId) return true;
       return (point.associatedUutIds || []).some(
         (id) => String(id) === String(uutId),
@@ -3954,9 +3957,12 @@ function App({ showThemeToggle = false }) {
       const updatedUuts = [...(currentSessionData.uuts || [])];
 
       if (existingUutIndex >= 0) {
-        updatedUuts[existingUutIndex] = newUut;
+        updatedUuts[existingUutIndex] = { ...updatedUuts[existingUutIndex], ...newUut,
+          measurementAreaNames: updatedUuts[existingUutIndex].measurementAreaNames };
       } else {
-        updatedUuts.push(newUut);
+        updatedUuts.push({ ...newUut, measurementAreaNames: [
+          associationPoint?.testPointInfo?.measurementArea || resolvedAreaName || "Measurement",
+        ] });
       }
 
       const updatedTestPoints =
@@ -4069,9 +4075,12 @@ function App({ showThemeToggle = false }) {
       );
       const updatedTmdes = [...(currentSessionData.tmdes || [])];
       if (existingTmdeIndex >= 0) {
-        updatedTmdes[existingTmdeIndex] = newTmde;
+        updatedTmdes[existingTmdeIndex] = { ...updatedTmdes[existingTmdeIndex], ...newTmde,
+          measurementAreaNames: updatedTmdes[existingTmdeIndex].measurementAreaNames };
       } else {
-        updatedTmdes.push(newTmde);
+        updatedTmdes.push({ ...newTmde, measurementAreaNames: [
+          associationPoint?.testPointInfo?.measurementArea || contextPoint?.testPointInfo?.measurementArea || "Measurement",
+        ] });
       }
       // Editing an existing TMDE: propagate the new specs to its per-point
       // instances so budgets/risk recompute. (No-op for brand new TMDEs.)
@@ -4112,6 +4121,7 @@ function App({ showThemeToggle = false }) {
 
       const newUut = {
         id: uuidv4(),
+        measurementAreaNames: [associationPoint?.testPointInfo?.measurementArea || "Measurement"],
         // Prefer the instrument description (its current name) so a renamed
         // library instrument re-imports with the new name, not make/model.
         description:
@@ -4287,8 +4297,8 @@ function App({ showThemeToggle = false }) {
 
   const updateFunctionPointSettings = (fnGroup, patch) => {
     if (!currentSessionData) return;
-    const existing = Array.isArray(currentSessionData.functionGroups)
-      ? currentSessionData.functionGroups
+    const existing = Array.isArray(currentSessionData.measurementAreaGroups)
+      ? currentSessionData.measurementAreaGroups
       : [];
     let found = false;
     const next = existing.map((group) => {
@@ -4322,17 +4332,17 @@ function App({ showThemeToggle = false }) {
     }
     const testPoints = patch.mode
       ? (currentSessionData.testPoints || []).map((point) =>
-          functionKeyOf(point) === fnGroup.id
+          measurementAreaKeyOf(point) === fnGroup.id
             ? { ...point, measurementType: patch.mode }
             : point,
         )
       : currentSessionData.testPoints;
-    updateSession({ ...currentSessionData, functionGroups: next, testPoints });
+    updateSession({ ...currentSessionData, measurementAreaGroups: next, testPoints });
   };
 
   const applyFunctionPointTemplate = (point, fnGroup, settings) => {
     const template = currentTestPoints.find(
-      (candidate) => functionKeyOf(candidate) === fnGroup.id,
+      (candidate) => measurementAreaKeyOf(candidate) === fnGroup.id,
     );
     if (!template) return point;
 
@@ -4369,17 +4379,11 @@ function App({ showThemeToggle = false }) {
     const fnRange =
       ranges.find(
         (r) =>
-          (!fnGroup?.name || !r.functionName || r.functionName === fnGroup.name) &&
           (!requestedUnit || (r.unit || "") === requestedUnit),
       ) ||
       ranges[activeRangeIndices[uutId] || 0] ||
       ranges[0] ||
       null;
-    const functionName =
-      fnGroup?.name ||
-      fnRange?.functionName ||
-      uut?.instrument?.functions?.[0]?.name ||
-      "Measurement";
     const unit =
       selectedUnit ||
       fnRange?.unit ||
@@ -4392,7 +4396,7 @@ function App({ showThemeToggle = false }) {
       _skipUutAutofill: !uutId,
       measurementType: settings.mode,
       uutTolerance: fnRange || null,
-      testPointInfo: { parameter: { name: functionName, value: "", unit } },
+      testPointInfo: { measurementArea: fnGroup?.name || "Measurement", parameter: { name: fnRange?.functionName || fnGroup?.name || "", value: "", unit } },
     }, fnGroup, settings);
   };
 
@@ -4401,13 +4405,8 @@ function App({ showThemeToggle = false }) {
   // fallback for legacy instruments that do not carry range metadata yet.
   const unitsForQuickAddPoint = (fnGroup, uutId) => {
     const uut = currentSessionData?.uuts?.find((candidate) => candidate.id === uutId);
-    const declared = instrumentFunctions(uut || {}).find(
-      (fn) => fn.key === fnGroup?.id,
-    );
-    const units = Array.from(
-      new Set([...(declared?.units || []), ...(fnGroup?.units || []), fnGroup?.unit].filter(Boolean)),
-    );
-    return declared?.units?.length ? declared.units : units;
+    const units = instrumentFunctions(uut || {}).flatMap(fn => fn.units || []);
+    return [...new Set(units.length ? units : [...(fnGroup?.units || []), fnGroup?.unit].filter(Boolean))];
   };
 
   const handleQuickAddPoint = (
@@ -4621,7 +4620,7 @@ function App({ showThemeToggle = false }) {
     // Function colors come from the same shared source the instrument-table
     // subsections use, so a recolor/rename in one surface shows in the other.
     const functionColorByKey = new Map(
-      resolveSessionFunctions(currentSessionData).map((fn) => [fn.key, fn.color]),
+      resolveSessionMeasurementAreas(currentSessionData).map((fn) => [fn.key, fn.color]),
     );
 
     // functionKey -> { id, name, unit, units, uutMap: Map(uutId -> { ...uut, points }) }
@@ -4658,8 +4657,9 @@ function App({ showThemeToggle = false }) {
     //    point exists. Function headers remain visible even when their point
     //    list is empty, so the collapsed sidebar accurately reflects every UUT
     //    function available for a new point.
+    resolveSessionMeasurementAreas(currentSessionData, { kind: "uut" }).forEach(ensureFunction);
     uuts.forEach((uut) => {
-      instrumentFunctions(uut).forEach((fn) => {
+      instrumentMeasurementAreas(uut).forEach((fn) => {
         ensureUut(ensureFunction(fn), uut);
       });
     });
@@ -4669,7 +4669,7 @@ function App({ showThemeToggle = false }) {
     // that intentionally alternate between UUTs chronologically.
     const unassignedPoints = [];
     points.forEach((tp) => {
-      const fnNode = ensureFunction(functionLabelOf(tp));
+      const fnNode = ensureFunction(measurementAreaLabelOf(tp));
       fnNode.points.push(tp);
       const ownerId = (tp.associatedUutIds || [])
         .map((id) => String(id))
@@ -5062,7 +5062,7 @@ function App({ showThemeToggle = false }) {
           return {
             ...point,
             associatedUutIds: nextUut ? [nextUut.id] : [],
-            measurementAreaId: nextUut?.measurementAreaId || null,
+            measurementAreaId: point.measurementAreaId || null,
             uutTolerance: nextUut
               ? findMatchingRange(
                   nextUut,
@@ -5328,8 +5328,8 @@ function App({ showThemeToggle = false }) {
             type="button"
             className={`function-point-settings-button${settingsOpen ? " is-active" : ""}`}
             data-tour="function-settings"
-            title={`${fnGroup.name} function settings`}
-            aria-label={`${fnGroup.name} function settings`}
+            title={`${fnGroup.name} measurement area settings`}
+            aria-label={`${fnGroup.name} measurement area settings`}
             aria-expanded={settingsOpen}
             onClick={() =>
               setOpenFunctionSettingsId((current) =>
@@ -5344,10 +5344,10 @@ function App({ showThemeToggle = false }) {
               className="function-point-settings-menu"
               data-tour="function-settings-menu"
               role="dialog"
-              aria-label={`${fnGroup.name} function settings`}
+              aria-label={`${fnGroup.name} measurement area settings`}
             >
               <div className="function-point-settings-heading">
-                <strong>Function Settings</strong>
+                <strong>Measurement Area Settings</strong>
               </div>
               <div className="function-point-type-options" role="radiogroup" aria-label="New point type">
                 {[
@@ -6091,15 +6091,15 @@ function App({ showThemeToggle = false }) {
                       <strong>Ready for your first measurement point</strong>
                       <div className="measurement-points-empty-copy">
                         <p>
-                          Instruments are organized by Function, grouping them
-                          by capability (such as DC Voltage or Pressure) while
-                          keeping multi-mode operations separate.
+                          Instruments are organized by Measurement Area, grouping them
+                          however you choose. An area such as Torque can contain
+                          instruments with Length and Weight functions.
                         </p>
                         <p>
-                          Select or create a Function to define the measurement
+                          Select or create a Measurement Area to organize the measurement
                           category.
                         </p>
-                        <p>Add the UUTs that perform that Function.</p>
+                        <p>Add any UUTs you need in that Measurement Area.</p>
                         <p>
                           Add Measurement Points to define the exact test values
                           and tolerances for each UUT.
@@ -6112,7 +6112,7 @@ function App({ showThemeToggle = false }) {
                 {sidebarData.map((fnGroup) => {
                     const isFnExpanded = expandedFunctions.has(fnGroup.id);
                     // The Unassigned bucket renders its points directly under the
-                    // function header (no real UUT to nest under).
+                    // measurement area header (no real UUT to nest under).
                     if (fnGroup.isUnassigned) {
                       const pts = sortSidebarPoints(
                         fnGroup.uutGroups[0]?.points || [],
@@ -6133,8 +6133,8 @@ function App({ showThemeToggle = false }) {
                               type="button"
                               className="function-sidebar-collapse-button"
                               onClick={(e) => toggleFunctionExpand(e, fnGroup.id)}
-                              title={isFnExpanded ? "Collapse function" : "Expand function"}
-                              aria-label={isFnExpanded ? "Collapse function" : "Expand function"}
+                              title={isFnExpanded ? "Collapse measurement area" : "Expand measurement area"}
+                              aria-label={isFnExpanded ? "Collapse measurement area" : "Expand measurement area"}
                               aria-expanded={isFnExpanded}
                             >
                               <FontAwesomeIcon
@@ -6179,8 +6179,8 @@ function App({ showThemeToggle = false }) {
                             type="button"
                             className="function-sidebar-collapse-button"
                             onClick={(e) => toggleFunctionExpand(e, fnGroup.id)}
-                            title={isFnExpanded ? "Collapse function" : "Expand function"}
-                            aria-label={isFnExpanded ? "Collapse function" : "Expand function"}
+                            title={isFnExpanded ? "Collapse measurement area" : "Expand measurement area"}
+                            aria-label={isFnExpanded ? "Collapse measurement area" : "Expand measurement area"}
                             aria-expanded={isFnExpanded}
                           >
                             <FontAwesomeIcon

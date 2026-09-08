@@ -93,6 +93,18 @@ const changeResolution = (value) => {
 };
 
 describe("UniversalInstrumentModal library synchronization", () => {
+  test("finds instruments by function without choosing one automatically", () => {
+    const onSave = vi.fn();
+    renderModal({ mode: "library", initialData: null, onSave, instruments: [
+      { ...libraryInstrument, id: "length", model: "L100", functions: [{ name: "Length", ranges: [] }] },
+      { ...libraryInstrument, id: "weight", model: "W200", functions: [{ name: "Weight", ranges: [] }] },
+    ] });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search instruments" }), { target: { value: "length" } });
+    expect(screen.getByText("L100")).toBeInTheDocument();
+    expect(screen.queryByText("W200")).not.toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   test("uses the add button as the only new-instrument entry point", () => {
     renderModal({
       mode: "library",

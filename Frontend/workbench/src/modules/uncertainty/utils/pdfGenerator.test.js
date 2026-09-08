@@ -14,6 +14,23 @@ const helpers = {
 };
 
 describe("buildSessionReportModel", () => {
+  it("uses authored measurement areas without filtering out other instrument functions", () => {
+    const session = {
+      measurementAreaGroups: [{ name: "Lever calibration", kind: "uut" }],
+      uuts: [{ id: "u1", measurementAreaNames: ["Lever calibration"], instrument: {
+        functions: [{ name: "Length", ranges: [{ id: "r1", min: 0, max: 10, unit: "m" }] }],
+      } }],
+      testPoints: [{ id: "p1", associatedUutIds: ["u1"],
+        testPointInfo: { measurementArea: "Lever calibration", parameter: { name: "Lever length", value: 5, unit: "m" } },
+        uutTolerance: { min: 0, max: 10, unit: "m", functionName: "Length" },
+      }],
+    };
+    const report = buildSessionReportModel(session, {}, helpers);
+    expect(report.functions.map(area => area.name)).toEqual(["Lever calibration"]);
+    expect(report.functions[0].uuts[0].ranges[0].label).toBe("0 to 10 m");
+    expect(report.functions[0].uuts[0].ranges[0].rows).toHaveLength(1);
+  });
+
   it("uses exactly the active measurement-point filter columns in report groups", () => {
     const groups = resolvePdfColumnGroups({ value: true, pfa: true, gbPfr: true });
     expect(groups.map((group) => group.label)).toEqual([

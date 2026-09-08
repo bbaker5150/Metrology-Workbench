@@ -977,6 +977,8 @@ function Analysis({
       ...overrides,
       measurementType: "direct",
       testPointInfo: {
+        measurementArea: testPointData.testPointInfo?.measurementArea ||
+          sessionData.uuts?.find(u => u.id === selectedUutIds?.[0])?.measurementAreaNames?.[0] || "Measurement",
         parameter: {
           name: resolvedTolerance?.functionName || "Measurement",
           value: "",

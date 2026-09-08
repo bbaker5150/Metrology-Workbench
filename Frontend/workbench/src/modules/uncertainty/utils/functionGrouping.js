@@ -172,6 +172,15 @@ const formatFunctionDependencyList = (dependencies = {}) => {
   return `${labels.slice(0, -1).join(", ")}${labels.length > 2 ? "," : ""} and ${labels.at(-1)}`;
 };
 
+// Library lookup uses instrument capabilities, independently of session areas.
+export const instrumentMatchesSearch = (source, query = "") => {
+  const instrument = getInstrumentDefinition(source);
+  const text = [instrument.manufacturer, instrument.model, instrument.description,
+    ...instrumentFunctions(instrument).map(fn => fn.name)].filter(Boolean).join(" ").toLowerCase();
+  return String(query).trim().toLowerCase().split(/\s+/).filter(Boolean)
+    .every(token => text.includes(token));
+};
+
 export const getFunctionDeletionConfirmationMessage = (
   dependencies = {},
   fn = {},

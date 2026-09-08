@@ -129,6 +129,7 @@ def area_to_dict(a):
 
 def uut_to_dict(u):
     return {
+        "measurementAreaNames": u.measurement_area_names,
         "id": _coerce_id(u.cid),
         "name": u.name,
         "description": u.description,
@@ -141,6 +142,7 @@ def uut_to_dict(u):
 
 def tmde_to_dict(t):
     return {
+        "measurementAreaNames": t.measurement_area_names,
         "id": _coerce_id(t.cid),
         "name": t.name,
         "quantity": t.quantity,
@@ -167,6 +169,7 @@ def session_to_dict(s):
         "uutDescription": s.uut_description,
         "uutTolerance": s.uut_tolerance or {},
         "functionGroups": s.function_groups or [],
+        "measurementAreaGroups": s.measurement_area_groups,
         "detailSectionOrder": s.detail_section_order or [],
         "detailCollapsedSections": s.detail_collapsed_sections or [],
         "uncReq": {
@@ -267,6 +270,7 @@ def save_session(data):
         "uut_description": data.get("uutDescription", "") or "",
         "uut_tolerance": data.get("uutTolerance") or {},
         "function_groups": data.get("functionGroups") or [],
+        "measurement_area_groups": data.get("measurementAreaGroups"),
         "detail_section_order": data.get("detailSectionOrder") or [],
         "detail_collapsed_sections": data.get("detailCollapsedSections") or [],
         "uncertainty_confidence": _num(unc.get("uncertaintyConfidence"), 95),
@@ -300,6 +304,7 @@ def save_session(data):
     for u in data.get("uuts", []) or []:
         models.Uut.objects.create(
             session=session,
+            measurement_area_names=u.get("measurementAreaNames"),
             cid=_cid(u.get("id")),
             name=u.get("name", "") or "",
             description=u.get("description", "") or "",
@@ -312,6 +317,7 @@ def save_session(data):
     for t in data.get("tmdes", []) or []:
         models.SessionTmde.objects.create(
             session=session,
+            measurement_area_names=t.get("measurementAreaNames"),
             cid=_cid(t.get("id")),
             name=t.get("name", "") or "",
             quantity=_num(t.get("quantity"), 1),

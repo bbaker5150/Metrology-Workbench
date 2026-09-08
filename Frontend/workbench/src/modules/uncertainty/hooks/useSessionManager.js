@@ -1,3 +1,4 @@
+import { migrateMeasurementAreas } from "../utils/measurementAreaGrouping";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import axios from "axios";
 import { UNCERTAINTY_API } from "../constants/constants";
@@ -53,7 +54,7 @@ export const prepareImportedSession = (
   }
 
   return {
-    ...loadedSession,
+    ...migrateMeasurementAreas(loadedSession),
     id: importedId,
     name: importedName,
   };
@@ -120,6 +121,7 @@ const useSessionManager = () => {
       notes: "",
       noteImages: [],
       //  Master lists for the "Instruments Tab" workflow
+      measurementAreaGroups: [],
       measurementAreas: [], // { id, name, color }
       uuts: [],             // { id, name, measurementAreaId, ...specs }
       tmdes: [],            // { id, name, measurementAreaId, ...specs }
@@ -210,8 +212,7 @@ const useSessionManager = () => {
   };
 
   const replaceSessions = useCallback((updater) => {
-    const nextSessions =
-      typeof updater === "function" ? updater(sessionsRef.current) : updater;
+    const nextSessions = (typeof updater === "function" ? updater(sessionsRef.current) : updater).map(migrateMeasurementAreas);
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
     return nextSessions;
@@ -692,6 +693,7 @@ const useSessionManager = () => {
   // --- 5. CRUD Operations ---
   const updateSession = useCallback(
     (updatedSession, newImages = []) => {
+      updatedSession = migrateMeasurementAreas(updatedSession);
       const previousSession = sessionsRef.current.find(
         (session) => session.id === updatedSession.id,
       );
@@ -989,7 +991,7 @@ const useSessionManager = () => {
             return {
               ...tp,
               section: formData.section,
-              testPointInfo: { ...formData.testPointInfo },
+              testPointInfo: { ...tp.testPointInfo, ...formData.testPointInfo },
               measurementType: formData.measurementType,
               equationString: formData.equationString,
               equationName:
