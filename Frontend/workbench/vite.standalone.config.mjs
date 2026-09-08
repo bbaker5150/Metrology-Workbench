@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { docxRuntime, docxDedupe, docxOptimizeDeps } from './scripts/docxRuntime.mjs';
 
 // ---------------------------------------------------------------------------
 // Standalone SharePoint build.
@@ -38,7 +39,8 @@ export default defineConfig({
   // Relative asset URLs, so the bundle works from whatever library folder it
   // is uploaded into without knowing that path at build time.
   base: './',
-  plugins: [react(), emitAsIndexHtml()],
+  plugins: [react(), emitAsIndexHtml(), docxRuntime()],
+  optimizeDeps: docxOptimizeDeps,
   build: {
     outDir: 'build-standalone',
     emptyOutDir: true,
@@ -59,6 +61,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 2048,
   },
   resolve: {
+    dedupe: docxDedupe,
     alias: {
       '@': path.resolve(process.cwd(), 'src'),
       // Same Node-builtin shims the workbench build needs: the DOCX editor's

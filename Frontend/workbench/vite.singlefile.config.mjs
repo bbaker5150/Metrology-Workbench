@@ -5,6 +5,7 @@ import path from 'node:path';
 import { hardenInlineHtml } from './scripts/hardenInlineHtml.mjs';
 import { forgeRuntime } from './scripts/forgeRuntime.mjs';
 import { execSync } from 'node:child_process';
+import { docxRuntime, docxDedupe } from './scripts/docxRuntime.mjs';
 
 // Stamped into the page so anyone can tell which build is live — the file is
 // overwritten in place in SharePoint, so its URL says nothing about its age.
@@ -41,6 +42,7 @@ export default defineConfig({
   base: './',
   plugins: [
     react(),
+    docxRuntime(),
     viteSingleFile({ removeViteModuleLoader: true }),
     // Must follow viteSingleFile: it rewrites the bundle *after* it has been
     // inlined, so that nothing in the document can be mistaken for markup by
@@ -87,6 +89,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 16384,
   },
   resolve: {
+    dedupe: docxDedupe,
     alias: [
       { find: '@', replacement: path.resolve(projectRoot, 'src') },
       { find: 'stream', replacement: 'stream-browserify' },

@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { docxRuntime, docxDedupe, docxOptimizeDeps } from './scripts/docxRuntime.mjs';
 
 // Some managed lab networks probe every listening HTTP server and may abort
 // the socket mid-request. Node treats an unhandled client socket error as
@@ -40,7 +41,8 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: './',
-    plugins: [react(), tolerateAbortedClientSockets()],
+    plugins: [react(), tolerateAbortedClientSockets(), docxRuntime()],
+    optimizeDeps: docxOptimizeDeps,
     server: {
       host: '0.0.0.0',
       allowedHosts: ['.trycloudflare.com'],
@@ -82,6 +84,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     resolve: {
+      dedupe: docxDedupe,
       alias: {
         '@': path.resolve(process.cwd(), 'src'),
         // The DOCX editor's transitive SAX parser expects Node's legacy
