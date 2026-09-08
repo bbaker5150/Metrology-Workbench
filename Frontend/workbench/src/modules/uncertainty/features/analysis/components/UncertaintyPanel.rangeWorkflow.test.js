@@ -98,7 +98,7 @@ describe("budget range warnings", () => {
     });
 
     expect(warnings.final).toHaveLength(1);
-    expect(warnings.final[0].reason).toMatch(/below this selected TMDE range/i);
+    expect(warnings.final[0].reason).toMatch(/does not fall within error source range: 10 to 20 V/i);
   });
 
   it("warns on the affected derived input budget only", () => {

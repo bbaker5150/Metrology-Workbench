@@ -1600,8 +1600,9 @@ const UncertaintyBudgetTable = ({
                         {(rangeWarningsByGroup[groupDofKey(group)] || []).length > 0 && (
                           <span
                             className="budget-range-warning"
-                            title="Selected range does not include the nominal"
-                            aria-label="Selected range does not include the nominal"
+                            tabIndex={0}
+                            title={(rangeWarningsByGroup[groupDofKey(group)] || []).map(w => `${w.name}: ${w.reason}`).join("\n\n")}
+                            aria-label={(rangeWarningsByGroup[groupDofKey(group)] || []).map(w => `${w.name}: ${w.reason}`).join(" ")}
                           >
                             <FontAwesomeIcon icon={faExclamationTriangle} />
                           </span>

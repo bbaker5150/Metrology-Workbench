@@ -22,6 +22,17 @@ import {
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test("shows all point warnings beside Value without falling back to stale saved risk", () => {
+    const onSelect = vi.fn();
+    const { container } = render(<SidebarPointItem point={{ id: "warning", testPointInfo: { parameter: { value: 5, unit: "V" } }, riskMetrics: { pfa: 87.123 } }} liveRiskMetrics={null} diagnostics={["No error sources in this budget.", "Enter the input Current nominal."]} visibleColumns={{ value: true, pfa: true }} onSelect={onSelect} onSave={vi.fn()} />);
+    const warning = screen.getByRole("button", { name: /Point needs attention/ });
+    expect(warning.closest(".point-value")).not.toBeNull();
+    expect(warning).toHaveAttribute("title", "• No error sources in this budget.\n\n• Enter the input Current nominal.");
+    expect(container.textContent).not.toContain("87.123");
+    fireEvent.click(warning);
+    expect(onSelect).toHaveBeenCalledOnce();
+  });
+
   test("normalizes saved column order without losing newly added columns", () => {
     const normalized = normalizeSidebarColumnOrder([
       "value",

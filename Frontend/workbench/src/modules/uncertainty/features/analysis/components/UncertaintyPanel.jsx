@@ -43,6 +43,8 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
 import useInstrumentTableLayout from "../../../hooks/useInstrumentTableLayout";
+import { getBudgetRangeWarnings } from "../../../utils/pointDiagnostics";
+export { getBudgetRangeWarnings } from "../../../utils/pointDiagnostics";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
 import { getNextInstrumentSelection } from "../../../utils/instrumentSelection";
 import {
@@ -53,7 +55,6 @@ import { resolvePointAreaId } from "../../../utils/areaWorkspace";
 import {
   makeFunctionKey,
   instrumentFunctions,
-  instrumentHasFunction,
   instrumentMatchesSearch,
 } from "../../../utils/functionGrouping";
 import {
@@ -242,26 +243,6 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
 // Library-search dropdown shown under the description make/model fields.
 // Portaled to <body> with fixed positioning so the cell's overflow:hidden
 // (App.css) can't clip it. Position/top/left are set inline at render.
-const descSearchDropdownStyle = {
-  minWidth: "260px",
-  zIndex: 99999,
-  background: "var(--component-bg)",
-  border: "1px solid var(--border-color)",
-  borderRadius: "6px",
-  boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
-  maxHeight: "240px",
-  overflowY: "auto",
-};
-const descSearchItemStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: "8px",
-  padding: "6px 10px",
-  cursor: "pointer",
-  fontSize: "0.85rem",
-  borderBottom: "1px solid var(--border-color)",
-};
-
 const buildGroupedUnitOptions = () => {
   const allSupportedUnits = getUniqueUnits(Object.keys(unitSystem.units));
   const options = [];
@@ -2062,13 +2043,14 @@ export const EditableDescriptionCell = ({
       // Delay so an onMouseDown pick on a dropdown row registers first.
       setTimeout(() => {
         const root = anchorRef.current;
-        if (!root || !root.contains(document.activeElement)) {
+        if (!root || (!root.contains(document.activeElement) && !document.activeElement?.closest?.(".inline-desc-search"))) {
           setEditing(false);
           setOpen(false);
         }
       }, 150);
     },
     onKeyDown: (e) => {
+      if (e.key === "ArrowDown" && open) { e.preventDefault(); document.querySelector('.inline-desc-search [role="option"]')?.focus(); }
       if (e.key === "Enter") e.currentTarget.blur();
       if (e.key === "Escape") {
         e.preventDefault();
@@ -2101,18 +2083,8 @@ export const EditableDescriptionCell = ({
     const el = anchorRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const margin = 8;
-    const spaceBelow = window.innerHeight - rect.bottom - margin;
-    const spaceAbove = rect.top - margin;
-    const flipUp = spaceBelow < 200 && spaceAbove > spaceBelow;
-    setMenuPos({
-      left: rect.left,
-      width: rect.width,
-      flipUp,
-      top: flipUp ? undefined : rect.bottom + 2,
-      bottom: flipUp ? window.innerHeight - rect.top + 2 : undefined,
-      maxHeight: Math.max(120, Math.min(280, flipUp ? spaceAbove : spaceBelow)),
-    });
+    const placement = getAnchoredMenuPlacement({ anchorRect: rect, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight, preferredWidth: Math.max(280, rect.width), preferredMaxHeight: 320, gap: 4 });
+    setMenuPos({ ...placement, accent: getComputedStyle(el).getPropertyValue("--function-input-accent").trim() });
   }, []);
   const showMenu = open && results.length > 0;
   useLayoutEffect(() => {
@@ -2188,26 +2160,26 @@ export const EditableDescriptionCell = ({
         menuPos &&
         ReactDOM.createPortal(
           <div
-            className="inline-desc-search"
-            style={{
-              ...descSearchDropdownStyle,
-              position: "fixed",
-              left: menuPos.left,
-              minWidth: Math.max(260, menuPos.width || 0),
-              maxHeight: menuPos.maxHeight,
-              ...(menuPos.flipUp
-                ? { bottom: menuPos.bottom }
-                : { top: menuPos.top }),
-            }}
+            className="inline-desc-search inline-unit-menu"
+            style={{ top: menuPos.top, bottom: menuPos.bottom, left: menuPos.left, width: menuPos.width, maxHeight: menuPos.maxHeight, "--function-input-accent": menuPos.accent || "var(--primary-color)" }}
           >
+            <div className="instrument-menu-heading">Choose instrument</div>
+            <div className="inline-unit-options" role="listbox" aria-label="Choose instrument" style={{ maxHeight: Math.max(1, menuPos.maxHeight - 50) }}>
             {results.map((inst) => {
               const detail = formatInstrumentRangeDetail(inst);
               return (
-                <div
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={false}
                   key={inst.id}
-                  className="inline-desc-search-item"
-                  style={descSearchItemStyle}
-                  // onMouseDown (not onClick) so it fires before the input blur.
+                  className="inline-desc-search-item inline-unit-option"
+                  onClick={event => { if (event.detail === 0) { onPickLibrary(inst); setOpen(false); } }}
+                  onKeyDown={event => {
+                    if (event.key === "Escape") { event.preventDefault(); dismissDescriptionEditor(); requestAnimationFrame(() => anchorRef.current?.querySelector(".inline-desc-combined")?.focus()); }
+                    if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); (event.key === "ArrowDown" ? event.currentTarget.nextElementSibling : event.currentTarget.previousElementSibling)?.focus(); }
+                  }}
+                  // Pick before the editor blur; keyboard activation uses onClick.
                   onMouseDown={(e) => {
                     e.preventDefault();
                     onPickLibrary(inst);
@@ -2257,9 +2229,10 @@ export const EditableDescriptionCell = ({
                   >
                     {describeEntry(inst)}
                   </span>
-                </div>
+                </button>
               );
             })}
+            </div>
           </div>,
           document.body,
         )}
@@ -5575,86 +5548,6 @@ const budgetRangeSnapshot = (range = {}) => {
     max: range.max ?? singleValue ?? "",
     unit: range.unit || range.functionUnit || "",
   };
-};
-
-const findBudgetComponentRange = (component = {}, tmdes = []) => {
-  if (component.tmdeBudgetRange) {
-    return budgetRangeSnapshot(component.tmdeBudgetRange);
-  }
-  const sourceId = component.tmdeBudgetSourceId ?? component.sourceTmdeId;
-  const rangeId = component.tmdeBudgetRangeId;
-  if (sourceId === undefined || sourceId === null || !rangeId) return null;
-  const source = (tmdes || []).find((tmde) =>
-    [tmde?.id, tmde?.sourceId, tmde?.instrument?.id].some((id) =>
-      sameId(id, sourceId),
-    ),
-  );
-  if (!source) return null;
-  const range = getInstrumentRangeRows(source, { flattenTolerances: true }).find(
-    (candidate) => sameId(candidate.rangeId ?? candidate.id, rangeId),
-  );
-  return range ? budgetRangeSnapshot(range) : null;
-};
-
-// Budget users may deliberately select any compatible TMDE range. Surface a
-// quiet warning when that chosen range does not actually contain the nominal
-// used by its direct point or derived equation input.
-export const getBudgetRangeWarnings = ({
-  components = [],
-  measurementType = "direct",
-  directNominal = null,
-  groups = [],
-  tmdes = [],
-} = {}) => {
-  const inputNominals = new Map(
-    (groups || [])
-      .filter((group) => group?.kind === "input")
-      .map((group) => [
-        String(group.variableType || group.variable || ""),
-        group.nominalPoint || {
-          value: group.nominalValue,
-          unit: group.unit,
-        },
-      ]),
-  );
-  const warnings = {};
-
-  (components || []).forEach((component) => {
-    if (!component?.isBudgetInstance || !component.tmdeBudgetRangeId) return;
-    const groupKey =
-      measurementType === "derived"
-        ? String(component.variableType || "")
-        : "final";
-    if (!groupKey) return;
-    const nominal =
-      measurementType === "derived"
-        ? inputNominals.get(groupKey)
-        : directNominal;
-    if (
-      nominal?.value === undefined ||
-      nominal?.value === null ||
-      nominal?.value === "" ||
-      !nominal?.unit
-    ) {
-      return;
-    }
-    const range = findBudgetComponentRange(component, tmdes);
-    if (!range) return;
-    const compatibility = assessRangeCompatibility(
-      range,
-      nominal,
-      "selected TMDE range",
-    );
-    if (compatibility.compatible) return;
-    if (!warnings[groupKey]) warnings[groupKey] = [];
-    warnings[groupKey].push({
-      componentId: component.id || component.componentId,
-      name: component.name || "TMDE component",
-      reason: compatibility.reason,
-    });
-  });
-
-  return warnings;
 };
 
 export const buildFunctionGroupedRows = (
@@ -10370,6 +10263,12 @@ function DetailedView({
   const [showIrrelevantTmdeFunctions, setShowIrrelevantTmdeFunctions] =
     useState(false);
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
+  useEffect(() => {
+    if (!budgetTmdePicker) return;
+    const closeOnEscape = event => { if (event.key === "Escape") setBudgetTmdePicker(null); };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [budgetTmdePicker]);
 
   useEffect(() => {
     const validUutIds = new Set((sessionData.uuts || []).map((item) => String(item.id)));
@@ -14087,22 +13986,6 @@ function DetailedView({
     [isDerived, testPointData],
   );
 
-  const tmdeSupportsFunction = useCallback((tmde, functionKey) => {
-    if (!functionKey) return true;
-    if (instrumentHasFunction(tmde, functionKey)) return true;
-    if (instrumentFunctions(tmde).some((fn) => functionPartsMatch(fn.name, fn.unit, functionKey))) {
-      return true;
-    }
-    return getInstrumentRangeRows(tmde).some(
-      (range) =>
-        functionPartsMatch(
-          range.functionName || "",
-          range.functionUnit || range.unit || "",
-          functionKey,
-        ),
-    );
-  }, []);
-
   // Derived-variable relevance: an equation variable is identified by its
   // user-chosen NAME (e.g. "V_in"), which almost never equals a TMDE's
   // function name ("DC Voltage") — so name-keyed function matching can't work
@@ -14134,9 +14017,9 @@ function DetailedView({
       const isDerivedFinalScope = isDerived && !scope?.variableType;
       const byLabel = (a, b) =>
         getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b));
-      const isMatch = isDerived
-        ? (tmde) => tmdeMatchesUnit(tmde, scope?.nominalPoint?.unit || "")
-        : (tmde) => tmdeSupportsFunction(tmde, functionKey);
+      // Measurement Areas and input names are user-authored organization.
+      // Select usable sources by physical units, never by those labels.
+      const isMatch = (tmde) => tmdeMatchesUnit(tmde, isDerived ? scope?.nominalPoint?.unit || "" : uutNominal?.unit || "");
       const budgetNominal = isDerived ? scope?.nominalPoint || null : uutNominal;
       const options = isDerivedFinalScope
         ? []
@@ -14146,7 +14029,7 @@ function DetailedView({
               (tmde) =>
                 getUsableBudgetRangeChoices(tmde, budgetNominal, {
                   functionKey,
-                  requireFunctionMatch: !isDerived,
+                  requireFunctionMatch: false,
                 }).length > 0,
             )
             .sort(byLabel);
@@ -14303,7 +14186,6 @@ function DetailedView({
       relevantTmdes,
       setNotification,
       tmdeMatchesUnit,
-      tmdeSupportsFunction,
       isDerived,
       uutToleranceData,
       uutNominal,
@@ -14623,8 +14505,8 @@ function DetailedView({
           data-tour="budget-component-menu"
           style={{
             position: "fixed",
-            top: placement.top,
-            bottom: placement.bottom,
+            top: placement.top ?? "auto",
+            bottom: placement.bottom ?? "auto",
             left: placement.left,
             width: `${placement.width}px`,
             maxWidth: "calc(100vw - 16px)",
@@ -14750,7 +14632,7 @@ function DetailedView({
                 isDerived ? scope.nominalPoint || null : uutNominal,
                 {
                   functionKey: budgetTmdePicker.functionKey,
-                  requireFunctionMatch: !isDerived,
+                  requireFunctionMatch: false,
                 },
               );
               return (

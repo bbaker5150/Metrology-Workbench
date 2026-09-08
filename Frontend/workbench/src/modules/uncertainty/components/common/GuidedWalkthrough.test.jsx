@@ -19,6 +19,22 @@ const steps = [
 ];
 
 describe("GuidedWalkthrough", () => {
+  it("jumps directly between workflows and their steps without requiring setup", () => {
+    const onStepChange = vi.fn();
+    render(<GuidedWalkthrough isOpen steps={[
+      { ...steps[0], workflow: "Direct", canAdvance: false },
+      { ...steps[1], workflow: "Derived" },
+    ]} stepIndex={0} onStepChange={onStepChange} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Walkthrough workflow" }), { target: { value: "Derived" } });
+    expect(onStepChange).toHaveBeenCalledWith(1);
+  });
+
+  it("positions a taller tutorial card fully inside a short viewport", () => {
+    const position = getWalkthroughCardPosition({ left: 50, right: 80, top: 420, bottom: 450 }, { width: 800, height: 600 }, 480);
+    expect(position.top).toBeGreaterThanOrEqual(12);
+    expect(position.top + 480).toBeLessThanOrEqual(588);
+  });
+
   it("keeps the coach card inside the viewport", () => {
     expect(
       getWalkthroughCardPosition(

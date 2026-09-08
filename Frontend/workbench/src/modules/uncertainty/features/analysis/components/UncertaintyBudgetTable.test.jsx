@@ -214,7 +214,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     renderDirectBudget({
       onAddTmdeToBudget: vi.fn(),
       rangeWarningsByGroup: {
-        final: [{ componentId: "outside-range", reason: "below range" }],
+        final: [{ componentId: "outside-range", name: "Voltage accuracy", reason: "Measurement Point 5 V does not fall within error source range: 10 to 20 V." }],
       },
     });
 
@@ -222,9 +222,9 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       name: "Add component to budget",
     });
     const warning = screen.getByLabelText(
-      "Selected range does not include the nominal",
+      "Voltage accuracy: Measurement Point 5 V does not fall within error source range: 10 to 20 V.",
     );
-    expect(warning).toBeInTheDocument();
+    expect(warning).toHaveAttribute("title", "Voltage accuracy: Measurement Point 5 V does not fall within error source range: 10 to 20 V.");
     expect(warning.parentElement).toBe(addButton.parentElement);
   });
 

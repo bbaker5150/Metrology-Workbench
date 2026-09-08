@@ -1,4 +1,10 @@
-import React, { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowLeft,
@@ -14,16 +20,18 @@ const ELEVATED_SURFACE_CLASS = "guided-walkthrough-elevated-surface";
 
 const visibleTarget = (selector) => {
   if (!selector) return null;
-  return Array.from(document.querySelectorAll(selector)).find((element) => {
-    const rect = element.getBoundingClientRect();
-    const style = window.getComputedStyle(element);
-    return (
-      rect.width > 0 &&
-      rect.height > 0 &&
-      style.display !== "none" &&
-      style.visibility !== "hidden"
-    );
-  }) || null;
+  return (
+    Array.from(document.querySelectorAll(selector)).find((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== "none" &&
+        style.visibility !== "hidden"
+      );
+    }) || null
+  );
 };
 
 const combineRects = (...rects) => {
@@ -70,17 +78,21 @@ const elevateRevealedSurface = (surface, elevatedElements) => {
 export const getWalkthroughCardPosition = (
   targetRect,
   viewport = { width: window.innerWidth, height: window.innerHeight },
+  cardHeight = 260,
 ) => {
   const width = Math.min(CARD_WIDTH, viewport.width - VIEWPORT_GAP * 2);
   if (!targetRect) {
     return {
       width,
       left: Math.max(VIEWPORT_GAP, (viewport.width - width) / 2),
-      top: Math.max(VIEWPORT_GAP, viewport.height / 2 - 130),
+      top: Math.max(VIEWPORT_GAP, (viewport.height - cardHeight) / 2),
     };
   }
 
-  const estimatedHeight = 260;
+  const estimatedHeight = Math.min(
+    cardHeight,
+    viewport.height - VIEWPORT_GAP * 2,
+  );
   const roomRight = viewport.width - targetRect.right;
   const roomLeft = targetRect.left;
   let left;
@@ -124,6 +136,18 @@ const GuidedWalkthrough = ({
   onClose,
 }) => {
   const step = steps[stepIndex];
+  const cardRef = useRef(null);
+  const [cardHeight, setCardHeight] = useState(360);
+  useLayoutEffect(() => {
+    if (!isOpen || !cardRef.current) return;
+    const update = () =>
+      setCardHeight(cardRef.current?.getBoundingClientRect().height || 360);
+    update();
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(cardRef.current);
+    return () => observer?.disconnect();
+  }, [isOpen, step]);
   const [targetRect, setTargetRect] = useState(null);
   const [hasTarget, setHasTarget] = useState(false);
 
@@ -182,7 +206,8 @@ const GuidedWalkthrough = ({
   }, [isOpen, step]);
 
   useEffect(() => {
-    if (!isOpen || !step?.advanceOnTargetClick || !step.target) return undefined;
+    if (!isOpen || !step?.advanceOnTargetClick || !step.target)
+      return undefined;
     const handleTargetClick = (event) => {
       if (!event.target?.closest?.(step.target)) return;
       window.setTimeout(
@@ -195,13 +220,19 @@ const GuidedWalkthrough = ({
   }, [isOpen, onStepChange, step, stepIndex, steps.length]);
 
   const cardPosition = useMemo(
-    () => getWalkthroughCardPosition(targetRect),
-    [targetRect],
+    () => getWalkthroughCardPosition(targetRect, undefined, cardHeight),
+    [targetRect, cardHeight],
   );
 
   if (!isOpen || !step) return null;
 
+  const workflowSteps = steps.filter((item) => item.workflow === step.workflow);
+  const workflowIndex = workflowSteps.indexOf(step);
+  const workflows = [
+    ...new Set(steps.map((item) => item.workflow || "Walkthrough")),
+  ];
   const isLast = stepIndex === steps.length - 1;
+  const endsWorkflow = steps[stepIndex + 1]?.workflow !== step.workflow;
   const canAdvance = step.canAdvance !== false;
 
   return (
@@ -218,8 +249,11 @@ const GuidedWalkthrough = ({
           }}
         />
       )}
-      {!hasTarget && <div className="guided-walkthrough-dim" aria-hidden="true" />}
+      {!hasTarget && (
+        <div className="guided-walkthrough-dim" aria-hidden="true" />
+      )}
       <section
+        ref={cardRef}
         className="guided-walkthrough-card"
         role="dialog"
         aria-modal="false"
@@ -228,23 +262,72 @@ const GuidedWalkthrough = ({
       >
         <div className="guided-walkthrough-card-header">
           <span>
-            Step {stepIndex + 1} of {steps.length}
+            {step.workflow || "Walkthrough"} · {workflowIndex + 1} of{" "}
+            {workflowSteps.length}
           </span>
-          <button type="button" onClick={onClose} title="Close walkthrough" aria-label="Close walkthrough">
+          <button
+            type="button"
+            onClick={onClose}
+            title="Close walkthrough"
+            aria-label="Close walkthrough"
+          >
             <FontAwesomeIcon icon={faTimes} />
           </button>
+        </div>
+        <div className="guided-walkthrough-navigation">
+          <label>
+            Workflow
+            <select
+              aria-label="Walkthrough workflow"
+              value={step.workflow || "Walkthrough"}
+              onChange={(event) =>
+                onStepChange(
+                  steps.findIndex(
+                    (item) =>
+                      (item.workflow || "Walkthrough") === event.target.value,
+                  ),
+                )
+              }
+            >
+              {workflows.map((workflow) => (
+                <option key={workflow}>{workflow}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Jump to step
+            <select
+              aria-label="Walkthrough step"
+              value={stepIndex}
+              onChange={(event) => onStepChange(Number(event.target.value))}
+            >
+              {steps.map((item, index) =>
+                item.workflow === step.workflow ? (
+                  <option key={item.id} value={index}>
+                    {index + 1}. {item.title}
+                  </option>
+                ) : null,
+              )}
+            </select>
+          </label>
         </div>
         <h3>{step.title}</h3>
         <p>{step.description}</p>
         {!hasTarget && step.target && (
           <div className="guided-walkthrough-waiting">
-            Complete the preceding setup and this control will be highlighted when it appears.
+            {step.prerequisite ||
+              "Complete the preceding setup and this control will be highlighted when it appears. You can also jump to another workflow."}
           </div>
         )}
-        {step.hint && <div className="guided-walkthrough-hint">{step.hint}</div>}
+        {step.hint && (
+          <div className="guided-walkthrough-hint">{step.hint}</div>
+        )}
         <div className="guided-walkthrough-progress" aria-hidden="true">
-          {steps.map((item, index) => (
-            <span key={item.id} className={index <= stepIndex ? "is-complete" : ""} />
+          {workflowSteps.map((item, index) => (
+            <span
+              key={item.id}
+              className={index <= workflowIndex ? "is-complete" : ""}
+            />
           ))}
         </div>
         <div className="guided-walkthrough-actions">
@@ -257,7 +340,11 @@ const GuidedWalkthrough = ({
             <FontAwesomeIcon icon={faArrowLeft} /> Back
           </button>
           {isLast ? (
-            <button type="button" className="guided-walkthrough-primary" onClick={onClose}>
+            <button
+              type="button"
+              className="guided-walkthrough-primary"
+              onClick={onClose}
+            >
               <FontAwesomeIcon icon={faCheck} /> Finish
             </button>
           ) : (
@@ -267,7 +354,8 @@ const GuidedWalkthrough = ({
               onClick={() => onStepChange(stepIndex + 1)}
               disabled={!canAdvance}
             >
-              {step.nextLabel || "Next"} <FontAwesomeIcon icon={faArrowRight} />
+              {step.nextLabel || (endsWorkflow ? "Next workflow" : "Next")}{" "}
+              <FontAwesomeIcon icon={faArrowRight} />
             </button>
           )}
         </div>

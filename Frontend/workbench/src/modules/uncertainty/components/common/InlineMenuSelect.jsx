@@ -14,6 +14,7 @@ const InlineMenuSelect = ({
   onTab,
   ariaLabel = "Select",
   title,
+  menuTitle,
   width = "72px",
   menuWidth = 220,
   className = "",
@@ -54,14 +55,19 @@ const InlineMenuSelect = ({
     setMenuAccentColor(accentColor);
     if (rect) {
       const visualViewport = window.visualViewport;
-      setMenuRect(getAnchoredMenuPlacement({
-        anchorRect: rect,
-        viewportWidth: visualViewport?.width || window.innerWidth,
-        viewportHeight: visualViewport?.height || window.innerHeight,
-        preferredWidth: Math.max(rect.width, menuWidth),
-        preferredMaxHeight: Math.min(320, Math.max(48, options.length * 34 + 12)),
-        gap: 4,
-      }));
+      setMenuRect(
+        getAnchoredMenuPlacement({
+          anchorRect: rect,
+          viewportWidth: visualViewport?.width || window.innerWidth,
+          viewportHeight: visualViewport?.height || window.innerHeight,
+          preferredWidth: Math.max(rect.width, menuWidth),
+          preferredMaxHeight: Math.min(
+            320,
+            Math.max(48, options.length * 34 + 12 + (menuTitle ? 38 : 0)),
+          ),
+          gap: 4,
+        }),
+      );
     }
   };
   const openMenu = () => {
@@ -79,7 +85,10 @@ const InlineMenuSelect = ({
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(positionMenu);
     };
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(reposition);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(reposition);
     if (rootRef.current) observer?.observe(rootRef.current);
     const table = rootRef.current?.closest("table");
     if (table) observer?.observe(table);
@@ -184,12 +193,40 @@ const InlineMenuSelect = ({
             }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              handleKeyDown(event);
+              if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key))
+                return;
+              event.preventDefault();
+              const items = [
+                ...event.currentTarget.querySelectorAll('[role="option"]'),
+              ];
+              const current = items.indexOf(document.activeElement);
+              const next =
+                event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? items.length - 1
+                    : (current +
+                        (event.key === "ArrowUp" ? -1 : 1) +
+                        items.length) %
+                      items.length;
+              items[next]?.focus();
+            }}
           >
+            {menuTitle && (
+              <div className="instrument-menu-heading">{menuTitle}</div>
+            )}
             <div
               role="listbox"
               aria-label={ariaLabel}
               className="inline-unit-options"
-              style={{ maxHeight: Math.max(1, menuRect.maxHeight - 12) }}
+              style={{
+                maxHeight: Math.max(
+                  1,
+                  menuRect.maxHeight - 12 - (menuTitle ? 38 : 0),
+                ),
+              }}
             >
               {options.map((option) => {
                 const isSelected = String(option.value) === String(value);
@@ -209,7 +246,7 @@ const InlineMenuSelect = ({
                     <span>{option.label}</span>
                     {showOptionMeta &&
                       (option.shortLabel || option.value !== option.label) && (
-                      <small>{option.shortLabel || option.value}</small>
+                        <small>{option.shortLabel || option.value}</small>
                       )}
                   </button>
                 );

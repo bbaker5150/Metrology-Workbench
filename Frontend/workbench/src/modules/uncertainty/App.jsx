@@ -25,7 +25,10 @@ import TestPointInfoModal from "./features/testPoints/components/TestPointInfoMo
 import UniversalInstrumentModal from "./features/instruments/components/UniversalInstrumentModal";
 import UnresolvedToleranceModal from "./features/testPoints/components/UnresolvedToleranceModal";
 import BugReportModal from "./components/modals/BugReportModal";
+import { getPointDiagnostics } from "./utils/pointDiagnostics";
+import { createWalkthroughSteps } from "./components/common/walkthroughSteps";
 import GuidedWalkthrough from "./components/common/GuidedWalkthrough";
+import SidebarColumnPopover from "./components/common/SidebarColumnPopover";
 import InlineMenuSelect from "./components/common/InlineMenuSelect";
 
 // --- Brand emblem (shared 3D medallion recipe) ---
@@ -49,6 +52,7 @@ import "./App.css";
 import appLogo from "./assets/icon.svg";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
+  faExclamationTriangle,
   faPlus,
   faEdit,
   faTrashAlt,
@@ -680,7 +684,7 @@ const getSidebarValueColumnWidth = (points = []) => {
     const unitLength = getUnitDisplayLabel(parameter.unit || "").length;
     return Math.max(max, valueLength + (unitLength ? unitLength + 1 : 0));
   }, 0);
-  return `${Math.max(88, longest * 8 + 12)}px`;
+  return `${Math.max(88, longest * 8 + 36)}px`;
 };
 
 const readUiSizingPreferences = () => {
@@ -726,7 +730,8 @@ export const SidebarPointItem = ({
   isSelected,
   isActivePoint = false,
   isTableSelected,
-  liveRiskMetrics = null,
+  liveRiskMetrics,
+  diagnostics = [],
   isLiveRiskTarget = false,
   riskRequirements = {},
   onSelect,
@@ -1067,9 +1072,9 @@ export const SidebarPointItem = ({
       content
     );
   // Prefer the live, reactively-computed metrics (always current with the
-  // session inputs); fall back to the persisted backend snapshot only if the
-  // point can't currently be evaluated (#1).
-  const risk = liveRiskMetrics || point.riskMetrics || {};
+  // session inputs). A null live result means the current inputs are invalid;
+  // only consumers without a live calculator may use the saved snapshot.
+  const risk = liveRiskMetrics !== undefined ? (liveRiskMetrics || {}) : (point.riskMetrics || {});
 
   // Monte Carlo is an uncertainty-budget method now, not a separate risk
   // method. Only the measurement-unknown Risk 8 boundary needs a row marker.
@@ -1295,6 +1300,7 @@ export const SidebarPointItem = ({
                   editingUut ? (
                     <InlineMenuSelect
                       value={currentUutId || ""}
+                      menuTitle="Assign UUT"
                       ariaLabel="UUT"
                       title={uutName}
                       width="100%"
@@ -1438,6 +1444,11 @@ export const SidebarPointItem = ({
                 </span>
               )}
             </span>
+            {diagnostics.length > 0 && (
+              <button type="button" className="point-diagnostic-warning" aria-label={`Point needs attention: ${diagnostics.join(" ")}`} title={diagnostics.map(message => `• ${message}`).join("\n\n")} onClick={event => { event.stopPropagation(); onSelect?.(event, point); }}>
+                <FontAwesomeIcon icon={faExclamationTriangle} aria-hidden="true" />
+              </button>
+            )}
           </span>
         ))}
 
@@ -2224,130 +2235,7 @@ function App({ showThemeToggle = false }) {
   const [walkthroughStepIndex, setWalkthroughStepIndex] = useState(0);
   const walkthroughAutoStartedRef = useRef(false);
 
-  const walkthroughSteps = useMemo(
-    () => [
-      {
-        id: "new-session",
-        title: "Start an analysis session",
-        description:
-          "Select the highlighted add button to create your first analysis session. Sessions keep instruments, points, budgets, and notes together.",
-        hint:
-          sessions.length === 0
-            ? "Click the highlighted + to continue."
-            : "You already have a session, so you can continue or create another one.",
-        target: '[data-tour="add-session"]',
-        advanceOnTargetClick: true,
-        canAdvance: sessions.length > 0,
-      },
-      {
-        id: "session-information",
-        title: "Complete the session information",
-        description:
-          "Give the session a recognizable name, then enter the analyst, organization, document, and date. The risk and mitigation inputs below establish the requirements used across the session.",
-        target: '[data-tour="session-information"]',
-        hint: "Values save as you enter them. Required analysis settings can be refined at any time.",
-      },
-      {
-        id: "overview-tab",
-        title: "Open Instrument Overview",
-        description:
-          "Instrument Overview is where you define the UUT and TMDE available to every measurement point in this session.",
-        target: '[data-tour="tab-overview"]',
-      },
-      {
-        id: "uut-function",
-        title: "Create the UUT measurement area",
-        description:
-          "Use this add button to create the measurement area, such as Voltage, Weight, or Torque. Existing measurement areas are listed for reuse, and you can create your own.",
-        target: '[data-tour="uut-add-function"]',
-        revealedTarget: '[data-tour="uut-function-menu"]',
-      },
-      {
-        id: "uut-instrument",
-        title: "Add the unit under test",
-        description:
-          "Use the + on the measurement area header to add an instrument. Choose a local or shared instrument from the Description suggestions, or enter a new instrument directly through Description, Range, Tolerance, and Resolution.",
-        target: '[data-tour="uut-add-instrument"]',
-        hint: "Each range remains aligned with its tolerance and resolution, and any number of UUTs can share this measurement area.",
-      },
-      {
-        id: "uut-columns",
-        title: "Define the UUT specifications",
-        description:
-          "Description identifies the instrument. Range defines where a specification applies, Tolerance defines its accuracy, Resolution defines readable increments, and Sync controls sharing with the validated library.",
-        target: '[data-tour="uut-table"]',
-      },
-      {
-        id: "function-settings",
-        title: "Review Measurement Area Settings",
-        description:
-          "Hover beside the measurement area name and open the settings button. Keep Direct selected for this walkthrough. Reusing the first point's budget makes later points inherit the complete initial budget.",
-        target: '[data-tour="function-settings"]',
-        revealedTarget: '[data-tour="function-settings-menu"]',
-      },
-      {
-        id: "measurement-point",
-        title: "Create a direct measurement point",
-        description:
-          "Select the + on the measurement area header. If several UUTs share the measurement area, choose the instrument from the menu that opens, then enter the measurement value in the new sidebar row.",
-        target: '[data-tour="add-measurement-point"]',
-        revealedTarget: '[data-tour="measurement-point-menu"]',
-      },
-      {
-        id: "tmde-function",
-        title: "Create the TMDE measurement area",
-        description:
-          "Now repeat the setup for the measuring equipment. Choose the Measurement Area for the TMDE; it can reuse an area already defined in the session.",
-        target: '[data-tour="tmde-add-function"]',
-        revealedTarget: '[data-tour="tmde-function-menu"]',
-      },
-      {
-        id: "tmde-instrument",
-        title: "Add the TMDE",
-        description:
-          "Use the measurement area's + button to add the measuring instrument, then select a local or shared definition or enter a new Description, Range, Tolerance, and Resolution.",
-        target: '[data-tour="tmde-add-instrument"]',
-      },
-      {
-        id: "tmde-columns",
-        title: "Define the TMDE specifications",
-        description:
-          "Complete the TMDE table just like the UUT table. These specifications become the selectable accuracy and resolution sources used in uncertainty budgets.",
-        target: '[data-tour="tmde-table"]',
-      },
-      {
-        id: "workspace-tabs",
-        title: "Understand the three workspaces",
-        description:
-          "Instrument Overview manages session instruments. Uncertainty Budget builds and calculates the selected point's budget. Notes stores formatted session documentation and supporting images.",
-        target: '[data-tour="analysis-tabs"]',
-      },
-      {
-        id: "budget-tab",
-        title: "Open the Uncertainty Budget",
-        description:
-          "Select a measurement point, then open Uncertainty Budget. The selected point's UUT nominal, instrument sources, calculation controls, and results appear here.",
-        target: '[data-tour="tab-budget"]',
-      },
-      {
-        id: "budget-component",
-        title: "Build the budget",
-        description:
-          "Use Add component on each budget table to select a compatible tolerance, resolution, repeatability result, or manual source. Configure its distribution and coverage details, then calculate the combined and expanded uncertainty.",
-        target: '[data-tour="budget-add-component"]',
-        revealedTarget: '[data-tour="budget-component-menu"]',
-        hint: "A yellow range warning appears when a selected instrument range does not contain the direct measurement nominal.",
-      },
-      {
-        id: "complete",
-        title: "Your direct workflow is ready",
-        description:
-          "You now know the direct-measurement path from session setup through instruments, points, and uncertainty budgets. Use the Help button at any time to restart this walkthrough.",
-        target: '[data-tour="help-walkthrough"]',
-      },
-    ],
-    [sessions.length],
-  );
+  const walkthroughSteps = useMemo(() => createWalkthroughSteps(sessions.length), [sessions.length]);
 
   useEffect(() => {
     if (
@@ -2367,8 +2255,9 @@ function App({ showThemeToggle = false }) {
 
   useEffect(() => {
     if (!isWalkthroughOpen) return;
-    const stepId = walkthroughSteps[walkthroughStepIndex]?.id;
-    if (stepId === "session-information") setIsSessionInfoOpen(true);
+    const step = walkthroughSteps[walkthroughStepIndex];
+    if (step?.id === "session-information") setIsSessionInfoOpen(true);
+    if (step?.workspace) setAnalysisMode(step.workspace === "budget" ? "uncertaintyTool" : "overview");
   }, [isWalkthroughOpen, walkthroughStepIndex, walkthroughSteps]);
 
   const [sessionImageCache, setSessionImageCache] = useState(new Map());
@@ -2487,6 +2376,8 @@ function App({ showThemeToggle = false }) {
       mitigationColumnsEnabled,
     ],
   );
+
+  const pointDiagnosticsMap = useMemo(() => Object.fromEntries(currentTestPoints.map(point => [point.id, getPointDiagnostics(point, currentSessionData || {}, { riskMetrics: pointRiskMap[point.id] })])), [currentTestPoints, currentSessionData, pointRiskMap]);
 
   // Measurement-point chronology is authored by the user. Never reorder it as
   // a side effect of clicking a header; qualifiers such as 1, 2, 10 are values,
@@ -2682,7 +2573,8 @@ function App({ showThemeToggle = false }) {
     const handleClickOutside = (event) => {
       if (
         columnMenuRef.current &&
-        !columnMenuRef.current.contains(event.target)
+        !columnMenuRef.current.contains(event.target) &&
+        !event.target.closest?.(".sidebar-filter-dropdown")
       ) {
         setIsColumnMenuOpen(false);
       }
@@ -5081,6 +4973,7 @@ function App({ showThemeToggle = false }) {
       isActivePoint={selectedTestPointId === tp.id}
       isTableSelected={selectedTablePointIds.includes(tp.id)}
       liveRiskMetrics={pointRiskMap[tp.id]}
+      diagnostics={pointDiagnosticsMap[tp.id]}
       riskRequirements={currentSessionData?.uncReq || {}}
       isLiveRiskTarget={true}
       onSelect={(e) => handleSelectTestPoint(e, tp.id, contextUutId)}
@@ -5945,13 +5838,18 @@ function App({ showThemeToggle = false }) {
                               setIsColumnOrderMenuOpen(false);
                             }}
                             title="Filter visible columns"
+                            aria-label="Filter visible columns"
+                            aria-expanded={isColumnMenuOpen}
+                            data-tour="sidebar-columns"
                             className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
                           >
                             <FontAwesomeIcon icon={faSlidersH} />
                           </button>
 
                           {isColumnMenuOpen && (
-                            <div className="sidebar-filter-dropdown">
+                            <SidebarColumnPopover anchorRef={columnMenuRef} onClose={() => setIsColumnMenuOpen(false)}>
+                              <header className="sidebar-filter-header"><div><strong>Visible columns</strong><p>Choose the details you want to compare.</p></div><button type="button" aria-label="Close column filter" onClick={() => setIsColumnMenuOpen(false)}>×</button></header>
+                              <div className="sidebar-filter-sections">
                               {[
                             {
                               group: "Measurement",
@@ -6054,7 +5952,7 @@ function App({ showThemeToggle = false }) {
                                       })
                                     }
                                   />
-                                  <span>{section.group}</span>
+                                  <span>{section.group}</span><small>{selectedCount}/{section.cols.length}</small>
                                 </label>
                                 {section.cols.map((col) => (
                                   <label
@@ -6077,7 +5975,8 @@ function App({ showThemeToggle = false }) {
                               </div>
                             );
                           })}
-                            </div>
+                              </div>
+                            </SidebarColumnPopover>
                           )}
                         </div>
                       </>
