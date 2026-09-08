@@ -569,14 +569,13 @@ describe("inline range editing", () => {
     expect(screen.getByPlaceholderText("max")).toBeInTheDocument();
   });
 
-  it("offers add range from the first blank editor before bounds are entered", () => {
-    const onAddRange = vi.fn();
+  it("keeps add range out of the collapsed blank editor", () => {
     render(
       <RangeCell
         ranges={[{ id: "range-1", min: "", max: "", unit: "V" }]}
         activeRange={{ id: "range-1", min: "", max: "", unit: "V" }}
         editable
-        onAddRange={onAddRange}
+        onExpandAll={vi.fn()}
         onEditBound={vi.fn()}
         onEditUnit={vi.fn()}
       />,
@@ -584,9 +583,8 @@ describe("inline range editing", () => {
 
     expect(screen.queryByRole("button", { name: "Add range" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByTitle("Set range"));
-    fireEvent.click(screen.getByRole("button", { name: "Add range" }));
-
-    expect(onAddRange).toHaveBeenCalledOnce();
+    expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add range" })).not.toBeInTheDocument();
   });
 
   it("does not render a clear/delete control beside the unit while editing", () => {

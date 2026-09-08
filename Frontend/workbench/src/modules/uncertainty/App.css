@@ -13255,17 +13255,6 @@ input.inline-function-input:focus {
   background: color-mix(in srgb, var(--primary-color) 12%, transparent);
 }
 
-.range-row-add--inline {
-  flex: 0 0 24px;
-  grid-column: auto;
-  grid-row: auto;
-}
-
-.inline-range-editor.is-editing:hover .range-row-add--inline,
-.inline-range-editor.is-editing:focus-within .range-row-add--inline {
-  opacity: 1;
-}
-
 .instrument-row-tools {
   display: inline-flex;
   align-items: center;

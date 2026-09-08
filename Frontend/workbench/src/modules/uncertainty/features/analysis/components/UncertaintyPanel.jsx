@@ -4611,7 +4611,6 @@ export const RangeCell = ({
   onClearRange,
   onExpandAll,
   onEnsureInitialRange,
-  onAddRange,
   onOpenTolerance,
   onAdvanceRange,
   openRequested = false,
@@ -4856,21 +4855,6 @@ export const RangeCell = ({
           width="72px"
           compact
         />
-        {onAddRange && (
-          <button
-            type="button"
-            className="range-row-add range-row-add--inline"
-            title="Add range"
-            aria-label="Add range"
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onAddRange();
-            }}
-          >
-            <FontAwesomeIcon icon={faPlus} />
-          </button>
-        )}
       </div>
     </div>
   );
@@ -9329,23 +9313,6 @@ const SummaryDashboard = ({
                                   onEnsureInitialRange={() =>
                                     ensureInitialRange("uut", uut)
                                   }
-                                  onAddRange={
-                                    index === 0
-                                      ? () => {
-                                          handleAddBlankRange("uut", uut, rangeKey);
-                                          setRangeEditingKeys((previous) =>
-                                            new Set(previous).add(
-                                              itemStateKey("uut", uutRowKey),
-                                            ),
-                                          );
-                                          setExpandedRangeKeys((previous) =>
-                                            new Set(previous).add(
-                                              itemStateKey("uut", uutRowKey),
-                                            ),
-                                          );
-                                        }
-                                      : undefined
-                                  }
                                   onOpenTolerance={() =>
                                     openRangeTolerance("uut", uut, range)
                                   }
@@ -9838,23 +9805,6 @@ const SummaryDashboard = ({
                                   }
                                   onEnsureInitialRange={() =>
                                     ensureInitialRange("tmde", tmde)
-                                  }
-                                  onAddRange={
-                                    index === 0
-                                      ? () => {
-                                          handleAddBlankRange("tmde", tmde, rangeKey);
-                                          setRangeEditingKeys((previous) =>
-                                            new Set(previous).add(
-                                              itemStateKey("tmde", tmdeRowKey),
-                                            ),
-                                          );
-                                          setExpandedRangeKeys((previous) =>
-                                            new Set(previous).add(
-                                              itemStateKey("tmde", tmdeRowKey),
-                                            ),
-                                          );
-                                        }
-                                      : undefined
                                   }
                                   onOpenTolerance={() =>
                                     openRangeTolerance("tmde", tmde, range)
@@ -15500,27 +15450,6 @@ function DetailedView({
                                   onEnsureInitialRange={() =>
                                     ensureInitialRangeDetail("uut", uut)
                                   }
-                                  onAddRange={
-                                    index === 0
-                                      ? () => {
-                                          handleAddBlankRangeDetail(
-                                            "uut",
-                                            uut,
-                                            rangeIdOf(range),
-                                          );
-                                          setRangeEditingKeys((previous) =>
-                                            new Set(previous).add(
-                                              itemStateKey("uut", uutRowKey),
-                                            ),
-                                          );
-                                          setExpandedRangeKeys((previous) =>
-                                            new Set(previous).add(
-                                              itemStateKey("uut", uutRowKey),
-                                            ),
-                                          );
-                                        }
-                                      : undefined
-                                  }
                                   onOpenTolerance={() =>
                                     openRangeToleranceDetail("uut", uut, range)
                                   }
@@ -16434,27 +16363,6 @@ function DetailedView({
                                       }
                                       onEnsureInitialRange={() =>
                                         ensureInitialRangeDetail("tmde", masterTmde)
-                                      }
-                                      onAddRange={
-                                        index === 0
-                                          ? () => {
-                                              handleAddBlankRangeDetail(
-                                                "tmde",
-                                                masterTmde,
-                                                rangeKey,
-                                              );
-                                              setRangeEditingKeys((previous) =>
-                                                new Set(previous).add(
-                                                  itemStateKey("tmde", tmdeRowKey),
-                                                ),
-                                              );
-                                              setExpandedRangeKeys((previous) =>
-                                                new Set(previous).add(
-                                                  itemStateKey("tmde", tmdeRowKey),
-                                                ),
-                                              );
-                                            }
-                                          : undefined
                                       }
                                       onOpenTolerance={() =>
                                         openRangeToleranceDetail("tmde", masterTmde, range)
