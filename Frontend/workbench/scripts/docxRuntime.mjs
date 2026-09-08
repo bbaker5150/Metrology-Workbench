@@ -1,19 +1,19 @@
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 // The React adapter's agents dependency uses a caret range. Version 1.12.0
 // bundled its own table-selection implementation, which registers "cell" a
 // second time when used with the 1.11.0 editor. A lockfile change alone does
 // not replace an existing lab/offline node_modules directory.
-export function verifyDocxRuntime(root) {
+const inspectDocxRuntime = (root) => {
   const require = createRequire(path.join(root, 'package.json'));
   const readPackage = (entry) => {
     let directory = path.dirname(entry);
     while (directory !== path.dirname(directory)) {
       try {
         const pkg = JSON.parse(readFileSync(path.join(directory, 'package.json'), 'utf8'));
-        if (pkg.name) return pkg;
+        if (pkg.name) return { ...pkg, directory };
       } catch (error) {
         if (error.code !== 'ENOENT') throw error;
       }
@@ -22,6 +22,7 @@ export function verifyDocxRuntime(root) {
     throw new Error(`Cannot find package metadata for ${entry}`);
   };
   const reactEntry = require.resolve('@heyirisai/docx-editor-react');
+  const reactDirectory = readPackage(reactEntry).directory;
   const fromReact = createRequire(reactEntry);
   const expected = require('./package.json').dependencies['@heyirisai/docx-editor-react'];
   const entries = [
@@ -31,15 +32,50 @@ export function verifyDocxRuntime(root) {
     fromReact.resolve('@heyirisai/docx-editor-agents/react'),
   ];
   const mismatches = entries.map(readPackage).filter(pkg => pkg.version !== expected);
+  return { expected, mismatches, reactDirectory };
+};
+
+export function verifyDocxRuntime(root) {
+  const { expected, mismatches } = inspectDocxRuntime(root);
   if (mismatches.length) {
     throw new Error(
       `The installed Notes editor dependencies do not match this checkout: ` +
       mismatches.map(pkg => `${pkg.name}@${pkg.version}`).join(', ') +
-      `. Expected ${expected}. Stop the app, run "npm ci" in Frontend/workbench, ` +
-      `then restart the same Electron command. For an offline installation, copy ` +
-      `node_modules from an installation made with this checkout's package-lock.json.`,
+      `. Expected ${expected}. Stop the app, run "npm run repair:notes" in ` +
+      `Frontend/workbench, then restart the same Electron command. This targeted ` +
+      `repair does not reinstall Electron or require a network connection.`,
     );
   }
+}
+
+export function repairDocxRuntime(root) {
+  const { mismatches, reactDirectory } = inspectDocxRuntime(root);
+  const nestedRoot = path.resolve(reactDirectory, 'node_modules');
+  const removable = new Map();
+  mismatches.forEach((pkg) => {
+    const directory = path.resolve(pkg.directory);
+    if (directory.startsWith(`${nestedRoot}${path.sep}`)) {
+      removable.set(directory, pkg);
+    }
+  });
+  removable.forEach((pkg, directory) => {
+    try {
+      rmSync(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+        retryDelay: 150,
+      });
+    } catch (error) {
+      throw new Error(
+        `Could not remove ${pkg.name}@${pkg.version}. Close every running ` +
+        `Electron/workbench window and run "npm run repair:notes" again. ` +
+        `(${error.message})`,
+      );
+    }
+  });
+  verifyDocxRuntime(root);
+  return [...removable.values()].map((pkg) => `${pkg.name}@${pkg.version}`);
 }
 
 export const docxRuntime = () => ({

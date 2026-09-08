@@ -2587,6 +2587,58 @@ const INSTRUMENT_COLUMN_DEFAULTS = {
 
 const instrumentColumnKey = (column) => `custom:${column.key}`;
 
+const INSTRUMENT_STANDARD_COLUMNS = {
+  uut: ["description", "range", "tolerance", "resolution", "sync"],
+  tmde: [
+    "description",
+    "range",
+    "tolerance",
+    "distribution",
+    "resolution",
+    "sync",
+  ],
+};
+
+const INSTRUMENT_COLUMN_LABELS = {
+  description: "Description",
+  range: "Range",
+  tolerance: "Tolerance",
+  distribution: "Distribution",
+  resolution: "Resolution",
+  sync: "Sync",
+};
+
+export const getInstrumentColumnOrder = (kind, customColumns = []) => {
+  const order = [...(INSTRUMENT_STANDARD_COLUMNS[kind] || [])];
+  let legacyAnchor = "resolution";
+  customColumns.forEach((column) => {
+    const key = instrumentColumnKey(column);
+    const requestedAnchor = column.insertAfter || legacyAnchor;
+    const syncIndex = order.indexOf("sync");
+    const anchorIndex = order.indexOf(requestedAnchor);
+    const insertionIndex =
+      anchorIndex >= 0 && anchorIndex < syncIndex ? anchorIndex + 1 : syncIndex;
+    order.splice(insertionIndex, 0, key);
+    if (!column.insertAfter) legacyAnchor = key;
+  });
+  return order;
+};
+
+const customColumnsAfter = (kind, customColumns, anchorKey) => {
+  const order = getInstrumentColumnOrder(kind, customColumns);
+  const byKey = new Map(
+    customColumns.map((column) => [instrumentColumnKey(column), column]),
+  );
+  const start = order.indexOf(anchorKey) + 1;
+  const result = [];
+  for (let index = start; index < order.length; index += 1) {
+    const column = byKey.get(order[index]);
+    if (!column) break;
+    result.push(column);
+  }
+  return result;
+};
+
 const uutTableTitle = (count) =>
   Number(count) > 1 ? "Units Under Test" : "Unit Under Test";
 
@@ -2604,7 +2656,9 @@ const resolutionDistributionDisplayLabel = (option) =>
   String(option?.label || "").replace(/\s+\(resolution\)$/i, "");
 
 const useInstrumentColumnWidths = (kind, customColumns = []) => {
-  const customSignature = customColumns.map((column) => column.key).join("|");
+  const customSignature = customColumns
+    .map((column) => `${column.key}:${column.insertAfter || "legacy"}`)
+    .join("|");
   const defaults = useMemo(() => {
     const base = { ...(INSTRUMENT_COLUMN_DEFAULTS[kind] || {}) };
     customColumns.forEach((column) => {
@@ -2664,7 +2718,12 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
     return 120;
   }, []);
 
-  const keys = useMemo(() => Object.keys(defaults), [defaults]);
+  const keys = useMemo(
+    () => getInstrumentColumnOrder(kind, customColumns),
+    // customSignature intentionally captures insertion positions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [kind, customSignature],
+  );
   const resolvedWidths = useMemo(
     () =>
       Object.fromEntries(
@@ -2785,6 +2844,8 @@ const ResizableInstrumentHeader = ({
   label,
   columns,
   className = "",
+  onInsertAfter,
+  nextLabel,
 }) => (
   <th
     className={`instrument-resizable-header ${className}`.trim()}
@@ -2792,6 +2853,21 @@ const ResizableInstrumentHeader = ({
     data-instrument-column={columnKey}
   >
     <span className="instrument-resizable-header-content">{children}</span>
+    {onInsertAfter && (
+      <button
+        type="button"
+        className="instrument-column-insert-button"
+        title={`Add column between ${label} and ${nextLabel}`}
+        aria-label={`Add column between ${label} and ${nextLabel}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onInsertAfter(columnKey);
+        }}
+      >
+        <FontAwesomeIcon icon={faPlus} />
+      </button>
+    )}
     <button
       type="button"
       className="instrument-column-resize-handle instrument-size-control"
@@ -2811,6 +2887,70 @@ const ResizableInstrumentHeader = ({
     />
   </th>
 );
+
+const InstrumentTableColgroup = ({ kind, customColumns, columns }) => (
+  <colgroup>
+    {getInstrumentColumnOrder(kind, customColumns).map((columnKey) => (
+      <col key={columnKey} style={{ width: columns.widthFor(columnKey) }} />
+    ))}
+  </colgroup>
+);
+
+const InstrumentTableHeader = ({
+  kind,
+  customColumns,
+  columns,
+  renderCustomColumnHeader,
+  onInsertAfter,
+}) => {
+  const customByKey = new Map(
+    customColumns.map((column) => [instrumentColumnKey(column), column]),
+  );
+  const order = getInstrumentColumnOrder(kind, customColumns);
+  const labelFor = (columnKey) => {
+    const custom = customByKey.get(columnKey);
+    if (custom) return custom.label || "Name";
+    if (kind === "tmde" && columnKey === "tolerance") return "Error Limit";
+    return INSTRUMENT_COLUMN_LABELS[columnKey] || columnKey;
+  };
+  return (
+    <thead>
+      <tr>
+        {order.map((columnKey, index) => {
+          const custom = customByKey.get(columnKey);
+          const label = labelFor(columnKey);
+          return (
+            <ResizableInstrumentHeader
+              key={columnKey}
+              columnKey={columnKey}
+              label={label}
+              columns={columns}
+              className={
+                columnKey === "sync"
+                  ? "cell-sync"
+                  : columnKey === "distribution"
+                    ? "cell-distribution"
+                    : ""
+              }
+              onInsertAfter={index < order.length - 1 ? onInsertAfter : null}
+              nextLabel={index < order.length - 1 ? labelFor(order[index + 1]) : ""}
+            >
+              {custom
+                ? renderCustomColumnHeader(kind, custom)
+                : columnKey === "range"
+                  ? (
+                      <span className="range-header-cell">
+                        <span>Range</span>
+                      </span>
+                    )
+                  : label}
+            </ResizableInstrumentHeader>
+          );
+        })}
+      </tr>
+    </thead>
+  );
+};
 
 const getInstrumentTableContentHeight = (container) => {
   const table = container?.querySelector?.(":scope > table");
@@ -6731,14 +6871,17 @@ const SummaryDashboard = ({
     "tmde",
     (sessionData.tmdes || []).length,
   );
-  const requestCustomColumn = (kind) => {
+  const requestCustomColumn = (kind, insertAfter = "resolution") => {
     const key = `field-${uuidv4().slice(0, 8)}`;
     const current = sessionData.instrumentCustomColumns || {};
     onSessionSave?.({
       ...sessionData,
       instrumentCustomColumns: {
         ...current,
-        [kind]: [...(current[kind] || []), { key, label: "Name" }],
+        [kind]: [
+          ...(current[kind] || []),
+          { key, label: "Name", insertAfter },
+        ],
       },
     });
     setEditingCustomColumnKey(key);
@@ -6796,8 +6939,8 @@ const SummaryDashboard = ({
       ),
     });
   };
-  const renderCustomCells = (kind, item, rowSpan = 1) =>
-    customColumnsFor(kind).map((column) => (
+  const renderCustomCellsAfter = (kind, item, anchorKey, rowSpan = 1) =>
+    customColumnsAfter(kind, customColumnsFor(kind), anchorKey).map((column) => (
       <td key={column.key} rowSpan={rowSpan} className="instrument-custom-field-cell">
         <EditableCustomFieldCell
           value={item.customFields?.[column.key] || ""}
@@ -8058,37 +8201,28 @@ const SummaryDashboard = ({
           handleAddInstrumentToFunction(kind, fn);
         }}
       >
-        <span>Add Instrument</span>
+        <FontAwesomeIcon icon={faPlus} />
+        <FontAwesomeIcon icon={faTools} />
       </button>
     );
   };
 
-  const renderSelectedInstrumentDeleteButton = (kind, fn) => {
-    const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
-    const instrumentsForKind =
-      kind === "uut" ? sessionData.uuts || [] : sessionData.tmdes || [];
-    const hasSelectionInFunction = selectedIds.some((selectedId) =>
-      instrumentsForKind.some(
-        (instrument) =>
-          sameId(instrument.id, selectedId) &&
-          instrumentHasFunction(instrument, fn.key),
-      ),
-    );
-    if (!onSessionSave || !hasSelectionInFunction) return null;
-    const label = selectedInstrumentDeleteLabel(selectedIds.length);
+  const renderInstrumentDeleteButton = (kind, item) => {
+    if (!onSessionSave) return null;
+    const label = `Delete ${kind === "uut" ? "UUT" : "TMDE"} instrument`;
     return (
       <button
         type="button"
-        className="function-header-destructive-btn btn-delete-selection"
+        className="range-header-action-btn range-header-action-btn--delete instrument-row-delete"
         title={label}
         aria-label={label}
         onClick={(event) => {
           event.stopPropagation();
-          if (kind === "uut") handleDeleteSelectedUuts();
-          else handleDeleteSelectedTmdes();
+          if (kind === "uut") onDeleteUut?.([item.id]);
+          else onDeleteTmdeDefinition?.([item.id]);
         }}
       >
-        <span>{label}</span>
+        <FontAwesomeIcon icon={faTimes} />
       </button>
     );
   };
@@ -8099,7 +8233,7 @@ const SummaryDashboard = ({
     return (
       <button
         type="button"
-        className="function-header-destructive-btn"
+        className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
         title="Delete Function"
         aria-label="Delete Function"
         onClick={(e) => {
@@ -8107,7 +8241,7 @@ const SummaryDashboard = ({
           handleDeleteFunction(fn);
         }}
       >
-        <span>Delete Function</span>
+        <FontAwesomeIcon icon={faTimes} />
       </button>
     );
   };
@@ -8165,7 +8299,6 @@ const SummaryDashboard = ({
             {renderFunctionUnitChip(fn)}
           </div>
           <div className="function-header-actions">
-            {renderSelectedInstrumentDeleteButton(kind, fn)}
             {renderFunctionDeleteButton(fn)}
             {renderFunctionAddButton(kind, fn)}
           </div>
@@ -8534,6 +8667,7 @@ const SummaryDashboard = ({
       totalRanges = 1,
       nextRange = null,
       stateId = item.id,
+      renderCustomAfter = () => null,
     } = {},
   ) => {
     const setRangeIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
@@ -8632,6 +8766,7 @@ const SummaryDashboard = ({
             )}
           </div>
         </td>
+        {renderCustomAfter("range")}
 
         <td
           data-range-tolerance-key={`${itemStateKey(kind, item.id)}:${rangeKey}`}
@@ -8658,16 +8793,20 @@ const SummaryDashboard = ({
             }
           />
         </td>
+        {renderCustomAfter("tolerance")}
 
         {includeDistribution && (
-          <td className="cell-distribution" title="Spec band distribution">
-            <InlineDistributionCell
-              divisor={getBandDistDivisor(tolerance)}
-              onChange={(value) =>
-                setRangeBandDistribution(kind, item, rangeKey, value)
-              }
-            />
-          </td>
+          <>
+            <td className="cell-distribution" title="Spec band distribution">
+              <InlineDistributionCell
+                divisor={getBandDistDivisor(tolerance)}
+                onChange={(value) =>
+                  setRangeBandDistribution(kind, item, rangeKey, value)
+                }
+              />
+            </td>
+            {renderCustomAfter("distribution")}
+          </>
         )}
 
         <td
@@ -8697,6 +8836,7 @@ const SummaryDashboard = ({
             }
           />
         </td>
+        {renderCustomAfter("resolution")}
       </>
     );
   };
@@ -9369,15 +9509,6 @@ const SummaryDashboard = ({
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
             <button
-              type="button"
-              className="btn-add-item btn-add-column"
-              onClick={() => requestCustomColumn("uut")}
-              title="Add UUT column"
-              aria-label="Add UUT column"
-            >
-              <span>Add Column</span>
-            </button>
-            <button
               className="btn-add-item btn-add-column"
               data-tour="uut-add-function"
               onClick={(e) => {
@@ -9411,50 +9542,18 @@ const SummaryDashboard = ({
               minWidth: `${uutTableColumns.minimumTableWidth}px`,
             }}
           >
-            <colgroup>
-              <col style={{ width: uutTableColumns.widthFor("description") }} />
-              <col style={{ width: uutTableColumns.widthFor("range") }} />
-              <col style={{ width: uutTableColumns.widthFor("tolerance") }} />
-              <col style={{ width: uutTableColumns.widthFor("resolution") }} />
-              {customColumnsFor("uut").map((column) => (
-                <col
-                  key={column.key}
-                  style={{ width: uutTableColumns.widthFor(instrumentColumnKey(column)) }}
-                />
-              ))}
-              <col style={{ width: uutTableColumns.widthFor("sync") }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <ResizableInstrumentHeader columnKey="description" label="Description" columns={uutTableColumns}>
-                  Description
-                </ResizableInstrumentHeader>
-                <ResizableInstrumentHeader columnKey="range" label="Range" columns={uutTableColumns}>
-                  <span className="range-header-cell">
-                    <span>Range</span>
-                  </span>
-                </ResizableInstrumentHeader>
-                <ResizableInstrumentHeader columnKey="tolerance" label="Tolerance" columns={uutTableColumns}>
-                  Tolerance
-                </ResizableInstrumentHeader>
-                <ResizableInstrumentHeader columnKey="resolution" label="Resolution" columns={uutTableColumns}>
-                  Resolution
-                </ResizableInstrumentHeader>
-                {customColumnsFor("uut").map((column) => (
-                  <ResizableInstrumentHeader
-                    key={column.key}
-                    columnKey={instrumentColumnKey(column)}
-                    label={column.label || "Name"}
-                    columns={uutTableColumns}
-                  >
-                    {renderCustomColumnHeader("uut", column)}
-                  </ResizableInstrumentHeader>
-                ))}
-                <ResizableInstrumentHeader columnKey="sync" label="Sync" columns={uutTableColumns} className="cell-sync">
-                  Sync
-                </ResizableInstrumentHeader>
-              </tr>
-            </thead>
+            <InstrumentTableColgroup
+              kind="uut"
+              customColumns={customColumnsFor("uut")}
+              columns={uutTableColumns}
+            />
+            <InstrumentTableHeader
+              kind="uut"
+              customColumns={customColumnsFor("uut")}
+              columns={uutTableColumns}
+              renderCustomColumnHeader={renderCustomColumnHeader}
+              onInsertAfter={(columnKey) => requestCustomColumn("uut", columnKey)}
+            />
             <tbody>
               {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
@@ -9604,6 +9703,8 @@ const SummaryDashboard = ({
                                   />
                                 </td>
                               )}
+                              {i === 0 &&
+                                renderCustomCellsAfter("uut", uut, "description", spanRows)}
                               {renderRangeRowCells("uut", uut, range, {
                                 includeDistribution: false,
                                 stateId: uutRowKey,
@@ -9611,8 +9712,11 @@ const SummaryDashboard = ({
                                 rangeIndex: index,
                                 totalRanges: n,
                                 nextRange: visibleRangeRows[i + 1]?.range || null,
+                                renderCustomAfter: (anchorKey) =>
+                                  i === 0
+                                    ? renderCustomCellsAfter("uut", uut, anchorKey, spanRows)
+                                    : null,
                               })}
-                              {i === 0 && renderCustomCells("uut", uut, spanRows)}
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
@@ -9621,6 +9725,7 @@ const SummaryDashboard = ({
                                 >
                                   <div className="instrument-row-tools">
                                     <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                    {renderInstrumentDeleteButton("uut", uut)}
                                   </div>
                                 </td>
                               )}
@@ -9687,6 +9792,7 @@ const SummaryDashboard = ({
                             uut.description
                           )}
                         </td>
+                        {renderCustomCellsAfter("uut", uut, "description", rowSpan)}
                         <td
                           data-range-cell="true"
                           rowSpan={rowSpan}
@@ -9773,6 +9879,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
+                        {renderCustomCellsAfter("uut", uut, "range", rowSpan)}
                         <td
                           className={`cell-tolerance ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
@@ -9836,6 +9943,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
+                        {renderCustomCellsAfter("uut", uut, "tolerance", rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className={`cell-value ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
@@ -9888,7 +9996,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
-                        {renderCustomCells("uut", uut, rowSpan)}
+                        {renderCustomCellsAfter("uut", uut, "resolution", rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className="cell-sync"
@@ -9896,6 +10004,7 @@ const SummaryDashboard = ({
                         >
                           <div className="instrument-row-tools">
                             <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                            {renderInstrumentDeleteButton("uut", uut)}
                           </div>
                         </td>
                       </tr>
@@ -9939,15 +10048,6 @@ const SummaryDashboard = ({
           </div>
           <div className="panel-card-actions" style={{ position: "relative" }}>
             <button
-              type="button"
-              className="btn-add-item btn-add-column"
-              onClick={() => requestCustomColumn("tmde")}
-              title="Add TMDE column"
-              aria-label="Add TMDE column"
-            >
-              <span>Add Column</span>
-            </button>
-            <button
               className="btn-add-item btn-add-column"
               data-tour="tmde-add-function"
               onClick={(e) => {
@@ -9981,54 +10081,18 @@ const SummaryDashboard = ({
               minWidth: `${tmdeTableColumns.minimumTableWidth}px`,
             }}
           >
-            <colgroup>
-              <col style={{ width: tmdeTableColumns.widthFor("description") }} />
-              <col style={{ width: tmdeTableColumns.widthFor("range") }} />
-              <col style={{ width: tmdeTableColumns.widthFor("tolerance") }} />
-              <col style={{ width: tmdeTableColumns.widthFor("distribution") }} />
-              <col style={{ width: tmdeTableColumns.widthFor("resolution") }} />
-              {customColumnsFor("tmde").map((column) => (
-                <col
-                  key={column.key}
-                  style={{ width: tmdeTableColumns.widthFor(instrumentColumnKey(column)) }}
-                />
-              ))}
-              <col style={{ width: tmdeTableColumns.widthFor("sync") }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <ResizableInstrumentHeader columnKey="description" label="Description" columns={tmdeTableColumns}>
-                  Description
-                </ResizableInstrumentHeader>
-                <ResizableInstrumentHeader columnKey="range" label="Range" columns={tmdeTableColumns}>
-                  <span className="range-header-cell">
-                    <span>Range</span>
-                  </span>
-                </ResizableInstrumentHeader>
-                <ResizableInstrumentHeader columnKey="tolerance" label="Error Limit" columns={tmdeTableColumns}>
-                  Error Limit
-                </ResizableInstrumentHeader>
-                <ResizableInstrumentHeader columnKey="distribution" label="Distribution" columns={tmdeTableColumns} className="cell-distribution">
-                  Distribution
-                </ResizableInstrumentHeader>
-                <ResizableInstrumentHeader columnKey="resolution" label="Resolution" columns={tmdeTableColumns}>
-                  Resolution
-                </ResizableInstrumentHeader>
-                {customColumnsFor("tmde").map((column) => (
-                  <ResizableInstrumentHeader
-                    key={column.key}
-                    columnKey={instrumentColumnKey(column)}
-                    label={column.label || "Name"}
-                    columns={tmdeTableColumns}
-                  >
-                    {renderCustomColumnHeader("tmde", column)}
-                  </ResizableInstrumentHeader>
-                ))}
-                <ResizableInstrumentHeader columnKey="sync" label="Sync" columns={tmdeTableColumns} className="cell-sync">
-                  Sync
-                </ResizableInstrumentHeader>
-              </tr>
-            </thead>
+            <InstrumentTableColgroup
+              kind="tmde"
+              customColumns={customColumnsFor("tmde")}
+              columns={tmdeTableColumns}
+            />
+            <InstrumentTableHeader
+              kind="tmde"
+              customColumns={customColumnsFor("tmde")}
+              columns={tmdeTableColumns}
+              renderCustomColumnHeader={renderCustomColumnHeader}
+              onInsertAfter={(columnKey) => requestCustomColumn("tmde", columnKey)}
+            />
             <tbody>
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
@@ -10138,6 +10202,8 @@ const SummaryDashboard = ({
                                   />
                                 </td>
                               )}
+                              {i === 0 &&
+                                renderCustomCellsAfter("tmde", tmde, "description", spanRows)}
                               {renderRangeRowCells("tmde", tmde, range, {
                                 includeDistribution: true,
                                 stateId: tmdeRowKey,
@@ -10145,8 +10211,11 @@ const SummaryDashboard = ({
                                 rangeIndex: index,
                                 totalRanges: n,
                                 nextRange: visibleRangeRows[i + 1]?.range || null,
+                                renderCustomAfter: (anchorKey) =>
+                                  i === 0
+                                    ? renderCustomCellsAfter("tmde", tmde, anchorKey, spanRows)
+                                    : null,
                               })}
-                              {i === 0 && renderCustomCells("tmde", tmde, spanRows)}
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
@@ -10155,6 +10224,7 @@ const SummaryDashboard = ({
                                 >
                                   <div className="instrument-row-tools">
                                     <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                                    {renderInstrumentDeleteButton("tmde", tmde)}
                                   </div>
                                 </td>
                               )}
@@ -10235,6 +10305,7 @@ const SummaryDashboard = ({
                             </>
                           )}
                         </td>
+                        {renderCustomCellsAfter("tmde", tmde, "description", rowSpan)}
                         <td
                           data-range-cell="true"
                           rowSpan={rowSpan}
@@ -10318,6 +10389,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
+                        {renderCustomCellsAfter("tmde", tmde, "range", rowSpan)}
                         <td
                           className={`cell-tolerance ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
@@ -10380,6 +10452,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
+                        {renderCustomCellsAfter("tmde", tmde, "tolerance", rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className="cell-distribution"
@@ -10404,6 +10477,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
+                        {renderCustomCellsAfter("tmde", tmde, "distribution", rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className={`cell-value ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
@@ -10453,7 +10527,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
-                        {renderCustomCells("tmde", tmde, rowSpan)}
+                        {renderCustomCellsAfter("tmde", tmde, "resolution", rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className="cell-sync"
@@ -10461,6 +10535,7 @@ const SummaryDashboard = ({
                         >
                           <div className="instrument-row-tools">
                             <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                            {renderInstrumentDeleteButton("tmde", tmde)}
                           </div>
                         </td>
                       </tr>
@@ -10725,14 +10800,17 @@ function DetailedView({
     "tmde",
     (sessionData.tmdes || []).length,
   );
-  const requestCustomColumn = (kind) => {
+  const requestCustomColumn = (kind, insertAfter = "resolution") => {
     const key = `field-${uuidv4().slice(0, 8)}`;
     const current = sessionData.instrumentCustomColumns || {};
     onSessionSave?.({
       ...sessionData,
       instrumentCustomColumns: {
         ...current,
-        [kind]: [...(current[kind] || []), { key, label: "Name" }],
+        [kind]: [
+          ...(current[kind] || []),
+          { key, label: "Name", insertAfter },
+        ],
       },
     });
     setEditingCustomColumnKey(key);
@@ -10790,8 +10868,8 @@ function DetailedView({
       ),
     });
   };
-  const renderCustomCells = (kind, item, rowSpan = 1) =>
-    customColumnsFor(kind).map((column) => (
+  const renderCustomCellsAfter = (kind, item, anchorKey, rowSpan = 1) =>
+    customColumnsAfter(kind, customColumnsFor(kind), anchorKey).map((column) => (
       <td key={column.key} rowSpan={rowSpan} className="instrument-custom-field-cell">
         <EditableCustomFieldCell
           value={item.customFields?.[column.key] || ""}
@@ -12202,6 +12280,7 @@ function DetailedView({
       totalRanges = 1,
       nextRange = null,
       stateId = item.id,
+      renderCustomAfter = () => null,
     },
   ) => {
     const tableId = kind === "uut" ? "uut_det" : "tmde_det";
@@ -12299,6 +12378,7 @@ function DetailedView({
             )}
           </div>
         </td>
+        {renderCustomAfter("range")}
 
         <td
           data-range-tolerance-key={`${itemStateKey(kind, item.id)}:${rangeKey}`}
@@ -12325,16 +12405,20 @@ function DetailedView({
             }
           />
         </td>
+        {renderCustomAfter("tolerance")}
 
         {includeDistribution && (
-          <td className="cell-distribution" title="Spec band distribution">
-            <InlineDistributionCell
-              divisor={getBandDistDivisor(tolerance)}
-              onChange={(value) =>
-                setRangeBandDistributionDetail(kind, item, rangeKey, value)
-              }
-            />
-          </td>
+          <>
+            <td className="cell-distribution" title="Spec band distribution">
+              <InlineDistributionCell
+                divisor={getBandDistDivisor(tolerance)}
+                onChange={(value) =>
+                  setRangeBandDistributionDetail(kind, item, rangeKey, value)
+                }
+              />
+            </td>
+            {renderCustomAfter("distribution")}
+          </>
         )}
 
         <td
@@ -12364,6 +12448,7 @@ function DetailedView({
             }
           />
         </td>
+        {renderCustomAfter("resolution")}
       </>
     );
   };
@@ -13020,36 +13105,27 @@ function DetailedView({
           handleAddInstrumentToFunction(kind, fn);
         }}
       >
-        <span>Add Instrument</span>
+        <FontAwesomeIcon icon={faPlus} />
+        <FontAwesomeIcon icon={faTools} />
       </button>
     ) : null;
 
-  const renderSelectedInstrumentDeleteButton = (kind, fn) => {
-    const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
-    const instrumentsForKind =
-      kind === "uut" ? sessionData.uuts || [] : sessionData.tmdes || [];
-    const hasSelectionInFunction = selectedIds.some((selectedId) =>
-      instrumentsForKind.some(
-        (instrument) =>
-          sameId(instrument.id, selectedId) &&
-          instrumentHasFunction(instrument, fn.key),
-      ),
-    );
-    if (!onSessionSave || !hasSelectionInFunction) return null;
-    const label = selectedInstrumentDeleteLabel(selectedIds.length);
+  const renderInstrumentDeleteButton = (kind, item) => {
+    if (!onSessionSave) return null;
+    const label = `Delete ${kind === "uut" ? "UUT" : "TMDE"} instrument`;
     return (
       <button
         type="button"
-        className="function-header-destructive-btn btn-delete-selection"
+        className="range-header-action-btn range-header-action-btn--delete instrument-row-delete"
         title={label}
         aria-label={label}
         onClick={(event) => {
           event.stopPropagation();
-          if (kind === "uut") handleDeleteSelectedUuts();
-          else handleDeleteSelectedTmdes();
+          if (kind === "uut") onDeleteUut?.([item.id]);
+          else onDeleteTmdeDefinition?.([item.id]);
         }}
       >
-        <span>{label}</span>
+        <FontAwesomeIcon icon={faTimes} />
       </button>
     );
   };
@@ -13058,7 +13134,7 @@ function DetailedView({
     onSessionSave ? (
       <button
         type="button"
-        className="function-header-destructive-btn"
+        className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
         title="Delete Function"
         aria-label="Delete Function"
         onClick={(e) => {
@@ -13066,7 +13142,7 @@ function DetailedView({
           handleDeleteFunction(fn);
         }}
       >
-        <span>Delete Function</span>
+        <FontAwesomeIcon icon={faTimes} />
       </button>
     ) : null;
 
@@ -13131,7 +13207,6 @@ function DetailedView({
             {renderFunctionUnitChip(fn)}
           </div>
           <div className="function-header-actions">
-            {renderSelectedInstrumentDeleteButton(kind, fn)}
             {renderFunctionDeleteButton(fn)}
             {renderFunctionAddButton(kind, fn)}
           </div>
@@ -15833,22 +15908,15 @@ function DetailedView({
                   : "Show all UUT functions"
               }
               aria-pressed={showIrrelevantUutFunctions}
+              aria-label={
+                showIrrelevantUutFunctions
+                  ? "Show only relevant UUT functions"
+                  : "Show all UUT functions"
+              }
             >
               <FontAwesomeIcon
                 icon={showIrrelevantUutFunctions ? faEyeSlash : faEye}
               />
-              <span>
-                {showIrrelevantUutFunctions ? "Relevant Only" : "Show All"}
-              </span>
-            </button>
-            <button
-              type="button"
-              className="btn-add-item btn-add-column"
-              onClick={() => requestCustomColumn("uut")}
-              title="Add UUT column"
-              aria-label="Add UUT column"
-            >
-              <span>Add Column</span>
             </button>
             <button
               className="btn-add-item btn-add-column"
@@ -15884,50 +15952,18 @@ function DetailedView({
               minWidth: `${uutTableColumns.minimumTableWidth}px`,
             }}
           >
-            <colgroup>
-              <col style={{ width: uutTableColumns.widthFor("description") }} />
-              <col style={{ width: uutTableColumns.widthFor("range") }} />
-              <col style={{ width: uutTableColumns.widthFor("tolerance") }} />
-              <col style={{ width: uutTableColumns.widthFor("resolution") }} />
-              {customColumnsFor("uut").map((column) => (
-                <col
-                  key={column.key}
-                  style={{ width: uutTableColumns.widthFor(instrumentColumnKey(column)) }}
-                />
-              ))}
-              <col style={{ width: uutTableColumns.widthFor("sync") }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <ResizableInstrumentHeader columnKey="description" label="Description" columns={uutTableColumns}>
-                  Description
-                </ResizableInstrumentHeader>
-                <ResizableInstrumentHeader columnKey="range" label="Range" columns={uutTableColumns}>
-                  <span className="range-header-cell">
-                    <span>Range</span>
-                  </span>
-                </ResizableInstrumentHeader>
-                <ResizableInstrumentHeader columnKey="tolerance" label="Tolerance" columns={uutTableColumns}>
-                  Tolerance
-                </ResizableInstrumentHeader>
-                <ResizableInstrumentHeader columnKey="resolution" label="Resolution" columns={uutTableColumns}>
-                  Resolution
-                </ResizableInstrumentHeader>
-                {customColumnsFor("uut").map((column) => (
-                  <ResizableInstrumentHeader
-                    key={column.key}
-                    columnKey={instrumentColumnKey(column)}
-                    label={column.label || "Name"}
-                    columns={uutTableColumns}
-                  >
-                    {renderCustomColumnHeader("uut", column)}
-                  </ResizableInstrumentHeader>
-                ))}
-                <ResizableInstrumentHeader columnKey="sync" label="Sync" columns={uutTableColumns} className="cell-sync">
-                  Sync
-                </ResizableInstrumentHeader>
-              </tr>
-            </thead>
+            <InstrumentTableColgroup
+              kind="uut"
+              customColumns={customColumnsFor("uut")}
+              columns={uutTableColumns}
+            />
+            <InstrumentTableHeader
+              kind="uut"
+              customColumns={customColumnsFor("uut")}
+              columns={uutTableColumns}
+              renderCustomColumnHeader={renderCustomColumnHeader}
+              onInsertAfter={(columnKey) => requestCustomColumn("uut", columnKey)}
+            />
             <tbody>
               {visibleDetailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
@@ -16058,6 +16094,8 @@ function DetailedView({
                                   </div>
                                 </td>
                               )}
+                              {i === 0 &&
+                                renderCustomCellsAfter("uut", uut, "description", spanRows)}
                               {renderRangeRowCellsDetail("uut", uut, range, {
                                 includeDistribution: false,
                                 stateId: uutRowKey,
@@ -16066,8 +16104,11 @@ function DetailedView({
                                 rangeIndex: index,
                                 totalRanges: n,
                                 nextRange: visibleRangeRows[i + 1]?.range || null,
+                                renderCustomAfter: (anchorKey) =>
+                                  i === 0
+                                    ? renderCustomCellsAfter("uut", uut, anchorKey, spanRows)
+                                    : null,
                               })}
-                              {i === 0 && renderCustomCells("uut", uut, spanRows)}
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
@@ -16076,6 +16117,7 @@ function DetailedView({
                                 >
                                   <div className="instrument-row-tools">
                                     <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                    {renderInstrumentDeleteButton("uut", uut)}
                                   </div>
                                 </td>
                               )}
@@ -16155,6 +16197,7 @@ function DetailedView({
                             )}
                           </div>
                         </td>
+                        {renderCustomCellsAfter("uut", uut, "description", rowSpan)}
 
                         <td
                           data-range-cell="true"
@@ -16253,6 +16296,7 @@ function DetailedView({
                             ))}
                           </div>
                         </td>
+                        {renderCustomCellsAfter("uut", uut, "range", rowSpan)}
 
                         <td
                           className={`cell-tolerance ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
@@ -16320,6 +16364,7 @@ function DetailedView({
                             })}
                           </div>
                         </td>
+                        {renderCustomCellsAfter("uut", uut, "tolerance", rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className={`cell-value ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
@@ -16366,7 +16411,7 @@ function DetailedView({
                             ))}
                           </div>
                         </td>
-                        {renderCustomCells("uut", uut, rowSpan)}
+                        {renderCustomCellsAfter("uut", uut, "resolution", rowSpan)}
                         <td
                           rowSpan={rowSpan}
                           className="cell-sync"
@@ -16374,6 +16419,7 @@ function DetailedView({
                         >
                           <div className="instrument-row-tools">
                             <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                            {renderInstrumentDeleteButton("uut", uut)}
                           </div>
                         </td>
                       </tr>
@@ -16712,22 +16758,15 @@ function DetailedView({
                     : "Show all TMDE functions"
                 }
                 aria-pressed={showIrrelevantTmdeFunctions}
+                aria-label={
+                  showIrrelevantTmdeFunctions
+                    ? "Show only relevant TMDE functions"
+                    : "Show all TMDE functions"
+                }
               >
                 <FontAwesomeIcon
                   icon={showIrrelevantTmdeFunctions ? faEyeSlash : faEye}
                 />
-                <span>
-                  {showIrrelevantTmdeFunctions ? "Relevant Only" : "Show All"}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="btn-add-item btn-add-column"
-                onClick={() => requestCustomColumn("tmde")}
-                title="Add TMDE column"
-                aria-label="Add TMDE column"
-              >
-                <span>Add Column</span>
               </button>
               <button
                 className="btn-add-item btn-add-column"
@@ -16764,54 +16803,18 @@ function DetailedView({
                 minWidth: `${tmdeTableColumns.minimumTableWidth}px`,
               }}
             >
-              <colgroup>
-                <col style={{ width: tmdeTableColumns.widthFor("description") }} />
-                <col style={{ width: tmdeTableColumns.widthFor("range") }} />
-                <col style={{ width: tmdeTableColumns.widthFor("tolerance") }} />
-                <col style={{ width: tmdeTableColumns.widthFor("distribution") }} />
-                <col style={{ width: tmdeTableColumns.widthFor("resolution") }} />
-                {customColumnsFor("tmde").map((column) => (
-                  <col
-                    key={column.key}
-                    style={{ width: tmdeTableColumns.widthFor(instrumentColumnKey(column)) }}
-                  />
-                ))}
-                <col style={{ width: tmdeTableColumns.widthFor("sync") }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <ResizableInstrumentHeader columnKey="description" label="Description" columns={tmdeTableColumns}>
-                    Description
-                  </ResizableInstrumentHeader>
-                  <ResizableInstrumentHeader columnKey="range" label="Range" columns={tmdeTableColumns}>
-                    <span className="range-header-cell">
-                      <span>Range</span>
-                    </span>
-                  </ResizableInstrumentHeader>
-                  <ResizableInstrumentHeader columnKey="tolerance" label="Error Limit" columns={tmdeTableColumns}>
-                    Error Limit
-                  </ResizableInstrumentHeader>
-                  <ResizableInstrumentHeader columnKey="distribution" label="Distribution" columns={tmdeTableColumns} className="cell-distribution">
-                    Distribution
-                  </ResizableInstrumentHeader>
-                  <ResizableInstrumentHeader columnKey="resolution" label="Resolution" columns={tmdeTableColumns}>
-                    Resolution
-                  </ResizableInstrumentHeader>
-                  {customColumnsFor("tmde").map((column) => (
-                    <ResizableInstrumentHeader
-                      key={column.key}
-                      columnKey={instrumentColumnKey(column)}
-                      label={column.label || "Name"}
-                      columns={tmdeTableColumns}
-                    >
-                      {renderCustomColumnHeader("tmde", column)}
-                    </ResizableInstrumentHeader>
-                  ))}
-                  <ResizableInstrumentHeader columnKey="sync" label="Sync" columns={tmdeTableColumns} className="cell-sync">
-                    Sync
-                  </ResizableInstrumentHeader>
-                </tr>
-              </thead>
+              <InstrumentTableColgroup
+                kind="tmde"
+                customColumns={customColumnsFor("tmde")}
+                columns={tmdeTableColumns}
+              />
+              <InstrumentTableHeader
+                kind="tmde"
+                customColumns={customColumnsFor("tmde")}
+                columns={tmdeTableColumns}
+                renderCustomColumnHeader={renderCustomColumnHeader}
+                onInsertAfter={(columnKey) => requestCustomColumn("tmde", columnKey)}
+              />
               <tbody>
                 {visibleDetailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
@@ -16984,6 +16987,13 @@ function DetailedView({
                                       </div>
                                     </td>
                                   )}
+                                  {i === 0 &&
+                                    renderCustomCellsAfter(
+                                      "tmde",
+                                      masterTmde,
+                                      "description",
+                                      spanRows,
+                                    )}
                                   {renderRangeRowCellsDetail("tmde", masterTmde, range, {
                                     includeDistribution: true,
                                     stateId: tmdeRowKey,
@@ -16992,9 +17002,16 @@ function DetailedView({
                                     rangeIndex: index,
                                     totalRanges: n,
                                     nextRange: visibleRangeRows[i + 1]?.range || null,
+                                    renderCustomAfter: (anchorKey) =>
+                                      i === 0
+                                        ? renderCustomCellsAfter(
+                                            "tmde",
+                                            masterTmde,
+                                            anchorKey,
+                                            spanRows,
+                                          )
+                                        : null,
                                   })}
-                                  {i === 0 &&
-                                    renderCustomCells("tmde", masterTmde, spanRows)}
                                   {i === 0 && (
                                     <td
                                       rowSpan={spanRows}
@@ -17006,6 +17023,7 @@ function DetailedView({
                                           item={masterTmde}
                                           onSync={() => handleSyncItem("tmde", masterTmde)}
                                         />
+                                        {renderInstrumentDeleteButton("tmde", masterTmde)}
                                       </div>
                                     </td>
                                   )}
@@ -17088,6 +17106,12 @@ function DetailedView({
                                 )}
                               </div>
                             </td>
+                            {renderCustomCellsAfter(
+                              "tmde",
+                              masterTmde,
+                              "description",
+                              rowSpan,
+                            )}
 
                             <td
                               data-range-cell="true"
@@ -17212,6 +17236,7 @@ function DetailedView({
                                 })}
                               </div>
                             </td>
+                            {renderCustomCellsAfter("tmde", masterTmde, "range", rowSpan)}
 
                             <td
                               className={`cell-tolerance ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
@@ -17290,6 +17315,12 @@ function DetailedView({
                                 })}
                               </div>
                             </td>
+                            {renderCustomCellsAfter(
+                              "tmde",
+                              masterTmde,
+                              "tolerance",
+                              rowSpan,
+                            )}
 
                             <td
                               rowSpan={rowSpan}
@@ -17321,6 +17352,12 @@ function DetailedView({
                                 })}
                               </div>
                             </td>
+                            {renderCustomCellsAfter(
+                              "tmde",
+                              masterTmde,
+                              "distribution",
+                              rowSpan,
+                            )}
 
                             <td
                               rowSpan={rowSpan}
@@ -17398,7 +17435,12 @@ function DetailedView({
                                 })}
                               </div>
                             </td>
-                            {renderCustomCells("tmde", masterTmde, rowSpan)}
+                            {renderCustomCellsAfter(
+                              "tmde",
+                              masterTmde,
+                              "resolution",
+                              rowSpan,
+                            )}
                             <td
                               rowSpan={rowSpan}
                               className="cell-sync"
@@ -17406,6 +17448,7 @@ function DetailedView({
                             >
                               <div className="instrument-row-tools">
                                 <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} />
+                                {renderInstrumentDeleteButton("tmde", masterTmde)}
                               </div>
                             </td>
                           </tr>
@@ -17528,22 +17571,7 @@ function DetailedView({
             />
           </>
         )
-      ) : (
-        <div
-          className="placeholder-content"
-          style={{
-            marginTop: "30px",
-            borderTop: "1px solid var(--border-color)",
-            paddingTop: "30px",
-          }}
-        >
-          <h3>Ready to Measure</h3>
-          <p>
-            Add a measurement point from the Measurement Points list, then enter
-            its value to calculate limits, uncertainty, and risk.
-          </p>
-        </div>
-      )}
+      ) : null}
       </div>
       </>
       )}

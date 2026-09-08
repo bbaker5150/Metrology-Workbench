@@ -60,6 +60,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "repair:notes": "node scripts/repair-docx-runtime.mjs",
     "start:backend": "cd ../../Backend/ac_shunt && ..\\..\\venv\\Scripts\\python.exe manage.py bootstrap && ..\\..\\venv\\Scripts\\python.exe manage.py runserver 0.0.0.0:8000",
     "start:remote": "vite --host 0.0.0.0 --port 3100",
     "start:backend:remote": "cd ../../Backend/ac_shunt && ..\\..\\venv\\Scripts\\python.exe manage.py bootstrap && ..\\..\\venv\\Scripts\\python.exe manage.py runserver 0.0.0.0:8100",

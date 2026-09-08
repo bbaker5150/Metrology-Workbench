@@ -308,13 +308,21 @@ describe("UncertaintyApp", () => {
       </ThemeProvider>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Add UUT column" }));
-    const columnName = await screen.findByRole("textbox", { name: "Column name" });
+    const insertButtons = await screen.findAllByRole("button", {
+      name: "Add column between Description and Range",
+    });
+    fireEvent.click(insertButtons[0]);
+    const columnNames = await screen.findAllByRole("textbox", {
+      name: "Column name",
+    });
+    const columnName = columnNames[0];
     fireEvent.change(columnName, {
       target: { value: "ICP use code" },
     });
     fireEvent.keyDown(columnName, { key: "Enter" });
-    expect(await screen.findByRole("columnheader", { name: "ICP use code" })).toBeInTheDocument();
+    expect(
+      (await screen.findAllByRole("columnheader", { name: "ICP use code" }))[0],
+    ).toBeInTheDocument();
   });
 
   test("mounts the ported Uncertalytics app under the workbench shell", async () => {

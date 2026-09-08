@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { verifyDocxRuntime } from './docxRuntime.mjs';
+import { repairDocxRuntime, verifyDocxRuntime } from './docxRuntime.mjs';
 
 test('checks the agents version actually resolved by the React adapter', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'docx-runtime-test-'));
@@ -25,7 +25,12 @@ test('checks the agents version actually resolved by the React adapter', () => {
     addPackage(nested, '@heyirisai/docx-editor-agents', '1.11.0', 'react.js');
     assert.doesNotThrow(() => verifyDocxRuntime(root));
     addPackage(nested, '@heyirisai/docx-editor-agents', '1.12.0', 'react.js');
-    assert.throws(() => verifyDocxRuntime(root), /docx-editor-agents@1\.12\.0.*npm ci/);
+    assert.throws(
+      () => verifyDocxRuntime(root),
+      /docx-editor-agents@1\.12\.0.*npm run repair:notes/,
+    );
+    assert.deepEqual(repairDocxRuntime(root), ['@heyirisai/docx-editor-agents@1.12.0']);
+    assert.doesNotThrow(() => verifyDocxRuntime(root));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

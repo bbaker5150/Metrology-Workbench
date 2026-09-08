@@ -7,6 +7,7 @@ import {
   countTmdeBudgetUses,
   buildFunctionGroupedRows,
   getDeleteSelectionTarget,
+  getInstrumentColumnOrder,
   getBudgetRangeWarnings,
   getUsableBudgetRangeChoices,
   localizeSharedInstrumentEdit,
@@ -19,6 +20,26 @@ import {
   sortRangesInItem,
   synchronizeLocalInstrumentDefinitions,
 } from "./UncertaintyPanel";
+
+describe("instrument custom column placement", () => {
+  it("inserts custom columns at the selected header boundary", () => {
+    const columns = [
+      { key: "asset", label: "Asset", insertAfter: "description" },
+      { key: "owner", label: "Owner", insertAfter: "custom:asset" },
+      { key: "legacy", label: "Legacy" },
+    ];
+    expect(getInstrumentColumnOrder("uut", columns)).toEqual([
+      "description",
+      "custom:asset",
+      "custom:owner",
+      "range",
+      "tolerance",
+      "resolution",
+      "custom:legacy",
+      "sync",
+    ]);
+  });
+});
 
 describe("active function units", () => {
   it("shows units from instruments used in the table, not every persisted function unit", () => {
