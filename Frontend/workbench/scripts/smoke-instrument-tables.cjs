@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 app.disableHardwareAcceleration();
+app.on('window-all-closed', () => {});
 app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'instrument-ui-')));
 const source = `
 import React, { useState } from 'react';
@@ -13,9 +14,10 @@ import { createRoot } from 'react-dom/client';
 import UncertaintyPanel from '/src/modules/uncertainty/features/analysis/components/UncertaintyPanel.jsx';
 import '/src/modules/uncertainty/App.css';
 const range = {id:'r1', min:0,max:10,unit:'V',tolerances:{reading:{high:1,low:-1,unit:'%',symmetric:true,distribution:'1.732'}},measuringResolution:'0.001',measuringResolutionUnit:'V'};
-const makeInstrument = (id) => ({id, measurementAreaNames:['Bench calibration'], description:'Mock DMM '+id,name:'Mock DMM '+id,instrument:{manufacturer:'Mock',model:'DMM',name:'Test',functions:[{name:'Voltage',unit:'V',ranges:[{...range,id:id+'r1'},{...range,id:id+'r2',min:20,max:30}]}]}});
+const makeInstrument = (id) => ({id, measurementAreaNames:['Bench calibration'], description:'Mock DMM '+id,name:'Mock DMM '+id,instrument:{...(id.startsWith('tmde')?{id:'definition-'+id,scope:'local'}:{}),manufacturer:'Mock',model:'DMM',name:'Test',functions:[{name:'Voltage',unit:'V',ranges:[{...range,id:id+'r1'},{...range,id:id+'r2',min:20,max:30}]}]}});
 function Harness() {
  const [session,setSession] = useState({id:'test',name:'Layout regression',measurementAreaGroups:[{name:'Bench calibration',unit:'V',kind:'uut'},{name:'Bench calibration',unit:'V',kind:'tmde'}],uuts:Array.from({length:10},(_,i)=>makeInstrument('uut'+i)),tmdes:Array.from({length:12},(_,i)=>makeInstrument('tmde'+i)),testPoints:[],uncReq:{}});
+ window.savedSession=()=>session;
  const [selected,setSelected] = useState([]);
  const [view,setView] = useState('session'); window.showDetail=()=>setView('point');
  return <div className="uncertainty-module" style={{height:'100vh',overflow:'auto'}}><div className="analysis-container" style={{display:'block',overflow:'visible',width:'100%'}}><div className="analysis-tabs"><button>Instrument Overview</button><button>Uncertainty Budget</button></div><UncertaintyPanel testPointData={{viewMode:view,id:'test',testPointInfo:{measurementArea:'Bench calibration',parameter:{name:'Voltage',unit:'V'}},associatedUutIds:['uut0'],components:[]}} tmdeTolerancesData={[]} uutNominal={{value:5,unit:'V'}} sessionData={session} onSessionSave={setSession} currentUutSelection={selected} setCurrentUutSelection={setSelected} setNotification={()=>{}} onInstrumentSynced={()=>{}}/><div style={{height:900}}>End of tables</div></div></div>;
@@ -45,6 +47,23 @@ async function checkEditor(selector) {
   assert.deepEqual(geometry.overflow, [], JSON.stringify(geometry));
   return geometry;
 }
+async function checkAddRange(table, kind, label) {
+  const before = await js(`window.savedSession().${kind}s[0].instrument.functions[0].ranges.length`);
+  await click(table+' .range-row-add');
+  await pause(300);
+  assert.equal(await js(`window.savedSession().${kind}s[0].instrument.functions[0].ranges.length`),before+1,label+': click inserts exactly one range');
+  assert.equal(await js(`document.querySelectorAll('${table} tr.inline-range-row').length`),before+1,label+': range list stays expanded');
+  assert.ok(await js(`document.activeElement?.matches('input[placeholder="min"]')`),label+': new range receives focus');
+  await js(`(()=>{const min=document.activeElement,row=min.closest('tr'),set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(min,'40');min.dispatchEvent(new Event('input',{bubbles:true}));row.querySelector('input[placeholder="max"]').focus()})()`);
+  await pause(100);
+  await js(`(()=>{const max=document.activeElement,set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(max,'50');max.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await click('.analysis-tabs button');
+  assert.equal(await js(`document.querySelectorAll('${table} tr.inline-range-row').length`),0,label+': ordinary click-away still collapses');
+  const persisted=await js(`window.savedSession().${kind}s[0].instrument.functions[0].ranges`);
+  assert.equal(persisted.length,before+1,label+': new range survives collapse');
+  assert.ok(persisted.some(r=>Number(r.min)===40&&Number(r.max)===50),label+': bounds are saved '+JSON.stringify(persisted));
+  console.log('PASS add range:',label);
+}
 app.whenReady().then(async()=>{
  const deadline = setTimeout(()=>{console.error('Timed out');app.exit(1)},120000);
  let status=0;
@@ -56,6 +75,8 @@ app.whenReady().then(async()=>{
   window=new BrowserWindow({show:false,width:1280,height:900,webPreferences:{offscreen:true,backgroundThrottling:false}});
   window.webContents.on('console-message',event=>{if(/error|uncaught/i.test(event.message))console.error(event.message)});
   await window.loadURL('http://127.0.0.1:'+server.httpServer.address().port+'/__instrument-smoke');
+  window.webContents.debugger.attach('1.3');
+  await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled',{enabled:true});
   for(let i=0;i<300;i++){if(await js(`document.querySelectorAll('.instrument-equipment-table tbody tr').length>10`))break;await pause(100);}
   await capture('initial');
   assert.deepEqual(await js(`[...document.querySelectorAll('.function-header-name')].map(e=>e.textContent)`), ['Bench calibration','Bench calibration'], 'Both tables use the custom measurement area, independently of Voltage function metadata');
@@ -87,6 +108,9 @@ app.whenReady().then(async()=>{
   await checkEditor('.inline-range-editor.is-editing');
   assert.ok(Math.abs(await js(`document.querySelector('${uut} th').getBoundingClientRect().width`)-base)<1,'Editing a later row expands Range, not the row-spanned Description');
   await capture('second-range');
+  await checkAddRange(uut,'uut','overview UUT while editing a later row');
+  await click(tmde+' [data-range-cell] .inline-tolerance-summary');
+  await checkAddRange(tmde,'tmde','overview TMDE');
   await click('.analysis-tabs button');
   assert.ok(Math.abs(await js(`document.querySelector('${uut} th').getBoundingClientRect().width`)-base)<1,'Saved column width restored');
   await click(tmde+' .cell-tolerance .inline-tolerance-summary');
@@ -130,6 +154,10 @@ app.whenReady().then(async()=>{
   assert.ok(descLayout.pillRight<descLayout.cellRight,'Active UUT badge stays inside its cell');
   await capture('active-uut');
   await click('.analysis-tabs button');
+  for (const [table,kind] of [[uut,'uut'],[tmde,'tmde']]) {
+    await click(table+' [data-range-cell] .inline-tolerance-summary');
+    await checkAddRange(table,kind,'detail '+kind);
+  }
   const plus=uut+' .instrument-column-insert-button';
   await js(`document.querySelector('${plus}').focus()`);
   await pause(200);

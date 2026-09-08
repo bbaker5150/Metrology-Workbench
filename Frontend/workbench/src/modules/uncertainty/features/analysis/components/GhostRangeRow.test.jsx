@@ -569,6 +569,23 @@ describe("inline range editing", () => {
     expect(screen.getByPlaceholderText("max")).toBeInTheDocument();
   });
 
+  it.each(["range-row-add", "range-row-delete"])("keeps the editor open during pointer-down on a same-instrument %s action", async (actionClass) => {
+    render(<table><tbody>
+      <tr data-range-group="uut:one"><td data-range-cell="true">
+        <RangeCell ranges={[{id:"r",min:0,max:10,unit:"V"}]} activeRange={{id:"r",min:0,max:10,unit:"V"}} editable onEditBound={vi.fn()} onEditUnit={vi.fn()} />
+      </td></tr>
+      <tr data-range-group="uut:one"><td data-range-cell="true"><button className={actionClass}>Range action</button></td></tr>
+      <tr data-range-group="uut:two"><td data-range-cell="true"><button className={actionClass}>Other instrument</button></td></tr>
+    </tbody></table>);
+    fireEvent.click(screen.getByTitle("Edit range"));
+    fireEvent.pointerDown(screen.getByRole("button",{name:"Range action"}));
+    fireEvent.blur(screen.getByPlaceholderText("min"), {relatedTarget:screen.getByRole("button",{name:"Range action"})});
+    await new Promise(resolve => window.setTimeout(resolve,25));
+    expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole("button",{name:"Other instrument"}));
+    await waitFor(() => expect(screen.queryByPlaceholderText("min")).not.toBeInTheDocument());
+  });
+
   it("keeps add range out of the collapsed blank editor", () => {
     render(
       <RangeCell

@@ -891,3 +891,18 @@ describe("resolveUutRangeHelper for derived input assignments", () => {
     expect(resolved.activeRange.floor.high).toBe("1");
   });
 });
+
+
+describe("range edits for instruments without library identity", () => {
+  it.each(["uut", "tmde"])("saves the exact %s row without synchronizing unrelated instruments", kind => {
+    const first={id:"first",instrument:{functions:[{name:"Voltage",unit:"V",ranges:[{id:"r1",min:0,max:10,unit:"V"}]}]}};
+    const other={...first,id:"other"};
+    const session={uuts:[first,other],tmdes:[first,other]};
+    const {item:updated,newRangeId}=addRangeToItem(first,"r1");
+    const result=synchronizeLocalInstrumentDefinitions(session,updated,kind);
+    expect(result[kind+"s"][0].instrument.functions[0].ranges).toHaveLength(2);
+    expect(result[kind+"s"][0].instrument.functions[0].ranges[1].id).toBe(newRangeId);
+    expect(result[kind+"s"][1]).toBe(other);
+    expect(result[kind === "uut" ? "tmdes" : "uuts"]).toEqual(session[kind === "uut" ? "tmdes" : "uuts"]);
+  });
+});

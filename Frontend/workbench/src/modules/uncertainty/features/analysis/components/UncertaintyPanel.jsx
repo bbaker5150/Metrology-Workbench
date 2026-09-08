@@ -1868,6 +1868,7 @@ const useInlineColumnDismiss = ({
   rootRef,
   onDismiss,
   portalSelector = INLINE_EDITOR_PORTAL_SELECTOR,
+  isRelatedTarget,
 }) => {
   useEffect(() => {
     if (!expanded) return undefined;
@@ -1876,6 +1877,7 @@ const useInlineColumnDismiss = ({
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (rootRef.current?.contains(target)) return;
+      if (isRelatedTarget?.(target, rootRef.current)) return;
       if (
         target instanceof Element &&
         target.closest(".instrument-size-control")
@@ -1896,7 +1898,7 @@ const useInlineColumnDismiss = ({
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [expanded, onDismiss, portalSelector, rootRef]);
+  }, [expanded, onDismiss, portalSelector, rootRef, isRelatedTarget]);
 };
 
 export const getRangeColumnClickContext = (target) => {
@@ -1909,6 +1911,14 @@ export const getRangeColumnClickContext = (target) => {
     toleranceKey:
       toleranceCell?.getAttribute("data-range-tolerance-key") || null,
   };
+};
+
+// Range actions sit beside the editor, sometimes on another row of the same
+// instrument. Dismissing on their pointer-down moves the button before click.
+const isRelatedRangeAction = (target, editor) => {
+  if (!target?.closest?.(".range-row-add, .range-row-delete")) return false;
+  const editorGroup = getRangeColumnClickContext(editor).key;
+  return Boolean(editorGroup) && getRangeColumnClickContext(target).key === editorGroup;
 };
 
 export const handoffMaterializedRangeToTolerance = ({
@@ -4671,6 +4681,7 @@ export const RangeCell = ({
     expanded: isEditing,
     rootRef: containerRef,
     onDismiss: dismissRangeEditor,
+    isRelatedTarget: isRelatedRangeAction,
   });
 
   // The in-cell range-selector dropdown was removed: when an instrument has
@@ -4693,6 +4704,8 @@ export const RangeCell = ({
     );
   }
 
+  // Keep read/edit DOM separate: a summary press can open the editor before
+  // mouseup, and must never turn into a click on its newly mounted mode toggle.
   if (!showEditor) {
     const rangeSummary = formatRangeSummary(activeRange);
     // Use the same blank-cell affordance as an unentered range in the expanded
@@ -4722,7 +4735,7 @@ export const RangeCell = ({
       setIsEditing(true);
     };
     return (
-      <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
+      <div key="summary" className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
         <div className="inline-range-main">
           <button
             type="button"
@@ -4749,6 +4762,7 @@ export const RangeCell = ({
     const next = event.relatedTarget;
     if (next instanceof Element) {
       if (containerRef.current?.contains(next)) return;
+      if (isRelatedRangeAction(next, containerRef.current)) return;
       if (next.closest(".inline-unit-menu")) return;
     }
     dismissRangeEditor();
@@ -4784,6 +4798,7 @@ export const RangeCell = ({
   };
   return (
     <div
+      key="editor"
       ref={containerRef}
       className="inline-range-editor is-editing"
       onMouseDown={(e) => e.stopPropagation()}
@@ -5904,7 +5919,7 @@ export const synchronizeLocalInstrumentDefinitions = (
 ) => {
   const sourceDefinition = updatedItem?.instrument || {};
   const sourceKeys = localInstrumentIdentityKeys(updatedItem);
-  if (sourceDefinition.scope === "validated" || sourceKeys.size === 0) {
+  if (sourceDefinition.scope === "validated") {
     return {
       uuts: session.uuts || [],
       tmdes: session.tmdes || [],
@@ -8190,7 +8205,7 @@ const SummaryDashboard = ({
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleAddBlankRange(kind, item, rangeKey);
+                  handleAddBlankRange(kind, item, rangeKey, { focusNew: true });
                 }}
               >
                 <FontAwesomeIcon icon={faPlus} />
@@ -11655,7 +11670,7 @@ function DetailedView({
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleAddBlankRangeDetail(kind, item, rangeKey);
+                  handleAddBlankRangeDetail(kind, item, rangeKey, { focusNew: true });
                 }}
               >
                 <FontAwesomeIcon icon={faPlus} />
