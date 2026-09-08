@@ -900,15 +900,15 @@ describe("UncertaintyApp", () => {
     );
     expect(
       within(functionActions).getByRole("button", { name: "Delete Function" }),
-    ).toHaveClass("function-header-destructive-btn");
+    ).toHaveClass("range-header-action-btn--delete");
 
     fireEvent.click(uutRow);
     expect(uutRow).toHaveClass("selected-row");
     expect(
-      within(functionActions).getByRole("button", {
-        name: "Delete Selected Instrument",
+      within(uutRow).getByRole("button", {
+        name: "Delete UUT instrument",
       }),
-    ).toHaveClass("function-header-destructive-btn", "btn-delete-selection");
+    ).toHaveClass("instrument-row-delete");
     expect(
       within(cardHeader).queryByRole("button", {
         name: "Delete Selected Instrument",
@@ -1691,7 +1691,7 @@ describe("UncertaintyApp", () => {
     });
     expect(within(detailUutCard).queryByText("Pressure")).not.toBeInTheDocument();
     fireEvent.click(
-      within(detailUutCard).getByRole("button", { name: "Show All" }),
+      within(detailUutCard).getByRole("button", { name: "Show all UUT functions" }),
     );
     expect(await within(detailUutCard).findByText("Pressure")).toBeInTheDocument();
 

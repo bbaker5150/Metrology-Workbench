@@ -6,10 +6,13 @@ import {
   InlineDistributionCell,
   InlineToleranceCell,
 } from "./UncertaintyPanel";
+import { getAbsoluteLimits } from "../../../utils/uncertaintyMath";
 
 const ToleranceHarness = ({ initialTolerance = {} }) => {
   const [tolerance, setTolerance] = useState(initialTolerance);
   return (
+    <>
+    <output data-testid="tolerance-data">{JSON.stringify(tolerance)}</output>
     <InlineToleranceCell
       tolerance={tolerance}
       activeRange={{ id: "r1", unit: "V", max: "10" }}
@@ -20,10 +23,32 @@ const ToleranceHarness = ({ initialTolerance = {} }) => {
         )
       }
     />
+    </>
   );
 };
 
 describe("inline tolerance global modes", () => {
+  it.each(["high", "low"])("saves a blank opposite %s bound as zero and preserves it on reopen", (side) => {
+    const { container } = render(<ToleranceHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Set tolerance" }));
+    fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
+    const inputs = container.querySelectorAll('.inline-tolerance-term')[2].querySelectorAll('input.inline-tolerance-input');
+    const input = inputs[side === "high" ? 1 : 0];
+    fireEvent.change(input, { target: { value: "3" } });
+    fireEvent.blur(input);
+    const tolerance = JSON.parse(screen.getByTestId("tolerance-data").textContent);
+    expect(tolerance.floor.high).toBe(side === "high" ? "3" : "0");
+    expect(tolerance.floor.low).toBe(side === "low" ? "-3" : "0");
+    const limits = getAbsoluteLimits(tolerance, { value: 10, unit: "V" });
+    expect(Number(limits.rawLow)).toBe(side === "low" ? 7 : 10);
+    expect(Number(limits.rawHigh)).toBe(side === "high" ? 13 : 10);
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(screen.getByTitle("Edit tolerance"));
+    const reopened = container.querySelectorAll('.inline-tolerance-term')[2].querySelectorAll('input.inline-tolerance-input');
+    expect(reopened[0]).toHaveValue(side === "low" ? "3" : "0");
+    expect(reopened[1]).toHaveValue(side === "high" ? "3" : "0");
+  });
+
   it("uses one compact symmetry/sidedness mode bar for the whole tolerance", () => {
     render(<ToleranceHarness />);
     fireEvent.click(screen.getByRole("button", { name: "Set tolerance" }));

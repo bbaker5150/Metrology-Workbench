@@ -34,7 +34,14 @@ export default function useInstrumentTableLayout(containerRef) {
         const style = getComputedStyle(cell);
         // Include adjacent add/delete controls and the cell's real padding.
         const content = editor.closest(".range-row-cell") || editor;
-        const width = Math.max(content.scrollWidth, content.getBoundingClientRect().width);
+        // scrollWidth/offsetWidth are layout pixels; client rects include CSS
+        // zoom and cannot be mixed into colgroup widths.
+        let width = Math.max(content.scrollWidth, content.offsetWidth);
+        if (editor.matches('.inline-desc-fields')) {
+          const wrapper = editor.closest('.uut-description-content');
+          const badge = wrapper?.querySelector('.instrument-usage-badge');
+          if (badge) width += badge.offsetWidth + (parseFloat(getComputedStyle(wrapper).columnGap) || 0);
+        }
         const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + 2;
         // Later range rows omit row-spanned description cells, so cellIndex
         // is not their logical column index. Resolve via the actual header.
@@ -45,7 +52,8 @@ export default function useInstrumentTableLayout(containerRef) {
         const index = [...(table.tHead?.rows[0]?.cells || [])].findIndex(header => header.dataset.instrumentColumn === key);
         if (index >= 0) requirements[index] = Math.max(requirements[index] || 0, width + padding);
       });
-      const baseline = Math.max(container.clientWidth, parseFloat(table.style.minWidth) || 1200);
+      const zoom = parseFloat(getComputedStyle(table).zoom) || 1;
+      const baseline = Math.max(container.clientWidth / zoom, parseFloat(table.style.minWidth) || 1200);
       const widths = expandedInstrumentWidths(cols.map(col => parseFloat(col.style.width) || 1), baseline, requirements);
       cols.forEach((col, index) => setProperty(col, "--instrument-live-column-width", `${widths[index]}px`));
       setProperty(table, "--instrument-live-table-width", `${widths.reduce((sum, width) => sum + width, 0)}px`);
@@ -54,6 +62,7 @@ export default function useInstrumentTableLayout(containerRef) {
       // scroller has moved behind the analysis tabs. Offset them to the visible
       // page edge; the native table/scroller still clips them at its bottom.
       const rect = container.getBoundingClientRect();
+      const containerScale = rect.width / container.offsetWidth || 1;
       let top = 0;
       for (let parent = container.parentElement; parent; parent = parent.parentElement) {
         if (/(auto|scroll|hidden)/.test(getComputedStyle(parent).overflowY)) {
@@ -63,8 +72,11 @@ export default function useInstrumentTableLayout(containerRef) {
       const tabs = container.closest(".analysis-container")?.querySelector(":scope > .analysis-tabs");
       if (tabs) top = Math.max(top, tabs.getBoundingClientRect().bottom);
       const headerHeight = table.tHead?.getBoundingClientRect().height || 0;
-      const offset = Math.min(Math.max(0, top - rect.top - container.clientTop), Math.max(0, container.clientHeight - headerHeight));
-      setProperty(table, "--instrument-header-offset", `${offset}px`);
+      const offset = Math.min(
+        Math.max(0, top - rect.top - container.clientTop * containerScale),
+        Math.max(0, container.clientHeight * containerScale - headerHeight),
+      );
+      setProperty(table, "--instrument-header-offset", `${offset / (containerScale * zoom)}px`);
     };
     const schedule = () => {
       cancelAnimationFrame(frame);

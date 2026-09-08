@@ -101,7 +101,11 @@ export default defineConfig(({ mode }) => {
       globals: true,
       environment: 'jsdom',
       setupFiles: ['./src/setupTests.js'],
-      css: true,
+      // jsdom does not lay out the app. Parsing its full stylesheet for every
+      // accessible-role query makes UI tests spend seconds matching selectors.
+      // Real layout is verified by scripts/smoke-instrument-tables.cjs in Electron;
+      // DOM tests still check class names, inline styles, and interactions.
+      css: false,
       // Several statistical validation tests intentionally run tens of
       // thousands of deterministic Monte Carlo trials. They complete in a
       // few seconds in isolation, but can exceed Vitest's 5 s default while

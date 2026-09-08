@@ -36,6 +36,35 @@ export default function ZoomToast() {
     hideTimer.current = setTimeout(() => setVisible(false), 1600);
   };
 
+  // Ctrl +/- scales the complete app in exact ten-percentage-point steps.
+  // Scoped Ctrl-wheel preferences remain independent. Browser builds use CSS
+  // zoom because native page zoom has no JavaScript setter.
+  useEffect(() => {
+    const webFrame = getWebFrame();
+    const root = document.documentElement;
+    const originalZoom = root.style.zoom;
+    const initialZoom = webFrame?.getZoomFactor() ?? (parseFloat(originalZoom) || 1);
+    const onKey = (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const direction = ["+", "="].includes(event.key) ? 1
+        : ["-", "_"].includes(event.key) ? -1 : 0;
+      const reset = event.key === "0" && !event.shiftKey;
+      if (!direction && !reset) return;
+      event.preventDefault();
+      const current = webFrame?.getZoomFactor() ?? (parseFloat(root.style.zoom) || 1);
+      const next = reset ? initialZoom
+        : Math.max(0.3, Math.min(3, Math.round((current + direction * 0.1) * 100) / 100));
+      if (webFrame) webFrame.setZoomFactor(next);
+      else root.style.zoom = reset ? originalZoom : String(next);
+      showRef.current(`App zoom ${Math.round(next * 100)}%`);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      if (!webFrame) root.style.zoom = originalZoom;
+    };
+  }, []);
+
   // Global zoom readout.
   useEffect(() => {
     const webFrame = getWebFrame();

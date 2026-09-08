@@ -4055,6 +4055,13 @@ const ToleranceTermEditor = ({
     } else {
       next.low = trimmed === "" || Number.isNaN(parsed) ? "" : String(-Math.abs(parsed));
     }
+    // In double-sided asymmetric mode a blank side means zero deviation.
+    // Persist both bounds so display/calculation never infer a mirrored limit.
+    // Leave an entirely blank term empty so it can still be removed.
+    if (next.high !== "" || next.low !== "") {
+      if (next.high === "") next.high = "0";
+      if (next.low === "") next.low = "0";
+    }
     const high = parseFloat(next.high);
     const low = parseFloat(next.low);
     commit({
@@ -8450,6 +8457,10 @@ const SummaryDashboard = ({
   const selectedUutIds = currentUutSelection || [];
   const setSelectedUutIds = setCurrentUutSelection || (() => {});
   const [selectedTmdeIds, setSelectedTmdeIds] = useState([]);
+  useEffect(() => {
+    if (selectedUutIds.length) setSelectedTmdeIds(current => current.length ? [] : current);
+  }, [selectedUutIds]);
+
   // Ctrl/Cmd-click range selection is scoped to the active instrument. The
   // key uses the same identity as the expanded row group so a Delete action
   // cannot accidentally target a range from a different UUT/TMDE row.
@@ -8457,6 +8468,22 @@ const SummaryDashboard = ({
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
   const uutSelectionAnchorRef = useRef(null);
   const tmdeSelectionAnchorRef = useRef(null);
+
+  useEffect(() => {
+    if (!keyboardShortcutsEnabled) return undefined;
+    const clearSelection = (event) => {
+      if (event.key !== "Escape") return;
+      setSelectedUutIds([]);
+      setSelectedTmdeIds([]);
+      setSelectedRangeIds({});
+      setLastSelectionTarget(null);
+      uutSelectionAnchorRef.current = null;
+      tmdeSelectionAnchorRef.current = null;
+    };
+    window.addEventListener("keydown", clearSelection, true);
+    return () => window.removeEventListener("keydown", clearSelection, true);
+  }, [keyboardShortcutsEnabled, setSelectedUutIds]);
+
 
   // Keep the current selection through Add and through a delete confirmation.
   // Prune it only after the backing session rows have actually disappeared.
@@ -8598,8 +8625,13 @@ const SummaryDashboard = ({
   // fires before inner controls' own mousedown — clicking a tolerance component
   // on another range makes THAT range active too.
   const activateRangeRow = (kind, itemId, index) => {
-    if (kind === "uut") setSelectedUutIds([itemId]);
-    else setSelectedTmdeIds([itemId]);
+    if (kind === "uut") {
+      setSelectedTmdeIds([]);
+      setSelectedUutIds([itemId]);
+    } else {
+      setSelectedUutIds([]);
+      setSelectedTmdeIds([itemId]);
+    }
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     setIdx((prev) => ({ ...prev, [itemId]: index }));
   };
@@ -9054,6 +9086,8 @@ const SummaryDashboard = ({
   const handleUutClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
       onInstrumentSelection();
+      setSelectedTmdeIds([]);
+      tmdeSelectionAnchorRef.current = null;
       setLastSelectionTarget("uut");
       setSelectedRangeIds({});
     }
@@ -9068,6 +9102,8 @@ const SummaryDashboard = ({
   const handleTmdeClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
       onInstrumentSelection();
+      setSelectedUutIds([]);
+      uutSelectionAnchorRef.current = null;
       setLastSelectionTarget("tmde");
       setSelectedRangeIds({});
     }
@@ -9227,8 +9263,13 @@ const SummaryDashboard = ({
       onSessionSave({ ...sessionData, [listKey]: list });
     } else {
       const clone = buildPastedInstrumentRow(clip.item, kind, area, "copy");
-      if (kind === "uut") setSelectedUutIds([clone.id]);
-      else setSelectedTmdeIds([clone.id]);
+      if (kind === "uut") {
+        setSelectedTmdeIds([]);
+        setSelectedUutIds([clone.id]);
+      } else {
+        setSelectedUutIds([]);
+        setSelectedTmdeIds([clone.id]);
+      }
       onSessionSave({
         ...sessionData,
         [listKey]: [...(sessionData[listKey] || []), clone],
@@ -9245,8 +9286,13 @@ const SummaryDashboard = ({
     const clickedIsSelected = selectedIds.some((id) => sameId(id, item.id));
     const targetIds = getInstrumentContextTargetIds(selectedIds, item.id);
     if (!clickedIsSelected) {
-      if (kind === "uut") setSelectedUutIds([item.id]);
-      else setSelectedTmdeIds([item.id]);
+      if (kind === "uut") {
+        setSelectedTmdeIds([]);
+        setSelectedUutIds([item.id]);
+      } else {
+        setSelectedUutIds([]);
+        setSelectedTmdeIds([item.id]);
+      }
     }
     setLastSelectionTarget(kind);
     const canPaste = !!instrumentClipboard && instrumentClipboard.kind === kind;
@@ -9326,8 +9372,13 @@ const SummaryDashboard = ({
     const clickedIsSelected = selectedIds.some((id) => sameId(id, item.id));
     const targetIds = getInstrumentContextTargetIds(selectedIds, item.id);
     if (!clickedIsSelected) {
-      if (kind === "uut") setSelectedUutIds([item.id]);
-      else setSelectedTmdeIds([item.id]);
+      if (kind === "uut") {
+        setSelectedTmdeIds([]);
+        setSelectedUutIds([item.id]);
+      } else {
+        setSelectedUutIds([]);
+        setSelectedTmdeIds([item.id]);
+      }
     }
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     setIdx((previous) => ({ ...previous, [item.id]: index }));
@@ -10759,6 +10810,22 @@ function DetailedView({
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
   const uutSelectionAnchorRef = useRef(null);
   const tmdeSelectionAnchorRef = useRef(null);
+
+  useEffect(() => {
+    if (!keyboardShortcutsEnabled) return undefined;
+    const clearSelection = (event) => {
+      if (event.key !== "Escape") return;
+      setSelectedUutIds([]);
+      setSelectedTmdeIds([]);
+      setSelectedRangeIds({});
+      setLastSelectionTarget(null);
+      uutSelectionAnchorRef.current = null;
+      tmdeSelectionAnchorRef.current = null;
+    };
+    window.addEventListener("keydown", clearSelection, true);
+    return () => window.removeEventListener("keydown", clearSelection, true);
+  }, [keyboardShortcutsEnabled, setSelectedUutIds]);
+
   const [showIrrelevantUutFunctions, setShowIrrelevantUutFunctions] =
     useState(false);
   const [showIrrelevantTmdeFunctions, setShowIrrelevantTmdeFunctions] =
@@ -11071,8 +11138,13 @@ function DetailedView({
       onSessionSave({ ...sessionData, [listKey]: list });
     } else {
       const clone = buildPastedInstrumentRow(clip.item, kind, area, "copy");
-      if (kind === "uut") setSelectedUutIds([clone.id]);
-      else setSelectedTmdeIds([clone.id]);
+      if (kind === "uut") {
+        setSelectedTmdeIds([]);
+        setSelectedUutIds([clone.id]);
+      } else {
+        setSelectedUutIds([]);
+        setSelectedTmdeIds([clone.id]);
+      }
       onSessionSave({
         ...sessionData,
         [listKey]: [...(sessionData[listKey] || []), clone],
@@ -11087,8 +11159,13 @@ function DetailedView({
     const clickedIsSelected = selectedIds.some((id) => sameId(id, item.id));
     const targetIds = getInstrumentContextTargetIds(selectedIds, item.id);
     if (!clickedIsSelected) {
-      if (kind === "uut") setSelectedUutIds([item.id]);
-      else setSelectedTmdeIds([item.id]);
+      if (kind === "uut") {
+        setSelectedTmdeIds([]);
+        setSelectedUutIds([item.id]);
+      } else {
+        setSelectedUutIds([]);
+        setSelectedTmdeIds([item.id]);
+      }
     }
     setLastSelectionTarget(kind);
     const canPaste = !!instrumentClipboard && instrumentClipboard.kind === kind;
@@ -11159,8 +11236,13 @@ function DetailedView({
     const clickedIsSelected = selectedIds.some((id) => sameId(id, item.id));
     const targetIds = getInstrumentContextTargetIds(selectedIds, item.id);
     if (!clickedIsSelected) {
-      if (kind === "uut") setSelectedUutIds([item.id]);
-      else setSelectedTmdeIds([item.id]);
+      if (kind === "uut") {
+        setSelectedTmdeIds([]);
+        setSelectedUutIds([item.id]);
+      } else {
+        setSelectedUutIds([]);
+        setSelectedTmdeIds([item.id]);
+      }
     }
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     setIdx((previous) => ({ ...previous, [item.id]: index }));
@@ -12219,8 +12301,13 @@ function DetailedView({
   // and this view's extra columns. `cols` carries the per-column index used for
   // column-hover highlighting, which differs between the UUT and TMDE tables.
   const activateRangeRowDetail = (kind, itemId, index) => {
-    if (kind === "uut") setSelectedUutIds([itemId]);
-    else setSelectedTmdeIds([itemId]);
+    if (kind === "uut") {
+      setSelectedTmdeIds([]);
+      setSelectedUutIds([itemId]);
+    } else {
+      setSelectedUutIds([]);
+      setSelectedTmdeIds([itemId]);
+    }
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     setIdx((prev) => ({ ...prev, [itemId]: index }));
   };
@@ -12573,6 +12660,8 @@ function DetailedView({
   const handleUutClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
       onInstrumentSelection();
+      setSelectedTmdeIds([]);
+      tmdeSelectionAnchorRef.current = null;
       setLastSelectionTarget("uut");
       setSelectedRangeIds({});
     }
@@ -12587,6 +12676,8 @@ function DetailedView({
   const handleTmdeClick = (e, id) => {
     if (!isInlineRowControlTarget(e.target)) {
       onInstrumentSelection();
+      setSelectedUutIds([]);
+      uutSelectionAnchorRef.current = null;
       setLastSelectionTarget("tmde");
       setSelectedRangeIds({});
     }

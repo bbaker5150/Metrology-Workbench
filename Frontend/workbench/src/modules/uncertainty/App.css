@@ -10350,6 +10350,7 @@ body.theme-cyberpunk .notification-window .window-header {
 .active-uut-badge {
   --instrument-function-color: var(--primary-color);
   flex-shrink: 0;
+  white-space: nowrap;
   padding: 2px 6px;
   border: 1px solid color-mix(in srgb, var(--instrument-function-color) 58%, transparent);
   border-radius: 999px;
@@ -13354,7 +13355,7 @@ input.inline-function-input:focus {
 .instrument-column-insert-button {
   position: absolute;
   right: -8px;
-  bottom: -8px;
+  bottom: 3px;
   z-index: 8;
   width: 16px;
   height: 16px;
@@ -13379,6 +13380,13 @@ input.inline-function-input:focus {
 .instrument-column-insert-button:focus-visible {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* Raise the whole sticky cell above its adjacent header, not just the icon. */
+.instrument-equipment-table th.instrument-resizable-header:hover,
+.instrument-equipment-table th.instrument-resizable-header:focus-within {
+  z-index: 21;
+  overflow: visible;
 }
 
 .instrument-column-insert-button:hover,
@@ -19960,7 +19968,7 @@ body.uncertainty-active .context-menu li:not(.context-menu-divider):hover {
   top: var(--instrument-header-offset, 0px);
 }
 .uncertainty-module .instrument-equipment-table .inline-desc-fields {
-  grid-template-columns: repeat(3, 88px);
+  grid-template-columns: repeat(2, 88px);
   width: max-content;
 }
 .uncertainty-module .instrument-equipment-table .inline-range-editor.is-editing {

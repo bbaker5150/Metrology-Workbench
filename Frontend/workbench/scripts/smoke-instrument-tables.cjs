@@ -13,11 +13,12 @@ import { createRoot } from 'react-dom/client';
 import UncertaintyPanel from '/src/modules/uncertainty/features/analysis/components/UncertaintyPanel.jsx';
 import '/src/modules/uncertainty/App.css';
 const range = {id:'r1', min:0,max:10,unit:'V',tolerances:{reading:{high:1,low:-1,unit:'%',symmetric:true,distribution:'1.732'}},measuringResolution:'0.001',measuringResolutionUnit:'V'};
-const makeInstrument = (id) => ({id, description:'Mock DMM '+id,instrument:{manufacturer:'Mock',model:'DMM',name:'Test',functions:[{name:'Voltage',unit:'V',ranges:[{...range,id:id+'r1'},{...range,id:id+'r2',min:20,max:30}]}]}});
+const makeInstrument = (id) => ({id, description:'Mock DMM '+id,name:'Mock DMM '+id,instrument:{manufacturer:'Mock',model:'DMM',name:'Test',functions:[{name:'Voltage',unit:'V',ranges:[{...range,id:id+'r1'},{...range,id:id+'r2',min:20,max:30}]}]}});
 function Harness() {
  const [session,setSession] = useState({id:'test',name:'Layout regression',functionGroups:[{name:'Voltage',unit:'V',kind:'uut'},{name:'Voltage',unit:'V',kind:'tmde'}],uuts:Array.from({length:10},(_,i)=>makeInstrument('uut'+i)),tmdes:Array.from({length:12},(_,i)=>makeInstrument('tmde'+i)),testPoints:[],uncReq:{}});
  const [selected,setSelected] = useState([]);
- return <div className="uncertainty-module" style={{height:'100vh',overflow:'auto'}}><div className="analysis-container" style={{display:'block',overflow:'visible',width:'100%'}}><div className="analysis-tabs"><button>Instrument Overview</button><button>Uncertainty Budget</button></div><UncertaintyPanel testPointData={{viewMode:'session',id:'test'}} sessionData={session} onSessionSave={setSession} currentUutSelection={selected} setCurrentUutSelection={setSelected} setNotification={()=>{}} onInstrumentSynced={()=>{}}/><div style={{height:900}}>End of tables</div></div></div>;
+ const [view,setView] = useState('session'); window.showDetail=()=>setView('point');
+ return <div className="uncertainty-module" style={{height:'100vh',overflow:'auto'}}><div className="analysis-container" style={{display:'block',overflow:'visible',width:'100%'}}><div className="analysis-tabs"><button>Instrument Overview</button><button>Uncertainty Budget</button></div><UncertaintyPanel testPointData={{viewMode:view,id:'test',testPointInfo:{parameter:{name:'Voltage',unit:'V'}},associatedUutIds:['uut0'],components:[]}} tmdeTolerancesData={[]} uutNominal={{value:5,unit:'V'}} sessionData={session} onSessionSave={setSession} currentUutSelection={selected} setCurrentUutSelection={setSelected} setNotification={()=>{}} onInstrumentSynced={()=>{}}/><div style={{height:900}}>End of tables</div></div></div>;
 }
 document.body.classList.add('uncertainty-active');
 for (const kind of ['uut','tmde']) localStorage.setItem('uncertalytics:'+kind+':instrument-column-widths:v2',JSON.stringify({description:90,range:90,tolerance:90,distribution:90,resolution:90,sync:550}));
@@ -50,7 +51,7 @@ app.whenReady().then(async()=>{
  try {
   const {createServer}=await import('vite');
   const virtual = path.resolve('__instrument-smoke.jsx').replaceAll('\\','/');
-  server=await createServer({server:{host:'127.0.0.1',port:4195,strictPort:false,open:false},plugins:[{name:'instrument-smoke',resolveId:id=>id==='/__instrument-smoke.jsx'?virtual:undefined,load:id=>id===virtual?source:undefined,configureServer(vite){vite.middlewares.use(async(req,res,next)=>{if(req.url!=='/__instrument-smoke')return next();res.setHeader('Content-Type','text/html');res.end(await vite.transformIndexHtml(req.url,'<html><body><div id="root"></div><script type="module" src="/__instrument-smoke.jsx"></script></body></html>'));});}}]});
+  server=await createServer({cacheDir:fs.mkdtempSync(path.join(os.tmpdir(),'instrument-vite-')),server:{host:'127.0.0.1',port:4195,strictPort:false,open:false},plugins:[{name:'instrument-smoke',resolveId:id=>id==='/__instrument-smoke.jsx'?virtual:undefined,load:id=>id===virtual?source:undefined,configureServer(vite){vite.middlewares.use(async(req,res,next)=>{if(req.url!=='/__instrument-smoke')return next();res.setHeader('Content-Type','text/html');res.end(await vite.transformIndexHtml(req.url,'<html><body><div id="root"></div><script type="module" src="/__instrument-smoke.jsx"></script></body></html>'));});}}]});
   await server.listen();
   window=new BrowserWindow({show:false,width:1280,height:900,webPreferences:{offscreen:true,backgroundThrottling:false}});
   window.webContents.on('console-message',event=>{if(/error|uncaught/i.test(event.message))console.error(event.message)});
@@ -59,6 +60,16 @@ app.whenReady().then(async()=>{
   await capture('initial');
   const uut='[data-tour="uut-table"]';
   const tmde='[data-tour="tmde-table"]';
+  window.setSize(1800,900);
+  for (const zoom of [0.6, 0.9, 1, 1.4]) {
+    await js(`document.querySelector('${uut} table').style.zoom='${zoom}'`);
+    await pause(300);
+    const fill=await js(`(()=>{const c=document.querySelector('${uut}'),t=c.querySelector('table');return {available:c.clientWidth,rendered:t.getBoundingClientRect().width}})()`);
+    assert.ok(fill.rendered >= fill.available - 2, 'No right-side whitespace at zoom '+zoom+': '+JSON.stringify(fill));
+  }
+  await js(`document.querySelector('${uut} table').style.zoom='1'`);
+  window.setSize(1280,900);
+  await pause(300);
   const base=await js(`document.querySelector('${uut} th').getBoundingClientRect().width`);
   await click(uut+' .inline-desc-combined');
   const description=await checkEditor('.inline-desc-fields');
@@ -108,6 +119,30 @@ app.whenReady().then(async()=>{
   await pause(300);
   const bounds=await js(`(()=>{const h=document.querySelector('${tmde} th').getBoundingClientRect(),c=document.querySelector('${tmde}').getBoundingClientRect();return {header:h.bottom,container:c.bottom}})()`);
   assert.ok(bounds.header<=bounds.container+1,'Headers do not follow below the table');
+  await js(`window.showDetail();document.querySelector('.uncertainty-module').scrollTop=0`);
+  await pause(400);
+  await click(uut+' .inline-desc-combined');
+  await checkEditor('.inline-desc-fields');
+  const descLayout=await js(`(()=>{const e=document.querySelector('.inline-desc-fields'),cell=e.closest('td'),pill=cell.querySelector('.active-uut-badge'),r=cell.getBoundingClientRect(),p=pill.getBoundingClientRect();return {columns:getComputedStyle(e).gridTemplateColumns.split(' ').length,fields:e.children.length,pillRight:p.right,cellRight:r.right}})()`);
+  assert.equal(descLayout.columns,2,'Description uses two columns');
+  assert.equal(descLayout.fields,4,'All four description fields remain available');
+  assert.ok(descLayout.pillRight<descLayout.cellRight,'Active UUT badge stays inside its cell');
+  await capture('active-uut');
+  await click('.analysis-tabs button');
+  const plus=uut+' .instrument-column-insert-button';
+  await js(`document.querySelector('${plus}').focus()`);
+  await pause(200);
+  const hit=await js(`(()=>{const b=document.querySelector('${plus}'),r=b.getBoundingClientRect();return [[r.left+2,r.top+r.height/2],[r.right-2,r.top+r.height/2]].every(([x,y])=>b.contains(document.elementFromPoint(x,y)))})()`);
+  assert.ok(hit,'Both edges of the add-column button are visible and clickable');
+  await capture('add-column');
+  await js(`document.documentElement.style.zoom='1.1';document.querySelector('${tmde} table').style.zoom='0.8'`);
+  await pause(350);
+  await js(`(()=>{const s=document.querySelector('.uncertainty-module'),t=document.querySelector('${tmde}');s.scrollTop+=(t.getBoundingClientRect().top-20)/1.1})()`);
+  await pause(350);
+  const zoomedHeader=await js(`(()=>{const h=document.querySelector('${tmde} th').getBoundingClientRect(),t=document.querySelector('.analysis-tabs').getBoundingClientRect();return {top:h.top,tabs:t.bottom}})()`);
+  assert.ok(Math.abs(zoomedHeader.top-zoomedHeader.tabs)<2, 'Sticky header respects app and table zoom: '+JSON.stringify(zoomedHeader));
+  await capture('global-zoom');
+
   console.log('PASS: real table editors fit; widths restore and remain stable; distribution opens with one click; headers track page scrolling.',{description,rangeGeometry,header});
  } catch(error){console.error(error);await capture('failure');status=1}
  finally{clearTimeout(deadline);window?.webContents.stopPainting();window?.destroy();await server?.close();await pause(250);app.exit(status)}
