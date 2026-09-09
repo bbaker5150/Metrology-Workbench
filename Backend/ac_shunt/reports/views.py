@@ -140,3 +140,43 @@ def ac_shunt_session_pull(request, session_id):
     if payload is None:
         return Response({"error": "Calibration session not found."}, status=status.HTTP_404_NOT_FOUND)
     return Response(payload)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def customer_search(request):
+    from django.db.models import Q
+    from django.core.paginator import Paginator
+    from .customers import FIELDS
+    customers = models.Customer.objects.all()
+    for word in request.query_params.get("q", "").split():
+        match = Q()
+        for field in FIELDS:
+            match |= Q(**{f"{field}__icontains": word})
+        customers = customers.filter(match)
+    page = Paginator(customers, 20).get_page(request.query_params.get("page", 1))
+    directory = models.CustomerDirectory.objects.get(pk=1)
+    return Response({"customers": list(page.object_list.values("id", *FIELDS)),
+                     "total": page.paginator.count, "page": page.number, "pages": page.paginator.num_pages,
+                     "directory": {"source_name": directory.source_name, "row_count": directory.row_count,
+                                   "updated_at": directory.updated_at}})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@parser_classes([MultiPartParser])
+def customer_import(request):
+    from .customers import parse_customers, replace_customers
+    from openpyxl.utils.exceptions import InvalidFileException
+    from xml.etree.ElementTree import ParseError
+    upload = request.FILES.get("file")
+    if upload is None:
+        return Response({"error": "Choose an Excel workbook."}, status=400)
+    try:
+        rows, duplicates = parse_customers(upload)
+    except (ValueError, InvalidFileException, ParseError, EOFError) as exc:
+        return Response({"error": str(exc)}, status=400)
+    directory = replace_customers(rows, upload.name)
+    return Response({"imported": directory.row_count, "duplicates_skipped": duplicates,
+                     "missing_addresses": sum(not row["address"] for row in rows),
+                     "source_name": directory.source_name})

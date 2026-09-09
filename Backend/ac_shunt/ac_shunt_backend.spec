@@ -7,6 +7,7 @@ a = Analysis(
     datas=[
         ('ac_shunt', 'ac_shunt'),
         ('api', 'api'),
+        ('reports', 'reports'),
         ('uncertainty_data.json', '.'),
     ],
     hiddenimports=[
