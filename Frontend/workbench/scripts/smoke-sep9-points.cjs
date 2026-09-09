@@ -200,7 +200,8 @@ app.whenReady().then(async () => {
       await page.evaluate(dark=>document.body.classList.toggle('dark-mode',dark),dark);
       await page.screenshot({path:path.join(output,dark?'area-menu-dark.png':'area-menu-light.png')});
       const menu=await page.locator('.sidebar-add-area-form').boundingBox();
-      assert.ok(menu.width>250 && menu.x>=0 && menu.x+menu.width<=1500,'Area popover is visible within the viewport');
+      assert.ok(menu.width>200 && menu.x>=0 && menu.x+menu.width<=1500,'Inline area entry fits the sidebar');
+      assert.ok(await page.locator('.sidebar-actions-group .sidebar-add-area-form').count(),'Area entry stays inline with the buttons');
     }
     await page.evaluate(()=>document.body.classList.remove('dark-mode'));
     await page.getByRole('textbox',{name:'New Measurement Area name'}).fill('Quick calculation');
@@ -214,6 +215,16 @@ app.whenReady().then(async () => {
     const quick=await page.evaluate(()=>window.savedSession().testPoints.find(point=>point.testPointInfo.measurementArea==='Quick calculation'));
     assert.equal(quick.testPointInfo.parameter.unit,'');
     assert.deepEqual(quick.associatedUutIds,[]);
+    await rows.last().getByRole('button',{name:'UUT',exact:true}).click();
+    await page.getByRole('option',{name:'Assign UUT',exact:true}).click();
+    await page.waitForFunction(()=>window.savedSession().uuts.length===2);
+    const created=await page.evaluate(()=>window.savedSession().uuts.at(-1));
+    assert.deepEqual(created.measurementAreaNames,['Quick calculation']);
+    assert.equal(created.instrument.functions[0].ranges.length,1);
+    assert.equal(created.description,'');
+    await page.waitForFunction(()=>window.savedSession().testPoints.at(-1).associatedUutIds[0]===window.savedSession().uuts.at(-1).id);
+    await page.locator('[data-tour="tab-overview"].active').waitFor();
+    assert.ok(await page.locator('.instrument-equipment-table tr:is(.instrument-selected,.selected-row)').count(),'New instrument is selected in overview');
     await page.screenshot({path:path.join(output,'area-and-unit-workflow.png')});
     assert.deepEqual(errors, []);
     console.log(

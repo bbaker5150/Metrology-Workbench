@@ -1294,6 +1294,7 @@ export const SidebarPointItem = ({
                       showOptionMeta={false}
                       options={[
                         { value: "", label: "Unassigned" },
+                        { value: "__create_uut__", label: "Assign UUT" },
                         ...uutOptions.map((option) => ({
                           value: String(option.id),
                           label: option.label,
@@ -5016,7 +5017,12 @@ function App({ showThemeToggle = false }) {
         setPendingSharedFieldEdit({ pointId, field })
       }
       onUutChange={(nextUutId, groupedPointIds = [tp.id]) => {
-        const nextUut = (currentSessionData?.uuts || []).find(
+        const creatingUut = nextUutId === "__create_uut__";
+        const nextUut = creatingUut ? {
+          id: uuidv4(), name: "", description: "", measurementAreaNames: [fnGroup.name],
+          instrument: { id: uuidv4(), manufacturer: "", model: "", description: "",
+            functions: [{ name: "", unit: "", ranges: [{ id: uuidv4(), min: "", max: "", unit: "", resolution: "", tolerances: {} }] }] },
+        } : (currentSessionData?.uuts || []).find(
           (uut) => String(uut.id) === String(nextUutId),
         );
         const parameter = tp.testPointInfo?.parameter || {};
@@ -5045,8 +5051,23 @@ function App({ showThemeToggle = false }) {
               : null,
           };
         });
-        updateSession({ ...currentSessionData, testPoints: nextPoints });
+        updateSession({ ...currentSessionData, testPoints: nextPoints,
+          ...(creatingUut ? { uuts: [...(currentSessionData.uuts || []), nextUut] } : {}) });
         setSelectedTestPointContextUutId(nextUut?.id || null);
+        if (creatingUut) {
+          setSelectedTestPointId(null);
+          setVirtualPoint(null);
+          setSelectedSidebarPointIds([]);
+          setSelectedTablePointIds([]);
+          setSelectedUutId(null);
+          setCurrentUutSelection([nextUut.id]);
+          setCollapsedOverviewInstrumentFunctionKeys(previous => {
+            const next = new Set(previous);
+            next.delete(`uut::${fnGroup.id}`);
+            return next;
+          });
+          setAnalysisMode("overview");
+        }
       }}
       valueColumnWidth={sidebarValueColumnWidth}
       visibleColumns={visibleSidebarColumns}
@@ -5832,12 +5853,10 @@ function App({ showThemeToggle = false }) {
 
                   <div className="sidebar-actions-group">
                     <button type="button" className="sidebar-action-btn-organic" title="Add Measurement Area" aria-label="Add Measurement Area from points" ref={sidebarAreaAnchorRef} aria-expanded={newSidebarArea !== null} onClick={() => setNewSidebarArea(current => current === null ? "" : null)}><FontAwesomeIcon icon={faPlus} /></button>
-                    {newSidebarArea !== null && <MeasurementAreaPopover anchorRef={sidebarAreaAnchorRef}><div className="sidebar-add-area-form" role="dialog" aria-label="Add Measurement Area" onKeyDown={event => { if (event.key === "Escape") { setNewSidebarArea(null); sidebarAreaAnchorRef.current?.focus(); } }}>
-                      <h4>Add Measurement Area</h4>
-                      <label htmlFor="sidebar-area-name">Name</label>
+                    {newSidebarArea !== null && <div className="sidebar-add-area-form" role="group" aria-label="Add Measurement Area" onKeyDown={event => { if (event.key === "Escape") { setNewSidebarArea(null); sidebarAreaAnchorRef.current?.focus(); } }}>
                       <input id="sidebar-area-name" autoFocus aria-label="New Measurement Area name" placeholder="Measurement Area name" value={newSidebarArea} onChange={event => setNewSidebarArea(event.target.value)} onKeyDown={event => { if (event.key === "Enter") handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(null); }} />
                       <div className="sidebar-area-menu-actions"><button type="button" className="btn-secondary" onClick={() => setNewSidebarArea(null)}>Cancel</button><button type="button" className="btn-primary" disabled={!newSidebarArea.trim()} onClick={handleAddSidebarArea}>Add</button></div>
-                    </div></MeasurementAreaPopover>}
+                    </div>}
                     {/* Eyeball Button Removed - Moved to HeaderToolbox */}
 
                       <>
