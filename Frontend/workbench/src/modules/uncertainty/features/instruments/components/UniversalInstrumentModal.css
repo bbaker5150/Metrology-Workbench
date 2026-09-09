@@ -1164,3 +1164,27 @@
     outline: 1px solid color-mix(in srgb, var(--primary-color) 42%, transparent);
     outline-offset: -1px;
 }
+
+/* The modal's general input reset must not erase room reserved for the icon. */
+.instrument-builder-wrapper .search-input-wrapper input {
+    padding-left: 38px;
+}
+.instrument-builder-wrapper .search-input-wrapper .search-icon {
+    width: 14px;
+    pointer-events: none;
+}
+
+/* Shared resolution controls include both base unit and prefix. Wrap inside
+   their cell rather than extending over the delete action or modal edge. */
+.instrument-builder-wrapper .builder-spec-table .inline-resolution-editor {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+    max-width: 100%;
+}
+.instrument-builder-wrapper .builder-spec-table .inline-resolution-input {
+    flex: 0 0 58px;
+    min-width: 0;
+    width: 58px;
+}

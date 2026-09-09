@@ -329,7 +329,7 @@ export const UNIT_DISPLAY_LABELS = {
   "m^2": "m²",
   "cm^2": "cm²",
   "mm^2": "mm²",
-  "in^2": "in.²",
+  "in^2": "in²",
   "kg/m^3": "kg/m³",
   "g/cm^3": "g/cm³",
   "mol/m^3": "mol/m³",
@@ -457,6 +457,15 @@ export const unitCategories = {
   Illuminance: ["lx", "fc"],
   "Magnetic Field": ["T", "mT", "uT", "G"]
 };
+
+// Cover every registered quantity, including acceleration, area and analytical
+// coefficients. Preserve the curated ordering and established category names.
+const categorizedUnits = new Set(Object.values(unitCategories).flat());
+Object.entries(unitSystem.units).forEach(([unit, definition]) => {
+  if (categorizedUnits.has(unit)) return;
+  const category = definition.quantity.replace(/([a-z])([A-Z])/g, "$1 $2");
+  (unitCategories[category] ||= []).push(unit);
+});
 
 // Reverse lookup: unit key -> its category name, built once from unitCategories.
 const UNIT_TO_CATEGORY = Object.entries(unitCategories).reduce(

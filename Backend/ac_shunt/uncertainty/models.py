@@ -49,6 +49,7 @@ class Session(models.Model):
     function_groups = models.JSONField(default=list, blank=True)
     # Explicit user organization; null identifies sessions needing legacy migration.
     measurement_area_groups = models.JSONField(default=None, blank=True, null=True)
+    instrument_onboarding = models.JSONField(default=dict, blank=True)
     # User-defined ordering for the draggable detailed-workspace sections.
     detail_section_order = models.JSONField(default=list, blank=True)
     # Sections the user collapsed in the detailed workspace. Persist this at

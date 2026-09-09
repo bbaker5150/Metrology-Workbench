@@ -4697,7 +4697,7 @@ function App({ showThemeToggle = false }) {
           (candidate) => String(candidate.id) === String(rememberedId),
         ) || currentTestPoints[0];
       if (!point) {
-        setAnalysisMode("overview");
+        setAnalysisMode("uncertaintyTool");
         return;
       }
 
@@ -5988,22 +5988,9 @@ function App({ showThemeToggle = false }) {
                   <div className="measurement-points-empty-state" role="status">
                     <FontAwesomeIcon icon={faMicroscope} aria-hidden="true" />
                     <div>
-                      <strong>Ready for your first measurement point</strong>
+                      <strong>Add your first Measurement Point</strong>
                       <div className="measurement-points-empty-copy">
-                        <p>
-                          Instruments are organized by Measurement Area, grouping them
-                          however you choose. An area such as Torque can contain
-                          instruments with Length and Weight functions.
-                        </p>
-                        <p>
-                          Select or create a Measurement Area to organize the measurement
-                          category.
-                        </p>
-                        <p>Add any UUTs you need in that Measurement Area.</p>
-                        <p>
-                          Add Measurement Points to define the exact test values
-                          and tolerances for each UUT.
-                        </p>
+                        <p>First, create a Unit Under Test (UUT) in the Instrument Overview tab. Then, click the + button below to add a measurement point.</p>
                       </div>
                     </div>
                   </div>

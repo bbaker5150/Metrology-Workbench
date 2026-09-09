@@ -112,6 +112,7 @@ class WholeSessionRoundTripTests(APITestCase):
     def test_measurement_area_organization_round_trip(self):
         from copy import deepcopy
         payload = deepcopy(SAMPLE_SESSION)
+        payload["instrumentOnboarding"] = {"uut": {"firstAreaKey": "torque", "completed": True}, "tmde": {"firstAreaKey": "torque", "completed": False}}
         payload["measurementAreaGroups"] = [
             {"name": "Torque", "kind": "uut", "color": "#abcdef",
              "pointCreationSettings": {"mode": "derived"}},
@@ -127,6 +128,7 @@ class WholeSessionRoundTripTests(APITestCase):
         url = f"/api/uncertainty/sessions/{payload['id']}/"
         saved = self.client.get(url).data
         self.assertEqual(saved["measurementAreaGroups"], payload["measurementAreaGroups"])
+        self.assertEqual(saved["instrumentOnboarding"], payload["instrumentOnboarding"])
         for key in ("uuts", "tmdes"):
             self.assertEqual(saved[key][0]["measurementAreaNames"], payload[key][0]["measurementAreaNames"])
             self.assertEqual(saved[key][0]["instrument"], payload[key][0]["instrument"])
@@ -135,6 +137,7 @@ class WholeSessionRoundTripTests(APITestCase):
         saved["uuts"][0]["measurementAreaNames"] = []
         self.assertEqual(self.client.put(url, saved, format="json").status_code, 200)
         self.assertEqual(self.client.get(url).data["measurementAreaGroups"], [])
+        self.assertEqual(self.client.get(url).data["instrumentOnboarding"], payload["instrumentOnboarding"])
         self.assertEqual(self.client.get(url).data["uuts"][0]["measurementAreaNames"], [])
 
     def test_create_and_retrieve_round_trip(self):

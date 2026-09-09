@@ -20192,3 +20192,16 @@ body.uncertainty-active .context-menu li.destructive:hover {
 
 /* Unit symbols are case-sensitive, including SI prefixes. */
 .uncertainty-module .function-header-unit-chip { text-transform: none; }
+
+.uncertainty-module .instrument-first-hint {
+  padding: 8px 16px 12px;
+  color: var(--text-color-muted);
+  font-size: 0.85rem;
+  font-weight: normal;
+  text-transform: none;
+}
+.uncertainty-module .panel-empty-state {
+  padding: 36px 20px;
+  text-align: center;
+  color: var(--text-color-muted);
+}

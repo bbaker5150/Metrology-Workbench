@@ -1,3 +1,4 @@
+import { trackInstrumentOnboarding } from "../utils/instrumentOnboarding";
 import { inheritMissingPointUnits } from "../utils/pointUnits";
 import { migrateMeasurementAreas } from "../utils/measurementAreaGrouping";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
@@ -213,7 +214,7 @@ const useSessionManager = () => {
   };
 
   const replaceSessions = useCallback((updater) => {
-    const nextSessions = (typeof updater === "function" ? updater(sessionsRef.current) : updater).map(session => inheritMissingPointUnits(migrateMeasurementAreas(session)));
+    const nextSessions = (typeof updater === "function" ? updater(sessionsRef.current) : updater).map(session => trackInstrumentOnboarding(inheritMissingPointUnits(migrateMeasurementAreas(session)), sessionsRef.current.find(previous => previous.id === session.id)));
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
     return nextSessions;
@@ -698,6 +699,7 @@ const useSessionManager = () => {
       const previousSession = sessionsRef.current.find(
         (session) => session.id === updatedSession.id,
       );
+      updatedSession = trackInstrumentOnboarding(updatedSession, previousSession);
       const changeGroup = getSessionChangeGroup(previousSession, updatedSession);
       if (!changeGroup) return;
 
@@ -745,7 +747,7 @@ const useSessionManager = () => {
 
     if (undoEntry.kind === "workspace") {
       const currentSessions = sessionsRef.current;
-      const restoredSessions = cloneSession(undoEntry.sessions || []);
+      const restoredSessions = cloneSession(undoEntry.sessions || []).map(session => trackInstrumentOnboarding(session, sessionsRef.current.find(previous => previous.id === session.id)));
       const restoredIds = new Set(restoredSessions.map((session) => String(session.id)));
 
       // Undoing Add/Import removes the newly persisted session. Undoing Delete
@@ -776,7 +778,7 @@ const useSessionManager = () => {
       return true;
     }
 
-    const restoredSession = undoEntry.session;
+    const restoredSession = trackInstrumentOnboarding(undoEntry.session, sessionsRef.current.find(previous => previous.id === undoEntry.session.id));
     replaceSessions((prevSessions) =>
       prevSessions.some((session) => session.id === restoredSession.id)
         ? prevSessions.map((session) =>

@@ -466,27 +466,12 @@ describe("UncertaintyApp", () => {
     expect(assumedReliabilityHelp.title).toMatch(/probability/i);
     expect(assumedReliabilityHelp.title).not.toMatch(/workbook/i);
     expect(screen.queryByText("Uncertainty Requirements")).not.toBeInTheDocument();
-    expect(
-      screen.getByText("Ready for your first measurement point"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Instruments are organized by Measurement Area/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Select or create a Measurement Area/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Add any UUTs you need in that Measurement Area/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Add Measurement Points to define the exact test values/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Add a UUT using Add Instrument in the measurement area header."),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Add a TMDE using Add Instrument in the measurement area header."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Add your first Measurement Point")).toBeInTheDocument();
+    expect(screen.getByText(/First, create a Unit Under Test/)).toHaveTextContent("click the + button below to add a measurement point");
+    expect(screen.getAllByText("Add a Measurement Area to get started.")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Uncertainty Budget", exact: true }));
+    expect(screen.getByText("Select a Measurement Point.")).toBeInTheDocument();
+    fireEvent.click(overviewTab);
 
     fireEvent.click(screen.getByRole("button", { name: /Risk Inputs/i }));
     fireEvent.click(screen.getByRole("button", { name: /Mitigation Inputs/i }));

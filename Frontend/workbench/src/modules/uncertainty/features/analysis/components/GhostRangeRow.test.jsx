@@ -1081,7 +1081,7 @@ describe("inline range editing", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Tolerance unit base unit" }),
     );
-    fireEvent.click(screen.getByRole("option", { name: "% Other" }));
+    fireEvent.click(screen.getByRole("option", { name: "% Ratio" }));
 
     expect(onCommit).toHaveBeenLastCalledWith(
       "floor",

@@ -1,3 +1,4 @@
+import { showFirstInstrumentHint } from "../../../utils/instrumentOnboarding";
 /**
  * src/features/analysis/components/UncertaintyPanel.jsx
  */
@@ -5687,7 +5688,7 @@ export const buildFunctionGroupedRows = (
       return a.fn.name.localeCompare(b.fn.name);
     })
     .flatMap((group) => [
-      group,
+      { ...group, fn: { ...group.fn, instrumentCount: group.items.length } },
       // Preserve session array order so newly-added instruments append at the
       // bottom and drag/drop reordering remains visible.
       ...group.items,
@@ -7728,6 +7729,7 @@ const SummaryDashboard = ({
   };
 
   const renderFunctionCollapseButton = (kind, fn) => {
+    if (!fn.instrumentCount) return null;
     const collapsed = isFunctionGroupCollapsed(collapsedFunctionKeys, kind, fn);
     return (
       <button
@@ -7776,6 +7778,9 @@ const SummaryDashboard = ({
             {renderFunctionAddButton(kind, fn)}
           </div>
         </div>
+        {showFirstInstrumentHint(sessionData, kind, fn.key) && (
+          <div className="instrument-first-hint">Click the <FontAwesomeIcon icon={faPlus} /> <FontAwesomeIcon icon={faTools} /> button to add an instrument.</div>
+        )}
       </td>
     </tr>
   );
@@ -9067,7 +9072,7 @@ const SummaryDashboard = ({
               {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={5 + customColumnsFor("uut").length}>
-                    Add a UUT using Add Instrument in the measurement area header.
+                    Add a Measurement Area to get started.
                   </td>
                 </tr>
               ) : (
@@ -9592,7 +9597,7 @@ const SummaryDashboard = ({
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={6 + customColumnsFor("tmde").length}>
-                    Add a TMDE using Add Instrument in the measurement area header.
+                    Add a Measurement Area to get started.
                   </td>
                 </tr>
               ) : (
@@ -12429,6 +12434,7 @@ function DetailedView({
   };
 
   const renderFunctionCollapseButton = (kind, fn) => {
+    if (!fn.instrumentCount) return null;
     const collapsed = isFunctionGroupCollapsed(
       collapsedFunctionKeys,
       kind,
@@ -12485,6 +12491,9 @@ function DetailedView({
             {renderFunctionAddButton(kind, fn)}
           </div>
         </div>
+        {showFirstInstrumentHint(sessionData, kind, fn.key) && (
+          <div className="instrument-first-hint">Click the <FontAwesomeIcon icon={faPlus} /> <FontAwesomeIcon icon={faTools} /> button to add an instrument.</div>
+        )}
       </td>
     </tr>
   );
@@ -15161,7 +15170,7 @@ function DetailedView({
               }
             >
               <FontAwesomeIcon
-                icon={showIrrelevantUutFunctions ? faEyeSlash : faEye}
+                icon={showIrrelevantUutFunctions ? faEye : faEyeSlash}
               />
             </button>
             <button
@@ -15214,7 +15223,7 @@ function DetailedView({
               {visibleDetailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={5 + customColumnsFor("uut").length}>
-                    Add a UUT using Add Instrument in the measurement area header.
+                    Add a Measurement Area to get started.
                   </td>
                 </tr>
               ) : (
@@ -15993,7 +16002,7 @@ function DetailedView({
                 }
               >
                 <FontAwesomeIcon
-                  icon={showIrrelevantTmdeFunctions ? faEyeSlash : faEye}
+                  icon={showIrrelevantTmdeFunctions ? faEye : faEyeSlash}
                 />
               </button>
               <button
@@ -16047,7 +16056,7 @@ function DetailedView({
                 {visibleDetailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
                     <td colSpan={6 + customColumnsFor("tmde").length}>
-                      Add a TMDE using Add Instrument in the measurement area header.
+                      Add a Measurement Area to get started.
                     </td>
                   </tr>
                 ) : (

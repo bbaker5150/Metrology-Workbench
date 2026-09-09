@@ -170,6 +170,7 @@ def session_to_dict(s):
         "uutTolerance": s.uut_tolerance or {},
         "functionGroups": s.function_groups or [],
         "measurementAreaGroups": s.measurement_area_groups,
+        "instrumentOnboarding": s.instrument_onboarding or {},
         "detailSectionOrder": s.detail_section_order or [],
         "detailCollapsedSections": s.detail_collapsed_sections or [],
         "uncReq": {
@@ -271,6 +272,7 @@ def save_session(data):
         "uut_tolerance": data.get("uutTolerance") or {},
         "function_groups": data.get("functionGroups") or [],
         "measurement_area_groups": data.get("measurementAreaGroups"),
+        "instrument_onboarding": data.get("instrumentOnboarding") or {},
         "detail_section_order": data.get("detailSectionOrder") or [],
         "detail_collapsed_sections": data.get("detailCollapsedSections") or [],
         "uncertainty_confidence": _num(unc.get("uncertaintyConfidence"), 95),

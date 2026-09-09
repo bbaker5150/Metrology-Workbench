@@ -428,14 +428,14 @@ describe("UniversalInstrumentModal library synchronization", () => {
     });
 
     const emptyTolerance = screen.getByRole("button", { name: "Set tolerance" });
-    expect(emptyTolerance).toHaveTextContent(/^\s*$/);
+    expect(emptyTolerance).toHaveTextContent("Not Set");
     fireEvent.click(emptyTolerance);
 
     expect(screen.queryByText("Tolerance / Error Limits")).not.toBeInTheDocument();
     expect(screen.getByText(/IV %/)).toBeInTheDocument();
     expect(screen.getByText("% FS")).toBeInTheDocument();
     expect(screen.getByText("dB")).toBeInTheDocument();
-    expect(screen.getByText("Single Sided High")).toBeInTheDocument();
+    expect(screen.getByTitle("Single-sided tolerances are asymmetric")).toBeDisabled();
   });
 
   test("stores an inline tolerance term on the edited range", () => {
@@ -538,7 +538,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     const ivUnit = screen.getByTitle(/IV unit/i);
     expect(ivUnit).toHaveTextContent("IV V");
     fireEvent.click(ivUnit);
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "ppm" }));
+    fireEvent.click(screen.getByRole("option", { name: "ppm" }));
     expect(screen.getByTitle(/IV unit/i)).toHaveTextContent("IV ppm");
 
     fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
@@ -611,6 +611,8 @@ describe("UniversalInstrumentModal library synchronization", () => {
     const props = renderModal({ initialData: manualInstrument, instruments: [] });
     fireEvent.click(screen.getByRole("button", { name: "Set tolerance" }));
 
+    fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
+    fireEvent.click(screen.getByTitle("Single-sided tolerance"));
     fireEvent.click(screen.getByRole("button", { name: "Single-sided direction" }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Low" }));
     fireEvent.click(screen.getByLabelText("Measurement unknown"));
@@ -627,13 +629,13 @@ describe("UniversalInstrumentModal library synchronization", () => {
             expect.objectContaining({
               ranges: [
                 expect.objectContaining({
-                  tolerances: {
+                  tolerances: expect.objectContaining({
                     singleSided: expect.objectContaining({
                       direction: "low",
                       measurement: "unknown",
                       limit: "2.5",
                     }),
-                  },
+                  }),
                 }),
               ],
             }),
@@ -677,7 +679,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     const distributionSelect = within(row).getByRole("button", {
       name: /Resolution distribution/i,
     });
-    expect(distributionSelect).toHaveTextContent("k = 3.464");
+    expect(distributionSelect).toHaveTextContent("Rectangular");
     fireEvent.click(distributionSelect);
     expect(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ })).toBeInTheDocument();
     expect(

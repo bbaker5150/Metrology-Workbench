@@ -1137,7 +1137,9 @@ function Analysis({
             className="analysis-content"
             style={{ flex: 1, overflowY: "auto", padding: "20px" }}
           >
-            {analysisMode === "notes" ? notesWorkspace : (
+            {analysisMode === "notes" ? notesWorkspace : analysisMode === "uncertaintyTool" ? (
+              <div className="panel-empty-state" role="status">Select a Measurement Point.</div>
+            ) : (
               <UncertaintyPanel
             // Data
             testPointData={testPointData}

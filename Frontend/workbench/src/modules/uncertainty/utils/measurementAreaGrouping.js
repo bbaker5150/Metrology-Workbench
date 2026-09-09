@@ -107,6 +107,10 @@ export const renameMeasurementArea = (data, area, name) => {
   const rename = item => ({ ...item, measurementAreaNames:
     instrumentMeasurementAreas(item).map(a => a.key === area.key ? name : a.name) });
   return { ...session,
+    ...(session.instrumentOnboarding ? { instrumentOnboarding: Object.fromEntries(
+      Object.entries(session.instrumentOnboarding).map(([kind, state]) => [kind,
+        state.firstAreaKey === area.key ? { ...state, firstAreaKey: makeMeasurementAreaKey(name) } : state])
+    ) } : {}),
     measurementAreaGroups: session.measurementAreaGroups.map(a =>
       makeMeasurementAreaKey(a.name) === area.key ? { ...a, name, key: makeMeasurementAreaKey(name) } : a),
     uuts: (session.uuts || []).map(rename),
