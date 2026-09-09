@@ -7,8 +7,8 @@ export const fetchROC = (id) => axios.get(`${REPORTS_API}/rocs/${id}/`).then((r)
 export const createROC = (payload) => axios.post(`${REPORTS_API}/rocs/`, payload).then((r) => r.data);
 export const updateROC = (id, payload) => axios.put(`${REPORTS_API}/rocs/${id}/`, payload).then((r) => r.data);
 export const deleteROC = (id) => axios.delete(`${REPORTS_API}/rocs/${id}/`);
-export const fetchAcShuntSessions = () =>
-  axios.get(`${REPORTS_API}/ac-shunt/sessions/`).then((r) => r.data);
+export const fetchAcShuntSessions = (params = {}) =>
+  axios.get(`${REPORTS_API}/ac-shunt/sessions/`, { params }).then((r) => r.data);
 export const pullAcShuntSession = (id) =>
   axios.get(`${REPORTS_API}/ac-shunt/sessions/${id}/pull/`).then((r) => r.data);
 

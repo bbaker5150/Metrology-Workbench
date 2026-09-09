@@ -1,0 +1,20 @@
+import { expect, test, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import ReportsMain from "./ReportsMain";
+vi.mock("../contexts/ReportsContext", () => ({ useReports: () => ({ activeTab: "source" }) }));
+vi.mock("./DataSourcePanel", () => ({ default: () => null }));
+vi.mock("./ReportBuilder", () => ({ default: () => null }));
+vi.mock("./PDFPreview", () => ({ default: () => null }));
+test("resizes with the keyboard, clamps bounds, persists and resets", () => {
+  localStorage.clear();
+  render(<ReportsMain />);
+  const divider = screen.getByRole("separator");
+  fireEvent.keyDown(divider, { key: "ArrowRight" });
+  expect(divider).toHaveAttribute("aria-valuenow", "440");
+  expect(localStorage.getItem("roc-sidebar-width")).toBe("440");
+  fireEvent.keyDown(divider, { key: "Home" });
+  fireEvent.keyDown(divider, { key: "ArrowLeft" });
+  expect(divider).toHaveAttribute("aria-valuenow", "280");
+  fireEvent.doubleClick(divider);
+  expect(divider).toHaveAttribute("aria-valuenow", "420");
+});

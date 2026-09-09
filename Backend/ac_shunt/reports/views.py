@@ -130,7 +130,7 @@ def roc_parse(request):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def ac_shunt_sessions(request):
-    return Response(services.list_ac_shunt_sessions())
+    return Response(services.list_ac_shunt_sessions(request.query_params))
 
 
 @api_view(["GET"])

@@ -9,19 +9,31 @@ export default function AcShuntImport({ onDataLoaded }) {
   const [error, setError] = useState(null);
   const [preview, setPreview] = useState(null);
 
-  const load = () => {
+  const [query, setQuery] = useState("");
+  const [model, setModel] = useState("");
+  const [sort, setSort] = useState("newest");
+  const [page, setPage] = useState(1);
+  const [revision, setRevision] = useState(0);
+  const [resultInfo, setResultInfo] = useState({ total: 0, page: 1, pages: 1, models: [] });
+
+  useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchAcShuntSessions()
-      .then((result) => {
-        setAvailable(result.available);
-        setSessions(result.sessions || []);
-      })
-      .catch(() => setError("Cannot reach the reports backend."))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { load(); }, []);
+    const timer = setTimeout(() => {
+      fetchAcShuntSessions({ q: query, model, sort, page, page_size: 20 })
+        .then((result) => {
+          if (cancelled) return;
+          setAvailable(result.available);
+          setSessions(result.sessions || []);
+          setResultInfo({ total: result.total || 0, page: result.page || 1,
+            pages: result.pages || 1, models: result.models || [] });
+        })
+        .catch(() => { if (!cancelled) setError("Cannot reach the reports backend."); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [query, model, sort, page, revision]);
 
   const pull = async (session) => {
     setPulling(session.id);
@@ -65,24 +77,60 @@ export default function AcShuntImport({ onDataLoaded }) {
           <p className="roc-title">AC-Shunt Sessions</p>
           <p className="roc-subtitle">Pull a completed AC-Shunt calibration into an editable ROC.</p>
         </div>
-        <button onClick={load} className="roc-btn" disabled={loading}>Refresh</button>
+        <button onClick={() => setRevision(value => value + 1)} className="roc-btn" disabled={loading || pulling !== null}>Refresh</button>
+      </div>
+      <div className="roc-session-filters">
+        <label className="roc-field">
+          <span className="roc-label">Search sessions</span>
+          <input className="roc-input" type="search" value={query}
+            placeholder="Session name, model, or serial number"
+            onChange={event => { setQuery(event.target.value); setPage(1); }} />
+        </label>
+        <div className="roc-grid-2">
+          <label className="roc-field">
+            <span className="roc-label">UUT model</span>
+            <select className="roc-select" value={model} onChange={event => { setModel(event.target.value); setPage(1); }}>
+              <option value="">All models</option>
+              {resultInfo.models.map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label className="roc-field">
+            <span className="roc-label">Sort sessions</span>
+            <select className="roc-select" value={sort} onChange={event => { setSort(event.target.value); setPage(1); }}>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="name">Session name A–Z</option>
+            </select>
+          </label>
+        </div>
+        {(query || model) && <button className="roc-btn-link" onClick={() => { setQuery(""); setModel(""); setPage(1); }}>Clear filters</button>}
       </div>
       {error && <div className="roc-banner roc-banner-danger">{error}</div>}
       {!available && !error && <div className="roc-banner roc-banner-muted">The AC-Shunt database is currently unavailable. You can still create a ROC manually or from a workbook.</div>}
       {loading && <div className="roc-loading">Loading sessions…</div>}
       {!loading && available && sessions.length === 0 && !error && (
-        <div className="roc-empty"><p className="roc-empty-title">No calibration sessions found</p><p className="roc-empty-text">Complete a calibration in the AC-Shunt module first.</p></div>
+        <div className="roc-empty"><p className="roc-empty-title">{query || model ? "No matching sessions" : "No calibration sessions found"}</p><p className="roc-empty-text">{query || model ? "Try another name, model, or serial number, or clear your filters." : "Complete a calibration in the AC-Shunt module first."}</p></div>
       )}
-      <div className="roc-list">
-        {sessions.map((session) => (
-          <button key={session.id} onClick={() => pull(session)} disabled={pulling === session.id} className="roc-list-item">
-            <p style={{ margin: 0, fontSize: "0.8125rem", fontWeight: 600 }}>{session.session_name}</p>
+      <div className="roc-list" aria-busy={loading}>
+        {!loading && !error && available && sessions.map((session) => (
+          <button key={session.id} onClick={() => pull(session)} disabled={pulling !== null} className="roc-list-item">
+            <p style={{ margin: 0, fontSize: "0.8125rem", fontWeight: 600 }}>{session.session_name || `Session ${session.id}`}</p>
+            <p className="roc-subtitle">Created: {session.created_at ? new Date(session.created_at).toLocaleDateString() : "—"} · ID {session.id}</p>
             <p className="roc-subtitle" style={{ margin: "3px 0 0" }}>UUT: {session.test_instrument_model || "—"} · {session.test_instrument_serial || "—"}</p>
             <p className="roc-subtitle" style={{ margin: 0 }}>Standard: {session.standard_instrument_model || "—"} · {session.standard_instrument_serial || "—"}</p>
             {pulling === session.id && <p className="roc-subtitle" style={{ color: "var(--primary-color)" }}>Pulling data…</p>}
           </button>
         ))}
       </div>
+      {!loading && !error && available && resultInfo.total > 0 && (
+        <nav className="roc-session-pagination" aria-label="Session pages">
+          <p className="roc-subtitle" role="status">{resultInfo.total} sessions · Page {resultInfo.page} of {resultInfo.pages}</p>
+          <div className="roc-session-page-buttons">
+            <button className="roc-btn" disabled={resultInfo.page <= 1 || pulling !== null} onClick={() => setPage(resultInfo.page - 1)}>Previous</button>
+            <button className="roc-btn" disabled={resultInfo.page >= resultInfo.pages || pulling !== null} onClick={() => setPage(resultInfo.page + 1)}>Next</button>
+          </div>
+        </nav>
+      )}
     </div>
   );
 }

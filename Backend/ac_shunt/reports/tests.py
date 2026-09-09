@@ -264,6 +264,28 @@ class ReportsAcShuntPullTests(TestCase):
         self.assertEqual(len(pull_response.data["tables"]), 1)
         self.assertEqual(len(pull_response.data["tables"][0]["rows"]), 10)  # 5 pairs x Forward/Reverse
 
+    def test_session_search_reaches_older_history_and_paginates(self):
+        from api.models import CalibrationSession
+        from .services import list_ac_shunt_sessions
+        for index in range(61):
+            CalibrationSession.objects.create(
+                session_name=f"History {index:03d}", test_instrument_model="A40B",
+                test_instrument_serial=f"SERIAL-{index:03d}",
+                standard_instrument_serial="REF-123",
+            )
+        first = list_ac_shunt_sessions()
+        self.assertEqual(first["total"], 61)
+        self.assertEqual(len(first["sessions"]), 20)
+        last = list_ac_shunt_sessions({"page": 4})
+        self.assertEqual(len(last["sessions"]), 1)
+        self.assertEqual(last["sessions"][0]["session_name"], "History 000")
+        found = list_ac_shunt_sessions({"q": "serial-000 ref-123", "model": "A40B"})
+        self.assertEqual(found["total"], 1)
+        self.assertEqual(found["sessions"][0]["session_name"], "History 000")
+        self.assertEqual(list_ac_shunt_sessions({"sort": "oldest"})["sessions"][0]["session_name"], "History 000")
+        self.assertEqual(list_ac_shunt_sessions({"q": "missing"})["total"], 0)
+        self.assertEqual(len(list_ac_shunt_sessions({"page_size": "invalid"})["sessions"]), 20)
+
     def test_pull_missing_session_returns_404(self):
         request = APIRequestFactory().get("/api/reports/ac-shunt/sessions/999999/pull/")
         response = views.ac_shunt_session_pull(request, session_id=999999)

@@ -154,7 +154,8 @@ body.dark-mode .reports-module {
 
 .roc-side {
   width: 420px;
-  min-width: 360px;
+  min-width: 280px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -163,6 +164,7 @@ body.dark-mode .reports-module {
 }
 
 .roc-main {
+  min-width: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -459,6 +461,9 @@ body.dark-mode .reports-module {
 .roc-list { display: flex; flex-direction: column; gap: 8px; }
 
 .roc-list-item {
+  color: var(--text-color);
+  font-family: inherit;
+  overflow-wrap: anywhere;
   width: 100%;
   text-align: left;
   padding: 12px 14px;
@@ -658,4 +663,29 @@ code.roc-code {
   padding: 1px 5px;
   font-size: 0.75em;
   color: var(--text-color, #0f172a);
+}
+
+/* Splitter and session navigation inherit the module's light/dark tokens. */
+.roc-resizer {
+  flex: 0 0 8px;
+  cursor: col-resize;
+  touch-action: none;
+  background: var(--border-color);
+}
+.roc-resizer:hover, .roc-resizer:focus-visible { background: var(--primary-color); }
+.reports-module :is(button, input, select):focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+.reports-module select { color-scheme: light; }
+body.dark-mode .reports-module select { color-scheme: dark; }
+.reports-module option { color: var(--text-color); background: var(--input-background); }
+.roc-session-filters { display: flex; flex-direction: column; gap: 10px; }
+.roc-session-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.roc-session-page-buttons { display: flex; gap: 6px; }
+@media (max-width: 640px) {
+  .reports-module .roc-shell { flex-direction: column; overflow-y: auto; }
+  .reports-module .roc-side { width: 100% !important; min-width: 0; max-height: 60vh; }
+  .reports-module .roc-resizer { display: none; }
+  .reports-module .roc-main { flex: 1 0 60vh; }
 }
