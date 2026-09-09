@@ -24,3 +24,9 @@ describe("live UUT tolerance snapshots", () => {
     expect(after.testPoints[0].uutTolerance).toBeNull();
   });
 });
+
+it("keeps mass and acceleration separate even though both display g", () => {
+  const before = { uuts: [uut([range("mass", "g", 1)])], testPoints: [point(1, "g", null)] };
+  const after = syncPointTolerances({ ...before, uuts: [uut([range("gravity", "G_accel", 4), range("mass", "g", 2)])] }, before);
+  expect(after.testPoints[0].uutTolerance.rangeId).toBe("mass");
+});

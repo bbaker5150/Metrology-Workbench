@@ -1,5 +1,5 @@
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
-import { getUnitDisplayLabel } from "./uncertaintyMath";
+import { getUnitDisplayLabel, unitSystem } from "./uncertaintyMath";
 const filled = value => value != null && String(value).trim() !== "";
 const sameId = (a, b) => a != null && b != null && String(a) === String(b);
 
@@ -24,7 +24,14 @@ export function syncPointTolerances(session, previous) {
     const parameter = point.testPointInfo?.parameter || {};
     const rows = getInstrumentRangeRows(uut);
     const candidates = rows.filter(row => {
-      if (parameter.unit && row.unit && getUnitDisplayLabel(parameter.unit) !== getUnitDisplayLabel(row.unit)) return false;
+      if (parameter.unit && row.unit) {
+        // Display aliases can coincide across quantities: grams and standard
+        // gravity both render as g. Never use the label alone as unit identity.
+        const pointQuantity = unitSystem.units[parameter.unit]?.quantity;
+        const rangeQuantity = unitSystem.units[row.unit]?.quantity;
+        if (pointQuantity && rangeQuantity && pointQuantity !== rangeQuantity) return false;
+        if (getUnitDisplayLabel(parameter.unit) !== getUnitDisplayLabel(row.unit)) return false;
+      }
       if (!filled(parameter.value) || !Number.isFinite(Number(parameter.value))) return true;
       if (!filled(row.min) && !filled(row.max)) return true;
       return Number(parameter.value) >= Number(row.min) && Number(parameter.value) <= Number(row.max);
