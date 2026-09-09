@@ -20285,30 +20285,6 @@ body.uncertainty-active .context-menu li.destructive:hover {
   outline: none;
 }
 
-/* Borrow the sidebar's left padding for a chevron gutter without moving columns. */
-.uncertainty-module .measurement-points-table {
-  margin-left: -10px;
-  width: calc(100% + 10px);
-  padding-left: 10px;
-}
-
-/* Keep area labels aligned with the first column; reveal the gutter chevron on interaction. */
-.uncertainty-module .measurement-points-table .function-sidebar-collapse-button {
-  position: absolute;
-  left: -10px;
-  width: 14px;
-  height: 26px;
-  margin: 0;
-  opacity: 0;
-}
-.uncertainty-module .measurement-points-table .area-header-sticky:hover .function-sidebar-collapse-button,
-.uncertainty-module .measurement-points-table .area-header-sticky:focus-within .function-sidebar-collapse-button {
-  opacity: 1;
-}
-@media (hover: none) {
-  .uncertainty-module .measurement-points-table .function-sidebar-collapse-button { opacity: 1; }
-}
-
 .uncertainty-module .function-point-delete-button { color: var(--status-bad) !important; }
 .uncertainty-module .function-point-delete-button:is(:hover, :focus-visible) {
   color: var(--status-bad) !important;
@@ -20316,3 +20292,32 @@ body.uncertainty-active .context-menu li.destructive:hover {
 }
 
 .sidebar-filter-sections .point-indicator-filter { grid-column: 1 / -1; }
+
+/* Area headers share the instrument tables' arrangement and tinted surface. */
+.uncertainty-module .measurement-points-table .area-header-sticky {
+  padding: 6px 10px;
+  gap: 8px;
+  background: color-mix(in srgb, var(--sidebar-function-color) 22%, var(--content-background)) !important;
+  border-top: 1px solid color-mix(in srgb, var(--sidebar-function-color) 48%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--sidebar-function-color) 32%, transparent);
+}
+body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky {
+  background: color-mix(in srgb, var(--sidebar-function-color) 34%, var(--content-background)) !important;
+}
+.uncertainty-module .measurement-points-table .function-sidebar-collapse-button {
+  position: static; width: 16px; flex: 0 0 16px; height: 24px; margin: 0; opacity: 1;
+}
+.uncertainty-module .measurement-points-table .function-header-name { flex: 0 1 auto; min-width: 0; }
+.uncertainty-module .measurement-points-table .function-header-name:is(:hover, :focus) {
+  border-color: var(--function-input-accent); outline: none;
+  background: color-mix(in srgb, var(--function-input-accent) 10%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--function-input-accent) 18%, transparent);
+}
+/* Value cells no longer paint above or below their own row. */
+.uncertainty-module .point-grid-item > .sidebar-value-sticky {
+  margin-block: 0;
+  padding-block: 0;
+}
+
+.uncertainty-module .measurement-points-table .function-header-name { font-size: .92rem; text-transform: none; letter-spacing: 0; }
+.uncertainty-module .measurement-points-table .function-header-unit-chip { font-size: calc(.92rem * .78); }

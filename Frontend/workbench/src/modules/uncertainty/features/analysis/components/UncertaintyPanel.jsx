@@ -5420,12 +5420,8 @@ const getTmdeResolutionDetail = (tmde = {}) => {
   if (!tmde || typeof tmde !== "object") return null;
   const nested =
     tmde.tolerance && typeof tmde.tolerance === "object" ? tmde.tolerance : {};
-  const resVal = parseFloat(
-    tmde.measuringResolution ??
-      tmde.resolution ??
-      nested.measuringResolution ??
-      nested.resolution,
-  );
+  const resVal = [tmde.measuringResolution, tmde.resolution, nested.measuringResolution, nested.resolution]
+    .map(value => parseFloat(value)).find(value => Number.isFinite(value) && value > 0);
   if (!Number.isFinite(resVal) || resVal <= 0) return null;
   const unit =
     tmde.measuringResolutionUnit ||
@@ -5440,6 +5436,17 @@ const getTmdeResolutionDetail = (tmde = {}) => {
   );
   return { value: resVal, unit, included };
 };
+
+// Offer every compatible resolution range, including ranges without accuracy terms.
+export const getBudgetTmdeResolutionOptions = (tmdes, nominal) => (tmdes || []).flatMap(tmde => {
+  const ranges = getInstrumentRangeRows(tmde);
+  return (ranges.length ? ranges : [tmde]).flatMap((resolutionSource, index) => {
+    const detail = getTmdeResolutionDetail(resolutionSource);
+    if (!detail) return [];
+    if (nominal?.unit && !assessRangeCompatibility({ ...resolutionSource, unit: detail.unit }, nominal, "TMDE resolution").compatible) return [];
+    return [{ tmde, resolutionSource, ...detail, rangeKey: `${resolutionSource.functionId || ""}:${resolutionSource.rangeId || resolutionSource.id || index}` }];
+  });
+});
 
 // --- SHARED HELPER: Resolve UUT Range ---
 export const resolveUutRangeHelper = (
@@ -14023,30 +14030,8 @@ function DetailedView({
             (t) => t.variableType === scopeVariableType,
           )
         : tmdeTolerancesData;
-      const resolutionSourceTmdes = isDerivedFinalScope
-        ? []
-        : areaTmdes.filter(isMatch);
-      const resolutionNominal = isDerived
-        ? scope?.nominalPoint || null
-        : uutNominal;
-      const tmdeResolutionOptions = resolutionSourceTmdes
-        .map((tmde) => {
-          const resolvedRange = resolveUutRangeHelper(
-            tmde,
-            tmdeRangeIndices,
-            null,
-            resolutionNominal,
-            functionKey,
-          ).activeRange;
-          const resolutionSource =
-            resolvedRange && Object.keys(resolvedRange).length > 0
-              ? resolvedRange
-              : tmde;
-          const detail = getTmdeResolutionDetail(resolutionSource);
-          if (!detail) return null;
-          return { tmde, resolutionSource, ...detail };
-        })
-        .filter(Boolean);
+      const resolutionNominal = isDerived ? scope?.nominalPoint || uutNominal : uutNominal;
+      const tmdeResolutionOptions = getBudgetTmdeResolutionOptions(areaTmdes, resolutionNominal);
 
       // Instrument-associated Type B uncertainties (e.g. head pressure) are
       // offered from the live TMDE masters. Derived budgets no longer require a
@@ -14307,6 +14292,8 @@ function DetailedView({
       tmde;
     const source = {
       ...selectedRange,
+      measuringResolution: option.value,
+      measuringResolutionUnit: option.unit,
       includeResolutionInBudget: true,
       ...(selectedRange?.tolerance &&
       typeof selectedRange.tolerance === "object"
@@ -14717,7 +14704,7 @@ function DetailedView({
                 const resUnitLabel = getUnitDisplayLabel(option.unit);
                 return (
                   <button
-                    key={`tmde-res-${option.tmde.id ?? option.tmde.sourceId}`}
+                    key={`tmde-res-${option.tmde.id ?? option.tmde.sourceId}-${option.rangeKey}`}
                     type="button"
                     style={itemStyle}
                     onClick={() => addBudgetTmdeResolution(option)}
@@ -14752,7 +14739,7 @@ function DetailedView({
                           color: "var(--text-color-muted)",
                         }}
                       >
-                        {`${option.value}${resUnitLabel ? ` ${resUnitLabel}` : ""}`}
+                        {`${option.value}${resUnitLabel ? ` ${resUnitLabel}` : ""} · ${option.resolutionSource.functionName || ""} ${formatRangeToleranceDetail(option.resolutionSource)}`}
                       </span>
                     </span>
                   </button>

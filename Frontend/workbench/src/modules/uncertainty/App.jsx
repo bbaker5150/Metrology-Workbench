@@ -124,6 +124,7 @@ import {
 import {
   makeMeasurementAreaKey,
   setMeasurementAreaColor,
+  renameMeasurementArea,
   getMeasurementAreaDependencies,
   getMeasurementAreaDeletionConfirmationMessage,
   deleteMeasurementArea,
@@ -5994,14 +5995,7 @@ function App({ showThemeToggle = false }) {
                             <SidebarColumnPopover anchorRef={columnMenuRef} onClose={() => setIsColumnMenuOpen(false)}>
                               <header className="sidebar-filter-header"><div><strong>Visible columns</strong><p>Choose the details you want to compare.</p></div><button type="button" aria-label="Close column filter" onClick={() => setIsColumnMenuOpen(false)}>×</button></header>
                               <div className="sidebar-filter-sections">
-                                <div className="filter-option-group point-indicator-filter">
-                                  <div className="filter-option-group-title">Point indicators</div>
-                                  <label className="filter-option">
-                                    <input type="checkbox" checked={sidebarColumns.warningIcons !== false}
-                                      onChange={event => setSidebarColumns(previous => ({ ...previous, warningIcons: event.target.checked }))} />
-                                    <span>Warning icons</span>
-                                  </label>
-                                </div>
+
                               {[
                             {
                               group: "Measurement",
@@ -6127,6 +6121,14 @@ function App({ showThemeToggle = false }) {
                               </div>
                             );
                           })}
+                                <div className="filter-option-group point-indicator-filter">
+                                  <div className="filter-option-group-title">Point indicators</div>
+                                  <label className="filter-option">
+                                    <input type="checkbox" checked={sidebarColumns.warningIcons !== false}
+                                      onChange={event => setSidebarColumns(previous => ({ ...previous, warningIcons: event.target.checked }))} />
+                                    <span>Warning icons</span>
+                                  </label>
+                                </div>
                               </div>
                             </SidebarColumnPopover>
                           )}
@@ -6237,15 +6239,25 @@ function App({ showThemeToggle = false }) {
                           <label className="sidebar-area-color-swatch" title="Change measurement area color" style={{ backgroundColor: fnGroup.color || "#888888" }} onClick={event => event.stopPropagation()}>
                             <input type="color" aria-label={`Color for ${fnGroup.name} measurement area`} value={fnGroup.color || "#888888"} onChange={event => updateSession(setMeasurementAreaColor(currentSessionData, fnGroup, event.target.value))} />
                           </label>
-                          <span
-                            className="area-label"
-                            style={{
-                              color:
-                                fnGroup.color || "var(--primary-color)",
+                          <span className="area-label inline-area-header-input function-header-name"
+                            contentEditable suppressContentEditableWarning role="textbox" tabIndex={0}
+                            aria-label={`Measurement area name: ${fnGroup.name}`} title="Edit measurement area name"
+                            style={{ color: fnGroup.color }}
+                            onClick={event => event.stopPropagation()}
+                            onKeyDown={event => {
+                              if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
+                              if (event.key === "Escape") { event.currentTarget.textContent = fnGroup.name; event.currentTarget.blur(); }
                             }}
-                          >
-                            {fnGroup.name}
-                          </span>
+                            onBlur={event => {
+                              const name = event.currentTarget.textContent.trim();
+                              if (!name) { event.currentTarget.textContent = fnGroup.name; return; }
+                              if (name !== fnGroup.name) {
+                                updateSession(renameMeasurementArea(currentSessionData, { key: fnGroup.id, name: fnGroup.name }, name));
+                                setExpandedFunctions(previous => { const next = new Set(previous); if (next.delete(fnGroup.id)) next.add(makeMeasurementAreaKey(name)); return next; });
+                              }
+                            }}
+                          >{fnGroup.name}</span>
+                          <span className="function-header-unit-chip">{[...new Set(getMeasurementAreaUnits(currentSessionData, fnGroup.name).map(getUnitDisplayLabel))].join(", ")}</span>
                           {renderFunctionPointActions(fnGroup)}
                         </div>
 

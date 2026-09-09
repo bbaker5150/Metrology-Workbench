@@ -1256,7 +1256,7 @@ describe("UncertaintyApp", () => {
     const functionName = screen
       .getAllByText("Torque")
       .find((node) => node.classList.contains("area-label"));
-    expect(settingsButton.closest(".function-point-settings").previousElementSibling)
+    expect(settingsButton.closest(".area-header-sticky").querySelector("[role=textbox]"))
       .toBe(functionName);
     fireEvent.click(settingsButton);
     expect(screen.getByText("Measurement Area Settings")).toBeInTheDocument();

@@ -228,14 +228,22 @@ app.whenReady().then(async () => {
     await page.locator('.measurement-points-table').evaluate(e=>{e.scrollLeft=0;});
     await page.mouse.move(5,5);
     const collapse=page.locator('.function-sidebar-collapse-button').first();
-    assert.equal(await collapse.evaluate(e=>getComputedStyle(e).opacity),'0');
-    await collapse.locator('..').hover();
     assert.equal(await collapse.evaluate(e=>getComputedStyle(e).opacity),'1');
-    const chevronBox=await collapse.boundingBox();
-    const colorBox=await page.locator('.sidebar-area-color-swatch').first().boundingBox();
-    assert.ok(colorBox.x-(chevronBox.x+chevronBox.width)>=6,'Chevron has a separate gutter before the color selector');
-    await page.screenshot({path:path.join(output,'area-chevron-gutter.png')});
-
+    const areaName=page.getByRole('textbox',{name:'Measurement area name: Length',exact:true});
+    await areaName.fill('Inspection');
+    await areaName.press('Enter');
+    await page.waitForFunction(()=>window.savedSession().testPoints[0].testPointInfo.measurementArea==='Inspection');
+    assert.ok((await page.evaluate(()=>window.savedSession().uuts)).every(u=>u.measurementAreaNames.includes('Inspection')));
+    await page.getByRole('textbox',{name:'Measurement area name: Inspection',exact:true}).fill('Length');
+    await page.getByRole('textbox',{name:'Measurement area name: Inspection',exact:true}).press('Enter');
+    await page.waitForFunction(()=>window.savedSession().testPoints[0].testPointInfo.measurementArea==='Length');
+    assert.equal(await page.locator('.area-header-sticky .function-header-unit-chip').first().textContent(),'°F');
+    const cellGeometry=await rows.first().evaluate(row=>{
+      const cell=row.querySelector('.sidebar-value-sticky').getBoundingClientRect(), box=row.getBoundingClientRect();
+      return {top:cell.top-box.top,bottom:box.bottom-cell.bottom};
+    });
+    assert.ok(cellGeometry.top>=0 && cellGeometry.bottom>=0,'Value highlight stays within its row');
+    await page.screenshot({path:path.join(output,'area-header-and-selection.png')});
     await page.getByRole('button',{name:'Add Measurement Area from points'}).click();
     for (const dark of [false,true]) {
       await page.evaluate(dark=>document.body.classList.toggle('dark-mode',dark),dark);
