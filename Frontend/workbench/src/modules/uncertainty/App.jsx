@@ -2921,7 +2921,7 @@ function App({ showThemeToggle = false }) {
   }, [handleDeleteTestPoint]);
 
   const handlePastePoint = useCallback(
-    (targetUutId, targetAreaId, targetRange = null) => {
+    (targetUutId, targetAreaId, targetRange = null, insertAfterPointId = null) => {
       if (
         clipboardKind !== "point" ||
         !clipboardPoint ||
@@ -2948,6 +2948,9 @@ function App({ showThemeToggle = false }) {
         }
       }
 
+      const insertionPoint = currentSessionData.testPoints.find(
+        point => String(point.id) === String(insertAfterPointId),
+      );
       const newPoints = [];
 
       // RANGE CHECK HELPER
@@ -2997,6 +3000,14 @@ function App({ showThemeToggle = false }) {
           targetAreaId: resolvedAreaId,
           targetTolerance: resolvedTolerance,
         });
+        if (insertionPoint) {
+          newPointData.testPointInfo = {
+            ...newPointData.testPointInfo,
+            measurementArea: insertionPoint.testPointInfo?.measurementArea
+              ?? insertionPoint.testPointInfo?.parameter?.name,
+          };
+        }
+        newPointData._insertAfterPointId = insertAfterPointId;
         newPoints.push(newPointData);
       });
 
@@ -3269,8 +3280,8 @@ function App({ showThemeToggle = false }) {
             targetUutId = selectedTestPointContextUutId;
           }
 
-          if (targetUutId) {
-            handlePastePoint(targetUutId, null, null);
+          if (targetUutId || selectedTestPointId) {
+            handlePastePoint(targetUutId, null, null, selectedUutId ? null : selectedTestPointId);
           } else {
             showToast("Select a destination UUT before pasting.", "error");
           }
@@ -5034,7 +5045,11 @@ function App({ showThemeToggle = false }) {
           items: [
             {
               label: "Copy Point",
-              action: () => handleCopyPoint(p),
+              action: () => handleCopyPoint(
+                selectedSidebarPointIds.includes(p.id)
+                  ? currentTestPoints.filter(point => selectedSidebarPointIds.includes(point.id))
+                  : p,
+              ),
               icon: faCopy,
             },
             {
@@ -5053,7 +5068,7 @@ function App({ showThemeToggle = false }) {
               ? [
                   {
                     label: "Paste Point",
-                    action: () => handlePastePoint(contextUutId, null, null),
+                    action: () => handlePastePoint(contextUutId, p.measurementAreaId, null, p.id),
                     icon: faPaste,
                   },
                 ]

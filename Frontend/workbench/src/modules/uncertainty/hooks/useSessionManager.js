@@ -988,6 +988,7 @@ const useSessionManager = () => {
     let currentTestPoints = [...session.testPoints];
     let lastNewId = null;
 
+    const insertionCursors = new Map();
     dataItems.forEach((formData, index) => {
       if (formData.id) {
         // --- UPDATE EXISTING POINT ---
@@ -1066,11 +1067,14 @@ const useSessionManager = () => {
         };
 
         delete newTestPoint._insertAfterPointId;
-        const insertionIndex = formData._insertAfterPointId == null ? -1 : currentTestPoints.findIndex(
-          point => String(point.id) === String(formData._insertAfterPointId),
+        const anchor = formData._insertAfterPointId;
+        const cursor = insertionCursors.get(String(anchor)) ?? anchor;
+        const insertionIndex = cursor == null ? -1 : currentTestPoints.findIndex(
+          point => String(point.id) === String(cursor),
         );
         if (insertionIndex < 0) currentTestPoints.push(newTestPoint);
         else currentTestPoints.splice(insertionIndex + 1, 0, newTestPoint);
+        if (anchor != null) insertionCursors.set(String(anchor), newId);
         lastNewId = newId;
       }
     });

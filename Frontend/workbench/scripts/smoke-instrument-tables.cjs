@@ -269,6 +269,15 @@ app.whenReady().then(async()=>{
   await capture('global-zoom');
 
   await js(`document.documentElement.style.zoom='1'`);
+  for (const view of ['overview', 'detail']) {
+    await js(view === 'overview' ? 'window.showOverview()' : 'window.showDetail()');
+    await pause(350);
+    for (const table of [uut, tmde]) {
+      await click(table+' [data-range-cell] .inline-tolerance-summary');
+      assert.ok(await js(`Boolean(document.querySelector('${table} .is-active-range.instrument-selected'))`),view+': clicking a range selects its instrument');
+      assert.equal(await js(`document.querySelectorAll('tr.is-active-range:not(.instrument-selected),tr.is-selected-range:not(.instrument-selected)').length`),0,view+': unselected instruments have no range highlight');
+    }
+  }
   await checkClipboard('overview');
   await checkClipboard('detail');
   await checkBatchAdd('overview');

@@ -355,3 +355,19 @@ describe("local instrument persistence", () => {
    act(() => { result.current.saveTestPoint({ _insertAfterPointId: added, testPointInfo: { parameter: { value: "", unit: "V" } } }); });
    expect(result.current.currentSessionData.testPoints[3].id).toBe("last");
  });
+
+it("preserves clipboard order when inserting a batch below one row", async () => {
+  axios.get.mockImplementation(url => Promise.resolve({ data: url.endsWith("/sessions/") ? [{ id: 1, name: "Batch", testPoints: [
+    { id: "first", testPointInfo: { parameter: { value: 1, unit: "V" } } },
+    { id: "last", testPointInfo: { parameter: { value: 9, unit: "V" } } },
+  ] }] : [] }));
+  const { result } = renderHook(() => useSessionManager());
+  await waitFor(() => expect(result.current.currentSessionData?.testPoints).toHaveLength(2));
+  act(() => result.current.saveTestPoint([2, 3, 4].map(value => ({
+    _insertAfterPointId: "first", testPointInfo: { parameter: { value, unit: "V" } },
+  }))));
+  const points = result.current.currentSessionData.testPoints;
+  expect(points.map(point => point.testPointInfo.parameter.value)).toEqual([1, 2, 3, 4, 9]);
+  expect(new Set(points.map(point => point.id)).size).toBe(5);
+  expect(points.every(point => !("_insertAfterPointId" in point))).toBe(true);
+});

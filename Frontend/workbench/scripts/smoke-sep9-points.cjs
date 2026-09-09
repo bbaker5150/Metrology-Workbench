@@ -125,6 +125,29 @@ app.whenReady().then(async () => {
     assert.ok((await results.textContent()).includes('°F'));
     assert.ok(!(await results.textContent()).includes('degF'));
     await page.screenshot({path:path.join(output,'result-units.png')});
+    await page.keyboard.press('Escape');
+    await rows.first().click({position:{x:3,y:3}});
+    await rows.nth(1).click({position:{x:3,y:3},modifiers:['Control']});
+    assert.equal(await page.locator('.point-grid-item.active').count(),2);
+    await rows.first().click({button:'right',position:{x:3,y:3}});
+    await page.getByText('Copy Point',{exact:true}).click();
+    await rows.nth(1).click({button:'right',position:{x:3,y:3}});
+    await page.getByText('Paste Point',{exact:true}).click();
+    await page.waitForFunction(()=>window.savedSession().testPoints.length===7);
+    const pasted=await page.evaluate(()=>window.savedSession().testPoints);
+    assert.deepEqual(pasted.slice(0,2).map(p=>p.id),['p0','p1']);
+    assert.deepEqual(pasted.slice(2,4).map(p=>p.testPointInfo.parameter.value),['11','2']);
+    assert.equal(pasted[4].id,order[2]);
+    await page.keyboard.press('Escape');
+    await rows.first().click({position:{x:3,y:3}});
+    await rows.nth(1).click({position:{x:3,y:3},modifiers:['Control']});
+    await page.keyboard.press('Control+c');
+    await rows.first().click({position:{x:3,y:3}});
+    await page.keyboard.press('Control+v');
+    await page.waitForFunction(()=>window.savedSession().testPoints.length===9);
+    const keyboardPaste=await page.evaluate(()=>window.savedSession().testPoints);
+    assert.deepEqual(keyboardPaste.slice(1,3).map(p=>p.testPointInfo.parameter.value),['11','2']);
+    assert.equal(keyboardPaste[3].id,'p1');
     assert.deepEqual(errors, []);
     console.log(
       "PASS point UI: Enter navigation, Ctrl+Enter insertion, visible resize handles, live UUT tolerance updates, formatted result units. Artifacts:",

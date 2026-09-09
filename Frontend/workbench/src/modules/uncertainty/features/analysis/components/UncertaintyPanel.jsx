@@ -8090,6 +8090,7 @@ const SummaryDashboard = ({
   // fires before inner controls' own mousedown — clicking a tolerance component
   // on another range makes THAT range active too.
   const activateRangeRow = (kind, itemId, index) => {
+    onInstrumentSelection();
     if (kind === "uut") {
       setSelectedTmdeIds([]);
       setSelectedUutIds([itemId]);
@@ -9164,12 +9165,12 @@ const SummaryDashboard = ({
                     return (
                       <React.Fragment key={uutRowKey}>
                         {visibleRangeRows.map(({ range, index, key }, i) => {
-                          const isActiveRange = index === activeRangeIndex;
+                          const isActiveRange = isSelected && index === activeRangeIndex;
                           return (
                             <tr
                               key={key}
                               data-range-group={itemStateKey("uut", uutRowKey)}
-                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isSelected && (selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onContextMenu={(event) =>
                                 openInstrumentRowMenu(event, "uut", uut)
@@ -9649,12 +9650,12 @@ const SummaryDashboard = ({
                     return (
                       <React.Fragment key={tmdeRowKey || idx}>
                         {visibleRangeRows.map(({ range, index, key }, i) => {
-                          const isActiveRange = index === activeRangeIndex;
+                          const isActiveRange = isSelected && index === activeRangeIndex;
                           return (
                             <tr
                               key={key}
                               data-range-group={itemStateKey("tmde", tmdeRowKey)}
-                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", tmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
+                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isSelected && (selectedRangeIds[itemStateKey("tmde", tmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(tmde.id)}
                               onContextMenu={(event) =>
                                 openInstrumentRowMenu(event, "tmde", tmde)
@@ -11562,6 +11563,7 @@ function DetailedView({
   // and this view's extra columns. `cols` carries the per-column index used for
   // column-hover highlighting, which differs between the UUT and TMDE tables.
   const activateRangeRowDetail = (kind, itemId, index) => {
+    onInstrumentSelection();
     if (kind === "uut") {
       setSelectedTmdeIds([]);
       setSelectedUutIds([itemId]);
@@ -15269,12 +15271,12 @@ function DetailedView({
                     return (
                       <React.Fragment key={uutRowKey}>
                         {visibleRangeRows.map(({ range, index, key }, i) => {
-                          const isActiveRange = index === activeRangeIndex;
+                          const isActiveRange = isSelected && index === activeRangeIndex;
                           return (
                             <tr
                               key={key}
                               data-range-group={itemStateKey("uut", uutRowKey)}
-                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isSelected && (selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                               onMouseEnter={() => setHoveredRowId(uut.id)}
                               onContextMenu={(event) =>
                                 openInstrumentRowMenu(event, "uut", uut)
@@ -16141,12 +16143,12 @@ function DetailedView({
                         return (
                           <React.Fragment key={`${tmdeRowKey}-${idx}`}>
                             {visibleRangeRows.map(({ range, index, key }, i) => {
-                              const isActiveRange = index === activeRangeIndex;
+                              const isActiveRange = isSelectedRow && index === activeRangeIndex;
                               return (
                                 <tr
                                   key={key}
                                   data-range-group={itemStateKey("tmde", tmdeRowKey)}
-                                  className={`instrument-function-row tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${(selectedRangeIds[itemStateKey("tmde", masterTmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                                  className={`instrument-function-row tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isSelectedRow && (selectedRangeIds[itemStateKey("tmde", masterTmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                                   onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                                   onContextMenu={(event) =>
                                     openInstrumentRowMenu(event, "tmde", masterTmde)

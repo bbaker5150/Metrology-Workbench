@@ -84,7 +84,7 @@ export const preparePointForPaste = (
   const preparedPoint = {
     ...point,
     measurementAreaId: targetAreaId,
-    associatedUutIds: [targetUutId],
+    associatedUutIds: targetUutId == null ? [] : [targetUutId],
     uutTolerance: resolvePastedTolerance(point.uutTolerance, targetTolerance),
   };
 
