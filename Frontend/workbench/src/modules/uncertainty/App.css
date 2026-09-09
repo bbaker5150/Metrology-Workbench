@@ -20250,3 +20250,17 @@ body.uncertainty-active .context-menu li.destructive:hover {
 .uncertainty-module .sidebar-global-actions:has(.sidebar-add-area-form),
 .uncertainty-module .sidebar-actions-group:has(.sidebar-add-area-form) { flex-wrap: wrap; }
 .uncertainty-module .sidebar-actions-group:has(.sidebar-add-area-form) { flex: 1 1 100%; min-width: 0; }
+
+/* Unit selection stays plain text; the chevron is its interaction cue. */
+.uncertainty-module .measurement-group-container .point-unit-control .point-unit-select:is(:hover, :focus, :focus-visible) {
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+.uncertainty-module .measurement-group-container .point-value-with-unit:has(.point-unit-control:is(:hover, :focus-within)) .point-edit-affordance {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.uncertainty-module .point-unit-control .point-unit-select:focus-visible { text-decoration: underline; }

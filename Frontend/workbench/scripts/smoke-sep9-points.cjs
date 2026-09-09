@@ -96,6 +96,22 @@ app.whenReady().then(async () => {
     assert.equal(await arrow.evaluate(e=>getComputedStyle(e).opacity),'0');
     await rows.first().locator('.point-unit-control').hover();
     assert.equal(await arrow.evaluate(e=>getComputedStyle(e).opacity),'1');
+    for (const dark of [false,true]) {
+      await page.evaluate(dark=>document.body.classList.toggle('dark-mode',dark),dark);
+      await rows.first().locator('.point-unit-select').focus();
+      await page.waitForTimeout(250);
+      const styles=await rows.first().locator('.point-unit-select').evaluate(e=>{
+        const select=getComputedStyle(e),wrapper=getComputedStyle(e.closest('.point-edit-affordance'));
+        return {border:select.borderTopWidth,shadow:select.boxShadow,wrapperShadow:wrapper.boxShadow,wrapperBorder:wrapper.borderTopColor};
+      });
+      assert.equal(styles.border,'0px');
+      assert.equal(styles.shadow,'none');
+      assert.equal(styles.wrapperShadow,'none');
+      assert.equal(styles.wrapperBorder,'rgba(0, 0, 0, 0)');
+      await page.screenshot({path:path.join(output,dark?'unit-focus-dark.png':'unit-focus-light.png')});
+    }
+    await page.evaluate(()=>document.body.classList.remove('dark-mode'));
+
 
     await page.locator('[data-tour="tab-overview"]').click();
     const tableWidths=await page.locator('.instrument-panel-table-container').evaluateAll(items=>items.map(e=>({width:e.clientWidth,scroll:e.scrollWidth,table:e.querySelector('table')?.getBoundingClientRect().width,min:e.querySelector('table')?.style.minWidth})));
