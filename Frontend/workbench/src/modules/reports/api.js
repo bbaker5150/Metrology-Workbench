@@ -56,3 +56,12 @@ export async function downloadTemplate(areaCode) {
   });
   downloadBlob(response.data, `ROC_template_${areaCode}.xlsx`, response.headers);
 }
+
+export const fetchCustomers = (params = {}) =>
+  axios.get(`${REPORTS_API}/customers/`, { params }).then(response => response.data);
+
+export const importCustomers = (file) => {
+  const form = new FormData();
+  form.append('file', file);
+  return axios.post(`${REPORTS_API}/customers/import/`, form).then(response => response.data);
+};

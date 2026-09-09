@@ -65,3 +65,21 @@ class ROCRecord(models.Model):
 
     def __str__(self):
         return self.roc_number or f"ROC #{self.pk}"
+
+
+class Customer(models.Model):
+    """Lookup only; selected values are copied into ROCRecord snapshots."""
+    activity = models.CharField(max_length=255, blank=True, default='')
+    sub_custodian = models.CharField(max_length=255, blank=True, default='')
+    lab_name = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    address = models.CharField(max_length=255, blank=True, default='')
+    syscom = models.CharField(max_length=255, blank=True, default='')
+
+    class Meta:
+        ordering = ['lab_name', 'activity', 'sub_custodian', 'id']
+
+
+class CustomerDirectory(models.Model):
+    source_name = models.CharField(max_length=255)
+    row_count = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)

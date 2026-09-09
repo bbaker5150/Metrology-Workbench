@@ -10,6 +10,8 @@ from . import views
 app_name = "reports"
 
 urlpatterns = [
+    path("customers/", views.customer_search, name="customer-search"),
+    path("customers/import/", views.customer_import, name="customer-import"),
     path("info/", views.module_info, name="module-info"),
     path("areas/", views.areas, name="areas"),
     path("rocs/", views.rocs, name="rocs"),

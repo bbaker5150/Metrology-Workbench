@@ -689,3 +689,14 @@ body.dark-mode .reports-module select { color-scheme: dark; }
   .reports-module .roc-resizer { display: none; }
   .reports-module .roc-main { flex: 1 0 60vh; }
 }
+
+.roc-customer-lookup { display: grid; gap: 10px; }
+.roc-customer-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.roc-customer-results { display: grid; gap: 6px; max-height: 320px; overflow-y: auto; margin: 8px 0; }
+.roc-customer-results .roc-list-item { display: grid; gap: 4px; color: var(--text-color); }
+.roc-customer-import { border-block: 1px solid var(--border-color); padding: 10px 0; }
+.roc-customer-import summary { cursor: pointer; color: var(--primary-color); font-size: 0.8125rem; }
+.roc-customer-import p { margin: 8px 0; }
+.roc-customer-drop { width: 100%; padding: 18px 10px; border: 1px dashed var(--border-color-strong); border-radius: 6px; background: var(--surface-sunken); color: var(--text-color); cursor: pointer; }
+.roc-customer-drop.is-dragging, .roc-customer-drop:hover { border-color: var(--primary-color); background: var(--primary-color-soft); }
+.roc-customer-drop:disabled { opacity: 0.6; cursor: wait; }

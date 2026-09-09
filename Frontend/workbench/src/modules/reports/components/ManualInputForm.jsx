@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import CustomerLookup from "./CustomerLookup";
 import { fetchAreas } from "../api";
 
 const STATEMENT_LABELS = {
@@ -195,6 +196,10 @@ export default function ManualInputForm({ data, onChange }) {
       </FormSection>
 
       <FormSection title="Customer">
+        <CustomerLookup onSelect={customer => onChange({ ...data,
+          customer_name: customer.lab_name || customer.activity || customer.sub_custodian,
+          customer_address: customer.address || "",
+        })} />
         <div className="roc-grid-2">
           <Field label="Label" value={data.submitted_label} onChange={set("submitted_label")} />
           <Field label="Activity / Ship" value={data.customer_name} onChange={set("customer_name")} />
