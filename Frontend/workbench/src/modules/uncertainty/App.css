@@ -20222,19 +20222,19 @@ body.uncertainty-active .context-menu li.destructive:hover {
 }
 .sidebar-add-area-form {
   padding: 0; border: 0; border-radius: 0;
-  background: var(--component-bg); color: var(--text-color); font-size: .8rem;
-  display: flex; align-items: center; flex: 0 0 auto; width: max-content; min-width: 0; gap: 4px; margin-left: auto; order: 10;
+  background: var(--component-bg); color: var(--text-color); font-size: .75rem;
+  display: flex; align-items: center; flex: 0 0 auto; width: max-content; min-width: 0; gap: 4px;
 }
 .sidebar-add-area-form h4 { margin: 0 0 4px; font-size: .9rem; }
 .sidebar-add-area-form label { color: var(--text-color-muted); font-size: .75rem; }
 .sidebar-add-area-form input {
-  width: 112px; flex: 0 0 112px; min-width: 0; box-sizing: border-box; padding: 4px 6px;
+  width: 112px; flex: 0 0 112px; min-width: 0; box-sizing: border-box; height: 24px; padding: 3px 6px;
   border: 1px solid var(--border-color); border-radius: 5px;
   color: var(--text-color); background: var(--input-background, var(--content-background)); font: inherit;
 }
 .sidebar-add-area-form input:focus { outline: 2px solid var(--primary-color); outline-offset: 1px; }
 .sidebar-area-menu-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 0; }
-.sidebar-area-menu-actions button { padding: 4px 7px; border-radius: 5px; font: inherit; cursor: pointer; }
+.sidebar-area-menu-actions button { box-sizing: border-box; height: 24px; padding: 3px 7px; border-radius: 5px; font: inherit; cursor: pointer; }
 .sidebar-area-menu-actions .btn-secondary { border: 1px solid var(--border-color); background: var(--component-bg); color: var(--text-color); }
 .sidebar-area-menu-actions .btn-primary { border: 1px solid var(--primary-color); background: var(--primary-color); color: var(--button-text-color, #fff); }
 .sidebar-area-menu-actions button:disabled { opacity: .45; cursor: default; }
@@ -20272,10 +20272,32 @@ body.uncertainty-active .context-menu li.destructive:hover {
 }
 .uncertainty-module .point-unit-control .point-unit-select:focus-visible { text-decoration: underline; }
 
-.uncertainty-module .sidebar-add-area-trigger { white-space: nowrap; font: inherit; font-size: .75rem; padding: 4px 6px; border: 0; border-radius: 3px; background: transparent; color: var(--text-color-muted); cursor: pointer; }
+.uncertainty-module .sidebar-add-area-trigger { white-space: nowrap; font: inherit; font-size: .75rem; height: 24px; padding: 3px 6px; border: 0; border-radius: 3px; background: transparent; color: var(--text-color-muted); cursor: pointer; }
 .uncertainty-module .sidebar-add-area-trigger:hover { color: var(--primary-color); background: var(--primary-color-light); }
 .uncertainty-module .sidebar-measurement-title-toggle { flex: 0 0 auto; white-space: nowrap; }
 .uncertainty-module .sidebar-global-actions:has(.sidebar-add-area-form) { row-gap: 6px; }
 .instrument-menu-heading:has(.instrument-menu-header-action) { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.instrument-menu-header-action { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 4px; border: 0; background: transparent; color: var(--function-input-accent, var(--primary-color)); cursor: pointer; border-radius: 3px; }
-.instrument-menu-header-action:hover, .instrument-menu-header-action:focus-visible { background: color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 14%, transparent); }
+.instrument-menu-header-action { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 24px; padding: 4px; border: 1px solid transparent; background: transparent; color: var(--function-input-accent, var(--primary-color)); cursor: pointer; border-radius: 6px; }
+.instrument-menu-header-action:hover, .instrument-menu-header-action:focus-visible {
+  border-color: var(--function-input-accent, var(--primary-color));
+  background: color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 10%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 18%, transparent);
+  outline: none;
+}
+
+/* Keep area labels aligned with the first column; reveal the gutter chevron on interaction. */
+.uncertainty-module .measurement-points-table .function-sidebar-collapse-button {
+  position: absolute;
+  left: 0;
+  width: 14px;
+  height: 26px;
+  margin: 0;
+  opacity: 0;
+}
+.uncertainty-module .measurement-points-table .area-header-sticky:hover .function-sidebar-collapse-button,
+.uncertainty-module .measurement-points-table .area-header-sticky:focus-within .function-sidebar-collapse-button {
+  opacity: 1;
+}
+@media (hover: none) {
+  .uncertainty-module .measurement-points-table .function-sidebar-collapse-button { opacity: 1; }
+}

@@ -19,7 +19,7 @@ import {ThemeProvider} from '/src/shared/ThemeContext.jsx';
 import {NotificationProvider} from '/src/shared/NotificationContext.jsx';
 const range={id:'range1',min:0,max:100,unit:'degF',tolerances:{reading:{high:1,low:-1,unit:'%',distribution:'1.732',symmetric:true}}};
 const uut={id:'u1',description:'Micrometer',measurementArea:'Length',measurementAreaId:'length',instrument:{id:'def1',manufacturer:'Bench',model:'M1',description:'Micrometer',functions:[{id:'length-fn',name:'Length',unit:'degF',ranges:[range]}]}};
-let session={id:902,name:'September follow-up',measurementAreas:[{id:'length',name:'Length',color:'#4c9ada'}],uuts:[uut],tmdes:[{...uut,id:'t1',name:'Length reference',description:'Length reference'}],testPoints:Array.from({length:3},(_,i)=>({id:'p'+i,measurementAreaId:'length',associatedUutIds:['u1'],activeUutId:'u1',measurementType:'direct',testPointInfo:{parameter:{name:'Length',value:String(i+1),unit:'degF'}},uutTolerance:{...range,functionId:'length-fn',functionName:'Length',rangeId:'range1'},tmdeTolerances:[],components:[{id:"manual-"+i,name:"Manual source",value:1,value_native:1,unit_native:"degF",isBaseUnitValue:false,dof:null}],specifications:{}})),uncReq:{uncertaintyConfidence:95,reliability:95,reqPFA:2,calInt:12}};
+let session={id:902,name:'September follow-up',measurementAreas:[{id:'length',name:'Length',color:'#4c9ada'}],uuts:[uut],tmdes:[{...uut,id:'t1',name:'Length reference',description:'Length reference'}, {...uut,id:'t-other',measurementAreaId:'other',measurementArea:'Other',measurementAreaNames:['Other'],name:'Length reference',description:'Length reference'}],testPoints:Array.from({length:3},(_,i)=>({id:'p'+i,measurementAreaId:'length',associatedUutIds:['u1'],activeUutId:'u1',measurementType:'direct',testPointInfo:{parameter:{name:'Length',value:String(i+1),unit:'degF'}},uutTolerance:{...range,functionId:'length-fn',functionName:'Length',rangeId:'range1'},tmdeTolerances:[],components:[{id:"manual-"+i,name:"Manual source",value:1,value_native:1,unit_native:"degF",isBaseUnitValue:false,dof:null}],specifications:{}})),uncReq:{uncertaintyConfidence:95,reliability:95,reqPFA:2,calInt:12}};
 let issues=[];window.savedSession=()=>session;window.savedIssues=()=>issues;
 axios.get=async url=>({data:String(url).includes('/sessions/')?[session]:String(url).includes('/uncertainty/bug_reports/')?[]:String(url).includes('/bug_reports/')?issues:[]});
 axios.put=async(url,data)=>{if(String(url).includes('/sessions/'))session=structuredClone(data);return {data};};
@@ -87,7 +87,7 @@ app.whenReady().then(async () => {
     await swatch.fill('#9b59b6');
     await page.waitForFunction(()=>window.savedSession().measurementAreaGroups?.some(a=>a.name==='Length') && window.savedSession().measurementAreaGroups.filter(a=>a.name==='Length').every(a=>a.color==='#9b59b6'));
     await page.locator('[data-tour="tab-overview"]').click();
-    const tableColors=page.locator('.instrument-equipment-table input[type="color"]');
+    const tableColors=page.locator('.instrument-equipment-table .instrument-area-section-row:has-text("Length") input[type="color"]');
     assert.ok((await tableColors.evaluateAll(items=>items.map(e=>e.value))).every(value=>value==='#9b59b6'));
     await tableColors.first().fill('#3498db');
     await page.waitForFunction(()=>document.querySelector('.sidebar-area-color-swatch input')?.value==='#3498db');
@@ -211,6 +211,16 @@ app.whenReady().then(async () => {
     await page.waitForFunction(()=>window.savedSession().testPoints[0].testPointInfo.parameter.unit==='');
     await rows.first().locator('.point-unit-select').selectOption('degF');
     await page.waitForFunction(()=>window.savedSession().testPoints[0].testPointInfo.parameter.unit==='degF');
+    await page.getByRole('button',{name:'Add component to budget',exact:true}).first().click();
+    await page.locator('.budget-tmde-picker-instrument').first().waitFor();
+    assert.equal(await page.locator('.budget-tmde-picker-instrument').count(),1,'Only the current area TMDE appears, despite an identical instrument in another area');
+    await page.screenshot({path:path.join(output,'budget-area-options.png')});
+    await page.keyboard.press('Escape');
+    await page.mouse.move(5,5);
+    const collapse=page.locator('.function-sidebar-collapse-button').first();
+    assert.equal(await collapse.evaluate(e=>getComputedStyle(e).opacity),'0');
+    await collapse.locator('..').hover();
+    assert.equal(await collapse.evaluate(e=>getComputedStyle(e).opacity),'1');
     await page.getByRole('button',{name:'Add Measurement Area from points'}).click();
     for (const dark of [false,true]) {
       await page.evaluate(dark=>document.body.classList.toggle('dark-mode',dark),dark);

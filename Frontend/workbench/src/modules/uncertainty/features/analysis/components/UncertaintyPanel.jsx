@@ -13979,13 +13979,16 @@ function DetailedView({
       const isDerivedFinalScope = isDerived && !scope?.variableType;
       const byLabel = (a, b) =>
         getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b));
-      // Measurement Areas and input names are user-authored organization.
-      // Select usable sources by physical units, never by those labels.
+      // Match the inventory shown for this Measurement Area, then select
+      // usable functions by physical units rather than user-authored names.
+      const areaTmdes = relevantTmdes.filter(tmde =>
+        instrumentHasMeasurementArea(tmde, activePointFunctionKey),
+      );
       const isMatch = (tmde) => tmdeMatchesUnit(tmde, isDerived ? scope?.nominalPoint?.unit || "" : uutNominal?.unit || "");
       const budgetNominal = isDerived ? scope?.nominalPoint || null : uutNominal;
       const options = isDerivedFinalScope
         ? []
-        : relevantTmdes
+        : areaTmdes
             .filter(isMatch)
             .filter(
               (tmde) =>
@@ -14022,7 +14025,7 @@ function DetailedView({
         : tmdeTolerancesData;
       const resolutionSourceTmdes = isDerivedFinalScope
         ? []
-        : relevantTmdes.filter(isMatch);
+        : areaTmdes.filter(isMatch);
       const resolutionNominal = isDerived
         ? scope?.nominalPoint || null
         : uutNominal;
@@ -14050,7 +14053,7 @@ function DetailedView({
       // TMDE assignment to an equation variable, so use the same unit-matched
       // master list as the primary accuracy choices.
       const typeBSourceTmdes = isDerived
-        ? relevantTmdes.filter(isMatch)
+        ? areaTmdes.filter(isMatch)
         : contributingTmdeInstances;
       const typeBHasMagnitude = (comp) => {
         const raw =
@@ -14146,6 +14149,7 @@ function DetailedView({
     [
       budgetFunctionKey,
       relevantTmdes,
+      activePointFunctionKey,
       setNotification,
       tmdeMatchesUnit,
       isDerived,
