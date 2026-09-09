@@ -20308,3 +20308,11 @@ body.uncertainty-active .context-menu li.destructive:hover {
 @media (hover: none) {
   .uncertainty-module .measurement-points-table .function-sidebar-collapse-button { opacity: 1; }
 }
+
+.uncertainty-module .function-point-delete-button { color: var(--status-bad) !important; }
+.uncertainty-module .function-point-delete-button:is(:hover, :focus-visible) {
+  color: var(--status-bad) !important;
+  background: rgba(255, 82, 82, 0.1) !important;
+}
+
+.sidebar-filter-sections .point-indicator-filter { grid-column: 1 / -1; }

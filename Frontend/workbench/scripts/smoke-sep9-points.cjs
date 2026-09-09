@@ -83,6 +83,15 @@ app.whenReady().then(async () => {
     await page.getByRole("combobox", { name: "Analysis Session" }).waitFor();
     const rows=page.locator('.point-grid-item');
     await rows.first().waitFor();
+    assert.ok(await page.locator('.point-diagnostic-warning').count());
+    await page.getByRole('button',{name:'Filter visible columns',exact:true}).click();
+    await page.getByRole('checkbox',{name:'Warning icons',exact:true}).uncheck();
+    assert.equal(await page.locator('.point-diagnostic-warning').count(),0);
+    assert.equal(await rows.count(),3,'Hiding warnings keeps the measurement points');
+    await page.getByRole('checkbox',{name:'Warning icons',exact:true}).check();
+    assert.ok(await page.locator('.point-diagnostic-warning').count());
+    await page.screenshot({path:path.join(output,'warning-icon-filter.png')});
+    await page.getByRole('button',{name:'Close column filter',exact:true}).click();
     const swatch=page.getByLabel('Color for Length measurement area');
     await swatch.fill('#9b59b6');
     await page.waitForFunction(()=>window.savedSession().measurementAreaGroups?.some(a=>a.name==='Length') && window.savedSession().measurementAreaGroups.filter(a=>a.name==='Length').every(a=>a.color==='#9b59b6'));
@@ -260,6 +269,20 @@ app.whenReady().then(async () => {
     await page.locator('[data-tour="tab-overview"].active').waitFor();
     assert.ok(await page.locator('.instrument-equipment-table tr:is(.instrument-selected,.selected-row)').count(),'New instrument is selected in overview');
     await page.screenshot({path:path.join(output,'area-and-unit-workflow.png')});
+    const areaDelete=page.getByRole('button',{name:'Delete Length measurement area',exact:true});
+    await areaDelete.locator('..').hover();
+    await areaDelete.click();
+    await page.getByRole('button',{name:'Cancel',exact:true}).click();
+    assert.equal((await page.evaluate(()=>window.savedSession().testPoints)).length,10,'Cancel preserves area contents');
+    await areaDelete.locator('..').hover();
+    await areaDelete.click();
+    await page.screenshot({path:path.join(output,'delete-point-area-confirmation.png')});
+    await page.getByRole('button',{name:'Delete',exact:true}).click();
+    await page.waitForFunction(()=>window.savedSession().testPoints.length===1);
+    const afterDelete=await page.evaluate(()=>window.savedSession());
+    assert.equal(afterDelete.uuts.length,1);
+    assert.deepEqual(afterDelete.tmdes.map(t=>t.id),['t-other']);
+    assert.equal(afterDelete.testPoints[0].testPointInfo.measurementArea,'Quick calculation');
     assert.deepEqual(errors, []);
     console.log(
       "PASS point UI: Enter navigation, Ctrl+Enter insertion, visible resize handles, live UUT tolerance updates, formatted result units. Artifacts:",

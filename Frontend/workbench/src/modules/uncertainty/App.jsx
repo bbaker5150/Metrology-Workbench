@@ -82,6 +82,7 @@ import {
   faExpandArrowsAlt,
   faCompressArrowsAlt,
   faCog,
+  faTimes,
   faMoon,
   faSun,
 } from "@fortawesome/free-solid-svg-icons";
@@ -123,6 +124,9 @@ import {
 import {
   makeMeasurementAreaKey,
   setMeasurementAreaColor,
+  getMeasurementAreaDependencies,
+  getMeasurementAreaDeletionConfirmationMessage,
+  deleteMeasurementArea,
   measurementAreaKeyOf,
   measurementAreaLabelOf,
   resolveSessionMeasurementAreas,
@@ -1444,7 +1448,7 @@ export const SidebarPointItem = ({
               <FontAwesomeIcon icon={faChevronDown} className="point-unit-chevron" aria-hidden="true" />
               </span>
             </span>
-            {diagnostics.length > 0 && (
+            {visibleColumns.warningIcons !== false && diagnostics.length > 0 && (
               <button type="button" className="point-diagnostic-warning" aria-label={`Point needs attention: ${diagnostics.join(" ")}`} title={diagnostics.map(message => `• ${message}`).join("\n\n")} onClick={event => { event.stopPropagation(); onSelect?.(event, point); }}>
                 <FontAwesomeIcon icon={faExclamationTriangle} aria-hidden="true" />
               </button>
@@ -5408,6 +5412,29 @@ function App({ showThemeToggle = false }) {
             </MeasurementAreaPopover>
           )}
         </div>
+        <button
+          type="button"
+          className="function-point-settings-button function-point-delete-button range-header-action-btn range-header-action-btn--delete"
+          title={`Delete ${fnGroup.name} measurement area`}
+          aria-label={`Delete ${fnGroup.name} measurement area`}
+          onClick={event => {
+            event.stopPropagation();
+            const area = { name: fnGroup.name, key: fnGroup.id };
+            const dependencies = getMeasurementAreaDependencies(currentSessionData, area);
+            setAppNotification({
+              title: `Delete ${area.name}`,
+              message: getMeasurementAreaDeletionConfirmationMessage(dependencies, area),
+              confirmText: "Delete",
+              secondaryText: "Cancel",
+              onSecondary: () => setAppNotification(null),
+              onConfirm: () => {
+                setAppNotification(null);
+                setOpenFunctionSettingsId(null);
+                updateSession(deleteMeasurementArea(currentSessionData, area));
+              },
+            });
+          }}
+        ><FontAwesomeIcon icon={faTimes} /></button>
         <div
           className="function-point-actions"
           onClick={(event) => event.stopPropagation()}
@@ -5967,6 +5994,14 @@ function App({ showThemeToggle = false }) {
                             <SidebarColumnPopover anchorRef={columnMenuRef} onClose={() => setIsColumnMenuOpen(false)}>
                               <header className="sidebar-filter-header"><div><strong>Visible columns</strong><p>Choose the details you want to compare.</p></div><button type="button" aria-label="Close column filter" onClick={() => setIsColumnMenuOpen(false)}>×</button></header>
                               <div className="sidebar-filter-sections">
+                                <div className="filter-option-group point-indicator-filter">
+                                  <div className="filter-option-group-title">Point indicators</div>
+                                  <label className="filter-option">
+                                    <input type="checkbox" checked={sidebarColumns.warningIcons !== false}
+                                      onChange={event => setSidebarColumns(previous => ({ ...previous, warningIcons: event.target.checked }))} />
+                                    <span>Warning icons</span>
+                                  </label>
+                                </div>
                               {[
                             {
                               group: "Measurement",
