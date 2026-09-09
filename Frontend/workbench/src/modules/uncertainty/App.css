@@ -20213,6 +20213,13 @@ body.uncertainty-active .context-menu li.destructive:hover {
 }
 .uncertainty-module .point-unit-select option { color: var(--text-color); background: var(--content-background); }
 /* Inline area entry shares the app's compact surfaces and control palette. */
+.sidebar-add-area-controls {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  margin-left: auto;
+}
 .sidebar-add-area-form {
   padding: 0; border: 0; border-radius: 0;
   background: var(--component-bg); color: var(--text-color); font-size: .8rem;

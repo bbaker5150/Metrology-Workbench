@@ -5857,11 +5857,6 @@ function App({ showThemeToggle = false }) {
                   </div>
 
                   <div className="sidebar-actions-group">
-                    <button type="button" className="btn-add-item btn-add-column sidebar-add-area-trigger" title="Add Measurement Area" aria-label="Add Measurement Area from points" ref={sidebarAreaAnchorRef} aria-expanded={newSidebarArea !== null} onClick={() => setNewSidebarArea(current => current === null ? "" : null)}>Add Measurement Area</button>
-                    {newSidebarArea !== null && <div className="sidebar-add-area-form" role="group" aria-label="Add Measurement Area" onKeyDown={event => { if (event.key === "Escape") { setNewSidebarArea(null); sidebarAreaAnchorRef.current?.focus(); } }}>
-                      <input id="sidebar-area-name" autoFocus aria-label="New Measurement Area name" placeholder="Area name" value={newSidebarArea} onChange={event => setNewSidebarArea(event.target.value)} onKeyDown={event => { if (event.key === "Enter") handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(null); }} />
-                      <div className="sidebar-area-menu-actions"><button type="button" className="btn-secondary" onClick={() => setNewSidebarArea(null)}>Cancel</button><button type="button" className="btn-primary" disabled={!newSidebarArea.trim()} onClick={handleAddSidebarArea}>Add</button></div>
-                    </div>}
                     {/* Eyeball Button Removed - Moved to HeaderToolbox */}
 
                       <>
@@ -6102,6 +6097,13 @@ function App({ showThemeToggle = false }) {
                           )}
                         </div>
                       </>
+                    <div className="sidebar-add-area-controls">
+                      <button type="button" className="btn-add-item btn-add-column sidebar-add-area-trigger" title="Add Measurement Area" aria-label="Add Measurement Area from points" ref={sidebarAreaAnchorRef} aria-expanded={newSidebarArea !== null} onClick={() => setNewSidebarArea(current => current === null ? "" : null)}>Add Measurement Area</button>
+                      {newSidebarArea !== null && <div className="sidebar-add-area-form" role="group" aria-label="Add Measurement Area" onKeyDown={event => { if (event.key === "Escape") { setNewSidebarArea(null); sidebarAreaAnchorRef.current?.focus(); } }}>
+                        <input id="sidebar-area-name" autoFocus aria-label="New Measurement Area name" placeholder="Area name" value={newSidebarArea} onChange={event => setNewSidebarArea(event.target.value)} onKeyDown={event => { if (event.key === "Enter") handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(null); }} />
+                        <div className="sidebar-area-menu-actions"><button type="button" className="btn-secondary" onClick={() => setNewSidebarArea(null)}>Cancel</button><button type="button" className="btn-primary" disabled={!newSidebarArea.trim()} onClick={handleAddSidebarArea}>Add</button></div>
+                      </div>}
+                    </div>
                   </div>
                 </div>
 
