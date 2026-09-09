@@ -467,7 +467,7 @@ describe("UncertaintyApp", () => {
     expect(assumedReliabilityHelp.title).not.toMatch(/workbook/i);
     expect(screen.queryByText("Uncertainty Requirements")).not.toBeInTheDocument();
     expect(screen.getByText("Add your first Measurement Point")).toBeInTheDocument();
-    expect(screen.getByText(/First, create a Unit Under Test/)).toHaveTextContent("click the + button below to add a measurement point");
+    expect(screen.getByText(/Add a Measurement Area here/)).toHaveTextContent("use its + button to add a point");
     expect(screen.getAllByText("Add a Measurement Area to get started.")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Uncertainty Budget", exact: true }));
     expect(screen.getByText("Select a Measurement Point.")).toBeInTheDocument();
@@ -869,7 +869,7 @@ describe("UncertaintyApp", () => {
     expect(
       uutRow.style.getPropertyValue("--instrument-function-color"),
     ).not.toBe("");
-    expect(uutTable).toHaveStyle({ width: "100%", minWidth: "1200px" });
+    expect(uutTable).toHaveStyle({ width: "100%", minWidth: "740px" });
     const widths = Array.from(uutTable.querySelectorAll("col")).map((column) =>
       Number.parseFloat(column.style.width),
     );

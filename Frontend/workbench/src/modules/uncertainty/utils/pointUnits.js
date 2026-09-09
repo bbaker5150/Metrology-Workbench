@@ -1,3 +1,5 @@
+import { instrumentHasMeasurementArea } from "./measurementAreaGrouping";
+import { instrumentFunctions } from "./functionGrouping";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 
 // Only fill an absent unit. Explicit point units remain user-owned, including
@@ -6,7 +8,13 @@ export const inheritMissingPointUnits = (session) => {
   let changed = false;
   const testPoints = (session.testPoints || []).map((point) => {
     const parameter = point.testPointInfo?.parameter;
-    if (!parameter || parameter.unit) return point;
+    if (!parameter) return point;
+    if (parameter.unitSelectionExplicit && parameter.unit && !getMeasurementAreaUnits(session, point.testPointInfo?.measurementArea || parameter.name).includes(parameter.unit)) {
+      changed = true;
+      return { ...point, uutTolerance: null, testPointInfo: { ...point.testPointInfo,
+        parameter: { ...parameter, unavailableUnit: parameter.unit, unit: "" } } };
+    }
+    if (parameter.unit || parameter.unitSelectionExplicit) return point;
     const ids = point.activeUutId
       ? [point.activeUutId]
       : point.associatedUutIds || [];
@@ -45,3 +53,10 @@ export const inheritMissingPointUnits = (session) => {
   });
   return changed ? { ...session, testPoints } : session;
 };
+
+export const getMeasurementAreaUnits = (session = {}, areaName) => [...new Set(
+  [...(session.uuts || []), ...(session.tmdes || [])]
+    .filter(item => instrumentHasMeasurementArea(item, areaName))
+    .flatMap(item => instrumentFunctions(item).flatMap(fn => fn.units || []))
+    .filter(Boolean),
+)];

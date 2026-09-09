@@ -1,3 +1,4 @@
+import { getMeasurementAreaUnits } from "./utils/pointUnits";
 import { useWorkbenchIssues } from "../../shared/WorkbenchIssuesContext";
 /**
  * src/App.jsx
@@ -119,6 +120,7 @@ import {
   getVisibleSidebarPointOrder,
 } from "./utils/sidebarPointSelection";
 import {
+  makeMeasurementAreaKey,
   measurementAreaKeyOf,
   measurementAreaLabelOf,
   resolveSessionMeasurementAreas,
@@ -663,10 +665,10 @@ const getSidebarValueColumnWidth = (points = []) => {
   const longest = (points || []).reduce((max, point) => {
     const parameter = point?.testPointInfo?.parameter || {};
     const valueLength = String(parameter.value ?? "").length;
-    const unitLength = getUnitDisplayLabel(parameter.unit || "").length;
+    const unitLength = (parameter.unit ? getUnitDisplayLabel(parameter.unit) : "Unassigned").length;
     return Math.max(max, valueLength + (unitLength ? unitLength + 1 : 0));
   }, 0);
-  return `${Math.max(88, longest * 8 + 36)}px`;
+  return `${Math.max(104, longest * 8 + 52)}px`;
 };
 
 const readUiSizingPreferences = () => {
@@ -703,6 +705,7 @@ export const SidebarPointItem = ({
   uutName = "Unassigned",
   currentUutId = "",
   uutOptions = [],
+  unitOptions = [],
   onUutChange,
   cellGroups = {},
   columnWidths = {},
@@ -1418,11 +1421,18 @@ export const SidebarPointItem = ({
               <span className="point-value-number">
                 {displayValue || <span className="point-placeholder">-</span>}
               </span>
-              {displayUnit && (
-                <span className="point-value-unit">
-                  {getUnitDisplayLabel(displayUnit)}
-                </span>
-              )}
+              <select className="point-unit-select" aria-label="Measurement point unit"
+                value={displayUnit || ""} onClick={event => event.stopPropagation()}
+                onPointerDown={event => event.stopPropagation()}
+                onChange={event => {
+                  const unit = event.target.value;
+                  onSave({ ...point, testPointInfo: { ...point.testPointInfo,
+                    parameter: { ...point.testPointInfo?.parameter, unit, unitSelectionExplicit: true, unavailableUnit: undefined } } });
+                }}>
+                <option value="">Unassigned</option>
+                {displayUnit && !unitOptions.includes(displayUnit) && <option value={displayUnit} disabled>{getUnitDisplayLabel(displayUnit)} (unavailable)</option>}
+                {unitOptions.map(unit => <option key={unit} value={unit}>{getUnitDisplayLabel(unit)}</option>)}
+              </select>
             </span>
             {diagnostics.length > 0 && (
               <button type="button" className="point-diagnostic-warning" aria-label={`Point needs attention: ${diagnostics.join(" ")}`} title={diagnostics.map(message => `• ${message}`).join("\n\n")} onClick={event => { event.stopPropagation(); onSelect?.(event, point); }}>
@@ -2627,6 +2637,19 @@ function App({ showThemeToggle = false }) {
   // pauses here so the new direct/derived point can be attached to an explicit
   // unit instead of silently choosing the first range.
   const [pendingPointUnitChoice, setPendingPointUnitChoice] = useState(null);
+  const [newSidebarArea, setNewSidebarArea] = useState(null);
+  const handleAddSidebarArea = () => {
+    const name = newSidebarArea.trim();
+    if (!name) return;
+    const key = makeMeasurementAreaKey(name);
+    const existing = currentSessionData.measurementAreaGroups || [];
+    if (!existing.some(area => makeMeasurementAreaKey(area.name) === key && area.kind !== "tmde")) {
+      updateSession({ ...currentSessionData, measurementAreaGroups: [...existing, { name, unit: "", kind: "uut" }] });
+    }
+    setExpandedFunctions(previous => new Set(previous).add(key));
+    setNewSidebarArea(null);
+  };
+
   const [openFunctionSettingsId, setOpenFunctionSettingsId] = useState(null);
   const pointSettingsAnchorRef = useRef(null);
   const pointUnitAnchorRef = useRef(null);
@@ -3022,7 +3045,7 @@ function App({ showThemeToggle = false }) {
         const mismatchedDerivedPointCount = newPoints.filter(
           hasDerivedNominalMismatch,
         ).length;
-        saveTestPoint(newPoints, null);
+        saveTestPoint(newPoints.map(point => recalculatePointUncertaintyFields(point, currentSessionData)), null);
         const action = clipboardPointMode === "cut" ? "Moved" : "Pasted";
         showToast(
           `${action} ${newPoints.length} measurement point${newPoints.length > 1 ? "s" : ""}.`,
@@ -4292,7 +4315,7 @@ function App({ showThemeToggle = false }) {
       _skipUutAutofill: !uutId,
       measurementType: settings.mode,
       uutTolerance: fnRange || null,
-      testPointInfo: { measurementArea: fnGroup?.name || "Measurement", parameter: { name: fnRange?.functionName || fnGroup?.name || "", value: "", unit } },
+      testPointInfo: { measurementArea: fnGroup?.name || "Measurement", parameter: { name: fnRange?.functionName || fnGroup?.name || "", value: "", unit, unitSelectionExplicit: true } },
     }, fnGroup, settings);
   };
 
@@ -4340,7 +4363,15 @@ function App({ showThemeToggle = false }) {
 
   // ---  Inline update handler for sidebar edits ---
   const handleInlinePointUpdate = (updatedPoint) => {
-    saveTestPoint(updatedPoint, null);
+    const previous = currentTestPoints.find(point => point.id === updatedPoint.id);
+    if (previous?.testPointInfo?.parameter?.unit !== updatedPoint.testPointInfo?.parameter?.unit) {
+      const nominal = updatedPoint.testPointInfo?.parameter || {};
+      const uut = currentSessionData.uuts.find(item => updatedPoint.associatedUutIds?.includes(item.id));
+      updatedPoint = { ...updatedPoint, uutTolerance: uut && nominal.unit ? findMatchingRange(uut, nominal.value, nominal.unit) || null : null };
+    }
+    const refreshed = recalculatePointUncertaintyFields(updatedPoint, currentSessionData);
+    updateSession({ ...currentSessionData, testPoints: currentTestPoints.map(point =>
+      point.id === refreshed.id ? refreshed : point) });
   };
 
   const handleAnalysisDataSave = useCallback((updates) => {
@@ -5009,6 +5040,7 @@ function App({ showThemeToggle = false }) {
       isSelected={selectedSidebarPointIds.includes(tp.id)}
       isActivePoint={selectedTestPointId === tp.id}
       isTableSelected={selectedTablePointIds.includes(tp.id)}
+      unitOptions={getMeasurementAreaUnits(currentSessionData, fnGroup.name)}
       liveRiskMetrics={pointRiskMap[tp.id]}
       diagnostics={pointDiagnosticsMap[tp.id]}
       riskRequirements={currentSessionData?.uncReq || {}}
@@ -5044,7 +5076,7 @@ function App({ showThemeToggle = false }) {
           y: e.pageY,
           items: [
             {
-              label: "Copy Point",
+              label: selectedSidebarPointIds.includes(p.id) && selectedSidebarPointIds.length > 1 ? `Copy ${selectedSidebarPointIds.length} Points` : "Copy Point",
               action: () => handleCopyPoint(
                 selectedSidebarPointIds.includes(p.id)
                   ? currentTestPoints.filter(point => selectedSidebarPointIds.includes(point.id))
@@ -5053,7 +5085,7 @@ function App({ showThemeToggle = false }) {
               icon: faCopy,
             },
             {
-              label: "Cut Point",
+              label: selectedSidebarPointIds.includes(p.id) && selectedSidebarPointIds.length > 1 ? `Cut ${selectedSidebarPointIds.length} Points` : "Cut Point",
               action: () =>
                 handleCutPoint(
                   selectedSidebarPointIds.includes(p.id)
@@ -5067,7 +5099,7 @@ function App({ showThemeToggle = false }) {
             ...(clipboardKind === "point" && clipboardPoint
               ? [
                   {
-                    label: "Paste Point",
+                    label: clipboardPoint.length > 1 ? `Paste ${clipboardPoint.length} Points` : "Paste Point",
                     action: () => handlePastePoint(contextUutId, p.measurementAreaId, null, p.id),
                     icon: faPaste,
                   },
@@ -5248,11 +5280,6 @@ function App({ showThemeToggle = false }) {
   };
 
   const renderFunctionPointActions = (fnGroup) => {
-    const uutOptions = (fnGroup.uutGroups || []).filter(
-      (group) => !group.isUnassigned,
-    );
-    if (uutOptions.length === 0) return null;
-
     const settings = getFunctionPointSettings(currentSessionData, fnGroup.id);
     const settingsOpen = openFunctionSettingsId === fnGroup.id;
 
@@ -5791,6 +5818,11 @@ function App({ showThemeToggle = false }) {
                   </div>
 
                   <div className="sidebar-actions-group">
+                    <button type="button" className="sidebar-action-btn-organic" title="Add Measurement Area" aria-label="Add Measurement Area from points" onClick={() => setNewSidebarArea("")}><FontAwesomeIcon icon={faPlus} /></button>
+                    {newSidebarArea !== null && <div className="sidebar-add-area-form">
+                      <input autoFocus aria-label="New Measurement Area name" placeholder="Measurement Area name" value={newSidebarArea} onChange={event => setNewSidebarArea(event.target.value)} onKeyDown={event => { if (event.key === "Enter") handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(null); }} />
+                      <button type="button" onClick={handleAddSidebarArea}>Add</button><button type="button" onClick={() => setNewSidebarArea(null)}>Cancel</button>
+                    </div>}
                     {/* Eyeball Button Removed - Moved to HeaderToolbox */}
 
                       <>
@@ -6040,7 +6072,7 @@ function App({ showThemeToggle = false }) {
                     <div>
                       <strong>Add your first Measurement Point</strong>
                       <div className="measurement-points-empty-copy">
-                        <p>First, create a Unit Under Test (UUT) in the Instrument Overview tab. Then, click the + button below to add a measurement point.</p>
+                        <p>Add a Measurement Area here, then use its + button to add a point. You can start with an unassigned unit and a manual budget, or define instruments in Instrument Overview.</p>
                       </div>
                     </div>
                   </div>

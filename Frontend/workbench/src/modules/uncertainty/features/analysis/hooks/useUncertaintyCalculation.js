@@ -190,6 +190,7 @@ const componentStandardUncertaintyBase = (
   nominalValue,
   nominalUnit
 ) => {
+  if (!nominalUnit && !component.unit_native && component.value_native != null) return Number(component.value_native);
   if (
     component.value_native !== undefined &&
     component.value_native !== null &&
@@ -247,7 +248,7 @@ export const useUncertaintyCalculation = (
       const incompleteInputs = testPointData.measurementType === "derived" &&
         Object.keys(testPointData.variableMappings || {}).some(symbol =>
           !hasNominalValue(testPointData.variableNominals?.[symbol]) || !testPointData.variableNominals?.[symbol]?.unit);
-      if (!hasNominalValue(uutNominal) || !uutNominal?.unit || incompleteInputs) {
+      if (!hasNominalValue(uutNominal) || (!uutNominal?.unit && testPointData.measurementType === "derived") || incompleteInputs) {
         const derived = testPointData.measurementType === "derived";
         const groupFor = (nominal, sources, label, id, variableType) => {
           const unit = nominal?.unit || "";
@@ -343,7 +344,7 @@ export const useUncertaintyCalculation = (
       // --- 2. VALIDATION: UNIT COMPATIBILITY ---
       const derivedNominalValue = parseFloat(uutNominal.value);
       const derivedNominalUnit = uutNominal.unit;
-      const targetUnitInfo = unitSystem.units[derivedNominalUnit];
+      const targetUnitInfo = derivedNominalUnit ? unitSystem.units[derivedNominalUnit] : { to_si: 1 };
 
       if (!targetUnitInfo || isNaN(targetUnitInfo.to_si)) {
         throw new Error(

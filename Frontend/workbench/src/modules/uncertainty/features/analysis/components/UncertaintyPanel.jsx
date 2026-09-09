@@ -2657,7 +2657,7 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
   return {
     widthFor: (key) =>
       `${((resolvedWidths[key] || 160) / totalWidth) * 100}%`,
-    minimumTableWidth: Math.max(1200, totalWidth),
+    minimumTableWidth: keys.reduce((sum, key) => sum + minimumWidth(key), 0),
     startResize,
     resizeBy: (key, delta, tablePixelWidth) =>
       resizePair(key, delta, tablePixelWidth),

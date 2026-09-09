@@ -38,3 +38,12 @@ describe("missing point unit inheritance", () => {
     ).toBe("cm");
   });
 });
+
+it("keeps an explicit Unassigned choice after instruments are defined", () => {
+  const data = { uuts: [{ id: "u", measurementAreaNames: ["Bench"], instrument: { functions: [{ unit: "V", ranges: [{ unit: "V" }] }] } }], testPoints: [{ associatedUutIds: ["u"], testPointInfo: { measurementArea: "Bench", parameter: { unit: "", unitSelectionExplicit: true } } }] };
+  expect(inheritMissingPointUnits(data)).toBe(data);
+});
+it("unassigns a removed unit without choosing another range's unit", () => {
+  const data = { uuts: [{ id: "u", measurementAreaNames: ["Bench"], instrument: { functions: [{ unit: "A", ranges: [{ unit: "A" }] }] } }], testPoints: [{ associatedUutIds: ["u"], testPointInfo: { measurementArea: "Bench", parameter: { unit: "V", unitSelectionExplicit: true } } }] };
+  expect(inheritMissingPointUnits(data).testPoints[0].testPointInfo.parameter).toMatchObject({ unit: "", unavailableUnit: "V" });
+});

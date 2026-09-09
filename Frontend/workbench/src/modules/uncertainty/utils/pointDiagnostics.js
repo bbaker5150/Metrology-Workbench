@@ -107,6 +107,7 @@ export function getPointDiagnostics(
   };
   const validNominal =
     filled(nominal.value) && Boolean(unitSystem.units[nominal.unit]);
+  if (nominal.unavailableUnit) add(`The previously selected unit ${getUnitDisplayLabel(nominal.unavailableUnit)} is no longer defined in this Measurement Area. Choose a unit or keep Unassigned.`);
   if (!filled(nominal.value)) add("Enter a numeric measurement point value.");
   if (!unitSystem.units[nominal.unit])
     add("Choose a valid measurement point unit.");

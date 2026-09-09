@@ -73,6 +73,7 @@ const componentStandardUncertaintyBase = (
   nominalValue,
   nominalUnit,
 ) => {
+  if (!nominalUnit && !component.unit_native && component.value_native != null) return Number(component.value_native);
   if (
     component?.value_native !== undefined &&
     component?.value_native !== null &&
@@ -184,7 +185,7 @@ const refreshLinkedDerivedManualComponents = (
 // or null when the point isn't ready to evaluate.
 export function computeUncertaintyForPoint(point, sessionData) {
   const uutNominal = point.testPointInfo?.parameter;
-  if (!uutNominal || !isFilledNumber(uutNominal.value) || !uutNominal.unit) {
+  if (!uutNominal || !isFilledNumber(uutNominal.value) || (!uutNominal.unit && point.measurementType === "derived")) {
     return null;
   }
 
@@ -201,7 +202,7 @@ export function computeUncertaintyForPoint(point, sessionData) {
   );
   const derivedNominalValue = parseFloat(uutNominal.value);
   const derivedNominalUnit = uutNominal.unit;
-  const targetUnitInfo = unitSystem.units[derivedNominalUnit];
+  const targetUnitInfo = derivedNominalUnit ? unitSystem.units[derivedNominalUnit] : { to_si: 1 };
   if (!targetUnitInfo || isNaN(targetUnitInfo.to_si)) return null;
 
   let combinedUncertaintyPPM = NaN;

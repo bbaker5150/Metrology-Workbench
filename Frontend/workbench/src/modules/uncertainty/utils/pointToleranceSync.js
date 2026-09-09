@@ -24,6 +24,7 @@ export function syncPointTolerances(session, previous) {
     const parameter = point.testPointInfo?.parameter || {};
     const rows = getInstrumentRangeRows(uut);
     const candidates = rows.filter(row => {
+      if (parameter.unitSelectionExplicit && !parameter.unit) return false;
       if (parameter.unit && row.unit) {
         // Display aliases can coincide across quantities: grams and standard
         // gravity both render as g. Never use the label alone as unit identity.

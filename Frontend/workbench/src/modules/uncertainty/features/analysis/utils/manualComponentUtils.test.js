@@ -250,3 +250,8 @@ it("preserves a relative draft before a nominal and resolves it when supplied", 
   const ready = normalizeInlineManualComponent({ component: pending, draft, referencePoint: { value: 10, unit: "V" } });
   expect(ready.pendingReason).toBeNull(); expect(ready.value_native).toBeCloseTo(0.1);
 });
+
+it("keeps unitless manual standard uncertainty in native numeric units", () => {
+  const result = normalizeInlineManualComponent({ component: { id: "quick" }, draft: { name: "Quick", type: "B", inputMode: "standard", unit: "", standardUncertainty: 2 }, referencePoint: { value: 10, unit: "" } });
+  expect(result).toMatchObject({ value_native: 2, unit_native: "", isBaseUnitValue: true, inlineValidation: null });
+});

@@ -11722,7 +11722,7 @@ body.theme-cyberpunk .notification-window .window-header {
 /* Inline UUT/TMDE editors need enough room for a resolution magnitude, unit,
    optional metric prefix, and distribution without entering the Sync column. */
 .panel-table-container .instrument-equipment-table {
-  min-width: 1200px;
+  min-width: 0;
 }
 
 .equipment-summary-table th,
@@ -20205,3 +20205,15 @@ body.uncertainty-active .context-menu li.destructive:hover {
   text-align: center;
   color: var(--text-color-muted);
 }
+
+.uncertainty-module .point-unit-select {
+  width: auto; max-width: 100%; min-width: 0; padding: 0 2px;
+  border: 0; background: transparent; color: inherit; font: inherit;
+  cursor: pointer;
+}
+.uncertainty-module .point-unit-select option { color: var(--text-color); background: var(--content-background); }
+.uncertainty-module .sidebar-add-area-form { display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* End-of-table handles stay inside the viewport instead of creating overflow. */
+.uncertainty-module .instrument-equipment-table th:last-child .instrument-column-resize-handle { right: 0; }
+.uncertainty-module .instrument-equipment-table th:last-child .instrument-column-insert-button { right: 1px; }

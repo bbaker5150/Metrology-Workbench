@@ -1,3 +1,4 @@
+import { normalizeInlineManualComponent } from "../utils/manualComponentUtils";
 import React, { useState, useEffect, useMemo } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -91,9 +92,9 @@ const ManualComponentModal = ({
         errorDistributionDivisor:
           existingComponent.originalInput?.errorDistributionDivisor || "1.732",
         unit:
-          existingComponent.originalInput?.unit ||
-          existingComponent.unit_native ||
-          existingComponent.unit ||
+          existingComponent.originalInput?.unit ??
+          existingComponent.unit_native ??
+          existingComponent.unit ??
           "ppm",
         useFiniteDof: hasFiniteDof,
         dof: hasFiniteDof ? String(existingDof) : "",
@@ -102,7 +103,7 @@ const ManualComponentModal = ({
       setComponent({
         ...emptyComponent,
         name: budgetScope ? `${budgetScope.label} - Manual` : "",
-        unit: uutNominal?.unit || "ppm",
+        unit: uutNominal?.unit || "",
       });
     }
   }, [isOpen, existingComponent, uutNominal, budgetScope]);
@@ -137,7 +138,7 @@ const ManualComponentModal = ({
 
   const unitOptions = useMemo(() => {
     const nominalUnit = uutNominal?.unit;
-    if (!nominalUnit) return ["%", "ppm", "ppb"];
+    if (!nominalUnit) return ["", "%", "ppm", "ppb"];
 
     const relevant = unitSystem.getRelevantUnits(nominalUnit);
     return [
@@ -172,6 +173,16 @@ const ManualComponentModal = ({
     }
     if (isTypeA && component.useFiniteDof && (isNaN(dof) || dof < 1)) {
       setError("Finite DoF must be a number greater than or equal to 1.");
+      return;
+    }
+
+    if (!uutNominal?.unit && !component.unit) {
+      const resolved = normalizeInlineManualComponent({ component: { ...component, dof }, draft: component, referencePoint: uutNominal });
+      if (resolved.inlineValidation || resolved.pendingReason || !(resolved.value_native > 0)) {
+        setError(resolved.inlineValidation || resolved.pendingReason || "Provide a positive standard uncertainty or tolerance limit.");
+        return;
+      }
+      onSave(resolved);
       return;
     }
 
@@ -297,7 +308,7 @@ const ManualComponentModal = ({
       <select name="unit" value={component.unit} onChange={handleChange}>
         {unitOptions.map((u) => (
           <option key={u} value={u}>
-            {getUnitDisplayLabel(u)}
+            {u ? getUnitDisplayLabel(u) : "Unassigned"}
           </option>
         ))}
       </select>

@@ -129,7 +129,7 @@ export const createInlineManualComponent = ({
   referencePoint = null,
 }) => {
   const nominalPoint = scope?.nominalPoint || referencePoint || {};
-  const unit = nominalPoint.unit || "ppm";
+  const unit = nominalPoint.unit ?? "";
   const variableType =
     scope?.kind === "input" && scope.variableType
       ? scope.variableType
@@ -177,7 +177,7 @@ const legacyManualTolerance = (component = {}) => {
       (component.manualInputMode === "tolerance" ? component.manualRawValue : null),
   );
   if (magnitude === null) return {};
-  const unit = original.unit || component.manualUnit || component.unit_native || "ppm";
+  const unit = original.unit ?? component.manualUnit ?? component.unit_native ?? "ppm";
   const distribution = String(
     original.errorDistributionDivisor || component.distributionDivisor || "1.732",
   );
@@ -222,9 +222,9 @@ export const getInlineManualDraft = (component = {}) => ({
       "1.732",
   ),
   unit:
-    component.originalInput?.unit ||
-    component.manualUnit ||
-    component.unit_native ||
+    component.originalInput?.unit ??
+    component.manualUnit ??
+    component.unit_native ??
     "ppm",
 });
 
@@ -247,7 +247,7 @@ export const normalizeInlineManualComponent = ({
     type === "A" || draft.inputMode === "standard"
       ? "standard"
       : "tolerance";
-  const unit = draft.unit || referencePoint?.unit || "ppm";
+  const unit = draft.unit ?? referencePoint?.unit ?? "";
   const toleranceDivisor =
     positiveNumber(draft.errorDistributionDivisor) !== null
       ? String(draft.errorDistributionDivisor)
@@ -298,6 +298,10 @@ export const normalizeInlineManualComponent = ({
         ? "A single-sided acceptance limit does not define a Type B standard uncertainty by itself."
         : "Set a distribution for each entered tolerance term and provide a valid nominal value.";
     }
+  } else if (raw !== null && !unit && !referencePoint?.unit) {
+    value = raw / divisor;
+    valueNative = value;
+    unitNative = "";
   } else if (raw !== null) {
     const converted = convertToPPM(
       raw,
@@ -343,6 +347,7 @@ export const normalizeInlineManualComponent = ({
     name: String(draft.name || "").trim(),
     type,
     value,
+    isBaseUnitValue: !unit && !referencePoint?.unit,
     value_native: valueNative,
     unit_native: unitNative,
     dof: type === "A" ? component.dof ?? Infinity : Infinity,

@@ -277,3 +277,12 @@ it("keeps derived input budgets visible while their nominal values are incomplet
   expect(result.current.calcResults.calculatedBudgetGroups.map(g => g.variableType || g.kind)).toEqual(["Length", "Force", "final"]);
   expect(result.current.calcResults.calculatedBudgetGroups.at(-1).results.pendingReason).toMatch(/equation input/);
 });
+
+it("calculates a manual unitless direct budget without instruments", async () => {
+  const { result } = renderDirectCalculation({}, {
+    tmdeTolerances: [], uutTolerance: null, nominal: { value: "10", unit: "" },
+    manualComponents: [{ id: "a", name: "Manual", value: 2, value_native: 2, unit_native: "", isBaseUnitValue: true, dof: Infinity }],
+  });
+  await waitFor(() => expect(result.current.calcResults.combined_uncertainty_absolute_base).toBe(2));
+  expect(result.current.calcResults.expanded_uncertainty_absolute_base).toBeCloseTo(3.9199, 3);
+});

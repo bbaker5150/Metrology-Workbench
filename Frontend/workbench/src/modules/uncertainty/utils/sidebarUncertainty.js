@@ -22,8 +22,8 @@ export const getSidebarUncertaintyDisplayValue = (point, kind) => {
   const absoluteBase = point?.[`${kind}_uncertainty_absolute_base`];
   const baseValue = Number(absoluteBase);
   const nativeValue =
-    Number.isFinite(baseValue) && unit
-      ? unitSystem.fromBaseUnit(baseValue, unit)
+    absoluteBase != null && Number.isFinite(baseValue)
+      ? unit ? unitSystem.fromBaseUnit(baseValue, unit) : baseValue
       : point?.[`${kind}_uncertainty`];
   const numeric = parseNumericValue(nativeValue);
 
