@@ -1,3 +1,4 @@
+import { formatInstrumentIdentity } from "./instrumentIdentity";
 import { rgb } from "pdf-lib";
 import { resolveSessionMeasurementAreas, measurementAreaLabelOf } from "./measurementAreaGrouping";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
@@ -133,20 +134,7 @@ const formatRatio = (value) => {
 
 // Human-facing UUT/TMDE label matching the sidebar's formatInstrumentIdentity,
 // so a UUT reads identically in the report and on screen.
-const formatInstrumentIdentity = (item = {}) => {
-  const inst = item.instrument || item;
-  const make = String(inst.manufacturer || item.manufacturer || "").trim();
-  const model = String(inst.model || item.model || "").trim();
-  const name = String(
-    item.description || item.name || inst.description || inst.name || "",
-  ).trim();
-  const prefix = [make, model].filter(Boolean).join(" ");
-  if (!prefix) return name || "Unnamed UUT";
-  if (!name) return prefix;
-  return name.toLowerCase().startsWith(prefix.toLowerCase())
-    ? name
-    : `${prefix} ${name}`;
-};
+
 
 const rangeLabel = (range) => {
   const unit = range.unit ? ` ${range.unit}` : "";

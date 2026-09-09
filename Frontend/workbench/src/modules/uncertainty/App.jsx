@@ -1,6 +1,7 @@
 /**
  * src/App.jsx
  */
+import { formatInstrumentIdentity } from "./utils/instrumentIdentity";
 import React, {
   useState,
   useMemo,
@@ -28,6 +29,7 @@ import BugReportModal from "./components/modals/BugReportModal";
 import { getPointDiagnostics } from "./utils/pointDiagnostics";
 import { createWalkthroughSteps } from "./components/common/walkthroughSteps";
 import GuidedWalkthrough from "./components/common/GuidedWalkthrough";
+import MeasurementAreaPopover from "./components/common/MeasurementAreaPopover";
 import SidebarColumnPopover from "./components/common/SidebarColumnPopover";
 import InlineMenuSelect from "./components/common/InlineMenuSelect";
 
@@ -453,28 +455,7 @@ const getSidebarGridTemplate = (
   return parts.join(" ");
 };
 
-const formatInstrumentIdentity = (item = {}) => {
-  const inst = item.instrument || item;
-  const make = String(inst.manufacturer || item.manufacturer || "").trim();
-  const model = String(inst.model || item.model || "").trim();
-  const name = String(
-    item.description ||
-      item.name ||
-      inst.description ||
-      inst.name ||
-      "",
-  ).trim();
-  const prefix = [make, model].filter(Boolean).join(" ");
-  const identity = !prefix
-    ? name || "Instrument"
-    : !name
-      ? prefix
-      : name.toLowerCase().startsWith(prefix.toLowerCase())
-    ? name
-    : `${prefix} ${name}`;
-  const nickname = String(item.nickname || "").trim();
-  return nickname || identity;
-};
+
 
 const SCOPED_ZOOM_SURFACE_SELECTOR = [
   ".app-chrome-zoom-surface",
@@ -2647,6 +2628,8 @@ function App({ showThemeToggle = false }) {
   // unit instead of silently choosing the first range.
   const [pendingPointUnitChoice, setPendingPointUnitChoice] = useState(null);
   const [openFunctionSettingsId, setOpenFunctionSettingsId] = useState(null);
+  const pointSettingsAnchorRef = useRef(null);
+  const pointUnitAnchorRef = useRef(null);
 
   useEffect(() => {
     if (!pendingPointUnitChoice) return undefined;
@@ -2661,7 +2644,7 @@ function App({ showThemeToggle = false }) {
   useEffect(() => {
     if (!openFunctionSettingsId) return undefined;
     const closeSettings = (event) => {
-      if (event.target?.closest?.(".function-point-settings")) return;
+      if (event.target?.closest?.(".function-point-settings, .function-point-settings-menu")) return;
       setOpenFunctionSettingsId(null);
     };
     document.addEventListener("pointerdown", closeSettings);
@@ -5234,15 +5217,17 @@ function App({ showThemeToggle = false }) {
             title={`${fnGroup.name} measurement area settings`}
             aria-label={`${fnGroup.name} measurement area settings`}
             aria-expanded={settingsOpen}
-            onClick={() =>
+            onClick={(event) => {
+              pointSettingsAnchorRef.current = event.currentTarget;
               setOpenFunctionSettingsId((current) =>
                 current === fnGroup.id ? null : fnGroup.id,
-              )
-            }
+              );
+            }}
           >
             <FontAwesomeIcon icon={faCog} />
           </button>
           {settingsOpen && (
+            <MeasurementAreaPopover anchorRef={pointSettingsAnchorRef}>
             <div
               className="function-point-settings-menu"
               data-tour="function-settings-menu"
@@ -5302,6 +5287,7 @@ function App({ showThemeToggle = false }) {
                 </span>
               </label>
             </div>
+            </MeasurementAreaPopover>
           )}
         </div>
         <div
@@ -5312,7 +5298,8 @@ function App({ showThemeToggle = false }) {
             type="button"
             className="btn-icon-only small function-point-add-button"
             data-tour="add-measurement-point"
-            onClick={() => {
+            onClick={(event) => {
+              pointUnitAnchorRef.current = event.currentTarget;
               setExpandedFunctions((previous) =>
                 new Set(previous).add(fnGroup.id),
               );
@@ -5333,6 +5320,7 @@ function App({ showThemeToggle = false }) {
             <FontAwesomeIcon icon={faPlus} size="xs" />
           </button>
           {pendingPointUnitChoice?.functionId === fnGroup.id && (
+              <MeasurementAreaPopover anchorRef={pointUnitAnchorRef}>
               <div
                 className="budget-settings-menu point-unit-picker function-point-unit-picker"
                 data-tour="measurement-point-menu"
@@ -5366,6 +5354,7 @@ function App({ showThemeToggle = false }) {
                   Cancel
                 </button>
               </div>
+              </MeasurementAreaPopover>
             )}
         </div>
       </>
@@ -6018,6 +6007,9 @@ function App({ showThemeToggle = false }) {
                   </div>
                 )}
 
+                <div className="sidebar-points-scroll-wrapper measurement-points-table" role="region" aria-label="Measurement points">
+                  <div className="measurement-points-table-content">
+                    {sidebarData.length > 0 && renderSidebarColumnHeaders()}
                 {sidebarData.map((fnGroup) => {
                     const isFnExpanded = expandedFunctions.has(fnGroup.id);
                     // The Unassigned bucket renders its points directly under the
@@ -6059,8 +6051,7 @@ function App({ showThemeToggle = false }) {
                           </div>
                           {isFnExpanded && pts.length > 0 && (
                             <div className="tree-branch">
-                              <div className="sidebar-points-scroll-wrapper">
-                                {renderSidebarColumnHeaders()}
+                              <div className="measurement-area-points">
                                 {pts.map((tp, index) =>
                                   renderSidebarPointRow(tp, fnGroup, pts, index),
                                 )}
@@ -6110,8 +6101,7 @@ function App({ showThemeToggle = false }) {
 
                         {isFnExpanded && points.length > 0 && (
                           <div className="tree-branch">
-                            <div className="sidebar-points-scroll-wrapper">
-                              {renderSidebarColumnHeaders()}
+                            <div className="measurement-area-points">
                               {points.map((tp, index) =>
                                 renderSidebarPointRow(tp, fnGroup, points, index),
                               )}
@@ -6121,6 +6111,8 @@ function App({ showThemeToggle = false }) {
                       </div>
                     );
                   })}
+                  </div>
+                </div>
                   </div>
                 </div>
               </div>

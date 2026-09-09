@@ -276,6 +276,23 @@ app.whenReady().then(async () => {
       "Complete derived point has no warnings",
     );
     await capture("derived-complete");
+    assert.equal(await page.locator('.sidebar-points-scroll-wrapper').count(), 1, 'All measurement areas share one scroller');
+    assert.equal(await page.locator('.sidebar-column-header-stack').count(), 1, 'One shared set of column headers');
+    const pointTable = page.locator('.measurement-points-table');
+    assert.ok(await pointTable.locator('.point-grid-item').count() >= 2, 'Combined table contains direct and derived points');
+    const scrollGeometry = await pointTable.evaluate(table => {
+      const header=table.querySelector('.sidebar-column-header-stack');
+      const rows=[...table.querySelectorAll('.point-grid-item')];
+      const before=[header,...rows].map(e=>e.getBoundingClientRect().left);
+      table.scrollLeft=100;
+      const after=[header,...rows].map(e=>e.getBoundingClientRect().left);
+      const shift=table.scrollLeft;
+      table.scrollLeft=0;
+      return {shift, deltas:before.map((x,i)=>x-after[i])};
+    });
+    assert.ok(scrollGeometry.shift > 0, 'Combined point table can scroll horizontally');
+    assert.ok(scrollGeometry.deltas.every(delta=>Math.abs(delta-scrollGeometry.shift)<2), 'Headers and all area rows scroll together');
+    await capture('combined-measurement-points');
     const toggleMitigations = async (enabled) => {
       await page
         .getByRole("button", { name: "Filter visible columns", exact: true })
@@ -537,6 +554,13 @@ app.whenReady().then(async () => {
       .getByRole("button", { name: "Close walkthrough", exact: true })
       .click();
     assert.equal(await page.locator(".guided-walkthrough-layer").count(), 0);
+    await page.locator('[data-tour="tab-overview"]').click();
+    await page.locator('[data-tour="uut-add-function"]').click();
+    await page.getByPlaceholder("New measurement area").fill("Mechanical bench");
+    await page.getByPlaceholder("New measurement area").press("Enter");
+    assert.equal(await page.locator('.sidebar-points-scroll-wrapper').count(), 1);
+    assert.ok(await page.locator('.measurement-points-table .measurement-group-container').count() >= 2, 'New areas join the same point table');
+    await capture('multiple-measurement-areas');
     console.log(
       "PASS: direct and derived creation, instrument selection, both input budgets, range/mismatch warnings, menus, all tutorial workflows, dark theme and small viewport.",
     );

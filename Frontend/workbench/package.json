@@ -112,6 +112,7 @@
     "electron": "^41.2.0",
     "electron-builder": "^26.0.12",
     "jsdom": "^25.0.1",
+    "playwright": "1.62.1",
     "serve": "^14.2.6",
     "vite": "^6.0.7",
     "vite-plugin-singlefile": "^2.3.3",

@@ -943,7 +943,7 @@ describe("UncertaintyApp", () => {
     ).toHaveClass("instrument-row-delete");
     expect(
       within(cardHeader).queryByRole("button", {
-        name: "Delete Selected Instrument",
+        name: "Delete Instrument",
       }),
     ).not.toBeInTheDocument();
 
@@ -961,11 +961,11 @@ describe("UncertaintyApp", () => {
       clientX: 120,
       clientY: 160,
     });
-    expect(await screen.findByText("Copy UUT Instrument")).toBeInTheDocument();
+    expect(await screen.findByText("Copy Instrument")).toBeInTheDocument();
     const instrumentMenu = document.querySelector(".context-menu");
-    expect(within(instrumentMenu).getByText("Cut UUT Instrument")).toBeInTheDocument();
+    expect(within(instrumentMenu).getByText("Cut Instrument")).toBeInTheDocument();
     expect(
-      within(instrumentMenu).getByText("Delete Selected Instrument"),
+      within(instrumentMenu).getByText("Delete Instrument"),
     ).toBeInTheDocument();
     fireEvent.pointerDown(document.body);
 
@@ -989,13 +989,13 @@ describe("UncertaintyApp", () => {
     fireEvent.pointerMove(document, { clientY: 200 });
     fireEvent.pointerUp(document);
     await waitFor(() => {
-      expect(tableContainer.style.height).toBe("390px");
+      expect(tableContainer.style.height).toBe("");
       expect(tableContainer.style.flex).toBe("0 0 auto");
       expect(
         window.localStorage.getItem(
           "uncertalytics:overview:uut:instrument-table-height:v2",
         ),
-      ).toBe("390");
+      ).toBeNull();
     });
 
     const currentUutRow = screen.getByText("Layout UUT").closest("tr");

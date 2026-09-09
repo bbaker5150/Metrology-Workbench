@@ -1,6 +1,7 @@
 /**
  * src/features/analysis/components/UncertaintyPanel.jsx
  */
+import { formatInstrumentIdentity } from "../../../utils/instrumentIdentity";
 import React, {
   useState,
   useEffect,
@@ -143,10 +144,37 @@ const AREA_PALETTE = [
 //   { kind: "uut"|"tmde", mode: "copy"|"cut", item }
 let instrumentClipboard = null;
 
-// Cross-view clipboard for copy/cut/paste of a single RANGE row (distinct from
-// the instrument clipboard above). Lets the user build one range and duplicate
-// it across an instrument's many ranges.  { kind: "uut"|"tmde", range }
+// The active clipboard payload is either an instrument or a range. Copying
+// either clears the other, so shortcuts and menus always paste the latest copy.
+// Range payload: { kind: "uut"|"tmde", range }
 let rangeClipboard = null;
+
+export const insertAfterId = (rows, row, targetId, idOf = candidate => candidate.id) => {
+  const index = rows.findIndex(candidate => String(idOf(candidate)) === String(targetId));
+  const next = [...rows];
+  next.splice(index < 0 ? next.length : index + 1, 0, row);
+  return next;
+};
+
+export const pasteInstrumentIntoSession = (session, clip, kind, areaKey, targetId) => {
+  const area = resolveSessionMeasurementAreas(session).find(a =>
+    a.key === areaKey || String(a.id) === String(areaKey));
+  const listKey = kind === "uut" ? "uuts" : "tmdes";
+  const sourceKey = clip.kind === "uut" ? "uuts" : "tmdes";
+  const row = buildPastedInstrumentRow(clip.item, kind, area, clip.mode);
+  const next = { ...session };
+  if (clip.mode === "cut") next[sourceKey] = (session[sourceKey] || []).filter(x => x.id !== clip.item.id);
+  const rows = next[listKey] || [];
+  // Header paste goes after the area's last instrument, even if the global list is interleaved.
+  const anchor = targetId || rows.filter(x => instrumentHasMeasurementArea(x, area?.key)).at(-1)?.id;
+  next[listKey] = insertAfterId(rows, row, anchor);
+  return { session: next, row };
+};
+
+const pasteAreaFromEvent = (event, item) =>
+  event.currentTarget?.closest?.("[data-measurement-area]")?.dataset.measurementArea ||
+  event.target?.closest?.("[data-measurement-area]")?.dataset.measurementArea ||
+  instrumentMeasurementAreas(item)[0]?.key;
 
 // Build a pasted instrument row. "copy" gets fresh ids (a true duplicate);
 // "cut" preserves the original id (a move) and is applied to the source row.
@@ -1147,12 +1175,15 @@ export const addRangeToItem = (item, activeRangeId) => {
 const cloneRangeForPaste = (range = {}) => {
   const clone = JSON.parse(JSON.stringify(range || {}));
   clone.id = uuidv4();
+  if (clone.rangeId !== undefined) clone.rangeId = clone.id;
+  delete clone._id;
   return clone;
 };
 
 // Append a pasted (cloned) range next to the active range, mirroring
 // addRangeToItem's function/array placement. Returns { item, newRangeId }.
-const pasteRangeIntoItem = (item, activeRangeId, clipRange) => {
+export const pasteRangeIntoItem = (item, activeRangeId, clipRange) => {
+  item = { ...item, rangeOrderMode: "manual" };
   const inst = item?.instrument || {};
   const newRange = cloneRangeForPaste(clipRange);
   if (Array.isArray(inst.functions) && inst.functions.length) {
@@ -1161,15 +1192,18 @@ const pasteRangeIntoItem = (item, activeRangeId, clipRange) => {
     );
     if (fnIdx < 0) fnIdx = 0;
     const functions = inst.functions.map((fn, i) =>
-      i === fnIdx ? { ...fn, ranges: [...(fn.ranges || []), newRange] } : fn,
+      i === fnIdx ? { ...fn, ranges: insertAfterId(fn.ranges || [], newRange, activeRangeId, rangeIdOf) } : fn,
     );
     return { item: { ...item, instrument: { ...inst, functions } }, newRangeId: newRange.id };
   }
   if (Array.isArray(inst.ranges)) {
     return {
-      item: { ...item, instrument: { ...inst, ranges: [...inst.ranges, newRange] } },
+      item: { ...item, instrument: { ...inst, ranges: insertAfterId(inst.ranges, newRange, activeRangeId, rangeIdOf) } },
       newRangeId: newRange.id,
     };
+  }
+  if (Array.isArray(item.ranges)) {
+    return { item: { ...item, ranges: insertAfterId(item.ranges, newRange, activeRangeId, rangeIdOf) }, newRangeId: newRange.id };
   }
   return {
     item: { ...item, instrument: { ...inst, functions: [{ id: uuidv4(), name: "", ranges: [newRange] }] } },
@@ -1305,6 +1339,8 @@ export const sortRangesAscending = (ranges = []) =>
 // or legacy top-level ranges) and preserve referential identity when no order
 // changed. Callers can therefore skip persistence for already-sorted items.
 export const sortRangesInItem = (item) => {
+  // Preserve deliberate paste placement when an editor closes.
+  if (item?.rangeOrderMode === "manual") return item;
   if (!item || typeof item !== "object") return item;
   let nextItem = item;
   const inst = item.instrument || {};
@@ -1673,29 +1709,7 @@ const getBandDistLabel = (tolerance = {}) => {
     `k=${divisor}`
   );
 };
-const formatInstrumentIdentity = (source = {}, fallback = "Unnamed Instrument") => {
-  const nickname = String(source.nickname || "").trim();
-  if (nickname) return nickname;
-  const instrument = source.instrument || source || {};
-  const manufacturer = instrument.manufacturer || source.manufacturer || "";
-  const hasStructuredIdentity =
-    manufacturer || instrument.description || instrument.name || instrument.model;
-  const make =
-    instrument.description ||
-    instrument.name ||
-    source.description ||
-    (!hasStructuredIdentity ? source.name : "");
-  const model = instrument.model || source.model || "";
-  const parts = [];
-  [manufacturer, model, make].forEach((part) => {
-    const value = String(part || "").trim();
-    if (!value) return;
-    if (!parts.some((existing) => existing.toLowerCase() === value.toLowerCase())) {
-      parts.push(value);
-    }
-  });
-  return parts.join(" ") || source.description || source.name || fallback;
-};
+
 
 export const applyTmdeIdentityToPoints = (points = [], tmde = {}) => {
   const identity = formatInstrumentIdentity(tmde);
@@ -2120,13 +2134,9 @@ export const EditableDescriptionCell = ({
     return "local";
   };
 
-  const combinedDescription =
-    [local.make, local.model, local.name].filter(Boolean).join(" ") ||
-    "Click to add description";
-  const tag = String(local.nickname || "").trim();
-  const displayDescription = tag
-    ? `${tag} — ${combinedDescription}`
-    : combinedDescription;
+  const displayDescription = formatInstrumentIdentity({
+    manufacturer: local.make, model: local.model, description: local.name, nickname: local.nickname,
+  }, "Click to add description");
   return (
     <div ref={anchorRef} className="inline-desc-cell">
       {editing ? (
@@ -2151,7 +2161,7 @@ export const EditableDescriptionCell = ({
       ) : (
         <button
           type="button"
-          className={`inline-desc-combined${combinedDescription === "Click to add description" ? " is-empty" : ""}`}
+          className={`inline-desc-combined${displayDescription === "Click to add description" ? " is-empty" : ""}`}
           title="Edit manufacturer, model, and name"
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => {
@@ -2461,7 +2471,7 @@ const uutTableTitle = (count) =>
   Number(count) > 1 ? "Units Under Test" : "Unit Under Test";
 
 const selectedInstrumentDeleteLabel = (count) =>
-  `Delete Selected Instrument${Number(count) === 1 ? "" : "s"}`;
+  `Delete Instrument${Number(count) === 1 ? "" : "s"}`;
 
 export const getInstrumentContextTargetIds = (selectedIds, clickedId) => {
   const currentSelection = Array.isArray(selectedIds) ? selectedIds : [];
@@ -2929,6 +2939,14 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
         window.removeEventListener("pointercancel", handleUp);
         document.body.style.cursor = previousCursor;
         document.body.style.userSelect = previousUserSelect;
+        const fullHeight = getInstrumentTableContentHeight(container);
+        if (fullHeight && nextHeight >= fullHeight - 2) {
+          container.style.removeProperty("height");
+          container.style.removeProperty("max-height");
+          container.style.removeProperty("flex");
+          resetHeight();
+          return;
+        }
         setHeight(nextHeight);
         try {
           window.localStorage.setItem(storageKey, String(nextHeight));
@@ -2940,7 +2958,7 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
       window.addEventListener("pointerup", handleUp, { once: true });
       window.addEventListener("pointercancel", handleUp, { once: true });
     },
-    [height, storageKey],
+    [height, storageKey, resetHeight],
   );
 
   const displayedHeight = getDisplayedInstrumentTableHeight({
@@ -7727,6 +7745,8 @@ const SummaryDashboard = ({
           ? " is-function-drop-target"
           : ""
       }`}
+      data-measurement-area={fn.key}
+      onContextMenu={(e) => openAreaRowMenu(e, kind, fn)}
       style={functionRowStyle(fn.key)}
       onDragOver={handleInstrumentDragOverFunction(kind, fn)}
       onDragLeave={() => setDragOverFunctionTarget(null)}
@@ -8070,7 +8090,10 @@ const SummaryDashboard = ({
     // A secondary-button press is followed by onContextMenu. Do not collapse a
     // multi-instrument selection before that menu determines its batch target.
     if (event.button !== undefined && event.button !== 0) return;
-    activateRangeRow(kind, stateItemId, index);
+    pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
+    activateRangeRow(kind, item.id, index);
+    setLocalRangeIndices(previous => kind === "uut" ? { ...previous, [stateItemId]: index } : previous);
+    setTmdeRangeIndices(previous => kind === "tmde" ? { ...previous, [stateItemId]: index } : previous);
     const rangeCell = event.target?.closest?.("[data-range-cell]");
     if (!rangeCell) {
       setSelectedRangeIds({});
@@ -8515,6 +8538,7 @@ const SummaryDashboard = ({
   // Selection Handlers (Wrapped)
   // Selection Handlers (Wrapped)
   const handleUutClick = (e, id) => {
+    pasteDestinationRef.current = { kind: "uut", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
     if (!isInlineRowControlTarget(e.target)) {
       onInstrumentSelection();
       setSelectedTmdeIds([]);
@@ -8531,6 +8555,7 @@ const SummaryDashboard = ({
     );
   };
   const handleTmdeClick = (e, id) => {
+    pasteDestinationRef.current = { kind: "tmde", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
     if (!isInlineRowControlTarget(e.target)) {
       onInstrumentSelection();
       setSelectedUutIds([]);
@@ -8640,6 +8665,7 @@ const SummaryDashboard = ({
 
   // --- Cut / copy / paste of instrument rows (context menu + ctrl-c/x/v) ---
   const [rowMenu, setRowMenu] = useState(null);
+  const pasteDestinationRef = useRef(null);
   // Inline authoring of an instrument's associated Type B uncertainties.
   const [typeBEditor, setTypeBEditor] = useState(null); // { kind, item }
 
@@ -8663,6 +8689,7 @@ const SummaryDashboard = ({
   };
 
   const copyInstrument = (kind, item, mode = "copy") => {
+    rangeClipboard = null;
     instrumentClipboard = { kind, mode, item: JSON.parse(JSON.stringify(item)) };
   };
 
@@ -8677,39 +8704,29 @@ const SummaryDashboard = ({
     if (updated !== sessionData) onSessionSave?.(updated);
   };
 
-  const pasteInstrument = (kind, targetAreaId) => {
+  const pasteInstrument = (kind, areaKey, targetId) => {
     if (!onSessionSave || !instrumentClipboard) return;
-    const clip = instrumentClipboard;
-    if (clip.kind !== kind) return;
-    const listKey = kind === "uut" ? "uuts" : "tmdes";
-    const area = (sessionData.measurementAreas || []).find(
-      (a) => String(a.id) === String(targetAreaId),
-    );
-    if (clip.mode === "cut") {
-      const moved = buildPastedInstrumentRow(clip.item, kind, area, "cut");
-      const list = (sessionData[listKey] || []).map((row) =>
-        row.id === clip.item.id ? moved : row,
-      );
-      instrumentClipboard = null;
-      onSessionSave({ ...sessionData, [listKey]: list });
-    } else {
-      const clone = buildPastedInstrumentRow(clip.item, kind, area, "copy");
-      if (kind === "uut") {
-        setSelectedTmdeIds([]);
-        setSelectedUutIds([clone.id]);
-      } else {
-        setSelectedUutIds([]);
-        setSelectedTmdeIds([clone.id]);
-      }
-      onSessionSave({
-        ...sessionData,
-        [listKey]: [...(sessionData[listKey] || []), clone],
-      });
-    }
+    const { session: next, row } = pasteInstrumentIntoSession(sessionData, instrumentClipboard, kind, areaKey, targetId);
+    if (instrumentClipboard.mode === "cut") instrumentClipboard = null;
+    pasteDestinationRef.current = { kind, areaKey, targetId: row.id };
+    setSelectedUutIds(kind === "uut" ? [row.id] : []);
+    setSelectedTmdeIds(kind === "tmde" ? [row.id] : []);
+    onSessionSave(next);
+  };
+
+  const openAreaRowMenu = (event, kind, area) => {
+    pasteDestinationRef.current = { kind, areaKey: area.key, targetId: null };
+    event.preventDefault();
+    event.stopPropagation();
+    setRowMenu({ x: event.clientX, y: event.clientY, items: [{
+      label: "Paste Instrument", icon: faPaste, disabled: !instrumentClipboard,
+      action: () => pasteInstrument(kind, area.key),
+    }] });
   };
 
   const openInstrumentRowMenu = (e, kind, item) => {
     if (!onSessionSave) return;
+    pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(e, item), targetId: item.id };
     e.preventDefault();
     e.stopPropagation();
     const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
@@ -8725,18 +8742,16 @@ const SummaryDashboard = ({
       }
     }
     setLastSelectionTarget(kind);
-    const canPaste = !!instrumentClipboard && instrumentClipboard.kind === kind;
-    const areaId =
-      kind === "uut" ? item.measurementAreaId : resolveItemAreaId("tmde", item);
+    const canPaste = !!instrumentClipboard;
     const items = [
-      { label: `Copy ${kind.toUpperCase()} Instrument`, icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
-      { label: `Cut ${kind.toUpperCase()} Instrument`, icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
+      { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
+      { label: "Cut Instrument", icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
     ];
     if (canPaste) {
       items.push({
-        label: `Paste ${kind.toUpperCase()} Instrument`,
+        label: "Paste Instrument",
         icon: faPaste,
-        action: () => pasteInstrument(kind, areaId),
+        action: () => pasteInstrument(kind, pasteAreaFromEvent(e, item), item.id),
       });
     }
     items.push({ type: "divider" });
@@ -8766,6 +8781,7 @@ const SummaryDashboard = ({
       );
       if (fn?.unit) clone.unit = fn.unit;
     }
+    instrumentClipboard = null;
     rangeClipboard = { kind, range: clone };
   };
   const cutRange = (kind, item, range) => {
@@ -8774,7 +8790,7 @@ const SummaryDashboard = ({
     if (rangeId) handleRemoveRange(kind, item, rangeId);
   };
   const pasteRange = (kind, item, activeRangeId) => {
-    if (!onSessionSave || !rangeClipboard || rangeClipboard.kind !== kind) return;
+    if (!onSessionSave || !rangeClipboard) return;
     const { item: updated, newRangeId } = pasteRangeIntoItem(
       item,
       activeRangeId,
@@ -8819,11 +8835,13 @@ const SummaryDashboard = ({
         ? { [itemStateKey(kind, item.id)]: [String(rangeId)] }
         : {},
     );
-    const canPaste = !!rangeClipboard && rangeClipboard.kind === kind;
+    const canPaste = !!rangeClipboard;
     const canDelete = Boolean(rangeId);
     const items = [
-      { label: `Copy ${kind.toUpperCase()} Instrument`, icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
+      { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
       { label: "Copy Range", icon: faCopy, action: () => copyRange(kind, item, rangeId) },
+      ...(instrumentClipboard ? [{ label: "Paste Instrument", icon: faPaste,
+        action: () => pasteInstrument(kind, pasteAreaFromEvent(e, item), item.id) }] : []),
     ];
     if (canDelete) {
       items.push({
@@ -8885,7 +8903,7 @@ const SummaryDashboard = ({
 
       // When the selected instrument is expanded (view-all-ranges), copy/cut/
       // paste act on the ACTIVE RANGE rather than the whole instrument.
-      if (kind && isShowingAllRanges(kind, oneUut || oneTmde)) {
+      if (kind && (lastSelectionTarget === "range" || (key === "v" && rangeClipboard))) {
         const target = getSelectedRangeTarget(kind);
         if (target?.activeRange) {
           if (key === "c" || key === "x") {
@@ -8897,7 +8915,7 @@ const SummaryDashboard = ({
             }
             return;
           }
-          if (key === "v" && rangeClipboard && rangeClipboard.kind === kind) {
+          if (key === "v" && rangeClipboard) {
             e.preventDefault();
             e.stopImmediatePropagation();
             pasteRange(kind, target.item, rangeIdOf(target.activeRange));
@@ -8914,19 +8932,14 @@ const SummaryDashboard = ({
           copyInstrument(kind, item, key === "x" ? "cut" : "copy");
         }
       } else if (key === "v" && instrumentClipboard) {
-        const pasteKind = instrumentClipboard.kind;
-        // Only handle paste when a row of the clipboard's kind is selected, so
-        // we never steal Ctrl+V from the app's point/UUT clipboard.
-        const haveTarget =
-          (pasteKind === "uut" && oneUut) || (pasteKind === "tmde" && oneTmde);
-        if (!haveTarget) return;
-        const areaId =
-          pasteKind === "uut"
-            ? (findItem("uut", oneUut) || {}).measurementAreaId || ""
-            : resolveItemAreaId("tmde", findItem("tmde", oneTmde) || {});
+        const destination = pasteDestinationRef.current;
+        const pasteKind = destination?.kind || kind;
+        if (!pasteKind) return;
+        const item = findItem(pasteKind, oneUut || oneTmde);
+        const areaKey = destination?.areaKey || instrumentMeasurementAreas(item)[0]?.key;
         e.preventDefault();
         e.stopImmediatePropagation();
-        pasteInstrument(pasteKind, areaId);
+        pasteInstrument(pasteKind, areaKey, destination ? destination.targetId : item?.id);
       }
     };
     // Capture phase so this preempts the app-level point/UUT clipboard handler
@@ -8943,6 +8956,7 @@ const SummaryDashboard = ({
     localRangeIndices,
     tmdeRangeIndices,
     expandedRangeKeys,
+    lastSelectionTarget,
   ]);
 
   const resolveRangeWrapper = (uut, indices, savedTol, nominal) => {
@@ -9124,7 +9138,7 @@ const SummaryDashboard = ({
                   // Range / Tolerance / Resolution columns line up row-for-row.
                   // Description + Sync span the group via rowSpan; clicking a row
                   // selects that range so the header +/-/tolerance buttons act on it.
-                  if (showAllRanges) {
+                  if (showAllRanges || visibleRangeRows.length > 1) {
                     const n = visibleRangeRows.length;
                     const spanRows = n;
                     const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
@@ -9151,6 +9165,7 @@ const SummaryDashboard = ({
                                   : undefined
                               }
                               onDragEnd={i === 0 ? handleInstrumentDragEnd : undefined}
+                              data-measurement-area={uutFnKey}
                               style={functionRowStyle(uutFnKey, {
                                 cursor: "pointer",
                               })}
@@ -9235,7 +9250,8 @@ const SummaryDashboard = ({
                             ? handleInstrumentDropOnArea("uut", uutFnKey)
                             : undefined
                         }
-                        style={functionRowStyle(uutFnKey, {
+                        data-measurement-area={uutFnKey}
+                              style={functionRowStyle(uutFnKey, {
                           cursor: "pointer",
                           opacity: draggingInstrumentId === uut.id ? 0.4 : undefined,
                           borderBottom:
@@ -9477,7 +9493,8 @@ const SummaryDashboard = ({
                           key={`${uut.id}-spec-${sIdx}`}
                           className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
-                          style={functionRowStyle(uutFnKey, {
+                          data-measurement-area={uutFnKey}
+                              style={functionRowStyle(uutFnKey, {
                             cursor: "pointer",
                           })}
                           onClick={(e) => handleUutClick(e, uut.id)}
@@ -9606,7 +9623,7 @@ const SummaryDashboard = ({
                   // Expanded "view all ranges": one real <tr> per range (see the
                   // UUT block above for the rationale). TMDE adds the Distribution
                   // per-range cell.
-                  if (showAllRanges) {
+                  if (showAllRanges || visibleRangeRows.length > 1) {
                     const n = visibleRangeRows.length;
                     const spanRows = n;
                     const activeRangeIndex = tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
@@ -9633,6 +9650,7 @@ const SummaryDashboard = ({
                                   : undefined
                               }
                               onDragEnd={i === 0 ? handleInstrumentDragEnd : undefined}
+                              data-measurement-area={tmdeFnKey}
                               style={functionRowStyle(tmdeFnKey, {
                                 cursor: "pointer",
                               })}
@@ -9717,7 +9735,8 @@ const SummaryDashboard = ({
                             ? handleInstrumentDropOnArea("tmde", tmdeFnKey)
                             : undefined
                         }
-                        style={functionRowStyle(tmdeFnKey, {
+                        data-measurement-area={tmdeFnKey}
+                              style={functionRowStyle(tmdeFnKey, {
                           cursor: "pointer",
                           opacity: draggingInstrumentId === tmde.id ? 0.4 : undefined,
                           borderBottom:
@@ -9990,7 +10009,8 @@ const SummaryDashboard = ({
                         <tr
                           key={`${tmde.id}-spec-${sIdx}`}
                           className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === tmde.id ? "hovered-spec-row" : ""}`}
-                          style={functionRowStyle(tmdeFnKey, {
+                          data-measurement-area={tmdeFnKey}
+                              style={functionRowStyle(tmdeFnKey, {
                             cursor: "pointer",
                           })}
                           onClick={(e) => handleTmdeClick(e, tmde.id)}
@@ -10500,6 +10520,7 @@ function DetailedView({
 
   // --- Cut / copy / paste of instrument rows (shared module clipboard) ---
   const [rowMenu, setRowMenu] = useState(null);
+  const pasteDestinationRef = useRef(null);
   const resolveDetailAreaId = (kind, item) => {
     if (!item) return "";
     if (kind === "uut") return item.measurementAreaId || "";
@@ -10511,6 +10532,7 @@ function DetailedView({
     return area ? area.id : "";
   };
   const copyInstrument = (kind, item, mode = "copy") => {
+    rangeClipboard = null;
     instrumentClipboard = { kind, mode, item: JSON.parse(JSON.stringify(item)) };
   };
 
@@ -10524,38 +10546,28 @@ function DetailedView({
     );
     if (updated !== sessionData) onSessionSave?.(updated);
   };
-  const pasteInstrument = (kind, targetAreaId) => {
+  const pasteInstrument = (kind, areaKey, targetId) => {
     if (!onSessionSave || !instrumentClipboard) return;
-    const clip = instrumentClipboard;
-    if (clip.kind !== kind) return;
-    const listKey = kind === "uut" ? "uuts" : "tmdes";
-    const area = (sessionData.measurementAreas || []).find(
-      (a) => String(a.id) === String(targetAreaId),
-    );
-    if (clip.mode === "cut") {
-      const moved = buildPastedInstrumentRow(clip.item, kind, area, "cut");
-      const list = (sessionData[listKey] || []).map((row) =>
-        row.id === clip.item.id ? moved : row,
-      );
-      instrumentClipboard = null;
-      onSessionSave({ ...sessionData, [listKey]: list });
-    } else {
-      const clone = buildPastedInstrumentRow(clip.item, kind, area, "copy");
-      if (kind === "uut") {
-        setSelectedTmdeIds([]);
-        setSelectedUutIds([clone.id]);
-      } else {
-        setSelectedUutIds([]);
-        setSelectedTmdeIds([clone.id]);
-      }
-      onSessionSave({
-        ...sessionData,
-        [listKey]: [...(sessionData[listKey] || []), clone],
-      });
-    }
+    const { session: next, row } = pasteInstrumentIntoSession(sessionData, instrumentClipboard, kind, areaKey, targetId);
+    if (instrumentClipboard.mode === "cut") instrumentClipboard = null;
+    pasteDestinationRef.current = { kind, areaKey, targetId: row.id };
+    setSelectedUutIds(kind === "uut" ? [row.id] : []);
+    setSelectedTmdeIds(kind === "tmde" ? [row.id] : []);
+    onSessionSave(next);
+  };
+
+  const openAreaRowMenu = (event, kind, area) => {
+    pasteDestinationRef.current = { kind, areaKey: area.key, targetId: null };
+    event.preventDefault();
+    event.stopPropagation();
+    setRowMenu({ x: event.clientX, y: event.clientY, items: [{
+      label: "Paste Instrument", icon: faPaste, disabled: !instrumentClipboard,
+      action: () => pasteInstrument(kind, area.key),
+    }] });
   };
   const openInstrumentRowMenu = (e, kind, item) => {
     if (!onSessionSave) return;
+    pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(e, item), targetId: item.id };
     e.preventDefault();
     e.stopPropagation();
     const selectedIds = kind === "uut" ? selectedUutIds : selectedTmdeIds;
@@ -10571,17 +10583,17 @@ function DetailedView({
       }
     }
     setLastSelectionTarget(kind);
-    const canPaste = !!instrumentClipboard && instrumentClipboard.kind === kind;
-    const areaId = resolveDetailAreaId(kind, item);
+    const canPaste = !!instrumentClipboard;
+
     const items = [
-      { label: `Copy ${kind.toUpperCase()} Instrument`, icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
-      { label: `Cut ${kind.toUpperCase()} Instrument`, icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
+      { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
+      { label: "Cut Instrument", icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
     ];
     if (canPaste) {
       items.push({
-        label: `Paste ${kind.toUpperCase()} Instrument`,
+        label: "Paste Instrument",
         icon: faPaste,
-        action: () => pasteInstrument(kind, areaId),
+        action: () => pasteInstrument(kind, pasteAreaFromEvent(e, item), item.id),
       });
     }
     items.push({ type: "divider" });
@@ -10611,6 +10623,7 @@ function DetailedView({
       );
       if (fn?.unit) clone.unit = fn.unit;
     }
+    instrumentClipboard = null;
     rangeClipboard = { kind, range: clone };
   };
   const cutRange = (kind, item, range) => {
@@ -10619,7 +10632,7 @@ function DetailedView({
     if (rangeId) handleRemoveRangeDetail(kind, item, rangeId);
   };
   const pasteRange = (kind, item, activeRangeId) => {
-    if (!onSessionSave || !rangeClipboard || rangeClipboard.kind !== kind) return;
+    if (!onSessionSave || !rangeClipboard) return;
     const { item: updated, newRangeId } = pasteRangeIntoItem(
       item,
       activeRangeId,
@@ -10656,11 +10669,13 @@ function DetailedView({
         ? { [itemStateKey(kind, item.id)]: [String(rangeId)] }
         : {},
     );
-    const canPaste = !!rangeClipboard && rangeClipboard.kind === kind;
+    const canPaste = !!rangeClipboard;
     const canDelete = Boolean(rangeId);
     const items = [
-      { label: `Copy ${kind.toUpperCase()} Instrument`, icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
+      { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
       { label: "Copy Range", icon: faCopy, action: () => copyRange(kind, item, rangeId) },
+      ...(instrumentClipboard ? [{ label: "Paste Instrument", icon: faPaste,
+        action: () => pasteInstrument(kind, pasteAreaFromEvent(e, item), item.id) }] : []),
     ];
     if (canDelete) {
       items.push({
@@ -10721,7 +10736,7 @@ function DetailedView({
         );
 
       // Expanded instrument → copy/cut/paste act on the active range.
-      if (kind && isShowingAllRangesDetail(kind, oneUut || oneTmde)) {
+      if (kind && (lastSelectionTarget === "range" || (key === "v" && rangeClipboard))) {
         const target = getSelectedRangeTargetDetail(kind);
         if (target?.activeRange) {
           if (key === "c" || key === "x") {
@@ -10733,7 +10748,7 @@ function DetailedView({
             }
             return;
           }
-          if (key === "v" && rangeClipboard && rangeClipboard.kind === kind) {
+          if (key === "v" && rangeClipboard) {
             e.preventDefault();
             e.stopImmediatePropagation();
             pasteRange(kind, target.item, rangeIdOf(target.activeRange));
@@ -10750,17 +10765,14 @@ function DetailedView({
           copyInstrument(kind, item, key === "x" ? "cut" : "copy");
         }
       } else if (key === "v" && instrumentClipboard) {
-        const pasteKind = instrumentClipboard.kind;
-        const haveTarget =
-          (pasteKind === "uut" && oneUut) || (pasteKind === "tmde" && oneTmde);
-        if (!haveTarget) return;
-        const areaId = resolveDetailAreaId(
-          pasteKind,
-          findItem(pasteKind, pasteKind === "uut" ? oneUut : oneTmde) || {},
-        );
+        const destination = pasteDestinationRef.current;
+        const pasteKind = destination?.kind || kind;
+        if (!pasteKind) return;
+        const item = findItem(pasteKind, oneUut || oneTmde);
+        const areaKey = destination?.areaKey || instrumentMeasurementAreas(item)[0]?.key;
         e.preventDefault();
         e.stopImmediatePropagation();
-        pasteInstrument(pasteKind, areaId);
+        pasteInstrument(pasteKind, areaKey, destination ? destination.targetId : item?.id);
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -10775,6 +10787,7 @@ function DetailedView({
     localRangeIndices,
     tmdeRangeIndices,
     expandedRangeKeys,
+    lastSelectionTarget,
   ]);
 
   // Industry Grade Highlighting State
@@ -11542,7 +11555,10 @@ function DetailedView({
   };
   const selectRangeRowDetail = (event, kind, item, index, rangeId, stateItemId = item.id) => {
     if (event.button !== undefined && event.button !== 0) return;
-    activateRangeRowDetail(kind, stateItemId, index);
+    pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
+    activateRangeRowDetail(kind, item.id, index);
+    setLocalRangeIndices(previous => kind === "uut" ? { ...previous, [stateItemId]: index } : previous);
+    setTmdeRangeIndices(previous => kind === "tmde" ? { ...previous, [stateItemId]: index } : previous);
     const rangeCell = event.target?.closest?.("[data-range-cell]");
     if (!rangeCell) {
       setSelectedRangeIds({});
@@ -11887,6 +11903,7 @@ function DetailedView({
 
   // --- NEW: Row Selection Handlers ---
   const handleUutClick = (e, id) => {
+    pasteDestinationRef.current = { kind: "uut", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
     if (!isInlineRowControlTarget(e.target)) {
       onInstrumentSelection();
       setSelectedTmdeIds([]);
@@ -11903,6 +11920,7 @@ function DetailedView({
     );
   };
   const handleTmdeClick = (e, id) => {
+    pasteDestinationRef.current = { kind: "tmde", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
     if (!isInlineRowControlTarget(e.target)) {
       onInstrumentSelection();
       setSelectedUutIds([]);
@@ -12422,6 +12440,8 @@ function DetailedView({
           ? " is-function-drop-target"
           : ""
       }`}
+      data-measurement-area={fn.key}
+      onContextMenu={(e) => openAreaRowMenu(e, kind, fn)}
       style={functionBadgeStyle(fn.key)}
       onDragOver={(event) => {
         event.preventDefault();
@@ -15215,7 +15235,7 @@ function DetailedView({
 
                   // Expanded "view all ranges": one real <tr> per range so the
                   // columns line up (see the Session-Overview panel for rationale).
-                  if (showAllRanges) {
+                  if (showAllRanges || visibleRangeRows.length > 1) {
                     const n = visibleRangeRows.length;
                     const spanRows = n;
                     const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
@@ -15254,6 +15274,7 @@ function DetailedView({
                               onDragEnd={
                                 i === 0 ? handleDetailInstrumentDragEnd : undefined
                               }
+                              data-measurement-area={uutFnKey}
                               style={{
                                 ...functionBadgeStyle(uutFnKey),
                                 cursor: "pointer",
@@ -15344,6 +15365,7 @@ function DetailedView({
                         onContextMenu={(event) =>
                           openInstrumentRowMenu(event, "uut", uut)
                         }
+                        data-measurement-area={uutFnKey}
                         style={{
                           ...functionBadgeStyle(uutFnKey),
                           cursor: "pointer",
@@ -15616,6 +15638,7 @@ function DetailedView({
                           key={`${uutRowKey}-spec-${sIdx}`}
                           className={`instrument-function-row spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
+                          data-measurement-area={uutFnKey}
                           style={{
                             ...functionBadgeStyle(uutFnKey),
                             cursor: "pointer",
@@ -16083,7 +16106,7 @@ function DetailedView({
                       // Expanded "view all ranges": one real <tr> per range.
                       // Description and sync span the group via rowSpan on the
                       // first range row.
-                      if (showAllRanges) {
+                      if (showAllRanges || visibleRangeRows.length > 1) {
                         const n = visibleRangeRows.length;
                         const spanRows = n;
                         const activeRangeIndex =
@@ -16130,6 +16153,7 @@ function DetailedView({
                                       ? handleDetailInstrumentDragEnd
                                       : undefined
                                   }
+                                  data-measurement-area={tmdeFnKey}
                                   style={{
                                     ...functionBadgeStyle(tmdeFnKey),
                                     opacity: isSelectedRow ? 1 : 0.85,
@@ -16229,6 +16253,7 @@ function DetailedView({
                             onContextMenu={(event) =>
                               openInstrumentRowMenu(event, "tmde", masterTmde)
                             }
+                            data-measurement-area={tmdeFnKey}
                             style={{
                               ...functionBadgeStyle(tmdeFnKey),
                               opacity: isSelectedRow ? 1 : 0.85,

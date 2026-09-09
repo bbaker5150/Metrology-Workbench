@@ -20117,3 +20117,71 @@ body.uncertainty-active .context-menu li.destructive:hover {
 .guided-walkthrough-navigation select:focus-visible {
   outline: 2px solid var(--primary-color);
 }
+
+/* One shared measurement-point viewport: all areas and columns scroll together. */
+.uncertainty-module .measurement-points-table {
+  overflow: auto;
+  max-height: 70vh;
+  width: 100%;
+}
+.uncertainty-module .measurement-points-table-content {
+  width: max-content;
+  min-width: 100%;
+}
+.uncertainty-module .measurement-points-table .measurement-group-container {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+.uncertainty-module .measurement-points-table .tree-branch {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.uncertainty-module .measurement-points-table .area-header-sticky {
+  position: relative;
+  top: auto;
+  margin: 0;
+  border-radius: 0;
+  min-width: 100%;
+}
+.uncertainty-module .measurement-points-table .sidebar-column-header-stack {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--sidebar-sticky-surface, var(--content-background));
+}
+/* Keep controls at the left edge of the range column while fields grow. */
+.uncertainty-module .instrument-equipment-table .range-row-cell,
+.uncertainty-module .instrument-equipment-table .range-row-cell:has(.is-editing) {
+  grid-template-columns: 24px 24px minmax(0, 1fr);
+  width: 100%;
+}
+.uncertainty-module .instrument-equipment-table .range-row-cell > .inline-range-editor {
+  grid-column: 3;
+  grid-row: 1;
+}
+.uncertainty-module .instrument-equipment-table .range-row-add { grid-column: 1; }
+.uncertainty-module .instrument-equipment-table .range-row-delete { grid-column: 2; }
+.uncertainty-module .instrument-equipment-table .range-row-cell--without-actions {
+  grid-template-columns: 24px 24px minmax(0, 1fr);
+}
+/* Row-spanned identity cells retain the instrument tint for every selected range. */
+.uncertainty-module .industry-table tbody tr.inline-range-row:is(.is-active-range, .is-selected-range) > :is(td.cell-description, td.cell-sync) {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.uncertainty-module .instrument-equipment-table .range-row-cell:has(.is-editing) {
+  grid-template-columns: 24px 24px max-content;
+  width: max-content;
+}
+
+.uncertainty-module .measurement-points-table { container-type: inline-size; }
+.uncertainty-module .measurement-points-table .area-header-sticky {
+  position: sticky;
+  left: 0;
+  width: 100cqw;
+  min-width: 0;
+  box-sizing: border-box;
+}

@@ -17,10 +17,10 @@ const range = {id:'r1', min:0,max:10,unit:'V',tolerances:{reading:{high:1,low:-1
 const makeInstrument = (id) => ({id, measurementAreaNames:['Bench calibration'], description:'Mock DMM '+id,name:'Mock DMM '+id,instrument:{...(id.startsWith('tmde')?{id:'definition-'+id,scope:'local'}:{}),manufacturer:'Mock',model:'DMM',name:'Test',functions:[{name:'Voltage',unit:'V',ranges:[{...range,id:id+'r1'},{...range,id:id+'r2',min:20,max:30}]}]}});
 function Harness() {
  const [session,setSession] = useState({id:'test',name:'Layout regression',measurementAreaGroups:[{name:'Bench calibration',unit:'V',kind:'uut'},{name:'Bench calibration',unit:'V',kind:'tmde'}],uuts:Array.from({length:10},(_,i)=>makeInstrument('uut'+i)),tmdes:Array.from({length:12},(_,i)=>makeInstrument('tmde'+i)),testPoints:[],uncReq:{}});
- window.savedSession=()=>session;
+ window.savedSession=()=>session; window.setSmokeSession=setSession;
  const [selected,setSelected] = useState([]);
- const [view,setView] = useState('session'); window.showDetail=()=>setView('point');
- return <div className="uncertainty-module" style={{height:'100vh',overflow:'auto'}}><div className="analysis-container" style={{display:'block',overflow:'visible',width:'100%'}}><div className="analysis-tabs"><button>Instrument Overview</button><button>Uncertainty Budget</button></div><UncertaintyPanel testPointData={{viewMode:view,id:'test',testPointInfo:{measurementArea:'Bench calibration',parameter:{name:'Voltage',unit:'V'}},associatedUutIds:['uut0'],components:[]}} tmdeTolerancesData={[]} uutNominal={{value:5,unit:'V'}} sessionData={session} onSessionSave={setSession} currentUutSelection={selected} setCurrentUutSelection={setSelected} setNotification={()=>{}} onInstrumentSynced={()=>{}}/><div style={{height:900}}>End of tables</div></div></div>;
+ const [view,setView] = useState('session'); window.showDetail=()=>setView('point'); window.showOverview=()=>setView('session');
+ return <div className="uncertainty-module" style={{height:'100vh',overflow:'auto'}}><div className="analysis-container" style={{display:'block',overflow:'visible',width:'100%'}}><div className="analysis-tabs"><button>Instrument Overview</button><button>Uncertainty Budget</button></div><UncertaintyPanel testPointData={{viewMode:view,id:'test',testPointInfo:{measurementArea:session.uuts[0]?.measurementAreaNames?.[0] || 'Bench calibration',parameter:{name:'Voltage',unit:'V'}},associatedUutIds:[session.uuts[0]?.id],components:[]}} tmdeTolerancesData={[]} uutNominal={{value:5,unit:'V'}} sessionData={session} onSessionSave={setSession} currentUutSelection={selected} setCurrentUutSelection={setSelected} setNotification={()=>{}} onInstrumentSynced={()=>{}}/><div style={{height:900}}>End of tables</div></div></div>;
 }
 document.body.classList.add('uncertainty-active');
 for (const kind of ['uut','tmde']) localStorage.setItem('uncertalytics:'+kind+':instrument-column-widths:v2',JSON.stringify({description:90,range:90,tolerance:90,distribution:90,resolution:90,sync:550}));
@@ -30,7 +30,9 @@ let server, window;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const js = code => window.webContents.executeJavaScript(code);
 async function click(selector, button = 'left') {
-  const rect = await js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}); if(!e)throw Error('Missing '+${JSON.stringify(selector)});e.scrollIntoView({block:'nearest',inline:'nearest'});const r=e.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`);
+  await js(`document.querySelector(${JSON.stringify(selector)})?.scrollIntoView({block:'center',inline:'nearest'})`);
+  await pause(150);
+  const rect = await js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing '+${JSON.stringify(selector)});const r=e.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`);
   window.webContents.sendInputEvent({type:'mouseDown',button,clickCount:1,...rect});
   await pause(40);
   window.webContents.sendInputEvent({type:'mouseUp',button,clickCount:1,...rect});
@@ -52,17 +54,70 @@ async function checkAddRange(table, kind, label) {
   await click(table+' .range-row-add');
   await pause(300);
   assert.equal(await js(`window.savedSession().${kind}s[0].instrument.functions[0].ranges.length`),before+1,label+': click inserts exactly one range');
-  assert.equal(await js(`document.querySelectorAll('${table} tr.inline-range-row').length`),before+1,label+': range list stays expanded');
+  assert.equal(await js(`document.querySelectorAll('${table} tr[data-range-group="${kind}:${kind}0"]').length`),before+1,label+': range list stays expanded');
   assert.ok(await js(`document.activeElement?.matches('input[placeholder="min"]')`),label+': new range receives focus');
   await js(`(()=>{const min=document.activeElement,row=min.closest('tr'),set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(min,'40');min.dispatchEvent(new Event('input',{bubbles:true}));row.querySelector('input[placeholder="max"]').focus()})()`);
   await pause(100);
   await js(`(()=>{const max=document.activeElement,set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(max,'50');max.dispatchEvent(new Event('input',{bubbles:true}))})()`);
   await click('.analysis-tabs button');
-  assert.equal(await js(`document.querySelectorAll('${table} tr.inline-range-row').length`),0,label+': ordinary click-away still collapses');
+  assert.equal(await js(`document.querySelectorAll('${table} .inline-range-editor.is-editing').length`),0,label+': ordinary click-away closes editors');
   const persisted=await js(`window.savedSession().${kind}s[0].instrument.functions[0].ranges`);
   assert.equal(persisted.length,before+1,label+': new range survives collapse');
   assert.ok(persisted.some(r=>Number(r.min)===40&&Number(r.max)===50),label+': bounds are saved '+JSON.stringify(persisted));
+  const second=table+` tr[data-range-group="${kind}:${kind}0"]:nth-of-type(3)`;
+  await click(second+' [data-range-cell] .inline-tolerance-summary');
+  const alignment=await js(`(()=>{const cell=document.querySelector('${second} [data-range-cell]'),button=cell.querySelector('.range-row-delete');return button.getBoundingClientRect().left-cell.getBoundingClientRect().left})()`);
+  assert.ok(alignment<55,label+': delete remains at the left of the range column');
+  await click(second+' .range-row-delete');
+  assert.equal(await js(`window.savedSession().${kind}s[0].instrument.functions[0].ranges.length`),before,label+': delete works while editing');
+  await click('.analysis-tabs button');
   console.log('PASS add range:',label);
+}
+async function menuItem(label) {
+  await js(`(()=>{const e=[...document.querySelectorAll('.context-menu li')].find(e=>e.textContent.trim()===${JSON.stringify(label)});if(!e)throw Error('Missing menu '+${JSON.stringify(label)}+'; open: '+[...document.querySelectorAll('.context-menu li')].map(e=>e.textContent).join('|'));e.setAttribute('data-smoke-menu','true')})()`);
+  await click('[data-smoke-menu="true"]');
+  console.log('Menu action:',label);
+}
+async function shortcut(key) {
+  window.webContents.sendInputEvent({type:'keyDown',keyCode:key,modifiers:['control']});
+  window.webContents.sendInputEvent({type:'keyUp',keyCode:key,modifiers:['control']});
+  await pause(300);
+}
+async function checkClipboard(view) {
+  await js(`window.setSmokeSession(s=>({...s, measurementAreaGroups:[{name:'Temperature',kind:'uut'},{name:'Torque',kind:'uut'},{name:'Torque',kind:'tmde'}],uuts:[{...s.uuts[0],id:'source',measurementAreaNames:['Temperature']},{...s.uuts[1],id:'target',measurementAreaNames:['Torque']}],tmdes:[{...s.tmdes[0],id:'reference',measurementAreaNames:['Torque']}]}));window.${view === 'detail' ? 'showDetail' : 'showOverview'}()`);
+  await pause(400);
+  const uut='[data-tour="uut-table"]',tmde='[data-tour="tmde-table"]';
+  if(view === 'detail') {
+    for(const kind of ['UUT','TMDE']) {
+      const toggle='[aria-label="Show all '+kind+' measurement areas"]';
+      if(await js(`Boolean(document.querySelector('${toggle}'))`)) await click(toggle);
+    }
+  }
+
+  await click(uut+' tr[data-range-group="uut:source"] .cell-description','right');
+  await menuItem('Copy Instrument');
+  await click(uut+' tr[data-range-group="uut:target"] [data-range-cell]','right');
+  await menuItem('Paste Instrument');
+  assert.deepEqual(await js(`window.savedSession().uuts[2].measurementAreaNames`),['Torque'],view+': destination area');
+  assert.equal(await js(`window.savedSession().uuts[1].id`),'target',view+': paste below selected instrument');
+  await click(tmde+' tr[data-range-group="tmde:reference"] [data-range-cell]');
+  await shortcut('V');
+  assert.equal(await js(`window.savedSession().tmdes.length`),2,view+': context copy to keyboard paste across tables');
+  await click(uut+' tr[data-range-group="uut:target"] [data-range-cell]');
+  await shortcut('C');
+  const before=await js(`window.savedSession().uuts[1].instrument.functions[0].ranges.map(r=>r.id)`);
+  await click(uut+' tr[data-range-group="uut:target"] [data-range-cell]','right');
+  await menuItem('Paste Range');
+  const after=await js(`window.savedSession().uuts[1].instrument.functions[0].ranges.map(r=>r.id)`);
+  assert.equal(after.length,before.length+1,view+': keyboard copy to context paste');
+  assert.equal(after[0],before[0]);assert.equal(after[2],before[1],view+': range inserted directly below target');
+  await click(tmde+' tr[data-range-group="tmde:reference"] .cell-description','right');
+  await menuItem('Copy Instrument');
+  await click(uut+' tr.instrument-area-section-row[data-measurement-area="torque"] .function-header-name','right');
+  await menuItem('Paste Instrument');
+  assert.equal(await js(`window.savedSession().uuts.length`),4,view+': header paste across tables');
+  assert.deepEqual(await js(`window.savedSession().uuts[3].measurementAreaNames`),['Torque']);
+  console.log('PASS clipboard:',view);
 }
 app.whenReady().then(async()=>{
  const deadline = setTimeout(()=>{console.error('Timed out');app.exit(1)},120000);
@@ -172,6 +227,9 @@ app.whenReady().then(async()=>{
   assert.ok(Math.abs(zoomedHeader.top-zoomedHeader.tabs)<2, 'Sticky header respects app and table zoom: '+JSON.stringify(zoomedHeader));
   await capture('global-zoom');
 
+  await js(`document.documentElement.style.zoom='1'`);
+  await checkClipboard('overview');
+  await checkClipboard('detail');
   console.log('PASS: real table editors fit; widths restore and remain stable; distribution opens with one click; headers track page scrolling.',{description,rangeGeometry,header});
  } catch(error){console.error(error);await capture('failure');status=1}
  finally{clearTimeout(deadline);window?.webContents.stopPainting();window?.destroy();await server?.close();await pause(250);app.exit(status)}

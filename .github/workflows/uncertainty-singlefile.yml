@@ -93,7 +93,6 @@ jobs:
 
       - name: Install a browser for the smoke test
         run: |
-          npm install --no-save playwright
           npx playwright install --with-deps chromium
 
       - name: Smoke test the built file in an iframe srcdoc
