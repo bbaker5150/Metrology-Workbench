@@ -216,6 +216,7 @@ app.whenReady().then(async () => {
     assert.equal(await page.locator('.budget-tmde-picker-instrument').count(),1,'Only the current area TMDE appears, despite an identical instrument in another area');
     await page.screenshot({path:path.join(output,'budget-area-options.png')});
     await page.keyboard.press('Escape');
+    await page.locator('.measurement-points-table').evaluate(e=>{e.scrollLeft=0;});
     await page.mouse.move(5,5);
     const collapse=page.locator('.function-sidebar-collapse-button').first();
     assert.equal(await collapse.evaluate(e=>getComputedStyle(e).opacity),'0');

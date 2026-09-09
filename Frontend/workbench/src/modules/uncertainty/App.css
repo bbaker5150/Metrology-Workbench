@@ -20291,7 +20291,7 @@ body.uncertainty-active .context-menu li.destructive:hover {
   width: calc(100% + 10px);
   padding-left: 10px;
 }
-.uncertainty-module .measurement-points-table .area-header-sticky { left: 10px; }
+
 /* Keep area labels aligned with the first column; reveal the gutter chevron on interaction. */
 .uncertainty-module .measurement-points-table .function-sidebar-collapse-button {
   position: absolute;
