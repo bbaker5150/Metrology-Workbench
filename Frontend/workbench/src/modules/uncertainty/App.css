@@ -20285,10 +20285,17 @@ body.uncertainty-active .context-menu li.destructive:hover {
   outline: none;
 }
 
+/* Borrow the sidebar's left padding for a chevron gutter without moving columns. */
+.uncertainty-module .measurement-points-table {
+  margin-left: -10px;
+  width: calc(100% + 10px);
+  padding-left: 10px;
+}
+.uncertainty-module .measurement-points-table .area-header-sticky { left: 10px; }
 /* Keep area labels aligned with the first column; reveal the gutter chevron on interaction. */
 .uncertainty-module .measurement-points-table .function-sidebar-collapse-button {
   position: absolute;
-  left: 0;
+  left: -10px;
   width: 14px;
   height: 26px;
   margin: 0;

@@ -221,6 +221,11 @@ app.whenReady().then(async () => {
     assert.equal(await collapse.evaluate(e=>getComputedStyle(e).opacity),'0');
     await collapse.locator('..').hover();
     assert.equal(await collapse.evaluate(e=>getComputedStyle(e).opacity),'1');
+    const chevronBox=await collapse.boundingBox();
+    const colorBox=await page.locator('.sidebar-area-color-swatch').first().boundingBox();
+    assert.ok(colorBox.x-(chevronBox.x+chevronBox.width)>=6,'Chevron has a separate gutter before the color selector');
+    await page.screenshot({path:path.join(output,'area-chevron-gutter.png')});
+
     await page.getByRole('button',{name:'Add Measurement Area from points'}).click();
     for (const dark of [false,true]) {
       await page.evaluate(dark=>document.body.classList.toggle('dark-mode',dark),dark);
