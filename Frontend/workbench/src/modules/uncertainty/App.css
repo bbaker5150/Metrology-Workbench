@@ -20212,7 +20212,37 @@ body.uncertainty-active .context-menu li.destructive:hover {
   cursor: pointer;
 }
 .uncertainty-module .point-unit-select option { color: var(--text-color); background: var(--content-background); }
-.uncertainty-module .sidebar-add-area-form { display: flex; gap: 4px; flex-wrap: wrap; }
+/* Portalled area menu shares the app's compact surfaces and control palette. */
+.sidebar-add-area-form {
+  padding: 16px; border: 1px solid var(--border-color); border-radius: 8px;
+  background: var(--component-bg); color: var(--text-color);
+  box-shadow: 0 10px 28px rgba(0,0,0,.22); font-size: .85rem;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.sidebar-add-area-form h4 { margin: 0 0 4px; font-size: .9rem; }
+.sidebar-add-area-form label { color: var(--text-color-muted); font-size: .75rem; }
+.sidebar-add-area-form input {
+  width: 100%; box-sizing: border-box; padding: 8px 10px;
+  border: 1px solid var(--border-color); border-radius: 5px;
+  color: var(--text-color); background: var(--input-background, var(--content-background)); font: inherit;
+}
+.sidebar-add-area-form input:focus { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+.sidebar-area-menu-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.sidebar-area-menu-actions button { padding: 7px 14px; border-radius: 5px; font: inherit; cursor: pointer; }
+.sidebar-area-menu-actions .btn-secondary { border: 1px solid var(--border-color); background: var(--component-bg); color: var(--text-color); }
+.sidebar-area-menu-actions .btn-primary { border: 1px solid var(--primary-color); background: var(--primary-color); color: var(--button-text-color, #fff); }
+.sidebar-area-menu-actions button:disabled { opacity: .45; cursor: default; }
+.uncertainty-module .sidebar-area-color-swatch {
+  flex: 0 0 12px; width: 12px; height: 12px; border-radius: 3px;
+  border: 1px solid rgba(127,127,127,.5); position: relative; overflow: hidden; cursor: pointer;
+}
+.uncertainty-module .sidebar-area-color-swatch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.uncertainty-module .sidebar-area-color-swatch:focus-within { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+.uncertainty-module .point-unit-control { display: inline-flex; position: relative; min-width: 0; max-width: 100%; }
+.uncertainty-module .point-unit-control .point-unit-select { appearance: none; -webkit-appearance: none; padding-right: 14px; }
+.uncertainty-module .point-unit-chevron { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); font-size: 8px; pointer-events: none; opacity: 0; }
+.uncertainty-module .point-unit-control:hover .point-unit-chevron,
+.uncertainty-module .point-unit-control:focus-within .point-unit-chevron { opacity: 1; }
 
 /* End-of-table handles stay inside the viewport instead of creating overflow. */
 .uncertainty-module .instrument-equipment-table th:last-child .instrument-column-resize-handle { right: 0; }

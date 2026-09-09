@@ -83,6 +83,20 @@ app.whenReady().then(async () => {
     await page.getByRole("combobox", { name: "Analysis Session" }).waitFor();
     const rows=page.locator('.point-grid-item');
     await rows.first().waitFor();
+    const swatch=page.getByLabel('Color for Length measurement area');
+    await swatch.fill('#9b59b6');
+    await page.waitForFunction(()=>window.savedSession().measurementAreaGroups?.some(a=>a.name==='Length') && window.savedSession().measurementAreaGroups.filter(a=>a.name==='Length').every(a=>a.color==='#9b59b6'));
+    await page.locator('[data-tour="tab-overview"]').click();
+    const tableColors=page.locator('.instrument-equipment-table input[type="color"]');
+    assert.ok((await tableColors.evaluateAll(items=>items.map(e=>e.value))).every(value=>value==='#9b59b6'));
+    await tableColors.first().fill('#3498db');
+    await page.waitForFunction(()=>document.querySelector('.sidebar-area-color-swatch input')?.value==='#3498db');
+    await page.mouse.move(5,5);
+    const arrow=rows.first().locator('.point-unit-chevron');
+    assert.equal(await arrow.evaluate(e=>getComputedStyle(e).opacity),'0');
+    await rows.first().locator('.point-unit-control').hover();
+    assert.equal(await arrow.evaluate(e=>getComputedStyle(e).opacity),'1');
+
     await page.locator('[data-tour="tab-overview"]').click();
     const tableWidths=await page.locator('.instrument-panel-table-container').evaluateAll(items=>items.map(e=>({width:e.clientWidth,scroll:e.scrollWidth,table:e.querySelector('table')?.getBoundingClientRect().width,min:e.querySelector('table')?.style.minWidth})));
     console.log('Table geometry',tableWidths);
@@ -182,6 +196,13 @@ app.whenReady().then(async () => {
     await rows.first().locator('.point-unit-select').selectOption('degF');
     await page.waitForFunction(()=>window.savedSession().testPoints[0].testPointInfo.parameter.unit==='degF');
     await page.getByRole('button',{name:'Add Measurement Area from points'}).click();
+    for (const dark of [false,true]) {
+      await page.evaluate(dark=>document.body.classList.toggle('dark-mode',dark),dark);
+      await page.screenshot({path:path.join(output,dark?'area-menu-dark.png':'area-menu-light.png')});
+      const menu=await page.locator('.sidebar-add-area-form').boundingBox();
+      assert.ok(menu.width>250 && menu.x>=0 && menu.x+menu.width<=1500,'Area popover is visible within the viewport');
+    }
+    await page.evaluate(()=>document.body.classList.remove('dark-mode'));
     await page.getByRole('textbox',{name:'New Measurement Area name'}).fill('Quick calculation');
     await page.locator('.sidebar-add-area-form').getByRole('button',{name:'Add',exact:true}).click();
     await page.waitForFunction(()=>window.savedSession().measurementAreaGroups.some(area=>area.name==='Quick calculation'));

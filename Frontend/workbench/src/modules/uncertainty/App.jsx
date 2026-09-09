@@ -121,6 +121,7 @@ import {
 } from "./utils/sidebarPointSelection";
 import {
   makeMeasurementAreaKey,
+  setMeasurementAreaColor,
   measurementAreaKeyOf,
   measurementAreaLabelOf,
   resolveSessionMeasurementAreas,
@@ -1421,6 +1422,7 @@ export const SidebarPointItem = ({
               <span className="point-value-number">
                 {displayValue || <span className="point-placeholder">-</span>}
               </span>
+              <span className="point-unit-control">
               <select className="point-unit-select" aria-label="Measurement point unit"
                 value={displayUnit || ""} onClick={event => event.stopPropagation()}
                 onPointerDown={event => event.stopPropagation()}
@@ -1433,6 +1435,8 @@ export const SidebarPointItem = ({
                 {displayUnit && !unitOptions.includes(displayUnit) && <option value={displayUnit} disabled>{getUnitDisplayLabel(displayUnit)} (unavailable)</option>}
                 {unitOptions.map(unit => <option key={unit} value={unit}>{getUnitDisplayLabel(unit)}</option>)}
               </select>
+              <FontAwesomeIcon icon={faChevronDown} className="point-unit-chevron" aria-hidden="true" />
+              </span>
             </span>
             {diagnostics.length > 0 && (
               <button type="button" className="point-diagnostic-warning" aria-label={`Point needs attention: ${diagnostics.join(" ")}`} title={diagnostics.map(message => `• ${message}`).join("\n\n")} onClick={event => { event.stopPropagation(); onSelect?.(event, point); }}>
@@ -2638,6 +2642,15 @@ function App({ showThemeToggle = false }) {
   // unit instead of silently choosing the first range.
   const [pendingPointUnitChoice, setPendingPointUnitChoice] = useState(null);
   const [newSidebarArea, setNewSidebarArea] = useState(null);
+  const sidebarAreaAnchorRef = useRef(null);
+  useEffect(() => {
+    if (newSidebarArea === null) return;
+    const dismiss = event => {
+      if (!event.target.closest?.(".sidebar-add-area-form") && !sidebarAreaAnchorRef.current?.contains(event.target)) setNewSidebarArea(null);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [newSidebarArea]);
   const handleAddSidebarArea = () => {
     const name = newSidebarArea.trim();
     if (!name) return;
@@ -5818,11 +5831,13 @@ function App({ showThemeToggle = false }) {
                   </div>
 
                   <div className="sidebar-actions-group">
-                    <button type="button" className="sidebar-action-btn-organic" title="Add Measurement Area" aria-label="Add Measurement Area from points" onClick={() => setNewSidebarArea("")}><FontAwesomeIcon icon={faPlus} /></button>
-                    {newSidebarArea !== null && <div className="sidebar-add-area-form">
-                      <input autoFocus aria-label="New Measurement Area name" placeholder="Measurement Area name" value={newSidebarArea} onChange={event => setNewSidebarArea(event.target.value)} onKeyDown={event => { if (event.key === "Enter") handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(null); }} />
-                      <button type="button" onClick={handleAddSidebarArea}>Add</button><button type="button" onClick={() => setNewSidebarArea(null)}>Cancel</button>
-                    </div>}
+                    <button type="button" className="sidebar-action-btn-organic" title="Add Measurement Area" aria-label="Add Measurement Area from points" ref={sidebarAreaAnchorRef} aria-expanded={newSidebarArea !== null} onClick={() => setNewSidebarArea(current => current === null ? "" : null)}><FontAwesomeIcon icon={faPlus} /></button>
+                    {newSidebarArea !== null && <MeasurementAreaPopover anchorRef={sidebarAreaAnchorRef}><div className="sidebar-add-area-form" role="dialog" aria-label="Add Measurement Area" onKeyDown={event => { if (event.key === "Escape") { setNewSidebarArea(null); sidebarAreaAnchorRef.current?.focus(); } }}>
+                      <h4>Add Measurement Area</h4>
+                      <label htmlFor="sidebar-area-name">Name</label>
+                      <input id="sidebar-area-name" autoFocus aria-label="New Measurement Area name" placeholder="Measurement Area name" value={newSidebarArea} onChange={event => setNewSidebarArea(event.target.value)} onKeyDown={event => { if (event.key === "Enter") handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(null); }} />
+                      <div className="sidebar-area-menu-actions"><button type="button" className="btn-secondary" onClick={() => setNewSidebarArea(null)}>Cancel</button><button type="button" className="btn-primary" disabled={!newSidebarArea.trim()} onClick={handleAddSidebarArea}>Add</button></div>
+                    </div></MeasurementAreaPopover>}
                     {/* Eyeball Button Removed - Moved to HeaderToolbox */}
 
                       <>
@@ -6158,6 +6173,9 @@ function App({ showThemeToggle = false }) {
                               icon={isFnExpanded ? faChevronDown : faChevronRight}
                             />
                           </button>
+                          <label className="sidebar-area-color-swatch" title="Change measurement area color" style={{ backgroundColor: fnGroup.color || "#888888" }} onClick={event => event.stopPropagation()}>
+                            <input type="color" aria-label={`Color for ${fnGroup.name} measurement area`} value={fnGroup.color || "#888888"} onChange={event => updateSession(setMeasurementAreaColor(currentSessionData, fnGroup, event.target.value))} />
+                          </label>
                           <span
                             className="area-label"
                             style={{

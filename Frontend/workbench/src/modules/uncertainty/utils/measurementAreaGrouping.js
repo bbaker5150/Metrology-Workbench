@@ -145,3 +145,13 @@ export const deleteMeasurementArea = (data, area) => {
     testPoints: area.kind === 'tmde' ? session.testPoints : (session.testPoints || []).filter(p => measurementAreaKeyOf(p) !== area.key),
   };
 };
+
+// One color per area across the point list and both instrument tables.
+export const setMeasurementAreaColor = (session, area, color) => {
+  const key = makeMeasurementAreaKey(area.name);
+  const existing = session.measurementAreaGroups || [];
+  const found = existing.some(group => makeMeasurementAreaKey(group.name) === key);
+  const groups = existing.map(group => makeMeasurementAreaKey(group.name) === key ? { ...group, color } : group);
+  if (!found) groups.push({ name: area.name, unit: area.unit || "", units: area.units || [], color });
+  return { ...session, measurementAreaGroups: groups };
+};

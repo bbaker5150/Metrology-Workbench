@@ -66,6 +66,7 @@ import {
   instrumentHasMeasurementArea,
   addInstrumentMeasurementArea,
   renameMeasurementArea,
+  setMeasurementAreaColor,
   migrateMeasurementAreas,
   getMeasurementAreaDependencies,
   getMeasurementAreaDeletionConfirmationMessage,
@@ -7529,34 +7530,7 @@ const SummaryDashboard = ({
   };
 
   const handleFunctionColorChange = (fn, color) => {
-    if (!onSessionSave) return;
-    // Sync color across BOTH kinds: a function shared by a TMDE and a UUT keeps a
-    // single color so the two surfaces read as one organized group. Update every
-    // stored entry matching this function key regardless of kind.
-    const existing = Array.isArray(sessionData.measurementAreaGroups)
-      ? sessionData.measurementAreaGroups
-      : [];
-    let found = false;
-    let next = existing.map((fg) => {
-      if (makeFunctionKey(fg.name, fg.unit) === fn.key) {
-        found = true;
-        return { ...fg, color };
-      }
-      return fg;
-    });
-    if (!found) {
-      next = [
-        ...next,
-        {
-          name: fn.name,
-          unit: fn.unit,
-          units: fn.units || (fn.unit ? [fn.unit] : []),
-          color,
-          ...(fn.kind ? { kind: fn.kind } : {}),
-        },
-      ];
-    }
-    onSessionSave({ ...sessionData, measurementAreaGroups: next });
+    if (onSessionSave) onSessionSave(setMeasurementAreaColor(sessionData, fn, color));
   };
 
   // Rename organization across tables and sidebar without changing specifications.
@@ -12196,34 +12170,7 @@ function DetailedView({
   };
 
   const handleFunctionColorChange = (fn, color) => {
-    if (!onSessionSave) return;
-    // Sync color across BOTH kinds: a function shared by a TMDE and a UUT keeps a
-    // single color so the two surfaces read as one organized group. Update every
-    // stored entry matching this function key regardless of kind.
-    const existing = Array.isArray(sessionData.measurementAreaGroups)
-      ? sessionData.measurementAreaGroups
-      : [];
-    let found = false;
-    let next = existing.map((fg) => {
-      if (makeFunctionKey(fg.name, fg.unit) === fn.key) {
-        found = true;
-        return { ...fg, color };
-      }
-      return fg;
-    });
-    if (!found) {
-      next = [
-        ...next,
-        {
-          name: fn.name,
-          unit: fn.unit,
-          units: fn.units || (fn.unit ? [fn.unit] : []),
-          color,
-          ...(fn.kind ? { kind: fn.kind } : {}),
-        },
-      ];
-    }
-    onSessionSave({ ...sessionData, measurementAreaGroups: next });
+    if (onSessionSave) onSessionSave(setMeasurementAreaColor(sessionData, fn, color));
   };
 
   const handleFunctionRename = (fn, rawName) => {
