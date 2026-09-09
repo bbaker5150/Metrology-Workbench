@@ -4798,6 +4798,7 @@ export const RangeCell = ({
   };
   const switchToRange = () => onPatchRange?.({ isSingleValue: false });
   const commitSingle = (raw) => {
+    if (raw === String(toPlainNumber(singleValue))) return;
     if (raw === "" && onClearRange) {
       onClearRange();
       return;
@@ -4861,7 +4862,9 @@ export const RangeCell = ({
               inputMode="decimal"
               defaultValue={toPlainNumber(activeRange.min)}
               placeholder="min"
-              onBlur={(e) => onEditBound("min", e.target.value)}
+              onBlur={(e) => {
+                if (e.target.value !== String(toPlainNumber(activeRange.min))) onEditBound("min", e.target.value);
+              }}
               onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
               className="inline-tolerance-input inline-range-bound-input"
             />
@@ -4872,7 +4875,9 @@ export const RangeCell = ({
               inputMode="decimal"
               defaultValue={toPlainNumber(activeRange.max)}
               placeholder="max"
-              onBlur={(e) => onEditBound("max", e.target.value)}
+              onBlur={(e) => {
+                if (e.target.value !== String(toPlainNumber(activeRange.max))) onEditBound("max", e.target.value);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") e.currentTarget.blur();
               }}
@@ -8228,7 +8233,7 @@ const SummaryDashboard = ({
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleAddBlankRange(kind, item, rangeKey, { focusNew: true });
+                  handleAddBlankRange(kind, item, rangeKey);
                 }}
               >
                 <FontAwesomeIcon icon={faPlus} />
@@ -11686,7 +11691,7 @@ function DetailedView({
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleAddBlankRangeDetail(kind, item, rangeKey, { focusNew: true });
+                  handleAddBlankRangeDetail(kind, item, rangeKey);
                 }}
               >
                 <FontAwesomeIcon icon={faPlus} />

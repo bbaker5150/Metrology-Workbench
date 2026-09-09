@@ -1089,3 +1089,14 @@ describe("inline range editing", () => {
     );
   });
 });
+
+describe("unfilled range preservation", () => {
+  it.each([false, true])("does not clear an untouched blank range on blur (single=%s)", isSingleValue => {
+    const onEditBound = vi.fn(), onClearRange = vi.fn(), onPatchRange = vi.fn();
+    render(<RangeCell ranges={[]} activeRange={{id:"blank",min:"",max:"",value:"",isSingleValue}} editable editBlankByDefault onEditBound={onEditBound} onClearRange={onClearRange} onPatchRange={onPatchRange} />);
+    fireEvent.blur(screen.getByPlaceholderText(isSingleValue ? "value" : "min"));
+    expect(onEditBound).not.toHaveBeenCalled();
+    expect(onClearRange).not.toHaveBeenCalled();
+    expect(onPatchRange).not.toHaveBeenCalled();
+  });
+});

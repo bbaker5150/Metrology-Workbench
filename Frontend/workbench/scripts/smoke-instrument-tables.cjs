@@ -55,7 +55,8 @@ async function checkAddRange(table, kind, label) {
   await pause(300);
   assert.equal(await js(`window.savedSession().${kind}s[0].instrument.functions[0].ranges.length`),before+1,label+': click inserts exactly one range');
   assert.equal(await js(`document.querySelectorAll('${table} tr[data-range-group="${kind}:${kind}0"]').length`),before+1,label+': range list stays expanded');
-  assert.ok(await js(`document.activeElement?.matches('input[placeholder="min"]')`),label+': new range receives focus');
+  assert.ok(await js(`document.activeElement?.matches('.range-row-add')`),label+': add keeps focus for repeated clicks');
+  await js(`([...document.querySelectorAll('${table} tr[data-range-group="${kind}:${kind}0"] input[placeholder="min"]')].at(-1)).focus()`);
   await js(`(()=>{const min=document.activeElement,row=min.closest('tr'),set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(min,'40');min.dispatchEvent(new Event('input',{bubbles:true}));row.querySelector('input[placeholder="max"]').focus()})()`);
   await pause(100);
   await js(`(()=>{const max=document.activeElement,set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(max,'50');max.dispatchEvent(new Event('input',{bubbles:true}))})()`);
@@ -118,6 +119,46 @@ async function checkClipboard(view) {
   assert.equal(await js(`window.savedSession().uuts.length`),4,view+': header paste across tables');
   assert.deepEqual(await js(`window.savedSession().uuts[3].measurementAreaNames`),['Torque']);
   console.log('PASS clipboard:',view);
+}
+async function checkBatchAdd(view) {
+  await js(`window.${view === 'detail' ? 'showDetail' : 'showOverview'}()`);
+  await pause(350);
+  if(view === 'detail') {
+    for(const kind of ['UUT','TMDE']) {
+      const toggle='[aria-label="Show all '+kind+' measurement areas"]';
+      if(await js(`Boolean(document.querySelector('${toggle}'))`)) await click(toggle);
+    }
+  }
+  for(const kind of ['uut','tmde']) {
+    const table=`[data-tour="${kind}-table"]`;
+    const id=await js(`window.savedSession().${kind}s[0].id`);
+    const group=table+` tr[data-range-group="${kind}:${id}"]`;
+    const before=await js(`window.savedSession().${kind}s[0].instrument.functions[0].ranges.length`);
+    await click(group+' [data-range-cell] .inline-tolerance-summary');
+    const rect=await js(`(()=>{const r=document.querySelector('${group} .range-row-add').getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`);
+    for(let i=0;i<10;i++) {
+      window.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...rect});
+      await pause(15);
+      window.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...rect});
+      await pause(25);
+    }
+    await pause(300);
+    let ranges=await js(`window.savedSession().${kind}s[0].instrument.functions[0].ranges`);
+    assert.equal(ranges.length,before+10,view+' '+kind+': ten clicks at the same position add ten ranges');
+    assert.equal(new Set(ranges.map(r=>r.id)).size,ranges.length,'Every blank has a unique id');
+    assert.ok(ranges.slice(before).every(r=>r.min===''&&r.max===''),'All ten new ranges remain blank');
+    await click('.analysis-tabs button');
+    assert.equal(await js(`window.savedSession().${kind}s[0].instrument.functions[0].ranges.length`),before+10,'Leaving the table preserves the batch');
+    const lastId=ranges.at(-1).id;
+    await js(`(()=>{const min=[...document.querySelectorAll('${group} input[placeholder="min"]')].at(-1);min.focus();const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(min,'60');min.dispatchEvent(new Event('input',{bubbles:true}));min.closest('tr').querySelector('input[placeholder="max"]').focus()})()`);
+    await pause(100);
+    await js(`(()=>{const max=document.activeElement;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(max,'70');max.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+    await click('.analysis-tabs button');
+    ranges=await js(`window.savedSession().${kind}s[0].instrument.functions[0].ranges`);
+    assert.equal(ranges.length,before+10);
+    assert.ok(ranges.some(r=>r.id===lastId&&Number(r.min)===60&&Number(r.max)===70),'A blank range can be filled afterward');
+    console.log('PASS rapid batch add:',view,kind);
+  }
 }
 app.whenReady().then(async()=>{
  const deadline = setTimeout(()=>{console.error('Timed out');app.exit(1)},120000);
@@ -230,6 +271,8 @@ app.whenReady().then(async()=>{
   await js(`document.documentElement.style.zoom='1'`);
   await checkClipboard('overview');
   await checkClipboard('detail');
+  await checkBatchAdd('overview');
+  await checkBatchAdd('detail');
   console.log('PASS: real table editors fit; widths restore and remain stable; distribution opens with one click; headers track page scrolling.',{description,rangeGeometry,header});
  } catch(error){console.error(error);await capture('failure');status=1}
  finally{clearTimeout(deadline);window?.webContents.stopPainting();window?.destroy();await server?.close();await pause(250);app.exit(status)}
