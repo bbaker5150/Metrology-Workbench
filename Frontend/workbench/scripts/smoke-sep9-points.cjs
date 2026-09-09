@@ -107,6 +107,30 @@ app.whenReady().then(async () => {
     const resize=page.locator('.sidebar-column-resizer').first();
     const line=await resize.evaluate(e=>getComputedStyle(e,'::after').backgroundColor);
     assert.notEqual(line,'rgba(0, 0, 0, 0)','Resize boundary is visible at rest');
+    for (const dark of [false,true]) {
+      await page.evaluate(dark=>document.body.classList.toggle('dark-mode',dark),dark);
+      const widths=await page.locator('.sidebar-column-resizer').evaluateAll(items=>items.map(e=>getComputedStyle(e,'::after').width));
+      assert.ok(widths.length>1 && widths.every(width=>width==='1px'),'All dividers are uniformly one pixel wide');
+    }
+    await page.evaluate(()=>document.body.classList.remove('dark-mode'));
+    const handle=await resize.boundingBox();
+    await page.evaluate(()=>{
+      window.resizeMismatches=[];window.recordResize=true;
+      const sample=()=>{
+        const header=document.querySelector('.sidebar-column-headers');
+        const row=document.querySelector('.point-grid-item');
+        if(header && row && getComputedStyle(header).gridTemplateColumns!==getComputedStyle(row).gridTemplateColumns)
+          window.resizeMismatches.push([getComputedStyle(header).gridTemplateColumns,getComputedStyle(row).gridTemplateColumns]);
+        if(window.recordResize) requestAnimationFrame(sample);
+      };requestAnimationFrame(sample);
+    });
+    await page.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2);
+    await page.mouse.down();
+    for (const offset of [120,30,170,60]) await page.mouse.move(handle.x+handle.width/2+offset,handle.y+handle.height/2,{steps:2});
+    await page.mouse.up();
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const mismatches=await page.evaluate(()=>{window.recordResize=false;return window.resizeMismatches;});
+    assert.deepEqual(mismatches,[],'Header and row tracks stay synchronized during rapid resizing');
     await page.screenshot({path:path.join(output,'point-navigation.png')});
     await page.locator('[data-tour="tab-overview"]').click();
     const tolerance=page.locator('.instrument-equipment-table').first().locator('.cell-tolerance .inline-tolerance-summary').first();
