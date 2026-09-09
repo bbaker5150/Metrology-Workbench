@@ -19177,13 +19177,13 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 .uncertainty-module .sidebar-column-resizer::after {
   content: "";
   position: absolute;
-  top: 3px;
-  bottom: 3px;
+  top: 50%;
+  height: 14px;
   left: 50%;
-  width: 2px;
-  transform: translateX(-50%);
+  width: 3px;
+  transform: translate(-50%, -50%);
   border-radius: 1px;
-  background: var(--border-color, #94a3b8);
+  background: var(--text-color-muted, #64748b);
   transition: background-color 0.1s ease;
 }
 
