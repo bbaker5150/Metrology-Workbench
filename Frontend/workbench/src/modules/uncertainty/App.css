@@ -20148,7 +20148,7 @@ body.uncertainty-active .context-menu li.destructive:hover {
 .uncertainty-module .measurement-points-table .sidebar-column-header-stack {
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 120;
   background: var(--sidebar-sticky-surface, var(--content-background));
 }
 /* Keep controls at the left edge of the range column while fields grow. */
