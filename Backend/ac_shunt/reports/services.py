@@ -33,28 +33,42 @@ DATA_TABLE_COLUMNS = [
 ]
 
 
-def list_ac_shunt_sessions():
-    """Return {"available": bool, "sessions": [...]} from the AC-Shunt (api) app.
-
-    `available=False` means the AC-Shunt database itself is unreachable (e.g.
-    an MSSQL outage) -- distinct from "available but zero sessions exist".
-    """
+def list_ac_shunt_sessions(params=None):
+    """Search the full session history with bounded, stable pagination."""
     from api.models import CalibrationSession
+    from django.db.models import Q
+    from django.core.paginator import Paginator
 
+    params = params or {}
     try:
-        sessions = list(
-            CalibrationSession.objects.order_by("-created_at").values(
-                "id",
-                "session_name",
-                "test_instrument_model",
-                "test_instrument_serial",
-                "standard_instrument_model",
-                "standard_instrument_serial",
-            )[:50]
+        page_size = max(1, min(100, int(params.get("page_size", 20))))
+    except (TypeError, ValueError):
+        page_size = 20
+    try:
+        all_sessions = CalibrationSession.objects.all()
+        models = list(all_sessions.exclude(test_instrument_model="").exclude(
+            test_instrument_model__isnull=True
+        ).order_by("test_instrument_model").values_list("test_instrument_model", flat=True).distinct())
+        sessions = all_sessions
+        fields = ("session_name", "test_instrument_model", "test_instrument_serial",
+                  "standard_instrument_model", "standard_instrument_serial")
+        for word in str(params.get("q", "")).split():
+            match = Q()
+            for field in fields:
+                match |= Q(**{f"{field}__icontains": word})
+            sessions = sessions.filter(match)
+        if params.get("model"):
+            sessions = sessions.filter(test_instrument_model=params["model"])
+        ordering = {"oldest": ("created_at", "id"), "name": ("session_name", "id")}.get(
+            params.get("sort"), ("-created_at", "-id")
         )
+        paginator = Paginator(sessions.order_by(*ordering).values("id", *fields, "created_at"), page_size)
+        page = paginator.get_page(params.get("page", 1))
+        return {"available": True, "sessions": list(page.object_list),
+                "total": paginator.count, "page": page.number,
+                "pages": paginator.num_pages, "models": models}
     except DjangoDBError:
-        return {"available": False, "sessions": []}
-    return {"available": True, "sessions": sessions}
+        return {"available": False, "sessions": [], "total": 0, "page": 1, "pages": 1, "models": []}
 
 
 def pull_ac_shunt_session(session_id):
