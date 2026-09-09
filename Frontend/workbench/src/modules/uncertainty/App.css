@@ -19183,7 +19183,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   width: 2px;
   transform: translateX(-50%);
   border-radius: 1px;
-  background: transparent;
+  background: var(--border-color, #94a3b8);
   transition: background-color 0.1s ease;
 }
 

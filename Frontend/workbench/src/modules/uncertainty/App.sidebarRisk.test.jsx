@@ -751,7 +751,7 @@ describe("measurement-point value editing", () => {
     expect(input).toHaveFocus();
   });
 
-  test("advances value entry only after Ctrl+Enter commits the current point", async () => {
+  test("requests insertion only after Ctrl+Enter commits the current point", async () => {
     const onSave = vi.fn();
     const onAdvanceValue = vi.fn();
     render(
@@ -780,10 +780,10 @@ describe("measurement-point value editing", () => {
         }),
       }),
     );
-    await waitFor(() => expect(onAdvanceValue).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onAdvanceValue).toHaveBeenCalledWith({ insert: true }));
   });
 
-  test("plain Enter commits without creating or advancing a point", () => {
+  test("plain Enter commits and requests navigation without insertion", async () => {
     const onSave = vi.fn();
     const onAdvanceValue = vi.fn();
     render(
@@ -806,7 +806,7 @@ describe("measurement-point value editing", () => {
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(onSave).toHaveBeenCalledOnce();
-    expect(onAdvanceValue).not.toHaveBeenCalled();
+    await waitFor(() => expect(onAdvanceValue).toHaveBeenCalledWith({ insert: false }));
   });
 
   test("opens an already-mounted blank row when value focus advances", async () => {

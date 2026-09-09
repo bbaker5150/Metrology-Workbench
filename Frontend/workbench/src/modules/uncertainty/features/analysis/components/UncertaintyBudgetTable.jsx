@@ -789,7 +789,7 @@ const ResultsCard = ({
 }) => {
   // When effective DOF is off, ν_eff is not applied to k, so leave it blank.
   const effDofDisplay = useEffectiveDof ? formatDof(results?.effective_dof) : "";
-  const unitSuffix = unit ? ` ${unit}` : "";
+  const unitSuffix = unit ? ` ${getUnitDisplayLabel(unit)}` : "";
 
   return (
     <aside className={`budget-results-card ${isFinal ? "final" : ""}`}>
@@ -1181,16 +1181,16 @@ const UncertaintyBudgetTable = ({
                   <ManualValueCell
                     component={component}
                     onCommit={commitManualValue}
-                    suffix={component.manualUnit || tolLimit.unit}
+                    suffix={getUnitDisplayLabel(component.manualUnit || tolLimit.unit)}
                   />
                 ) : component.pendingReason && component.authoredTolerance ? (
                   formatToleranceSummary?.(component.authoredTolerance)?.[0] || "Pending measurement value"
                 ) : component.isPropagationSummary ? (
-                  `${formatNumber(std.value, getGroupSigFigs(group))} ${std.unit}`
+                  `${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`
                 ) : isStdEntry ? (
                   ""
                 ) : (
-                  `${formatNumber(tolLimit.value, uiSigFigs)} ${tolLimit.unit}`
+                  `${formatNumber(tolLimit.value, uiSigFigs)} ${getUnitDisplayLabel(tolLimit.unit)}`
                 )}
               </td>
               <td>{renderDistributionCell(component)}</td>
@@ -1201,10 +1201,10 @@ const UncertaintyBudgetTable = ({
                   <ManualValueCell
                     component={component}
                     onCommit={commitManualValue}
-                    suffix={component.manualUnit || std.unit}
+                    suffix={getUnitDisplayLabel(component.manualUnit || std.unit)}
                   />
                 ) : (
-                  `${formatNumber(std.value, getGroupSigFigs(group))} ${std.unit}`
+                  `${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`
                 )}
               </td>
               <td className="action-cell">{renderActions(component)}</td>
@@ -1239,7 +1239,7 @@ const UncertaintyBudgetTable = ({
             {showDof && <td>{formatDof(row.dof)}</td>}
             <td>
               {formatNumber(row.standardUncertainty, getGroupSigFigs(group))}{" "}
-              {row.unit}
+              {getUnitDisplayLabel(row.unit)}
             </td>
             <td>{formatNumber(row.sensitivityCoefficient, 4)}</td>
             <td>
@@ -1262,7 +1262,7 @@ const UncertaintyBudgetTable = ({
         Combined uncertainty includes input correlations (ρ); without
         correlation (RSS) it would be{" "}
         {formatNumber(group.uncorrelatedCombined, getGroupSigFigs(group))}{" "}
-        {group.unit}.
+        {getUnitDisplayLabel(group.unit)}.
       </p>
     )}
     </>

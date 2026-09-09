@@ -922,12 +922,10 @@ export const SidebarPointItem = ({
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      const shouldAdvance =
-        editingField === "value" && (e.ctrlKey || e.metaKey);
-      e.target.blur(); // Triggers onBlur which commits
-      if (shouldAdvance) {
-        requestAnimationFrame(() => onAdvanceValue?.());
-      }
+      e.stopPropagation();
+      const insert = e.ctrlKey || e.metaKey;
+      e.target.blur(); // Commit before navigating or inserting against fresh state.
+      requestAnimationFrame(() => onAdvanceValue?.({ insert }));
     }
     if (e.key === "Escape") cancelEdit();
   };
@@ -4301,10 +4299,12 @@ function App({ showThemeToggle = false }) {
     uutId,
     settings,
     selectedUnit = "",
+    insertAfterPointId = null,
   ) => {
-    const newId = handleSaveTestPoint(
-      buildBlankPoint(uutId, fnGroup, settings, selectedUnit),
-    );
+    const newId = handleSaveTestPoint({
+      ...buildBlankPoint(uutId, fnGroup, settings, selectedUnit),
+      _insertAfterPointId: insertAfterPointId,
+    });
     setSelectedTestPointContextUutId(uutId || null);
     setPendingPointUnitChoice(null);
     if (newId != null) {
@@ -4607,7 +4607,7 @@ function App({ showThemeToggle = false }) {
 
   useEffect(() => {
     if (!pendingPointValueAdvance) return;
-    const { functionId, uutId, unit, nextPointId } = pendingPointValueAdvance;
+    const { functionId, uutId, unit, nextPointId, insert, afterPointId } = pendingPointValueAdvance;
     const fnGroup = sidebarData.find((group) => group.id === functionId);
     if (!fnGroup) {
       setPendingPointValueAdvance(null);
@@ -4616,19 +4616,20 @@ function App({ showThemeToggle = false }) {
     const nextPoint = nextPointId
       ? currentTestPoints.find((point) => point.id === nextPointId)
       : null;
-    if (nextPoint) {
+    if (!insert && nextPoint) {
       const nextUutId = nextPoint.associatedUutIds?.[0] || null;
       setSelectedSidebarPointIds([nextPoint.id]);
       setSelectedTestPointId(nextPoint.id);
       setSelectedTestPointContextUutId(nextUutId);
       setPendingValueEditPointId(nextPoint.id);
-    } else {
+    } else if (insert) {
       const settings = getFunctionPointSettings(currentSessionData, fnGroup.id);
       const newId = handleQuickAddPoint(
         fnGroup,
         uutId,
         settings,
         unit || fnGroup.unit || "",
+        afterPointId,
       );
       if (newId != null) {
         setSelectedSidebarPointIds([newId]);
@@ -4666,6 +4667,36 @@ function App({ showThemeToggle = false }) {
   },
     [expandedFunctions, sidebarData, sortSidebarPoints],
   );
+
+  // Selected rows also own Enter when no inline field is being edited.
+  useEffect(() => {
+    const onPointKey = event => {
+      if (event.key !== "Enter" || event.altKey || event.shiftKey || isInstrumentBuilderOpen) return;
+      const target = event.target;
+      if (target?.closest?.("input, textarea, select, [contenteditable=true], [role=dialog], [role=alertdialog], .floating-window-content")) return;
+      if (document.querySelector("[role=alertdialog], [role=dialog]")) return;
+      if (target?.closest?.("button") && !(event.ctrlKey || event.metaKey)) return;
+      if (target !== document.body && target !== document.documentElement &&
+          !target?.closest?.(".results-sidebar") && target !== window) return;
+      const point = currentTestPoints.find(point => String(point.id) === String(selectedTestPointId));
+      if (!point) return;
+      const group = sidebarData.find(group => group.points?.some(p => p.id === point.id));
+      if (!group) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const index = visibleSidebarPointOrder.findIndex(entry => String(entry.pointId) === String(point.id));
+      setPendingPointValueAdvance({
+        insert: event.ctrlKey || event.metaKey,
+        afterPointId: point.id,
+        nextPointId: visibleSidebarPointOrder[index + 1]?.pointId || null,
+        functionId: group.id,
+        uutId: selectedTestPointContextUutId || point.associatedUutIds?.[0] || null,
+        unit: point.testPointInfo?.parameter?.unit || group.unit || "",
+      });
+    };
+    window.addEventListener("keydown", onPointKey);
+    return () => window.removeEventListener("keydown", onPointKey);
+  }, [currentTestPoints, selectedTestPointId, selectedTestPointContextUutId, sidebarData, visibleSidebarPointOrder, isInstrumentBuilderOpen]);
 
   useEffect(() => {
     if (selectedSessionId && selectedTestPointId) {
@@ -4981,12 +5012,16 @@ function App({ showThemeToggle = false }) {
       }
       onAutoEditConsumed={() => setPendingValueEditPointId(null)}
       onAutoEditFieldConsumed={() => setPendingSharedFieldEdit(null)}
-      onAdvanceValue={() =>
+      onAdvanceValue={({ insert = false } = {}) =>
         setPendingPointValueAdvance({
+          insert,
+          afterPointId: tp.id,
           functionId: fnGroup.id,
           uutId: contextUutId,
           unit: tp.testPointInfo?.parameter?.unit || fnGroup.unit || "",
-          nextPointId: points[index + 1]?.id || null,
+          nextPointId: visibleSidebarPointOrder[
+            visibleSidebarPointOrder.findIndex(entry => String(entry.pointId) === String(tp.id)) + 1
+          ]?.pointId || null,
         })
       }
       onSave={handleInlinePointUpdate}

@@ -1,3 +1,4 @@
+import { syncPointTolerances } from "../utils/pointToleranceSync";
 import { trackInstrumentOnboarding } from "../utils/instrumentOnboarding";
 import { inheritMissingPointUnits } from "../utils/pointUnits";
 import { migrateMeasurementAreas } from "../utils/measurementAreaGrouping";
@@ -699,6 +700,7 @@ const useSessionManager = () => {
       const previousSession = sessionsRef.current.find(
         (session) => session.id === updatedSession.id,
       );
+      updatedSession = syncPointTolerances(updatedSession, previousSession);
       updatedSession = trackInstrumentOnboarding(updatedSession, previousSession);
       const changeGroup = getSessionChangeGroup(previousSession, updatedSession);
       if (!changeGroup) return;
@@ -1063,7 +1065,12 @@ const useSessionManager = () => {
           associatedUutIds: formData.associatedUutIds || [],
         };
 
-        currentTestPoints.push(newTestPoint);
+        delete newTestPoint._insertAfterPointId;
+        const insertionIndex = formData._insertAfterPointId == null ? -1 : currentTestPoints.findIndex(
+          point => String(point.id) === String(formData._insertAfterPointId),
+        );
+        if (insertionIndex < 0) currentTestPoints.push(newTestPoint);
+        else currentTestPoints.splice(insertionIndex + 1, 0, newTestPoint);
         lastNewId = newId;
       }
     });

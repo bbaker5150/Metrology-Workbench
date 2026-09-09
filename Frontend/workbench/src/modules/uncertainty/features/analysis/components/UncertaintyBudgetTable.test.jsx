@@ -479,8 +479,8 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       screen.getByRole("heading", { name: "Length Uncertainty Budget", level: 4 }),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Length \(l\) Uncertainty Budget/i)).not.toBeInTheDocument();
-    expect(screen.getByText("0.0019992 in")).toBeInTheDocument();
-    expect(screen.queryByText("0.002000 in")).not.toBeInTheDocument();
+    expect(screen.getByText("0.0019992 in.")).toBeInTheDocument();
+    expect(screen.queryByText("0.002000 in.")).not.toBeInTheDocument();
   });
 
   it("limits result-card readouts to eight significant digits", () => {
@@ -493,8 +493,8 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       },
     });
 
-    expect(screen.getByText("0.0099998162 in-oz")).toBeInTheDocument();
-    expect(screen.getByText("0.019999632 in-oz")).toBeInTheDocument();
+    expect(screen.getByText("0.0099998162 in\u00b7ozf")).toBeInTheDocument();
+    expect(screen.getByText("0.019999632 in\u00b7ozf")).toBeInTheDocument();
     expect(screen.queryByText(/0\.00999981624765/)).not.toBeInTheDocument();
     expect(
       screen.getByTitle("0.00999981624765"),
@@ -1436,3 +1436,10 @@ it("shows explanations in place of unresolved component and total uncertainties"
   expect(screen.getAllByRole("img", { name: reason })).toHaveLength(3);
   expect(screen.getByText("Reference accuracy")).toBeInTheDocument();
 });
+
+ it.each([["degF", "\u00b0F"], ["Ohm", "\u03a9"], ["Ohms", "\u03a9"], ["um", "\u00b5m"]])("formats final result units consistently (%s)", (unit, label) => {
+   const { container } = renderDirectBudget({ referencePoint: { name: "Measurement", unit } });
+   const result = container.querySelector(".budget-results-card");
+   expect(result).toHaveTextContent(`1 ${label}`);
+   expect(result).toHaveTextContent(`2 ${label}`);
+ });

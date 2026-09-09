@@ -9,6 +9,8 @@ import * as math from "mathjs";
 // make both spellings appear in unit dropdowns).
 const UNIT_ALIASES = Object.freeze({
   ohm: "Ohm",
+  Ohms: "Ohm",
+  ohms: "Ohm",
   "Ω": "Ohm",
   // Keep legacy spellings/conventions readable by the conversion engine, but
   // expose one canonical choice in selectors. These aliases previously had

@@ -340,3 +340,18 @@ describe("local instrument persistence", () => {
     });
   });
 });
+
+ it("inserts new points after the requested row and never persists insertion metadata", async () => {
+   axios.get.mockImplementation(url => Promise.resolve({ data: url.endsWith("/sessions/") ? [{ id: 1, name: "Insertion", testPoints: [
+     { id: "first", testPointInfo: { parameter: { value: 1, unit: "V" } } },
+     { id: "last", testPointInfo: { parameter: { value: 2, unit: "V" } } },
+   ] }] : [] }));
+   const { result } = renderHook(() => useSessionManager());
+   await waitFor(() => expect(result.current.currentSessionData?.testPoints).toHaveLength(2));
+   let added;
+   act(() => { added = result.current.saveTestPoint({ _insertAfterPointId: "first", testPointInfo: { parameter: { value: "", unit: "V" } } }); });
+   expect(result.current.currentSessionData.testPoints.map(p => p.id)).toEqual(["first", added, "last"]);
+   expect(result.current.currentSessionData.testPoints[1]).not.toHaveProperty("_insertAfterPointId");
+   act(() => { result.current.saveTestPoint({ _insertAfterPointId: added, testPointInfo: { parameter: { value: "", unit: "V" } } }); });
+   expect(result.current.currentSessionData.testPoints[3].id).toBe("last");
+ });

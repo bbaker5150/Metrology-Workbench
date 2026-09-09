@@ -263,7 +263,7 @@ export const createWalkthroughSteps = (sessionCount) => {
       "Editing & shortcuts",
       "point-selection",
       "Select and edit points",
-      "Click a value to edit it; Enter commits and Escape cancels. Ctrl/Cmd-click adds or removes a point from the selection, and Shift-click selects a contiguous span. Right-click for point, budget, and paste actions.",
+      "Click a value to edit it; Enter commits and moves to the next point; Ctrl/Cmd+Enter inserts a new point directly below. Escape cancels. Ctrl/Cmd-click adds or removes a point from the selection, and Shift-click selects a contiguous span. Right-click for point, budget, and paste actions.",
       ".measurement-point-list",
       {
         hint: "Clipboard shortcuts operate on selected rows when you are outside a text field. Within a text field they edit text normally.",
