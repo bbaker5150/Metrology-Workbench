@@ -12,13 +12,13 @@ The importer accepts files up to 10 MB, 50 MB uncompressed, 50,000 records and 2
 
 ## Initial deployment
 
-The repository ships without customer data. After deploying, import the supplied workbook from **Update customer directory**. Migration 0003 creates the directory tables in the existing `reports` database; migration 0004 initializes its metadata. The normal bootstrap applies these migrations. For a manual upgrade, run:
+The repository includes a normalized snapshot of the supplied **Lab Address List.xlsx**, containing 11,885 customers (687 with addresses). Migration 0004 loads it automatically on initial setup. Migration 0003 creates the directory tables in the existing `reports` database; migration 0004 initializes its metadata. The normal bootstrap applies these migrations. For a manual upgrade, run:
 
 ```
 python manage.py migrate reports --database=reports
 ```
 
-For an authorized private distribution, migration 0004 also supports an optional `reports/data/customers_initial.json.gz` snapshot bundled before the migration first runs. The snapshot is a gzip-compressed JSON array with `activity`, `sub_custodian`, `lab_name`, `address`, and `syscom` strings. It seeds once and never overwrites later imports. Once migration 0004 has run, use the Excel import to populate or update the list.
+The bundled snapshot is `reports/data/customers_initial.json.gz`. The snapshot is a gzip-compressed JSON array with `activity`, `sub_custodian`, `lab_name`, `address`, and `syscom` strings. It seeds once and never overwrites later imports. Once migration 0004 has run, use the Excel import to populate or update the list.
 
 
 Update frontend and backend together. The packaged backend includes the reports data and migrations via `ac_shunt_backend.spec`. GET `/api/reports/customers/?q=...&page=...` searches the directory. POST `/api/reports/customers/import/` accepts a multipart `file`. Both endpoints follow the existing reports API access model.
