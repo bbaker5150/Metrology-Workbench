@@ -2164,7 +2164,8 @@ export const EditableDescriptionCell = ({
           className={`inline-desc-combined${displayDescription === "Click to add description" ? " is-empty" : ""}`}
           title="Edit manufacturer, model, and name"
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => {
+          onClick={(e) => {
+            if (e.ctrlKey || e.metaKey || e.shiftKey) return;
             setEditing(true);
             setOpen(true);
             requestAnimationFrame(() => {
@@ -5164,6 +5165,9 @@ const isInlineRowControlTarget = (target) =>
     "input, select, textarea, button, .inline-desc-search, .react-select__control, .react-select__menu",
   );
 
+const isModifiedInstrumentSelection = event =>
+  (event.ctrlKey || event.metaKey || event.shiftKey) && event.target?.closest?.(".inline-desc-combined");
+
 const handleRowSelection = (
   e,
   id,
@@ -5173,7 +5177,7 @@ const handleRowSelection = (
 ) => {
   // Let inline editors handle their own clicks; only bare row areas toggle
   // selection (so the user can still select an instrument to copy/cut/delete).
-  if (isInlineRowControlTarget(e.target)) {
+  if (isInlineRowControlTarget(e.target) && !isModifiedInstrumentSelection(e)) {
     return;
   }
   const anchorId = selectionAnchorRef?.current;
@@ -8096,7 +8100,12 @@ const SummaryDashboard = ({
     // multi-instrument selection before that menu determines its batch target.
     if (event.button !== undefined && event.button !== 0) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
-    activateRangeRow(kind, item.id, index);
+    const isRangeTarget = Boolean(event.target?.closest?.("[data-range-cell]"));
+    if (!isRangeTarget && (!isInlineRowControlTarget(event.target) || isModifiedInstrumentSelection(event))) {
+      (kind === "uut" ? handleUutClick : handleTmdeClick)(event, item.id);
+    } else {
+      activateRangeRow(kind, item.id, index);
+    }
     setLocalRangeIndices(previous => kind === "uut" ? { ...previous, [stateItemId]: index } : previous);
     setTmdeRangeIndices(previous => kind === "tmde" ? { ...previous, [stateItemId]: index } : previous);
     const rangeCell = event.target?.closest?.("[data-range-cell]");
@@ -8544,7 +8553,7 @@ const SummaryDashboard = ({
   // Selection Handlers (Wrapped)
   const handleUutClick = (e, id) => {
     pasteDestinationRef.current = { kind: "uut", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
-    if (!isInlineRowControlTarget(e.target)) {
+    if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
       onInstrumentSelection();
       setSelectedTmdeIds([]);
       tmdeSelectionAnchorRef.current = null;
@@ -8561,7 +8570,7 @@ const SummaryDashboard = ({
   };
   const handleTmdeClick = (e, id) => {
     pasteDestinationRef.current = { kind: "tmde", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
-    if (!isInlineRowControlTarget(e.target)) {
+    if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
       onInstrumentSelection();
       setSelectedUutIds([]);
       uutSelectionAnchorRef.current = null;
@@ -11561,7 +11570,12 @@ function DetailedView({
   const selectRangeRowDetail = (event, kind, item, index, rangeId, stateItemId = item.id) => {
     if (event.button !== undefined && event.button !== 0) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
-    activateRangeRowDetail(kind, item.id, index);
+    const isRangeTarget = Boolean(event.target?.closest?.("[data-range-cell]"));
+    if (!isRangeTarget && (!isInlineRowControlTarget(event.target) || isModifiedInstrumentSelection(event))) {
+      (kind === "uut" ? handleUutClick : handleTmdeClick)(event, item.id);
+    } else {
+      activateRangeRowDetail(kind, item.id, index);
+    }
     setLocalRangeIndices(previous => kind === "uut" ? { ...previous, [stateItemId]: index } : previous);
     setTmdeRangeIndices(previous => kind === "tmde" ? { ...previous, [stateItemId]: index } : previous);
     const rangeCell = event.target?.closest?.("[data-range-cell]");
@@ -11909,7 +11923,7 @@ function DetailedView({
   // --- NEW: Row Selection Handlers ---
   const handleUutClick = (e, id) => {
     pasteDestinationRef.current = { kind: "uut", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
-    if (!isInlineRowControlTarget(e.target)) {
+    if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
       onInstrumentSelection();
       setSelectedTmdeIds([]);
       tmdeSelectionAnchorRef.current = null;
@@ -11926,7 +11940,7 @@ function DetailedView({
   };
   const handleTmdeClick = (e, id) => {
     pasteDestinationRef.current = { kind: "tmde", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
-    if (!isInlineRowControlTarget(e.target)) {
+    if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
       onInstrumentSelection();
       setSelectedUutIds([]);
       uutSelectionAnchorRef.current = null;
@@ -14243,7 +14257,7 @@ function DetailedView({
         const divisor = component.distributionDivisor;
         const numericDivisor = Number(divisor);
         const toleranceLimit =
-          Number.isFinite(numericDivisor) && Number.isFinite(Number(component.value_native))
+          component.value_native != null && Number.isFinite(numericDivisor) && Number.isFinite(Number(component.value_native))
             ? Math.abs(Number(component.value_native) * numericDivisor)
             : "";
         const instanceId = `tmde_budget_${tmde.id ?? tmde.sourceId}_${addedAt}_${uuidv4()}_${index}`;
@@ -14941,12 +14955,11 @@ function DetailedView({
     (calculationError.includes("Variable mappings are missing") ||
       calculationError.includes("Input data missing") ||
       calculationError.includes("Internal error"));
-  // The equation area already explains incomplete variables/nominals. Keep the
-  // budget workspace out of view until that configuration can produce real
-  // tables instead of repeating the same warning in a second section.
+  // Once an equation defines inputs, users can build their budgets before
+  // entering nominals. Incomplete calculations retain their source rows.
   const canShowBudgetSection =
     !isDerived ||
-    (hasUsableEquation && !hasUnassignedVariables && !isBackendMappingError);
+    hasUsableEquation;
 
   // --- Monte Carlo (GUM-S1) propagation mode ---
   // Linear stays the default (workbook parity); the MC path is offered when
@@ -16703,8 +16716,8 @@ function DetailedView({
         }`}
         style={detailSectionStyle("budget", 1)}
       >
-      {hasMeasurementPoint ? (
-        calculationError ? (
+      {!hasMeasurementPoint && <p className="form-section-warning" role="status">Enter a measurement value when ready. You can build the uncertainty budget now; value-dependent components will show a warning until a value is assigned.</p>}
+      {calculationError && hasMeasurementPoint ? (
           <div className="form-section-warning">
             <p>Calculation Error: {calculationError}</p>
           </div>
@@ -16766,8 +16779,7 @@ function DetailedView({
               rangeWarningsByGroup={budgetRangeWarningsByGroup}
             />
           </>
-        )
-      ) : null}
+        )}
       </div>
       </>
       )}

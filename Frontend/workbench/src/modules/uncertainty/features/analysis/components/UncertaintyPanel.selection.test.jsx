@@ -47,6 +47,23 @@ describe.each(["session", "point"])("exclusive instrument selection in %s view",
     expect(session.uuts[1].name).toBe("First TMDE");
   });
 
+  it("preserves Ctrl and Shift instrument selection on multi-range rows", () => {
+    const onDeleteUut = vi.fn();
+    render(<Harness viewMode={viewMode} multiRange onDeleteUut={onDeleteUut} />);
+    const first = document.querySelector('tr[data-range-group="uut:u1"] .cell-description');
+    const second = document.querySelector('tr[data-range-group="uut:u2"] .cell-description');
+    fireEvent.mouseDown(first);
+    fireEvent.mouseDown(second.querySelector(".inline-desc-combined"), { ctrlKey: true });
+    fireEvent.click(second.querySelector(".inline-desc-combined"), { ctrlKey: true });
+    expect(document.querySelector(".inline-desc-fields")).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Delete" });
+    expect(onDeleteUut).toHaveBeenLastCalledWith(["u1", "u2"]);
+    fireEvent.mouseDown(first);
+    fireEvent.mouseDown(second, { shiftKey: true });
+    fireEvent.keyDown(window, { key: "Delete" });
+    expect(onDeleteUut).toHaveBeenLastCalledWith(["u1", "u2"]);
+  });
+
   it("targets only the last table for Delete and clears selection on Escape", () => {
     const onDeleteUut = vi.fn(), onDeleteTmdeDefinition = vi.fn();
     render(<Harness {...{ viewMode, onDeleteUut, onDeleteTmdeDefinition }} />);

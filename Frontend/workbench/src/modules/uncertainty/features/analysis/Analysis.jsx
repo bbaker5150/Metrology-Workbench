@@ -63,7 +63,7 @@ import {
   refreshLinkedTypeBComponents,
 } from "./utils/budgetUtils";
 import { getInstrumentRangeRows } from "../../utils/instrumentFunctionSelection";
-import { createInlineManualComponent } from "./utils/manualComponentUtils";
+import { createInlineManualComponent, normalizeInlineManualComponent, getInlineManualDraft } from "./utils/manualComponentUtils";
 
 /**
  * Analysis Component
@@ -332,7 +332,9 @@ function Analysis({
               }
             : null;
         }
-        if (!component?.tmdeBudgetSourceId) return component;
+        if (!component?.tmdeBudgetSourceId) return component?.isInlineManual && !component.inlineDraft
+          ? normalizeInlineManualComponent({ component, draft: getInlineManualDraft(component), referencePoint: getReferencePoint(component) })
+          : component;
         const sourceId = component.tmdeBudgetSourceId;
         const master = (sessionData.tmdes || []).find(
           (tmde) =>
@@ -400,12 +402,14 @@ function Analysis({
         const divisor = replacement.distributionDivisor;
         const numericDivisor = Number(divisor);
         const toleranceLimit =
-          Number.isFinite(numericDivisor) &&
+          replacement.value_native != null && Number.isFinite(numericDivisor) &&
           Number.isFinite(Number(replacement.value_native))
             ? Math.abs(Number(replacement.value_native) * numericDivisor)
             : "";
         return {
           ...component,
+          pendingReason: replacement.pendingReason || null,
+          authoredTolerance: replacement.authoredTolerance,
           value: replacement.value,
           isBaseUnitValue: replacement.isBaseUnitValue,
           value_native: replacement.value_native,

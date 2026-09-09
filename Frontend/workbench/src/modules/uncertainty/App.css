@@ -20120,8 +20120,12 @@ body.uncertainty-active .context-menu li.destructive:hover {
 
 /* One shared measurement-point viewport: all areas and columns scroll together. */
 .uncertainty-module .measurement-points-table {
-  overflow: auto;
-  max-height: 70vh;
+  flex: 0 0 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  max-height: none;
+  height: auto;
   width: 100%;
 }
 .uncertainty-module .measurement-points-table-content {
@@ -20185,3 +20189,6 @@ body.uncertainty-active .context-menu li.destructive:hover {
   min-width: 0;
   box-sizing: border-box;
 }
+
+/* Unit symbols are case-sensitive, including SI prefixes. */
+.uncertainty-module .function-header-unit-chip { text-transform: none; }

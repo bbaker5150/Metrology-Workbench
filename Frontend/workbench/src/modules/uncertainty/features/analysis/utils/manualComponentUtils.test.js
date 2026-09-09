@@ -241,3 +241,12 @@ describe("inline manual budget components", () => {
     expect(Number.isFinite(normalized.value)).toBe(true);
   });
 });
+
+it("preserves a relative draft before a nominal and resolves it when supplied", () => {
+  const draft = { name: "IV", inputMode: "standard", standardUncertainty: "1", unit: "%" };
+  const pending = normalizeInlineManualComponent({ component: { id: "x" }, draft, referencePoint: { value: "", unit: "V" } });
+  expect(pending.pendingReason).toMatch(/measurement value/);
+  expect(pending.value_native).toBeNull();
+  const ready = normalizeInlineManualComponent({ component: pending, draft, referencePoint: { value: 10, unit: "V" } });
+  expect(ready.pendingReason).toBeNull(); expect(ready.value_native).toBeCloseTo(0.1);
+});

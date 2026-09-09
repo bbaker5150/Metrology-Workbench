@@ -1,3 +1,4 @@
+import { useWorkbenchIssues } from "../../shared/WorkbenchIssuesContext";
 // src/App.js
 import React, { useState, useCallback, useEffect, useMemo, useRef, useLayoutEffect } from "react";
 import { Suspense } from 'react';
@@ -430,6 +431,7 @@ function ObserversPill({ observers }) {
 }
 
 function AppContent() {
+  const workbenchIssues = useWorkbenchIssues();
   const [activeTab, setActiveTab] = useState("sessionSetup");
   const [sessionsList, setSessionsList] = useState([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
@@ -1536,7 +1538,7 @@ function AppContent() {
               >
                 <FaStickyNote aria-hidden />
               </button>
-              <button
+              {!workbenchIssues && (<button
                 type="button"
                 onClick={() => setIsBugReportModalOpen(true)}
                 className="app-chrome-meta-icon"
@@ -1544,7 +1546,7 @@ function AppContent() {
                 title="Report an issue"
               >
                 <FaBug aria-hidden />
-              </button>
+              </button>)}
               {isRemoteViewer && (
                 <button
                   type="button"
@@ -1676,7 +1678,7 @@ function AppContent() {
   );
 }
 function CoinModel({ onReset, isActive }) {
-  const { scene } = useGLTF('/3demblem.glb');
+  const { scene } = useGLTF(`${import.meta.env.BASE_URL}3demblem-optimized.glb`);
   const ref = useRef();
   // Tracks elapsed time only while active, so the sin wave always starts
   // from zero on a fresh calibration (no mid-cycle jump). Reset to 0 the

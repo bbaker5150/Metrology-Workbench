@@ -250,3 +250,30 @@ describe("useUncertaintyCalculation direct budgets", () => {
     );
   });
 });
+
+describe("incomplete measurement budgets", () => {
+  it("retains value-dependent rows and suppresses totals, while showing absolute resolution", async () => {
+    const { result } = renderDirectCalculation({}, { nominal: { value: "", unit: "V" } });
+    await waitFor(() => expect(result.current.calcResults).not.toBeNull());
+    const group = result.current.calcResults.calculatedBudgetGroups[0];
+    expect(group.components.find(c => c.name.includes("Accuracy")).pendingReason).toMatch(/measurement value/);
+    expect(group.components.find(c => c.isResolution).value_native).toBeGreaterThan(0);
+    expect(group.results.combined).toBeNull();
+    expect(group.results.pendingReason).toMatch(/measurement value/);
+    expect(result.current.calcResults.is_detailed_uncertainty_calculated).toBe(false);
+  });
+  it("calculates a nominal-independent budget without inventing a measurement value", async () => {
+    const { result } = renderDirectCalculation({}, { nominal: { value: "", unit: "V" }, tmdeTolerances: [],
+      uutTolerance: {}, manualComponents: [{ id: "absolute", value_native: 2, unit_native: "V", value: 2, isBaseUnitValue: true }] });
+    await waitFor(() => expect(result.current.calcResults).not.toBeNull());
+    expect(result.current.calcResults.calculatedBudgetGroups[0].results.combined).toBe(2);
+    expect(result.current.calcResults.is_detailed_uncertainty_calculated).toBe(false);
+  });
+});
+
+it("keeps derived input budgets visible while their nominal values are incomplete", async () => {
+  const { result } = renderDirectCalculation({ measurementType: "derived", equationString: "x*y", variableMappings: { x: "Length", y: "Force" }, variableNominals: { x: { value: "", unit: "m" }, y: { value: 5, unit: "N" } } }, { nominal: { value: "", unit: "N-m" }, tmdeTolerances: [], uutTolerance: {}, manualComponents: [] });
+  await waitFor(() => expect(result.current.calcResults).not.toBeNull());
+  expect(result.current.calcResults.calculatedBudgetGroups.map(g => g.variableType || g.kind)).toEqual(["Length", "Force", "final"]);
+  expect(result.current.calcResults.calculatedBudgetGroups.at(-1).results.pendingReason).toMatch(/equation input/);
+});

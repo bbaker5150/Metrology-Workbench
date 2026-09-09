@@ -3,11 +3,17 @@ import { useNavigate } from "react-router";
 import { FaBolt, FaCalculator, FaFileAlt, FaArrowRight } from "react-icons/fa";
 import { MODULES } from "./moduleRegistry";
 import "./HomeLauncher.css";
+import EMBLEM_PREVIEW from "../assets/emblem-preview.webp";
 
-// The 3D medallion pulls in three.js, so load it lazily. A neutral animated
-// loader avoids flashing a flat approximation that does not match the final
-// rendered object.
+// Show an exact render of the medallion immediately, then crossfade to the
+// animated model after its first frame. The rest of the launcher stays usable.
 const LauncherEmblem = lazy(() => import("./LauncherEmblem"));
+
+class EmblemBoundary extends React.Component {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() { return this.state.failed ? null : this.props.children; }
+}
 
 // Icon per module id. Kept here (presentation concern) rather than in the
 // registry so the registry stays a plain data manifest.
@@ -22,18 +28,17 @@ export default function HomeLauncher() {
   const [emblemReady, setEmblemReady] = useState(false);
 
   useEffect(() => {
-    // The uncertainty workspace is the primary launcher destination. Warm its
-    // route immediately after the home screen paints so a normal card click
-    // mounts from cache instead of starting a multi-megabyte download.
+    // Give the emblem's first frame priority over speculative module work.
+    // Hover/focus still warms a destination immediately when the user needs it.
     const uncertaintyModule = MODULES.find((module) => module.id === "uncertainty");
     const timer = window.setTimeout(() => {
       uncertaintyModule?.preload?.().catch(() => {
         // React.lazy will surface a real load failure when the user navigates.
         // A speculative warm-up failure should not disturb the launcher.
       });
-    }, 0);
+    }, emblemReady ? 0 : 2500);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [emblemReady]);
 
   const warmModule = (module) => {
     module.preload?.().catch(() => {});
@@ -43,18 +48,14 @@ export default function HomeLauncher() {
     <div className="workbench-home">
       <header className="workbench-home-header">
         <div className="workbench-home-emblem">
-          <div
-            className={`workbench-home-emblem-loader${emblemReady ? " is-ready" : ""}`}
-            aria-hidden="true"
-          >
-            <span className="workbench-home-emblem-loader-core" />
-          </div>
+          <img src={EMBLEM_PREVIEW} width="480" height="480" alt="" aria-hidden="true"
+            className={`workbench-home-emblem-preview${emblemReady ? " is-ready" : ""}`} />
           <div
             className={`workbench-home-emblem-canvas${emblemReady ? " is-ready" : ""}`}
           >
-            <Suspense fallback={null}>
+            <EmblemBoundary><Suspense fallback={null}>
               <LauncherEmblem onReady={() => setEmblemReady(true)} />
-            </Suspense>
+            </Suspense></EmblemBoundary>
           </div>
         </div>
         <div className="workbench-home-heading">

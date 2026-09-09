@@ -1,3 +1,4 @@
+import { hasNominalValue } from "../../../utils/incompleteBudget";
 import { useState, useEffect } from "react";
 import {
   unitSystem,
@@ -240,28 +241,63 @@ export const useUncertaintyCalculation = (
     try {
       setCalculationError(null);
 
-      // --- 1. EARLY EXIT: EMPTY STATE ---
-      if (!uutNominal || 
-          uutNominal.value === "" || 
-          uutNominal.value === null || 
-          uutNominal.value === undefined || 
-          !uutNominal.unit) {
-            
-        setCalcResults(null);
-        
-        if (testPointData.is_detailed_uncertainty_calculated) {
-          onDataSave({
-            combined_uncertainty: null,
-            effective_dof: null,
-            k_value: null,
-            expanded_uncertainty: null,
-            is_detailed_uncertainty_calculated: false,
-            calculatedBudgetComponents: [],
-            calculatedBudgetGroups: [],
-            calculatedNominalValue: null,
-          });
-        }
-        return; 
+      // Keep authored source rows available before a nominal is supplied.
+      // Partial totals never flow into risk: only independent absolute terms
+      // may be displayed, and any unresolved row suppresses the total.
+      const incompleteInputs = testPointData.measurementType === "derived" &&
+        Object.keys(testPointData.variableMappings || {}).some(symbol =>
+          !hasNominalValue(testPointData.variableNominals?.[symbol]) || !testPointData.variableNominals?.[symbol]?.unit);
+      if (!hasNominalValue(uutNominal) || !uutNominal?.unit || incompleteInputs) {
+        const derived = testPointData.measurementType === "derived";
+        const groupFor = (nominal, sources, label, id, variableType) => {
+          const unit = nominal?.unit || "";
+          const rows = [...sources];
+          const pendingReason = rows.find(c => c.pendingReason || c.inlineValidation)?.pendingReason ||
+            rows.find(c => c.inlineValidation)?.inlineValidation ||
+            (!unit ? "Assign a measurement unit to calculate uncertainty." : null) ||
+            (rows.some(c => c.value_native == null || !Number.isFinite(Number(c.value_native))) ? "Complete the budget components to calculate uncertainty." : null);
+          const combined = !pendingReason && rows.length ? Math.sqrt(rows.reduce((sum, c) => {
+            const factor = (unitSystem.units[c.unit_native]?.to_si || 1) / (unitSystem.units[unit]?.to_si || 1);
+            return sum + (Number(c.value_native) * factor) ** 2;
+          }, 0)) : null;
+          const confidence = parseFloat(sessionData.uncReq.uncertaintyConfidence) || 95;
+          const probability = 1 - (1 - confidence / 100) / 2;
+          const denominator = rows.reduce((sum, c) => {
+            const dof = normalizeDof(c.dof);
+            const factor = (unitSystem.units[c.unit_native]?.to_si || 1) / (unitSystem.units[unit]?.to_si || 1);
+            return dof > 0 && Number.isFinite(dof) ? sum + (Number(c.value_native) * factor) ** 4 / dof : sum;
+          }, 0);
+          const effectiveDof = denominator > 0 && combined != null ? combined ** 4 / denominator : Infinity;
+          const manualK = testPointData.coverageFactorMode === "manual" ? Number(testPointData.coverageFactorOverride) : NaN;
+          const k = Number.isFinite(manualK) && manualK > 0 ? manualK
+            : testPointData.useEffectiveDofByGroup?.[variableType || "final"] && Number.isFinite(effectiveDof)
+              ? getKValueFromTDistribution(effectiveDof, probability) : normalQuantile(probability);
+          return { id, kind: variableType ? "input" : "final", variableType, label, unit,
+            nominalPoint: nominal, components: rows,
+            results: { combined, expanded: combined == null ? null : combined * k, k_value: k, effective_dof: effectiveDof,
+              pendingReason: pendingReason || (!rows.length ? "Add budget components to calculate uncertainty." : null) } };
+        };
+        const sourceRows = (nominal, variableType) => [
+          ...manualComponents.filter(c => (c.variableType || "") === (variableType || "")),
+          ...tmdeTolerancesData.filter(t => !derived || t.variableType === variableType).flatMap((tmde, index) =>
+            getBudgetComponentsFromTolerance(tmde, nominal || {}).map((c, i) => ({ ...qualifyTmdeComponent(c, tmde, index), id: `${c.id}_${index}_${i}`, sourceTmdeId: tmde.id }))),
+        ];
+        const groups = derived ? Object.entries(testPointData.variableMappings || {}).map(([symbol, name]) =>
+          groupFor(testPointData.variableNominals?.[symbol] || {}, sourceRows(testPointData.variableNominals?.[symbol] || {}, name), `${name || symbol} Uncertainty Budget`, `input_${symbol}`, name)) : [];
+        const finalRows = sourceRows(uutNominal || {}, "");
+        const resolution = getUutResolutionComponent(uutToleranceData, uutNominal || {});
+        if (resolution) finalRows.push(resolution);
+        const final = groupFor(uutNominal, finalRows, `${uutNominal?.name || "Final"} Uncertainty Budget`, "final_budget");
+        if (derived) final.results = { combined: null, expanded: null, pendingReason: "Complete the equation input values and units to calculate total uncertainty." };
+        groups.push(final);
+        setCalcResults({ calculatedBudgetComponents: groups.flatMap(g => g.components), calculatedBudgetGroups: groups, is_detailed_uncertainty_calculated: false });
+        if (testPointData.is_detailed_uncertainty_calculated) onDataSave({
+          combined_uncertainty: null, combined_uncertainty_absolute_base: null,
+          effective_dof: null, k_value: null, expanded_uncertainty: null,
+          expanded_uncertainty_absolute_base: null, is_detailed_uncertainty_calculated: false,
+          calculatedBudgetComponents: [], calculatedBudgetGroups: [], calculatedNominalValue: null,
+        });
+        return;
       }
 
       const hasVariables =

@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework.decorators import api_view
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.conf import settings
@@ -413,14 +414,26 @@ class WorkstationViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = WorkstationSerializer
 
 
+class BugReportPagination(PageNumberPagination):
+    page_size = 100
+
+
 class BugReportViewSet(viewsets.ModelViewSet):
-    queryset = BugReport.objects.all().order_by('-created_at')
+    queryset = BugReport.objects.all().order_by('-created_at', '-id')
     serializer_class = BugReportSerializer
+    pagination_class = BugReportPagination
+
+    def paginate_queryset(self, queryset):
+        # Existing module clients consume an array. The global tracker opts in
+        # to pagination so it can retrieve older reports beyond the legacy cap.
+        if 'page' not in self.request.query_params:
+            return None
+        return super().paginate_queryset(queryset)
 
     def get_queryset(self):
-        qs = BugReport.objects.all().order_by('-created_at')
+        qs = BugReport.objects.all().order_by('-created_at', '-id')
         # Cap list payload for the in-app browser (newest first).
-        if getattr(self, 'action', None) == 'list':
+        if getattr(self, 'action', None) == 'list' and 'page' not in self.request.query_params:
             return qs[:200]
         return qs
 

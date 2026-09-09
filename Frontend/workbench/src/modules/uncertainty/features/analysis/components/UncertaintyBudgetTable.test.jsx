@@ -1429,3 +1429,10 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.queryByLabelText("Error source name")).not.toBeInTheDocument();
   });
 });
+
+it("shows explanations in place of unresolved component and total uncertainties", () => {
+  const reason = "Enter a measurement value to calculate this value-dependent uncertainty.";
+  renderDirectBudget({ components: [], calcResults: { calculatedBudgetGroups: [{ id: "final_budget", kind: "final", label: "Length Uncertainty Budget", unit: "um", components: [{ id: "pending", name: "Reference accuracy", isCore: true, value: null, value_native: null, unit_native: "um", pendingReason: reason }], results: { combined: null, expanded: null, pendingReason: reason } }] }, referencePoint: { value: "", unit: "um" } });
+  expect(screen.getAllByRole("img", { name: reason })).toHaveLength(3);
+  expect(screen.getByText("Reference accuracy")).toBeInTheDocument();
+});

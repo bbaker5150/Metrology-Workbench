@@ -1,3 +1,4 @@
+import { inheritMissingPointUnits } from "../utils/pointUnits";
 import { migrateMeasurementAreas } from "../utils/measurementAreaGrouping";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import axios from "axios";
@@ -54,7 +55,7 @@ export const prepareImportedSession = (
   }
 
   return {
-    ...migrateMeasurementAreas(loadedSession),
+    ...inheritMissingPointUnits(migrateMeasurementAreas(loadedSession)),
     id: importedId,
     name: importedName,
   };
@@ -212,7 +213,7 @@ const useSessionManager = () => {
   };
 
   const replaceSessions = useCallback((updater) => {
-    const nextSessions = (typeof updater === "function" ? updater(sessionsRef.current) : updater).map(migrateMeasurementAreas);
+    const nextSessions = (typeof updater === "function" ? updater(sessionsRef.current) : updater).map(session => inheritMissingPointUnits(migrateMeasurementAreas(session)));
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
     return nextSessions;
@@ -693,7 +694,7 @@ const useSessionManager = () => {
   // --- 5. CRUD Operations ---
   const updateSession = useCallback(
     (updatedSession, newImages = []) => {
-      updatedSession = migrateMeasurementAreas(updatedSession);
+      updatedSession = inheritMissingPointUnits(migrateMeasurementAreas(updatedSession));
       const previousSession = sessionsRef.current.find(
         (session) => session.id === updatedSession.id,
       );

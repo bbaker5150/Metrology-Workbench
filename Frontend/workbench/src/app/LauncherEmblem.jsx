@@ -1,11 +1,11 @@
-import React, { Suspense, useEffect, useRef } from "react";
+import React, { Suspense, useMemo, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF, Stage } from "@react-three/drei";
 
 // ---------------------------------------------------------------------
 // LauncherEmblem — the living 3D medallion on the workbench home page.
 // ---------------------------------------------------------------------
-// Reuses the same /3demblem.glb + Canvas/Stage lighting recipe as the
+// Reuses the same /3demblem-optimized.glb + Canvas/Stage lighting recipe as the
 // AC-Shunt header (App.jsx) so the brand reads consistently. Unlike the
 // header coin — which only animates while a calibration is active — this
 // one is *always* gently alive: a slow sway keeps the engraved front face
@@ -13,14 +13,17 @@ import { useGLTF, Stage } from "@react-three/drei";
 // breathing tilt so it never looks static. Non-interactive by design.
 // ---------------------------------------------------------------------
 function AliveEmblem({ onReady }) {
-  const { scene } = useGLTF("/3demblem.glb");
+  const { scene } = useGLTF(`${import.meta.env.BASE_URL}3demblem-optimized.glb`);
+  const model = useMemo(() => scene.clone(true), [scene]);
   const ref = useRef();
 
-  useEffect(() => {
-    onReady?.();
-  }, [onReady]);
+  const ready = useRef(false);
 
   useFrame((state) => {
+    if (!ready.current) {
+      ready.current = true;
+      requestAnimationFrame(() => onReady?.());
+    }
     const node = ref.current;
     if (!node) return;
     const t = state.clock.elapsedTime;
@@ -32,7 +35,7 @@ function AliveEmblem({ onReady }) {
     node.position.y = Math.sin(t * 1.1) * 0.05;
   });
 
-  return <primitive ref={ref} object={scene} scale={1.7} />;
+  return <primitive ref={ref} object={model} scale={1.7} />;
 }
 
 export default function LauncherEmblem({ onReady }) {

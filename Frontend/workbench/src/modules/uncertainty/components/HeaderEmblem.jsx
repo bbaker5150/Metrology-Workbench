@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useRef, useState } from "react";
+import React, { Suspense, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF, Stage } from "@react-three/drei";
 import EMBLEM_FALLBACK from "../../../assets/navair-seal-384.webp";
@@ -15,13 +15,13 @@ import EMBLEM_FALLBACK from "../../../assets/navair-seal-384.webp";
 // destined for an `<iframe srcdoc>` has no URL to resolve against at all. As a
 // module asset it is emitted with the rest of the bundle — hashed in the normal
 // builds, inlined as a data URI in the single-file one.
-const EMBLEM_MODEL = `${import.meta.env.BASE_URL}3demblem.glb`;
+const EMBLEM_MODEL = `${import.meta.env.BASE_URL}3demblem-optimized.glb`;
 
 // ---------------------------------------------------------------------
 // HeaderEmblem — the living 3D medallion in the module header brand mark.
 // ---------------------------------------------------------------------
 // Mirrors the workbench home page's LauncherEmblem recipe (same
-// 3demblem.glb + Canvas/Stage lighting) so the brand reads consistently
+// 3demblem-optimized.glb + Canvas/Stage lighting) so the brand reads consistently
 // across the whole workbench. Kept module-local (rather than importing the
 // shell's component) to preserve module isolation. Always gently alive: a
 // slow sway keeps the engraved front face toward the viewer, with a soft
@@ -29,13 +29,16 @@ const EMBLEM_MODEL = `${import.meta.env.BASE_URL}3demblem.glb`;
 // ---------------------------------------------------------------------
 function AliveEmblem({ onReady }) {
   const { scene } = useGLTF(EMBLEM_MODEL);
+  const model = useMemo(() => scene.clone(true), [scene]);
   const ref = useRef();
 
-  useEffect(() => {
-    onReady?.();
-  }, [onReady]);
+  const ready = useRef(false);
 
   useFrame((state) => {
+    if (!ready.current) {
+      ready.current = true;
+      requestAnimationFrame(() => onReady?.());
+    }
     const node = ref.current;
     if (!node) return;
     const t = state.clock.elapsedTime;
@@ -44,7 +47,7 @@ function AliveEmblem({ onReady }) {
     node.position.y = Math.sin(t * 1.1) * 0.05;
   });
 
-  return <primitive ref={ref} object={scene} scale={1.7} />;
+  return <primitive ref={ref} object={model} scale={1.7} />;
 }
 
 export default function HeaderEmblem() {
@@ -82,5 +85,3 @@ export default function HeaderEmblem() {
     </div>
   );
 }
-
-useGLTF.preload(EMBLEM_MODEL);

@@ -1,4 +1,6 @@
+import { hasNominalValue, toleranceNeedsNominal, unresolvedComponent, absoluteBudgetComponent, relativeBudgetUnit } from "../../../utils/incompleteBudget";
 import {
+  unitSystem,
   calculateUncertaintyFromToleranceObject,
   convertToPPM,
   convertPpmToUnit,
@@ -231,6 +233,15 @@ export const normalizeInlineManualComponent = ({
   draft,
   referencePoint,
 }) => {
+  if (referencePoint && !hasNominalValue(referencePoint)) {
+    const unit = referencePoint.unit || draft.unit || "V";
+    const resolved = normalizeInlineManualComponent({ component, draft, referencePoint: { ...referencePoint, value: 1, unit } });
+    const needsValue = draft.inputMode === "standard" || !toleranceHasMagnitude(draft.tolerance)
+      ? relativeBudgetUnit(draft.unit) : toleranceNeedsNominal(draft.tolerance);
+    return !referencePoint.unit || needsValue
+      ? unresolvedComponent(resolved, !referencePoint.unit ? "Assign a measurement unit to calculate uncertainty." : undefined)
+      : absoluteBudgetComponent(resolved, unitSystem);
+  }
   const type = draft.type === "A" ? "A" : "B";
   const inputMode =
     type === "A" || draft.inputMode === "standard"
@@ -343,6 +354,7 @@ export const normalizeInlineManualComponent = ({
     isInlineManual: true,
     inlineDraft: false,
     inlineValidation: validation,
+    pendingReason: null,
     manualInputMode: inputMode,
     manualRawValue: rawValue,
     manualUnit: unit,

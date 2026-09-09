@@ -1406,7 +1406,7 @@ describe("UncertaintyApp", () => {
     ).not.toBeInTheDocument();
   });
 
-  test("adds a manual budget component as an inline row instead of a modal", async () => {
+  test.each(["10", ""])("adds manual components with measurement value %s", async (measurementValue) => {
     apiMock.state.sessions = [
       {
         id: 4,
@@ -1451,7 +1451,7 @@ describe("UncertaintyApp", () => {
             activeUutId: "uut-inline-manual",
             measurementType: "direct",
             testPointInfo: {
-              parameter: { name: "Voltage", value: "10", unit: "V" },
+              parameter: { name: "Voltage", value: measurementValue, unit: "V" },
             },
             uutTolerance: {
               functionId: "fn-voltage-inline",

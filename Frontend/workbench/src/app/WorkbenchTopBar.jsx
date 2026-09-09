@@ -1,6 +1,7 @@
+import { useWorkbenchIssues } from "../shared/WorkbenchIssuesContext";
 import React from "react";
 import { useLocation, useNavigate } from "react-router";
-import { FaChevronLeft, FaThLarge, FaSun, FaMoon } from "react-icons/fa";
+import { FaChevronLeft, FaThLarge, FaSun, FaMoon, FaBug } from "react-icons/fa";
 import { useTheme } from "../shared/ThemeContext";
 import CaptionControls from "../shared/CaptionControls";
 
@@ -16,6 +17,7 @@ import CaptionControls from "../shared/CaptionControls";
 //   right: theme toggle + window caption controls (Electron only)
 // ---------------------------------------------------------------------
 export default function WorkbenchTopBar() {
+  const issues = useWorkbenchIssues();
   const location = useLocation();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -45,6 +47,7 @@ export default function WorkbenchTopBar() {
       </div>
 
       <div className="workbench-topbar-right">
+        {issues && <button type="button" className="workbench-topbar-icon-btn" onClick={issues.open} aria-label="Workbench issue tracker" title="Issues & feedback"><FaBug aria-hidden /></button>}
         <button
           type="button"
           className="workbench-topbar-icon-btn"

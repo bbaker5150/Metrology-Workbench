@@ -1,3 +1,4 @@
+import { useWorkbenchIssues } from "../../shared/WorkbenchIssuesContext";
 /**
  * src/App.jsx
  */
@@ -2150,6 +2151,7 @@ const SidebarSessionHeader = ({
 };
 
 function App({ showThemeToggle = false }) {
+  const workbenchIssues = useWorkbenchIssues();
   const {
     sessions,
     sessionsLoaded,
@@ -5605,7 +5607,7 @@ function App({ showThemeToggle = false }) {
                   >
                     <FontAwesomeIcon icon={faQuestionCircle} />
                   </button>
-                  <button
+                  {!workbenchIssues && (<button
                     type="button"
                     className="app-chrome-meta-icon"
                     onClick={() => setIsBugReportOpen(true)}
@@ -5613,7 +5615,7 @@ function App({ showThemeToggle = false }) {
                     aria-label="Report an issue"
                   >
                     <FontAwesomeIcon icon={faBug} />
-                  </button>
+                  </button>)}
                   {showThemeToggle && (
                     <button
                       type="button"

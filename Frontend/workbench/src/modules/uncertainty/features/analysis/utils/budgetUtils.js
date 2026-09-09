@@ -1,3 +1,4 @@
+import { hasNominalValue, toleranceNeedsNominal, unresolvedComponent, absoluteBudgetComponent, relativeBudgetUnit } from "../../../utils/incompleteBudget";
 /**
  * * This utility file contains helper functions for breaking down tolerance objects
  * * into individual uncertainty budget components.
@@ -89,6 +90,21 @@ export const getBudgetComponentsFromTolerance = (
   instrumentTypeBComponents = [],
   scopeContext = undefined,
 ) => {
+
+  if (referenceMeasurementPoint && !hasNominalValue(referenceMeasurementPoint)) {
+    const unit = referenceMeasurementPoint.unit || rawToleranceObject?.unit || "V";
+    return getBudgetComponentsFromTolerance(rawToleranceObject, { ...referenceMeasurementPoint, value: 1, unit }, instrumentTypeBComponents, scopeContext)
+      .map(component => {
+        const tolerance = rawToleranceObject?.tolerances || rawToleranceObject?.tolerance || rawToleranceObject || {};
+        if (!component.isResolution && !component.isManual) component = { ...component,
+          authoredTolerance: Object.fromEntries(["reading", "range", "floor", "readings_iv", "db"].filter(key => tolerance[key]).map(key => [key, tolerance[key]])) };
+        const needsValue = component.isManual ? relativeBudgetUnit(component.manualUnit)
+          : !component.isResolution && (toleranceNeedsNominal(rawToleranceObject) || /dB/.test(component.name));
+        return !referenceMeasurementPoint.unit || needsValue
+          ? unresolvedComponent(component, !referenceMeasurementPoint.unit ? "Assign a measurement unit to calculate uncertainty." : undefined)
+          : absoluteBudgetComponent(component, unitSystem);
+      });
+  }
 
   const rawScopeSource =
     rawToleranceObject && typeof rawToleranceObject === "object"
@@ -888,6 +904,10 @@ export const getUutResolutionComponent = (
   uutTolerance,
   referenceMeasurementPoint
 ) => {
+  if (referenceMeasurementPoint && !hasNominalValue(referenceMeasurementPoint)) {
+    const component = getUutResolutionComponent(uutTolerance, { ...referenceMeasurementPoint, value: 1 });
+    return component ? absoluteBudgetComponent(component, unitSystem) : null;
+  }
   let tol = uutTolerance;
   if (Array.isArray(tol)) tol = tol[0];
   if (!tol || typeof tol !== "object") return null;

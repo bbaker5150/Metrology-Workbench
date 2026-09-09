@@ -52,7 +52,10 @@ const DIST_SELECT_STYLE = {
   textAlign: "left",
 };
 
+const PendingUncertainty = ({ reason }) => <span role="img" aria-label={reason} title={reason} className="budget-pending-uncertainty" style={{ color: "var(--status-warning, #b58100)" }}><FontAwesomeIcon icon={faExclamationTriangle} /></span>;
+
 const formatNumber = (value, sigFigs = 4) => {
+  if (value == null || value === "") return "N/A";
   const n = Number(value);
   if (!Number.isFinite(n)) return "N/A";
   return n.toPrecision(sigFigs);
@@ -62,6 +65,7 @@ const formatNumber = (value, sigFigs = 4) => {
 // noise. Eight significant digits keeps small metrology values readable while
 // avoiding readouts such as 0.00999981624765.
 const formatCalculatedResult = (value) => {
+  if (value == null || value === "") return "N/A";
   const n = Number(value);
   if (!Number.isFinite(n)) return "N/A";
   if (n === 0) return "0";
@@ -187,7 +191,7 @@ const getComponentToleranceLimit = (component, std) => {
     parseFloat(component.distributionDivisor) ||
     parseFloat(component.originalInput?.errorDistributionDivisor);
   if (!Number.isFinite(divisor) || divisor <= 0) divisor = 1;
-  return { value: std.value * divisor, unit: std.unit };
+  return { value: std.value == null ? NaN : std.value * divisor, unit: std.unit };
 };
 
 const getComponentStdUncertainty = (component, fallbackUnit) => {
@@ -565,7 +569,7 @@ const InlineManualComponentRow = ({
         <td>{component.type || "B"}</td>
         {showDof && <td>{formatDof(component.dof)}</td>}
         <td>
-          {Number(std.value) > 0 ? (
+          {component.pendingReason ? <PendingUncertainty reason={component.pendingReason} /> : Number(std.value) > 0 ? (
             `${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}`
           ) : (
             <span className="inline-tolerance-summary is-empty budget-inline-not-set">
@@ -798,7 +802,7 @@ const ResultsCard = ({
       >
         <span>Combined Uncertainty</span>
         <strong>
-          {formatCalculatedResult(results?.combined)}
+          {results?.pendingReason ? <PendingUncertainty reason={results.pendingReason} /> : formatCalculatedResult(results?.combined)}
           {unitSuffix}
         </strong>
       </div>
@@ -835,7 +839,7 @@ const ResultsCard = ({
       >
         <span>Expanded Uncertainty</span>
         <strong>
-          {formatCalculatedResult(results?.expanded)}
+          {results?.pendingReason ? <PendingUncertainty reason={results.pendingReason} /> : formatCalculatedResult(results?.expanded)}
           {unitSuffix}
         </strong>
       </div>
@@ -1179,6 +1183,8 @@ const UncertaintyBudgetTable = ({
                     onCommit={commitManualValue}
                     suffix={component.manualUnit || tolLimit.unit}
                   />
+                ) : component.pendingReason && component.authoredTolerance ? (
+                  formatToleranceSummary?.(component.authoredTolerance)?.[0] || "Pending measurement value"
                 ) : component.isPropagationSummary ? (
                   `${formatNumber(std.value, getGroupSigFigs(group))} ${std.unit}`
                 ) : isStdEntry ? (
@@ -1191,7 +1197,7 @@ const UncertaintyBudgetTable = ({
               <td>{component.type || "B"}</td>
               {showDof && <td>{formatDof(component.dof)}</td>}
               <td>
-                {editableStd ? (
+                {component.pendingReason ? <PendingUncertainty reason={component.pendingReason} /> : editableStd ? (
                   <ManualValueCell
                     component={component}
                     onCommit={commitManualValue}
