@@ -15,6 +15,7 @@ const InlineMenuSelect = ({
   ariaLabel = "Select",
   title,
   menuTitle,
+  headerAction,
   width = "72px",
   menuWidth = 220,
   className = "",
@@ -215,7 +216,10 @@ const InlineMenuSelect = ({
             }}
           >
             {menuTitle && (
-              <div className="instrument-menu-heading">{menuTitle}</div>
+              <div className="instrument-menu-heading">
+                <span>{menuTitle}</span>
+                {headerAction && <button type="button" className="instrument-menu-header-action" title={headerAction.label} aria-label={headerAction.label} onClick={() => { headerAction.onClick(); closeMenu(); }}>{headerAction.icon}</button>}
+              </div>
             )}
             <div
               role="listbox"

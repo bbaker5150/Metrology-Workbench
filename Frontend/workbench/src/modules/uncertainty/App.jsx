@@ -58,6 +58,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faExclamationTriangle,
   faPlus,
+  faTools,
   faEdit,
   faTrashAlt,
   faBug,
@@ -1285,6 +1286,11 @@ export const SidebarPointItem = ({
                     <InlineMenuSelect
                       value={currentUutId || ""}
                       menuTitle="Assign UUT"
+                      headerAction={{
+                        label: "Add UUT to this measurement area",
+                        icon: <><FontAwesomeIcon icon={faPlus} /><FontAwesomeIcon icon={faTools} /></>,
+                        onClick: () => { onUutChange?.("__create_uut__", cellGroups.uut?.pointIds); setEditingUut(false); },
+                      }}
                       ariaLabel="UUT"
                       title={uutName}
                       width="100%"
@@ -1294,7 +1300,6 @@ export const SidebarPointItem = ({
                       showOptionMeta={false}
                       options={[
                         { value: "", label: "Unassigned" },
-                        { value: "__create_uut__", label: "Assign UUT" },
                         ...uutOptions.map((option) => ({
                           value: String(option.id),
                           label: option.label,
@@ -5852,9 +5857,9 @@ function App({ showThemeToggle = false }) {
                   </div>
 
                   <div className="sidebar-actions-group">
-                    <button type="button" className="sidebar-action-btn-organic" title="Add Measurement Area" aria-label="Add Measurement Area from points" ref={sidebarAreaAnchorRef} aria-expanded={newSidebarArea !== null} onClick={() => setNewSidebarArea(current => current === null ? "" : null)}><FontAwesomeIcon icon={faPlus} /></button>
+                    <button type="button" className="btn-add-item btn-add-column sidebar-add-area-trigger" title="Add Measurement Area" aria-label="Add Measurement Area from points" ref={sidebarAreaAnchorRef} aria-expanded={newSidebarArea !== null} onClick={() => setNewSidebarArea(current => current === null ? "" : null)}>Add Measurement Area</button>
                     {newSidebarArea !== null && <div className="sidebar-add-area-form" role="group" aria-label="Add Measurement Area" onKeyDown={event => { if (event.key === "Escape") { setNewSidebarArea(null); sidebarAreaAnchorRef.current?.focus(); } }}>
-                      <input id="sidebar-area-name" autoFocus aria-label="New Measurement Area name" placeholder="Measurement Area name" value={newSidebarArea} onChange={event => setNewSidebarArea(event.target.value)} onKeyDown={event => { if (event.key === "Enter") handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(null); }} />
+                      <input id="sidebar-area-name" autoFocus aria-label="New Measurement Area name" placeholder="Area name" value={newSidebarArea} onChange={event => setNewSidebarArea(event.target.value)} onKeyDown={event => { if (event.key === "Enter") handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(null); }} />
                       <div className="sidebar-area-menu-actions"><button type="button" className="btn-secondary" onClick={() => setNewSidebarArea(null)}>Cancel</button><button type="button" className="btn-primary" disabled={!newSidebarArea.trim()} onClick={handleAddSidebarArea}>Add</button></div>
                     </div>}
                     {/* Eyeball Button Removed - Moved to HeaderToolbox */}

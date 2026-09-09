@@ -216,7 +216,8 @@ app.whenReady().then(async () => {
       await page.evaluate(dark=>document.body.classList.toggle('dark-mode',dark),dark);
       await page.screenshot({path:path.join(output,dark?'area-menu-dark.png':'area-menu-light.png')});
       const menu=await page.locator('.sidebar-add-area-form').boundingBox();
-      assert.ok(menu.width>200 && menu.x>=0 && menu.x+menu.width<=1500,'Inline area entry fits the sidebar');
+      assert.ok(menu.width<=260 && menu.x>=0 && menu.x+menu.width<=1500,'Inline area entry stays compact');
+      assert.ok((await page.getByRole('textbox',{name:'New Measurement Area name'}).boundingBox()).width<=120,'Area name input stays small');
       assert.ok(await page.locator('.sidebar-actions-group .sidebar-add-area-form').count(),'Area entry stays inline with the buttons');
     }
     await page.evaluate(()=>document.body.classList.remove('dark-mode'));
@@ -232,7 +233,8 @@ app.whenReady().then(async () => {
     assert.equal(quick.testPointInfo.parameter.unit,'');
     assert.deepEqual(quick.associatedUutIds,[]);
     await rows.last().getByRole('button',{name:'UUT',exact:true}).click();
-    await page.getByRole('option',{name:'Assign UUT',exact:true}).click();
+    await page.screenshot({path:path.join(output,'uut-menu-header-action.png')});
+    await page.locator('.inline-menu-select-menu').getByRole('button',{name:'Add UUT to this measurement area',exact:true}).click();
     await page.waitForFunction(()=>window.savedSession().uuts.length===2);
     const created=await page.evaluate(()=>window.savedSession().uuts.at(-1));
     assert.deepEqual(created.measurementAreaNames,['Quick calculation']);

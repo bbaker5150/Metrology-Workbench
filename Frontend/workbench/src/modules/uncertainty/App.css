@@ -20214,20 +20214,20 @@ body.uncertainty-active .context-menu li.destructive:hover {
 .uncertainty-module .point-unit-select option { color: var(--text-color); background: var(--content-background); }
 /* Inline area entry shares the app's compact surfaces and control palette. */
 .sidebar-add-area-form {
-  padding: 6px; border: 1px solid var(--border-color); border-radius: 6px;
+  padding: 0; border: 0; border-radius: 0;
   background: var(--component-bg); color: var(--text-color); font-size: .8rem;
-  display: flex; align-items: center; flex: 1 1 250px; min-width: 0; gap: 6px;
+  display: flex; align-items: center; flex: 0 0 auto; width: max-content; min-width: 0; gap: 4px; margin-left: auto; order: 10;
 }
 .sidebar-add-area-form h4 { margin: 0 0 4px; font-size: .9rem; }
 .sidebar-add-area-form label { color: var(--text-color-muted); font-size: .75rem; }
 .sidebar-add-area-form input {
-  width: 100%; flex: 1; min-width: 80px; box-sizing: border-box; padding: 6px 8px;
+  width: 112px; flex: 0 0 112px; min-width: 0; box-sizing: border-box; padding: 4px 6px;
   border: 1px solid var(--border-color); border-radius: 5px;
   color: var(--text-color); background: var(--input-background, var(--content-background)); font: inherit;
 }
 .sidebar-add-area-form input:focus { outline: 2px solid var(--primary-color); outline-offset: 1px; }
 .sidebar-area-menu-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 0; }
-.sidebar-area-menu-actions button { padding: 6px 10px; border-radius: 5px; font: inherit; cursor: pointer; }
+.sidebar-area-menu-actions button { padding: 4px 7px; border-radius: 5px; font: inherit; cursor: pointer; }
 .sidebar-area-menu-actions .btn-secondary { border: 1px solid var(--border-color); background: var(--component-bg); color: var(--text-color); }
 .sidebar-area-menu-actions .btn-primary { border: 1px solid var(--primary-color); background: var(--primary-color); color: var(--button-text-color, #fff); }
 .sidebar-area-menu-actions button:disabled { opacity: .45; cursor: default; }
@@ -20249,7 +20249,7 @@ body.uncertainty-active .context-menu li.destructive:hover {
 
 .uncertainty-module .sidebar-global-actions:has(.sidebar-add-area-form),
 .uncertainty-module .sidebar-actions-group:has(.sidebar-add-area-form) { flex-wrap: wrap; }
-.uncertainty-module .sidebar-actions-group:has(.sidebar-add-area-form) { flex: 1 1 100%; min-width: 0; }
+.uncertainty-module .sidebar-actions-group:has(.sidebar-add-area-form) { flex: 0 1 auto; min-width: 0; justify-content: flex-end; margin-left: auto; }
 
 /* Unit selection stays plain text; the chevron is its interaction cue. */
 .uncertainty-module .measurement-group-container .point-unit-control .point-unit-select:is(:hover, :focus, :focus-visible) {
@@ -20264,3 +20264,11 @@ body.uncertainty-active .context-menu li.destructive:hover {
   box-shadow: none;
 }
 .uncertainty-module .point-unit-control .point-unit-select:focus-visible { text-decoration: underline; }
+
+.uncertainty-module .sidebar-add-area-trigger { white-space: nowrap; font: inherit; font-size: .75rem; padding: 4px 6px; border: 0; border-radius: 3px; background: transparent; color: var(--text-color-muted); cursor: pointer; }
+.uncertainty-module .sidebar-add-area-trigger:hover { color: var(--primary-color); background: var(--primary-color-light); }
+.uncertainty-module .sidebar-measurement-title-toggle { flex: 0 0 auto; white-space: nowrap; }
+.uncertainty-module .sidebar-global-actions:has(.sidebar-add-area-form) { row-gap: 6px; }
+.instrument-menu-heading:has(.instrument-menu-header-action) { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.instrument-menu-header-action { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 4px; border: 0; background: transparent; color: var(--function-input-accent, var(--primary-color)); cursor: pointer; border-radius: 3px; }
+.instrument-menu-header-action:hover, .instrument-menu-header-action:focus-visible { background: color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 14%, transparent); }
