@@ -31,7 +31,6 @@ import useCycleAnalytics from "../../hooks/useCycleAnalytics";
 import { listAvailableCycles, resolveEffectiveCycle } from "../../utils/resolveEffectiveCycle";
 import { resolveSessionNCycles } from "../../utils/resolveSessionNCycles";
 import {
-  exclude8508PointSettings,
   select5790PointSettings,
   select8508PointSettings,
 } from "../../utils/calibrationSettingsScope";
@@ -367,6 +366,17 @@ const get8508SmartDefaults = (frequency) => ({
   f8508_ac_transfer_enabled: true,
   f8508_ac_dc_coupled: (Number(frequency) || 0) < 40,
 });
+
+const SETTING_SECTION_LABELS = { general: "General", stability: "Stability", characterization: "Characterization", "8508": "8508A", "5790": "5790" };
+const STABILITY_SETTING_KEYS = ["initial_warm_up_time", "settling_time", "nplc", "num_samples", "stability_check_method", "stability_window", "stability_threshold_ppm", "stability_max_attempts", "iqr_filter_ppm_threshold", "ignore_instability_after_lock"];
+export const selectSettingsSection = (settings, section) => {
+  if (section === "8508") return select8508PointSettings(settings);
+  if (section === "5790") return select5790PointSettings(settings);
+  const keys = section === "stability" ? STABILITY_SETTING_KEYS
+    : section === "characterization" ? ["characterization_source", "characterize_std_first", "characterize_test_first"]
+    : ["n_cycles"];
+  return Object.fromEntries(keys.filter(key => key in settings).map(key => [key, settings[key]]));
+};
 
 const DEFAULT_CALIBRATION_SETTINGS = {
   initial_warm_up_time: 0,
@@ -2432,95 +2442,37 @@ function Calibration({
     };
   };
 
-  const handleResetToDefaults = useCallback(() => {
+  const handleResetToDefaults = (section = "general") => {
     if (isRemoteViewer || !focusedTP || !selectedSessionId) return;
-
+    const label = SETTING_SECTION_LABELS[section];
     setConfirmationModal({
       isOpen: true,
-      title: "Reset to Defaults?",
-      message: "Are you sure you want to revert all settings for this test point to the system defaults? This will overwrite your current settings and save immediately.",
+      title: `Reset ${label} Settings?`,
+      message: `Reset only ${label} settings for this point to system defaults and save them?`,
       onConfirm: async () => {
-        // 1. Close the modal immediately so the UI doesn't hang
         setConfirmationModal({ isOpen: false });
-
-        // 2. Generate the exact default settings for this point
-        const isFirstTestPoint =
-          orderedTestPoints.length > 0 &&
-          focusedTP.key === orderedTestPoints[0].key;
-
         const frequency = Number(focusedTP.frequency) || 0;
         const smart8508Defaults = get8508SmartDefaults(frequency);
-        const defaultSettings = {
+        const defaults = {
           ...DEFAULT_CALIBRATION_SETTINGS,
           ...smart8508Defaults,
-          input_switch_settling_time: get8508RecommendedSwitchDelay(
-            smart8508Defaults,
-            frequency
-          ),
-          initial_warm_up_time: isFirstTestPoint ? 1800 : 0,
+          input_switch_settling_time: get8508RecommendedSwitchDelay(smart8508Defaults, frequency),
+          initial_warm_up_time: focusedTP.key === orderedTestPoints[0]?.key ? 1800 : 0,
         };
-
-        // 3. Update the local UI state so the user sees the change instantly
-        setCalibrationSettings(defaultSettings);
-
-        // 4. Build the payload directly from the default object (bypassing stale React state)
-        const newSettingsPayload = buildSettingsPayload(defaultSettings);
-
-        let pointToUpdate = activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
-        const directionName = activeDirection;
-
-        // 5. Fire the API call to save it to the database
-        try {
-          if (!pointToUpdate) {
-            pointToUpdate = (
-              await axios.post(
-                `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
-                {
-                  current: focusedTP.current,
-                  frequency: focusedTP.frequency,
-                  direction: directionName,
-                }
-              )
-            ).data;
-          }
-
-          await axios.patch(
-            `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${pointToUpdate.id}/`,
-            { settings: newSettingsPayload }
-          );
-
-          showNotification(
-            `Settings reverted to defaults for ${formatCurrent(focusedTP.current)} @ ${formatFrequency(focusedTP.frequency)} (${directionName})!`,
-            "success"
-          );
-          onDataUpdate();
-        } catch (error) {
-          showNotification("Error saving default settings.", "error");
-        }
+        await handleSettingsSubmit(null, section, defaults);
       },
       onCancel: () => setConfirmationModal({ isOpen: false }),
     });
-  }, [
-    isRemoteViewer,
-    focusedTP,
-    selectedSessionId,
-    orderedTestPoints,
-    activeDirection,
-    buildSettingsPayload,
-    showNotification,
-    onDataUpdate,
-    formatCurrent,
-    formatFrequency
-  ]);
+  };
 
-  const handleSettingsSubmit = async (e) => {
-    e.preventDefault();
+  const handleSettingsSubmit = async (e, section = "general", settings = calibrationSettings) => {
+    e?.preventDefault();
     if (isRemoteViewer) return;
     if (!focusedTP || !selectedSessionId) {
       return showNotification("No test point selected.", "error");
     }
 
-    const newSettings = buildSettingsPayload(calibrationSettings);
+    const newSettings = selectSettingsSection(buildSettingsPayload(settings), section);
 
     let pointToUpdate =
       activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
@@ -2545,33 +2497,37 @@ function Calibration({
         { settings: newSettings }
       );
 
-      // n_cycles is shared across both directions — mirror it onto the
-      // sibling direction (creating it if needed) so switching/running the
-      // opposite direction always uses the same cycle count. Other settings
-      // stay per-direction.
-      let sibling =
-        activeDirection === "Forward" ? focusedTP.reverse : focusedTP.forward;
-      const siblingDirection =
-        activeDirection === "Forward" ? "Reverse" : "Forward";
-      if (!sibling) {
-        sibling = (
-          await axios.post(
-            `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
-            {
-              current: focusedTP.current,
-              frequency: focusedTP.frequency,
-              direction: siblingDirection,
-            }
-          )
-        ).data;
+      if (section === "general") {
+        // n_cycles is shared across both directions — mirror it onto the
+        // sibling direction (creating it if needed) so switching/running the
+        // opposite direction always uses the same cycle count. Other settings
+        // stay per-direction.
+        let sibling =
+          activeDirection === "Forward" ? focusedTP.reverse : focusedTP.forward;
+        const siblingDirection =
+          activeDirection === "Forward" ? "Reverse" : "Forward";
+        if (!sibling) {
+          sibling = (
+            await axios.post(
+              `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
+              {
+                current: focusedTP.current,
+                frequency: focusedTP.frequency,
+                direction: siblingDirection,
+              }
+            )
+          ).data;
+        }
+        await axios.patch(
+          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${sibling.id}/`,
+          { settings: { n_cycles: newSettings.n_cycles } }
+        );
+
       }
-      await axios.patch(
-        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${sibling.id}/`,
-        { settings: { n_cycles: newSettings.n_cycles } }
-      );
+      setCalibrationSettings(previous => ({ ...previous, ...newSettings }));
 
       showNotification(
-        `Settings saved for ${formatCurrent(focusedTP.current)} @ ${formatFrequency(focusedTP.frequency)} (${directionName})!`,
+        `${SETTING_SECTION_LABELS[section]} settings saved for ${formatCurrent(focusedTP.current)} @ ${formatFrequency(focusedTP.frequency)} (${directionName})!`,
         "success"
       );
       onDataUpdate();
@@ -2580,7 +2536,7 @@ function Calibration({
     }
   };
 
-  const handleApplySettingsToAll = () => {
+  const handleApplySettingsToAll = (section = "general") => {
     if (isRemoteViewer) return;
     const confirmAction = async () => {
       if (!focusedTP || !selectedSessionId) {
@@ -2591,11 +2547,8 @@ function Calibration({
         return;
       }
 
-      // Reader acquisition behavior is point-specific. Never allow Apply All
-      // to overwrite 8508A or 5790A/B profiles selected for another point.
-      const commonSettingsPayload = exclude8508PointSettings(
-        buildSettingsPayload(calibrationSettings)
-      );
+      // Apply only this section; other profiles and settings stay untouched.
+      const commonSettingsPayload = selectSettingsSection(buildSettingsPayload(calibrationSettings), section);
 
       try {
         let { forward, reverse } = focusedTP;
@@ -2649,9 +2602,10 @@ function Calibration({
 
     setConfirmationModal({
       isOpen: true,
-      title: `Apply Settings to All ${activeDirection} Points?`,
+      title: `Apply ${SETTING_SECTION_LABELS[section]} Settings to All ${activeDirection} Points?`,
       message:
-        `This will apply shared calibration and stability settings to ALL test points in the ${activeDirection} direction.\n\n8508A and 5790A/B acquisition settings remain specific to each test point and are excluded. The 'Initial Warm-up Wait' also remains specific to this point. The opposite direction will not be modified.`,
+        `Apply only ${SETTING_SECTION_LABELS[section]} settings to all ${activeDirection} points.${section === "stability" ? " Initial warm-up wait remains specific to each point." : section === "general" ? " Paired cycle count remains shared across directions." : " The opposite direction remains unchanged."}`,
+
       onConfirm: confirmAction,
       onCancel: () =>
         setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
@@ -3312,9 +3266,9 @@ function Calibration({
                           <div className="reader-profile-point-actions general-settings-actions">
                             <button
                               type="button"
-                              onClick={handleResetToDefaults}
+                              onClick={() => handleResetToDefaults("general")}
                               className="reader-profile-point-save"
-                              aria-label="Reset to default settings"
+                              aria-label="Reset General settings"
                               title="Reset to system defaults"
                               disabled={isRemoteViewer}
                             >
@@ -3322,18 +3276,19 @@ function Calibration({
                             </button>
                             <button
                               type="button"
-                              onClick={handleApplySettingsToAll}
+                              onClick={() => handleApplySettingsToAll("general")}
                               className="reader-profile-point-save"
-                              aria-label="Apply to all test points"
+                              aria-label="Apply General settings to all test points"
                               title="Apply to all test points"
                               disabled={isRemoteViewer}
                             >
                               <LuSaveAll /><span>Apply to all points</span>
                             </button>
                             <button
-                              type="submit"
+                              type="button"
+                              onClick={(event) => handleSettingsSubmit(event, "general")}
                               className="reader-profile-point-save"
-                              aria-label="Save settings for this point"
+                              aria-label="Save General settings for this point"
                               title="Save settings for this point"
                               disabled={isRemoteViewer}
                             >
@@ -3650,6 +3605,11 @@ function Calibration({
                                   </div>
                                 )}
                             </div>
+                            <div className="reader-profile-point-actions general-settings-actions">
+                              <button type="button" className="reader-profile-point-save" onClick={() => handleResetToDefaults("stability")} disabled={isRemoteViewer} aria-label="Reset Stability settings"><FaUndo /><span>Reset</span></button>
+                              <button type="button" className="reader-profile-point-save" onClick={() => handleApplySettingsToAll("stability")} disabled={isRemoteViewer} aria-label="Apply Stability settings to all test points"><LuSaveAll /><span>Apply to all points</span></button>
+                              <button type="button" className="reader-profile-point-save" onClick={event => handleSettingsSubmit(event, "stability")} disabled={isRemoteViewer} aria-label="Save Stability settings for this point"><FaSave /><span>Save point</span></button>
+                            </div>
                           </div>
                           {has8508Reader && (
                             <div className="settings-form-group settings-form-group--8508">
@@ -3837,6 +3797,7 @@ function Calibration({
                                 </div>
                               </div>
                               <div className="reader-profile-point-actions">
+                                <button type="button" className="reader-profile-point-save" onClick={() => handleResetToDefaults("8508")} disabled={isRemoteViewer} aria-label="Reset 8508A settings"><FaUndo /><span>Reset</span></button>
                                 <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
                                   <button
                                     type="button"
@@ -3955,6 +3916,7 @@ function Calibration({
                                 </div>
                               </div>
                               <div className="reader-profile-point-actions">
+                                <button type="button" className="reader-profile-point-save" onClick={() => handleResetToDefaults("5790")} disabled={isRemoteViewer} aria-label="Reset 5790 settings"><FaUndo /><span>Reset</span></button>
                                 <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
                                   <button type="button" className="reader-profile-point-save"
                                     onClick={() => handleReaderSettingsSaveAll("5790")} disabled={isRemoteViewer}
@@ -4195,6 +4157,11 @@ function Calibration({
                                 </div>
 
                               </div>
+                            </div>
+                            <div className="reader-profile-point-actions general-settings-actions">
+                              <button type="button" className="reader-profile-point-save" onClick={() => handleResetToDefaults("characterization")} disabled={isRemoteViewer} aria-label="Reset Characterization settings"><FaUndo /><span>Reset</span></button>
+                              <button type="button" className="reader-profile-point-save" onClick={() => handleApplySettingsToAll("characterization")} disabled={isRemoteViewer} aria-label="Apply Characterization settings to all test points"><LuSaveAll /><span>Apply to all points</span></button>
+                              <button type="button" className="reader-profile-point-save" onClick={event => handleSettingsSubmit(event, "characterization")} disabled={isRemoteViewer} aria-label="Save Characterization settings for this point"><FaSave /><span>Save point</span></button>
                             </div>
                           </div>
                           )}

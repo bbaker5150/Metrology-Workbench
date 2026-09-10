@@ -77,7 +77,7 @@ app.whenReady().then(async () => {
     page.setDefaultTimeout(20000);
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
-    await page.getByRole('button',{name:'Save settings for this point',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Save General settings for this point',exact:true}).waitFor();
     const positions=await page.locator('.point-value-number').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().x));
     assert.equal(positions.length,3);assert.ok(Math.max(...positions)-Math.min(...positions)<1,JSON.stringify(positions));
     const gutters=await page.locator('.point-diagnostics').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().width));
@@ -87,10 +87,14 @@ app.whenReady().then(async () => {
     assert.equal(await actions.locator('button').count(),3);
     const geometry=await general.evaluate(e=>{const b=e.getBoundingClientRect(),a=e.querySelector('.general-settings-actions').getBoundingClientRect();return {bottom:b.bottom-a.bottom,right:b.right-a.right};});
     assert.ok(Math.abs(geometry.bottom)<2 && Math.abs(geometry.right)<2,JSON.stringify(geometry));
+    for(const name of ['Stability','8508A Settings','5790 Settings']) {
+      const section=page.locator('.settings-form-group').filter({has:page.getByText(name,{exact:true})});
+      if(await section.count()) assert.equal(await section.locator('.reader-profile-point-actions button').count(),3);
+    }
     const buttons=page.locator('.reader-profile-point-save');
     const borders=await buttons.evaluateAll(nodes=>nodes.map(n=>getComputedStyle(n).borderTopWidth));
     assert.ok(borders.every(width=>width==='0px'),JSON.stringify(borders));
-    const saveIcon=await page.getByRole('button',{name:'Save settings for this point',exact:true}).locator('svg').innerHTML();
+    const saveIcon=await page.getByRole('button',{name:'Save General settings for this point',exact:true}).locator('svg').innerHTML();
     assert.equal(await page.getByRole('button',{name:'Save 5790 settings for this test point',exact:true}).locator('svg').innerHTML(),saveIcon);
     await page.screenshot({path:path.join(output,'light.png')});
     await page.evaluate(()=>document.body.classList.add('dark-mode'));await page.waitForTimeout(500);
