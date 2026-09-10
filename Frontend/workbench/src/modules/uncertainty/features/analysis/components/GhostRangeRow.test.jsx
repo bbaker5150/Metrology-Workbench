@@ -296,6 +296,26 @@ describe("GhostRangeRow", () => {
     });
   });
 
+  it.each([["gram", "g"], ["micrometer", "um"], ["millivolt", "mV"]])(
+    "selects the complete unit from its full name %s",
+    (query, unit) => {
+      const onMaterialize = vi.fn();
+      renderGhost(onMaterialize);
+      fireEvent.click(screen.getByRole("button", { name: "New range unit base unit" }));
+      fireEvent.change(screen.getByPlaceholderText("Search units..."), {
+        target: { value: query },
+      });
+      fireEvent.click(screen.getAllByRole("option")[0]);
+      fireEvent.change(screen.getByLabelText("New range minimum"), {
+        target: { value: "0" },
+      });
+      const max = screen.getByLabelText("New range maximum");
+      fireEvent.change(max, { target: { value: "10" } });
+      fireEvent.blur(max, { relatedTarget: null });
+      expect(onMaterialize).toHaveBeenCalledWith({ min: "0", max: "10", unit });
+    },
+  );
+
   it("lets the new range choose a different unit before it materializes", () => {
     const onMaterialize = vi.fn();
     renderGhost(onMaterialize);
@@ -582,7 +602,12 @@ describe("inline range editing", () => {
     fireEvent.blur(screen.getByPlaceholderText("min"), {relatedTarget:screen.getByRole("button",{name:"Range action"})});
     await new Promise(resolve => window.setTimeout(resolve,25));
     expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
-    fireEvent.pointerDown(screen.getByRole("button",{name:"Other instrument"}));
+    const other = screen.getByRole("button", { name: "Other instrument" });
+    fireEvent.pointerDown(other);
+    await new Promise(resolve => window.setTimeout(resolve,25));
+    expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
+    fireEvent.pointerUp(other);
+    fireEvent.click(other);
     await waitFor(() => expect(screen.queryByPlaceholderText("min")).not.toBeInTheDocument());
   });
 
@@ -921,6 +946,10 @@ describe("inline range editing", () => {
     fireEvent.click(screen.getByTitle("Edit range"));
     expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
     fireEvent.pointerDown(outside);
+    await new Promise(resolve => window.setTimeout(resolve,25));
+    expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
+    fireEvent.pointerUp(outside);
+    fireEvent.click(outside);
     await waitFor(() =>
       expect(screen.getByTitle("Edit range")).toBeInTheDocument(),
     );
@@ -933,6 +962,9 @@ describe("inline range editing", () => {
     fireEvent.click(screen.getByTitle("Edit distribution"));
     expect(screen.getByLabelText("Spec band distribution")).toBeInTheDocument();
     fireEvent.pointerDown(outside);
+    expect(screen.getByLabelText("Spec band distribution")).toBeInTheDocument();
+    fireEvent.pointerUp(outside);
+    fireEvent.click(outside);
     await waitFor(() =>
       expect(screen.getByTitle("Edit distribution")).toBeInTheDocument(),
     );

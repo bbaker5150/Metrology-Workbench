@@ -2674,7 +2674,7 @@ body.dark-mode .uncertainty-module .analysis-container > .analysis-tabs {
 
 .industry-table tbody tr.instrument-area-section-row {
   background: var(--content-background);
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .industry-table tbody tr.instrument-area-section-row td {
@@ -20338,3 +20338,46 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .uncertainty-module .instrument-equipment-table .range-row-cell--without-actions { grid-template-columns: minmax(0, 1fr); }
 
 .uncertainty-module .range-row-cell--blank > :is(.range-row-add, .range-row-delete) { opacity: 1; }
+
+/* Shared table-header typography, matching the measurement point list. */
+.uncertainty-module table:is(.instrument-summary-table, .uncertainty-budget-table, .measurement-inputs-table) thead th,
+.uncertainty-module .sidebar-column-headers {
+  font-family: var(--main-font);
+  font-size: .56rem;
+  font-weight: 700;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+  color: var(--text-color-muted);
+  opacity: 1;
+}
+.uncertainty-module table thead th :is(button, span) {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+.uncertainty-module .analysis-tabs button {
+  font-family: var(--main-font);
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+}
+.uncertainty-module .sidebar-area-entry input:focus {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 1px;
+}
+.uncertainty-module .instrument-panel-table-container { max-height: none; }
+.uncertainty-module .instrument-table-height-resize-handle.is-auto-height::after {
+  background: var(--primary-color);
+  animation: instrument-auto-height-pulse .65s ease-out;
+}
+@keyframes instrument-auto-height-pulse {
+  0% { transform: translateX(-50%) scaleX(1); opacity: .45; }
+  50% { transform: translateX(-50%) scaleX(1.35); opacity: 1; }
+  100% { transform: translateX(-50%) scaleX(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .uncertainty-module .instrument-table-height-resize-handle.is-auto-height::after { animation: none; }
+}

@@ -135,10 +135,15 @@ export const getBudgetComponentsFromTolerance = (
   // Resolution must now be added as a manual component if desired in the budget.
 
   if (toleranceObject && typeof toleranceObject === 'object') {
-     if (toleranceObject.tolerance) {
-        toleranceObject = toleranceObject.tolerance;
-     } else if (toleranceObject.tolerances) {
-        toleranceObject = toleranceObject.tolerances;
+     const nested = toleranceObject.tolerance || toleranceObject.tolerances;
+     if (nested && typeof nested === "object") {
+        const source = toleranceObject;
+        toleranceObject = { ...source, ...nested };
+        // Range resolution is authored alongside accuracy tolerances. Keep it
+        // when unwrapping those tolerances, including the explicit budget opt-in.
+        for (const key of ["measuringResolution", "resolution", "measuringResolutionUnit", "resolutionUnit", "measuringResolutionDistribution", "resolutionDistribution", "includeResolutionInBudget"]) {
+          if (source[key] !== undefined && source[key] !== null && source[key] !== "") toleranceObject[key] = source[key];
+        }
      }
   }
 

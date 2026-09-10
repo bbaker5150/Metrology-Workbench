@@ -526,3 +526,13 @@ describe("getBudgetComponentsFromTolerance - resolution component", () => {
     expect(res.value_native).toBeCloseTo(0.0057735, 6);
   });
 });
+
+it.each(["tolerance", "tolerances"])("keeps range-level resolution when unpacking %s", key => {
+  const components = getBudgetComponentsFromTolerance({
+    measuringResolution: 0.01, measuringResolutionUnit: "V", measuringResolutionDistribution: "3.464", includeResolutionInBudget: true,
+    [key]: { reading: { high: 1, low: -1, unit: "%", distribution: "1.732" } },
+  }, { value: 10, unit: "V" });
+  const resolution = components.find(component => component.isResolution);
+  expect(resolution).toBeDefined();
+  expect(resolution.value_native).toBeCloseTo(0.01 / Math.sqrt(12), 8);
+});

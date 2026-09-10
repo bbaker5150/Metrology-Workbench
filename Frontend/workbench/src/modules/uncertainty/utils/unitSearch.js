@@ -1,3 +1,4 @@
+import { getUnitSearchNames } from "./unitNames";
 /**
  * Ranking for the searchable unit pickers.
  *
@@ -22,6 +23,7 @@
 // so "in." matches "in", and "L/min" is still found by "min".
 export const normalizeUnitSearch = (value) =>
   String(value || "")
+    .replace(/[µμ]/g, "u")
     .toLowerCase()
     .replace(/[^a-z0-9%]+/g, "");
 
@@ -49,6 +51,7 @@ const tierFor = (option, needle) => {
   const unitStrength = Math.max(
     matchStrength(normalizeUnitSearch(option.label), needle),
     matchStrength(normalizeUnitSearch(option.value), needle),
+    ...(needle.length >= 3 ? getUnitSearchNames(option.value).map(name => matchStrength(normalizeUnitSearch(name), needle)) : []),
   );
   if (unitStrength === MATCH_STARTS) return 1;
   if (unitStrength === MATCH_CONTAINS) return 2;

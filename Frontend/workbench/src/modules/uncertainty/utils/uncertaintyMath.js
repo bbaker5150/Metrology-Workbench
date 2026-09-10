@@ -1,3 +1,4 @@
+import { getUnitSearchNames } from "./unitNames";
 import * as math from "mathjs";
 
 // ==========================================
@@ -493,7 +494,8 @@ export const unitFilterOption = (option, rawInput) => {
   return (
     label.toLowerCase().includes(needle) ||
     value.toLowerCase().includes(needle) ||
-    category.toLowerCase().includes(needle)
+    category.toLowerCase().includes(needle) ||
+    getUnitSearchNames(value).some(name => name.toLowerCase().includes(needle))
   );
 };
 

@@ -491,8 +491,10 @@ const UnitSelect = ({
   // One ranked list rather than a stack of function groups: a search puts the
   // units that answer it at the top, and each row names its own function.
   const visibleOptions = useMemo(
-    () => rankUnitOptions(baseOptionsByCategory, query),
-    [baseOptionsByCategory, query],
+    // Browse base units, but search every concrete unit so a full name such
+    // as micrometer selects both the meter base and its micro prefix.
+    () => rankUnitOptions(query.trim() ? groupedUnitOptions : baseOptionsByCategory, query),
+    [baseOptionsByCategory, groupedUnitOptions, query],
   );
   const unitWidth = useMemo(() => {
     const longestLabelLength = Math.max(
@@ -520,11 +522,14 @@ const UnitSelect = ({
       : "";
     setMenuAccentColor(accentColor);
     if (rect) {
-      setMenuRect({
-        top: rect.bottom + 4,
-        left: rect.left,
-        width: Math.max(rect.width, 240),
-      });
+      setMenuRect(getAnchoredMenuPlacement({
+        anchorRect: rect,
+        viewportWidth: window.visualViewport?.width || window.innerWidth,
+        viewportHeight: window.visualViewport?.height || window.innerHeight,
+        preferredWidth: Math.max(rect.width, 240),
+        preferredMaxHeight: 320,
+        gap: 4,
+      }));
     }
     setQuery(initialQuery);
     setActiveBase(initialQuery ? "" : selectedBase);
@@ -676,8 +681,10 @@ const UnitSelect = ({
             className="inline-unit-menu"
             style={{
               top: menuRect.top,
+              bottom: menuRect.bottom,
               left: menuRect.left,
               width: menuRect.width,
+              maxHeight: menuRect.maxHeight,
               ...(menuAccentColor
                 ? { "--function-input-accent": menuAccentColor }
                 : {}),
@@ -717,7 +724,9 @@ const UnitSelect = ({
                 }
               }}
             />
-            <div className="inline-unit-options" role="listbox" aria-label={ariaLabel}>
+            <div className="inline-unit-options" role="listbox" aria-label={ariaLabel}
+              style={{ maxHeight: Math.max(1, menuRect.maxHeight - 50) }}
+            >
               {visibleOptions.length === 0 ? (
                 <div className="inline-unit-empty">No matching units</div>
               ) : (
@@ -1889,7 +1898,10 @@ const useInlineColumnDismiss = ({
   useEffect(() => {
     if (!expanded) return undefined;
 
+    let dismissOnRelease = false;
     const handlePointerDown = (event) => {
+      const isPress = event.type === "pointerdown" || event.type === "mousedown";
+      if (isPress) dismissOnRelease = false;
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (rootRef.current?.contains(target)) return;
@@ -1901,7 +1913,13 @@ const useInlineColumnDismiss = ({
         return;
       }
       if (target instanceof Element && target.closest(portalSelector)) return;
+      // Preserve layout until the destination has received its click.
+      if (isPress) { dismissOnRelease = true; return; }
       window.setTimeout(() => onDismiss(), 0);
+    };
+    const handlePointerUp = () => {
+      if (dismissOnRelease) window.setTimeout(() => onDismiss(), 0);
+      dismissOnRelease = false;
     };
     const handleKeyDown = (event) => {
       if (event.key !== "Escape") return;
@@ -1909,9 +1927,17 @@ const useInlineColumnDismiss = ({
     };
 
     document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("pointerup", handlePointerUp, true);
+    document.addEventListener("mousedown", handlePointerDown, true);
+    document.addEventListener("mouseup", handlePointerUp, true);
+    document.addEventListener("click", handlePointerDown, true);
     document.addEventListener("keydown", handleKeyDown, true);
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("pointerup", handlePointerUp, true);
+      document.removeEventListener("mousedown", handlePointerDown, true);
+      document.removeEventListener("mouseup", handlePointerUp, true);
+      document.removeEventListener("click", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [expanded, onDismiss, portalSelector, rootRef, isRelatedTarget]);
@@ -2834,9 +2860,7 @@ export const getDisplayedInstrumentTableHeight = ({
 }) => {
   const hasPreferred = Number.isFinite(preferredHeight) && preferredHeight > 0;
   const hasContent = Number.isFinite(contentHeight) && contentHeight > 0;
-  // With no user-selected height, let the CSS viewport cap the table. This
-  // preserves an internal scroll area, which is what keeps the native column
-  // headers visible for long instrument lists.
+  // Auto height follows the full table as instruments and ranges are added.
   if (!hasPreferred) return null;
   if (!hasContent) return preferredHeight;
   return Math.min(preferredHeight, contentHeight);
@@ -2847,6 +2871,7 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
   const containerRef = useRef(null);
   const tableLayoutRef = useInstrumentTableLayout(containerRef);
   const [contentHeight, setContentHeight] = useState(null);
+  const [resizing, setResizing] = useState(false);
   const [height, setHeight] = useState(() => {
     try {
       const saved = Number(window.localStorage.getItem(storageKey));
@@ -2898,6 +2923,7 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
       const startY = event.clientY;
       const container = containerRef.current;
       if (!container || !Number.isFinite(startY)) return;
+      setResizing(true);
       const startHeight = container.getBoundingClientRect().height || height || 340;
       let nextHeight = startHeight;
       const previousCursor = document.body.style.cursor;
@@ -2924,6 +2950,7 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
         window.removeEventListener("pointercancel", handleUp);
         document.body.style.cursor = previousCursor;
         document.body.style.userSelect = previousUserSelect;
+        setResizing(false);
         const fullHeight = getInstrumentTableContentHeight(container);
         if (fullHeight && nextHeight >= fullHeight - 2) {
           container.style.removeProperty("height");
@@ -2952,6 +2979,7 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
   });
 
   return {
+    isAuto: height === null && !resizing,
     containerRef: tableLayoutRef,
     containerStyle: displayedHeight
       ? {
@@ -2968,8 +2996,9 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
 const InstrumentTableHeightHandle = ({ kind, sizing }) => (
   <button
     type="button"
-    className="instrument-table-height-resize-handle instrument-size-control"
-    title={`Drag to resize ${kind.toUpperCase()} table height; double-click to reset`}
+    className={`instrument-table-height-resize-handle instrument-size-control${sizing.isAuto ? " is-auto-height" : ""}`}
+    data-sizing-mode={sizing.isAuto ? "auto" : "manual"}
+    title={`${sizing.isAuto ? "Auto height: grows with instruments. " : ""}Drag to resize ${kind.toUpperCase()} table height; drag to full height or double-click to restore auto height`}
     aria-label={`Resize ${kind.toUpperCase()} table height`}
     onPointerDown={sizing.startResize}
     onDoubleClick={sizing.resetHeight}
@@ -4755,7 +4784,6 @@ export const RangeCell = ({
             aria-label={onExpandAll && rangeSummary ? "Edit ranges" : undefined}
             onMouseDown={(event) => {
               event.stopPropagation();
-              if (rangeSummary) onRequestEditAfterExpand?.();
             }}
             onClick={openEditor}
           >
@@ -5409,7 +5437,7 @@ const enableResolutionBudgetSource = (source) => {
 const getTmdeResolutionDetail = (tmde = {}) => {
   if (!tmde || typeof tmde !== "object") return null;
   const nested =
-    tmde.tolerance && typeof tmde.tolerance === "object" ? tmde.tolerance : {};
+    tmde.tolerance && typeof tmde.tolerance === "object" ? tmde.tolerance : tmde.tolerances || {};
   const resVal = [tmde.measuringResolution, tmde.resolution, nested.measuringResolution, nested.resolution]
     .map(value => parseFloat(value)).find(value => Number.isFinite(value) && value > 0);
   if (!Number.isFinite(resVal) || resVal <= 0) return null;
@@ -7727,7 +7755,7 @@ const SummaryDashboard = ({
           : ""
       }`}
       data-measurement-area={fn.key}
-      onContextMenu={(e) => openAreaRowMenu(e, kind, fn)}
+      onContextMenuCapture={(e) => openAreaRowMenu(e, kind, fn)}
       style={functionRowStyle(fn.key)}
       onDragOver={handleInstrumentDragOverFunction(kind, fn)}
       onDragLeave={() => setDragOverFunctionTarget(null)}
@@ -9017,6 +9045,7 @@ const SummaryDashboard = ({
           style={uutTableHeight.containerStyle}
         >
           <table
+            onMouseDownCapture={event => { if (event.shiftKey || event.ctrlKey || event.metaKey) event.preventDefault(); }}
             className="instrument-summary-table industry-table instrument-equipment-table"
             onMouseLeave={() => {
               setHoveredCell({ tableId: null, colIndex: null });
@@ -9542,6 +9571,7 @@ const SummaryDashboard = ({
           style={tmdeTableHeight.containerStyle}
         >
           <table
+            onMouseDownCapture={event => { if (event.shiftKey || event.ctrlKey || event.metaKey) event.preventDefault(); }}
             className="instrument-summary-table industry-table equipment-summary-table instrument-equipment-table"
             onMouseLeave={() => {
               setHoveredCell({ tableId: null, colIndex: null });
@@ -12413,7 +12443,7 @@ function DetailedView({
           : ""
       }`}
       data-measurement-area={fn.key}
-      onContextMenu={(e) => openAreaRowMenu(e, kind, fn)}
+      onContextMenuCapture={(e) => openAreaRowMenu(e, kind, fn)}
       style={functionBadgeStyle(fn.key)}
       onDragOver={(event) => {
         event.preventDefault();
@@ -15127,6 +15157,7 @@ function DetailedView({
           style={uutTableHeight.containerStyle}
         >
           <table
+            onMouseDownCapture={event => { if (event.shiftKey || event.ctrlKey || event.metaKey) event.preventDefault(); }}
             className="instrument-summary-table industry-table instrument-equipment-table"
             onMouseLeave={() => {
               setHoveredCell({ tableId: null, colIndex: null });
@@ -15960,6 +15991,7 @@ function DetailedView({
             style={tmdeTableHeight.containerStyle}
           >
             <table
+              onMouseDownCapture={event => { if (event.shiftKey || event.ctrlKey || event.metaKey) event.preventDefault(); }}
               className="instrument-summary-table industry-table equipment-detail-table instrument-equipment-table"
               onMouseLeave={() => {
                 setHoveredCell({ tableId: null, colIndex: null });
