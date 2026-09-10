@@ -71,7 +71,7 @@ describe("useUncertaintyCalculation direct budgets", () => {
     );
     const names = finalBudget.components.map((component) => component.name);
 
-    expect(names).toContain("Reference DMM - Accuracy");
+    expect(names).toContain("Reference DMM - Tolerance");
     expect(names).toContain("UUT Resolution");
     expect(names).not.toContain("Taylor Series Approximation");
     expect(finalBudget.components.some((component) => component.isPropagationSummary)).toBe(
@@ -93,7 +93,7 @@ describe("useUncertaintyCalculation direct budgets", () => {
       (group) => group.kind === "final",
     );
     const accuracyRows = finalBudget.components.filter(
-      (component) => component.name === "Reference DMM - Accuracy",
+      (component) => component.name === "Reference DMM - Tolerance",
     );
 
     expect(accuracyRows).toHaveLength(2);
@@ -106,7 +106,7 @@ describe("useUncertaintyCalculation direct budgets", () => {
       {
         id: "accuracy-use-1",
         componentId: "accuracy-use-1",
-        name: "Reference DMM - Accuracy",
+        name: "Reference DMM - Tolerance",
         value: 100,
         value_native: 0.001,
         unit_native: "V",
@@ -118,7 +118,7 @@ describe("useUncertaintyCalculation direct budgets", () => {
       {
         id: "accuracy-use-2",
         componentId: "accuracy-use-2",
-        name: "Reference DMM - Accuracy",
+        name: "Reference DMM - Tolerance",
         value: 100,
         value_native: 0.001,
         unit_native: "V",
@@ -171,7 +171,7 @@ describe("useUncertaintyCalculation direct budgets", () => {
     );
     expect(
       finalBudget.components.filter(
-        (component) => component.name === "Reference DMM - Accuracy",
+        (component) => component.name === "Reference DMM - Tolerance",
       ),
     ).toHaveLength(2);
     expect(
@@ -194,7 +194,7 @@ describe("useUncertaintyCalculation direct budgets", () => {
     );
 
     expect(finalBudget.components.map((component) => component.name)).toEqual(
-      expect.arrayContaining(["Reference DMM - Accuracy", "UUT Resolution"]),
+      expect.arrayContaining(["Reference DMM - Tolerance", "UUT Resolution"]),
     );
     expect(finalBudget.components.some((component) => component.isPropagationSummary)).toBe(
       false,
@@ -256,7 +256,7 @@ describe("incomplete measurement budgets", () => {
     const { result } = renderDirectCalculation({}, { nominal: { value: "", unit: "V" } });
     await waitFor(() => expect(result.current.calcResults).not.toBeNull());
     const group = result.current.calcResults.calculatedBudgetGroups[0];
-    expect(group.components.find(c => c.name.includes("Accuracy")).pendingReason).toMatch(/measurement value/);
+    expect(group.components.find(c => c.name.includes("Tolerance")).pendingReason).toMatch(/measurement value/);
     expect(group.components.find(c => c.isResolution).value_native).toBeGreaterThan(0);
     expect(group.results.combined).toBeNull();
     expect(group.results.pendingReason).toMatch(/measurement value/);

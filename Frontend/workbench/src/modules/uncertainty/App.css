@@ -4342,6 +4342,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 }
 
 .uncertainty-budget-table {
+  color: var(--text-color);
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
@@ -5132,7 +5133,7 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
 }
 
 .budget-inline-manual-row.is-editing > td {
-  vertical-align: top;
+  vertical-align: middle;
   padding-top: 9px;
   padding-bottom: 9px;
 }
@@ -5169,7 +5170,7 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
    UUT/TMDE rows. Give that editor a deliberate workspace inside the budget
    table; the table wrapper can scroll on genuinely narrow panels instead of
    crushing controls into the neighboring distribution/type columns. */
-.budget-inline-tolerance-cell {
+.budget-inline-tolerance-cell.is-expanded {
   min-width: 315px;
 }
 
@@ -20394,3 +20395,9 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .uncertainty-module .point-diagnostic--refresh { color: var(--primary-color); }
 .uncertainty-module .point-value-with-unit > .point-edit-affordance { min-width: 0; flex: 1 1 auto; }
 .uncertainty-module .instrument-area-entry { margin: 0; }
+
+.budget-inline-manual-row.is-editing:not(.is-editing-name) .budget-source-cell {
+  text-align: center;
+  vertical-align: middle;
+}
+.budget-inline-manual-row .inline-tolerance-summary { font: inherit; }

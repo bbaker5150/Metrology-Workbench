@@ -1,3 +1,4 @@
+import { formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
 import React, {
   Suspense,
   lazy,
@@ -148,7 +149,8 @@ const getComponentDisplayName = (component) => {
     component.tmdeIdentity ||
     component.name ||
     "Uncertainty component";
-  return quantity > 1 ? `${name} (Qty: ${quantity})` : name;
+  const label = name.replace(/ - Accuracy(?= \(|$)/, " - Tolerance");
+  return quantity > 1 ? `${label} (Qty: ${quantity})` : label;
 };
 
 const enumerateComponentDisplayNames = (
@@ -350,6 +352,7 @@ const InlineManualComponentRow = ({
   const rowRef = useRef(null);
   const nameInputRef = useRef(null);
   const [editing, setEditing] = useState(Boolean(component.inlineDraft));
+  const [activeField, setActiveField] = useState("name");
   const [draft, setDraft] = useState(() => getInlineManualDraft(component));
   const draftRef = useRef(draft);
   const pendingFinishRef = useRef(null);
@@ -456,6 +459,43 @@ const InlineManualComponentRow = ({
 
   const handleTypeChange = type => updateDraft(current => ({ ...current, type, inputMode: "tolerance" }));
 
+  const fields = ["name", "tolerance", "distribution", "type"];
+  const activateField = (field) => {
+    setActiveField(field);
+    setEditing(true);
+  };
+  useEffect(() => {
+    if (!editing) return;
+    const frame = window.requestAnimationFrame(() => {
+      rowRef.current?.querySelector(`[data-budget-field="${activeField}"] input, [data-budget-field="${activeField}"] select`)?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeField, editing]);
+  const fieldSummary = (field, text, empty = !text || text === "Not Set") => (
+    <button type="button" className={`inline-tolerance-summary${empty ? " is-empty" : ""}`}
+      aria-label={`Edit ${field === "name" ? "error source name" : field}`}
+      onClick={() => activateField(field)}>{text || "Not Set"}</button>
+  );
+  const handleFieldTab = (event) => {
+    if (event.key !== "Tab") return;
+    const cell = event.target.closest("[data-budget-field]");
+    if (!cell) return;
+    const controls = [...cell.querySelectorAll("input:not([disabled]), select:not([disabled]), button:not([disabled])")]
+      .filter(control => control.tabIndex !== -1);
+    const boundary = event.shiftKey ? controls[0] : controls.at(-1);
+    if (event.target !== boundary) return;
+    const next = fields[fields.indexOf(cell.dataset.budgetField) + (event.shiftKey ? -1 : 1)];
+    if (!next) {
+      window.setTimeout(finish, 0);
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.target.blur();
+    // Blur commits the current tolerance term before the next cell mounts.
+    window.setTimeout(() => activateField(next), 0);
+  };
+
   const handleRowKeyDown = (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -500,19 +540,16 @@ const InlineManualComponentRow = ({
           component.inlineValidation ||
           "Click anywhere on this manual component to edit it"
         }
-        onClick={() => setEditing(true)}
+        onKeyDownCapture={handleFieldTab}
+        onClick={event => activateField(fields[event.target.closest("td")?.cellIndex] || "name")}
       >
-        <td className="budget-source-cell has-order-controls">
+        <td className="budget-source-cell has-order-controls" data-budget-field="name">
           <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
-          {component.name || (
-            <span className="inline-tolerance-summary is-empty budget-inline-not-set">
-              Not Set
-            </span>
-          )}
+          {fieldSummary("name", component.name)}
         </td>
-        <td>{toleranceText}</td>
-        <td>{component.distribution || "Not Set"}</td>
-        <td>{component.type || "B"}</td>
+        <td data-budget-field="tolerance">{fieldSummary("tolerance", ToleranceEditorComponent ? <ToleranceEditorComponent tolerance={structuredTolerance} editable={false} /> : toleranceText, toleranceText === "Not Set")}</td>
+        <td data-budget-field="distribution">{fieldSummary("distribution", component.distribution)}</td>
+        <td data-budget-field="type">{fieldSummary("type", component.type || "B")}</td>
         {showDof && <td>{formatDof(component.dof)}</td>}
         <td>
           {component.pendingReason ? <PendingUncertainty reason={component.pendingReason} /> : Number(std.value) > 0 ? (
@@ -564,12 +601,13 @@ const InlineManualComponentRow = ({
   return (
     <tr
       ref={rowRef}
-      className="budget-inline-manual-row is-editing"
+      className={`budget-inline-manual-row is-editing is-editing-${activeField}`}
+      onKeyDownCapture={handleFieldTab}
       onKeyDown={handleRowKeyDown}
     >
-      <td className="budget-source-cell has-order-controls">
+      <td className="budget-source-cell has-order-controls" data-budget-field="name">
         <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
-        <input
+        {activeField === "name" ? <input
           ref={nameInputRef}
           type="text"
           className="budget-inline-input budget-inline-name"
@@ -584,9 +622,10 @@ const InlineManualComponentRow = ({
               finish();
             }
           }}
-        />
+        /> : fieldSummary("name", draft.name)}
       </td>
-      <td className="budget-inline-tolerance-cell">
+      <td className={`budget-inline-tolerance-cell${activeField === "tolerance" ? " is-expanded" : ""}`} data-budget-field="tolerance"
+        onClick={() => activateField("tolerance")}>
         {inputMode === "tolerance" ? (
           ToleranceEditorComponent ? (
             <ToleranceEditorComponent
@@ -596,8 +635,9 @@ const InlineManualComponentRow = ({
                 max: referencePoint?.value,
                 unit: referencePoint?.unit || draft.unit || "",
               }}
+              key={activeField}
               editable
-              openRequested
+              openRequested={activeField === "tolerance"}
               onCommit={(typeKey, nextTerm) =>
                 updateDraft((current) => {
                   const nextTolerance = applyToleranceChange
@@ -619,12 +659,12 @@ const InlineManualComponentRow = ({
               }
             />
           ) : (
-            magnitudeInput("toleranceLimit", "Tolerance limit")
+            activeField === "tolerance" ? magnitudeInput("toleranceLimit", "Tolerance limit") : fieldSummary("tolerance", draft.toleranceLimit)
           )
         ) : null}
       </td>
-      <td>
-        {(
+      <td data-budget-field="distribution">
+        {activeField === "distribution" ? (
           <select
             className="mini-select budget-inline-distribution"
             aria-label="Error limit distribution"
@@ -646,10 +686,10 @@ const InlineManualComponentRow = ({
               </option>
             ))}
           </select>
-        )}
+        ) : fieldSummary("distribution", oldErrorDistributions.find(item => item.value === toleranceDistribution)?.label)}
       </td>
-      <td>
-        <select
+      <td data-budget-field="type">
+        {activeField === "type" ? <select
           className="mini-select budget-inline-type"
           aria-label="Uncertainty type"
           value={draft.type}
@@ -657,11 +697,11 @@ const InlineManualComponentRow = ({
         >
           <option value="A">A</option>
           <option value="B">B</option>
-        </select>
+        </select> : fieldSummary("type", draft.type)}
       </td>
       {showDof && <td>{draft.type === "A" ? formatDof(component.dof) : ""}</td>}
       <td>
-        <span className="budget-standard-uncertainty" aria-label="Calculated standard uncertainty">{formatNumber(std.value, sigFigs)} {getUnitDisplayLabel(std.unit)}</span>
+        <span className="budget-standard-uncertainty" aria-label="Calculated standard uncertainty">{preview.pendingReason || !Number.isFinite(Number(std.value)) || Number(std.value) <= 0 ? "Not Set" : `${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}`}</span>
       </td>
       <td className="action-cell">{removeAction}</td>
     </tr>
@@ -799,6 +839,7 @@ const UncertaintyBudgetTable = ({
   monteCarloTrials = 10000,
   onPropagationMethodChange,
   onMonteCarloTrialsChange,
+  budgetInstruments = [],
   rangeWarningsByGroup = {},
 }) => {
   // Effective DOF is toggled per (sub)budget. Persist the change as a patch to
@@ -1023,7 +1064,15 @@ const UncertaintyBudgetTable = ({
       ),
       ...(group.components || []).filter(isStandaloneManualComponent),
     ];
-    const displayNames = enumerateComponentDisplayNames(orderedComponents);
+    const labeledComponents = orderedComponents.map(component => {
+      const ids = [component.sourceTmdeId, component.tmdeBudgetSourceId].filter(id => id != null).map(String);
+      const source = budgetInstruments.find(instrument => [instrument.id, instrument.sourceId].some(id => id != null && ids.includes(String(id))));
+      if (!source) return component;
+      const kind = component.tmdeBudgetComponentKind || String(component.name || "Tolerance").split(" - ").at(-1);
+      const name = `${formatErrorSourceDescription(source)} - ${formatErrorSourceKind(kind)}`;
+      return { ...component, name, sourceDisplayName: name };
+    });
+    const displayNames = enumerateComponentDisplayNames(labeledComponents);
     return (
     <table className="uncertainty-budget-table">
       <thead>
@@ -1038,7 +1087,7 @@ const UncertaintyBudgetTable = ({
         </tr>
       </thead>
       <tbody className="component-group-tbody">
-        {orderedComponents.map((component, componentIndex) => {
+        {labeledComponents.map((component, componentIndex) => {
           if (isStandaloneManualComponent(component)) {
             return (
               <InlineManualComponentRow

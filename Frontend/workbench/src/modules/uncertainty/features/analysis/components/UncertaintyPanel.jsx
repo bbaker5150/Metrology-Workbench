@@ -3,7 +3,7 @@ import { showFirstInstrumentHint } from "../../../utils/instrumentOnboarding";
 /**
  * src/features/analysis/components/UncertaintyPanel.jsx
  */
-import { formatInstrumentIdentity } from "../../../utils/instrumentIdentity";
+import { formatInstrumentIdentity, formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
 import React, {
   useState,
   useEffect,
@@ -1753,7 +1753,7 @@ export const applyTmdeIdentityToPoints = (points = [], tmde = {}) => {
         : "";
       return {
         ...component,
-        name: `${identity} - ${suffix}`,
+        name: `${formatErrorSourceDescription(tmde)} - ${formatErrorSourceKind(suffix)}`,
         tmdeIdentity: identity,
         sourcePointLabel: `${identity}${pointSuffix}`,
       };
@@ -4238,7 +4238,7 @@ const ToleranceTermEditor = ({
 const hasBlankRange = (ranges) => ranges.some(range =>
   ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== ""));
 
-const StackedToleranceSummary = ({ text }) => <>{String(text || "").split(/(\+[-\d.eE]+\/[-−+\d.eE]+)/).map((part, index) => {
+const StackedToleranceSummary = ({ text }) => <>{String(text || "").replace(/\((\+[-\d.eE]+\/[-\u2212+\d.eE]+)\)/g, "$1").split(/(\+[-\d.eE]+\/[-−+\d.eE]+)/).map((part, index) => {
   const match = part.match(/^(\+[-\d.eE]+)\/([-−+\d.eE]+)$/);
   return match ? <span key={index} className="stacked-tolerance-limits"><span>{match[1]}</span><span>{Number(match[2]) === 0 ? "−0" : match[2]}</span></span> : part;
 })}</>;
@@ -13923,7 +13923,7 @@ function DetailedView({
         return;
       }
 
-      const sourceName = getEquationTmdeLabel(tmde);
+      const sourceName = formatErrorSourceDescription(sourceTmde);
       const nominalLabel = [nominalPoint?.value, nominalPoint?.unit]
         .filter((part) => part !== undefined && part !== null && part !== "")
         .join(" ");
@@ -13944,7 +13944,7 @@ function DetailedView({
           ...component,
           id: instanceId,
           componentId: instanceId,
-          name: `${sourceName} - ${suffix}`,
+          name: `${sourceName} - ${formatErrorSourceKind(suffix)}`,
           sourceTmdeId: sourceTmde.id ?? sourceTmde.sourceId,
           tmdeBudgetSourceId: tmde.id ?? tmde.sourceId,
           tmdeBudgetRangeId: activeRange.rangeId ?? activeRange.id ?? "",
@@ -14051,7 +14051,7 @@ function DetailedView({
       nominalPoint,
     ).find((component) => component.isResolution);
     if (resolutionComponent) {
-      const sourceName = getEquationTmdeLabel(tmde);
+      const sourceName = formatErrorSourceDescription(tmde);
       const id = `tmde_resolution_${tmde.id ?? tmde.sourceId}_${Date.now()}_${uuidv4()}`;
       onUpdateTestPoint?.({
         components: [
@@ -16381,6 +16381,7 @@ function DetailedView({
         ) : (
           <>
             <UncertaintyBudgetTable
+              budgetInstruments={sessionData.tmdes || []}
               components={calcResults?.calculatedBudgetComponents || []}
               onRemove={onRemoveComponent}
               onComponentUpdate={handleComponentUpdate}

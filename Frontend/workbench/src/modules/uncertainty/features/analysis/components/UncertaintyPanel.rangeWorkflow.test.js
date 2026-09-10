@@ -216,7 +216,7 @@ describe("shared instrument inline editing", () => {
     expect(point.tmdeTolerances[0].nickname).toBe("Bench Meter");
     expect(point.components[0]).toEqual(
       expect.objectContaining({
-        name: "(Bench Meter) DMM-1 Original Meter - Accuracy",
+        name: "Original Meter - Tolerance",
         tmdeIdentity: "(Bench Meter) DMM-1 Original Meter",
         sourcePointLabel: "(Bench Meter) DMM-1 Original Meter · 5 V",
       }),

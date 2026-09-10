@@ -4444,11 +4444,11 @@ function App({ showThemeToggle = false }) {
   const handleDeleteTmdeDefinition = (idOrIds) => {
     const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
     setAppNotification({
-      title: ids.length > 1 ? "Delete TMDEs" : "Delete TMDE",
+      title: ids.length > 1 ? "Delete Instruments" : "Delete Instrument",
       message:
         ids.length > 1
-          ? `Are you sure you want to delete these ${ids.length} TMDE definitions?`
-          : "Are you sure you want to delete this TMDE definition?",
+          ? `Are you sure you want to delete these ${ids.length} instruments?`
+          : "Are you sure you want to delete this instrument?",
       confirmText: "Delete",
       isIconConfirm: true,
       onConfirm: () => {
@@ -4490,11 +4490,11 @@ function App({ showThemeToggle = false }) {
   const handleDeleteUut = (idOrIds) => {
     const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
     setAppNotification({
-      title: ids.length > 1 ? "Delete UUTs" : "Delete UUT",
+      title: ids.length > 1 ? "Delete Instruments" : "Delete Instrument",
       message:
         ids.length > 1
-          ? `Are you sure you want to delete these ${ids.length} UUT definitions?`
-          : "Are you sure you want to delete this UUT definition?",
+          ? `Are you sure you want to delete these ${ids.length} instruments?`
+          : "Are you sure you want to delete this instrument?",
       confirmText: "Delete",
       isIconConfirm: true,
       onConfirm: () => {

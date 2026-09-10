@@ -1,3 +1,4 @@
+import { formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
 import { hasNominalValue } from "../../../utils/incompleteBudget";
 import { useState, useEffect } from "react";
 import {
@@ -51,36 +52,13 @@ const getTmdeIdentity = (tmde, fallbackIndex = 0) => {
   return instanceName || instrumentName || `TMDE ${fallbackIndex + 1}`;
 };
 
-const getTmdeDisplayName = (tmde, fallbackIndex = 0) => {
-  const instrument = tmde?.instrument || tmde || {};
-  const manufacturer = instrument.manufacturer || tmde?.manufacturer || "";
-  const make =
-    instrument.description ||
-    instrument.name ||
-    tmde?.description ||
-    tmde?.name ||
-    "";
-  const model = instrument.model || tmde?.model || "";
-  const parts = [];
-
-  [manufacturer, make, model].forEach((part) => {
-    const value = String(part || "").trim();
-    if (!value) return;
-    if (!parts.some((existing) => existing.toLowerCase() === value.toLowerCase())) {
-      parts.push(value);
-    }
-  });
-
-  return parts.join(" ") || getTmdeIdentity(tmde, fallbackIndex);
-};
-
 const qualifyTmdeComponent = (component, tmde, fallbackIndex = 0) => {
   const identity = getTmdeIdentity(tmde, fallbackIndex);
-  const displayName = getTmdeDisplayName(tmde, fallbackIndex);
+  const displayName = formatErrorSourceDescription(tmde, `TMDE ${fallbackIndex + 1}`);
   const rawName = String(component?.name || "Uncertainty component");
   const separatorIndex = rawName.lastIndexOf(" - ");
   const componentType =
-    separatorIndex >= 0 ? rawName.slice(separatorIndex + 3) : rawName;
+    formatErrorSourceKind(separatorIndex >= 0 ? rawName.slice(separatorIndex + 3) : rawName);
   const point = `${tmde?.measurementPoint?.value ?? ""} ${
     tmde?.measurementPoint?.unit ?? ""
   }`.trim();
@@ -93,8 +71,8 @@ const qualifyTmdeComponent = (component, tmde, fallbackIndex = 0) => {
 
   return {
     ...component,
-    name: `${identity} - ${componentType}`,
-    sourceDisplayName: displayName,
+    name: `${displayName} - ${componentType}`,
+    sourceDisplayName: `${displayName} - ${componentType}`,
     tmdeIdentity: identity,
     sourcePointLabel: [point, rangeContext].filter(Boolean).join(" - "),
   };
@@ -106,7 +84,7 @@ const createMissingTmdeComponent = (
   suffix = "budget",
 ) => {
   const identity = getTmdeIdentity(tmde, fallbackIndex);
-  const displayName = getTmdeDisplayName(tmde, fallbackIndex);
+  const displayName = formatErrorSourceDescription(tmde, `TMDE ${fallbackIndex + 1}`);
   const point = `${tmde?.measurementPoint?.value ?? ""} ${
     tmde?.measurementPoint?.unit ?? ""
   }`.trim();
@@ -119,8 +97,8 @@ const createMissingTmdeComponent = (
 
   return {
     id: `missing_tmde_${tmde?.id ?? fallbackIndex}_${suffix}`,
-    name: `${identity} - Set tolerance`,
-    sourceDisplayName: displayName,
+    name: `${displayName} - Set tolerance`,
+    sourceDisplayName: `${displayName} - Set tolerance`,
     type: "B",
     value: NaN,
     value_native: NaN,

@@ -134,8 +134,8 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
         makeComponent("resolution-1", "UUT Resolution"),
         makeComponent("resolution-2", "UUT Resolution"),
         makeComponent("resolution-3", "UUT Resolution"),
-        makeComponent("accuracy-1", "Reference DMM - Accuracy"),
-        makeComponent("accuracy-2", "Reference DMM - Accuracy"),
+        makeComponent("accuracy-1", "Reference DMM - Tolerance"),
+        makeComponent("accuracy-2", "Reference DMM - Tolerance"),
       ],
       referencePoint: { name: "Voltage", value: 10, unit: "V" },
     });
@@ -150,8 +150,8 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       "UUT Resolution",
       "UUT Resolution (2)",
       "UUT Resolution (3)",
-      "Reference DMM - Accuracy",
-      "Reference DMM - Accuracy (2)",
+      "Reference DMM - Tolerance",
+      "Reference DMM - Tolerance (2)",
     ]);
   });
 
@@ -1079,6 +1079,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     fireEvent.change(screen.getByLabelText("Error source name"), {
       target: { value: "Thermal drift" },
     });
+    fireEvent.click(screen.getByLabelText("Author IV tolerance"));
     expect(screen.getByLabelText("Author IV tolerance")).toHaveAttribute(
       "data-open",
       "true",
@@ -1176,6 +1177,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       },
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "Edit distribution" }));
     fireEvent.change(screen.getByLabelText("Error limit distribution"), {
       target: { value: "1.960" },
     });
@@ -1374,7 +1376,8 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
 
     const row = container.querySelector(".budget-inline-manual-row");
     expect(row).not.toBeNull();
-    expect(row.querySelectorAll(".budget-inline-not-set")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Edit error source name" })).toHaveTextContent("Not Set");
+    expect(row.querySelector(".budget-inline-not-set")).toHaveTextContent("Not Set");
     expect(row.textContent).not.toContain("Manual component");
 
     fireEvent.click(row.querySelector(".budget-inline-not-set"));
@@ -1437,3 +1440,15 @@ it("shows explanations in place of unresolved component and total uncertainties"
    expect(result).toHaveTextContent(`1 ${label}`);
    expect(result).toHaveTextContent(`2 ${label}`);
  });
+
+
+it("uses the live instrument description and tolerance terminology for legacy budget links", () => {
+  renderDirectBudget({
+    budgetInstruments: [{ id: "tmde-1", description: "Mock DMM", model: "Model 123" }],
+    components: [{ id: "linked", sourceTmdeId: "tmde-1", isBudgetInstance: true,
+      tmdeBudgetComponentKind: "Accuracy", name: "Model 123 - Accuracy",
+      type: "B", value_native: 1, unit_native: "V", distribution: "Rectangular" }],
+  });
+  expect(screen.getByText("Mock DMM - Tolerance")).toBeInTheDocument();
+  expect(screen.queryByText("Model 123 - Accuracy")).not.toBeInTheDocument();
+});
