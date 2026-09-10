@@ -35,6 +35,15 @@ describe("measurement-point value editing", () => {
     expect(onSelect).toHaveBeenCalledOnce();
   });
 
+  test("reserves the indicator space for points without warnings and removes it with the filter", () => {
+    const props = { point: { id: "plain", testPointInfo: { parameter: { value: 5, unit: "V" } } }, diagnostics: [], onSave: vi.fn(), onSelect: vi.fn() };
+    const { container, rerender } = render(<SidebarPointItem {...props} visibleColumns={{ value: true }} />);
+    expect(container.querySelector(".point-value").firstElementChild).toHaveClass("point-diagnostics");
+    expect(container.querySelector(".point-diagnostics")).toBeEmptyDOMElement();
+    rerender(<SidebarPointItem {...props} visibleColumns={{ value: true, warningIcons: false }} />);
+    expect(container.querySelector(".point-diagnostics")).toBeNull();
+  });
+
   test("normalizes saved column order without losing newly added columns", () => {
     const normalized = normalizeSidebarColumnOrder([
       "value",

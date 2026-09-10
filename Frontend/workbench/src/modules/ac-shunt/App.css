@@ -12626,7 +12626,7 @@ body.dark-mode .window-stability-section {
 /* Compact settings controls keep their labels on one line at any panel width. */
 .reader-profile-point-actions { flex-wrap: wrap; gap: 8px; }
 .reader-profile-point-save-control { width: auto; height: auto; flex: 0 0 auto; }
-.reader-profile-point-save { white-space: nowrap; gap: 7px; min-height: 30px; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 5px; }
+.reader-profile-point-save { white-space: nowrap; gap: 7px; min-height: 30px; padding: 6px 10px; border: 0; box-shadow: none; border-radius: 5px; }
 .reader-profile-point-save svg { flex-shrink: 0; }
 .cal-settings-presets { padding: 8px 0; border: 0; border-top: 1px solid var(--border-color); border-radius: 0; }
 .cal-settings-presets p { margin: 6px 0; max-width: 65ch; }

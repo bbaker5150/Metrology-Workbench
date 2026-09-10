@@ -3309,6 +3309,37 @@ function Calibration({
                                 </div>
                               )}
                             </div>
+                          <div className="reader-profile-point-actions general-settings-actions">
+                            <button
+                              type="button"
+                              onClick={handleResetToDefaults}
+                              className="reader-profile-point-save"
+                              aria-label="Reset to default settings"
+                              title="Reset to system defaults"
+                              disabled={isRemoteViewer}
+                            >
+                              <FaUndo /><span>Reset</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleApplySettingsToAll}
+                              className="reader-profile-point-save"
+                              aria-label="Apply to all test points"
+                              title="Apply to all test points"
+                              disabled={isRemoteViewer}
+                            >
+                              <LuSaveAll /><span>Apply to all points</span>
+                            </button>
+                            <button
+                              type="submit"
+                              className="reader-profile-point-save"
+                              aria-label="Save settings for this point"
+                              title="Save settings for this point"
+                              disabled={isRemoteViewer}
+                            >
+                              <FaSave /><span>Save point</span>
+                            </button>
+                          </div>
                           </div>
 
                           <div className="settings-form-group settings-form-group--stability">
@@ -3828,7 +3859,7 @@ function Calibration({
                                     disabled={isRemoteViewer}
                                     aria-label="Save 8508A settings for this test point"
                                   >
-                                    <FaCheck aria-hidden="true" /><span>Save to this point</span>
+                                    <FaSave aria-hidden="true" /><span>Save point</span>
                                   </button>
                                   <ReaderSettingTooltip>
                                     Update 8508A settings for this test point only.
@@ -3935,7 +3966,7 @@ function Calibration({
                                 <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
                                   <button type="button" className={`reader-profile-point-save${is5790SettingsSaved ? " is-saved" : ""}`}
                                     onClick={handle5790SettingsSave} disabled={isRemoteViewer} aria-label="Save 5790 settings for this test point">
-                                    <FaCheck aria-hidden="true" /><span>Save to this point</span>
+                                    <FaSave aria-hidden="true" /><span>Save point</span>
                                   </button>
                                   <ReaderSettingTooltip>Update 5790A/B settings for this test point only.</ReaderSettingTooltip>
                                 </span>
@@ -4170,37 +4201,7 @@ function Calibration({
 
                           <SettingsPresets settings={calibrationSettings} keys={Object.keys(DEFAULT_CALIBRATION_SETTINGS)} disabled={isRemoteViewer}
                             onApply={preset => setCalibrationSettings(previous => ({ ...previous, ...preset }))} />
-                          <div className="form-section-action-icons">
-                            <button
-                              type="button"
-                              onClick={handleResetToDefaults}
-                              className="sidebar-action-button cal-settings-text-action"
-                              aria-label="Reset to default settings"
-                              title="Reset to system defaults"
-                              disabled={isRemoteViewer}
-                            >
-                              <FaUndo /><span>Reset</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleApplySettingsToAll}
-                              className="sidebar-action-button cal-settings-text-action"
-                              aria-label="Apply to all test points"
-                              title="Apply to all test points"
-                              disabled={isRemoteViewer}
-                            >
-                              <LuSaveAll /><span>Apply to all points</span>
-                            </button>
-                            <button
-                              type="submit"
-                              className="sidebar-action-button cal-settings-text-action"
-                              aria-label="Save settings for this point"
-                              title="Save settings for this point"
-                              disabled={isRemoteViewer}
-                            >
-                              <FaSave /><span>Save point</span>
-                            </button>
-                          </div>
+
                         </form>
                       )}
                       {activeTab === "readings" && (

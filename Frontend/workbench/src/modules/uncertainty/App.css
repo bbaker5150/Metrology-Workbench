@@ -20388,7 +20388,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   50% { transform: translateX(-50%) scaleX(1.35); opacity: 1; }
   100% { transform: translateX(-50%) scaleX(1); }
 }
-.uncertainty-module .point-diagnostics { display: inline-flex; flex: 0 0 auto; align-self: center; gap: 1px; margin-right: 3px; }
+.uncertainty-module .point-diagnostics { display: inline-flex; flex: 0 0 var(--point-diagnostics-width, 16px); width: var(--point-diagnostics-width, 16px); align-self: center; gap: 1px; margin-right: 3px; }
 .uncertainty-module .point-diagnostic-warning { margin: 0; width: 16px; flex-basis: 16px; }
 .uncertainty-module .point-diagnostic--input { color: var(--primary-color); }
 .uncertainty-module .point-diagnostic--info { color: var(--text-color-muted); }

@@ -1407,6 +1407,7 @@ export const SidebarPointItem = ({
       {visibleColumns.value &&
         (editingField === "value" ? (
           <div className="sidebar-inline-input-wrapper sidebar-value-sticky">
+            {visibleColumns.warningIcons !== false && <span className="point-diagnostics" aria-hidden="true" />}
             <input
               autoFocus
               className="sidebar-inline-input value"
@@ -1431,7 +1432,7 @@ export const SidebarPointItem = ({
               displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
             }`}
           >
-            {visibleColumns.warningIcons !== false && diagnostics.length > 0 && (
+            {visibleColumns.warningIcons !== false && (
               <span className="point-diagnostics">
                 {[
                   { category: "input", label: "Missing inputs", icon: faPenToSquare },
@@ -6168,7 +6169,8 @@ function App({ showThemeToggle = false }) {
                   </div>
                 )}
 
-                <div className="sidebar-points-scroll-wrapper measurement-points-table" role="region" aria-label="Measurement points">
+                <div className="sidebar-points-scroll-wrapper measurement-points-table" role="region" aria-label="Measurement points"
+                  style={{ "--point-diagnostics-width": `${Math.max(1, ...Object.values(pointDiagnosticsMap).map(entries => new Set(entries.map(entry => entry.category)).size)) * 17 - 1}px` }}>
                   <div className="measurement-points-table-content">
                     {sidebarData.length > 0 && renderSidebarColumnHeaders()}
                 {sidebarData.map((fnGroup) => {
