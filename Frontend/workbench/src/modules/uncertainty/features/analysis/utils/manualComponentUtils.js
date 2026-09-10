@@ -172,14 +172,16 @@ export const createInlineManualComponent = ({
 
 const legacyManualTolerance = (component = {}) => {
   const original = component.originalInput || {};
+  const standard = original.inputMode === "standard" || component.manualInputMode === "standard"
+    || (!original.tolerance && original.toleranceLimit == null && component.manualRawValue == null && component.value_native != null);
   const magnitude = positiveNumber(
-    original.toleranceLimit ??
+    (standard ? original.standardUncertainty ?? component.manualRawValue ?? component.value_native : null) ?? original.toleranceLimit ??
       (component.manualInputMode === "tolerance" ? component.manualRawValue : null),
   );
   if (magnitude === null) return {};
   const unit = original.unit ?? component.manualUnit ?? component.unit_native ?? "ppm";
   const distribution = String(
-    original.errorDistributionDivisor || component.distributionDivisor || "1.732",
+    standard ? "1" : original.errorDistributionDivisor || component.distributionDivisor || "1.732",
   );
   return {
     floor: {
@@ -196,11 +198,7 @@ export const getInlineManualDraft = (component = {}) => ({
   name: component.name || "",
   type: component.type || "B",
   inputMode:
-    component.type === "A"
-      ? "standard"
-      : component.originalInput?.inputMode ||
-        component.manualInputMode ||
-        "tolerance",
+    "tolerance",
   toleranceLimit:
     component.originalInput?.toleranceLimit ??
     (component.manualInputMode === "tolerance" ? component.manualRawValue : "") ??
@@ -233,7 +231,7 @@ export const normalizeInlineManualComponent = ({
   draft,
   referencePoint,
 }) => {
-  if (referencePoint && !hasNominalValue(referencePoint)) {
+  if (referencePoint && !hasNominalValue(referencePoint) && (referencePoint.unit || toleranceNeedsNominal(draft.tolerance || {}))) {
     const unit = referencePoint.unit || draft.unit || "V";
     const resolved = normalizeInlineManualComponent({ component, draft, referencePoint: { ...referencePoint, value: 1, unit } });
     const needsValue = draft.inputMode === "standard" || !toleranceHasMagnitude(draft.tolerance)
@@ -244,7 +242,7 @@ export const normalizeInlineManualComponent = ({
   }
   const type = draft.type === "A" ? "A" : "B";
   const inputMode =
-    type === "A" || draft.inputMode === "standard"
+    draft.inputMode === "standard"
       ? "standard"
       : "tolerance";
   const unit = draft.unit ?? referencePoint?.unit ?? "";
@@ -276,7 +274,16 @@ export const normalizeInlineManualComponent = ({
     ? calculateUncertaintyFromToleranceObject(tolerance, referencePoint, true)
     : null;
 
-  if (usesStructuredTolerance) {
+  if (usesStructuredTolerance && !unit && !referencePoint?.unit) {
+    const floor = tolerance.floor || {};
+    const high = Number(floor.high ?? floor.value), low = Number(floor.low ?? -(floor.high ?? floor.value));
+    const k = distributionDivisorValue(floor.distribution || toleranceDivisor);
+    if (Number.isFinite(high) && Number.isFinite(low) && k > 0 && !toleranceNeedsNominal(tolerance)) {
+      value = Math.max(Math.abs(high), Math.abs(low)) / k;
+      valueNative = value;
+      unitNative = "";
+    } else validation = "Enter a floor tolerance and distribution, or supply a nominal for relative terms.";
+  } else if (usesStructuredTolerance) {
     const calculatedPpm = Number(structuredResult?.standardUncertainty);
     if (Number.isFinite(calculatedPpm) && calculatedPpm > 0) {
       value = calculatedPpm;

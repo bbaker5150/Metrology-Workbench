@@ -99,13 +99,13 @@ const RangeResultsModal = ({ isOpen, onClose, results, rangeInfo }) => {
         <div className="modal-body" style={{ padding: "20px 0" }}>
           <ModalFinalResultCard
             value={
-              results.pair_delta_uut_ppm
+              results.pair_analytics?.pair_rows?.length ? results.pair_analytics.pair_delta_uut_ppm : (results.pair_delta_uut_ppm
               ?? results.delta_uut_ppm_avg
-              ?? results.delta_uut_ppm
+              ?? results.delta_uut_ppm)
             }
             uncertainty={
-              results.pair_type_a_uncertainty_ppm
-              ?? results.type_a_uncertainty_ppm
+              results.pair_analytics?.pair_rows?.length ? results.pair_analytics.pair_type_a_uncertainty_ppm : (results.pair_type_a_uncertainty_ppm
+              ?? results.type_a_uncertainty_ppm)
             }
             nCycles={results.cycles?.length || null}
           />

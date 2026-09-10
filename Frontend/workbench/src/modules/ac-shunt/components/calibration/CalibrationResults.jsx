@@ -368,54 +368,18 @@ function CalibrationResults({
     const pairMean = cycleAnalytics.stats?.mean ?? null;
     const pairUA = cycleAnalytics.stats?.uA ?? null;
 
-    let fwdMean = null, revMean = null, fwdUA = null, revUA = null;
-    const nPairs = Math.min(fwdCycles.length, revCycles.length);
-
-    if (fwdCycles.length > 0) {
-      const vals = fwdCycles
-        .filter((_, i) => !cycleAnalytics.manualExcluded.has(i + 1) && !cycleAnalytics.autoExcluded.has(i + 1))
-        .map(c => parseFloat(c.delta_uut_ppm))
-        .filter(v => !isNaN(v));
-        
-      if (vals.length > 0) {
-        fwdMean = vals.reduce((a, b) => a + b, 0) / vals.length;
-        if (vals.length > 1) {
-          const variance = vals.reduce((a, b) => a + Math.pow(b - fwdMean, 2), 0) / (vals.length - 1);
-          fwdUA = Math.sqrt(variance) / Math.sqrt(vals.length);
-        }
-      }
-    } else {
-      fwdMean = fwdLegacyNum;
-    }
-
-    if (revCycles.length > 0) {
-      const vals = revCycles
-        .filter((_, i) => {
-          let pairNum = -1;
-          if (i < nPairs) {
-            pairNum = useAbba ? (nPairs - 1 - i) + 1 : i + 1;
-          }
-          return !cycleAnalytics.manualExcluded.has(pairNum) && !cycleAnalytics.autoExcluded.has(pairNum);
-        })
-        .map(c => parseFloat(c.delta_uut_ppm))
-        .filter(v => !isNaN(v));
-
-      if (vals.length > 0) {
-        revMean = vals.reduce((a, b) => a + b, 0) / vals.length;
-        if (vals.length > 1) {
-          const variance = vals.reduce((a, b) => a + Math.pow(b - revMean, 2), 0) / (vals.length - 1);
-          revUA = Math.sqrt(variance) / Math.sqrt(vals.length);
-        }
-      }
-    } else {
-      revMean = revLegacyNum;
-    }
+    const directional = focusedTP?.forward?.results?.pair_analytics?.directional
+      ?? focusedTP?.reverse?.results?.pair_analytics?.directional;
+    const fwdMean = fwdCycles.length && directional ? directional.forward?.pair_delta_uut_ppm ?? null : fwdLegacyNum;
+    const revMean = revCycles.length && directional ? directional.reverse?.pair_delta_uut_ppm ?? null : revLegacyNum;
+    const fwdUA = directional?.forward?.pair_type_a_uncertainty_ppm ?? null;
+    const revUA = directional?.reverse?.pair_type_a_uncertainty_ppm ?? null;
 
     return {
       forward: fwdLegacyNum,
       reverse: revLegacyNum,
       combined: combinedLegacy,
-      overall: pairMean != null ? pairMean : combinedLegacy,
+      overall: cycleAnalytics.hasAnalytics && cycleAnalytics.pairRows.length ? pairMean : combinedLegacy,
       overallUA: pairUA,
       cyclePairs,
       fwdMean,
@@ -1360,7 +1324,7 @@ function CalibrationResults({
 
                             // Combined View
                             if (activeDirection === "Combined") {
-                              const combinedVal = calResults?.pair_delta_uut_ppm ?? calResults?.delta_uut_ppm;
+                              const combinedVal = cycleAnalytics.hasAnalytics && cycleAnalytics.pairRows.length ? cycleAnalytics.stats.mean : calResults?.pair_delta_uut_ppm ?? calResults?.delta_uut_ppm;
                               const hasMultiplePairs = nPairs > 1;
                               return (
                                 <ResultsKpi

@@ -2486,6 +2486,12 @@ export const getInstrumentContextTargetIds = (selectedIds, clickedId) => {
 const resolutionDistributionDisplayLabel = (option) =>
   String(option?.label || "").replace(/\s+\(resolution\)$/i, "");
 
+const renderedInstrumentColumnWidths = (table) => {
+  const headers = Array.from(table?.querySelectorAll("thead [data-instrument-column]") || []);
+  if (!headers.length || headers.some(header => !header.getBoundingClientRect().width)) return null;
+  return Object.fromEntries(headers.map(header => [header.dataset.instrumentColumn, header.getBoundingClientRect().width]));
+};
+
 const useInstrumentColumnWidths = (kind, customColumns = []) => {
   const customSignature = customColumns
     .map((column) => `${column.key}:${column.insertAfter || "legacy"}`)
@@ -2583,43 +2589,19 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
     [kind, storageKey],
   );
 
-  const resizePair = useCallback(
-    (key, deltaPixels, tablePixelWidth, sourceWidths = null) => {
-      const index = keys.indexOf(key);
-      if (index < 0 || keys.length < 2) return;
-      const neighborKey = keys[index === keys.length - 1 ? index - 1 : index + 1];
-      const tableWidth = Math.max(1, tablePixelWidth || 1200);
-
-      setWidths((current) => {
-        const base = sourceWidths || current;
-        const currentKeyWidth = base[key] || defaults[key] || 160;
-        const currentNeighborWidth =
-          base[neighborKey] || defaults[neighborKey] || 160;
-        const pairTotal = currentKeyWidth + currentNeighborWidth;
-        const currentTotal = keys.reduce(
-          (sum, columnKey) =>
-            sum + (base[columnKey] || defaults[columnKey] || 160),
-          0,
-        );
-        const deltaWeight = (deltaPixels / tableWidth) * currentTotal;
-        const keyMinimum = (minimumWidth(key) / tableWidth) * currentTotal;
-        const neighborMinimum =
-          (minimumWidth(neighborKey) / tableWidth) * currentTotal;
-        const nextKeyWidth = Math.min(
-          pairTotal - neighborMinimum,
-          Math.max(keyMinimum, currentKeyWidth + deltaWeight),
-        );
-        const next = {
-          ...current,
-          [key]: nextKeyWidth,
-          [neighborKey]: pairTotal - nextKeyWidth,
-        };
-        saveWidths(next);
-        return next;
-      });
-    },
-    [defaults, keys, minimumWidth, saveWidths],
-  );
+  const resizePair = useCallback((key, deltaPixels, tablePixelWidth, sourceWidths = null) => {
+    if (!keys.includes(key)) return;
+    setWidths(current => {
+      const base = sourceWidths || current;
+      const total = keys.reduce((sum, k) => sum + (base[k] || defaults[k] || 160), 0);
+      const scale = Math.max(1, tablePixelWidth || total) / total;
+      const next = Object.fromEntries(keys.map(k => [k, (base[k] || defaults[k] || 160) * scale]));
+      next[key] = Math.max(minimumWidth(key), next[key] + deltaPixels);
+      next.__absolute = true;
+      saveWidths(next);
+      return next;
+    });
+  }, [defaults, keys, minimumWidth, saveWidths]);
 
   const startResize = useCallback(
     (event, key) => {
@@ -2629,7 +2611,7 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
       const tablePixelWidth =
         event.currentTarget.closest("table")?.getBoundingClientRect().width ||
         1200;
-      const startWidths = { ...resolvedWidths };
+      const startWidths = renderedInstrumentColumnWidths(event.currentTarget.closest("table")) || { ...resolvedWidths };
       const previousCursor = document.body.style.cursor;
       const previousUserSelect = document.body.style.userSelect;
       document.body.style.cursor = "col-resize";
@@ -2658,10 +2640,10 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
   return {
     widthFor: (key) =>
       `${((resolvedWidths[key] || 160) / totalWidth) * 100}%`,
-    minimumTableWidth: keys.reduce((sum, key) => sum + minimumWidth(key), 0),
+    minimumTableWidth: widths.__absolute ? totalWidth : keys.reduce((sum, key) => sum + minimumWidth(key), 0),
     startResize,
-    resizeBy: (key, delta, tablePixelWidth) =>
-      resizePair(key, delta, tablePixelWidth),
+    resizeBy: (key, delta, table) =>
+      resizePair(key, delta, table?.getBoundingClientRect().width, renderedInstrumentColumnWidths(table)),
     resetWidths: () => {
       setWidths(defaults);
       saveWidths(defaults);
@@ -2712,7 +2694,7 @@ const ResizableInstrumentHeader = ({
         columns.resizeBy(
           columnKey,
           event.key === "ArrowLeft" ? -12 : 12,
-          event.currentTarget.closest("table")?.getBoundingClientRect().width,
+          event.currentTarget.closest("table"),
         );
       }}
     />
@@ -4213,6 +4195,14 @@ const ToleranceTermEditor = ({
 // The workbook represents single-sided tolerance with one physical limit. A
 // known measurement supplies the nominal (Types 3/4); an unknown measurement
 // deliberately leaves the nominal blank (Types 5/6).
+const hasBlankRange = (ranges) => ranges.some(range =>
+  ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== ""));
+
+const StackedToleranceSummary = ({ text }) => <>{String(text || "").split(/(\+[-\d.eE]+\/[-−+\d.eE]+)/).map((part, index) => {
+  const match = part.match(/^(\+[-\d.eE]+)\/([-−+\d.eE]+)$/);
+  return match ? <span key={index} className="stacked-tolerance-limits"><span>{match[1]}</span><span>{Number(match[2]) === 0 ? "−0" : match[2]}</span></span> : part;
+})}</>;
+
 const SingleSidedToleranceEditor = ({
   tolerance = {},
   activeRange = {},
@@ -4447,7 +4437,7 @@ export const InlineToleranceCell = ({
 
   // Read-only surfaces (no save handler) just render the clean summary.
   if (!editable) {
-    return <>{summary || "Not Set"}</>;
+    return <StackedToleranceSummary text={summary || "Not Set"} />;
   }
 
   if (!isEditing) {
@@ -4469,7 +4459,7 @@ export const InlineToleranceCell = ({
           }}
           onClick={openEditor}
         >
-          {hasValue ? summary : "Not Set"}
+          <StackedToleranceSummary text={hasValue ? summary : "Not Set"} />
         </button>
       </span>
     );
@@ -5670,7 +5660,6 @@ export const buildFunctionGroupedRows = (
 
   if (includeEmptyGroups) {
     (sessionData.measurementAreaGroups || [])
-      .filter((fg) => !kind || !fg.kind || fg.kind === kind)
       .forEach((fg) => {
         const key = makeFunctionKey(fg.name, fg.unit);
         if (!groups.has(key)) {
@@ -7243,7 +7232,7 @@ const SummaryDashboard = ({
     if (!onSessionSave) return;
     const clean = String(name || "").trim();
     if (!clean) return;
-    const kind = addFunctionMenu?.kind || null;
+    const kind = null;
     const key = makeFunctionKey(clean, unit);
     const existing = Array.isArray(sessionData.measurementAreaGroups)
       ? sessionData.measurementAreaGroups
@@ -7662,7 +7651,7 @@ const SummaryDashboard = ({
 
   const renderInstrumentDeleteButton = (kind, item) => {
     if (!onSessionSave) return null;
-    const label = `Delete ${kind === "uut" ? "UUT" : "TMDE"} instrument`;
+    const label = "Delete Instrument";
     return (
       <button
         type="button"
@@ -8162,7 +8151,7 @@ const SummaryDashboard = ({
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range;
     const rangeGroupKey = itemStateKey(kind, stateId);
-    const showRangeActions = rangeEditingKeys.has(rangeGroupKey);
+    const showRangeActions = rangeEditingKeys.has(rangeGroupKey) || ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== "");
 
     return (
       <>
@@ -8175,7 +8164,7 @@ const SummaryDashboard = ({
           }
         >
           <div
-            className={`range-row-cell${showRangeActions ? "" : " range-row-cell--without-actions"}`}
+            className={`range-row-cell${showRangeActions ? "" : " range-row-cell--without-actions"}${hasBlankRange([range]) ? " range-row-cell--blank" : ""}`}
           >
             <RangeCell
               ranges={[range]}
@@ -8186,6 +8175,7 @@ const SummaryDashboard = ({
               editBlankByDefault={showRangeActions}
               onEditingChange={(editing) => {
                 if (!editing) return;
+                setExpandedRangeKeys(previous => previous.has(rangeGroupKey) ? previous : new Set(previous).add(rangeGroupKey));
                 setRangeEditingKeys((previous) => {
                   if (previous.has(rangeGroupKey)) return previous;
                   return new Set(previous).add(rangeGroupKey);
@@ -9127,7 +9117,7 @@ const SummaryDashboard = ({
                       ? specRows.length
                       : 1;
                   const isSelected = selectedUutIds.includes(uut.id);
-                  const showAllRanges = isShowingAllRanges("uut", uutRowKey);
+                  const showAllRanges = isShowingAllRanges("uut", uutRowKey) || hasBlankRange(ranges);
                   const visibleRangeRows = getVisibleRangeRows(
                     ranges,
                     activeIndex,
@@ -9613,7 +9603,7 @@ const SummaryDashboard = ({
                       ? specRows.length
                       : 1;
                   const isSelected = selectedTmdeIds.includes(tmde.id);
-                  const showAllRanges = isShowingAllRanges("tmde", tmdeRowKey);
+                  const showAllRanges = isShowingAllRanges("tmde", tmdeRowKey) || hasBlankRange(ranges);
                   const visibleRangeRows = getVisibleRangeRows(
                     ranges,
                     activeIndex,
@@ -11626,7 +11616,7 @@ function DetailedView({
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range || {};
     const rangeGroupKey = itemStateKey(kind, stateId);
-    const showRangeActions = rangeEditingKeys.has(rangeGroupKey);
+    const showRangeActions = rangeEditingKeys.has(rangeGroupKey) || ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== "");
 
     return (
       <>
@@ -11639,7 +11629,7 @@ function DetailedView({
           }
         >
           <div
-            className={`range-row-cell${showRangeActions ? "" : " range-row-cell--without-actions"}`}
+            className={`range-row-cell${showRangeActions ? "" : " range-row-cell--without-actions"}${hasBlankRange([range]) ? " range-row-cell--blank" : ""}`}
           >
             <RangeCell
               ranges={[range]}
@@ -11650,6 +11640,7 @@ function DetailedView({
               editBlankByDefault={showRangeActions}
               onEditingChange={(editing) => {
                 if (!editing) return;
+                setExpandedRangeKeys(previous => previous.has(rangeGroupKey) ? previous : new Set(previous).add(rangeGroupKey));
                 setRangeEditingKeys((previous) => {
                   if (previous.has(rangeGroupKey)) return previous;
                   return new Set(previous).add(rangeGroupKey);
@@ -12190,7 +12181,7 @@ function DetailedView({
     if (!onSessionSave) return;
     const clean = String(name || "").trim();
     if (!clean) return;
-    const kind = addFunctionMenu?.kind || null;
+    const kind = null;
     const key = makeFunctionKey(clean, unit);
     const existing = Array.isArray(sessionData.measurementAreaGroups)
       ? sessionData.measurementAreaGroups
@@ -12345,7 +12336,7 @@ function DetailedView({
 
   const renderInstrumentDeleteButton = (kind, item) => {
     if (!onSessionSave) return null;
-    const label = `Delete ${kind === "uut" ? "UUT" : "TMDE"} instrument`;
+    const label = "Delete Instrument";
     return (
       <button
         type="button"
@@ -15192,7 +15183,7 @@ function DetailedView({
                   const specRows = getUutSpecRows(activeRange);
                   const rowSpan = !onSessionSave && specRows.length > 0 ? specRows.length : 1;
                   const isSelected = selectedUutIds.includes(uut.id);
-                  const showAllRanges = isShowingAllRangesDetail("uut", uutRowKey);
+                  const showAllRanges = isShowingAllRangesDetail("uut", uutRowKey) || hasBlankRange(ranges);
                   const visibleRangeRows = getVisibleRangeRows(
                     ranges,
                     activeIndex,
@@ -16054,7 +16045,7 @@ function DetailedView({
                       const showAllRanges = isShowingAllRangesDetail(
                         "tmde",
                         tmdeRowKey,
-                      );
+                      ) || hasBlankRange(ranges);
                       const visibleRangeRows = getVisibleRangeRows(
                         ranges,
                         activeIndex,

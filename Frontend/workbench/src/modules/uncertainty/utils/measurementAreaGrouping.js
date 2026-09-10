@@ -34,10 +34,17 @@ export const measurementAreaLabelOf = (point) => label(
 );
 export const measurementAreaKeyOf = point => measurementAreaLabelOf(point).key;
 
+const sharedAreaGroups = groups => {
+  const merged = new Map();
+  groups.forEach(({ kind, ...area }) => { const key = makeMeasurementAreaKey(area.name); merged.set(key, { ...merged.get(key), ...area }); });
+  return [...merged.values()];
+};
+
 export const migrateMeasurementAreas = (session) => {
   if (!session) return session;
   if (Array.isArray(session.measurementAreaGroups)) {
-    let changed = false;
+    const groups = sharedAreaGroups(session.measurementAreaGroups);
+    let changed = session.measurementAreaGroups.some(a => a.kind) || groups.length !== session.measurementAreaGroups.length;
     const rows = items => (items || []).map(item => {
       if (Array.isArray(item.measurementAreaNames)) return item;
       changed = true;
@@ -52,7 +59,7 @@ export const migrateMeasurementAreas = (session) => {
       return { ...point, testPointInfo: { ...point.testPointInfo,
         measurementArea: area?.name || 'Measurement' } };
     });
-    return changed ? { ...session, uuts, tmdes, testPoints } : session;
+    return changed ? { ...session, measurementAreaGroups: groups, uuts, tmdes, testPoints } : session;
   }
   const groups = ['uut', 'tmde'].flatMap(kind =>
     resolveSessionFunctions(session, { kind }).map(area => ({
@@ -64,7 +71,7 @@ export const migrateMeasurementAreas = (session) => {
   );
   return {
     ...session,
-    measurementAreaGroups: groups,
+    measurementAreaGroups: sharedAreaGroups(groups),
     uuts: (session.uuts || []).map(item => ({ ...item,
       measurementAreaNames: instrumentMeasurementAreas(item).map(area => area.name) })),
     tmdes: (session.tmdes || []).map(item => ({ ...item,
@@ -85,7 +92,7 @@ export const resolveSessionMeasurementAreas = (data = {}, { kind = null } = {}) 
         units: [...new Set([...(existing.units || []), ...(area.units || [])])] }
         : { ...area, key });
     };
-    (session.measurementAreaGroups || []).filter(a => !filter || !a.kind || a.kind === filter).forEach(add);
+    (session.measurementAreaGroups || []).forEach(add);
     [...(filter === 'tmde' ? [] : session.uuts || []), ...(filter === 'uut' ? [] : session.tmdes || [])]
       .forEach(item => instrumentMeasurementAreas(item).forEach(add));
     if (filter !== 'tmde') (session.testPoints || []).forEach(point => add(measurementAreaLabelOf(point)));
@@ -93,7 +100,7 @@ export const resolveSessionMeasurementAreas = (data = {}, { kind = null } = {}) 
   };
   const colors = new Map(build(null).map((area, index) =>
     [area.key, area.color || FUNCTION_COLOR_PALETTE[index % FUNCTION_COLOR_PALETTE.length]]));
-  return build(kind).map(area => ({ ...area, color: colors.get(area.key),
+  return build(null).map(area => ({ ...area, color: colors.get(area.key),
     unit: area.units?.[0] || area.unit || '' }));
 };
 
@@ -121,9 +128,9 @@ export const renameMeasurementArea = (data, area, name) => {
 };
 
 export const getMeasurementAreaDependencies = (session = {}, area = {}) => ({
-  uuts: area.kind === 'tmde' ? [] : (session.uuts || []).filter(item => instrumentHasMeasurementArea(item, area.key)),
-  tmdes: area.kind === 'uut' ? [] : (session.tmdes || []).filter(item => instrumentHasMeasurementArea(item, area.key)),
-  measurementPoints: area.kind === 'tmde' ? [] : (session.testPoints || []).filter(point => measurementAreaKeyOf(point) === area.key),
+  uuts: (session.uuts || []).filter(item => instrumentHasMeasurementArea(item, area.key)),
+  tmdes: (session.tmdes || []).filter(item => instrumentHasMeasurementArea(item, area.key)),
+  measurementPoints: (session.testPoints || []).filter(point => measurementAreaKeyOf(point) === area.key),
 });
 export const getMeasurementAreaDeletionConfirmationMessage = (dependencies, area) => {
   const counts = [['uuts', 'UUT'], ['tmdes', 'TMDE'], ['measurementPoints', 'measurement point']]
@@ -139,10 +146,10 @@ export const deleteMeasurementArea = (data, area) => {
   });
   return { ...session,
     measurementAreaGroups: session.measurementAreaGroups.filter(a =>
-      makeMeasurementAreaKey(a.name) !== area.key || (a.kind && area.kind && a.kind !== area.kind)),
-    uuts: area.kind === 'tmde' ? session.uuts : remove(session.uuts),
-    tmdes: area.kind === 'uut' ? session.tmdes : remove(session.tmdes),
-    testPoints: area.kind === 'tmde' ? session.testPoints : (session.testPoints || []).filter(p => measurementAreaKeyOf(p) !== area.key),
+      makeMeasurementAreaKey(a.name) !== area.key),
+    uuts: remove(session.uuts),
+    tmdes: remove(session.tmdes),
+    testPoints: (session.testPoints || []).filter(p => measurementAreaKeyOf(p) !== area.key),
   };
 };
 

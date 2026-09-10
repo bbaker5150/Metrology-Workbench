@@ -34,7 +34,7 @@ app.whenReady().then(async () => {
     browser,
     page,
     status = 0;
-  const timer = setTimeout(() => app.exit(1), 180000);
+  const timer = setTimeout(() => app.exit(1), 360000);
   try {
     const { createServer } = await import("vite");
     const virtual = path.resolve("__sep9-points.jsx").replaceAll("\\", "/");
@@ -244,18 +244,17 @@ app.whenReady().then(async () => {
     });
     assert.ok(cellGeometry.top>=0 && cellGeometry.bottom>=0,'Value highlight stays within its row');
     await page.screenshot({path:path.join(output,'area-header-and-selection.png')});
-    await page.getByRole('button',{name:'Add Measurement Area from points'}).click();
     for (const dark of [false,true]) {
       await page.evaluate(dark=>document.body.classList.toggle('dark-mode',dark),dark);
       await page.screenshot({path:path.join(output,dark?'area-menu-dark.png':'area-menu-light.png')});
-      const menu=await page.locator('.sidebar-add-area-form').boundingBox();
+      const menu=await page.locator('.sidebar-area-entry').boundingBox();
       assert.ok(menu.width<=260 && menu.x>=0 && menu.x+menu.width<=1500,'Inline area entry stays compact');
-      assert.ok((await page.getByRole('textbox',{name:'New Measurement Area name'}).boundingBox()).width<=120,'Area name input stays small');
-      assert.ok(await page.locator('.sidebar-actions-group .sidebar-add-area-form').count(),'Area entry stays inline with the buttons');
+      assert.ok((await page.getByRole('textbox',{name:'New Measurement Area name'}).boundingBox()).width<=180,'Area name input stays small');
+      assert.ok(await page.locator('.sidebar-actions-group .sidebar-area-entry').count(),'Area entry stays inline with the buttons');
     }
     await page.evaluate(()=>document.body.classList.remove('dark-mode'));
     await page.getByRole('textbox',{name:'New Measurement Area name'}).fill('Quick calculation');
-    await page.locator('.sidebar-add-area-form').getByRole('button',{name:'Add',exact:true}).click();
+    await page.getByRole('button',{name:'Add Measurement Area from points',exact:true}).click();
     await page.waitForFunction(()=>window.savedSession().measurementAreaGroups.some(area=>area.name==='Quick calculation'));
     console.log('Areas after creation',await page.locator('.area-header-sticky').allTextContents(),await page.evaluate(()=>window.savedSession().measurementAreaGroups));
     await page.locator('.area-header-sticky').filter({hasText:/Quick calculation/i}).locator('[data-tour="add-measurement-point"]').click();

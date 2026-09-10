@@ -81,14 +81,14 @@ class CycleAnalyticsParityTests(TestCase):
         self.assertIn(6, auto)
         self.assertEqual(flagged, set())
 
-    def test_iqr_flags_small_n(self):
+    def test_iqr_excludes_small_n(self):
         from api.models import build_pair_rows, apply_outlier_filter
         fwd = [(i + 1, 1.0) for i in range(6)]
         rev = [(i + 1, 1.0) for i in range(6)]
         rows = build_pair_rows(fwd, rev, use_abba=False)
         rows[2]['paired_avg'] = 50.0  # mid-range outlier
         auto, flagged = apply_outlier_filter(rows, 'auto')
-        self.assertEqual(auto, set())
+        self.assertEqual(auto, {3})
         self.assertIn(3, flagged)
 
     def test_none_mode_disables_all_filters(self):
@@ -1292,6 +1292,14 @@ class HostSyncPerHostSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(connected)
         return communicator
 
+    async def _receive_session_changed(self, communicator):
+        # Presence updates can interleave with session updates on the same socket.
+        for _ in range(10):
+            message = await communicator.receive_json_from()
+            if message.get('type') == 'session_changed':
+                return message
+        self.fail('No session_changed event received')
+
     async def _drain_connect_messages(self, communicator):
         """Consume the two auto-pushes connect() emits (session + claims)."""
         session_msg = await communicator.receive_json_from()
@@ -1345,8 +1353,8 @@ class HostSyncPerHostSessionTests(unittest.IsolatedAsyncioTestCase):
             })
 
             # Both sockets receive the broadcast.
-            host_msg = await host.receive_json_from()
-            remote_msg = await remote.receive_json_from()
+            host_msg = await self._receive_session_changed(host)
+            remote_msg = await self._receive_session_changed(remote)
 
             for msg in (host_msg, remote_msg):
                 self.assertEqual(msg['type'], 'session_changed')
@@ -1383,12 +1391,12 @@ class HostSyncPerHostSessionTests(unittest.IsolatedAsyncioTestCase):
 
             await host_a.send_json_to({'command': 'set_session', 'session_id': 11})
             # Drain both sockets for A's broadcast.
-            await host_a.receive_json_from()
-            await host_b.receive_json_from()
+            await self._receive_session_changed(host_a)
+            await self._receive_session_changed(host_b)
 
             await host_b.send_json_to({'command': 'set_session', 'session_id': 22})
-            msg_on_a = await host_a.receive_json_from()
-            msg_on_b = await host_b.receive_json_from()
+            msg_on_a = await self._receive_session_changed(host_a)
+            msg_on_b = await self._receive_session_changed(host_b)
 
             # B's broadcast carries B's session + both entries in the map.
             for msg in (msg_on_a, msg_on_b):

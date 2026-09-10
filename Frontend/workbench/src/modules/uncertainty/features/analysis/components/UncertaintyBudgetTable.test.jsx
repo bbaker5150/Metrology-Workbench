@@ -1275,7 +1275,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     });
   });
 
-  it("switches a manual row to direct standard-uncertainty entry inline", async () => {
+  it("calculates manual standard uncertainty from tolerance and distribution", async () => {
     const onComponentUpdate = vi.fn();
     renderDirectBudget({
       onComponentUpdate,
@@ -1303,17 +1303,11 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       referencePoint: { name: "Voltage", value: 10, unit: "V" },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Not Set" }));
-    const standardInput = screen.getByLabelText("Standard uncertainty");
-    expect(standardInput).toHaveValue(0.3);
-    fireEvent.change(standardInput, { target: { value: "0.2" } });
+    expect(screen.queryByLabelText("Standard uncertainty")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Calculated standard uncertainty")).toHaveTextContent("0.3");
     fireEvent.pointerDown(document.body);
-
     await waitFor(() => expect(onComponentUpdate).toHaveBeenCalledOnce());
-    expect(onComponentUpdate.mock.calls[0][1].inlineManualDraft).toMatchObject({
-      inputMode: "standard",
-      standardUncertainty: "0.2",
-    });
+    expect(onComponentUpdate.mock.calls[0][1].inlineManualDraft.inputMode).toBe("tolerance");
   });
 
   it("keeps a saved manual row clean until the user clicks it", () => {

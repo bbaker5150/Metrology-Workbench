@@ -434,7 +434,7 @@ const InlineManualComponentRow = ({
   );
   const std = getComponentStdUncertainty(preview, referencePoint?.unit);
   const inputMode =
-    draft.type === "A" ? "standard" : draft.inputMode || "tolerance";
+    "tolerance";
   const toleranceDistribution = String(
     draft.tolerance?.reading?.distribution ||
       draft.tolerance?.range?.distribution ||
@@ -454,61 +454,7 @@ const InlineManualComponentRow = ({
     ).filter(Boolean);
   }, [draft.unit, referencePoint?.unit]);
 
-  const setEntryMode = (nextMode) => {
-    updateDraft((current) => {
-      const divisor =
-        distributionDivisorValue(current.errorDistributionDivisor) ||
-        distributionDivisorValue("1.732");
-      if (nextMode === "standard") {
-        const tolerance = Number(current.toleranceLimit);
-        const calculatedTolerance = Number(preview?.value_native);
-        return {
-          ...current,
-          inputMode: "standard",
-          standardUncertainty:
-            current.standardUncertainty ||
-            (Number.isFinite(calculatedTolerance) && calculatedTolerance > 0
-              ? String(calculatedTolerance)
-              : Number.isFinite(tolerance) && tolerance > 0
-                ? String(tolerance / divisor)
-              : ""),
-        };
-      }
-      const standard = Number(current.standardUncertainty);
-      return {
-        ...current,
-        inputMode: "tolerance",
-        toleranceLimit:
-          current.toleranceLimit ||
-          (Number.isFinite(standard) && standard > 0
-            ? String(standard * divisor)
-            : ""),
-      };
-    });
-  };
-
-  const handleTypeChange = (type) => {
-    updateDraft((current) => {
-      if (type !== "A") return { ...current, type: "B" };
-      const divisor =
-        distributionDivisorValue(current.errorDistributionDivisor) ||
-        distributionDivisorValue("1.732");
-      const tolerance = Number(current.toleranceLimit);
-      const calculatedTolerance = Number(preview?.value_native);
-      return {
-        ...current,
-        type: "A",
-        inputMode: "standard",
-        standardUncertainty:
-          current.standardUncertainty ||
-          (Number.isFinite(calculatedTolerance) && calculatedTolerance > 0
-            ? String(calculatedTolerance)
-            : Number.isFinite(tolerance) && tolerance > 0
-              ? String(tolerance / divisor)
-            : ""),
-      };
-    });
-  };
+  const handleTypeChange = type => updateDraft(current => ({ ...current, type, inputMode: "tolerance" }));
 
   const handleRowKeyDown = (event) => {
     if (event.key === "Escape") {
@@ -536,7 +482,7 @@ const InlineManualComponentRow = ({
   if (!editing) {
     const original = component.originalInput || {};
     const isStandard =
-      component.type === "A" || original.inputMode === "standard";
+      original.inputMode === "standard";
     const tolerance = Number(original.toleranceLimit);
     const structuredTolerance = original.tolerance || component.tolerance || {};
     const structuredSummary = formatToleranceSummary?.(structuredTolerance)?.[0];
@@ -641,9 +587,7 @@ const InlineManualComponentRow = ({
         />
       </td>
       <td className="budget-inline-tolerance-cell">
-        {draft.type === "A" ? (
-          <span className="budget-inline-empty">—</span>
-        ) : inputMode === "tolerance" ? (
+        {inputMode === "tolerance" ? (
           ToleranceEditorComponent ? (
             <ToleranceEditorComponent
               tolerance={draft.tolerance || {}}
@@ -677,22 +621,10 @@ const InlineManualComponentRow = ({
           ) : (
             magnitudeInput("toleranceLimit", "Tolerance limit")
           )
-        ) : (
-          <button
-            type="button"
-            className="budget-inline-mode-button"
-            onClick={() => setEntryMode("tolerance")}
-          >
-            Enter tolerance limit
-          </button>
-        )}
+        ) : null}
       </td>
       <td>
-        {draft.type === "A" ? (
-          <span>Normal</span>
-        ) : inputMode === "standard" ? (
-          <span>Standard uncertainty (k=1)</span>
-        ) : (
+        {(
           <select
             className="mini-select budget-inline-distribution"
             aria-label="Error limit distribution"
@@ -729,17 +661,7 @@ const InlineManualComponentRow = ({
       </td>
       {showDof && <td>{draft.type === "A" ? formatDof(component.dof) : ""}</td>}
       <td>
-        {inputMode === "standard" ? (
-          magnitudeInput("standardUncertainty", "Standard uncertainty")
-        ) : (
-          <button
-            type="button"
-            className="inline-tolerance-summary is-empty budget-inline-not-set-action"
-            onClick={() => setEntryMode("standard")}
-          >
-            Not Set
-          </button>
-        )}
+        <span className="budget-standard-uncertainty" aria-label="Calculated standard uncertainty">{formatNumber(std.value, sigFigs)} {getUnitDisplayLabel(std.unit)}</span>
       </td>
       <td className="action-cell">{removeAction}</td>
     </tr>

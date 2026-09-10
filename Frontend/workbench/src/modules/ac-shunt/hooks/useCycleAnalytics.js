@@ -45,10 +45,18 @@ export default function useCycleAnalytics({
   sessionId,
   onDataUpdate,
   defaultUseAbba = true,
+  direction = "paired",
 }) {
   const inFlight = useRef(false);
 
-  const payload = useMemo(() => pickPayload(focusedTestPoint), [focusedTestPoint]);
+  const canonical = useMemo(() => pickPayload(focusedTestPoint), [focusedTestPoint]);
+  const payload = useMemo(() => direction === "paired" ? canonical : {
+    ...canonical,
+    ...(canonical?.directional?.[direction] || {
+      pair_rows: [], pair_delta_uut_ppm: null, pair_type_a_uncertainty_ppm: null,
+      n_pairs_used: 0, auto_excluded_pairs: [], flagged_pairs: [], manual_excluded_pairs: [],
+    }),
+  }, [canonical, direction]);
 
   const useAbba = payload?.use_abba_pairing != null
     ? Boolean(payload.use_abba_pairing)
@@ -144,6 +152,6 @@ export default function useCycleAnalytics({
     setUseAbba,
     setFilterMode,
     toggleExclusion,
-    hasAnalytics: !!payload,
+    hasAnalytics: !!canonical,
   };
 }

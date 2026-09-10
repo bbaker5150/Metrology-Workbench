@@ -269,3 +269,11 @@ describe("PATCHing toggles", () => {
     expect(axios.patch).toHaveBeenCalledTimes(2);
   });
 });
+
+it("uses direction-specific filtered statistics without requiring a complete pair", () => {
+  const blob = analytics({ directional: { forward: { pair_rows: [{ pair_num: 1, fwd_delta: 5, rev_delta: null, paired_avg: 5 }], pair_delta_uut_ppm: 5, pair_type_a_uncertainty_ppm: null, n_pairs_used: 1, auto_excluded_pairs: [3], manual_excluded_pairs: [], flagged_pairs: [] } } });
+  const { result } = setup({ focusedTestPoint: point({ forward: { blob } }), direction: "forward" });
+  expect(result.current.stats).toEqual({ mean: 5, uA: null, n: 1 });
+  expect(result.current.pairRows[0].pairedAvg).toBe(5);
+  expect(result.current.autoExcluded.has(3)).toBe(true);
+});

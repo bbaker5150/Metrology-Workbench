@@ -463,7 +463,7 @@ def apply_outlier_filter(pair_rows, mode):
     Chauvenet uses Z = 1.1 + 0.38*ln(N) as a closed-form approximation of
     the inverse normal CDF threshold for N in [12, 100]. IQR uses the
     standard 1.5x box-and-whisker rule on the unsorted-original pair_num
-    mapping so we can mark rows visually without rejecting them.
+    mapping. Both methods exclude detected outliers from the mean and u_A.
     """
     auto, flagged = set(), set()
     if mode != 'auto':
@@ -488,7 +488,29 @@ def apply_outlier_filter(pair_rows, mode):
         for pn, v in valid:
             if v < lower or v > upper:
                 flagged.add(pn)
+                auto.add(pn)
     return auto, flagged
+
+
+def summarize_cycle_rows(rows, mode, manual=()):
+    auto, flagged = apply_outlier_filter(rows, mode)
+    excluded = auto | set(manual)
+    values = [row['paired_avg'] for row in rows
+              if row['paired_avg'] is not None and row['pair_num'] not in excluded]
+    mean, std = welford_mean_stddev(values) if len(values) > 1 else (values[0] if values else None, None)
+    return {'pair_rows': rows, 'auto_excluded_pairs': sorted(auto),
+            'flagged_pairs': sorted(flagged), 'manual_excluded_pairs': sorted(manual),
+            'pair_delta_uut_ppm': mean, 'pair_type_a_uncertainty_ppm': std / math.sqrt(len(values)) if std is not None else None,
+            'n_pairs_used': len(values)}
+
+
+def directional_cycle_analytics(cycles, direction, mode):
+    rows = [{'pair_num': index, 'fwd_cycle_num': index if direction == 'forward' else None,
+             'rev_cycle_num': index if direction == 'reverse' else None,
+             'fwd_delta': value if direction == 'forward' else None,
+             'rev_delta': value if direction == 'reverse' else None,
+             'paired_avg': value} for index, value in cycles]
+    return summarize_cycle_rows(rows, mode)
 
 
 def aggregate_paired_cycles(fwd_deltas, rev_deltas, use_abba=True):
@@ -1080,17 +1102,14 @@ class CalibrationResults(models.Model):
         ) if rev_results else [], n_cap)
 
         pair_rows = build_pair_rows(fwd_pairs, rev_pairs, use_abba=use_abba)
-        auto, flagged = apply_outlier_filter(pair_rows, filter_mode)
         return {
             'use_abba_pairing': use_abba,
             'outlier_filter_mode': filter_mode,
-            'manual_excluded_pairs': manual,
-            'auto_excluded_pairs': sorted(auto),
-            'flagged_pairs': sorted(flagged),
-            'pair_rows': pair_rows,
-            'pair_delta_uut_ppm': self.pair_delta_uut_ppm,
-            'pair_type_a_uncertainty_ppm': self.pair_type_a_uncertainty_ppm,
-            'n_pairs_used': self.n_pairs_used,
+            **summarize_cycle_rows(pair_rows, filter_mode, manual),
+            'directional': {
+                'forward': directional_cycle_analytics(fwd_pairs, 'forward', filter_mode),
+                'reverse': directional_cycle_analytics(rev_pairs, 'reverse', filter_mode),
+            },
         }
 
     std_ac_open_avg = models.FloatField(null=True, blank=True)

@@ -672,7 +672,7 @@ const getSidebarValueColumnWidth = (points = []) => {
   const longest = (points || []).reduce((max, point) => {
     const parameter = point?.testPointInfo?.parameter || {};
     const valueLength = String(parameter.value ?? "").length;
-    const unitLength = (parameter.unit ? getUnitDisplayLabel(parameter.unit) : "Unassigned").length;
+    const unitLength = (parameter.unit ? getUnitDisplayLabel(parameter.unit) : "Units").length;
     return Math.max(max, valueLength + (unitLength ? unitLength + 1 : 0));
   }, 0);
   return `${Math.max(104, longest * 8 + 52)}px`;
@@ -1442,7 +1442,7 @@ export const SidebarPointItem = ({
                   onSave({ ...point, testPointInfo: { ...point.testPointInfo,
                     parameter: { ...point.testPointInfo?.parameter, unit, unitSelectionExplicit: true, unavailableUnit: undefined } } });
                 }}>
-                <option value="">Unassigned</option>
+                <option value="">Units</option>
                 {displayUnit && !unitOptions.includes(displayUnit) && <option value={displayUnit} disabled>{getUnitDisplayLabel(displayUnit)} (unavailable)</option>}
                 {unitOptions.map(unit => <option key={unit} value={unit}>{getUnitDisplayLabel(unit)}</option>)}
               </select>
@@ -2657,7 +2657,7 @@ function App({ showThemeToggle = false }) {
   useEffect(() => {
     if (newSidebarArea === null) return;
     const dismiss = event => {
-      if (!event.target.closest?.(".sidebar-add-area-form") && !sidebarAreaAnchorRef.current?.contains(event.target)) setNewSidebarArea(null);
+      if (!event.target.closest?.(".sidebar-add-area-controls") && !sidebarAreaAnchorRef.current?.contains(event.target)) setNewSidebarArea(null);
     };
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
@@ -2667,8 +2667,8 @@ function App({ showThemeToggle = false }) {
     if (!name) return;
     const key = makeMeasurementAreaKey(name);
     const existing = currentSessionData.measurementAreaGroups || [];
-    if (!existing.some(area => makeMeasurementAreaKey(area.name) === key && area.kind !== "tmde")) {
-      updateSession({ ...currentSessionData, measurementAreaGroups: [...existing, { name, unit: "", kind: "uut" }] });
+    if (!existing.some(area => makeMeasurementAreaKey(area.name) === key)) {
+      updateSession({ ...currentSessionData, measurementAreaGroups: [...existing, { name, unit: "" }] });
     }
     setExpandedFunctions(previous => new Set(previous).add(key));
     setNewSidebarArea(null);
@@ -5323,6 +5323,24 @@ function App({ showThemeToggle = false }) {
     );
   };
 
+  const sidebarSortGroups = sidebarColumnOrder.filter(key => sidebarColumns[key]).reduce((groups, key) => {
+    const pairs = { lowLimit: ["lowLimit", "highLimit"], highLimit: ["lowLimit", "highLimit"], tmdeLow: ["tmdeLow", "tmdeHigh"], tmdeHigh: ["tmdeLow", "tmdeHigh"], gbLow: ["gbLow", "gbHigh"], gbHigh: ["gbLow", "gbHigh"] };
+    const keys = (pairs[key] || [key]).filter(k => sidebarColumns[k]);
+    if (!groups.some(g => g.keys.includes(key))) groups.push({ key: keys[0], keys, label: keys.includes("lowLimit") || keys.includes("highLimit") ? "UUT Limits" : keys.includes("tmdeLow") || keys.includes("tmdeHigh") ? "TMDE Limits" : keys.includes("gbLow") || keys.includes("gbHigh") ? "GB Limits" : SIDEBAR_COLUMN_LABELS[key] });
+    return groups;
+  }, []);
+  const moveSidebarSortGroup = (source, target) => {
+    const from = sidebarSortGroups.find(g => g.key === source), to = sidebarSortGroups.find(g => g.key === target);
+    if (!from || !to || from === to) return;
+    setSidebarColumnOrder(previous => {
+      const next = previous.filter(key => !from.keys.includes(key));
+      const movingDown = sidebarSortGroups.indexOf(from) < sidebarSortGroups.indexOf(to);
+      const insertion = movingDown ? next.indexOf(to.keys.at(-1)) + 1 : next.indexOf(to.keys[0]);
+      next.splice(insertion, 0, ...from.keys);
+      return next;
+    });
+  };
+
   const renderFunctionPointActions = (fnGroup) => {
     const settings = getFunctionPointSettings(currentSessionData, fnGroup.id);
     const settingsOpen = openFunctionSettingsId === fnGroup.id;
@@ -5416,7 +5434,7 @@ function App({ showThemeToggle = false }) {
         <button
           type="button"
           className="function-point-settings-button function-point-delete-button range-header-action-btn range-header-action-btn--delete"
-          title={`Delete ${fnGroup.name} measurement area`}
+          title="Delete Measurement Area"
           aria-label={`Delete ${fnGroup.name} measurement area`}
           onClick={event => {
             event.stopPropagation();
@@ -5937,38 +5955,13 @@ function App({ showThemeToggle = false }) {
                                   </button>
                                 </div>
                                 <div className="sidebar-column-order-list">
-                                  {sidebarColumnOrder.map((key, index) => (
-                                    <div
-                                      className={`sidebar-column-order-item${
-                                        sidebarColumns[key] ? " is-visible" : ""
-                                      }`}
-                                      key={key}
-                                    >
-                                      <span>{SIDEBAR_COLUMN_LABELS[key]}</span>
-                                      <div className="sidebar-column-order-actions">
-                                        <button
-                                          type="button"
-                                          title={`Move ${SIDEBAR_COLUMN_LABELS[key]} left`}
-                                          aria-label={`Move ${SIDEBAR_COLUMN_LABELS[key]} left`}
-                                          disabled={index === 0}
-                                          onClick={() => moveSidebarColumn(key, -1)}
-                                        >
-                                          <FontAwesomeIcon icon={faChevronUp} />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          title={`Move ${SIDEBAR_COLUMN_LABELS[key]} right`}
-                                          aria-label={`Move ${SIDEBAR_COLUMN_LABELS[key]} right`}
-                                          disabled={
-                                            index === sidebarColumnOrder.length - 1
-                                          }
-                                          onClick={() => moveSidebarColumn(key, 1)}
-                                        >
-                                          <FontAwesomeIcon icon={faChevronDown} />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ))}
+                                  {sidebarSortGroups.map(group => <div key={group.key} className="sidebar-column-order-item is-visible" draggable
+                                    tabIndex={0} role="button" aria-label={`Move ${group.label}`} title="Drag to reorder; use arrow keys when focused"
+                                    onDragStart={event => event.dataTransfer.setData("text/plain", group.key)}
+                                    onDragOver={event => event.preventDefault()}
+                                    onDrop={event => { event.preventDefault(); moveSidebarSortGroup(event.dataTransfer.getData("text/plain"), group.key); }}
+                                    onKeyDown={event => { if (!["ArrowUp", "ArrowDown"].includes(event.key)) return; event.preventDefault(); const index = sidebarSortGroups.indexOf(group), other = sidebarSortGroups[index + (event.key === "ArrowUp" ? -1 : 1)]; if (other) { if (event.key === "ArrowUp") moveSidebarSortGroup(group.key, other.key); else moveSidebarSortGroup(other.key, group.key); } }}
+                                  ><span aria-hidden="true">⠿</span><span>{group.label}</span></div>)}
                                 </div>
                               </div>
                             </div>
@@ -6134,12 +6127,12 @@ function App({ showThemeToggle = false }) {
                           )}
                         </div>
                       </>
-                    <div className="sidebar-add-area-controls">
-                      <button type="button" className="btn-add-item btn-add-column sidebar-add-area-trigger" title="Add Measurement Area" aria-label="Add Measurement Area from points" ref={sidebarAreaAnchorRef} aria-expanded={newSidebarArea !== null} onClick={() => setNewSidebarArea(current => current === null ? "" : null)}>Add Measurement Area</button>
-                      {newSidebarArea !== null && <div className="sidebar-add-area-form" role="group" aria-label="Add Measurement Area" onKeyDown={event => { if (event.key === "Escape") { setNewSidebarArea(null); sidebarAreaAnchorRef.current?.focus(); } }}>
-                        <input id="sidebar-area-name" autoFocus aria-label="New Measurement Area name" placeholder="Area name" value={newSidebarArea} onChange={event => setNewSidebarArea(event.target.value)} onKeyDown={event => { if (event.key === "Enter") handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(null); }} />
-                        <div className="sidebar-area-menu-actions"><button type="button" className="btn-secondary" onClick={() => setNewSidebarArea(null)}>Cancel</button><button type="button" className="btn-primary" disabled={!newSidebarArea.trim()} onClick={handleAddSidebarArea}>Add</button></div>
-                      </div>}
+                    <div className="sidebar-add-area-controls sidebar-area-entry">
+                      <input aria-label="New Measurement Area name" placeholder="Area name" value={newSidebarArea || ""}
+                        onChange={event => setNewSidebarArea(event.target.value)}
+                        onKeyDown={event => { if (event.key === "Enter" && newSidebarArea?.trim()) handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(""); }} />
+                      <button type="button" aria-label="Add Measurement Area from points" title="Add Measurement Area"
+                        disabled={!newSidebarArea?.trim()} onClick={handleAddSidebarArea}><FontAwesomeIcon icon={faPlus} /></button>
                     </div>
                   </div>
                 </div>

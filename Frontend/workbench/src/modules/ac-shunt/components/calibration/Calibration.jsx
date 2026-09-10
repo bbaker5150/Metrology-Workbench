@@ -1,3 +1,4 @@
+import SettingsPresets, { readDefaultSettingsPreset } from "./SettingsPresets";
 // src/components/Calibration/Calibration.js
 
 import React, {
@@ -1470,7 +1471,8 @@ function Calibration({
     } else {
       setCalibrationSettings({
         ...defaultSettings,
-        n_cycles: sessionNCycles != null ? sessionNCycles : defaultSettings.n_cycles,
+        ...readDefaultSettingsPreset(),
+        n_cycles: sessionNCycles != null ? sessionNCycles : (readDefaultSettingsPreset().n_cycles ?? defaultSettings.n_cycles),
       });
     }
   }, [focusedTP, activeDirection, orderedTestPoints, has8508Reader]);
@@ -3812,7 +3814,7 @@ function Calibration({
                                     disabled={isRemoteViewer}
                                     aria-label="Apply 8508A settings to all measurement points"
                                   >
-                                    <LuSaveAll aria-hidden="true" />
+                                    <LuSaveAll aria-hidden="true" /><span>Apply to all</span>
                                   </button>
                                   <ReaderSettingTooltip>
                                     Apply these 8508A settings to every measurement point.
@@ -3826,7 +3828,7 @@ function Calibration({
                                     disabled={isRemoteViewer}
                                     aria-label="Save 8508A settings for this test point"
                                   >
-                                    <FaCheck aria-hidden="true" />
+                                    <FaCheck aria-hidden="true" /><span>Save reader</span>
                                   </button>
                                   <ReaderSettingTooltip>
                                     Update 8508A settings for this test point only.
@@ -3926,14 +3928,14 @@ function Calibration({
                                   <button type="button" className="reader-profile-point-save"
                                     onClick={() => handleReaderSettingsSaveAll("5790")} disabled={isRemoteViewer}
                                     aria-label="Apply 5790 settings to all measurement points">
-                                    <LuSaveAll aria-hidden="true" />
+                                    <LuSaveAll aria-hidden="true" /><span>Apply to all</span>
                                   </button>
                                   <ReaderSettingTooltip>Apply these 5790A/B settings to every measurement point.</ReaderSettingTooltip>
                                 </span>
                                 <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
                                   <button type="button" className={`reader-profile-point-save${is5790SettingsSaved ? " is-saved" : ""}`}
                                     onClick={handle5790SettingsSave} disabled={isRemoteViewer} aria-label="Save 5790 settings for this test point">
-                                    <FaCheck aria-hidden="true" />
+                                    <FaCheck aria-hidden="true" /><span>Save reader</span>
                                   </button>
                                   <ReaderSettingTooltip>Update 5790A/B settings for this test point only.</ReaderSettingTooltip>
                                 </span>
@@ -4166,35 +4168,37 @@ function Calibration({
                           </div>
                           )}
 
+                          <SettingsPresets settings={calibrationSettings} keys={Object.keys(DEFAULT_CALIBRATION_SETTINGS)} disabled={isRemoteViewer}
+                            onApply={preset => setCalibrationSettings(previous => ({ ...previous, ...preset }))} />
                           <div className="form-section-action-icons">
                             <button
                               type="button"
                               onClick={handleResetToDefaults}
-                              className="sidebar-action-button"
+                              className="sidebar-action-button cal-settings-text-action"
                               aria-label="Reset to default settings"
                               title="Reset to system defaults"
                               disabled={isRemoteViewer}
                             >
-                              <FaUndo />
+                              <FaUndo /><span>Reset</span>
                             </button>
                             <button
                               type="button"
                               onClick={handleApplySettingsToAll}
-                              className="sidebar-action-button"
+                              className="sidebar-action-button cal-settings-text-action"
                               aria-label="Apply to all test points"
                               title="Apply to all test points"
                               disabled={isRemoteViewer}
                             >
-                              <LuSaveAll />
+                              <LuSaveAll /><span>Apply to all</span>
                             </button>
                             <button
                               type="submit"
-                              className="sidebar-action-button"
+                              className="sidebar-action-button cal-settings-text-action"
                               aria-label="Save settings for this point"
                               title="Save settings for this point"
                               disabled={isRemoteViewer}
                             >
-                              <FaSave />
+                              <FaSave /><span>Save point</span>
                             </button>
                           </div>
                         </form>
@@ -4445,50 +4449,11 @@ function Calibration({
                             const pairMean = cycleAnalytics.stats?.mean ?? null;
                             const pairUA = cycleAnalytics.stats?.uA ?? null;
 
-                            // Calculate Forward and Reverse independent means
-                            let fwdMean = null, revMean = null, fwdUA = null, revUA = null;
-                            const nPairs = Math.min(fwdCyclesArr.length, revCyclesArr.length);
-
-                            if (fwdCyclesArr.length > 0) {
-                              const vals = fwdCyclesArr
-                                .filter((_, i) => !cycleAnalytics.manualExcluded.has(i + 1) && !cycleAnalytics.autoExcluded.has(i + 1))
-                                .map(c => parseFloat(c.delta_uut_ppm))
-                                .filter(v => !isNaN(v));
-
-                              if (vals.length > 0) {
-                                fwdMean = vals.reduce((a, b) => a + b, 0) / vals.length;
-                                if (vals.length > 1) {
-                                  const variance = vals.reduce((a, b) => a + Math.pow(b - fwdMean, 2), 0) / (vals.length - 1);
-                                  fwdUA = Math.sqrt(variance) / Math.sqrt(vals.length);
-                                }
-                              }
-                            } else {
-                              fwdMean = focusedTP.forward?.results?.delta_uut_ppm != null ? parseFloat(focusedTP.forward.results.delta_uut_ppm) : null;
-                            }
-
-                            if (revCyclesArr.length > 0) {
-                              const vals = revCyclesArr
-                                .filter((_, i) => {
-                                  // Find which pair this reverse cycle belongs to
-                                  let pairNum = -1;
-                                  if (i < nPairs) {
-                                    pairNum = useAbba ? (nPairs - 1 - i) + 1 : i + 1;
-                                  }
-                                  return !cycleAnalytics.manualExcluded.has(pairNum) && !cycleAnalytics.autoExcluded.has(pairNum);
-                                })
-                                .map(c => parseFloat(c.delta_uut_ppm))
-                                .filter(v => !isNaN(v));
-
-                              if (vals.length > 0) {
-                                revMean = vals.reduce((a, b) => a + b, 0) / vals.length;
-                                if (vals.length > 1) {
-                                  const variance = vals.reduce((a, b) => a + Math.pow(b - revMean, 2), 0) / (vals.length - 1);
-                                  revUA = Math.sqrt(variance) / Math.sqrt(vals.length);
-                                }
-                              }
-                            } else {
-                              revMean = focusedTP.reverse?.results?.delta_uut_ppm != null ? parseFloat(focusedTP.reverse.results.delta_uut_ppm) : null;
-                            }
+                            const directional = (focusedTP.forward?.results?.pair_analytics || focusedTP.reverse?.results?.pair_analytics)?.directional;
+                            const fwdMean = fwdCyclesArr.length ? directional?.forward?.pair_delta_uut_ppm ?? null : focusedTP.forward?.results?.delta_uut_ppm ?? null;
+                            const revMean = revCyclesArr.length ? directional?.reverse?.pair_delta_uut_ppm ?? null : focusedTP.reverse?.results?.delta_uut_ppm ?? null;
+                            const fwdUA = directional?.forward?.pair_type_a_uncertainty_ppm ?? null;
+                            const revUA = directional?.reverse?.pair_type_a_uncertainty_ppm ?? null;
 
                             // Fallback for old single-pass sessions
                             const legacyCombined =
@@ -4496,7 +4461,7 @@ function Calibration({
                                 ? (parseFloat(focusedTP.forward.results.delta_uut_ppm) + parseFloat(focusedTP.reverse.results.delta_uut_ppm)) / 2
                                 : null;
 
-                            const overall = pairMean != null ? pairMean : legacyCombined;
+                            const overall = cycleAnalytics.hasAnalytics && cycleAnalytics.pairRows.length ? pairMean : legacyCombined;
                             const hasAny =
                               overall != null
                               || fwdMean != null

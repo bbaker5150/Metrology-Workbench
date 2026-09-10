@@ -12612,3 +12612,14 @@ body.dark-mode .window-stability-section {
 .corrections-imported-inputs-empty {
   color: var(--text-color-muted);
 }
+
+.cal-settings-presets { padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; margin-top: 10px; }
+.cal-settings-presets summary { cursor: pointer; font-weight: 600; }
+.cal-settings-presets p { font-size: .8rem; color: var(--text-color-muted); }
+.cal-settings-preset-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cal-settings-preset-row :is(input, select) { flex: 1; min-width: 130px; padding: 6px; border: 1px solid var(--border-color); background: var(--input-background); color: var(--text-color); border-radius: 4px; }
+.cal-settings-preset-row button, .sidebar-action-button.cal-settings-text-action, .reader-profile-point-save { width: auto; height: auto; min-height: 28px; padding: 5px 8px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: .75rem; }
+.cal-settings-preset-row button { border: 1px solid var(--border-color); background: var(--component-bg); color: var(--text-color); cursor: pointer; }
+.cal-settings-preset-row button:disabled { opacity: .4; cursor: default; }
+
+.ac-shunt-module .accordion-header select.cycle-statistics-direction { width: 150px; flex: 0 0 150px; margin: 0 12px; padding: 5px 8px; }

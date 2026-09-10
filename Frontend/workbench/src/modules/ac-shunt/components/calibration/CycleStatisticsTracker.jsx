@@ -45,7 +45,7 @@ const fmt = (val, digits = 4) => {
   return Number.isFinite(n) ? n.toFixed(digits) : "—";
 };
 
-const isFiniteNumber = (val) => Number.isFinite(Number(val));
+const isFiniteNumber = (val) => val !== null && val !== undefined && val !== "" && Number.isFinite(Number(val));
 
 const sampleStdDev = (values) => {
   if (!values || values.length < 2) return null;
@@ -100,6 +100,7 @@ function CycleStatisticsTracker({
   title = "AC-DC Difference Statistics",
 }) {
   const [isOpen, setIsOpen] = useState(true);
+  const [direction, setDirection] = useState("paired");
   const [activeView, setActiveView] = useState("trend");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [cycleRangeStart, setCycleRangeStart] = useState("");
@@ -126,6 +127,7 @@ function CycleStatisticsTracker({
     sessionId,
     onDataUpdate,
     defaultUseAbba,
+    direction,
   });
 
   const fwdCount = focusedTestPoint?.forward?.results?.cycles?.length || 0;
@@ -150,7 +152,7 @@ function CycleStatisticsTracker({
     setCycleRangeEnd("");
     setSigmaBands(new Set(DEFAULT_SIGMA_BANDS));
     setHiddenDatasets({ ...DEFAULT_HIDDEN_DATASETS });
-  }, [focusedTestPoint]);
+  }, [focusedTestPoint?.forward?.id, focusedTestPoint?.reverse?.id]);
 
   const isDatasetHidden = useCallback(
     (label) => Boolean(hiddenDatasets[label]),
@@ -533,6 +535,10 @@ function CycleStatisticsTracker({
         style={{ display: "flex", alignItems: "center" }}
       >
         <h4 style={{ flex: 1, margin: 0 }}>{title}</h4>
+        <select className="cycle-statistics-direction" aria-label="Statistics direction" value={direction} onClick={event => event.stopPropagation()}
+          onChange={event => { setDirection(event.target.value); setCycleRangeStart(""); setCycleRangeEnd(""); }}>
+          <option value="paired">Paired average</option><option value="forward">Forward</option><option value="reverse">Reverse</option>
+        </select>
 
         <div style={{ flex: 2, textAlign: "center", fontWeight: 600, fontSize: "0.95rem", letterSpacing: "0.3px" }}>
           {stats.mean != null ? fmt(stats.mean, 4) : "—"}
@@ -585,7 +591,7 @@ function CycleStatisticsTracker({
                   </div>
 
                   <div className="cycle-stats-settings-block">
-                    <span className="cycle-stats-settings-label">Pairing</span>
+                    <span className="cycle-stats-settings-label">Pairing (paired results)</span>
                     <div className="unit-toggle cycle-stats-settings-toggle">
                       <button
                         type="button"
@@ -879,10 +885,10 @@ function CycleStatisticsTracker({
             <table className="styled-table styled-table--centered">
               <thead>
                 <tr>
-                  <th>Pair #</th>
+                  <th>{direction === "paired" ? "Pair #" : "Cycle #"}</th>
                   <th>Forward δ</th>
                   <th>Reverse δ</th>
-                  <th>Paired Avg (ppm)</th>
+                  <th>{direction === "paired" ? "Paired Avg (ppm)" : `${direction === "forward" ? "Forward" : "Reverse"} (ppm)`}</th>
                   <th>Status / Action</th>
                 </tr>
               </thead>
@@ -918,7 +924,7 @@ function CycleStatisticsTracker({
                       <td>
                         {isAuto ? (
                           <span style={{ color: "var(--danger-color, #e74c3c)", fontWeight: 600, fontSize: "0.85em" }}>
-                            ⚠️ Chauvenet Outlier
+                            ⚠️ Auto-filtered outlier
                           </span>
                         ) : (
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
@@ -930,14 +936,14 @@ function CycleStatisticsTracker({
                                 ⚠️ Flagged
                               </span>
                             )}
-                            {row.pairedAvg != null && (
+                            {direction === "paired" && row.pairedAvg != null && (
                               <button
                                 type="button"
                                 className="cal-results-pill"
                                 style={{ fontSize: "0.75rem", padding: "2px 8px", minHeight: "auto", margin: 0, opacity: isExcluded ? 1 : 0.7 }}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  toggleExclusion(row.pairNum);
+                                  if (direction === "paired") toggleExclusion(row.pairNum);
                                 }}
                               >
                                 {isExcluded ? "Include" : "Exclude"}
@@ -955,7 +961,7 @@ function CycleStatisticsTracker({
           )}
 
           <p className="cycle-stats-footnote">
-            The {activeView === "trend" ? "chart" : "table"} above shows the exact pairs used to calculate the headline values based on your selected strategy.
+            The {activeView === "trend" ? "chart" : "table"} shows {direction === "paired" ? "paired averages" : `${direction} cycles`}. All statistics use the selected direction and filter. The final calibration result uses filtered paired averages.
           </p>
         </div>
       )}

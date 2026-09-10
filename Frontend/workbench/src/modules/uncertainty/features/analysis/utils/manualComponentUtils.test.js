@@ -255,3 +255,16 @@ it("keeps unitless manual standard uncertainty in native numeric units", () => {
   const result = normalizeInlineManualComponent({ component: { id: "quick" }, draft: { name: "Quick", type: "B", inputMode: "standard", unit: "", standardUncertainty: 2 }, referencePoint: { value: 10, unit: "" } });
   expect(result).toMatchObject({ value_native: 2, unit_native: "", isBaseUnitValue: true, inlineValidation: null });
 });
+
+it("calculates a unitless floor tolerance at k=1 without a nominal", () => {
+  const result = normalizeInlineManualComponent({ component: { id: "floor" }, draft: { name: "Sample deviation", type: "A", inputMode: "tolerance", unit: "", errorDistributionDivisor: "1", tolerance: { floor: { high: "2", low: "-2", unit: "", distribution: "1", symmetric: true } } }, referencePoint: { value: "", unit: "" } });
+  expect(result.value_native).toBe(2);
+  expect(result.inlineValidation).toBeNull();
+  expect(result.isBaseUnitValue).toBe(true);
+});
+
+it("preserves legacy standard uncertainty as a k=1 floor when opening its tolerance editor", () => {
+  const draft = getInlineManualDraft({ type: "A", value_native: 0.25, unit_native: "V" });
+  expect(draft.inputMode).toBe("tolerance");
+  expect(draft.tolerance.floor).toMatchObject({ high: "0.25", low: "-0.25", unit: "V", distribution: "1" });
+});

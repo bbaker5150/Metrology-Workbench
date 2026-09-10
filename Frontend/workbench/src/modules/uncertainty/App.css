@@ -20321,3 +20321,20 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 
 .uncertainty-module .measurement-points-table .function-header-name { font-size: .92rem; text-transform: none; letter-spacing: 0; }
 .uncertainty-module .measurement-points-table .function-header-unit-chip { font-size: calc(.92rem * .78); }
+
+.uncertainty-module .sidebar-area-entry { position: relative; width: 180px; max-width: 100%; }
+.uncertainty-module .sidebar-area-entry input { box-sizing: border-box; width: 100%; height: 26px; padding: 3px 28px 3px 7px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--input-background); color: var(--text-color); font: inherit; font-size: .75rem; }
+.uncertainty-module .sidebar-area-entry button { position: absolute; right: 3px; top: 3px; height: 20px; width: 20px; padding: 0; border: 0; border-radius: 3px; background: var(--primary-color-light); color: var(--primary-color); cursor: pointer; }
+.uncertainty-module .sidebar-area-entry button:disabled { opacity: .4; cursor: default; }
+.uncertainty-module .instrument-equipment-table .range-row-cell { grid-template-columns: minmax(0, 1fr) 24px 24px; }
+.uncertainty-module .instrument-equipment-table .range-row-add { grid-column: 2; }
+.uncertainty-module .instrument-equipment-table .range-row-delete { grid-column: 3; }
+.uncertainty-module .instrument-equipment-table .range-row-cell > .inline-range-editor { grid-column: 1; }
+.uncertainty-module .instrument-equipment-table .range-row-cell:has(.is-editing) { grid-template-columns: max-content 24px 24px; }
+.sidebar-column-order-item[draggable] { cursor: grab; gap: 8px; }
+
+.stacked-tolerance-limits { display: inline-flex; flex-direction: column; vertical-align: middle; text-align: right; line-height: 1.15; margin-right: 4px; }
+
+.uncertainty-module .instrument-equipment-table .range-row-cell--without-actions { grid-template-columns: minmax(0, 1fr); }
+
+.uncertainty-module .range-row-cell--blank > :is(.range-row-add, .range-row-delete) { opacity: 1; }

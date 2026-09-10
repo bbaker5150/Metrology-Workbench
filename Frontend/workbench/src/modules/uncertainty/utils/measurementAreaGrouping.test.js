@@ -23,7 +23,7 @@ describe('user measurement areas', () => {
   it('groups different instrument functions together without deriving extra groups', () => {
     const data = session();
     expect(resolveSessionMeasurementAreas(data).map(a => a.name)).toEqual(['Torque', 'Inspection']);
-    expect(resolveSessionMeasurementAreas(data, { kind: 'tmde' }).map(a => a.name)).toEqual(['Torque']);
+    expect(resolveSessionMeasurementAreas(data, { kind: 'tmde' }).map(a => a.name)).toEqual(['Torque', 'Inspection']);
     expect(instrumentFunctions(data.uuts[0])[0].name).toBe('Length');
     expect(instrumentFunctions(data.tmdes[0])[0].name).toBe('Weight');
     expect(measurementAreaKeyOf(data.testPoints[0])).toBe('torque');
@@ -55,9 +55,9 @@ describe('user measurement areas', () => {
     const next = deleteMeasurementArea(data, { key: 'torque', kind: 'uut' });
     expect(next.uuts[0].measurementAreaNames).toEqual(['Inspection']);
     expect(next.uuts[0].instrument).toBe(data.uuts[0].instrument);
-    expect(next.tmdes).toBe(data.tmdes);
+    expect(next.tmdes).toEqual([]);
     expect(next.testPoints).toEqual([]);
-    expect(next.measurementAreaGroups.map(a => a.kind)).toEqual(['tmde']);
+    expect(next.measurementAreaGroups).toEqual([]);
   });
 
   it('migrates legacy groups once, preserving order, colors, settings and multi-function membership', () => {

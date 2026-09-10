@@ -81,16 +81,16 @@ const ManualComponentModal = ({
         id: existingComponent.id,
         name: existingComponent.name || "",
         type: existingComponent.type || "B",
-        inputMode,
+        inputMode: "tolerance",
         standardUncertainty:
           existingComponent.originalInput?.standardUncertainty || "",
         tolerance:
           existingComponent.originalInput?.tolerance ||
           existingComponent.tolerance ||
           {},
-        toleranceLimit: existingComponent.originalInput?.toleranceLimit || "",
+        toleranceLimit: existingComponent.originalInput?.toleranceLimit || existingComponent.originalInput?.standardUncertainty || "",
         errorDistributionDivisor:
-          existingComponent.originalInput?.errorDistributionDivisor || "1.732",
+          inputMode === "standard" ? "1" : existingComponent.originalInput?.errorDistributionDivisor || "1.732",
         unit:
           existingComponent.originalInput?.unit ??
           existingComponent.unit_native ??
@@ -161,7 +161,7 @@ const ManualComponentModal = ({
 
   const handleSubmit = () => {
     const usesStandardUncertainty =
-      component.type === "A" || component.inputMode === "standard";
+      false;
     // Degrees of freedom only apply to Type A uncertainties. Type B bounds are
     // treated as fully reliable (ν = ∞) and drop out of Welch–Satterthwaite.
     const isTypeA = component.type === "A";
@@ -414,37 +414,7 @@ const ManualComponentModal = ({
             </select>
           </div>
 
-          {component.type === "B" && (
-            <div className="config-column">
-              <label>Entry Mode</label>
-              <select
-                name="inputMode"
-                value={component.inputMode}
-                onChange={handleChange}
-              >
-                <option value="tolerance">Tolerance limit</option>
-                <option value="standard">Standard uncertainty</option>
-              </select>
-            </div>
-          )}
-
-          {(component.type === "A" || component.inputMode === "standard") && (
-            <div className="config-column">
-              <label>Standard Uncertainty (u_i)</label>
-              {renderUnitInput(
-                "standardUncertainty",
-                component.standardUncertainty,
-                "e.g., 0.00025",
-              )}
-              <ConversionInfo
-                value={component.standardUncertainty}
-                unit={component.unit}
-                nominal={uutNominal}
-              />
-            </div>
-          )}
-
-          {component.type === "B" && component.inputMode === "tolerance" && (
+          {true && (
             <div className="config-column">
               <label>Tolerance / Error limits</label>
               <TypeBToleranceEditor
