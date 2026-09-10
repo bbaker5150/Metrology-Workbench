@@ -13077,7 +13077,7 @@ input.inline-function-input:focus {
   transition: opacity 0.12s ease;
 }
 
-.budget-source-cell.has-order-controls {
+.uncertainty-budget-table .budget-source-cell {
   position: relative;
   padding-left: 58px;
 }
@@ -20401,3 +20401,8 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   vertical-align: middle;
 }
 .budget-inline-manual-row .inline-tolerance-summary { font: inherit; }
+
+.uncertainty-budget-table .budget-source-cell .inline-tolerance-summary { text-align: left; padding-left: 0; padding-right: 0; border-left: 0; border-right: 0; }
+.budget-inline-manual-row.is-editing:not(.is-editing-name) .budget-source-cell .inline-tolerance-summary { text-align: center; }
+.instrument-function-row[draggable="true"] { cursor: grab; }
+.instrument-function-row[draggable="true"]:active { cursor: grabbing; }

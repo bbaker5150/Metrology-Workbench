@@ -65,7 +65,6 @@ import {
   resolveSessionMeasurementAreas,
   instrumentMeasurementAreas,
   instrumentHasMeasurementArea,
-  addInstrumentMeasurementArea,
   renameMeasurementArea,
   setMeasurementAreaColor,
   migrateMeasurementAreas,
@@ -144,7 +143,7 @@ const AREA_PALETTE = [
 // Cross-view clipboard for cut/copy/paste of UUT/TMDE instrument rows. Kept at
 // module scope (not React state) so a copy in one table view can be pasted in
 // another, and so it doesn't trigger re-renders on its own.
-//   { kind: "uut"|"tmde", mode: "copy"|"cut", item }
+//   { mode: "copy"|"cut", detached, items: [{ kind, item, sourceFunctionKey }] }
 let instrumentClipboard = null;
 
 // The active clipboard payload is either an instrument or a range. Copying
@@ -159,19 +158,56 @@ export const insertAfterId = (rows, row, targetId, idOf = candidate => candidate
   return next;
 };
 
+const clipboardEntries = clip => clip.items || [{ kind: clip.kind, item: clip.item, sourceFunctionKey: clip.sourceFunctionKey }];
+
+export const cutInstrumentsFromSession = (session, entries) => {
+  const next = { ...session };
+  for (const entry of entries) {
+    const key = entry.kind === "uut" ? "uuts" : "tmdes";
+    const sourceKey = makeFunctionKey(entry.sourceFunctionKey || instrumentMeasurementAreas(entry.item)[0]?.key);
+    next[key] = (next[key] || []).flatMap(row => {
+      if (!sameId(row.id, entry.item.id)) return [row];
+      const areas = instrumentMeasurementAreas(row).filter(area => area.key !== sourceKey);
+      return areas.length ? [{ ...row, measurementAreaNames: areas.map(area => area.name) }] : [];
+    });
+  }
+  return next;
+};
+
 export const pasteInstrumentIntoSession = (session, clip, kind, areaKey, targetId) => {
   const area = resolveSessionMeasurementAreas(session).find(a =>
     a.key === areaKey || String(a.id) === String(areaKey));
+  const entries = clipboardEntries(clip);
+  let next = clip.mode === "cut" && !clip.detached ? cutInstrumentsFromSession(session, entries) : { ...session };
   const listKey = kind === "uut" ? "uuts" : "tmdes";
-  const sourceKey = clip.kind === "uut" ? "uuts" : "tmdes";
-  const row = buildPastedInstrumentRow(clip.item, kind, area, clip.mode);
-  const next = { ...session };
-  if (clip.mode === "cut") next[sourceKey] = (session[sourceKey] || []).filter(x => x.id !== clip.item.id);
-  const rows = next[listKey] || [];
-  // Header paste goes after the area's last instrument, even if the global list is interleaved.
-  const anchor = targetId || rows.filter(x => instrumentHasMeasurementArea(x, area?.key)).at(-1)?.id;
-  next[listKey] = insertAfterId(rows, row, anchor);
-  return { session: next, row };
+  const added = [];
+  let anchor = targetId || (next[listKey] || []).filter(x => instrumentHasMeasurementArea(x, area?.key)).at(-1)?.id;
+  for (const entry of entries) {
+    let row = buildPastedInstrumentRow(entry.item, kind, area, clip.mode);
+    // A row may still belong to another area. Reuse it in the same table,
+    // preserving those other memberships and its links to measurement points.
+    const existing = (next[listKey] || []).find(item => sameId(item.id, row.id));
+    if (existing && clip.mode === "cut" && entry.kind === kind) {
+      row = { ...row, measurementAreaNames: [...new Set([...instrumentMeasurementAreas(existing).map(a => a.name), ...instrumentMeasurementAreas(row).map(a => a.name)])] };
+    } else if (existing) {
+      row = { ...row, id: uuidv4() };
+    }
+    const rows = (next[listKey] || []).filter(item => !sameId(item.id, row.id));
+    next[listKey] = insertAfterId(rows, row, anchor);
+    added.push(row);
+    anchor = row.id;
+  }
+  return { session: next, row: added.at(-1), rows: added };
+};
+
+const selectedInstrumentEntries = (session, selectedUuts, selectedTmdes, kind, item, sourceKey, areaByRow) => {
+  const selected = kind === "uut" ? selectedUuts : selectedTmdes;
+  if (!selected.some(id => sameId(id, item.id))) return [{ kind, item, sourceFunctionKey: sourceKey || instrumentMeasurementAreas(item)[0]?.key }];
+  return [["uut", selectedUuts, session.uuts], ["tmde", selectedTmdes, session.tmdes]].flatMap(([rowKind, ids, rows]) =>
+    (rows || []).filter(row => ids.some(id => sameId(id, row.id))).map(row => ({
+      kind: rowKind, item: row,
+      sourceFunctionKey: rowKind === kind && sameId(row.id, item.id) ? sourceKey || instrumentMeasurementAreas(row)[0]?.key : areaByRow[`${rowKind}:${row.id}`] || instrumentMeasurementAreas(row)[0]?.key,
+    })));
 };
 
 const pasteAreaFromEvent = (event, item) =>
@@ -185,12 +221,15 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
   const areaFields =
     kind === "uut"
       ? {
+          description: src.description || src.name || src.instrument?.description || "",
           measurementAreaNames: area ? [area.name] : instrumentMeasurementAreas(src).map(a => a.name),
           measurementAreaId: area ? area.id : "",
           measurementArea: area ? area.name : "",
           measurementAreaColor: area ? area.color : "",
         }
       : {
+          name: src.name || src.description || src.instrument?.description || "",
+          isInstrumentBased: Boolean(src.instrument) || src.isInstrumentBased,
           measurementAreaNames: area ? [area.name] : instrumentMeasurementAreas(src).map(a => a.name),
           measurementAreaId: area ? area.id : "",
           measurementArea: area ? area.name : "",
@@ -7162,28 +7201,22 @@ const SummaryDashboard = ({
   };
 
   // --- Drag a UUT/TMDE row between table groupings ---
-  // Area drops are additive: the row also appears in the destination area,
-  // retaining the complete instrument definition in both places.
+  // Dragging transfers the selected memberships and keeps full definitions.
   const [draggingInstrumentId, setDraggingInstrumentId] = useState(null);
   const [dragOverFunctionTarget, setDragOverFunctionTarget] = useState(null);
-  const handleInstrumentDragStart = (kind, item, sourceFunctionKey = null) => (e) => {
-    // Don't hijack text selection / clicks inside the row's editable controls.
-    if (
-      e.target.closest(
-        "input, select, textarea, button, a, .inline-desc-fields",
-      )
-    ) {
-      e.preventDefault();
-      return;
-    }
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData(
-      "text/plain",
-      JSON.stringify({ id: item.id, kind, sourceFunctionKey }),
-    );
+  const handleInstrumentDragStart = (kind, item, sourceFunctionKey = null) => (event) => {
+    if (event.target.closest("input, select, textarea, [contenteditable=true]")) { event.preventDefault(); return; }
+    event.stopPropagation();
+    const items = instrumentDragSelectionRef.current || selectedInstrumentEntries(latestSessionDataRef.current,
+      selectedUutIds, selectedTmdeIds, kind, item, sourceFunctionKey, selectedInstrumentAreasRef.current);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-workbench-instruments", JSON.stringify({ items, mode: "cut" }));
+    event.dataTransfer.setData("text/plain", JSON.stringify({ items, mode: "cut" }));
     setDraggingInstrumentId(item.id);
   };
+
   const handleInstrumentDragEnd = () => {
+    instrumentDragSelectionRef.current = null;
     setDraggingInstrumentId(null);
     setDragOverFunctionTarget(null);
   };
@@ -7214,39 +7247,19 @@ const SummaryDashboard = ({
   const handleInstrumentDropOnFunction = (kind, targetFunction) => (event) => {
     event.preventDefault();
     event.stopPropagation();
-    let payload = null;
-    try {
-      payload = JSON.parse(event.dataTransfer.getData("text/plain"));
-    } catch {
-      payload = null;
-    }
+    let payload;
+    try { payload = JSON.parse(event.dataTransfer.getData("application/x-workbench-instruments") || event.dataTransfer.getData("text/plain")); } catch { return; }
     setDraggingInstrumentId(null);
     setDragOverFunctionTarget(null);
-    if (!onSessionSave || !payload || payload.kind !== kind) return;
-    if (makeFunctionKey(payload.sourceFunctionKey) === makeFunctionKey(targetFunction.key)) {
-      return;
-    }
-
-    const listKey = kind === "uut" ? "uuts" : "tmdes";
-    let changed = false;
-    const nextRows = (sessionData[listKey] || []).map((row) => {
-      if (!sameId(row.id, payload.id)) return row;
-      const next = addInstrumentMeasurementArea(
-        row,
-        targetFunction,
-        payload.sourceFunctionKey,
-      );
-      if (next !== row) changed = true;
-      return next;
-    });
-    if (changed) {
-      setCollapsedFunctionKeys((previous) => {
-        const next = new Set(previous);
-        next.delete(functionCollapseStateKey(kind, targetFunction));
-        return next;
-      });
-      onSessionSave({ ...sessionData, [listKey]: nextRows });
-    }
+    instrumentDragSelectionRef.current = null;
+    if (!onSessionSave || !Array.isArray(payload?.items) || !payload.items.every(entry => entry.item?.id != null && ["uut", "tmde"].includes(entry.kind))) return;
+    const items = payload.items.filter(entry => entry.kind !== kind || makeFunctionKey(entry.sourceFunctionKey) !== targetFunction.key);
+    if (!items.length) return;
+    const { session: next, rows } = pasteInstrumentIntoSession(latestSessionDataRef.current, { items, mode: "cut" }, kind, targetFunction.key);
+    setCollapsedFunctionKeys(previous => { const updated = new Set(previous); updated.delete(functionCollapseStateKey(kind, targetFunction)); return updated; });
+    setSelectedUutIds(kind === "uut" ? rows.map(row => row.id) : []);
+    setSelectedTmdeIds(kind === "tmde" ? rows.map(row => row.id) : []);
+    onSessionSave(next);
   };
 
   const setRangeToleranceComponent = (kind, item, activeRange, typeKey, component) => {
@@ -8429,9 +8442,10 @@ const SummaryDashboard = ({
   // Selection Handlers (Wrapped)
   const handleUutClick = (e, id) => {
     pasteDestinationRef.current = { kind: "uut", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
+    selectedInstrumentAreasRef.current[`uut:${id}`] = pasteAreaFromEvent(e, {});
     if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
       onInstrumentSelection();
-      setSelectedTmdeIds([]);
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) setSelectedTmdeIds([]);
       tmdeSelectionAnchorRef.current = null;
       setLastSelectionTarget("uut");
       setSelectedRangeIds({});
@@ -8446,9 +8460,10 @@ const SummaryDashboard = ({
   };
   const handleTmdeClick = (e, id) => {
     pasteDestinationRef.current = { kind: "tmde", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
+    selectedInstrumentAreasRef.current[`tmde:${id}`] = pasteAreaFromEvent(e, {});
     if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
       onInstrumentSelection();
-      setSelectedUutIds([]);
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) setSelectedUutIds([]);
       uutSelectionAnchorRef.current = null;
       setLastSelectionTarget("tmde");
       setSelectedRangeIds({});
@@ -8556,6 +8571,8 @@ const SummaryDashboard = ({
   // --- Cut / copy / paste of instrument rows (context menu + ctrl-c/x/v) ---
   const [rowMenu, setRowMenu] = useState(null);
   const pasteDestinationRef = useRef(null);
+  const selectedInstrumentAreasRef = useRef({});
+  const instrumentDragSelectionRef = useRef(null);
   // Inline authoring of an instrument's associated Type B uncertainties.
   const [typeBEditor, setTypeBEditor] = useState(null); // { kind, item }
 
@@ -8580,7 +8597,14 @@ const SummaryDashboard = ({
 
   const copyInstrument = (kind, item, mode = "copy") => {
     rangeClipboard = null;
-    instrumentClipboard = { kind, mode, item: JSON.parse(JSON.stringify(item)) };
+    const items = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, kind, item,
+      selectedInstrumentAreasRef.current[`${kind}:${item.id}`], selectedInstrumentAreasRef.current);
+    instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
+    if (mode === "cut") {
+      onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
+      setSelectedUutIds([]);
+      setSelectedTmdeIds([]);
+    }
   };
 
   const moveInstrument = (kind, itemId, functionKey, direction) => {
@@ -8596,11 +8620,11 @@ const SummaryDashboard = ({
 
   const pasteInstrument = (kind, areaKey, targetId) => {
     if (!onSessionSave || !instrumentClipboard) return;
-    const { session: next, row } = pasteInstrumentIntoSession(sessionData, instrumentClipboard, kind, areaKey, targetId);
+    const { session: next, row, rows } = pasteInstrumentIntoSession(latestSessionDataRef.current, instrumentClipboard, kind, areaKey, targetId);
     if (instrumentClipboard.mode === "cut") instrumentClipboard = null;
     pasteDestinationRef.current = { kind, areaKey, targetId: row.id };
-    setSelectedUutIds(kind === "uut" ? [row.id] : []);
-    setSelectedTmdeIds(kind === "tmde" ? [row.id] : []);
+    setSelectedUutIds(kind === "uut" ? rows.map(item => item.id) : []);
+    setSelectedTmdeIds(kind === "tmde" ? rows.map(item => item.id) : []);
     onSessionSave(next);
   };
 
@@ -8616,6 +8640,7 @@ const SummaryDashboard = ({
 
   const openInstrumentRowMenu = (e, kind, item) => {
     if (!onSessionSave) return;
+    selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(e, item);
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(e, item), targetId: item.id };
     e.preventDefault();
     e.stopPropagation();
@@ -8785,7 +8810,7 @@ const SummaryDashboard = ({
       const key = e.key.toLowerCase();
       const oneUut = selectedUutIds.length === 1 ? selectedUutIds[0] : null;
       const oneTmde = selectedTmdeIds.length === 1 ? selectedTmdeIds[0] : null;
-      const kind = oneUut ? "uut" : oneTmde ? "tmde" : null;
+      const kind = selectedUutIds.length ? "uut" : selectedTmdeIds.length ? "tmde" : null;
       const findItem = (k, id) =>
         (k === "uut" ? sessionData.uuts : sessionData.tmdes)?.find(
           (x) => x.id === id,
@@ -8793,7 +8818,7 @@ const SummaryDashboard = ({
 
       // When the selected instrument is expanded (view-all-ranges), copy/cut/
       // paste act on the ACTIVE RANGE rather than the whole instrument.
-      if (kind && (lastSelectionTarget === "range" || (key === "v" && rangeClipboard))) {
+      if (kind && selectedUutIds.length + selectedTmdeIds.length === 1 && (lastSelectionTarget === "range" || (key === "v" && rangeClipboard))) {
         const target = getSelectedRangeTarget(kind);
         if (target?.activeRange) {
           if (key === "c" || key === "x") {
@@ -8815,7 +8840,7 @@ const SummaryDashboard = ({
       }
 
       if ((key === "c" || key === "x") && kind) {
-        const item = findItem(kind, oneUut || oneTmde);
+        const item = findItem(kind, kind === "uut" ? selectedUutIds[0] : selectedTmdeIds[0]);
         if (item) {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -9036,14 +9061,13 @@ const SummaryDashboard = ({
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "uut", uut, index, rangeIdOf(range), uutRowKey)
                               }
-                              draggable={false}
-                              onDragStart={
-                                i === 0
-                                  ? handleInstrumentDragStart("uut", uut, uutFnKey)
-                                  : undefined
-                              }
-                              onDragEnd={i === 0 ? handleInstrumentDragEnd : undefined}
+                              draggable={true}
+                              onDragStart={handleInstrumentDragStart("uut", uut, uutFnKey)}
+                              onDragEnd={handleInstrumentDragEnd}
                               data-measurement-area={uutFnKey}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area)(event); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(uutFnKey, {
                                 cursor: "pointer",
                               })}
@@ -9119,7 +9143,7 @@ const SummaryDashboard = ({
                           openInstrumentRowMenu(event, "uut", uut)
                         }
                         onMouseEnter={() => setHoveredRowId(uut.id)}
-                        draggable={false}
+                        draggable={true}
                         onDragStart={handleInstrumentDragStart("uut", uut, uutFnKey)}
                         onDragEnd={handleInstrumentDragEnd}
                         onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
@@ -9129,6 +9153,9 @@ const SummaryDashboard = ({
                             : undefined
                         }
                         data-measurement-area={uutFnKey}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area)(event); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(uutFnKey, {
                           cursor: "pointer",
                           opacity: draggingInstrumentId === uut.id ? 0.4 : undefined,
@@ -9372,6 +9399,9 @@ const SummaryDashboard = ({
                           className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           data-measurement-area={uutFnKey}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area)(event); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(uutFnKey, {
                             cursor: "pointer",
                           })}
@@ -9509,14 +9539,13 @@ const SummaryDashboard = ({
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "tmde", tmde, index, rangeIdOf(range), tmdeRowKey)
                               }
-                              draggable={false}
-                              onDragStart={
-                                i === 0
-                                  ? handleInstrumentDragStart("tmde", tmde, tmdeFnKey)
-                                  : undefined
-                              }
-                              onDragEnd={i === 0 ? handleInstrumentDragEnd : undefined}
+                              draggable={true}
+                              onDragStart={handleInstrumentDragStart("tmde", tmde, tmdeFnKey)}
+                              onDragEnd={handleInstrumentDragEnd}
                               data-measurement-area={tmdeFnKey}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area)(event); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(tmdeFnKey, {
                                 cursor: "pointer",
                               })}
@@ -9592,7 +9621,7 @@ const SummaryDashboard = ({
                           openInstrumentRowMenu(event, "tmde", tmde)
                         }
                         onMouseEnter={() => setHoveredRowId(tmde.id)}
-                        draggable={false}
+                        draggable={true}
                         onDragStart={handleInstrumentDragStart("tmde", tmde, tmdeFnKey)}
                         onDragEnd={handleInstrumentDragEnd}
                         onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
@@ -9602,6 +9631,9 @@ const SummaryDashboard = ({
                             : undefined
                         }
                         data-measurement-area={tmdeFnKey}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area)(event); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(tmdeFnKey, {
                           cursor: "pointer",
                           opacity: draggingInstrumentId === tmde.id ? 0.4 : undefined,
@@ -9876,6 +9908,9 @@ const SummaryDashboard = ({
                           key={`${tmde.id}-spec-${sIdx}`}
                           className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === tmde.id ? "hovered-spec-row" : ""}`}
                           data-measurement-area={tmdeFnKey}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area)(event); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(tmdeFnKey, {
                             cursor: "pointer",
                           })}
@@ -10324,25 +10359,19 @@ function DetailedView({
     onDragEnd: handleDetailSectionDragEnd,
   });
 
-  const handleDetailInstrumentDragStart =
-    (kind, item, sourceFunctionKey = null) => (event) => {
-      if (
-        event.target.closest(
-          "input, select, textarea, button, a, .inline-desc-fields",
-        )
-      ) {
-        event.preventDefault();
-        return;
-      }
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData(
-        "text/plain",
-        JSON.stringify({ id: item.id, kind, sourceFunctionKey }),
-      );
-      setDetailDraggingInstrumentId(item.id);
-    };
+  const handleDetailInstrumentDragStart = (kind, item, sourceFunctionKey = null) => (event) => {
+    if (event.target.closest("input, select, textarea, [contenteditable=true]")) { event.preventDefault(); return; }
+    event.stopPropagation();
+    const items = instrumentDragSelectionRef.current || selectedInstrumentEntries(latestSessionDataRef.current,
+      selectedUutIds, selectedTmdeIds, kind, item, sourceFunctionKey, selectedInstrumentAreasRef.current);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-workbench-instruments", JSON.stringify({ items, mode: "cut" }));
+    event.dataTransfer.setData("text/plain", JSON.stringify({ items, mode: "cut" }));
+    setDetailDraggingInstrumentId(item.id);
+  };
 
   const handleDetailInstrumentDragEnd = () => {
+    instrumentDragSelectionRef.current = null;
     setDetailDraggingInstrumentId(null);
     setDetailDragOverFunctionTarget(null);
   };
@@ -10350,43 +10379,26 @@ function DetailedView({
   const handleDetailInstrumentDropOnFunction = (kind, targetFunction) => (event) => {
     event.preventDefault();
     event.stopPropagation();
-    let payload = null;
-    try {
-      payload = JSON.parse(event.dataTransfer.getData("text/plain"));
-    } catch {
-      payload = null;
-    }
+    let payload;
+    try { payload = JSON.parse(event.dataTransfer.getData("application/x-workbench-instruments") || event.dataTransfer.getData("text/plain")); } catch { return; }
     setDetailDraggingInstrumentId(null);
     setDetailDragOverFunctionTarget(null);
-    if (!onSessionSave || !payload || payload.kind !== kind) return;
-    if (makeFunctionKey(payload.sourceFunctionKey) === makeFunctionKey(targetFunction.key)) {
-      return;
-    }
-    const listKey = kind === "uut" ? "uuts" : "tmdes";
-    let changed = false;
-    const nextRows = (sessionData[listKey] || []).map((row) => {
-      if (!sameId(row.id, payload.id)) return row;
-      const next = addInstrumentMeasurementArea(
-        row,
-        targetFunction,
-        payload.sourceFunctionKey,
-      );
-      if (next !== row) changed = true;
-      return next;
-    });
-    if (changed) {
-      setCollapsedFunctionKeys((previous) => {
-        const next = new Set(previous);
-        next.delete(functionCollapseStateKey(kind, targetFunction));
-        return next;
-      });
-      onSessionSave({ ...sessionData, [listKey]: nextRows });
-    }
+    instrumentDragSelectionRef.current = null;
+    if (!onSessionSave || !Array.isArray(payload?.items) || !payload.items.every(entry => entry.item?.id != null && ["uut", "tmde"].includes(entry.kind))) return;
+    const items = payload.items.filter(entry => entry.kind !== kind || makeFunctionKey(entry.sourceFunctionKey) !== targetFunction.key);
+    if (!items.length) return;
+    const { session: next, rows } = pasteInstrumentIntoSession(latestSessionDataRef.current, { items, mode: "cut" }, kind, targetFunction.key);
+    setCollapsedFunctionKeys(previous => { const updated = new Set(previous); updated.delete(functionCollapseStateKey(kind, targetFunction)); return updated; });
+    setSelectedUutIds(kind === "uut" ? rows.map(row => row.id) : []);
+    setSelectedTmdeIds(kind === "tmde" ? rows.map(row => row.id) : []);
+    onSessionSave(next);
   };
 
   // --- Cut / copy / paste of instrument rows (shared module clipboard) ---
   const [rowMenu, setRowMenu] = useState(null);
   const pasteDestinationRef = useRef(null);
+  const selectedInstrumentAreasRef = useRef({});
+  const instrumentDragSelectionRef = useRef(null);
   const resolveDetailAreaId = (kind, item) => {
     if (!item) return "";
     if (kind === "uut") return item.measurementAreaId || "";
@@ -10399,7 +10411,14 @@ function DetailedView({
   };
   const copyInstrument = (kind, item, mode = "copy") => {
     rangeClipboard = null;
-    instrumentClipboard = { kind, mode, item: JSON.parse(JSON.stringify(item)) };
+    const items = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, kind, item,
+      selectedInstrumentAreasRef.current[`${kind}:${item.id}`], selectedInstrumentAreasRef.current);
+    instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
+    if (mode === "cut") {
+      onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
+      setSelectedUutIds([]);
+      setSelectedTmdeIds([]);
+    }
   };
 
   const moveInstrument = (kind, itemId, functionKey, direction) => {
@@ -10414,11 +10433,11 @@ function DetailedView({
   };
   const pasteInstrument = (kind, areaKey, targetId) => {
     if (!onSessionSave || !instrumentClipboard) return;
-    const { session: next, row } = pasteInstrumentIntoSession(sessionData, instrumentClipboard, kind, areaKey, targetId);
+    const { session: next, row, rows } = pasteInstrumentIntoSession(latestSessionDataRef.current, instrumentClipboard, kind, areaKey, targetId);
     if (instrumentClipboard.mode === "cut") instrumentClipboard = null;
     pasteDestinationRef.current = { kind, areaKey, targetId: row.id };
-    setSelectedUutIds(kind === "uut" ? [row.id] : []);
-    setSelectedTmdeIds(kind === "tmde" ? [row.id] : []);
+    setSelectedUutIds(kind === "uut" ? rows.map(item => item.id) : []);
+    setSelectedTmdeIds(kind === "tmde" ? rows.map(item => item.id) : []);
     onSessionSave(next);
   };
 
@@ -10433,6 +10452,7 @@ function DetailedView({
   };
   const openInstrumentRowMenu = (e, kind, item) => {
     if (!onSessionSave) return;
+    selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(e, item);
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(e, item), targetId: item.id };
     e.preventDefault();
     e.stopPropagation();
@@ -10595,14 +10615,14 @@ function DetailedView({
       const key = e.key.toLowerCase();
       const oneUut = selectedUutIds.length === 1 ? selectedUutIds[0] : null;
       const oneTmde = selectedTmdeIds.length === 1 ? selectedTmdeIds[0] : null;
-      const kind = oneUut ? "uut" : oneTmde ? "tmde" : null;
+      const kind = selectedUutIds.length ? "uut" : selectedTmdeIds.length ? "tmde" : null;
       const findItem = (k, id) =>
         (k === "uut" ? sessionData.uuts : sessionData.tmdes)?.find(
           (x) => x.id === id,
         );
 
       // Expanded instrument → copy/cut/paste act on the active range.
-      if (kind && (lastSelectionTarget === "range" || (key === "v" && rangeClipboard))) {
+      if (kind && selectedUutIds.length + selectedTmdeIds.length === 1 && (lastSelectionTarget === "range" || (key === "v" && rangeClipboard))) {
         const target = getSelectedRangeTargetDetail(kind);
         if (target?.activeRange) {
           if (key === "c" || key === "x") {
@@ -10624,7 +10644,7 @@ function DetailedView({
       }
 
       if ((key === "c" || key === "x") && kind) {
-        const item = findItem(kind, oneUut || oneTmde);
+        const item = findItem(kind, kind === "uut" ? selectedUutIds[0] : selectedTmdeIds[0]);
         if (item) {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -11777,9 +11797,10 @@ function DetailedView({
   // --- NEW: Row Selection Handlers ---
   const handleUutClick = (e, id) => {
     pasteDestinationRef.current = { kind: "uut", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
+    selectedInstrumentAreasRef.current[`uut:${id}`] = pasteAreaFromEvent(e, {});
     if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
       onInstrumentSelection();
-      setSelectedTmdeIds([]);
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) setSelectedTmdeIds([]);
       tmdeSelectionAnchorRef.current = null;
       setLastSelectionTarget("uut");
       setSelectedRangeIds({});
@@ -11794,9 +11815,10 @@ function DetailedView({
   };
   const handleTmdeClick = (e, id) => {
     pasteDestinationRef.current = { kind: "tmde", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
+    selectedInstrumentAreasRef.current[`tmde:${id}`] = pasteAreaFromEvent(e, {});
     if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
       onInstrumentSelection();
-      setSelectedUutIds([]);
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) setSelectedUutIds([]);
       uutSelectionAnchorRef.current = null;
       setLastSelectionTarget("tmde");
       setSelectedRangeIds({});
@@ -14948,20 +14970,17 @@ function DetailedView({
                                   handleRangeChange(uut.id, index, ranges, isActivePointUut);
                                 }
                               }}
-                              draggable={false}
-                              onDragStart={
-                                i === 0
-                                  ? handleDetailInstrumentDragStart(
+                              draggable={true}
+                              onDragStart={handleDetailInstrumentDragStart(
                                       "uut",
                                       uut,
                                       uutFnKey,
-                                    )
-                                  : undefined
-                              }
-                              onDragEnd={
-                                i === 0 ? handleDetailInstrumentDragEnd : undefined
-                              }
+                                    )}
+                              onDragEnd={handleDetailInstrumentDragEnd}
                               data-measurement-area={uutFnKey}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area)(event); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={{
                                 ...functionBadgeStyle(uutFnKey),
                                 cursor: "pointer",
@@ -15053,6 +15072,9 @@ function DetailedView({
                           openInstrumentRowMenu(event, "uut", uut)
                         }
                         data-measurement-area={uutFnKey}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area)(event); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                         style={{
                           ...functionBadgeStyle(uutFnKey),
                           cursor: "pointer",
@@ -15060,7 +15082,7 @@ function DetailedView({
                             detailDraggingInstrumentId === uut.id ? 0.4 : undefined,
                         }}
                         onClick={(e) => handleUutClick(e, uut.id)}
-                        draggable={false}
+                        draggable={true}
                         onDragStart={handleDetailInstrumentDragStart(
                           "uut",
                           uut,
@@ -15326,6 +15348,9 @@ function DetailedView({
                           className={`instrument-function-row spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           data-measurement-area={uutFnKey}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area)(event); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                           style={{
                             ...functionBadgeStyle(uutFnKey),
                             cursor: "pointer",
@@ -15813,22 +15838,17 @@ function DetailedView({
                                       );
                                     }
                                   }}
-                                  draggable={false}
-                                  onDragStart={
-                                    i === 0
-                                      ? handleDetailInstrumentDragStart(
+                                  draggable={true}
+                                  onDragStart={handleDetailInstrumentDragStart(
                                           "tmde",
                                           masterTmde,
                                           tmdeFnKey,
-                                        )
-                                      : undefined
-                                  }
-                                  onDragEnd={
-                                    i === 0
-                                      ? handleDetailInstrumentDragEnd
-                                      : undefined
-                                  }
+                                        )}
+                                  onDragEnd={handleDetailInstrumentDragEnd}
                                   data-measurement-area={tmdeFnKey}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleDetailInstrumentDropOnFunction("tmde", area)(event); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                                   style={{
                                     ...functionBadgeStyle(tmdeFnKey),
                                     opacity: isSelectedRow ? 1 : 0.85,
@@ -15929,13 +15949,16 @@ function DetailedView({
                               openInstrumentRowMenu(event, "tmde", masterTmde)
                             }
                             data-measurement-area={tmdeFnKey}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleDetailInstrumentDropOnFunction("tmde", area)(event); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                             style={{
                               ...functionBadgeStyle(tmdeFnKey),
                               opacity: isSelectedRow ? 1 : 0.85,
                               cursor: "pointer",
                             }}
                             onClick={(e) => handleTmdeClick(e, masterTmde.id)}
-                            draggable={false}
+                            draggable={true}
                             onDragStart={handleDetailInstrumentDragStart(
                               "tmde",
                               masterTmde,

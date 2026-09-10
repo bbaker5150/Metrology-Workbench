@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pasteInstrumentIntoSession, pasteRangeIntoItem, sortRangesInItem } from "./UncertaintyPanel";
+import { cutInstrumentsFromSession, pasteInstrumentIntoSession, pasteRangeIntoItem, sortRangesInItem } from "./UncertaintyPanel";
 import { makeMeasurementAreaKey } from "../../../utils/measurementAreaGrouping";
 import { formatInstrumentIdentity } from "../../../utils/instrumentIdentity";
 const item = (id, area) => ({ id, nickname: "Tag", measurementAreaNames: [area], instrument: {
@@ -45,4 +45,19 @@ describe("shared instrument display names", () => {
   it("includes the tag and full identity", () => expect(formatInstrumentIdentity(item("one", "Torque"))).toBe("(Tag) Acme 123 Meter"));
   it("omits missing parts without separators", () => expect(formatInstrumentIdentity({ nickname: " A ", description: "Meter" })).toBe("(A) Meter"));
   it("does not duplicate an already combined name", () => expect(formatInstrumentIdentity({ manufacturer: "Acme", model: "123", description: "Acme 123 Meter" })).toBe("Acme 123 Meter"));
+});
+
+it("cuts only the selected area membership and restores a batch without losing other memberships", () => {
+  const source = { ...item("one", "Torque"), measurementAreaNames: ["Torque", "Inspection"] };
+  const other = item("two", "Torque");
+  const entries = [{ kind: "uut", item: source, sourceFunctionKey: "torque" }, { kind: "tmde", item: other, sourceFunctionKey: "torque" }];
+  const session = { uuts: [source], tmdes: [other], measurementAreaGroups: [{ name: "Torque" }, { name: "Inspection" }, { name: "Voltage" }] };
+  const cut = cutInstrumentsFromSession(session, entries);
+  expect(cut.uuts[0].measurementAreaNames).toEqual(["Inspection"]);
+  expect(cut.tmdes).toEqual([]);
+  const result = pasteInstrumentIntoSession(cut, { items: entries, mode: "cut", detached: true }, "uut", "voltage");
+  expect(result.session.uuts.map(row => row.id)).toEqual(["one", "two"]);
+  expect(result.session.uuts[0].measurementAreaNames).toEqual(["Inspection", "Voltage"]);
+  expect(result.session.uuts[1].instrument.functions).toEqual(other.instrument.functions);
+  expect(session.uuts[0].measurementAreaNames).toEqual(["Torque", "Inspection"]);
 });

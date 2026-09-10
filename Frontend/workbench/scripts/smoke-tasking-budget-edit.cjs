@@ -18,7 +18,7 @@ import {normalizeInlineManualComponent} from '/src/modules/uncertainty/features/
 const nominal={name:'Voltage',value:10,unit:'V'};
 function Demo(){const [component,setComponent]=useState({id:'manual',name:'',type:'B',isManual:true,isInlineManual:true,inlineDraft:true,originalInput:{inputMode:'tolerance',toleranceLimit:'',unit:'V',errorDistributionDivisor:'1.732'}});
 window.savedComponent=()=>component;
-return <main className="uncertainty-module" style={{padding:24,display:"block",fontFamily:"var(--main-font)",minHeight:"100vh",background:"var(--background-color)",color:"var(--text-color)"}}><button>Outside budget</button><UncertaintyBudgetTable measurementType="direct" referencePoint={nominal} components={[component,{id:'linked',sourceTmdeId:'t1',isBudgetInstance:true,name:'M1 - Accuracy',type:'B',value_native:1,unit_native:'V',distribution:'Rectangular',distributionDivisor:'1.732'}]} budgetInstruments={[{id:'t1',description:'Mock DMM',model:'M1'}]} ToleranceEditorComponent={InlineToleranceCell} applyToleranceChange={applyToleranceCaseChange} formatToleranceSummary={getSpecRows} onComponentUpdate={(id,patch)=>setComponent(current=>normalizeInlineManualComponent({component:current,draft:patch.inlineManualDraft,referencePoint:nominal}))}/><div id="asymmetric"><InlineToleranceCell editable={false} tolerance={{floor:{high:'3',low:'0',unit:'V',symmetric:false,distribution:'1.732'}}}/></div></main>}
+return <main className="uncertainty-module" style={{padding:24,display:"block",fontFamily:"var(--main-font)",minHeight:"100vh",background:"var(--background-color)",color:"var(--text-color)"}}><button>Outside budget</button><UncertaintyBudgetTable measurementType="direct" referencePoint={nominal} onMoveComponent={()=>{}} components={[{id:'prop',name:'Taylor Series',isPropagationSummary:true,value_native:1,unit_native:'V'},{id:'res',name:'UUT Resolution',value_native:1,unit_native:'V'},component,{id:'linked',sourceTmdeId:'t1',isBudgetInstance:true,name:'M1 - Accuracy',type:'B',value_native:1,unit_native:'V',distribution:'Rectangular',distributionDivisor:'1.732'}]} budgetInstruments={[{id:'t1',description:'Mock DMM',model:'M1'}]} ToleranceEditorComponent={InlineToleranceCell} applyToleranceChange={applyToleranceCaseChange} formatToleranceSummary={getSpecRows} onComponentUpdate={(id,patch)=>setComponent(current=>normalizeInlineManualComponent({component:current,draft:patch.inlineManualDraft,referencePoint:nominal}))}/><div id="asymmetric"><InlineToleranceCell editable={false} tolerance={{floor:{high:'3',low:'0',unit:'V',symmetric:false,distribution:'1.732'}}}/></div></main>}
 createRoot(document.getElementById('root')).render(<Demo/>);
 `;
 app.whenReady().then(async () => {
@@ -99,6 +99,13 @@ app.whenReady().then(async () => {
     await page.getByRole('button',{name:'Outside budget'}).click();
     await page.waitForFunction(()=>window.savedComponent().name==='Thermal drift' && !window.savedComponent().inlineDraft);
     assert.equal(await page.getByText('Mock DMM - Tolerance',{exact:true}).count(),1);
+    const positions=await page.locator('.budget-source-cell').evaluateAll(cells=>cells.map(cell=>{
+      const walker=document.createTreeWalker(cell,NodeFilter.SHOW_TEXT);let node;
+      while(node=walker.nextNode()){if(node.textContent.trim() && !node.parentElement.closest('.budget-order-controls')){const range=document.createRange();range.selectNodeContents(node);return {text:node.textContent,x:range.getBoundingClientRect().x};}}
+    }).filter(Boolean));
+    assert.ok(positions.length>=4,JSON.stringify(positions));
+    assert.ok(Math.max(...positions.map(p=>p.x))-Math.min(...positions.map(p=>p.x))<1,JSON.stringify(positions));
+    console.log('PASS aligned source labels',JSON.stringify(positions));
     const saved=await page.evaluate(()=>window.savedComponent());
     assert.ok(JSON.stringify(saved.originalInput.tolerance).includes('2'),'Tolerance retained after column switch');
     const asymmetric=await page.locator('#asymmetric').innerText();

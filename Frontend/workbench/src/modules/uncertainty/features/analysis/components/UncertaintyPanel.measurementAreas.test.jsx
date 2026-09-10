@@ -67,9 +67,9 @@ describe.each(['session', 'point'])('independent Measurement Areas in %s view', 
     const target = viewMode === 'session'
       ? screen.getByRole('button', { name: 'Other W200 Target standard' }).closest('tr')
       : screen.getAllByLabelText('Measurement area subsection name').find(node => node.textContent === 'Inspection').closest('tr');
-    fireEvent.drop(target, { dataTransfer: { getData: () => JSON.stringify({ id: 'source', kind: 'uut', sourceFunctionKey: 'torque' }) } });
-    expect(save.mock.lastCall[0].uuts[0].measurementAreaNames).toEqual(['Torque', 'Inspection']);
-    expect(save.mock.lastCall[0].uuts[0].instrument).toBe(lengthInstrument);
+    fireEvent.drop(target, { dataTransfer: { getData: () => JSON.stringify({ items: [{ item: original, kind: 'uut', sourceFunctionKey: 'torque' }] }) } });
+    expect(save.mock.lastCall[0].uuts.find(item => item.id === 'source').measurementAreaNames).toEqual(['Inspection']);
+    expect(save.mock.lastCall[0].uuts.find(item => item.id === 'source').instrument).toEqual(lengthInstrument);
   });
 
   it('adds explicitly chosen Length and Weight instruments to Torque and preserves both function trees', async () => {

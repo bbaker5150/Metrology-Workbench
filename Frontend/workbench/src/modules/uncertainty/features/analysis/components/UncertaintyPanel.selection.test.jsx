@@ -25,7 +25,7 @@ const Harness = ({ viewMode, onDeleteUut, onDeleteTmdeDefinition, multiRange = f
   /><output data-testid="session-state">{JSON.stringify(session)}</output></>;
 };
 
-describe.each(["session", "point"])("exclusive instrument selection in %s view", viewMode => {
+describe.each(["session", "point"])("instrument selection in %s view", viewMode => {
   it("selects compact ranges directly and shares keyboard/context clipboard actions", () => {
     render(<Harness viewMode={viewMode} multiRange />);
     const rows = document.querySelectorAll('tr[data-range-group="uut:u1"]');
@@ -47,6 +47,22 @@ describe.each(["session", "point"])("exclusive instrument selection in %s view",
     expect(session.uuts[1].name).toBe("First TMDE");
   });
 
+  it("cuts a mixed selection immediately and pastes the whole batch into either table", () => {
+    render(<Harness viewMode={viewMode} />);
+    fireEvent.click(screen.getByText("First UUT").closest("tr"));
+    fireEvent.click(screen.getByText("Second UUT").closest("tr"), { ctrlKey: true });
+    fireEvent.click(screen.getByText("First TMDE").closest("tr"), { ctrlKey: true });
+    fireEvent.keyDown(window, { key: "x", ctrlKey: true });
+    let session = JSON.parse(screen.getByTestId("session-state").textContent);
+    expect(session.uuts).toHaveLength(0);
+    expect(session.tmdes.map(item => item.id)).toEqual(["t2"]);
+    fireEvent.click(screen.getByText("Second TMDE").closest("tr"));
+    fireEvent.keyDown(window, { key: "v", ctrlKey: true });
+    session = JSON.parse(screen.getByTestId("session-state").textContent);
+    expect(session.uuts).toHaveLength(0);
+    expect(session.tmdes.map(item => item.id)).toEqual(["t2", "u1", "u2", "t1"]);
+  });
+
   it("preserves Ctrl and Shift instrument selection on multi-range rows", () => {
     const onDeleteUut = vi.fn();
     render(<Harness viewMode={viewMode} multiRange onDeleteUut={onDeleteUut} />);
@@ -64,20 +80,22 @@ describe.each(["session", "point"])("exclusive instrument selection in %s view",
     expect(onDeleteUut).toHaveBeenLastCalledWith(["u1", "u2"]);
   });
 
-  it("targets only the last table for Delete and clears selection on Escape", () => {
+  it("keeps mixed selection while Delete targets the last table and Escape clears selection", () => {
     const onDeleteUut = vi.fn(), onDeleteTmdeDefinition = vi.fn();
     render(<Harness {...{ viewMode, onDeleteUut, onDeleteTmdeDefinition }} />);
     const uut = screen.getByText("First UUT").closest("tr");
     const tmde = screen.getByText("First TMDE").closest("tr");
     fireEvent.click(uut);
     fireEvent.click(tmde, { ctrlKey: true });
-    expect(uut).not.toHaveClass("selected-row");
+    expect(uut).toHaveClass("selected-row");
     expect(tmde).toHaveClass("selected-row");
     fireEvent.keyDown(window, { key: "Delete" });
     expect(onDeleteUut).not.toHaveBeenCalled();
     expect(onDeleteTmdeDefinition).toHaveBeenCalledWith(["t1"]);
     fireEvent.click(uut);
     expect(tmde).not.toHaveClass("selected-row");
+    expect(uut).not.toHaveClass("selected-row");
+    fireEvent.click(uut);
     expect(uut).toHaveClass("selected-row");
     fireEvent.keyDown(window, { key: "Escape" });
     expect(uut).not.toHaveClass("selected-row");
