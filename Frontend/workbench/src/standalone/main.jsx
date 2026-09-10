@@ -1,3 +1,4 @@
+import { ConfirmRecordDeletesContext } from "../modules/uncertainty/contexts/RecordDeletePolicy";
 // ---------------------------------------------------------------------------
 // Standalone SharePoint entry point.
 // ---------------------------------------------------------------------------
@@ -68,7 +69,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <NotificationProvider>
         <StorageGate store={store}>
           <UncertaintyProvider>
-            <UncertalyticsApp showThemeToggle />
+            <ConfirmRecordDeletesContext.Provider value={false}>
+              <UncertalyticsApp showThemeToggle />
+            </ConfirmRecordDeletesContext.Provider>
           </UncertaintyProvider>
         </StorageGate>
         <ZoomToast />

@@ -3814,7 +3814,7 @@ function Calibration({
                                     disabled={isRemoteViewer}
                                     aria-label="Apply 8508A settings to all measurement points"
                                   >
-                                    <LuSaveAll aria-hidden="true" /><span>Apply to all</span>
+                                    <LuSaveAll aria-hidden="true" /><span>Apply to all points</span>
                                   </button>
                                   <ReaderSettingTooltip>
                                     Apply these 8508A settings to every measurement point.
@@ -3828,7 +3828,7 @@ function Calibration({
                                     disabled={isRemoteViewer}
                                     aria-label="Save 8508A settings for this test point"
                                   >
-                                    <FaCheck aria-hidden="true" /><span>Save reader</span>
+                                    <FaCheck aria-hidden="true" /><span>Save to this point</span>
                                   </button>
                                   <ReaderSettingTooltip>
                                     Update 8508A settings for this test point only.
@@ -3928,14 +3928,14 @@ function Calibration({
                                   <button type="button" className="reader-profile-point-save"
                                     onClick={() => handleReaderSettingsSaveAll("5790")} disabled={isRemoteViewer}
                                     aria-label="Apply 5790 settings to all measurement points">
-                                    <LuSaveAll aria-hidden="true" /><span>Apply to all</span>
+                                    <LuSaveAll aria-hidden="true" /><span>Apply to all points</span>
                                   </button>
                                   <ReaderSettingTooltip>Apply these 5790A/B settings to every measurement point.</ReaderSettingTooltip>
                                 </span>
                                 <span className="reader-profile-point-save-control reader-setting-tooltip-trigger">
                                   <button type="button" className={`reader-profile-point-save${is5790SettingsSaved ? " is-saved" : ""}`}
                                     onClick={handle5790SettingsSave} disabled={isRemoteViewer} aria-label="Save 5790 settings for this test point">
-                                    <FaCheck aria-hidden="true" /><span>Save reader</span>
+                                    <FaCheck aria-hidden="true" /><span>Save to this point</span>
                                   </button>
                                   <ReaderSettingTooltip>Update 5790A/B settings for this test point only.</ReaderSettingTooltip>
                                 </span>
@@ -4189,7 +4189,7 @@ function Calibration({
                               title="Apply to all test points"
                               disabled={isRemoteViewer}
                             >
-                              <LuSaveAll /><span>Apply to all</span>
+                              <LuSaveAll /><span>Apply to all points</span>
                             </button>
                             <button
                               type="submit"

@@ -1,3 +1,4 @@
+import { ConfirmRecordDeletesContext } from "../../../contexts/RecordDeletePolicy";
 import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
@@ -839,4 +840,15 @@ describe("UniversalInstrumentModal library synchronization", () => {
       }),
     );
   });
+});
+
+test("deletes selected SharePoint library records without an extra confirmation", async () => {
+  const onDelete = vi.fn(async () => {});
+  render(<ConfirmRecordDeletesContext.Provider value={false}>
+    <UniversalInstrumentModal isOpen onClose={vi.fn()} onSave={vi.fn()} mode="library" initialData={null} instruments={[libraryInstrument]} onDelete={onDelete} />
+  </ConfirmRecordDeletesContext.Provider>);
+  fireEvent.click(screen.getByText("DMM-1").closest("tr"));
+  fireEvent.keyDown(window, { key: "Delete" });
+  await waitFor(() => expect(onDelete).toHaveBeenCalledWith("library-1"));
+  expect(screen.queryByRole("alertdialog", { name: "Delete Instrument" })).not.toBeInTheDocument();
 });

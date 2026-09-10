@@ -24,10 +24,12 @@ vi.mock("plotly.js-dist", () => ({ default: {} }));
 describe("measurement-point value editing", () => {
   test("shows all point warnings beside Value without falling back to stale saved risk", () => {
     const onSelect = vi.fn();
-    const { container } = render(<SidebarPointItem point={{ id: "warning", testPointInfo: { parameter: { value: 5, unit: "V" } }, riskMetrics: { pfa: 87.123 } }} liveRiskMetrics={null} diagnostics={["No error sources in this budget.", "Enter the input Current nominal."]} visibleColumns={{ value: true, pfa: true }} onSelect={onSelect} onSave={vi.fn()} />);
-    const warning = screen.getByRole("button", { name: /Point needs attention/ });
+    const { container } = render(<SidebarPointItem point={{ id: "warning", testPointInfo: { parameter: { value: 5, unit: "V" } }, riskMetrics: { pfa: 87.123 } }} liveRiskMetrics={null} diagnostics={[{ category: "input", message: "No error sources in this budget." }, { category: "input", message: "Enter the input Current nominal." }, { category: "info", message: "The other bound is not used." }]} visibleColumns={{ value: true, pfa: true }} onSelect={onSelect} onSave={vi.fn()} />);
+    const warning = screen.getByRole("button", { name: /Missing inputs/ });
     expect(warning.closest(".point-value")).not.toBeNull();
-    expect(warning).toHaveAttribute("title", "• No error sources in this budget.\n\n• Enter the input Current nominal.");
+    expect(screen.getByRole("button", { name: /Information:/ })).toBeInTheDocument();
+    expect(warning.closest(".point-value").firstElementChild).toHaveClass("point-diagnostics");
+    expect(warning).toHaveAttribute("title", "Missing inputs\n\nNo error sources in this budget.\n\nEnter the input Current nominal.");
     expect(container.textContent).not.toContain("87.123");
     fireEvent.click(warning);
     expect(onSelect).toHaveBeenCalledOnce();

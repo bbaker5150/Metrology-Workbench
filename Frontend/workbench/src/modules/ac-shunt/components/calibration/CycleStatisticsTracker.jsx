@@ -535,10 +535,7 @@ function CycleStatisticsTracker({
         style={{ display: "flex", alignItems: "center" }}
       >
         <h4 style={{ flex: 1, margin: 0 }}>{title}</h4>
-        <select className="cycle-statistics-direction" aria-label="Statistics direction" value={direction} onClick={event => event.stopPropagation()}
-          onChange={event => { setDirection(event.target.value); setCycleRangeStart(""); setCycleRangeEnd(""); }}>
-          <option value="paired">Paired average</option><option value="forward">Forward</option><option value="reverse">Reverse</option>
-        </select>
+
 
         <div style={{ flex: 2, textAlign: "center", fontWeight: 600, fontSize: "0.95rem", letterSpacing: "0.3px" }}>
           {stats.mean != null ? fmt(stats.mean, 4) : "—"}
@@ -569,6 +566,13 @@ function CycleStatisticsTracker({
               <div className="chart-options-dropdown cycle-stats-settings-dropdown">
                 <div className="cycle-stats-settings-panel">
                   <p className="cycle-stats-settings-title">Options</p>
+                  <label className="cycle-stats-settings-block">
+                    <span className="cycle-stats-settings-label">Data</span>
+        <select className="cycle-statistics-direction" aria-label="Statistics direction" value={direction} onClick={event => event.stopPropagation()}
+          onChange={event => { setDirection(event.target.value); setCycleRangeStart(""); setCycleRangeEnd(""); }}>
+          <option value="paired">Paired average</option><option value="forward">Forward</option><option value="reverse">Reverse</option>
+        </select>
+                  </label>
 
                   <div className="cycle-stats-settings-block">
                     <span className="cycle-stats-settings-label">View</span>

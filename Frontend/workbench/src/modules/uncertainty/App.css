@@ -20371,7 +20371,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .uncertainty-module .instrument-panel-table-container { max-height: none; }
 .uncertainty-module .instrument-table-height-resize-handle.is-auto-height::after {
   background: var(--primary-color);
-  animation: instrument-auto-height-pulse .65s ease-out;
+  animation: var(--auto-height-animation, instrument-auto-height-pulse) .65s ease-out;
 }
 @keyframes instrument-auto-height-pulse {
   0% { transform: translateX(-50%) scaleX(1); opacity: .45; }
@@ -20381,3 +20381,16 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 @media (prefers-reduced-motion: reduce) {
   .uncertainty-module .instrument-table-height-resize-handle.is-auto-height::after { animation: none; }
 }
+
+@keyframes instrument-auto-height-pulse-repeat {
+  0% { transform: translateX(-50%) scaleX(1); opacity: .45; }
+  50% { transform: translateX(-50%) scaleX(1.35); opacity: 1; }
+  100% { transform: translateX(-50%) scaleX(1); }
+}
+.uncertainty-module .point-diagnostics { display: inline-flex; flex: 0 0 auto; align-self: center; gap: 1px; margin-right: 3px; }
+.uncertainty-module .point-diagnostic-warning { margin: 0; width: 16px; flex-basis: 16px; }
+.uncertainty-module .point-diagnostic--input { color: var(--primary-color); }
+.uncertainty-module .point-diagnostic--info { color: var(--text-color-muted); }
+.uncertainty-module .point-diagnostic--refresh { color: var(--primary-color); }
+.uncertainty-module .point-value-with-unit > .point-edit-affordance { min-width: 0; flex: 1 1 auto; }
+.uncertainty-module .instrument-area-entry { margin: 0; }

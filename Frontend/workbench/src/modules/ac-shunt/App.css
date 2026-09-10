@@ -12622,4 +12622,15 @@ body.dark-mode .window-stability-section {
 .cal-settings-preset-row button { border: 1px solid var(--border-color); background: var(--component-bg); color: var(--text-color); cursor: pointer; }
 .cal-settings-preset-row button:disabled { opacity: .4; cursor: default; }
 
-.ac-shunt-module .accordion-header select.cycle-statistics-direction { width: 150px; flex: 0 0 150px; margin: 0 12px; padding: 5px 8px; }
+
+/* Compact settings controls keep their labels on one line at any panel width. */
+.reader-profile-point-actions { flex-wrap: wrap; gap: 8px; }
+.reader-profile-point-save-control { width: auto; height: auto; flex: 0 0 auto; }
+.reader-profile-point-save { white-space: nowrap; gap: 7px; min-height: 30px; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 5px; }
+.reader-profile-point-save svg { flex-shrink: 0; }
+.cal-settings-presets { padding: 8px 0; border: 0; border-top: 1px solid var(--border-color); border-radius: 0; }
+.cal-settings-presets p { margin: 6px 0; max-width: 65ch; }
+.cal-settings-preset-row { align-items: center; gap: 6px; }
+.cal-settings-preset-row :is(input, select) { flex: 0 1 220px; width: 220px; max-width: 100%; min-width: 120px; height: 30px; min-height: 30px; box-sizing: border-box; padding: 4px 7px; font-size: .78rem; }
+.cal-settings-preset-row button { flex: 0 0 auto; white-space: nowrap; margin: 0; min-height: 30px; }
+.cycle-stats-settings-dropdown .cycle-statistics-direction { width: 100%; min-width: 0; margin: 0; height: 30px; padding: 4px 7px; font-size: .8rem; }

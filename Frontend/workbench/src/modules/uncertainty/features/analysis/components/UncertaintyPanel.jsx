@@ -1,3 +1,4 @@
+import MeasurementAreaEntry from "../../../components/common/MeasurementAreaEntry";
 import { showFirstInstrumentHint } from "../../../utils/instrumentOnboarding";
 /**
  * src/features/analysis/components/UncertaintyPanel.jsx
@@ -2881,8 +2882,16 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
     }
   });
 
+  const [resetVersion, setResetVersion] = useState(0);
   const resetHeight = useCallback(() => {
+    const container = containerRef.current;
+    if (container) {
+      container.style.removeProperty("height");
+      container.style.removeProperty("max-height");
+      container.style.removeProperty("flex");
+    }
     setHeight(null);
+    setResetVersion(version => version + 1);
     try {
       window.localStorage.removeItem(storageKey);
     } catch {
@@ -2979,6 +2988,7 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
   });
 
   return {
+    resetVersion,
     isAuto: height === null && !resizing,
     containerRef: tableLayoutRef,
     containerStyle: displayedHeight
@@ -2995,10 +3005,11 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
 
 const InstrumentTableHeightHandle = ({ kind, sizing }) => (
   <button
+    style={{ "--auto-height-animation": sizing.resetVersion % 2 ? "instrument-auto-height-pulse" : "instrument-auto-height-pulse-repeat" }}
     type="button"
     className={`instrument-table-height-resize-handle instrument-size-control${sizing.isAuto ? " is-auto-height" : ""}`}
     data-sizing-mode={sizing.isAuto ? "auto" : "manual"}
-    title={`${sizing.isAuto ? "Auto height: grows with instruments. " : ""}Drag to resize ${kind.toUpperCase()} table height; drag to full height or double-click to restore auto height`}
+    title={`${sizing.isAuto ? "Auto height: grows with instruments. " : ""}Drag to resize ${kind.toUpperCase()} table height; double-click to restore auto height`}
     aria-label={`Resize ${kind.toUpperCase()} table height`}
     onPointerDown={sizing.startResize}
     onDoubleClick={sizing.resetHeight}
@@ -6602,9 +6613,6 @@ const SummaryDashboard = ({
   const latestSessionDataRef = useRef(sessionData);
   latestSessionDataRef.current = sessionData;
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
-  // Add Measurement Area picker: null | "uut" | "tmde" (which table's button opened it).
-  const [addFunctionMenu, setAddFunctionMenu] = useState(null);
-  const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
   const [editingCustomColumnKey, setEditingCustomColumnKey] = useState(null);
   const summaryFunctionColorByKey = useMemo(
     () =>
@@ -7272,7 +7280,6 @@ const SummaryDashboard = ({
           (!kind || !fg.kind || fg.kind === kind),
       )
     ) {
-      setAddFunctionMenu(null);
       return; // already present
     }
     onSessionSave({
@@ -7282,8 +7289,6 @@ const SummaryDashboard = ({
         { name: clean, unit: String(unit || "").trim(), ...(kind ? { kind } : {}) },
       ],
     });
-    setAddFunctionMenu(null);
-    setNewFunctionDraft({ name: "", unit: "" });
   };
 
   // Start a blank row in the chosen area. Its eventual instrument functions
@@ -7783,140 +7788,6 @@ const SummaryDashboard = ({
     </tr>
   );
 
-  // The "Add Measurement Area" picker opened from a table's header button: pick a
-  // user-authored area already used in the session, or define a new one.
-  const renderAddFunctionMenu = (kind) => {
-    if (!addFunctionMenu || addFunctionMenu.kind !== kind) return null;
-    const rect = addFunctionMenu.rect;
-    const available = resolveSessionMeasurementAreas(sessionData);
-    const itemStyle = {
-      display: "block",
-      width: "100%",
-      textAlign: "left",
-      padding: "6px 10px",
-      background: "transparent",
-      border: "none",
-      color: "var(--text-color)",
-      cursor: "pointer",
-      fontSize: "0.85em",
-    };
-    // Portal to <body> with fixed positioning so the menu is never clipped by a
-    // short table / overflow container (lesson from the inline library dropdown).
-    const visualViewport = window.visualViewport;
-    const placement = getAnchoredMenuPlacement({
-      anchorRect: rect,
-      viewportWidth: visualViewport?.width || window.innerWidth,
-      viewportHeight: visualViewport?.height || window.innerHeight,
-      preferredWidth: 250,
-      preferredMaxHeight: 420,
-    });
-    return ReactDOM.createPortal(
-      <>
-        <div
-          onClick={() => setAddFunctionMenu(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 4000 }}
-        />
-        <div
-          onClick={(e) => e.stopPropagation()}
-          data-tour={`${kind}-function-menu`}
-          style={{
-            position: "fixed",
-            top: placement.top,
-            bottom: placement.bottom,
-            left: placement.left,
-            width: `${placement.width}px`,
-            maxHeight: `${placement.maxHeight}px`,
-            overflowY: "auto",
-            background: "var(--component-bg)",
-            border: "1px solid var(--border-color)",
-            borderRadius: "8px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-            zIndex: 4001,
-            padding: "8px",
-          }}
-        >
-        <div
-          style={{
-            fontSize: "0.7rem",
-            fontWeight: 700,
-            textTransform: "uppercase",
-            opacity: 0.6,
-            padding: "2px 6px 6px",
-          }}
-        >
-          Add measurement area
-        </div>
-        {available.length > 0 ? (
-          <div>
-            {available.map((fn) => (
-              <button
-                key={fn.key}
-                type="button"
-                onClick={() => handleAddFunction(fn)}
-                style={itemStyle}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.background = "var(--input-background)")
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.background = "transparent")
-                }
-              >
-                {fn.name}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div style={{ padding: "6px 10px", opacity: 0.6, fontSize: "0.8em" }}>
-            Create a measurement area to organize your instruments
-          </div>
-        )}
-        <div
-          style={{
-            display: "flex",
-            gap: "6px",
-            marginTop: "8px",
-            paddingTop: "8px",
-            borderTop: "1px solid var(--border-color)",
-          }}
-        >
-          <input
-            type="text"
-            placeholder="New measurement area"
-            value={newFunctionDraft.name}
-            onChange={(e) =>
-              setNewFunctionDraft((d) => ({ ...d, name: e.target.value }))
-            }
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleAddFunction(newFunctionDraft);
-              if (e.key === "Escape") setAddFunctionMenu(null);
-            }}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              background: "var(--input-background)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "4px",
-              color: "var(--text-color)",
-              padding: "4px 6px",
-              fontSize: "0.82em",
-            }}
-          />
-          <button
-            type="button"
-            disabled={!newFunctionDraft.name.trim()}
-            onClick={() => handleAddFunction(newFunctionDraft)}
-            className="range-header-action-btn range-header-action-btn--add"
-            title="Add measurement area"
-            aria-label="Add measurement area"
-          >
-            <FontAwesomeIcon icon={faPlus} size="xs" />
-          </button>
-        </div>
-        </div>
-      </>,
-      document.body,
-    );
-  };
   // --- SELECTION STATE ---
   // Use global UUT selection for sync with sidebar Quick Add
   const selectedUutIds = currentUutSelection || [];
@@ -9021,21 +8892,8 @@ const SummaryDashboard = ({
             <FontAwesomeIcon icon={faMicroscope} />
             <span>{uutTableTitle(sessionData.uuts?.length)}</span>
           </div>
-          <div className="panel-card-actions" style={{ position: "relative" }}>
-            <button
-              className="btn-add-item btn-add-column"
-              data-tour="uut-add-function"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                setAddFunctionMenu((m) =>
-                  m && m.kind === "uut" ? null : { kind: "uut", rect },
-                );
-              }}
-              title="Add Measurement Area"
-            >
-              <span>Add Measurement Area</span>
-            </button>
-            {renderAddFunctionMenu("uut")}
+          <div className="panel-card-actions">
+            <MeasurementAreaEntry kind="uut" onAdd={handleAddFunction} />
           </div>
         </div>
         <div
@@ -9547,21 +9405,8 @@ const SummaryDashboard = ({
             <FontAwesomeIcon icon={faTools} />
             <span>Test Measurement Device Equipment</span>
           </div>
-          <div className="panel-card-actions" style={{ position: "relative" }}>
-            <button
-              className="btn-add-item btn-add-column"
-              data-tour="tmde-add-function"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                setAddFunctionMenu((m) =>
-                  m && m.kind === "tmde" ? null : { kind: "tmde", rect },
-                );
-              }}
-              title="Add Measurement Area"
-            >
-              <span>Add Measurement Area</span>
-            </button>
-            {renderAddFunctionMenu("tmde")}
+          <div className="panel-card-actions">
+            <MeasurementAreaEntry kind="tmde" onAdd={handleAddFunction} />
           </div>
         </div>
         <div
@@ -12174,8 +12019,6 @@ function DetailedView({
   );
 
   // --- Function subsections (detail view parity with the Session Overview) ---
-  const [addFunctionMenu, setAddFunctionMenu] = useState(null);
-  const [newFunctionDraft, setNewFunctionDraft] = useState({ name: "", unit: "" });
 
   const upsertFunctionGroupDetail = (fnKey, patch) => {
     const existing = Array.isArray(sessionData.measurementAreaGroups)
@@ -12223,7 +12066,6 @@ function DetailedView({
           (!kind || !fg.kind || fg.kind === kind),
       )
     ) {
-      setAddFunctionMenu(null);
       return;
     }
     onSessionSave({
@@ -12233,8 +12075,6 @@ function DetailedView({
         { name: clean, unit: String(unit || "").trim(), ...(kind ? { kind } : {}) },
       ],
     });
-    setAddFunctionMenu(null);
-    setNewFunctionDraft({ name: "", unit: "" });
   };
 
   const handleAddInstrumentToFunction = (kind, fn) => {
@@ -12475,136 +12315,7 @@ function DetailedView({
     </tr>
   );
 
-  const renderAddFunctionMenu = (kind) => {
-    if (!addFunctionMenu || addFunctionMenu.kind !== kind) return null;
-    const rect = addFunctionMenu.rect;
-    const available = resolveSessionMeasurementAreas(sessionData);
-    const itemStyle = {
-      display: "block",
-      width: "100%",
-      textAlign: "left",
-      padding: "6px 10px",
-      background: "transparent",
-      border: "none",
-      color: "var(--text-color)",
-      cursor: "pointer",
-      fontSize: "0.85em",
-    };
-    const visualViewport = window.visualViewport;
-    const placement = getAnchoredMenuPlacement({
-      anchorRect: rect,
-      viewportWidth: visualViewport?.width || window.innerWidth,
-      viewportHeight: visualViewport?.height || window.innerHeight,
-      preferredWidth: 250,
-      preferredMaxHeight: 420,
-    });
-    const inputStyle = {
-      flex: 1,
-      minWidth: 0,
-      background: "var(--input-background)",
-      border: "1px solid var(--border-color)",
-      borderRadius: "4px",
-      color: "var(--text-color)",
-      padding: "4px 6px",
-      fontSize: "0.82em",
-    };
-    return ReactDOM.createPortal(
-      <>
-        <div
-          onClick={() => setAddFunctionMenu(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 4000 }}
-        />
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: "fixed",
-            top: placement.top,
-            bottom: placement.bottom,
-            left: placement.left,
-            width: `${placement.width}px`,
-            maxHeight: `${placement.maxHeight}px`,
-            overflowY: "auto",
-            background: "var(--component-bg)",
-            border: "1px solid var(--border-color)",
-            borderRadius: "8px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-            zIndex: 4001,
-            padding: "8px",
-          }}
-        >
-          <div
-            style={{
-              fontSize: "0.7rem",
-              fontWeight: 700,
-              textTransform: "uppercase",
-              opacity: 0.6,
-              padding: "2px 6px 6px",
-            }}
-          >
-            Add measurement area
-          </div>
-          {available.length > 0 ? (
-            <div>
-              {available.map((fn) => (
-                <button
-                  key={fn.key}
-                  type="button"
-                  onClick={() => handleAddFunction(fn)}
-                  style={itemStyle}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = "var(--input-background)")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "transparent")
-                  }
-                >
-                  {fn.name}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div style={{ padding: "6px 10px", opacity: 0.6, fontSize: "0.8em" }}>
-              Create a measurement area to organize your instruments
-            </div>
-          )}
-          <div
-            style={{
-              display: "flex",
-              gap: "6px",
-              marginTop: "8px",
-              paddingTop: "8px",
-              borderTop: "1px solid var(--border-color)",
-            }}
-          >
-            <input
-              type="text"
-              placeholder="New measurement area"
-              value={newFunctionDraft.name}
-              onChange={(e) =>
-                setNewFunctionDraft((d) => ({ ...d, name: e.target.value }))
-              }
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleAddFunction(newFunctionDraft);
-                if (e.key === "Escape") setAddFunctionMenu(null);
-              }}
-              style={inputStyle}
-            />
-            <button
-              type="button"
-              disabled={!newFunctionDraft.name.trim()}
-              onClick={() => handleAddFunction(newFunctionDraft)}
-              className="range-header-action-btn range-header-action-btn--add"
-              title="Add measurement area"
-              aria-label="Add measurement area"
-            >
-              <FontAwesomeIcon icon={faPlus} size="xs" />
-            </button>
-          </div>
-        </div>
-      </>,
-      document.body,
-    );
-  };
+
 
   const groupedUnitOptions = useMemo(() => {
     const allSupportedUnits = getUniqueUnits(Object.keys(unitSystem.units));
@@ -15111,7 +14822,7 @@ function DetailedView({
             <FontAwesomeIcon icon={faMicroscope} />
             <span>{uutTableTitle(sessionData.uuts?.length)}</span>
           </div>
-          <div className="panel-card-actions" style={{ position: "relative" }}>
+          <div className="panel-card-actions">
             <button
               type="button"
               className="btn-add-item btn-add-column instrument-visibility-toggle"
@@ -15134,20 +14845,7 @@ function DetailedView({
                 icon={showIrrelevantUutFunctions ? faEye : faEyeSlash}
               />
             </button>
-            <button
-              className="btn-add-item btn-add-column"
-              data-tour="uut-add-function"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                setAddFunctionMenu((m) =>
-                  m && m.kind === "uut" ? null : { kind: "uut", rect },
-                );
-              }}
-              title="Add Measurement Area"
-            >
-              <span>Add Measurement Area</span>
-            </button>
-            {renderAddFunctionMenu("uut")}
+            <MeasurementAreaEntry kind="uut" onAdd={handleAddFunction} />
           </div>
         </div>
         <div
@@ -15944,7 +15642,7 @@ function DetailedView({
               <FontAwesomeIcon icon={faTools} />
               <span>Test Measurement Device Equipment</span>
             </div>
-            <div className="panel-card-actions" style={{ position: "relative" }}>
+            <div className="panel-card-actions">
               <button
                 type="button"
                 className="btn-add-item btn-add-column instrument-visibility-toggle"
@@ -15967,20 +15665,7 @@ function DetailedView({
                   icon={showIrrelevantTmdeFunctions ? faEye : faEyeSlash}
                 />
               </button>
-              <button
-                className="btn-add-item btn-add-column"
-                data-tour="tmde-add-function"
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  setAddFunctionMenu((m) =>
-                    m && m.kind === "tmde" ? null : { kind: "tmde", rect },
-                  );
-                }}
-                title="Add Measurement Area"
-              >
-                <span>Add Measurement Area</span>
-              </button>
-              {renderAddFunctionMenu("tmde")}
+              <MeasurementAreaEntry kind="tmde" onAdd={handleAddFunction} />
             </div>
           </div>
 

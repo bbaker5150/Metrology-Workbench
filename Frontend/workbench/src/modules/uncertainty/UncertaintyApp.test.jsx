@@ -1,3 +1,4 @@
+import { ConfirmRecordDeletesContext } from "./contexts/RecordDeletePolicy";
 import { describe, test, expect, vi, beforeAll, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -1165,13 +1166,9 @@ describe("UncertaintyApp", () => {
     const emptyFunctionGroup = (await screen.findAllByText("Temperature"))
       .find((row) => row.classList.contains("area-label"))
       .closest(".measurement-group-container");
-    const emptyFunctionToggle = within(emptyFunctionGroup).getByRole("button", {
+    expect(within(emptyFunctionGroup).queryByRole("button", {
       name: /^(Expand|Collapse) measurement area$/,
-    });
-    if (emptyFunctionToggle.getAttribute("aria-expanded") === "false") {
-      fireEvent.click(emptyFunctionToggle);
-    }
-    expect(emptyFunctionToggle).toHaveAttribute("aria-expanded", "true");
+    })).not.toBeInTheDocument();
     expect(
       emptyFunctionGroup.querySelector(".sidebar-column-header-stack"),
     ).toBeNull();
@@ -1925,4 +1922,12 @@ describe("UncertaintyApp", () => {
 
     surface.remove();
   });
+});
+
+test("deletes a standalone SharePoint session without the workbench confirmation", async () => {
+  apiMock.state.sessions = [{ id: 120, name: "SharePoint session", measurementAreas: [], uuts: [], tmdes: [], testPoints: [], uncReq: {} }];
+  render(<ConfirmRecordDeletesContext.Provider value={false}><ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider></ConfirmRecordDeletesContext.Provider>);
+  fireEvent.click(await screen.findByTitle("Delete Session"));
+  await waitFor(() => expect(apiMock.delete).toHaveBeenCalledWith(expect.stringContaining("/sessions/120/")));
+  expect(screen.queryByRole("alertdialog", { name: "Delete Session" })).not.toBeInTheDocument();
 });

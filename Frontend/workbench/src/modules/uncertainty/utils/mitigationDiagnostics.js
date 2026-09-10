@@ -65,8 +65,10 @@ export function getMitigationDiagnostics({
   requirements = {},
   visibleColumns = {},
   tolerance = {},
+  includeCategories = false,
 } = {}) {
   const messages = [];
+  const add = (message, category = "warning") => messages.push(includeCategories ? { message, category } : message);
   const single = tolerance.singleSided || tolerance.tolerances?.singleSided;
   const unknown =
     String(single?.measurement || "")
@@ -81,8 +83,8 @@ export function getMitigationDiagnostics({
     const unusedSide =
       single && (single.direction === "low" ? "gbHigh" : "gbLow");
     if (missing.includes(unusedSide)) {
-      messages.push(
-        `${group.label} — ${group.fields[unusedSide]}: This single-sided tolerance has only ${single.direction === "low" ? "a lower" : "an upper"} limit; the other bound is not used.`,
+      add(
+        `${group.label} — ${group.fields[unusedSide]}: This single-sided tolerance has only ${single.direction === "low" ? "a lower" : "an upper"} limit; the other bound is not used.`, "info",
       );
       missing.splice(missing.indexOf(unusedSide), 1);
       if (!missing.length) continue;
@@ -94,12 +96,12 @@ export function getMitigationDiagnostics({
       ]);
       const unsupported = missing.filter((key) => !boundaryFields.has(key));
       if (unsupported.length)
-        messages.push(
-          `${group.label} — ${unsupported.map((key) => group.fields[key]).join(", ")}: A single-sided tolerance with an unknown measurement uses PFA-only acceptance-boundary results. REOP-based guard-band and interval mitigation are not calculated for this case.`,
+        add(
+          `${group.label} — ${unsupported.map((key) => group.fields[key]).join(", ")}: A single-sided tolerance with an unknown measurement uses PFA-only acceptance-boundary results. REOP-based guard-band and interval mitigation are not calculated for this case.`, "info",
         );
       const failed = missing.filter((key) => boundaryFields.has(key));
       if (failed.length)
-        messages.push(
+        add(
           `${group.label} — ${failed.map((key) => group.fields[key]).join(", ")}: The PFA acceptance boundary could not be calculated. Check PFA Required, the single-sided limit, and the point's expanded uncertainty.`,
         );
       continue;
@@ -168,7 +170,7 @@ export function getMitigationDiagnostics({
       details.push(
         "The calculation did not produce these mitigation results. Review the point's uncertainty, tolerance, and session mitigation inputs.",
       );
-    messages.push(
+    add(
       `${group.label} — ${missing.map((key) => group.fields[key]).join(", ")}: ${[...new Set(details)].join(" ")}`,
     );
   }

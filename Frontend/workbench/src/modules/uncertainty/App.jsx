@@ -1,3 +1,5 @@
+import { useConfirmRecordDeletes } from "./contexts/RecordDeletePolicy";
+import { faCircleInfo, faPenToSquare, faRotate } from "@fortawesome/free-solid-svg-icons";
 import { getMeasurementAreaUnits } from "./utils/pointUnits";
 import { useWorkbenchIssues } from "../../shared/WorkbenchIssuesContext";
 /**
@@ -28,7 +30,7 @@ import TestPointInfoModal from "./features/testPoints/components/TestPointInfoMo
 import UniversalInstrumentModal from "./features/instruments/components/UniversalInstrumentModal";
 import UnresolvedToleranceModal from "./features/testPoints/components/UnresolvedToleranceModal";
 import BugReportModal from "./components/modals/BugReportModal";
-import { getPointDiagnostics } from "./utils/pointDiagnostics";
+import { getPointDiagnosticEntries } from "./utils/pointDiagnostics";
 import { createWalkthroughSteps } from "./components/common/walkthroughSteps";
 import GuidedWalkthrough from "./components/common/GuidedWalkthrough";
 import MeasurementAreaPopover from "./components/common/MeasurementAreaPopover";
@@ -1429,6 +1431,24 @@ export const SidebarPointItem = ({
               displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
             }`}
           >
+            {visibleColumns.warningIcons !== false && diagnostics.length > 0 && (
+              <span className="point-diagnostics">
+                {[
+                  { category: "input", label: "Missing inputs", icon: faPenToSquare },
+                  { category: "warning", label: "Calculation warning", icon: faExclamationTriangle },
+                  { category: "refresh", label: "Recalculation needed", icon: faRotate },
+                  { category: "info", label: "Information", icon: faCircleInfo },
+                ].map(({ category, label, icon }) => {
+                  const messages = diagnostics.filter(entry => entry.category === category).map(entry => entry.message);
+                  return messages.length > 0 && <button key={category} type="button"
+                    className={`point-diagnostic-warning point-diagnostic--${category}`}
+                    aria-label={`${label}: ${messages.join(" ")}`} title={`${label}\n\n${messages.join("\n\n")}`}
+                    onClick={event => { event.stopPropagation(); onSelect?.(event, point); }}>
+                    <FontAwesomeIcon icon={icon} aria-hidden="true" />
+                  </button>;
+                })}
+              </span>
+            )}
             <span className="point-edit-affordance">
               <span className="point-value-number">
                 {displayValue || <span className="point-placeholder">-</span>}
@@ -1449,11 +1469,7 @@ export const SidebarPointItem = ({
               <FontAwesomeIcon icon={faChevronDown} className="point-unit-chevron" aria-hidden="true" />
               </span>
             </span>
-            {visibleColumns.warningIcons !== false && diagnostics.length > 0 && (
-              <button type="button" className="point-diagnostic-warning" aria-label={`Point needs attention: ${diagnostics.join(" ")}`} title={diagnostics.map(message => `• ${message}`).join("\n\n")} onClick={event => { event.stopPropagation(); onSelect?.(event, point); }}>
-                <FontAwesomeIcon icon={faExclamationTriangle} aria-hidden="true" />
-              </button>
-            )}
+
           </span>
         ))}
 
@@ -2174,6 +2190,7 @@ const SidebarSessionHeader = ({
 };
 
 function App({ showThemeToggle = false }) {
+  const confirmRecordDeletes = useConfirmRecordDeletes();
   const workbenchIssues = useWorkbenchIssues();
   const {
     sessions,
@@ -2386,7 +2403,7 @@ function App({ showThemeToggle = false }) {
   const pointDiagnosticsMap = useMemo(
     () => Object.fromEntries(currentTestPoints.map(point => [
       point.id,
-      getPointDiagnostics(point, currentSessionData || {}, {
+      getPointDiagnosticEntries(point, currentSessionData || {}, {
         riskMetrics: pointRiskMap[point.id],
         riskStatus: pointRiskStatusMap[point.id],
         visibleColumns: sidebarColumns,
@@ -3690,6 +3707,7 @@ function App({ showThemeToggle = false }) {
   };
 
   const handleDeleteSession = (sessionId) => {
+    if (!confirmRecordDeletes) { deleteSession(sessionId); return; }
     setConfirmationModal({
       title: "Delete Session",
       message:
@@ -3702,6 +3720,7 @@ function App({ showThemeToggle = false }) {
   };
 
   const handleDeleteBugReport = (reportId) => {
+    if (!confirmRecordDeletes) { deleteBugReport(reportId); return; }
     setAppNotification({
       title: "Delete Report",
       message:
@@ -6119,7 +6138,7 @@ function App({ showThemeToggle = false }) {
                                   <label className="filter-option">
                                     <input type="checkbox" checked={sidebarColumns.warningIcons !== false}
                                       onChange={event => setSidebarColumns(previous => ({ ...previous, warningIcons: event.target.checked }))} />
-                                    <span>Warning icons</span>
+                                    <span>Point indicators</span>
                                   </label>
                                 </div>
                               </div>
@@ -6172,6 +6191,7 @@ function App({ showThemeToggle = false }) {
                           }}
                         >
                           <div className="area-header-sticky">
+{pts.length > 0 && (
                             <button
                               type="button"
                               className="function-sidebar-collapse-button"
@@ -6184,6 +6204,7 @@ function App({ showThemeToggle = false }) {
                                 icon={isFnExpanded ? faChevronDown : faChevronRight}
                               />
                             </button>
+)}
                             <FontAwesomeIcon
                               icon={faLayerGroup}
                               style={{ opacity: 0.6 }}
@@ -6217,6 +6238,7 @@ function App({ showThemeToggle = false }) {
                         }}
                       >
                         <div className="area-header-sticky">
+{points.length > 0 && (
                           <button
                             type="button"
                             className="function-sidebar-collapse-button"
@@ -6229,6 +6251,7 @@ function App({ showThemeToggle = false }) {
                               icon={isFnExpanded ? faChevronDown : faChevronRight}
                             />
                           </button>
+)}
                           <label className="sidebar-area-color-swatch" title="Change measurement area color" style={{ backgroundColor: fnGroup.color || "#888888" }} onClick={event => event.stopPropagation()}>
                             <input type="color" aria-label={`Color for ${fnGroup.name} measurement area`} value={fnGroup.color || "#888888"} onChange={event => updateSession(setMeasurementAreaColor(currentSessionData, fnGroup, event.target.value))} />
                           </label>

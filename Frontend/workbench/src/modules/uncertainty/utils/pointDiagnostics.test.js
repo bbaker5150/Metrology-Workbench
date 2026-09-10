@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getBudgetRangeWarnings,
   getPointDiagnostics,
+  getPointDiagnosticEntries,
 } from "./pointDiagnostics";
 
 const session = { uncReq: { reliability: 95, reqPFA: 2 } };
@@ -186,4 +187,15 @@ describe("point diagnostics", () => {
     };
     expect(getPointDiagnostics(unknown, { uncReq: { reqPFA: 2 } })).toEqual([]);
   });
+});
+
+it("distinguishes refresh notices and missing inputs from warnings", () => {
+  const entries = getPointDiagnosticEntries({}, {}, { riskMetrics: { mcStale: true } });
+  expect(entries).toContainEqual(expect.objectContaining({ category: "input", message: "Enter a numeric measurement point value." }));
+  expect(entries).toContainEqual(expect.objectContaining({ category: "refresh" }));
+});
+it("marks unsupported single-sided mitigation fields as information", () => {
+  const entries = getPointDiagnosticEntries({ ...point, uutTolerance: { singleSided: { measurement: "unknown", direction: "high", limit: 6 } } }, session,
+    { riskMetrics: { riskAvailability: "pfa-boundary-only" }, visibleColumns: { gbCalInt: true } });
+  expect(entries).toContainEqual(expect.objectContaining({ category: "info", message: expect.stringContaining("not calculated for this case") }));
 });

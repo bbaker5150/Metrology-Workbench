@@ -45,6 +45,16 @@ const Harness = ({ viewMode, save, initialSession }) => {
 };
 
 describe.each(['session', 'point'])('independent Measurement Areas in %s view', viewMode => {
+  it('adds an area directly from the inline UUT name field', async () => {
+    const save = vi.fn();
+    render(<Harness viewMode={viewMode} save={save} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'New UUT measurement area name' }), { target: { value: 'Inspection' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Measurement Area from UUT table' }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ measurementAreaGroups: expect.arrayContaining([expect.objectContaining({ name: 'Inspection' })]) })));
+    expect(screen.getByRole('textbox', { name: 'New UUT measurement area name' })).toHaveValue('');
+    expect(document.querySelector('[data-tour="uut-function-menu"]')).toBeNull();
+  });
+
   it('drops into another measurement area without editing the library definition', () => {
     const save = vi.fn();
     const original = { id: 'source', description: 'Source rule', measurementAreaNames: ['Torque'], instrument: lengthInstrument };

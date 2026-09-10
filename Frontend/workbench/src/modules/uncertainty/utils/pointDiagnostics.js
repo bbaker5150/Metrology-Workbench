@@ -94,7 +94,7 @@ export function getBudgetRangeWarnings({
 
 // Readiness is derived from current inputs, never persisted calculation snapshots.
 // Range/mismatch warnings are advisory: a user may intentionally explore them.
-export function getPointDiagnostics(
+export function getPointDiagnosticEntries(
   point = {},
   session = {},
   { riskMetrics, riskStatus = {}, visibleColumns = {} } = {},
@@ -102,8 +102,8 @@ export function getPointDiagnostics(
   const warnings = [];
   const nominal = point.testPointInfo?.parameter || {};
   const tolerance = point.uutTolerance || session.uutTolerance || {};
-  const add = (message) => {
-    if (!warnings.includes(message)) warnings.push(message);
+  const add = (message, category = "input") => {
+    if (!warnings.some(entry => entry.message === message)) warnings.push({ message, category });
   };
   const validNominal =
     filled(nominal.value) && Boolean(unitSystem.units[nominal.unit]);
@@ -145,14 +145,14 @@ export function getPointDiagnostics(
         result.error &&
         !(result.degenerate && point.budgetPropagationMethod === "montecarlo")
       )
-        add(`Check the measurement equation: ${result.error}`);
+        add(`Check the measurement equation: ${result.error}`, "warning");
       if (
         Number.isFinite(result.nominalResult) &&
         Math.abs(result.nominalResult - Number(nominal.value)) >
           Math.max(Math.abs(Number(nominal.value) * 0.0001), 1e-9)
       ) {
         add(
-          `Equation result ${Number(result.nominalResult.toPrecision(10))} ${getUnitDisplayLabel(nominal.unit)} does not equal Measurement Point ${label(nominal)}. Review the input nominals or measurement point value.`,
+          `Equation result ${Number(result.nominalResult.toPrecision(10))} ${getUnitDisplayLabel(nominal.unit)} does not equal Measurement Point ${label(nominal)}. Review the input nominals or measurement point value.`, "warning",
         );
       }
     }
@@ -178,7 +178,7 @@ export function getPointDiagnostics(
     }),
   )
     .flat()
-    .forEach((w) => add(`${w.name}: ${w.reason}`));
+    .forEach((w) => add(`${w.name}: ${w.reason}`, "warning"));
   if (validNominal) {
     const sources = [
       ...components,
@@ -276,15 +276,15 @@ export function getPointDiagnostics(
   }
   if (riskStatus.core === "input exceeds MAX REOP")
     add(
-      `Assumed REOP exceeds the maximum achievable REOP${Number.isFinite(riskStatus.maxReop) ? ` (${Number(riskStatus.maxReop.toPrecision(6))}%)` : ""} for this point. Review the assumed REOP, TUR, uncertainty, and tolerance.`,
+      `Assumed REOP exceeds the maximum achievable REOP${Number.isFinite(riskStatus.maxReop) ? ` (${Number(riskStatus.maxReop.toPrecision(6))}%)` : ""} for this point. Review the assumed REOP, TUR, uncertainty, and tolerance.`, "warning",
     );
   if (riskMetrics === null && !warnings.length)
     add(
-      "Risk could not be calculated from these inputs. Check the budget values, units, distributions and UUT acceptance limits in Uncertainty Budget.",
+      "Risk could not be calculated from these inputs. Check the budget values, units, distributions and UUT acceptance limits in Uncertainty Budget.", "warning",
     );
   if (riskMetrics?.mcStale)
     add(
-      "Monte Carlo results are out of date. Recalculate in Uncertainty Budget to refresh risk metrics.",
+      "Monte Carlo results are out of date. Recalculate in Uncertainty Budget to refresh risk metrics.", "refresh",
     );
   getMitigationDiagnostics({
     metrics: riskMetrics,
@@ -292,6 +292,12 @@ export function getPointDiagnostics(
     requirements: session.uncReq,
     visibleColumns,
     tolerance,
-  }).forEach(add);
+    includeCategories: true,
+  }).forEach(entry => add(entry.message, entry.category));
   return warnings;
+}
+
+// Keep the text-only API for reports and existing calculation consumers.
+export function getPointDiagnostics(...args) {
+  return getPointDiagnosticEntries(...args).map(entry => entry.message);
 }

@@ -1,3 +1,4 @@
+import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
 import { instrumentMatchesSearch } from "../../../utils/functionGrouping";
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
@@ -128,6 +129,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedDetail, setExpandedDetail] = useState(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState(null);
+  const confirmRecordDeletes = useConfirmRecordDeletes();
 
   // --- Editor State ---
   const [instrument, setInstrument] = useState({
@@ -234,6 +236,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
 
   const handleDeleteInstrument = (e, id) => {
     e.stopPropagation();
+    if (!confirmRecordDeletes) { onDelete?.(id); return; }
     setDeleteConfirmation({
       id,
       title: "Delete Instrument",

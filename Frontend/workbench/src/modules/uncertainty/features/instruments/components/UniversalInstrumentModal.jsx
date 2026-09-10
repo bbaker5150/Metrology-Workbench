@@ -1,3 +1,4 @@
+import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
 import { validateInstrumentSpecifications } from "../../../utils/instrumentValidation";
 import BuilderSpecificationRow from "./BuilderSpecificationRow";
 import { applyToleranceCaseChange as applySharedToleranceCaseChange } from "../../analysis/components/UncertaintyPanel";
@@ -275,6 +276,7 @@ const UniversalInstrumentModal = ({
     initialData = null,
     instruments = []
 }) => {
+    const confirmRecordDeletes = useConfirmRecordDeletes();
     const [viewMode, setViewMode] = useState("edit");
     const [effectiveMode, setEffectiveMode] = useState(mode);
 
@@ -642,7 +644,9 @@ const UniversalInstrumentModal = ({
     // Single delete choke-point — a password gate can wrap confirmDelete later.
     const requestDelete = (ids) => {
         const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean);
-        if (list.length) setPendingDelete({ ids: list });
+        if (!list.length) return;
+        if (confirmRecordDeletes) setPendingDelete({ ids: list });
+        else void deleteInstruments(list);
     };
 
     // The modal owns Delete while open. In library-list mode it follows the
@@ -671,16 +675,15 @@ const UniversalInstrumentModal = ({
                 onDelete &&
                 !pendingDelete
             ) {
-                setPendingDelete({ ids: [...selectedIds] });
+                requestDelete([...selectedIds]);
             }
         };
 
         window.addEventListener("keydown", handleDeleteKey, true);
         return () => window.removeEventListener("keydown", handleDeleteKey, true);
-    }, [isOpen, onDelete, pendingDelete, selectedIds, viewMode]);
+    }, [isOpen, onDelete, pendingDelete, selectedIds, viewMode, confirmRecordDeletes]);
 
-    const confirmDelete = async () => {
-        const ids = pendingDelete?.ids || [];
+    const deleteInstruments = async (ids) => {
         // NOTE: insert password verification here when that feature lands.
         for (const id of ids) {
             // eslint-disable-next-line no-await-in-loop
@@ -689,6 +692,7 @@ const UniversalInstrumentModal = ({
         setSelectedIds((prev) => prev.filter((x) => !ids.includes(x)));
         setPendingDelete(null);
     };
+    const confirmDelete = () => deleteInstruments(pendingDelete?.ids || []);
 
     const requestSync = (instrument) => {
         if (!instrument) return;
