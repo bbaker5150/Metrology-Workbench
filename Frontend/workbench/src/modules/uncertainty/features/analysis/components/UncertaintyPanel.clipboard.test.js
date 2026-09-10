@@ -47,7 +47,7 @@ describe("shared instrument display names", () => {
   it("does not duplicate an already combined name", () => expect(formatInstrumentIdentity({ manufacturer: "Acme", model: "123", description: "Acme 123 Meter" })).toBe("Acme 123 Meter"));
 });
 
-it("cuts only the selected area membership and restores a batch without losing other memberships", () => {
+it("cuts only the selected membership and pastes an independent row when another area retains the original", () => {
   const source = { ...item("one", "Torque"), measurementAreaNames: ["Torque", "Inspection"] };
   const other = item("two", "Torque");
   const entries = [{ kind: "uut", item: source, sourceFunctionKey: "torque" }, { kind: "tmde", item: other, sourceFunctionKey: "torque" }];
@@ -56,8 +56,28 @@ it("cuts only the selected area membership and restores a batch without losing o
   expect(cut.uuts[0].measurementAreaNames).toEqual(["Inspection"]);
   expect(cut.tmdes).toEqual([]);
   const result = pasteInstrumentIntoSession(cut, { items: entries, mode: "cut", detached: true }, "uut", "voltage");
-  expect(result.session.uuts.map(row => row.id)).toEqual(["one", "two"]);
-  expect(result.session.uuts[0].measurementAreaNames).toEqual(["Inspection", "Voltage"]);
-  expect(result.session.uuts[1].instrument.functions).toEqual(other.instrument.functions);
+  expect(result.session.uuts).toHaveLength(3);
+  expect(new Set(result.session.uuts.map(row => row.id)).size).toBe(3);
+  expect(result.session.uuts[1].id).not.toBe(source.id);
+  expect(result.session.uuts[1].instrument.id).not.toBe(source.instrument.id);
+  expect(result.session.uuts[0].measurementAreaNames).toEqual(["Inspection"]);
+  expect(result.session.uuts[1].measurementAreaNames).toEqual(["Voltage"]);
+  expect(result.session.uuts[2].instrument.functions).toEqual(other.instrument.functions);
   expect(session.uuts[0].measurementAreaNames).toEqual(["Torque", "Inspection"]);
+});
+
+it.each(["uut", "tmde"])("keeps repeated copies independent in %s", kind => {
+  const source = item("source", "Torque");
+  source.sourceId = source.id;
+  source.definitionId = source.instrument.id;
+  const session = { uuts: [source], tmdes: [], measurementAreaGroups: [{ name: "Torque" }, { name: "Inspection" }] };
+  const clip = { kind: "uut", mode: "copy", item: source };
+  const first = pasteInstrumentIntoSession(session, clip, kind, "inspection");
+  const second = pasteInstrumentIntoSession(first.session, clip, kind, "inspection");
+  const rows = [...second.session.uuts, ...second.session.tmdes];
+  expect(new Set(rows.map(row => row.id)).size).toBe(3);
+  expect(new Set(rows.map(row => row.instrument.id)).size).toBe(3);
+  expect(second.row.sourceId).toBe(second.row.id);
+  expect(second.row.definitionId).toBe(second.row.instrument.id);
+  expect(source.measurementAreaNames).toEqual(["Torque"]);
 });

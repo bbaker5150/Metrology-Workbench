@@ -20406,3 +20406,27 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .budget-inline-manual-row.is-editing:not(.is-editing-name) .budget-source-cell .inline-tolerance-summary { text-align: center; }
 .instrument-function-row[draggable="true"] { cursor: grab; }
 .instrument-function-row[draggable="true"]:active { cursor: grabbing; }
+
+/* Reserve the same diagnostic gutter in the header as in every value cell. */
+.uncertainty-module .sidebar-sort-header--value {
+  padding-left: calc(var(--point-diagnostics-width, 16px) + 11px);
+  box-sizing: border-box;
+}
+/* Clip metric text inside its cell, leaving the column-gap divider visible. */
+.uncertainty-module .point-grid-item > .point-metric { overflow: visible; }
+.uncertainty-module .point-metric-content {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: inherit;
+}
+/* Sidebar geometry follows the pointer without a width animation. */
+.uncertainty-module .measurement-points-table .area-header-sticky {
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+}
+
+.uncertainty-module .point-metric-list > .point-metric-content {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+}

@@ -184,14 +184,11 @@ export const pasteInstrumentIntoSession = (session, clip, kind, areaKey, targetI
   let anchor = targetId || (next[listKey] || []).filter(x => instrumentHasMeasurementArea(x, area?.key)).at(-1)?.id;
   for (const entry of entries) {
     let row = buildPastedInstrumentRow(entry.item, kind, area, clip.mode);
-    // A row may still belong to another area. Reuse it in the same table,
-    // preserving those other memberships and its links to measurement points.
-    const existing = (next[listKey] || []).find(item => sameId(item.id, row.id));
-    if (existing && clip.mode === "cut" && entry.kind === kind) {
-      row = { ...row, measurementAreaNames: [...new Set([...instrumentMeasurementAreas(existing).map(a => a.name), ...instrumentMeasurementAreas(row).map(a => a.name)])] };
-    } else if (existing) {
-      row = { ...row, id: uuidv4() };
-    }
+    // If a membership remains elsewhere, the destination needs an independent
+    // row and definition. Reusing its ID links selection across the areas.
+    const existing = [...(next.uuts || []), ...(next.tmdes || [])]
+      .some(item => sameId(item.id, row.id));
+    if (existing) row = buildPastedInstrumentRow(entry.item, kind, area, "copy");
     const rows = (next[listKey] || []).filter(item => !sameId(item.id, row.id));
     next[listKey] = insertAfterId(rows, row, anchor);
     added.push(row);
