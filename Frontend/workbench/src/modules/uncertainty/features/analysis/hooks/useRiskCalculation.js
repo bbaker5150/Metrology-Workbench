@@ -1,3 +1,4 @@
+import { computePointTmdeLimits } from "../../../utils/pointTmdeLimits";
 /**
  * src/hooks/useRiskCalculation.js
  * * This hook manages the Risk Analysis state and logic.
@@ -349,105 +350,11 @@ export const useRiskCalculation = (
       };
     });
 
-    // ... [Logic: TMDE Breakdown for TAR] ...
-    const tmdeBreakdownForTar = [];
-    let missingTmdeRef = false;
-    let tmdeToleranceHigh_Native = 0;
-    let tmdeToleranceLow_Native = 0;
-
-    if (tmdeTolerancesData.length > 0) {
-      const tmdeTotals = tmdeTolerancesData.reduce(
-        (acc, tmde) => {
-          // Determine the effective reference point: TMDE's own point OR UUT Nominal
-          // Must have BOTH value AND unit to be valid
-          const hasTmdeMeasurementPoint = tmde.measurementPoint && 
-              tmde.measurementPoint.value && 
-              tmde.measurementPoint.unit;
-          
-          const refPoint = hasTmdeMeasurementPoint 
-              ? tmde.measurementPoint 
-              : uutNominal;
-
-          if (!refPoint || !refPoint.value || !refPoint.unit) {
-            missingTmdeRef = true;
-            return acc;
-          }
-
-          // Handle potential nested tolerance object (same fix as useUncertaintyCalculation)
-          const toleranceSource = tmde.tolerance || tmde;
-
-          const { breakdown: tmdeBreakdown } =
-            calculateUncertaintyFromToleranceObject(
-              toleranceSource,
-              refPoint
-            );
-
-          const tmdeNominal = parseFloat(refPoint.value);
-
-          const tmdeSpecComponents = tmdeBreakdown.filter(
-            (comp) =>
-              comp.absoluteHigh !== undefined && comp.absoluteLow !== undefined
-          );
-          if (tmdeSpecComponents.length === 0) return acc;
-
-          let totalTmdeHighDevInUutNative = 0;
-          let totalTmdeLowDevInUutNative = 0;
-
-          // FIX: Use the unit of the effective reference point, not necessarily the TMDE's own unit
-          // This ensures that if we fell back to UUT Nominal, we use UUT Nominal's unit.
-          const tmdeUnitInfo = unitSystem.units[refPoint.unit];
-          if (!tmdeUnitInfo || isNaN(tmdeUnitInfo.to_si)) {
-            missingTmdeRef = true;
-            return acc;
-          }
-
-          tmdeSpecComponents.forEach((comp) => {
-            const highDev = comp.absoluteHigh - tmdeNominal;
-            const lowDev = comp.absoluteLow - tmdeNominal;
-            const compSpan = highDev - lowDev;
-
-            const compSpanInBase = compSpan * tmdeUnitInfo.to_si;
-            const compSpanInUutNative = compSpanInBase / targetUnitInfo.to_si;
-
-            if (compSpanInUutNative > 0) {
-              tmdeBreakdownForTar.push({
-                name: `${tmde.name || "TMDE"} - ${comp.name}`,
-                span: compSpanInUutNative,
-              });
-            }
-
-            const highDevInBase = highDev * tmdeUnitInfo.to_si;
-            const highDevInUutNative = highDevInBase / targetUnitInfo.to_si;
-
-            const lowDevInBase = lowDev * tmdeUnitInfo.to_si;
-            const lowDevInUutNative = lowDevInBase / targetUnitInfo.to_si;
-
-            totalTmdeHighDevInUutNative += highDevInUutNative;
-            totalTmdeLowDevInUutNative += lowDevInUutNative;
-          });
-
-          const quantity = parseInt(tmde.quantity, 10) || 1;
-          acc.totalHigh += totalTmdeHighDevInUutNative * quantity;
-          acc.totalLow += totalTmdeLowDevInUutNative * quantity;
-
-          return acc;
-        },
-        { totalHigh: 0, totalLow: 0 }
-      );
-
-      tmdeToleranceHigh_Native = tmdeTotals.totalHigh;
-      tmdeToleranceLow_Native = tmdeTotals.totalLow;
-    }
-
-    const tmdeToleranceSpan_Native =
-      tmdeToleranceHigh_Native - tmdeToleranceLow_Native;
-
-    if (missingTmdeRef) {
-      setNotification({
-        title: "Missing Info",
-        message: "TMDE missing Reference Point for TAR calculation.",
-      });
-    }
+    const tmdeLimits = computePointTmdeLimits(testPointData, sessionData);
+    const tmdeToleranceHigh_Native = tmdeLimits.high == null ? NaN : tmdeLimits.high - Number(uutNominal.value);
+    const tmdeToleranceLow_Native = tmdeLimits.low == null ? NaN : tmdeLimits.low - Number(uutNominal.value);
+    const tmdeToleranceSpan_Native = tmdeLimits.span;
+    const tmdeBreakdownForTar = tmdeLimits.span == null ? [] : [{name:tmdeLimits.method,span:tmdeLimits.span}];
 
     // ... [Math Calculations] ...
     let tarResult = calcTAR(
@@ -536,7 +443,8 @@ export const useRiskCalculation = (
         ALow: summary.gbLow,
         AUp: summary.gbHigh,
         riskAverage,
-        tar: Number.isFinite(Number(tarResult)) ? Number(tarResult) : undefined,
+        tmdeLimits,
+        tar: tmdeLimits.span > 0 && Number.isFinite(Number(tarResult)) ? Number(tarResult) : undefined,
         uCal: uCal_Native,
         expandedUncertainty: U_Native,
         tmdeToleranceSpan: tmdeToleranceSpan_Native,
@@ -865,6 +773,7 @@ export const useRiskCalculation = (
       riskAverage,
       tur: turResult,
       tar: tarResult,
+      tmdeLimits,
       pfa: pfaResult * 100,
       pfr: pfrResult * 100,
       pfa_term1: (isNaN(pfa_term1) ? 0 : pfa_term1) * 100,
@@ -908,6 +817,11 @@ export const useRiskCalculation = (
     sessionData.uncReq.measRelCalcAssumed,
     sessionData.uncReq.neededTUR,
     sessionData.uutDescription,
+    sessionData.tmdes,
+    testPointData?.components,
+    testPointData?.equationString,
+    testPointData?.variableMappings,
+    testPointData?.variableNominals,
     uutNominal,
     calcResults,
     uutToleranceData,

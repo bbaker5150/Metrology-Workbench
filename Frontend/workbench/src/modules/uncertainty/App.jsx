@@ -1,3 +1,4 @@
+import { computePointTmdeLimits } from "./utils/pointTmdeLimits";
 import { useConfirmRecordDeletes } from "./contexts/RecordDeletePolicy";
 import { faCircleInfo, faPenToSquare, faRotate } from "@fortawesome/free-solid-svg-icons";
 import { getMeasurementAreaUnits } from "./utils/pointUnits";
@@ -725,6 +726,7 @@ export const SidebarPointItem = ({
   isActivePoint = false,
   isTableSelected,
   liveRiskMetrics,
+  liveTmdeLimits,
   diagnostics = [],
   isLiveRiskTarget = false,
   riskRequirements = {},
@@ -1180,6 +1182,10 @@ export const SidebarPointItem = ({
   }, [point.uutTolerance, point.testPointInfo]);
 
   const tmdeLimitsData = React.useMemo(() => {
+    if (liveTmdeLimits) {
+      return {low:liveTmdeLimits.low == null ? "-" : Number(liveTmdeLimits.low).toPrecision(7),
+        high:liveTmdeLimits.high == null ? "-" : Number(liveTmdeLimits.high).toPrecision(7),entries:[]};
+    }
     if (point.measurementType === "derived") {
       const entries = getTmdeAbsoluteLimitEntries(point.tmdeTolerances).map(
         (entry) => {
@@ -1207,12 +1213,14 @@ export const SidebarPointItem = ({
     const shortHigh = limits.high.split(" ")[0];
     return { low: shortLow, high: shortHigh, entries: [] };
   }, [
+    liveTmdeLimits,
     point.measurementType,
     point.tmdeTolerances,
     point.testPointInfo,
   ]);
 
   const tmdeLimitsTitle = React.useMemo(() => {
+    if (liveTmdeLimits) return liveTmdeLimits.reason || `${liveTmdeLimits.method}: ${liveTmdeLimits.low} to ${liveTmdeLimits.high} ${liveTmdeLimits.unit}`;
     if (tmdeLimitsData.entries.length === 0) return null;
     return tmdeLimitsData.entries
       .map(
@@ -1220,7 +1228,7 @@ export const SidebarPointItem = ({
           `${entry.label}: ${entry.low} to ${entry.high}`,
       )
       .join("\n");
-  }, [tmdeLimitsData]);
+  }, [tmdeLimitsData, liveTmdeLimits]);
 
   // A shared cell spans rows this component does not own, so its hover is
   // applied to the run's cells directly. Holding it in React state instead
@@ -5107,6 +5115,7 @@ function App({ showThemeToggle = false }) {
       isTableSelected={selectedTablePointIds.includes(tp.id)}
       unitOptions={getMeasurementAreaUnits(currentSessionData, fnGroup.name)}
       liveRiskMetrics={pointRiskMap[tp.id]}
+      liveTmdeLimits={computePointTmdeLimits(tp, currentSessionData)}
       diagnostics={pointDiagnosticsMap[tp.id]}
       riskRequirements={currentSessionData?.uncReq || {}}
       isLiveRiskTarget={true}

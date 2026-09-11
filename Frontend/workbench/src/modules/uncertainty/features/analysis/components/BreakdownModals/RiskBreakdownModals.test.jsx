@@ -150,7 +150,7 @@ describe("Risk 8.0 breakdown modal", () => {
     );
 
     expect(
-      screen.getByText(/Risk 8.0 consumes TUR.*does not recalculate TAR/i),
+      screen.getByText(/TAR compares specification widths.*Risk probabilities use TUR/i),
     ).toBeInTheDocument();
   });
 

@@ -64,6 +64,7 @@ const isTwoSidedRisk8 = (results) =>
   results?.riskMethod === "risk8-two-sided-asymmetric";
 
 const TwoSidedCalculationChain = ({ modalType, results }) => {
+  if (modalType === "tar" && results.tmdeLimits?.reason) return <p>{results.tmdeLimits.reason}</p>;
   const risk8 = results.risk8 || {};
   const out = risk8.out || {};
   const input = risk8.input || {};
@@ -119,7 +120,7 @@ const TwoSidedCalculationChain = ({ modalType, results }) => {
     return (
       <MathStep
         title="Two-sided asymmetric TAR calculation"
-        description="The full UUT tolerance width is divided by the full TMDE tolerance width."
+        description={results.tmdeLimits?.reason || `${results.tmdeLimits?.method || "TMDE specification limits"}. The full UUT tolerance width is divided by the full equivalent TMDE tolerance width.`}
         equations={[
           `TAR=\\frac{U-L}{T_{TMDE,high}-T_{TMDE,low}}=\\frac{${latexNumber(span)}}{${latexNumber(tmdeSpan)}}=\\mathbf{${latexNumber(results.tar)}}`,
         ]}
@@ -259,6 +260,7 @@ const TwoSidedCalculationChain = ({ modalType, results }) => {
 };
 
 const CalculationChain = ({ modalType, results }) => {
+  if (modalType === "tar" && results.tmdeLimits?.reason) return <p>{results.tmdeLimits.reason}</p>;
   if (isTwoSidedRisk8(results)) {
     return <TwoSidedCalculationChain modalType={modalType} results={results} />;
   }
@@ -582,8 +584,8 @@ const metricDetails = (modalType, results) => {
       return {
         title: "Probability of False Accept",
         explanation:
-          asymmetric
-            ? "Risk 8.0 evaluates both false-accept regions of the Type 2 asymmetric tolerance using the shared normalized two-sided model."
+          twoSided
+            ? "Risk 8.0 evaluates both false-accept regions of the two-sided tolerance using the shared normalized two-sided model."
             : "Risk 8.0 evaluates the single-sided false-accept region using the test TUR, assumed reliability, normalized UUT bias, calibration bias, and the active acceptance limit.",
         rows: [
           ["PFA", percent(results.pfa)],
@@ -596,8 +598,8 @@ const metricDetails = (modalType, results) => {
       return {
         title: "Probability of False Reject",
         explanation:
-          asymmetric
-            ? "Risk 8.0 evaluates both false-reject regions of the Type 2 asymmetric tolerance from the same model used for PFA."
+          twoSided
+            ? "Risk 8.0 evaluates both false-reject regions of the two-sided tolerance from the same model used for PFA."
             : "Risk 8.0 evaluates the complementary single-sided false-reject region from the same normalized test model used for PFA.",
         rows: [
           ["PFR", percent(results.pfr)],
@@ -642,8 +644,8 @@ const metricDetails = (modalType, results) => {
       return {
         title: "Test Uncertainty Ratio",
         explanation:
-          asymmetric
-            ? "For Type 2, TUR is the full UUT tolerance width divided by twice the expanded measurement uncertainty."
+          twoSided
+            ? "For a two-sided tolerance, TUR is the full UUT tolerance width divided by twice the expanded measurement uncertainty."
             : "For a known single-sided point, TUR is the physical distance from the measured value to the active specification limit divided by expanded measurement uncertainty.",
         rows: [
           ["Distance to active limit", withUnit(Math.abs(results.riskAverage - limit), unit)],
@@ -655,11 +657,11 @@ const metricDetails = (modalType, results) => {
       return {
         title: "Test Accuracy Ratio",
         explanation:
-          "TAR is an upstream tolerance-span ratio retained by the app. Risk 8.0 consumes TUR for its probability calculations and does not recalculate TAR.",
+          results.tmdeLimits?.reason || `${results.tmdeLimits?.method || "TMDE specification limits"}. TAR compares specification widths. Risk probabilities use TUR and the uncertainty budget.`,
         rows: [
           ["TAR", number(results.tar)],
           ["Distance from measurement to active limit", withUnit(Math.abs(results.riskAverage - limit), unit)],
-          ["TMDE half-span", withUnit(results.tmdeToleranceSpan / 2, unit)],
+          ["TMDE half-span", withUnit(results.tmdeToleranceSpan == null ? undefined : results.tmdeToleranceSpan / 2, unit)],
         ],
       };
     case "gblow":

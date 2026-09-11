@@ -13,11 +13,12 @@ it("preserves explicit shunt resolution and matches detailed risk and mitigation
   }};
   const session = {uncReq:{uncertaintyConfidence:95,reliability:85,reqPFA:2,calInt:6,neededTUR:4,measRelCalcAssumed:85,guardBandMultiplier:1},
     tmdes:[{id:"shunt",instrument:{functions:[{id:"resistance",name:"Resistance",unit:"Ohm",ranges:[range]}]}}]};
+  session.tmdes.push({id:"meter",instrument:{functions:[{name:"Voltage",unit:"mV",ranges:[{id:"meter-range",min:0,max:100,tolerances:{floor:{low:-.0021017294*1.96,high:.0021017294*1.96,unit:"mV",distribution:"1.960"}}}]}]}});
   const point={id:"500A",measurementType:"derived",equationString:"V/R",variableMappings:{V:"Voltage",R:"Resistance"},
     variableNominals:{V:{value:6.25,unit:"mV"},R:{value:12.5e-6,unit:"Ohm"}},
     testPointInfo:{parameter:{value:500,unit:"A"}},tmdeTolerances:[],
     uutTolerance:{floor:{low:-50,high:50,unit:"A",distribution:"1.732"}},
-    components:[{id:"voltage",name:"Voltage",variableType:"Voltage",value_native:.0021017294,unit_native:"mV",type:"B"},
+    components:[{id:"voltage",tmdeBudgetSourceId:"meter",tmdeBudgetRangeId:"meter-range",tmdeBudgetComponentKind:"Accuracy",name:"Voltage",variableType:"Voltage",value_native:.0021017294,unit_native:"mV",type:"B"},
       ...["Accuracy","Resolution"].map(kind=>({id:kind,name:kind,variableType:"Resistance",tmdeBudgetSourceId:"shunt",tmdeBudgetRangeId:"shunt-range",tmdeBudgetComponentKind:kind,type:"B"}))]};
   const sources=resolvePointBudgetComponents(point,session);
   expect(sources).toHaveLength(3);
@@ -32,7 +33,7 @@ it("preserves explicit shunt resolution and matches detailed risk and mitigation
     return {...risk,calcResults};
   });
   await waitFor(()=>expect(result.current.riskResults?.tur).toBeCloseTo(sidebar.tur,8));
-  for(const key of ["pfa","pfr","gbLow","gbHigh","gbPfa","gbPfr"]){
+  for(const key of ["tar","pfa","pfr","gbLow","gbHigh","gbPfa","gbPfr"]){
     expect(sidebar[key],key).toBeDefined();
     expect(result.current.riskResults[key],key).toBeCloseTo(sidebar[key],8);
   }
@@ -43,6 +44,9 @@ it("preserves explicit shunt resolution and matches detailed risk and mitigation
   });
   const row=report.functions[0].uuts[0].ranges[0].rows[0];
   expect(Number(row.tur)).toBeCloseTo(19.184,2);
+  expect(Number(row.tar)).toBeCloseTo(sidebar.tar,2);
+  expect(Number(row.tmdeLow)).toBeCloseTo(sidebar.tmdeLimits.low,7);
+  expect(Number(row.tmdeHigh)).toBeCloseTo(sidebar.tmdeLimits.high,7);
   const changed=structuredClone(session); changed.tmdes[0].instrument.functions[0].ranges[0].tolerances.resolution=2e-7;
   expect(computePointRiskMetrics(point,changed).tur).toBeLessThan(sidebar.tur);
 });

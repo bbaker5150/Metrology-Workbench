@@ -1,3 +1,4 @@
+import { computePointTmdeLimits } from "./pointTmdeLimits";
 import { updateDynamicDefinition } from "./dynamicBudgetComponents";
 // src/modules/uncertainty/utils/riskCompute.js
 //
@@ -571,67 +572,9 @@ export function computePointRiskMetrics(
     if (Number.isFinite(mcMeanNative)) riskAverage = mcMeanNative;
   }
 
-  // TMDE tolerance span (for TAR), mirroring useRiskCalculation.
-  let tmdeToleranceHigh_Native = 0;
-  let tmdeToleranceLow_Native = 0;
-  const tmdeTolerancesData = reconcileTmdeInstances(
-    point.tmdeTolerances || [],
-    sessionData?.tmdes || [],
-  );
-  if (tmdeTolerancesData.length > 0) {
-    const totals = tmdeTolerancesData.reduce(
-      (acc, tmde) => {
-        const hasTmdeMeasurementPoint =
-          tmde.measurementPoint &&
-          isFilledNumber(tmde.measurementPoint.value) &&
-          tmde.measurementPoint.unit;
-        const refPoint = hasTmdeMeasurementPoint
-          ? tmde.measurementPoint
-          : uutNominal;
-        if (!refPoint || !isFilledNumber(refPoint.value) || !refPoint.unit) {
-          return acc;
-        }
-
-        const toleranceSource = tmde.tolerance || tmde;
-        let breakdown;
-        try {
-          breakdown = calculateUncertaintyFromToleranceObject(
-            toleranceSource,
-            refPoint,
-          ).breakdown;
-        } catch {
-          return acc;
-        }
-        const tmdeNominal = parseFloat(refPoint.value);
-        const tmdeSpecComponents = (breakdown || []).filter(
-          (comp) =>
-            comp.absoluteHigh !== undefined && comp.absoluteLow !== undefined,
-        );
-        if (tmdeSpecComponents.length === 0) return acc;
-
-        const tmdeUnitInfo = unitSystem.units[refPoint.unit];
-        if (!tmdeUnitInfo || isNaN(tmdeUnitInfo.to_si)) return acc;
-
-        let totalHighDev = 0;
-        let totalLowDev = 0;
-        tmdeSpecComponents.forEach((comp) => {
-          const highDev = comp.absoluteHigh - tmdeNominal;
-          const lowDev = comp.absoluteLow - tmdeNominal;
-          totalHighDev +=
-            (highDev * tmdeUnitInfo.to_si) / targetUnitInfo.to_si;
-          totalLowDev += (lowDev * tmdeUnitInfo.to_si) / targetUnitInfo.to_si;
-        });
-        const quantity = parseInt(tmde.quantity, 10) || 1;
-        acc.totalHigh += totalHighDev * quantity;
-        acc.totalLow += totalLowDev * quantity;
-        return acc;
-      },
-      { totalHigh: 0, totalLow: 0 },
-    );
-    tmdeToleranceHigh_Native = totals.totalHigh;
-    tmdeToleranceLow_Native = totals.totalLow;
-  }
-
+  const tmdeLimits = computePointTmdeLimits(point, sessionData);
+  const tmdeToleranceLow_Native = tmdeLimits.low == null ? NaN : tmdeLimits.low - nominalValue;
+  const tmdeToleranceHigh_Native = tmdeLimits.high == null ? NaN : tmdeLimits.high - nominalValue;
   const tarResult = calcTAR(
     uutNominal.value,
     riskAverage,
@@ -682,7 +625,8 @@ export function computePointRiskMetrics(
     if (!summary) return null;
     return {
       ...summary,
-      tar: Number.isFinite(Number(tarResult)) ? Number(tarResult) : undefined,
+      tmdeLimits,
+      tar: tmdeLimits.span > 0 && Number.isFinite(Number(tarResult)) ? Number(tarResult) : undefined,
       mcStale: false,
     };
   }
@@ -924,6 +868,7 @@ export function computePointRiskMetrics(
     pfr: pfr !== undefined ? pfr * 100 : undefined,
     tur,
     tar,
+    tmdeLimits,
     // "empirical" when an MC-mode point's fresh summary drove PFA/PFR;
     // mcStale marks an MC-mode point falling back to closed-form numbers
     // because its summary is missing or out of date (UI shows a re-simulate

@@ -1,3 +1,4 @@
+import { computePointTmdeLimits } from "./pointTmdeLimits";
 import { formatInstrumentIdentity } from "./instrumentIdentity";
 import { rgb } from "pdf-lib";
 import { resolveSessionMeasurementAreas, measurementAreaLabelOf } from "./measurementAreaGrouping";
@@ -197,7 +198,7 @@ const getPointRow = (point, risk, helpers) => {
     replaceUnicode(value)
       .replace(new RegExp(`\\s*${replaceUnicode(parameter.unit)}\\s*$`), "")
       .trim();
-  const tmdeLimits = helpers.getTmdeAbsoluteLimits?.(
+  const tmdeLimits = helpers.getPointTmdeLimits ? helpers.getPointTmdeLimits(point) : helpers.getTmdeAbsoluteLimits?.(
     point.tmdeTolerances,
     parameter,
   );
@@ -311,6 +312,10 @@ export const buildSessionReportModel = (
   riskMetricsMap = {},
   helpers,
 ) => {
+  helpers = {...helpers, getPointTmdeLimits: point => {
+    const limits=computePointTmdeLimits(point,session);
+    return {low:limits.low == null ? "N/A" : String(limits.low),high:limits.high == null ? "N/A" : String(limits.high)};
+  }};
   const uuts = session.uuts || [];
   const points = session.testPoints || [];
   const uutById = new Map(uuts.map((uut) => [String(uut.id), uut]));
