@@ -42,5 +42,5 @@ it("includes interior extrema instead of assuming endpoint evaluations are suffi
 
 it("uses mapped input nominal instead of an old output-valued TMDE snapshot",()=>{
  const p={...point,components:[],tmdeTolerances:[{id:"meter",variableType:"Voltage",measurementPoint:{value:500,unit:"A"},tolerance:{unit:"mV",floor:{low:-.01,high:.01,unit:"mV",distribution:"1.732"}}}]};
- expect(computePointTmdeLimits(p,session).entries[0]).toMatchObject({unit:"mV",rawLow:6.24,rawHigh:6.26});
+ expect(computePointTmdeLimits(p,session).entries[0]).toMatchObject({unit:"mV",rawLow:6.25-.0038125,rawHigh:6.25+.0038125});
 });

@@ -2,7 +2,7 @@ import { matchingResolution } from "./pointLimitDisplay";
 import { parse } from "mathjs";
 import { calculateUncertaintyFromToleranceObject, unitSystem } from "./uncertaintyMath";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
-import { reconcileTmdeInstances } from "./tmdeReconcile";
+import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters } from "./tmdeReconcile";
 import { validateEquation } from "./equationValidation";
 
 const numeric = v => v !== "" && v != null && Number.isFinite(Number(v));
@@ -59,7 +59,7 @@ export function computePointTmdeLimits(point, session = {}) {
     const nominal=point.testPointInfo?.parameter;
     if (!numeric(nominal?.value) || !unitSystem.units[nominal?.unit]) throw Error("Enter a measurement value and unit to calculate TMDE limits.");
     const derived=point.measurementType==="derived";
-    const sources=reconcileTmdeInstances(point.tmdeTolerances || [],session.tmdes || []).map(t=>({
+    const sources=refreshTmdeInstancesFromMasters(reconcileTmdeInstances(point.tmdeTolerances || [],session.tmdes || []),session.tmdes || []).map(t=>({
       id:t.id,sourceId:t.sourceId || t.id,rangeId:t.rangeId || t.tolerance?.id,variableType:t.variableType,
       name:t.name || t.description || "TMDE",tolerance:t.tolerance || t,
       nominal:derived ? (point.variableNominals?.[Object.keys(point.variableMappings || {}).find(k=>point.variableMappings[k]===t.variableType)] || t.measurementPoint) : (t.measurementPoint || nominal),quantity:Math.max(1,Number(t.quantity)||1)

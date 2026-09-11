@@ -2,7 +2,7 @@ import { resolveDynamicComponents } from "./dynamicBudgetComponents";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 import { getBudgetComponentsFromTolerance, getUutResolutionComponent, refreshLinkedTypeBComponents } from "../features/analysis/utils/budgetUtils";
 import { normalizeInlineManualComponent, getInlineManualDraft } from "../features/analysis/utils/manualComponentUtils";
-import { reconcileTmdeInstances } from "./tmdeReconcile";
+import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters } from "./tmdeReconcile";
 
 // Resolve the same explicit budget sources for the open view, sidebar and exports.
 // A resolution row explicitly added to a budget stays included regardless of
@@ -10,7 +10,7 @@ import { reconcileTmdeInstances } from "./tmdeReconcile";
 export function resolvePointBudgetComponents(point, sessionData, instruments = []) {
   const uutNominal = point.testPointInfo?.parameter;
   const uutToleranceData = point.uutTolerance || sessionData.uutTolerance;
-  const tmdeTolerancesData = reconcileTmdeInstances(point.tmdeTolerances || [], sessionData.tmdes || []);
+  const tmdeTolerancesData = refreshTmdeInstancesFromMasters(reconcileTmdeInstances(point.tmdeTolerances || [], sessionData.tmdes || []), sessionData.tmdes || []);
     const rawComponents = resolveDynamicComponents(point.components, point, sessionData);
     const getReferencePoint = (component) => {
       if (point.measurementType === "derived" && component?.variableType) {

@@ -206,8 +206,8 @@ describe("refreshTmdeInstancesFromMasters", () => {
 
     expect(refreshed[0].includeResolutionInBudget).toBe(true);
     expect(refreshed[0].tolerance.includeResolutionInBudget).toBe(true);
-    expect(refreshed[0].measuringResolutionDistribution).toBe("3.464");
-    expect(refreshed[0].tolerance.measuringResolutionDistribution).toBe("3.464");
+    expect(refreshed[0].measuringResolutionDistribution).toBe("1.732");
+    expect(refreshed[0].tolerance.measuringResolutionDistribution).toBe("1.732");
     expect(refreshed[0].reading.toleranceLimit).toBe("0.01");
   });
 

@@ -82,9 +82,10 @@ export default function useInstrumentTableLayout(containerRef) {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(sync);
     };
-    const mutation = new MutationObserver(schedule);
+    // Editor mounts and row swaps must settle before the next paint.
+    const mutation = new MutationObserver(sync);
     mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
-    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
+    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(sync);
     resize?.observe(container);
     container.addEventListener("focusin", schedule);
     window.addEventListener("scroll", schedule, true);

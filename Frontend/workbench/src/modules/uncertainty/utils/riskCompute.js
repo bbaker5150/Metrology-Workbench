@@ -47,7 +47,7 @@ import {
   getUutResolutionComponent,
 } from "../features/analysis/utils/budgetUtils";
 import { resolvePointBudgetComponents } from "./resolvePointBudgetComponents";
-import { reconcileTmdeInstances } from "./tmdeReconcile";
+import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters } from "./tmdeReconcile";
 import { computeEmpiricalRisk, findEmpiricalGuardBand } from "./empiricalRisk";
 import {
   normalizeRisk8MonteCarloTrials,
@@ -111,10 +111,10 @@ export function computeUncertaintyForPoint(point, sessionData) {
 
   // Reconcile against the session masters so the sidebar's per-point metrics use
   // the same orphan-/duplicate-free instance set the open point's budget does.
-  const tmdeTolerancesData = reconcileTmdeInstances(
+  const tmdeTolerancesData = refreshTmdeInstancesFromMasters(reconcileTmdeInstances(
     point.tmdeTolerances || [],
     sessionData?.tmdes || [],
-  );
+  ), sessionData?.tmdes || []);
   const manualComponents = resolvePointBudgetComponents(
     point,
     sessionData,

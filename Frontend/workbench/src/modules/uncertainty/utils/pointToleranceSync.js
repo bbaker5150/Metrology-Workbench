@@ -1,3 +1,4 @@
+import { recalculatePointUncertaintyFields } from "./riskCompute";
 import { getInstrumentRangeRows, isDraftInstrumentRange } from "./instrumentFunctionSelection";
 import { getUnitDisplayLabel, unitSystem } from "./uncertaintyMath";
 const filled = value => value != null && String(value).trim() !== "";
@@ -6,13 +7,21 @@ const sameId = (a, b) => a != null && b != null && String(a) === String(b);
 // Update stored source snapshots in the same session transaction as an instrument
 // edit, so every sidebar row and its risk calculation see the new specification.
 export function syncPointTolerances(session, previous) {
-  if (!previous || session.uuts === previous.uuts) return session;
+  if (!previous) return session;
   const changed = new Map();
   for (const uut of session.uuts || []) {
     const old = (previous.uuts || []).find(item => sameId(item.id, uut.id));
     if (JSON.stringify(old) !== JSON.stringify(uut)) changed.set(String(uut.id), uut);
   }
-  if (!changed.size) return session;
+  const changedTmdeIds = new Set();
+  for (const tmde of [...(session.tmdes || []), ...(previous.tmdes || [])]) {
+    const old = (previous.tmdes || []).find(item => sameId(item.id, tmde.id));
+    const next = (session.tmdes || []).find(item => sameId(item.id, tmde.id));
+    if (JSON.stringify(old) !== JSON.stringify(next)) {
+      for (const value of [tmde.id, tmde.sourceId, tmde.instrument?.id]) if (value != null) changedTmdeIds.add(String(value));
+    }
+  }
+  if (!changed.size && !changedTmdeIds.size) return session;
   let updated = false;
   const testPoints = (session.testPoints || []).map(point => {
     const uutId = point.activeUutId || point.associatedUutIds?.[0];
@@ -48,5 +57,21 @@ export function syncPointTolerances(session, previous) {
     updated = true;
     return { ...point, uutTolerance: tolerance };
   });
-  return updated ? { ...session, testPoints } : session;
+  const result = updated ? { ...session, testPoints } : session;
+  let recalculated = false;
+  const refreshedPoints = (result.testPoints || []).map(point => {
+    const components = point.components || [];
+    const uutId = point.activeUutId || point.associatedUutIds?.[0];
+    const resolutionLinked = components.some(c => c.uutResolutionBudgetSource) ||
+      point.uutTolerance?.includeResolutionInBudget || point.uutTolerance?.tolerances?.includeResolutionInBudget;
+    const sources = [...components, ...(point.tmdeTolerances || [])];
+    const tmdeChanged = sources.some(source => [source.tmdeBudgetSourceId, source.sourceTmdeId, source.typeBSourceTmdeId,
+      source.sourceId, source.id, source.sourceInstrument?.id, source.instrument?.id]
+      .some(id => id != null && changedTmdeIds.has(String(id))));
+    if (!(changed.has(String(uutId)) && resolutionLinked) && !tmdeChanged) return point;
+    recalculated = true;
+    return recalculatePointUncertaintyFields({ ...point, calculatedBudgetComponents: [], calculatedBudgetGroups: [],
+      is_detailed_uncertainty_calculated: false, mcSummary: null, risk8MonteCarloResult: null }, result);
+  });
+  return recalculated ? { ...result, testPoints: refreshedPoints } : result;
 }

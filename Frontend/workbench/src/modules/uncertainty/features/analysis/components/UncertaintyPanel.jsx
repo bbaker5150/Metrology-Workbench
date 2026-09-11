@@ -1030,10 +1030,28 @@ export const applyItemRangeFunction = (item, rangeId, rawFunctionName) => {
 export const applyItemRangePatch = (item, rangeId, rangePatch) => {
   const inst = item?.instrument || {};
   const has = (ranges) => (ranges || []).some((r) => rangeMatches(r, rangeId));
+  // Legacy imports store measuringResolution beside (or inside) tolerances.
+  // Keep aliases in agreement so the table and existing budget links see one edit.
+  const resolutionPatch = {};
+  for (const [current, legacy] of [["resolution", "measuringResolution"], ["resolutionUnit", "measuringResolutionUnit"], ["resolutionDistribution", "measuringResolutionDistribution"]]) {
+    if (Object.hasOwn(rangePatch, current) || Object.hasOwn(rangePatch, legacy)) {
+      const value = Object.hasOwn(rangePatch, current) ? rangePatch[current] : rangePatch[legacy];
+      resolutionPatch[current] = value;
+      resolutionPatch[legacy] = value;
+    }
+  }
+  rangePatch = { ...rangePatch, ...resolutionPatch };
   const patch = (ranges) =>
-    (ranges || []).map((r) =>
-      rangeMatches(r, rangeId) ? { ...r, ...rangePatch } : r,
-    );
+    (ranges || []).map((r) => {
+      if (!rangeMatches(r, rangeId)) return r;
+      const next = { ...r, ...rangePatch };
+      if (Object.keys(resolutionPatch).length) {
+        for (const nested of ["tolerance", "tolerances"]) {
+          if (next[nested] && typeof next[nested] === "object") next[nested] = { ...next[nested], ...resolutionPatch };
+        }
+      }
+      return next;
+    });
   if (Array.isArray(inst.functions) && inst.functions.some((fn) => has(fn.ranges))) {
     return {
       ...item,
@@ -4467,36 +4485,36 @@ export const InlineToleranceCell = ({
   onOpenRequestHandled,
   onEditingChange,
 }) => {
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(openRequested);
   const containerRef = useRef(null);
   const onEditingChangeRef = useRef(onEditingChange);
   const inferredMode = inferToleranceEditorMode(tolerance);
   const [shapeMode, setShapeMode] = useState(inferredMode.shape);
   const [sidedness, setSidedness] = useState(inferredMode.sidedness);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const next = inferToleranceEditorMode(tolerance);
     setShapeMode(next.shape);
     setSidedness(next.sidedness);
   }, [rangeIdOf(activeRange), tolerance?._editorMode?.shape, tolerance?._editorMode?.sidedness]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!openRequested) return;
     setIsEditing(true);
     onOpenRequestHandled?.();
   }, [openRequested, onOpenRequestHandled]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onEditingChangeRef.current = onEditingChange;
   }, [onEditingChange]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onEditingChangeRef.current?.(isEditing);
   }, [isEditing]);
 
   // Put focus in the first field when the editor opens so a later click-away
   // reliably produces a focusout (and commits the in-progress value).
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isEditing || !containerRef.current) return;
     const firstInput = containerRef.current.querySelector("input");
     firstInput?.focus();

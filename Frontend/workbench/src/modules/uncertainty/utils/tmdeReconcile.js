@@ -151,8 +151,6 @@ const preservePointOverrides = (freshSpecs = {}, instance = {}) => {
 
   [
     "includeResolutionInBudget",
-    "measuringResolutionDistribution",
-    "resolutionDistribution",
   ].forEach((key) => {
     const value = firstPresent(instance[key], source?.[key]);
     if (value !== undefined) next[key] = value;
