@@ -25,7 +25,6 @@ import {
 } from "../../constants/constants";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import DirectionToggle from '../shared/DirectionToggle';
-import { resolveSessionNCycles } from "../../utils/resolveSessionNCycles";
 
 // Corrections live under dated Reports of Calibration; read the active
 // report (latest-dated or operator-pinned) to mirror live calibration math.
@@ -500,7 +499,7 @@ function TestPointSidebar({
   // Single source of truth for the cycle count, shared across both
   // directions, so completion status judges Forward and Reverse against the
   // same target (see getDirectionCycleState).
-  const sessionNCycles = resolveSessionNCycles(orderedTestPoints, null);
+
 
   const [contextMenu, setContextMenu] = useState({
     isOpen: false,
@@ -693,12 +692,10 @@ function TestPointSidebar({
           <div className="test-point-list">
             {orderedTestPoints.map((point) => {
               const fwdCycleState = getDirectionCycleState(
-                point.forward,
-                sessionNCycles
+                point.forward
               );
               const revCycleState = getDirectionCycleState(
-                point.reverse,
-                sessionNCycles
+                point.reverse
               );
               const overallStatus = getOverallCycleStatus(
                 fwdCycleState,
