@@ -314,7 +314,7 @@ export const buildSessionReportModel = (
 ) => {
   helpers = {...helpers, getPointTmdeLimits: point => {
     const limits=computePointTmdeLimits(point,session);
-    return {low:limits.low == null ? "N/A" : String(limits.low),high:limits.high == null ? "N/A" : String(limits.high)};
+    return {low:limits.low == null ? "N/A" : formatNumber(limits.low, 7),high:limits.high == null ? "N/A" : formatNumber(limits.high, 7)};
   }};
   const uuts = session.uuts || [];
   const points = session.testPoints || [];

@@ -45,8 +45,8 @@ it("preserves explicit shunt resolution and matches detailed risk and mitigation
   const row=report.functions[0].uuts[0].ranges[0].rows[0];
   expect(Number(row.tur)).toBeCloseTo(19.184,2);
   expect(Number(row.tar)).toBeCloseTo(sidebar.tar,2);
-  expect(Number(row.tmdeLow)).toBeCloseTo(sidebar.tmdeLimits.low,7);
-  expect(Number(row.tmdeHigh)).toBeCloseTo(sidebar.tmdeLimits.high,7);
+  expect(Number(row.tmdeLow)).toBeCloseTo(sidebar.tmdeLimits.low,3);
+  expect(Number(row.tmdeHigh)).toBeCloseTo(sidebar.tmdeLimits.high,3);
   const changed=structuredClone(session); changed.tmdes[0].instrument.functions[0].ranges[0].tolerances.resolution=2e-7;
   expect(computePointRiskMetrics(point,changed).tur).toBeLessThan(sidebar.tur);
 });
