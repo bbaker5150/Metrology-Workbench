@@ -1003,76 +1003,10 @@ class TestPointViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], url_path='mark-readings-stability')
     def mark_readings_stability(self, request, session_pk=None, pk=None):
-        """
-        Marks a range of readings for a specific measurement type as stable or unstable.
-        """
-        try:
-            reading_key = request.data.get('reading_key')
-            start_index = request.data.get('start_index')
-            end_index = request.data.get('end_index')
-            is_stable = request.data.get('is_stable')
-
-            if not all([reading_key, start_index, end_index, is_stable is not None]):
-                return Response(
-                    {"detail": "Missing required fields: reading_key, start_index, end_index, is_stable."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            test_point = self.get_queryset().get(pk=pk)
-            readings = getattr(test_point, 'readings', None)
-            
-            if not readings:
-                return Response(
-                    {"detail": "No readings object found for this test point."},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-
-            reading_list = getattr(readings, reading_key, None)
-
-            if not isinstance(reading_list, list):
-                return Response(
-                    {"detail": f"Reading key '{reading_key}' not found or is not a list."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # Convert 1-based user index to 0-based python index
-            start = int(start_index) - 1
-            end = int(end_index) # Slice end is exclusive, so user's 'end' is correct
-            
-            if start < 0 or end > len(reading_list) or start >= end:
-                return Response(
-                    {"detail": "Invalid start/end index range."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            modified_count = 0
-            with transaction.atomic():
-                for i in range(start, end):
-                    if isinstance(reading_list[i], dict):
-                        reading_list[i]['is_stable'] = bool(is_stable)
-                        modified_count += 1
-                    # Handle legacy data that might just be values (optional, but good practice)
-                    elif isinstance(reading_list[i], (int, float)):
-                        # This data point has no timestamp or stable flag, so we can't update it.
-                        # Or, we could convert it, but that might be out of scope.
-                        # For now, we just skip it.
-                        pass
-                
-                setattr(readings, reading_key, reading_list)
-                readings.save(update_fields=[reading_key])
-                
-                # CRITICAL: Recalculate averages after changing stability
-                readings.update_related_results()
-
-            return Response(
-                {"message": f"Successfully updated {modified_count} readings as {'stable' if is_stable else 'unstable'} and recalculated averages."},
-                status=status.HTTP_200_OK
-            )
-
-        except TestPoint.DoesNotExist:
-            return Response({"detail": "Test point not found."}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"detail": f"An unexpected error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        from .reading_stability import mark_stability
+        result = mark_stability(self.get_object(), request.data)
+        _broadcast_test_point_sync(session_pk, 'Reading stability updated.')
+        return Response(result)
 
     @action(detail=False, methods=['post'], url_path='actions/save-settings-category')
     def save_settings_category(self, request, session_pk=None):

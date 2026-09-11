@@ -601,6 +601,7 @@ function CalibrationResults({
 
     const payload = {
       reading_key: reading_key,
+      cycle: stabilityData.cycle,
       start_index: parseInt(stabilityData.start, 10),
       end_index: parseInt(stabilityData.end, 10),
       is_stable: stabilityData.mark_as === 'stable'
@@ -1499,6 +1500,7 @@ function CalibrationResults({
 
                         {detailsView === "chart" && (
                           <div className="chart-container cal-results-chart-wrap">
+                            {activeDirection === "Combined" && <p>Select Forward or Reverse to edit reading stability.</p>}
                             <CalibrationChart
                               title={`${activeInstrument === "std"
                                 ? "Standard"
@@ -1509,7 +1511,7 @@ function CalibrationResults({
                               )}
                               theme={theme}
                               chartType="line"
-                              onMarkStability={handleMarkStability}
+                              onMarkStability={activeDirection === "Combined" ? undefined : handleMarkStability}
                               instrumentType={activeInstrument}
                             />
                           </div>

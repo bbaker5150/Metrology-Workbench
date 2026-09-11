@@ -277,3 +277,12 @@ it("uses direction-specific filtered statistics without requiring a complete pai
   expect(result.current.pairRows[0].pairedAvg).toBe(5);
   expect(result.current.autoExcluded.has(3)).toBe(true);
 });
+
+it('defaults auto-filter on when there is no saved preference', () => {
+  const { result } = setup({ focusedTestPoint: null });
+  expect(result.current.filterMode).toBe('auto');
+});
+it('preserves a saved explicit off preference', () => {
+  const { result } = setup();
+  expect(result.current.filterMode).toBe('none');
+});

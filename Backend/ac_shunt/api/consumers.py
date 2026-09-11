@@ -78,8 +78,6 @@ from .models import (
     TestPoint,
     TestPointSet,
     Workstation,
-    compute_delta_uut_ppm,
-    welford_mean_stddev,
 )
 from .mock_instruments import is_mock_address, mock_isr_for_model
 from .mock_calibration_instruments import resolve_calibration_instrument
@@ -2362,49 +2360,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         results.fetch_automatic_corrections()
         results.refresh_from_db()
 
-        phase_keys = (
-            'std_ac_open', 'std_dc_pos', 'std_dc_neg', 'std_ac_close',
-            'ti_ac_open', 'ti_dc_pos', 'ti_dc_neg', 'ti_ac_close',
-        )
-        cycle_row, _ = CalibrationResultsCycle.objects.get_or_create(
-            results=results, cycle_index=cycle_index,
-        )
-
-        phase_avgs = {}
-        for phase in phase_keys:
-            raw = getattr(readings_obj, f"{phase}_readings", None) or []
-            # Treat un-tagged legacy readings as cycle 1 so old data still renders.
-            cycle_vals = [
-                r['value']
-                for r in raw
-                if isinstance(r, dict)
-                and 'value' in r
-                and r.get('is_stable', True)
-                and int(r.get('cycle', 1)) == cycle_index
-            ]
-            mean_val, std_dev = welford_mean_stddev(cycle_vals)
-            setattr(cycle_row, f"{phase}_avg", mean_val)
-            setattr(cycle_row, f"{phase}_stddev", std_dev)
-            phase_avgs[f"{phase}_avg"] = mean_val
-
-        cycle_row.delta_uut_ppm = compute_delta_uut_ppm(
-            phase_avgs,
-            eta_std=results.eta_std,
-            eta_ti=results.eta_ti,
-            delta_std=results.delta_std,
-            delta_ti=results.delta_ti,
-            delta_std_known=results.delta_std_known,
-        )
-        cycle_row.save()
-
-        # Roll up onto the parent results row, then onto the pair-level
-        # aggregate so the CycleStatisticsTracker headline (mean / u_A / N)
-        # updates live alongside the chart instead of staying blank until
-        # the operator toggles an analytics control. Early-returns when the
-        # sibling direction has no results yet, so partial pairs are safe.
-        results.recompute_cycle_aggregates()
-        results.recompute_pair_aggregate()
-        return cycle_row.delta_uut_ppm
+        return readings_obj.recompute_cycle(cycle_index)
 
     async def _finalize_cycle(self, test_point_data, cycle_index):
         """Async wrapper that also broadcasts a status update so the UI
