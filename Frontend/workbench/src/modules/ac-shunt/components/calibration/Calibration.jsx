@@ -976,6 +976,7 @@ function Calibration({
 
     const payload = {
       reading_key: reading_key,
+      cycle: stabilityData.cycle,
       start_index: parseInt(stabilityData.start, 10),
       end_index: parseInt(stabilityData.end, 10),
       is_stable: stabilityData.mark_as === 'stable'

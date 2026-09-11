@@ -61,7 +61,7 @@ export default function useCycleAnalytics({
   const useAbba = payload?.use_abba_pairing != null
     ? Boolean(payload.use_abba_pairing)
     : Boolean(defaultUseAbba);
-  const filterMode = payload?.outlier_filter_mode || "none";
+  const filterMode = payload?.outlier_filter_mode || "auto";
   const manualExcluded = useMemo(
     () => new Set(payload?.manual_excluded_pairs || []),
     [payload]

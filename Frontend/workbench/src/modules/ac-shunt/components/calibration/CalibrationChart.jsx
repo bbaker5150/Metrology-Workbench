@@ -155,20 +155,6 @@ function CalibrationChart({
   }, [chartData]);
 
   useEffect(() => {
-    const primaryDataset = chartData?.datasets?.find(
-      (ds) => ds.data && ds.data.length > 0
-    );
-    if (primaryDataset) {
-      setStabilityRange((prev) => ({
-        ...prev,
-        type: primaryDataset.label,
-        start: 1,
-        end: primaryDataset.data.length,
-      }));
-    }
-  }, [chartData]);
-
-  useEffect(() => {
     function handleClickOutside(event) {
       if (
         optionsMenuRef.current &&
@@ -200,6 +186,21 @@ function CalibrationChart({
     () => resolveEffectiveCycle(selectedCycle, availableCycles, activeCycle),
     [selectedCycle, availableCycles, activeCycle]
   );
+
+  const cycleDatasets = useMemo(() => (chartData?.datasets || []).map(ds => ({
+    ...ds,
+    data: (ds.data || []).filter(pt => (Number.isFinite(pt?.cycle) ? Number(pt.cycle) : 1) === effectiveCycle),
+  })), [chartData, effectiveCycle]);
+  const stabilitySampleCount = cycleDatasets.find(ds => ds.label === stabilityRange.type)?.data.length || 0;
+  useEffect(() => {
+    const dataset = cycleDatasets.find(ds => ds.label === stabilityRange.type && ds.data.length)
+      || cycleDatasets.find(ds => ds.data.length);
+    setStabilityRange(prev => ({ ...prev, type: dataset?.label || '', start: 1, end: dataset?.data.length || 1 }));
+  }, [cycleDatasets, stabilityRange.type]);
+  const validStabilityRange = Number.isInteger(Number(stabilityRange.start))
+    && Number.isInteger(Number(stabilityRange.end)) && Number(stabilityRange.start) >= 1
+    && Number(stabilityRange.end) >= Number(stabilityRange.start)
+    && Number(stabilityRange.end) <= stabilitySampleCount;
 
   // Scope visibility to the active iteration during live collection. We
   // intentionally depend ONLY on `activeStage` so streaming data updates
@@ -310,11 +311,7 @@ function CalibrationChart({
         }));
         if (hideUnstableReadings) {
           processedData = processedData
-            .filter((point) => point.is_stable !== false)
-            .map((point, index) => ({
-              ...point,
-              x: index + 1,
-            }));
+            .filter((point) => point.is_stable !== false);
         }
         if (yAxisUnit === "ppm") {
           if (processedData.length === 0) return { ...ds, data: [] };
@@ -415,8 +412,8 @@ function CalibrationChart({
   };
 
   const handleMarkStability = () => {
-    if (onMarkStability) {
-      onMarkStability(stabilityRange, instrumentType);
+    if (onMarkStability && validStabilityRange) {
+      onMarkStability({ ...stabilityRange, cycle: effectiveCycle }, instrumentType);
       setIsOptionsOpen(false);
     }
   };
@@ -635,10 +632,10 @@ function CalibrationChart({
   // Safe extraction of datasets
   const availableMeasurementTypes = useMemo(() => {
     if (!chartData || !chartData.datasets) return [];
-    return chartData.datasets
+    return cycleDatasets
       .filter((ds) => ds.data && ds.data.length > 0)
       .map((ds) => ds.label);
-  }, [chartData]);
+  }, [chartData, cycleDatasets]);
 
   return (
     <div style={{ width: "100%", minWidth: 0, display: "flex", flexDirection: "column" }}>
@@ -682,6 +679,7 @@ function CalibrationChart({
                         </label>
                       </div>
                       <div className="chart-options-form-group">
+                        <p>Cycle {effectiveCycle} · Sample numbers match the chart.</p>
                         <label>Measurement Type</label>
                         <select
                           name="type"
@@ -702,6 +700,7 @@ function CalibrationChart({
                             name="start"
                             type="number"
                             min="1"
+                            max={stabilitySampleCount}
                             value={stabilityRange.start}
                             onChange={handleStabilityInputChange}
                           />
@@ -712,6 +711,7 @@ function CalibrationChart({
                             name="end"
                             type="number"
                             min="1"
+                            max={stabilitySampleCount}
                             value={stabilityRange.end}
                             onChange={handleStabilityInputChange}
                           />
@@ -734,6 +734,7 @@ function CalibrationChart({
                       >
                         <button
                           className="button button-primary button-small"
+                          disabled={!validStabilityRange}
                           onClick={() => {
                             handleMarkStability();
                             setIsStabilityOpen(false); // Close menu on apply

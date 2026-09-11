@@ -583,6 +583,53 @@ class CalibrationReadings(models.Model):
     def __str__(self):
         return f"Calibration Readings for TestPoint ID: {self.test_point.id} | Session: {self.test_point.test_point_set.session.session_name}"
 
+    def recompute_cycle(self, cycle_index):
+        """Rebuild one cycle from stable raw samples and refresh its aggregates."""
+        results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
+        phase_keys = (
+            'std_ac_open', 'std_dc_pos', 'std_dc_neg', 'std_ac_close',
+            'ti_ac_open', 'ti_dc_pos', 'ti_dc_neg', 'ti_ac_close',
+        )
+        cycle_row, _ = CalibrationResultsCycle.objects.get_or_create(
+            results=results, cycle_index=cycle_index,
+        )
+
+        phase_avgs = {}
+        for phase in phase_keys:
+            raw = getattr(self, f"{phase}_readings", None) or []
+            # Treat un-tagged legacy readings as cycle 1 so old data still renders.
+            cycle_vals = [
+                r['value']
+                for r in raw
+                if isinstance(r, dict)
+                and 'value' in r
+                and r.get('is_stable', True)
+                and int(r.get('cycle', 1)) == cycle_index
+            ]
+            mean_val, std_dev = welford_mean_stddev(cycle_vals)
+            setattr(cycle_row, f"{phase}_avg", mean_val)
+            setattr(cycle_row, f"{phase}_stddev", std_dev)
+            phase_avgs[f"{phase}_avg"] = mean_val
+
+        cycle_row.delta_uut_ppm = compute_delta_uut_ppm(
+            phase_avgs,
+            eta_std=results.eta_std,
+            eta_ti=results.eta_ti,
+            delta_std=results.delta_std,
+            delta_ti=results.delta_ti,
+            delta_std_known=results.delta_std_known,
+        )
+        cycle_row.save()
+
+        # Roll up onto the parent results row, then onto the pair-level
+        # aggregate so the CycleStatisticsTracker headline (mean / u_A / N)
+        # updates live alongside the chart instead of staying blank until
+        # the operator toggles an analytics control. Early-returns when the
+        # sibling direction has no results yet, so partial pairs are safe.
+        results.recompute_cycle_aggregates()
+        results.recompute_pair_aggregate()
+        return cycle_row.delta_uut_ppm
+
     def update_related_results(self):
         # print(f"\n[MODELS] --- Starting Result Calculation for TP ID {self.test_point.id} ---", flush=True)
         results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
@@ -921,15 +968,9 @@ class CalibrationResults(models.Model):
         if n_cap is not None:
             cycle_deltas = cycle_deltas[:n_cap]
         mean_val, type_a = aggregate_cycle_deltas(cycle_deltas)
-        update_fields = []
-        if mean_val is not None:
-            self.delta_uut_ppm_avg = mean_val
-            update_fields.append('delta_uut_ppm_avg')
-        if type_a is not None:
-            self.type_a_uncertainty_ppm = type_a
-            update_fields.append('type_a_uncertainty_ppm')
-        if update_fields:
-            self.save(update_fields=update_fields)
+        self.delta_uut_ppm_avg = mean_val
+        self.type_a_uncertainty_ppm = type_a
+        self.save(update_fields=['delta_uut_ppm_avg', 'type_a_uncertainty_ppm'])
         return (mean_val, type_a)
 
     def recompute_pair_aggregate(self):
@@ -985,7 +1026,7 @@ class CalibrationResults(models.Model):
 
         # Filter mode + manual exclusions: take whichever row has a
         # non-default value so either direction can write.
-        filter_mode = self.outlier_filter_mode or sibling_results.outlier_filter_mode or 'none'
+        filter_mode = self.outlier_filter_mode or sibling_results.outlier_filter_mode or 'auto'
         manual = set(self.manual_excluded_pairs or []) | set(sibling_results.manual_excluded_pairs or [])
 
         # Cap each direction to the configured source-of-truth N so analytics
@@ -1085,7 +1126,7 @@ class CalibrationResults(models.Model):
         filter_mode = (
             self.outlier_filter_mode
             or (sibling_results.outlier_filter_mode if sibling_results else None)
-            or 'none'
+            or 'auto'
         )
         manual_self = set(self.manual_excluded_pairs or [])
         manual_sib = set(sibling_results.manual_excluded_pairs or []) if sibling_results else set()
@@ -1172,7 +1213,7 @@ class CalibrationResults(models.Model):
         help_text="Per-TP override of CalibrationConfigurations.use_abba_pairing. None = inherit from session config."
     )
     outlier_filter_mode = models.CharField(
-        max_length=16, default='none',
+        max_length=16, default='auto',
         choices=[('none', 'None'), ('auto', 'Auto (Chauvenet/IQR)')],
         help_text="Outlier auto-rejection mode applied during pair aggregation. Mirrored across the pair."
     )
