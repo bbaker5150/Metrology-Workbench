@@ -41,22 +41,43 @@ class SettingsCategoryTests(TestCase):
                 before = {row['id']: row for row in CalibrationSettings.objects.values(*fields)}
                 self.save(category)
                 for record in CalibrationSettings.objects.select_related('test_point'):
-                    targeted = float(record.test_point.current) == 0.1 and (record.test_point.direction == 'Forward' or category == 'general')
+                    targeted = float(record.test_point.current) == 0.1 and record.test_point.direction == 'Forward'
                     for key in fields:
                         expected = VALUES[category][key] if targeted and key in VALUES[category] else before[record.pk][key]
                         self.assertEqual(getattr(record, key + '_id') if key == 'test_point' else getattr(record, key), expected, (category, key))
 
-    def test_all_categories_reach_both_directions_and_missing_counterparts(self):
-        self.point_set.points.filter(current='0.2', direction='Reverse').delete()
-        for category in CATEGORY_FIELDS:
-            self.save(category, scope='all')
-            self.assertEqual(self.point_set.points.count(), 4)
-            for settings in CalibrationSettings.objects.all():
-                for key, value in VALUES[category].items():
-                    self.assertEqual(getattr(settings, key), value)
+    def test_apply_all_is_direction_specific_for_every_category(self):
+        for direction in ('Forward', 'Reverse'):
+            for category in CATEGORY_FIELDS:
+                with self.subTest(direction=direction, category=category):
+                    before = {row['id']: row for row in CalibrationSettings.objects.values()}
+                    result = save_category(self.session.pk, {'category':category, 'scope':'all',
+                        'current':'0.1', 'frequency':60, 'direction':direction, 'settings':VALUES[category]})
+                    self.assertEqual(result['updated_points'], 2)
+                    for record in CalibrationSettings.objects.select_related('test_point'):
+                        for key, old in before[record.pk].items():
+                            targeted = record.test_point.direction == direction and key in VALUES[category] and key != 'initial_warm_up_time'
+                            self.assertEqual(getattr(record, key), VALUES[category][key] if targeted else old)
+
+    def test_apply_all_creates_only_missing_active_direction(self):
+        self.point_set.points.filter(current='0.2', direction='Forward').delete()
+        self.save('5790', scope='all')
+        self.assertEqual(self.point_set.points.count(), 4)
+        self.assertEqual(self.point_set.points.get(current='0.2', direction='Forward').settings.f5790_filter_mode, 'OFF')
+        self.assertEqual(self.point_set.points.get(current='0.2', direction='Reverse').settings.f5790_filter_mode, 'MEDIUM')
+
+    def test_apply_all_excludes_warmup_and_point_save_limits_it_to_first(self):
+        CalibrationSettings.objects.update(initial_warm_up_time=123)
+        self.save('stability', scope='all', values={**VALUES['stability'], 'initial_warm_up_time':999})
+        self.assertEqual(set(CalibrationSettings.objects.values_list('initial_warm_up_time', flat=True)), {123})
+        result = save_category(self.session.pk, {'category':'stability', 'scope':'point',
+            'current':'0.2', 'frequency':60, 'direction':'Forward', 'settings':{**VALUES['stability'], 'initial_warm_up_time':999}})
+        self.assertEqual(result['settings']['initial_warm_up_time'], 0)
+        self.assertEqual(self.point_set.points.get(current='0.2', direction='Forward').settings.initial_warm_up_time, 0)
+        self.assertEqual(self.point_set.points.get(current='0.2', direction='Reverse').settings.initial_warm_up_time, 123)
 
     def test_new_reader_profile_preserves_pair_cycle_count(self):
-        self.point_set.points.get(current='0.1', direction='Reverse').settings.delete()
+        self.point_set.points.get(current='0.1', direction='Forward').settings.delete()
         self.save('5790', scope='all')
         self.assertEqual(set(CalibrationSettings.objects.values_list('n_cycles', flat=True)), {7})
 
@@ -71,14 +92,15 @@ class SettingsCategoryTests(TestCase):
         self.assertEqual(set(CalibrationSettings.objects.values_list('n_cycles', flat=True)), {7})
 
     def test_bulk_failure_rolls_back_prior_points(self):
-        original = CalibrationSettings.save
+        from django.db.models.query import QuerySet
+        original = QuerySet.update
         calls = []
         def fail_second(instance, *args, **kwargs):
-            calls.append(instance.pk)
+            calls.append(instance)
             if len(calls) == 2:
                 raise RuntimeError('simulated database failure')
             return original(instance, *args, **kwargs)
-        with patch.object(CalibrationSettings, 'save', fail_second), self.assertRaises(RuntimeError):
+        with patch.object(QuerySet, 'update', fail_second), self.assertRaises(RuntimeError):
             self.save('stability', scope='all')
         self.assertEqual(set(CalibrationSettings.objects.values_list('settling_time', flat=True)), {45})
 

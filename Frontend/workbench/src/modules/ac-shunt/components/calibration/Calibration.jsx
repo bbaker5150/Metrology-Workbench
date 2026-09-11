@@ -1440,15 +1440,11 @@ function Calibration({
         ? currentFocusedTP.forward
         : currentFocusedTP.reverse;
 
-    // n_cycles is a single source of truth shared across both directions.
-    // Whatever value was set first (Forward or Reverse) wins; only when no
-    // direction in this pair has a value do we fall back to the
-    // default. This stops a direction that hasn't been saved yet from
-    // displaying — and later persisting — the hardcoded default, which would
-    // make already-complete points look like they have missing cycles.
-    const sessionNCycles = resolveSessionNCycles([currentFocusedTP], null);
+    // Category saves are direction-specific; display this direction's stored cycle count.
+    const sessionNCycles = resolveSessionNCycles([{ forward: pointForDirection }], null);
 
     const applyIncoming = incoming => {
+      if (!isFirstTestPoint) incoming = { ...incoming, initial_warm_up_time: 0 };
       const baseline = settingsBaselineRef.current?.identity === settingsIdentity
         ? settingsBaselineRef.current.settings : null;
       settingsBaselineRef.current = { identity: settingsIdentity, settings: incoming };
@@ -2442,13 +2438,14 @@ function Calibration({
       const response = await axios.post(
         `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/actions/save-settings-category/`,
         { category: section, scope, current: focusedTP.current, frequency: focusedTP.frequency,
-          direction: activeDirection, settings: selectSettingsSection(buildSettingsPayload(settings), section),
+          direction: activeDirection, settings: Object.fromEntries(Object.entries(selectSettingsSection(buildSettingsPayload(settings), section))
+            .filter(([key]) => scope !== "all" || key !== "initial_warm_up_time")),
           default_settings: readDefaultSettingsPreset() }
       );
       if (settingsIdentityRef.current === identity) {
         setCalibrationSettings(previous => ({ ...previous, ...response.data.settings }));
       }
-      showNotification(`${SETTING_SECTION_LABELS[section]} settings saved to ${scope === "all" ? "all Forward and Reverse points" : `this ${activeDirection} point`}.`, "success");
+      showNotification(`${SETTING_SECTION_LABELS[section]} settings saved to ${scope === "all" ? `all ${activeDirection} points` : `this ${activeDirection} point`}.`, "success");
       onDataUpdate();
     } catch (error) {
       const detail = error.response?.data;
@@ -2473,9 +2470,10 @@ function Calibration({
       input_switch_settling_time: get8508RecommendedSwitchDelay(smartDefaults, frequency),
       initial_warm_up_time: focusedTP.key === orderedTestPoints[0]?.key ? 1800 : 0,
       ...readDefaultSettingsPreset(),
+      ...(focusedTP.key !== orderedTestPoints[0]?.key ? { initial_warm_up_time: 0 } : {}),
     };
     setConfirmationModal({ isOpen: true, title: `Reset ${SETTING_SECTION_LABELS[section]} Settings?`,
-      message: `Restore this category from your default setup (or system defaults when unset) and save to this ${activeDirection} point.${section === "general" ? " Cycle count is shared with its paired direction." : ""}`,
+      message: `Restore this category from your default setup (or system defaults when unset) and save to this ${activeDirection} point.${section === "general" ? " The opposite direction stays unchanged." : ""}`,
       onConfirm: () => { setConfirmationModal({ isOpen: false }); saveSettingsCategory(section, "point", defaults); },
       onCancel: () => setConfirmationModal({ isOpen: false }),
     });
@@ -2483,8 +2481,8 @@ function Calibration({
 
   const handleApplySettingsToAll = (section = "general") => {
     if (isRemoteViewer || isSavingSettings || !focusedTP || !selectedSessionId) return;
-    setConfirmationModal({ isOpen: true, title: `Apply ${SETTING_SECTION_LABELS[section]} Settings to All Points?`,
-      message: `Save all settings in this category to every Forward and Reverse point in this session.${section === "stability" ? " This includes the initial warm-up time." : ""}`,
+    setConfirmationModal({ isOpen: true, title: `Apply ${SETTING_SECTION_LABELS[section]} Settings to All ${activeDirection} Points?`,
+      message: `Save all settings in this category to every ${activeDirection} point in this session. The opposite direction stays unchanged.${section === "stability" ? " Initial warm-up is excluded; save it separately on the first point." : ""}`,
       onConfirm: () => { setConfirmationModal({ isOpen: false }); saveSettingsCategory(section, "all"); },
       onCancel: () => setConfirmationModal({ isOpen: false }),
     });
@@ -3078,7 +3076,7 @@ function Calibration({
                                   name="initial_warm_up_time"
                                   min="0"
                                   step="1"
-                                  value={calibrationSettings.initial_warm_up_time ?? ""}
+                                  value={focusedTP?.key === orderedTestPoints[0]?.key ? calibrationSettings.initial_warm_up_time ?? "" : 0}
                                   onChange={(e) =>
                                     setCalibrationSettings((prev) => ({
                                       ...prev,
@@ -3086,7 +3084,8 @@ function Calibration({
                                     }))
                                   }
                                   onBlur={handleSettingBlur("initial_warm_up_time")}
-                                  disabled={isRemoteViewer}
+                                  title="Initial warm-up is only used for the first point in this direction."
+                                  disabled={isRemoteViewer || focusedTP?.key !== orderedTestPoints[0]?.key}
                                 />
                               </div>
                               <div className="form-section">
@@ -3938,7 +3937,8 @@ function Calibration({
                           )}
 
                           <SettingsPresets settings={calibrationSettings} keys={Object.keys(DEFAULT_CALIBRATION_SETTINGS)} disabled={isRemoteViewer}
-                            onApply={preset => setCalibrationSettings(previous => ({ ...previous, ...preset }))} />
+                            onApply={preset => setCalibrationSettings(previous => ({ ...previous, ...preset,
+                              ...(focusedTP?.key !== orderedTestPoints[0]?.key ? { initial_warm_up_time: 0 } : {}) }))} />
 
                           </fieldset>
                         </form>

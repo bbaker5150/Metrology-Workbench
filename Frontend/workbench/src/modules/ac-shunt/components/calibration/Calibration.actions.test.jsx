@@ -113,3 +113,23 @@ it("failed save preserves drafts and makes no success claim", async () => {
   await waitFor(() => expect(screen.getByRole('button', {name:'Save Stability settings for this point'})).not.toBeDisabled());
   expect(screen.getByLabelText('# of samples')).toHaveValue(60);
 });
+
+it("Apply Stability excludes warm-up and identifies the active direction", async () => {
+  renderSettings();
+  fireEvent.change(screen.getByLabelText('Initial warm-up wait (sec)'), {target:{value:'900'}});
+  fireEvent.click(screen.getByRole('button', {name:'Apply Stability settings to all test points'}));
+  expect(screen.getByText(/Initial warm-up is excluded/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name:'Ready'}));
+  await waitFor(() => expect(axios.post).toHaveBeenCalled());
+  expect(axios.post.mock.calls[0][1]).toMatchObject({ scope:'all', direction:'Forward' });
+  expect(axios.post.mock.calls[0][1].settings).not.toHaveProperty('initial_warm_up_time');
+  expect(screen.getByLabelText('Initial warm-up wait (sec)')).toHaveValue(900);
+});
+it("later points disable warm-up and Reverse loads its own saved cycles", () => {
+  const first = { key:'first', current:1, frequency:1000, forward:{id:1,settings:{n_cycles:7}} };
+  const next = { key:'next', current:2, frequency:1000, forward:{id:2,settings:{n_cycles:7}}, reverse:{id:3,settings:{n_cycles:11, initial_warm_up_time:900}} };
+  render(<Calibration orderedTestPoints={[first,next]} sharedFocusedTestPoint={next} sharedSelectedTPs={new Set()} activeDirection="Reverse" showNotification={vi.fn()} onDataUpdate={vi.fn()} setSharedFocusedTestPoint={vi.fn()} />);
+  expect(screen.getByLabelText('Initial warm-up wait (sec)')).toBeDisabled();
+  expect(screen.getByLabelText('Initial warm-up wait (sec)')).toHaveValue(0);
+  expect(screen.getByLabelText('Paired cycles (N)')).toHaveValue(11);
+});

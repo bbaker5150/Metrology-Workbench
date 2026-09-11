@@ -25,7 +25,6 @@ import {
 } from "../../constants/constants";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import DirectionToggle from '../shared/DirectionToggle';
-import { resolveSessionNCycles } from "../../utils/resolveSessionNCycles";
 
 // Corrections live under dated Reports of Calibration; read the active
 // report (latest-dated or operator-pinned) to mirror live calibration math.
@@ -692,14 +691,11 @@ function TestPointSidebar({
         >
           <div className="test-point-list">
             {orderedTestPoints.map((point) => {
-              const sessionNCycles = resolveSessionNCycles([point], null);
               const fwdCycleState = getDirectionCycleState(
-                point.forward,
-                sessionNCycles
+                point.forward
               );
               const revCycleState = getDirectionCycleState(
-                point.reverse,
-                sessionNCycles
+                point.reverse
               );
               const overallStatus = getOverallCycleStatus(
                 fwdCycleState,

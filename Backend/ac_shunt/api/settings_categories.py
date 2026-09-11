@@ -26,12 +26,12 @@ def initial_defaults(frequency, first_point, preset):
     hz = abs(float(frequency))
     ac_filter = 10 if hz < 40 else 40 if hz < 100 else 100
     return {
-        'initial_warm_up_time': 1800 if first_point else 0,
         'num_samples': 6, 'settling_time': 45, 'nplc': 100,
         'stability_window': 6, 'stability_threshold_ppm': 25, 'stability_max_attempts': 100,
         'input_switch_settling_time': 12.5 if ac_filter == 10 else 5,
         'f8508_ac_filter_hz': ac_filter, 'f8508_ac_dc_coupled': hz < 40,
         'enable_11hz_filter': False, 'n_cycles': 15, **preset,
+        'initial_warm_up_time': preset.get('initial_warm_up_time', 1800) if first_point else 0,
     }
 
 
@@ -40,7 +40,11 @@ def save_category(session_id, data):
     if category not in CATEGORY_FIELDS or scope not in ('point', 'all'):
         raise ValidationError('Choose a valid settings category and point/all scope.')
     settings = data.get('settings')
-    if not isinstance(settings, dict) or set(settings) != set(CATEGORY_FIELDS[category]):
+    expected = set(CATEGORY_FIELDS[category])
+    if category == 'stability' and scope == 'all':
+        settings = {key: value for key, value in settings.items() if key != 'initial_warm_up_time'} if isinstance(settings, dict) else settings
+        expected.remove('initial_warm_up_time')
+    if not isinstance(settings, dict) or set(settings) != expected:
         raise ValidationError('Supply all and only the fields for the selected category.')
     direction = data.get('direction')
     if direction not in ('Forward', 'Reverse'):
@@ -86,7 +90,7 @@ def save_category(session_id, data):
         unique = {(pair['current'], pair['frequency']): pair for pair in pairs}
         updated = 0
         for pair in unique.values():
-            directions = ('Forward', 'Reverse') if scope == 'all' or category == 'general' else (direction,)
+            directions = (direction,)
             for target_direction in directions:
                 point, _ = TestPoint.objects.get_or_create(test_point_set=point_set,
                     current=pair['current'], frequency=pair['frequency'], direction=target_direction,
@@ -95,12 +99,20 @@ def save_category(session_id, data):
                 changes = dict(values)
                 if existing is None:
                     changes = {**initial_defaults(pair['frequency'], (pair['current'], pair['frequency']) == first_key, preset), **changes}
+                if scope == 'point' and category == 'stability' and (pair['current'], pair['frequency']) != first_key:
+                    changes['initial_warm_up_time'] = 0
+                    values['initial_warm_up_time'] = 0
                 if existing is None and 'n_cycles' not in values:
                     # Creating a reader/stability profile must not reset the pair's cycle count.
                     sibling = CalibrationSettings.objects.filter(test_point__test_point_set=point_set,
                         test_point__current=pair['current'], test_point__frequency=pair['frequency']).first()
                     if sibling is not None:
                         changes['n_cycles'] = sibling.n_cycles
-                CalibrationSettings.objects.update_or_create(test_point=point, defaults=changes)
+                # These explicit category actions are direction-specific, including cycles.
+                # Bypass the legacy post_save sibling mirror for this endpoint only.
+                if existing is not None:
+                    CalibrationSettings.objects.filter(pk=existing.pk).update(**changes)
+                else:
+                    CalibrationSettings.objects.bulk_create([CalibrationSettings(test_point=point, **changes)])
                 updated += 1
     return {'updated_points': updated, 'settings': dict(values), 'category': category, 'scope': scope}
