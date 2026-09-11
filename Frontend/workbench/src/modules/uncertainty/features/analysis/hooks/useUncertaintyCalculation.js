@@ -226,7 +226,7 @@ export const useUncertaintyCalculation = (
       const incompleteInputs = testPointData.measurementType === "derived" &&
         Object.keys(testPointData.variableMappings || {}).some(symbol =>
           !hasNominalValue(testPointData.variableNominals?.[symbol]) || !testPointData.variableNominals?.[symbol]?.unit);
-      if (!hasNominalValue(uutNominal) || (!uutNominal?.unit && testPointData.measurementType === "derived") || incompleteInputs) {
+      if (!hasNominalValue(uutNominal) || (!uutNominal?.unit && testPointData.measurementType === "derived") || incompleteInputs || manualComponents.some(c => c.dynamicDefinitionId && c.pendingReason)) {
         const derived = testPointData.measurementType === "derived";
         const groupFor = (nominal, sources, label, id, variableType) => {
           const unit = nominal?.unit || "";

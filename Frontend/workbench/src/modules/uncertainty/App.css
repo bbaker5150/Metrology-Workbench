@@ -20430,3 +20430,29 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   flex-direction: column;
   gap: inherit;
 }
+
+/* Shared table/equation uncertainties use the budget's inline editor surface. */
+.budget-dynamic-row input, .budget-dynamic-row select { font: inherit; color: var(--text-color); background: var(--input-background); border: 1px solid var(--border-color); border-radius: 4px; padding: 5px 7px; min-width: 0; max-width: 100%; }
+.budget-dynamic-row .dynamic-source-name { width: 100%; background: transparent; border-color: transparent; padding-left: 0; }
+.dynamic-component-kind, .dynamic-component-pending { display: block; color: var(--text-color-muted); font-size: .7rem; margin-top: 4px; }
+.dynamic-component-pending { max-width: 260px; white-space: normal; }
+.dynamic-budget-editor { width: max-content; min-width: 360px; max-width: min(760px, 75vw); padding: 10px; background: var(--input-background); border: 1px solid var(--border-color); border-radius: 6px; }
+.dynamic-budget-options, .dynamic-column-names { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.dynamic-budget-options label, .dynamic-column-names label { display: grid; gap: 3px; font-size: .72rem; }
+.dynamic-budget-options select { max-width: 180px; }
+.dynamic-table-scroll { max-width: 720px; max-height: 340px; overflow: auto; }
+.dynamic-input-table { width: 100%; border-collapse: collapse; table-layout: auto; }
+.dynamic-input-table th, .dynamic-input-table td { padding: 4px !important; border: 1px solid var(--border-color); text-align: left; }
+.uncertainty-module .dynamic-input-table td { color: var(--text-color); }
+.dynamic-input-table input:not([type=radio]) { width: 110px; }
+.dynamic-equation-entry { display: flex; align-items: center; margin: 8px 0; border: 1px solid var(--border-color); border-radius: 4px; }
+.dynamic-equation-entry input { flex: 1; width: 100%; border: 0; }
+.dynamic-equation-entry button, .dynamic-editor-actions button, .dynamic-input-table button { border: 0; background: transparent; color: var(--primary-color); cursor: pointer; padding: 6px; }
+.dynamic-editor-actions { display: flex; gap: 8px; }
+.dynamic-variable-binding { display: flex; align-items: center; gap: 4px; font-size: .7rem; white-space: nowrap; }
+.dynamic-editor-preview { margin-top: 8px; font-size: .8rem; white-space: normal; }
+.dynamic-editor-hint { margin: 5px 0 0; font-size: .7rem; color: var(--text-color-muted); white-space: normal; }
+
+.budget-dynamic-row .dynamic-source-label { text-align: left; white-space: normal; padding: 0; }
+.budget-dynamic-row .action-cell button { border: 0; background: transparent; color: var(--danger-color, #d9534f); cursor: pointer; }
+.budget-dynamic-row > td > select { border-color: transparent; background: transparent; }

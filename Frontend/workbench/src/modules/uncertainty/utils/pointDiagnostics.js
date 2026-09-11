@@ -1,3 +1,4 @@
+import { resolveDynamicComponents } from "./dynamicBudgetComponents";
 import { getMitigationDiagnostics } from "./mitigationDiagnostics";
 import {
   calculateDerivedUncertainty,
@@ -120,7 +121,8 @@ export function getPointDiagnosticEntries(
     point.tmdeTolerances || [],
     session.tmdes || [],
   );
-  const components = point.components || [];
+  const components = resolveDynamicComponents(point.components, point, session);
+  components.filter(c => c.dynamicDefinitionId && c.pendingReason).forEach(c => add(`${c.name || "Dynamic uncertainty"}: ${c.pendingReason}`));
   const groups = [];
   if (point.measurementType === "derived") {
     if (!point.equationString?.trim())

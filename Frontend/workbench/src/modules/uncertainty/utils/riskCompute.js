@@ -1,3 +1,4 @@
+import { resolveDynamicComponents, updateDynamicDefinition } from "./dynamicBudgetComponents";
 // src/modules/uncertainty/utils/riskCompute.js
 //
 // Pure, side-effect-free risk computation used to keep the sidebar's per-point
@@ -107,7 +108,7 @@ const refreshLinkedDerivedManualComponents = (
   sessionData,
   uutNominal,
 ) => {
-  const components = point?.components || [];
+  const components = resolveDynamicComponents(point?.components, point, sessionData);
   if (point?.measurementType !== "derived" || components.length === 0) {
     return components;
   }
@@ -200,6 +201,7 @@ export function computeUncertaintyForPoint(point, sessionData) {
     sessionData,
     uutNominal,
   );
+  if (manualComponents.some(c => c.dynamicDefinitionId && c.pendingReason)) return null;
   const derivedNominalValue = parseFloat(uutNominal.value);
   const derivedNominalUnit = uutNominal.unit;
   const targetUnitInfo = derivedNominalUnit ? unitSystem.units[derivedNominalUnit] : { to_si: 1 };
@@ -513,6 +515,16 @@ export function recalculatePointUncertaintyFields(point, sessionData) {
       results.expanded_uncertainty_absolute_base,
     k_value: results.k_value,
   };
+}
+
+// Shared source edits refresh unopened points as well as the active budget.
+export function updateSharedDynamicDefinition(session, definition) {
+  const next = updateDynamicDefinition(session, definition);
+  return { ...next, testPoints: next.testPoints.map(point =>
+    (point.components || []).some(c => c.dynamicDefinitionId === definition.id)
+      ? recalculatePointUncertaintyFields({ ...point, calculatedBudgetComponents: [], calculatedBudgetGroups: [],
+          is_detailed_uncertainty_calculated: false, mcSummary: null, risk8MonteCarloResult: null }, next)
+      : point) };
 }
 
 // --- Pure risk (mirrors useRiskCalculation limit derivation + core metrics) ---

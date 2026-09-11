@@ -1,3 +1,4 @@
+import DynamicBudgetComponentRow from "./DynamicBudgetComponentRow";
 import { formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
 import React, {
   Suspense,
@@ -181,7 +182,7 @@ const isStandaloneManualComponent = (component = {}) =>
   !component.sourceTmdeId &&
   !isInstrumentLinkedTypeB(component) &&
   Boolean(
-    component.isInlineManual ||
+    component.dynamicDefinitionId || component.isInlineManual ||
       (component.originalInput && !component.isCore),
   );
 
@@ -1088,6 +1089,9 @@ const UncertaintyBudgetTable = ({
       </thead>
       <tbody className="component-group-tbody">
         {labeledComponents.map((component, componentIndex) => {
+          if (component.dynamicDefinitionId) return <DynamicBudgetComponentRow key={component.id} component={component} referencePoint={manualReferencePoint} showDof={showDof}
+            onCommit={dynamicDefinition => onComponentUpdate?.(component.id, { dynamicDefinition }, component)} onRemove={onRemove}
+            onMoveUp={() => onMoveComponent?.(component.id, -1)} onMoveDown={() => onMoveComponent?.(component.id, 1)}/>;
           if (isStandaloneManualComponent(component)) {
             return (
               <InlineManualComponentRow
@@ -1247,10 +1251,10 @@ const UncertaintyBudgetTable = ({
     kind: group.kind,
     variableType: group.variableType,
     label: group.label.replace(/\s+Uncertainty Budget$/i, ""),
-    nominalPoint: group.nominalPoint || {
+    nominalPoint: group.nominalPoint || (group.kind === "final" ? referencePoint : {
       value: group.nominalValue,
       unit: group.unit,
-    },
+    }),
     // What the unified "Add component to budget" menu should offer for this
     // (sub)budget. Manual components belong in any input/final budget;
     // repeatability (a Type A term) in input budgets and the direct final.

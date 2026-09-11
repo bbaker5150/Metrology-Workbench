@@ -63,6 +63,7 @@ import {
   refreshLinkedTypeBComponents,
 } from "./utils/budgetUtils";
 import { getInstrumentRangeRows } from "../../utils/instrumentFunctionSelection";
+import { createDynamicDefinition, createDynamicComponent, updateDynamicDefinition, resolveDynamicComponents } from "../../utils/dynamicBudgetComponents";
 import { createInlineManualComponent, normalizeInlineManualComponent, getInlineManualDraft } from "./utils/manualComponentUtils";
 
 /**
@@ -270,7 +271,7 @@ function Analysis({
 
   const manualComponents = useMemo(() => {
     if (!isPointView) return [];
-    const rawComponents = testPointData.components || [];
+    const rawComponents = resolveDynamicComponents(testPointData.components, testPointData, sessionData);
     const getReferencePoint = (component) => {
       if (testPointData.measurementType === "derived" && component?.variableType) {
         const symbol = Object.entries(testPointData.variableMappings || {}).find(
@@ -436,6 +437,7 @@ function Analysis({
   }, [
     isPointView,
     testPointData.components,
+    sessionData.dynamicBudgetDefinitions,
     testPointData.measurementType,
     testPointData.variableMappings,
     testPointData.variableNominals,
@@ -708,7 +710,15 @@ function Analysis({
     }
   };
 
-  const handleAddInlineManualComponent = (scope = null) => {
+  const handleAddInlineManualComponent = (scope = null, kind = "manual", existing = null, outputId = null) => {
+    if (kind !== "manual") {
+      const definition = existing || createDynamicDefinition(kind, scope?.nominalPoint || uutNominal);
+      const component = createDynamicComponent(definition, outputId, scope);
+      const next = updateDynamicDefinition(sessionData, definition);
+      onSessionSave?.({ ...next, testPoints: next.testPoints.map(point => String(point.id) === String(testPointData.id)
+        ? { ...point, components: [...(point.components || []), component] } : point) });
+      return;
+    }
     const id = `manual_${Date.now()}_${uuidv4()}`;
     const component = createInlineManualComponent({
       id,

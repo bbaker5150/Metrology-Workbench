@@ -2397,6 +2397,7 @@ function App({ showThemeToggle = false }) {
       // so editing an instrument invalidates the sidebar risk map even when
       // the point's own snapshot array is unchanged.
       currentSessionData?.tmdes,
+      currentSessionData?.dynamicBudgetDefinitions,
       mitigationColumnsEnabled,
     ],
   );

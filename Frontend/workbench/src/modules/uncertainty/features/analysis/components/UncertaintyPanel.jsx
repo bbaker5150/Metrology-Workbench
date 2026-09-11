@@ -1,3 +1,5 @@
+import { updateSharedDynamicDefinition } from "../../../utils/riskCompute";
+import { availableDynamicDefinitions, findDynamicTableRow } from "../../../utils/dynamicBudgetComponents";
 import MeasurementAreaEntry from "../../../components/common/MeasurementAreaEntry";
 import { showFirstInstrumentHint } from "../../../utils/instrumentOnboarding";
 /**
@@ -12950,6 +12952,10 @@ function DetailedView({
   };
 
   const handleComponentUpdate = (id, updates, component) => {
+    if (component?.dynamicDefinitionId && updates.dynamicDefinition) {
+      onSessionSave?.(updateSharedDynamicDefinition(latestSessionDataRef.current, updates.dynamicDefinition));
+      return;
+    }
     // Manual Type-B value edit from the budget table. The entered magnitude
     // (toleranceLimit / standardUncertainty) deviates from the instrument's
     // found spec, so warn and let the user keep it on this point or the whole
@@ -14286,6 +14292,18 @@ function DetailedView({
                   </span>
                 </button>
               )}
+              {budgetTmdePicker.canAddManual && <>
+                {[['table', 'Add tabular uncertainty'], ['equation', 'Add equation uncertainty']].map(([kind, label]) => <button key={kind} type="button" style={itemStyle}
+                  onClick={() => { onAddManualComponent?.(budgetTmdePicker.scope || null, kind); setBudgetTmdePicker(null); }}><FontAwesomeIcon icon={faPlus}/><span>{label}</span></button>)}
+                {availableDynamicDefinitions(sessionData).flatMap(definition => {
+                  const nominal = budgetTmdePicker.scope?.kind === "input" ? budgetTmdePicker.scope.nominalPoint : uutNominal;
+                  if (definition.kind === 'table') { try { findDynamicTableRow(definition, nominal); } catch { return []; } }
+                  return definition.columns.map(column => <button type="button" key={`${definition.id}:${column.id}`} style={itemStyle}
+                    onClick={() => { onAddManualComponent?.(budgetTmdePicker.scope || null, definition.kind, definition, column.id); setBudgetTmdePicker(null); }}>
+                    <FontAwesomeIcon icon={faPlus}/><span>{definition.name || (definition.kind === 'table' ? 'Untitled table' : 'Untitled equation')}{definition.columns.length > 1 ? ` — ${column.name}` : ''}</span>
+                  </button>);
+                })}
+              </>}
               {budgetTmdePicker.canAddRepeatability && (
                 <button
                   type="button"
