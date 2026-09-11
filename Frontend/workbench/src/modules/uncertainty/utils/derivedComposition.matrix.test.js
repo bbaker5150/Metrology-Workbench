@@ -143,7 +143,8 @@ describe("derived multi-TMDE composition — Form X ≡ Form Y (additive, indepe
       expect(my, "Y risk metrics null").not.toBeNull();
 
       expect(mx.tur).toBeCloseTo(my.tur, 6);
-      expect(mx.tar).toBeCloseTo(my.tar, 6);
+      if (my.tar === undefined) expect(mx.tar).toBeUndefined();
+      else expect(mx.tar).toBeCloseTo(my.tar, 6);
       expect(mx.pfa).toBeCloseTo(my.pfa, 6);
       expect(mx.pfr).toBeCloseTo(my.pfr, 6);
     });
@@ -187,7 +188,7 @@ describe("derived multi-TMDE composition — first-principles absolute", () => {
     const mtr = computePointRiskMetrics(p, sessionData);
     expect(mtr).not.toBeNull();
     expect(Number.isFinite(mtr.tur)).toBe(true);
-    expect(Number.isFinite(mtr.tar)).toBe(true);
+    expect(mtr.tar).toBeUndefined(); // input and output units are not comparable
     expect(Number.isFinite(mtr.pfa)).toBe(true);
   });
 });

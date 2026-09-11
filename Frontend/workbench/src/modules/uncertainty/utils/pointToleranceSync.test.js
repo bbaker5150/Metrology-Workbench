@@ -30,3 +30,13 @@ it("keeps mass and acceleration separate even though both display g", () => {
   const after = syncPointTolerances({ ...before, uuts: [uut([range("gravity", "G_accel", 4), range("mass", "g", 2)])] }, before);
   expect(after.testPoints[0].uutTolerance.rangeId).toBe("mass");
 });
+
+it("does not select empty editor drafts as unlimited ranges", () => {
+  const before = { uuts: [uut([range("v", "V", 1)])], testPoints: [point(1, "V", {rangeId:"v"}), point(2,"V",null)] };
+  const draft = {id:"draft",unit:"V",min:"",max:"",tolerances:{floor:{high:"",low:"",unit:"V"}}};
+  const after = syncPointTolerances({...before,uuts:[uut([draft,range("v","V",1)])]},before);
+  expect(after.testPoints.map(p=>p.uutTolerance.rangeId)).toEqual(["v","v"]);
+  const unbounded = {...draft,tolerances:{floor:{high:2,low:-2,unit:"V"}}};
+  const withSpec = syncPointTolerances({...before,uuts:[uut([unbounded])]},before);
+  expect(withSpec.testPoints[0].uutTolerance.rangeId).toBe("draft");
+});

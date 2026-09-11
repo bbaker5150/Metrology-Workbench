@@ -99,7 +99,7 @@ const WORKFLOW_STEPS = [
   },
   {
     id: 'tmde',
-    title: '4. Define Test Measurement Equipment Device',
+    title: '4. Define Test, Measurement, and Diagnostic Equipment',
     icon: faTools,
     content: (
       <div>

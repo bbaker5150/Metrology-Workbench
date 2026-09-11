@@ -20456,3 +20456,16 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .budget-dynamic-row .dynamic-source-label { text-align: left; white-space: normal; padding: 0; }
 .budget-dynamic-row .action-cell button { border: 0; background: transparent; color: var(--danger-color, #d9534f); cursor: pointer; }
 .budget-dynamic-row > td > select { border-color: transparent; background: transparent; }
+
+/* One column chooser for visibility and order. */
+.point-column-menu-body { display:grid; grid-template-columns:minmax(150px, .9fr) minmax(180px, 1.1fr); gap:16px; padding:12px; }
+.point-column-menu-body .sidebar-filter-sections { display:block; padding:0; }
+.point-column-selected { min-width:0; }
+.point-column-order-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 8px; border-radius:5px; text-align:left; cursor:grab; }
+.point-column-order-row > span { flex:1; min-width:0; }
+.point-column-order-row:hover, .point-column-order-row:focus-within { background:var(--bg-secondary); }
+.point-column-order-row button { opacity:0; border:0; background:transparent; color:var(--text-color-muted); cursor:pointer; font-size:16px; }
+.point-column-order-row:hover button, .point-column-order-row:focus-within button { opacity:1; }
+.inline-resolution-dist .inline-menu-select-trigger { white-space:normal; min-height:28px; }
+.instrument-function-row input, .instrument-function-row textarea, .instrument-function-row [contenteditable] { user-select:text; -webkit-user-select:text; }
+@media (max-width:480px) { .point-column-menu-body { grid-template-columns:1fr; } }

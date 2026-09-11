@@ -255,3 +255,15 @@ export const resolveInstrumentSelection = (masterDef = {}, selection = {}) => {
     specs,
   };
 };
+
+// Empty rows remain editable, but must not act as unlimited specification ranges.
+export const isDraftInstrumentRange = (range = {}) => {
+  const numeric = value => value !== null && value !== undefined && String(value).trim() !== "" && Number.isFinite(Number(value));
+  if ([range.min, range.max, range.value].some(numeric)) return false;
+  const specs = { ...range, ...(range.tolerances || range.tolerance || {}) };
+  if ([specs.resolution, specs.measuringResolution, specs.tolerance].some(numeric)) return false;
+  return !["reading", "readings_iv", "range", "floor", "db"].some(key => {
+    const term = specs[key];
+    return numeric(term) || (term && typeof term === "object" && [term.high, term.low, term.value].some(numeric));
+  });
+};

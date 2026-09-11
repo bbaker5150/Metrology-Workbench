@@ -1,3 +1,4 @@
+import { formatPointLimit, pointDisplayResolution } from "./pointLimitDisplay";
 import { computePointTmdeLimits } from "./pointTmdeLimits";
 import { formatInstrumentIdentity } from "./instrumentIdentity";
 import { rgb } from "pdf-lib";
@@ -314,7 +315,12 @@ export const buildSessionReportModel = (
 ) => {
   helpers = {...helpers, getPointTmdeLimits: point => {
     const limits=computePointTmdeLimits(point,session);
-    return {low:limits.low == null ? "N/A" : formatNumber(limits.low, 7),high:limits.high == null ? "N/A" : formatNumber(limits.high, 7)};
+    if (point.measurementType === "derived" && limits.entries.length) return {
+      low:limits.entries.map(entry => `${entry.description}: ${formatPointLimit(entry.rawLow,entry.resolution)} ${entry.unit}`).join("\n"),
+      high:limits.entries.map(entry => `${entry.description}: ${formatPointLimit(entry.rawHigh,entry.resolution)} ${entry.unit}`).join("\n"),
+    };
+    const resolution=pointDisplayResolution(point,session);
+    return {low:formatPointLimit(limits.low,resolution),high:formatPointLimit(limits.high,resolution)};
   }};
   const uuts = session.uuts || [];
   const points = session.testPoints || [];

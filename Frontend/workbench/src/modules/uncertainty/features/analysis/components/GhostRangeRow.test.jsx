@@ -15,6 +15,8 @@ import {
   getInstrumentContextTargetIds,
   applyToleranceCaseChange,
   removeRangeFromItem,
+  addRangeToItem,
+  isEditingInstrumentText,
 } from "./UncertaintyPanel";
 
 describe("instrument context menu targeting", () => {
@@ -244,7 +246,7 @@ describe("GhostRangeRow", () => {
     );
   });
 
-  it("tabs through the new range unit into the next blank range", async () => {
+  it("tabs through the new range unit into tolerance", async () => {
     const onMaterialize = vi.fn();
     renderGhost(onMaterialize);
 
@@ -265,13 +267,10 @@ describe("GhostRangeRow", () => {
     expect(onMaterialize).not.toHaveBeenCalled();
     fireEvent.keyDown(unitPrefix, { key: "Tab" });
 
-    expect(onMaterialize).toHaveBeenCalledWith({ min: "0", max: "10", unit: "V" });
-    await waitFor(() => {
-      expect(screen.getByLabelText("New range minimum")).toHaveFocus();
-    });
+    expect(onMaterialize).toHaveBeenCalledWith({ min: "0", max: "10", unit: "V" }, { openTolerance: true });
   });
 
-  it("tabs directly from a non-scalable unit into the next blank range", async () => {
+  it("tabs directly from a non-scalable unit into tolerance", async () => {
     const onMaterialize = vi.fn();
     renderGhost(onMaterialize, "psig");
 
@@ -290,10 +289,7 @@ describe("GhostRangeRow", () => {
       min: "0",
       max: "10",
       unit: "psig",
-    });
-    await waitFor(() => {
-      expect(screen.getByLabelText("New range minimum")).toHaveFocus();
-    });
+    }, { openTolerance: true });
   });
 
   it.each([["gram", "g"], ["micrometer", "um"], ["millivolt", "mV"]])(
@@ -430,7 +426,7 @@ describe("inline resolution distribution", () => {
       distributionTrigger.closest(".inline-menu-select").style.getPropertyValue(
         "--inline-unit-width",
       ),
-    ).toBe("144px");
+    ).toBe("210px");
     fireEvent.click(distributionTrigger);
     expect(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Normal \(95%\)/ })).toBeInTheDocument();
@@ -1131,4 +1127,17 @@ describe("unfilled range preservation", () => {
     expect(onClearRange).not.toHaveBeenCalled();
     expect(onPatchRange).not.toHaveBeenCalled();
   });
+});
+
+it("inserts repeated empty ranges below the clicked range in manual order",()=>{
+ const item={instrument:{functions:[{id:"f",unit:"V",ranges:[{id:"a",min:0,max:1},{id:"b",min:1,max:2}]}]}};
+ const first=addRangeToItem(item,"a");const next=addRangeToItem(first.item,"a");
+ expect(next.item.instrument.functions[0].ranges.map(r=>r.id)).toEqual(["a",next.newRangeId,first.newRangeId,"b"]);
+ expect(next.item.rangeOrderMode).toBe("manual");
+});
+it("protects nested contenteditable area names from instrument shortcuts",()=>{
+ const editor=document.createElement("span");editor.setAttribute("contenteditable","true");
+ const child=document.createElement("span");editor.append(child);
+ expect(isEditingInstrumentText(child)).toBe(true);
+ expect(isEditingInstrumentText(document.createElement("div"))).toBe(false);
 });

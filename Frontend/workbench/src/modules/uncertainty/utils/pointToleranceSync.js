@@ -1,4 +1,4 @@
-import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
+import { getInstrumentRangeRows, isDraftInstrumentRange } from "./instrumentFunctionSelection";
 import { getUnitDisplayLabel, unitSystem } from "./uncertaintyMath";
 const filled = value => value != null && String(value).trim() !== "";
 const sameId = (a, b) => a != null && b != null && String(a) === String(b);
@@ -24,6 +24,7 @@ export function syncPointTolerances(session, previous) {
     const parameter = point.testPointInfo?.parameter || {};
     const rows = getInstrumentRangeRows(uut);
     const candidates = rows.filter(row => {
+      if (isDraftInstrumentRange(row)) return false;
       if (parameter.unitSelectionExplicit && !parameter.unit) return false;
       if (parameter.unit && row.unit) {
         // Display aliases can coincide across quantities: grams and standard

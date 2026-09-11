@@ -357,10 +357,10 @@ describe("UncertaintyApp", () => {
     );
 
     await screen.findByText(/No Session Available/i);
-    fireEvent.click(screen.getByTitle("Filter visible columns"));
+    fireEvent.click(screen.getByTitle("Columns"));
 
-    expect(screen.getByText("Comb. Uncertainty")).toBeInTheDocument();
-    expect(screen.getByText("Exp. Uncertainty")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Comb. Uncertainty", exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Exp. Uncertainty", exact: true })).toBeInTheDocument();
     expect(screen.getByText("Risk")).toBeInTheDocument();
     expect(screen.getByText("Mitigation (GB + Int)")).toBeInTheDocument();
     expect(screen.getByText("Mitigation (Int Only)")).toBeInTheDocument();
@@ -559,10 +559,10 @@ describe("UncertaintyApp", () => {
 
     await screen.findByText(/No Session Available/i);
     expect(screen.getByTitle("Expand All")).toBeInTheDocument();
-    expect(screen.getByTitle("Filter visible columns")).toBeInTheDocument();
+    expect(screen.getByTitle("Columns")).toBeInTheDocument();
 
     expect(screen.getByTitle("Expand All")).toBeInTheDocument();
-    expect(screen.getByTitle("Filter visible columns")).toBeInTheDocument();
+    expect(screen.getByTitle("Columns")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Measurement Points/ }),
     ).not.toBeInTheDocument();
@@ -870,7 +870,7 @@ describe("UncertaintyApp", () => {
     expect(
       uutRow.style.getPropertyValue("--instrument-function-color"),
     ).not.toBe("");
-    expect(uutTable).toHaveStyle({ width: "100%", minWidth: "740px" });
+    expect(uutTable).toHaveStyle({ width: "100%", minWidth: "310px" });
     const widths = Array.from(uutTable.querySelectorAll("col")).map((column) =>
       Number.parseFloat(column.style.width),
     );
@@ -1496,7 +1496,7 @@ describe("UncertaintyApp", () => {
       "span 1",
       "span 1",
     ]);
-    fireEvent.click(screen.getByTitle("Filter visible columns"));
+    fireEvent.click(screen.getByTitle("Columns"));
     fireEvent.click(screen.getByRole("checkbox", { name: "Section" }));
     expect(
       document.querySelector(".sidebar-column-header-cell--section"),

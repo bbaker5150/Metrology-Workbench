@@ -62,8 +62,9 @@ describe("inline instrument column navigation", () => {
     expect(screen.queryByText("Not Set")).not.toBeInTheDocument();
   });
 
-  it("advances from a completed range when Tab leaves its unit", () => {
+  it("opens tolerance rather than adding a range when Tab leaves its unit", () => {
     const onAdvanceRange = vi.fn();
+    const onOpenTolerance = vi.fn();
     const range = { id: "range-1", min: "0", max: "10", unit: "V" };
     render(
       <RangeCell
@@ -74,6 +75,7 @@ describe("inline instrument column navigation", () => {
         onEditBound={vi.fn()}
         onEditUnit={vi.fn()}
         onAdvanceRange={onAdvanceRange}
+        onOpenTolerance={onOpenTolerance}
       />,
     );
 
@@ -82,11 +84,13 @@ describe("inline instrument column navigation", () => {
       key: "Tab",
     });
 
-    expect(onAdvanceRange).toHaveBeenCalledOnce();
+    expect(onAdvanceRange).not.toHaveBeenCalled();
+    expect(onOpenTolerance).toHaveBeenCalledOnce();
   });
 
   it("keeps a staged blank row editable while its bounds are completed", async () => {
     const onAdvanceRange = vi.fn();
+    const onOpenTolerance = vi.fn();
     const RangeHarness = () => {
       const [range, setRange] = useState({
         id: "blank-range",
@@ -106,6 +110,7 @@ describe("inline instrument column navigation", () => {
           }
           onEditUnit={(unit) => setRange((current) => ({ ...current, unit }))}
           onAdvanceRange={onAdvanceRange}
+        onOpenTolerance={onOpenTolerance}
         />
       );
     };
@@ -125,7 +130,8 @@ describe("inline instrument column navigation", () => {
       expect(screen.getByPlaceholderText("max")).toBeInTheDocument();
     });
     fireEvent.keyDown(prefix, { key: "Tab" });
-    expect(onAdvanceRange).toHaveBeenCalledOnce();
+    expect(onAdvanceRange).not.toHaveBeenCalled();
+    expect(onOpenTolerance).toHaveBeenCalledOnce();
   });
 
   it("commits a nickname on the first outside click", async () => {
@@ -281,4 +287,13 @@ describe("inline instrument column navigation", () => {
       expect(screen.getByPlaceholderText("min")).toHaveFocus();
     });
   });
+});
+
+it.each(["min", "unit"])("Ctrl+Enter adds a range from %s", field => {
+ const add=vi.fn();const range={id:"r",min:0,max:10,unit:"V"};
+ render(<RangeCell ranges={[range]} activeRange={range} editable onEditBound={vi.fn()} onEditUnit={vi.fn()} onAdvanceRange={add} />);
+ fireEvent.click(screen.getByRole("button",{name:"0 to 10 V"}));
+ const target=field==="min" ? screen.getByPlaceholderText("min") : screen.getByRole("button",{name:"Range unit prefix"});
+ fireEvent.keyDown(target,{key:"Enter",ctrlKey:true});
+ expect(add).toHaveBeenCalledOnce();
 });

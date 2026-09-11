@@ -1,3 +1,5 @@
+import { formatPointLimit, pointDisplayResolution } from "./utils/pointLimitDisplay";
+import PointColumnMenu from "./components/common/PointColumnMenu";
 import { computePointTmdeLimits } from "./utils/pointTmdeLimits";
 import { useConfirmRecordDeletes } from "./contexts/RecordDeletePolicy";
 import { faCircleInfo, faPenToSquare, faRotate } from "@fortawesome/free-solid-svg-icons";
@@ -101,6 +103,7 @@ import {
 } from "./utils/uncertaintyMath";
 import {
   getInstrumentRangeRows,
+  isDraftInstrumentRange,
   resolveInstrumentSelection,
 } from "./utils/instrumentFunctionSelection";
 import {
@@ -727,6 +730,7 @@ export const SidebarPointItem = ({
   isTableSelected,
   liveRiskMetrics,
   liveTmdeLimits,
+  limitResolution = 0,
   diagnostics = [],
   isLiveRiskTarget = false,
   riskRequirements = {},
@@ -1174,17 +1178,21 @@ export const SidebarPointItem = ({
         ? `${raw}${raw !== "—" && referenceUnitLabel ? ` ${referenceUnitLabel}` : ""}`
         : formatted;
     return {
-      low: shortLow,
-      high: shortHigh,
+      low: formatPointLimit(limits.rawLow ?? shortLow, limitResolution),
+      high: formatPointLimit(limits.rawHigh ?? shortHigh, limitResolution),
       fullLow: fullLimit(limits.rawLow, limits.low),
       fullHigh: fullLimit(limits.rawHigh, limits.high),
     };
-  }, [point.uutTolerance, point.testPointInfo]);
+  }, [point.uutTolerance, point.testPointInfo, limitResolution]);
 
   const tmdeLimitsData = React.useMemo(() => {
     if (liveTmdeLimits) {
-      return {low:liveTmdeLimits.low == null ? "-" : Number(liveTmdeLimits.low).toPrecision(7),
-        high:liveTmdeLimits.high == null ? "-" : Number(liveTmdeLimits.high).toPrecision(7),entries:[]};
+      if (point.measurementType === "derived") return {low:"-", high:"-", entries:(liveTmdeLimits.entries || []).map(entry => ({
+        ...entry, label: entry.variableType ? `${entry.variableType} · ${entry.description}` : entry.description,
+        shortLow:`${formatPointLimit(entry.rawLow ?? parseFloat(entry.low), entry.resolution)} ${getUnitDisplayLabel(entry.unit)}`,
+        shortHigh:`${formatPointLimit(entry.rawHigh ?? parseFloat(entry.high), entry.resolution)} ${getUnitDisplayLabel(entry.unit)}`,
+      }))};
+      return {low:formatPointLimit(liveTmdeLimits.low,limitResolution), high:formatPointLimit(liveTmdeLimits.high,limitResolution),entries:[]};
     }
     if (point.measurementType === "derived") {
       const entries = getTmdeAbsoluteLimitEntries(point.tmdeTolerances).map(
@@ -1214,6 +1222,7 @@ export const SidebarPointItem = ({
     return { low: shortLow, high: shortHigh, entries: [] };
   }, [
     liveTmdeLimits,
+    limitResolution,
     point.measurementType,
     point.tmdeTolerances,
     point.testPointInfo,
@@ -1883,7 +1892,8 @@ const getAllUutRanges = (uut) => {
 // --- HELPER: Find & Normalize Matching Range (Used for selection logic) ---
 const findMatchingRange = (uut, value, unit) => {
   if (!uut || value === null || value === undefined) return null;
-  const allRanges = getAllUutRanges(uut);
+  // Empty editor drafts must never supersede a usable measurement range.
+  const allRanges = getAllUutRanges(uut).filter(range => !isDraftInstrumentRange(range));
   const numericValue = parseFloat(value);
   if (isNaN(numericValue)) return allRanges[0] || null;
 
@@ -2608,9 +2618,7 @@ function App({ showThemeToggle = false }) {
   };
 
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
-  const [isColumnOrderMenuOpen, setIsColumnOrderMenuOpen] = useState(false);
   const columnMenuRef = useRef(null);
-  const columnOrderMenuRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -2620,12 +2628,6 @@ function App({ showThemeToggle = false }) {
         !event.target.closest?.(".sidebar-filter-dropdown")
       ) {
         setIsColumnMenuOpen(false);
-      }
-      if (
-        columnOrderMenuRef.current &&
-        !columnOrderMenuRef.current.contains(event.target)
-      ) {
-        setIsColumnOrderMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -5116,6 +5118,7 @@ function App({ showThemeToggle = false }) {
       unitOptions={getMeasurementAreaUnits(currentSessionData, fnGroup.name)}
       liveRiskMetrics={pointRiskMap[tp.id]}
       liveTmdeLimits={computePointTmdeLimits(tp, currentSessionData)}
+      limitResolution={pointDisplayResolution(tp, currentSessionData)}
       diagnostics={pointDiagnosticsMap[tp.id]}
       riskRequirements={currentSessionData?.uncReq || {}}
       isLiveRiskTarget={true}
@@ -5951,75 +5954,12 @@ function App({ showThemeToggle = false }) {
                           />
                         </button>
 
-                        {/* Column Order Menu */}
-                        <div
-                          className="sidebar-column-menu"
-                          ref={columnOrderMenuRef}
-                        >
-                          <button
-                            onClick={() => {
-                              setIsColumnOrderMenuOpen((open) => !open);
-                              setIsColumnMenuOpen(false);
-                            }}
-                            title="Reorder columns"
-                            aria-label="Reorder columns"
-                            className={`sidebar-action-btn-organic ${isColumnOrderMenuOpen ? "active" : ""}`}
-                          >
-                            <FontAwesomeIcon icon={faArrowsLeftRight} />
-                          </button>
-
-                          {isColumnOrderMenuOpen && (
-                            <div className="sidebar-column-order-dropdown">
-                              <div className="sidebar-column-order-panel">
-                                <div className="sidebar-column-order-heading">
-                                  <span>Column order</span>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setSidebarColumnOrder(
-                                        DEFAULT_SIDEBAR_COLUMN_ORDER,
-                                      )
-                                    }
-                                  >
-                                    Reset
-                                  </button>
-                                </div>
-                                <div className="sidebar-column-order-list">
-                                  {sidebarSortGroups.map(group => <div key={group.key} className="sidebar-column-order-item is-visible" draggable
-                                    tabIndex={0} role="button" aria-label={`Move ${group.label}`} title="Drag to reorder; use arrow keys when focused"
-                                    onDragStart={event => event.dataTransfer.setData("text/plain", group.key)}
-                                    onDragOver={event => event.preventDefault()}
-                                    onDrop={event => { event.preventDefault(); moveSidebarSortGroup(event.dataTransfer.getData("text/plain"), group.key); }}
-                                    onKeyDown={event => { if (!["ArrowUp", "ArrowDown"].includes(event.key)) return; event.preventDefault(); const index = sidebarSortGroups.indexOf(group), other = sidebarSortGroups[index + (event.key === "ArrowUp" ? -1 : 1)]; if (other) { if (event.key === "ArrowUp") moveSidebarSortGroup(group.key, other.key); else moveSidebarSortGroup(other.key, group.key); } }}
-                                  ><span aria-hidden="true">⠿</span><span>{group.label}</span></div>)}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Column Filter Menu */}
                         <div className="sidebar-column-menu" ref={columnMenuRef}>
-                          <button
-                            onClick={() => {
-                              setIsColumnMenuOpen((open) => !open);
-                              setIsColumnOrderMenuOpen(false);
-                            }}
-                            title="Filter visible columns"
-                            aria-label="Filter visible columns"
-                            aria-expanded={isColumnMenuOpen}
-                            data-tour="sidebar-columns"
-                            className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
-                          >
-                            <FontAwesomeIcon icon={faSlidersH} />
-                          </button>
-
-                          {isColumnMenuOpen && (
-                            <SidebarColumnPopover anchorRef={columnMenuRef} onClose={() => setIsColumnMenuOpen(false)}>
-                              <header className="sidebar-filter-header"><div><strong>Visible columns</strong><p>Choose the details you want to compare.</p></div><button type="button" aria-label="Close column filter" onClick={() => setIsColumnMenuOpen(false)}>×</button></header>
-                              <div className="sidebar-filter-sections">
-
-                              {[
+                          <button title="Columns" aria-label="Columns" aria-expanded={isColumnMenuOpen}
+                            data-tour="sidebar-columns" className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
+                            onClick={() => setIsColumnMenuOpen(open => !open)}><FontAwesomeIcon icon={faSlidersH} /></button>
+                          {isColumnMenuOpen && <SidebarColumnPopover anchorRef={columnMenuRef} onClose={() => setIsColumnMenuOpen(false)}>
+                            <PointColumnMenu sections={[
                             {
                               group: "Measurement",
                               cols: [
@@ -6028,8 +5968,7 @@ function App({ showThemeToggle = false }) {
                                 { key: "value", label: "Value" },
                                 { key: "qualifier", label: "Qualifier" },
                                 { key: "tolerance", label: "Tolerance" },
-                                { key: "lowLimit", label: "UUT Low Limit" },
-                                { key: "highLimit", label: "UUT High Limit" },
+                                { key: "lowLimit", keys: ["lowLimit", "highLimit"], label: "UUT Limits" },
                                 {
                                   key: "standardUncertainty",
                                   label: "Comb. Uncertainty",
@@ -6038,8 +5977,7 @@ function App({ showThemeToggle = false }) {
                                   key: "measurementUncertainty",
                                   label: "Exp. Uncertainty",
                                 },
-                                { key: "tmdeLow", label: "TMDE Low Limit" },
-                                { key: "tmdeHigh", label: "TMDE High Limit" },
+                                { key: "tmdeLow", keys: ["tmdeLow", "tmdeHigh"], label: "TMDE Limits" },
                                 { key: "tur", label: "TUR" },
                                 { key: "tar", label: "TAR" },
                               ],
@@ -6061,8 +5999,7 @@ function App({ showThemeToggle = false }) {
                               group: "Mitigation (GB + Int)",
                               cols: [
                                 { key: "gbMult", label: "GB Mult" },
-                                { key: "gbLow", label: "GB Lower Limit" },
-                                { key: "gbHigh", label: "GB Upper Limit" },
+                                { key: "gbLow", keys: ["gbLow", "gbHigh"], label: "GB Limits" },
                                 { key: "gbPfa", label: "PFA with GB" },
                                 { key: "gbPfr", label: "PFR with GB" },
                                 { key: "gbCalInt", label: "Cal Int with GB" },
@@ -6084,77 +6021,11 @@ function App({ showThemeToggle = false }) {
                                 },
                               ],
                             },
-                          ].map((section) => {
-                            const selectedCount = section.cols.filter(
-                              (col) => Boolean(sidebarColumns[col.key]),
-                            ).length;
-                            const allSelected =
-                              selectedCount === section.cols.length;
-                            const partlySelected =
-                              selectedCount > 0 && !allSelected;
-
-                            return (
-                              <div
-                                key={section.group}
-                                className="filter-option-group"
-                              >
-                                <label className="filter-option-group-title">
-                                  <input
-                                    type="checkbox"
-                                    aria-label={`Toggle all ${section.group} columns`}
-                                    aria-checked={
-                                      partlySelected ? "mixed" : allSelected
-                                    }
-                                    checked={allSelected}
-                                    ref={(input) => {
-                                      if (input) {
-                                        input.indeterminate = partlySelected;
-                                      }
-                                    }}
-                                    onChange={(event) =>
-                                      setSidebarColumns((prev) => {
-                                        const next = { ...prev };
-                                        section.cols.forEach((col) => {
-                                          next[col.key] = event.target.checked;
-                                        });
-                                        return next;
-                                      })
-                                    }
-                                  />
-                                  <span>{section.group}</span><small>{selectedCount}/{section.cols.length}</small>
-                                </label>
-                                {section.cols.map((col) => (
-                                  <label
-                                    key={col.key}
-                                    className="filter-option"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={Boolean(sidebarColumns[col.key])}
-                                      onChange={() =>
-                                        setSidebarColumns((prev) => ({
-                                          ...prev,
-                                          [col.key]: !prev[col.key],
-                                        }))
-                                      }
-                                    />
-                                    <span>{col.label}</span>
-                                  </label>
-                                ))}
-                              </div>
-                            );
-                          })}
-                                <div className="filter-option-group point-indicator-filter">
-                                  <div className="filter-option-group-title">Point indicators</div>
-                                  <label className="filter-option">
-                                    <input type="checkbox" checked={sidebarColumns.warningIcons !== false}
-                                      onChange={event => setSidebarColumns(previous => ({ ...previous, warningIcons: event.target.checked }))} />
-                                    <span>Point indicators</span>
-                                  </label>
-                                </div>
-                              </div>
-                            </SidebarColumnPopover>
-                          )}
+                          ]} columns={sidebarColumns} setColumns={setSidebarColumns}
+                              selectedGroups={sidebarSortGroups} moveGroup={moveSidebarSortGroup}
+                              onReset={() => setSidebarColumnOrder(DEFAULT_SIDEBAR_COLUMN_ORDER)}
+                              onClose={() => setIsColumnMenuOpen(false)} />
+                          </SidebarColumnPopover>}
                         </div>
                       </>
                     <div className="sidebar-add-area-controls sidebar-area-entry">

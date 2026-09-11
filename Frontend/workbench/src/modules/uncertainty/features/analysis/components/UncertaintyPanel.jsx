@@ -79,7 +79,7 @@ import {
   moveDetailSection,
   normalizeDetailSectionOrder,
 } from "../../../utils/detailSectionOrder";
-import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
+import { getInstrumentRangeRows, isDraftInstrumentRange } from "../../../utils/instrumentFunctionSelection";
 import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
 import { rankUnitOptions } from "../../../utils/unitSearch";
 import {
@@ -1179,6 +1179,7 @@ const blankToleranceFrom = (sourceTol = {}) => {
 // Add a blank range alongside the active range (same function), or remove one.
 // Returns { item, newRangeId? }. At least one range is always kept.
 export const addRangeToItem = (item, activeRangeId) => {
+  item = { ...item, rangeOrderMode: "manual" };
   const inst = item?.instrument || {};
   const activeRange = findItemRange(item, activeRangeId);
   const seededTolerances = blankToleranceFrom(getItemRangeTolerance(item, activeRangeId));
@@ -1193,10 +1194,7 @@ export const addRangeToItem = (item, activeRangeId) => {
       i === fnIdx
         ? {
             ...fn,
-            ranges: [
-              ...(fn.ranges || []),
-              { ...newRange, unit: inheritedUnit || fn.unit || fn.units?.[0] || "" },
-            ],
+            ranges: insertAfterId(fn.ranges || [], { ...newRange, unit: inheritedUnit || fn.unit || fn.units?.[0] || "" }, activeRangeId, rangeIdOf),
           }
         : fn,
     );
@@ -1204,9 +1202,12 @@ export const addRangeToItem = (item, activeRangeId) => {
   }
   if (Array.isArray(inst.ranges)) {
     return {
-      item: { ...item, instrument: { ...inst, ranges: [...inst.ranges, newRange] } },
+      item: { ...item, instrument: { ...inst, ranges: insertAfterId(inst.ranges, newRange, activeRangeId, rangeIdOf) } },
       newRangeId: newRange.id,
     };
+  }
+  if (Array.isArray(item.ranges)) {
+    return { item: { ...item, ranges: insertAfterId(item.ranges, newRange, activeRangeId, rangeIdOf) }, newRangeId: newRange.id };
   }
   // No structured ranges yet: seed a functions array so future ranges nest cleanly.
   const existingTol = item.tolerance || inst.tolerance || {};
@@ -2549,7 +2550,7 @@ export const getInstrumentContextTargetIds = (selectedIds, clickedId) => {
 };
 
 const resolutionDistributionDisplayLabel = (option) =>
-  String(option?.label || "").replace(/\s+\(resolution\)$/i, "");
+  String(option?.label || "");
 
 const renderedInstrumentColumnWidths = (table) => {
   const headers = Array.from(table?.querySelectorAll("thead [data-instrument-column]") || []);
@@ -2614,10 +2615,10 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
 
   const minimumWidth = useCallback((key) => {
     if (key === "sync") return 60;
-    if (key === "distribution") return 110;
-    if (key === "range") return 220;
-    if (key === "tolerance" || key === "resolution") return 170;
-    return 120;
+    if (key === "distribution") return 60;
+    if (key === "range") return 80;
+    if (key === "tolerance" || key === "resolution") return 60;
+    return 50;
   }, []);
 
   const keys = useMemo(
@@ -3338,8 +3339,8 @@ export const ResolutionCellInput = ({
           title="Distribution used when this resolution enters the budget"
           ariaLabel="Resolution distribution"
           onChange={onCommitDistribution}
-          width="144px"
-          menuWidth={220}
+          width="210px"
+          menuWidth={240}
           className="inline-resolution-dist inline-unit-like-selector inline-distribution-select"
           getDisplayLabel={resolutionDistributionDisplayLabel}
         />
@@ -4876,11 +4877,6 @@ export const RangeCell = ({
     onPatchRange?.({ isSingleValue: true, value: raw, min: raw, max: raw });
   };
   const openToleranceFromUnit = () => {
-    if (onAdvanceRange) {
-      dismissRangeEditor();
-      onAdvanceRange();
-      return;
-    }
     if (!onOpenTolerance) return;
     dismissRangeEditor();
     onOpenTolerance();
@@ -4893,6 +4889,13 @@ export const RangeCell = ({
       onMouseDown={(e) => e.stopPropagation()}
       onBlur={handleBlur}
       onKeyDownCapture={(event) => {
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && onAdvanceRange) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.target.blur?.();
+          onAdvanceRange();
+          return;
+        }
         if (event.key !== "Escape") return;
         event.preventDefault();
         event.stopPropagation();
@@ -5037,8 +5040,8 @@ export const GhostRangeRow = ({
   };
   const advanceToNextRange = () => {
     const hasBufferedRange = isSingle ? value !== "" : min !== "" || max !== "";
-    if (!hasBufferedRange) return;
-    commit();
+    if (!hasBufferedRange) onMaterialize({ min: "", max: "", unit: rangeUnit });
+    else commit();
     // The ghost row keeps a stable key while the materialized range is inserted
     // immediately above it. Return focus to its cleared inputs so several
     // ranges can be entered in one uninterrupted keyboard flow.
@@ -5057,6 +5060,7 @@ export const GhostRangeRow = ({
       className="inline-range-row inline-range-row--ghost inline-range-row--last"
       data-range-group={dataGroup}
       onBlur={handleBlur}
+      onKeyDownCapture={event => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); event.stopPropagation(); advanceToNextRange(); } }}
     >
       <td className="cell-value" data-range-cell="true">
         <div className="range-row-cell range-row-cell--ghost">
@@ -5115,7 +5119,7 @@ export const GhostRangeRow = ({
                 value={rangeUnit}
                 ariaLabel="New range unit"
                 onChange={setRangeUnit}
-                onTab={advanceToNextRange}
+                onTab={() => commit({ openTolerance: true })}
                 width="72px"
                 compact
               />
@@ -5228,6 +5232,8 @@ const SymbolButton = ({ symbol, title, onSymbolClick }) => (
     {symbol.replace("()", "( )")}
   </button>
 );
+
+export const isEditingInstrumentText = target => Boolean(target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'));
 
 const isInlineRowControlTarget = (target) =>
   target.closest(
@@ -5614,6 +5620,7 @@ export const resolveUutRangeHelper = (
   if (activeIndex === -1 && uutNominal?.unit) {
     activeIndex = allRanges.findIndex(
       (range) =>
+        !isDraftInstrumentRange(range) &&
         assessRangeCompatibility(range, uutNominal, "UUT range").compatible,
     );
   }
@@ -7204,7 +7211,7 @@ const SummaryDashboard = ({
   const [draggingInstrumentId, setDraggingInstrumentId] = useState(null);
   const [dragOverFunctionTarget, setDragOverFunctionTarget] = useState(null);
   const handleInstrumentDragStart = (kind, item, sourceFunctionKey = null) => (event) => {
-    if (event.target.closest("input, select, textarea, [contenteditable=true]")) { event.preventDefault(); return; }
+    if (isEditingInstrumentText(event.target) || isEditingInstrumentText(document.activeElement)) { event.preventDefault(); return; }
     event.stopPropagation();
     const items = instrumentDragSelectionRef.current || selectedInstrumentEntries(latestSessionDataRef.current,
       selectedUutIds, selectedTmdeIds, kind, item, sourceFunctionKey, selectedInstrumentAreasRef.current);
@@ -8062,7 +8069,7 @@ const SummaryDashboard = ({
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range;
     const rangeGroupKey = itemStateKey(kind, stateId);
-    const showRangeActions = rangeEditingKeys.has(rangeGroupKey) || ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== "");
+    const showRangeActions = (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey)) || rangeEditingKeys.has(rangeGroupKey) || ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== "");
 
     return (
       <>
@@ -8100,17 +8107,7 @@ const SummaryDashboard = ({
               onPatchRange={(patch) => patchRange(kind, item, rangeKey, patch)}
               onClearRange={() => handleRemoveRange(kind, item, rangeKey)}
               onOpenTolerance={() => openRangeTolerance(kind, item, range)}
-              onAdvanceRange={
-                nextRange
-                  ? () =>
-                      setPendingRangeEditKey(
-                        `${itemStateKey(kind, item.id)}:${rangeIdOf(nextRange)}`,
-                      )
-                  : () =>
-                      handleAddBlankRange(kind, item, rangeKey, {
-                        focusNew: true,
-                      })
-              }
+              onAdvanceRange={() => handleAddBlankRange(kind, item, rangeKey, { focusNew: true })}
               openRequested={
                 pendingRangeEditKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
               }
@@ -8121,7 +8118,7 @@ const SummaryDashboard = ({
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
-            {showRangeActions && rangeIndex === 0 && (
+            {showRangeActions && (
               <button
                 type="button"
                 className="range-row-add"
@@ -8496,6 +8493,7 @@ const SummaryDashboard = ({
     if (!keyboardShortcutsEnabled) return undefined;
     const handleKeyDown = (event) => {
       if (event.key !== "Delete" && event.key !== "Backspace") return;
+      if (isEditingInstrumentText(event.target) || isEditingInstrumentText(document.activeElement)) return;
       const active = document.activeElement;
       if (
         active &&
@@ -8529,6 +8527,7 @@ const SummaryDashboard = ({
     if (!keyboardShortcutsEnabled) return undefined;
     const handleKeyDown = (e) => {
       if (e.key === "Delete" || e.key === "Backspace") {
+        if (isEditingInstrumentText(e.target) || isEditingInstrumentText(document.activeElement)) return;
         // Determine context based on what is selected
         if (
           document.activeElement.tagName !== "INPUT" &&
@@ -9061,12 +9060,14 @@ const SummaryDashboard = ({
                                 selectRangeRow(e, "uut", uut, index, rangeIdOf(range), uutRowKey)
                               }
                               draggable={true}
+                              onMouseDown={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); }}
+                              onMouseUp={event => { event.currentTarget.draggable = true; }}
                               onDragStart={handleInstrumentDragStart("uut", uut, uutFnKey)}
                               onDragEnd={handleInstrumentDragEnd}
                               data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area)(event); }}
-                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(uutFnKey, {
                                 cursor: "pointer",
                               })}
@@ -9143,6 +9144,8 @@ const SummaryDashboard = ({
                         }
                         onMouseEnter={() => setHoveredRowId(uut.id)}
                         draggable={true}
+                              onMouseDown={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); }}
+                              onMouseUp={event => { event.currentTarget.draggable = true; }}
                         onDragStart={handleInstrumentDragStart("uut", uut, uutFnKey)}
                         onDragEnd={handleInstrumentDragEnd}
                         onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
@@ -9154,7 +9157,7 @@ const SummaryDashboard = ({
                         data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area)(event); }}
-                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(uutFnKey, {
                           cursor: "pointer",
                           opacity: draggingInstrumentId === uut.id ? 0.4 : undefined,
@@ -9251,6 +9254,7 @@ const SummaryDashboard = ({
                                   onOpenTolerance={() =>
                                     openRangeTolerance("uut", uut, range)
                                   }
+                                  onAdvanceRange={() => handleAddBlankRange("uut", uut, rangeIdOf(range), { focusNew: true })}
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpand("uut", uut, range)
                                   }
@@ -9400,7 +9404,7 @@ const SummaryDashboard = ({
                           data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area)(event); }}
-                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(uutFnKey, {
                             cursor: "pointer",
                           })}
@@ -9432,7 +9436,7 @@ const SummaryDashboard = ({
         <div className="panel-card-header instrument-panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faTools} />
-            <span>Test Measurement Device Equipment</span>
+            <span>Test, Measurement, and Diagnostic Equipment</span>
           </div>
           <div className="panel-card-actions">
             <MeasurementAreaEntry kind="tmde" onAdd={handleAddFunction} />
@@ -9539,12 +9543,14 @@ const SummaryDashboard = ({
                                 selectRangeRow(e, "tmde", tmde, index, rangeIdOf(range), tmdeRowKey)
                               }
                               draggable={true}
+                              onMouseDown={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); }}
+                              onMouseUp={event => { event.currentTarget.draggable = true; }}
                               onDragStart={handleInstrumentDragStart("tmde", tmde, tmdeFnKey)}
                               onDragEnd={handleInstrumentDragEnd}
                               data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area)(event); }}
-                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(tmdeFnKey, {
                                 cursor: "pointer",
                               })}
@@ -9621,6 +9627,8 @@ const SummaryDashboard = ({
                         }
                         onMouseEnter={() => setHoveredRowId(tmde.id)}
                         draggable={true}
+                              onMouseDown={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); }}
+                              onMouseUp={event => { event.currentTarget.draggable = true; }}
                         onDragStart={handleInstrumentDragStart("tmde", tmde, tmdeFnKey)}
                         onDragEnd={handleInstrumentDragEnd}
                         onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
@@ -9632,7 +9640,7 @@ const SummaryDashboard = ({
                         data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area)(event); }}
-                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(tmdeFnKey, {
                           cursor: "pointer",
                           opacity: draggingInstrumentId === tmde.id ? 0.4 : undefined,
@@ -9740,6 +9748,7 @@ const SummaryDashboard = ({
                                   onOpenTolerance={() =>
                                     openRangeTolerance("tmde", tmde, range)
                                   }
+                                  onAdvanceRange={() => handleAddBlankRange("tmde", tmde, rangeIdOf(range), { focusNew: true })}
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpand("tmde", tmde, range)
                                   }
@@ -9909,7 +9918,7 @@ const SummaryDashboard = ({
                           data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area)(event); }}
-                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(tmdeFnKey, {
                             cursor: "pointer",
                           })}
@@ -10359,7 +10368,7 @@ function DetailedView({
   });
 
   const handleDetailInstrumentDragStart = (kind, item, sourceFunctionKey = null) => (event) => {
-    if (event.target.closest("input, select, textarea, [contenteditable=true]")) { event.preventDefault(); return; }
+    if (isEditingInstrumentText(event.target) || isEditingInstrumentText(document.activeElement)) { event.preventDefault(); return; }
     event.stopPropagation();
     const items = instrumentDragSelectionRef.current || selectedInstrumentEntries(latestSessionDataRef.current,
       selectedUutIds, selectedTmdeIds, kind, item, sourceFunctionKey, selectedInstrumentAreasRef.current);
@@ -11510,7 +11519,7 @@ function DetailedView({
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range || {};
     const rangeGroupKey = itemStateKey(kind, stateId);
-    const showRangeActions = rangeEditingKeys.has(rangeGroupKey) || ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== "");
+    const showRangeActions = (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey)) || rangeEditingKeys.has(rangeGroupKey) || ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== "");
 
     return (
       <>
@@ -11548,17 +11557,7 @@ function DetailedView({
               onPatchRange={(patch) => patchRangeDetail(kind, item, rangeKey, patch)}
               onClearRange={() => handleRemoveRangeDetail(kind, item, rangeKey)}
               onOpenTolerance={() => openRangeToleranceDetail(kind, item, range)}
-              onAdvanceRange={
-                nextRange
-                  ? () =>
-                      setPendingRangeEditKey(
-                        `${itemStateKey(kind, item.id)}:${rangeIdOf(nextRange)}`,
-                      )
-                  : () =>
-                      handleAddBlankRangeDetail(kind, item, rangeKey, {
-                        focusNew: true,
-                      })
-              }
+              onAdvanceRange={() => handleAddBlankRangeDetail(kind, item, rangeKey, { focusNew: true })}
               openRequested={
                 pendingRangeEditKey === `${itemStateKey(kind, item.id)}:${rangeKey}`
               }
@@ -11569,7 +11568,7 @@ function DetailedView({
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
-            {showRangeActions && rangeIndex === 0 && (
+            {showRangeActions && (
               <button
                 type="button"
                 className="range-row-add"
@@ -11849,6 +11848,7 @@ function DetailedView({
     if (!keyboardShortcutsEnabled) return undefined;
     const handleKeyDown = (event) => {
       if (event.key !== "Delete" && event.key !== "Backspace") return;
+      if (isEditingInstrumentText(event.target) || isEditingInstrumentText(document.activeElement)) return;
       const active = document.activeElement;
       if (
         active &&
@@ -11895,6 +11895,7 @@ function DetailedView({
     if (!keyboardShortcutsEnabled) return undefined;
     const onKey = (e) => {
       if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (isEditingInstrumentText(e.target) || isEditingInstrumentText(document.activeElement)) return;
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       const target = getDeleteSelectionTarget({
@@ -14986,6 +14987,8 @@ function DetailedView({
                                 }
                               }}
                               draggable={true}
+                              onMouseDown={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); }}
+                              onMouseUp={event => { event.currentTarget.draggable = true; }}
                               onDragStart={handleDetailInstrumentDragStart(
                                       "uut",
                                       uut,
@@ -14995,7 +14998,7 @@ function DetailedView({
                               data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area)(event); }}
-                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={{
                                 ...functionBadgeStyle(uutFnKey),
                                 cursor: "pointer",
@@ -15089,7 +15092,7 @@ function DetailedView({
                         data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area)(event); }}
-                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                         style={{
                           ...functionBadgeStyle(uutFnKey),
                           cursor: "pointer",
@@ -15098,6 +15101,8 @@ function DetailedView({
                         }}
                         onClick={(e) => handleUutClick(e, uut.id)}
                         draggable={true}
+                              onMouseDown={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); }}
+                              onMouseUp={event => { event.currentTarget.draggable = true; }}
                         onDragStart={handleDetailInstrumentDragStart(
                           "uut",
                           uut,
@@ -15214,6 +15219,7 @@ function DetailedView({
                                   onOpenTolerance={() =>
                                     openRangeToleranceDetail("uut", uut, range)
                                   }
+                                  onAdvanceRange={() => handleAddBlankRangeDetail("uut", uut, rangeIdOf(range), { focusNew: true })}
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpandDetail("uut", uut, range)
                                   }
@@ -15365,7 +15371,7 @@ function DetailedView({
                           data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area)(event); }}
-                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                           style={{
                             ...functionBadgeStyle(uutFnKey),
                             cursor: "pointer",
@@ -15680,7 +15686,7 @@ function DetailedView({
           <div className="panel-card-header instrument-panel-card-header">
             <div className="panel-card-title">
               <FontAwesomeIcon icon={faTools} />
-              <span>Test Measurement Device Equipment</span>
+              <span>Test, Measurement, and Diagnostic Equipment</span>
             </div>
             <div className="panel-card-actions">
               <button
@@ -15854,6 +15860,8 @@ function DetailedView({
                                     }
                                   }}
                                   draggable={true}
+                              onMouseDown={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); }}
+                              onMouseUp={event => { event.currentTarget.draggable = true; }}
                                   onDragStart={handleDetailInstrumentDragStart(
                                           "tmde",
                                           masterTmde,
@@ -15863,7 +15871,7 @@ function DetailedView({
                                   data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleDetailInstrumentDropOnFunction("tmde", area)(event); }}
-                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                                   style={{
                                     ...functionBadgeStyle(tmdeFnKey),
                                     opacity: isSelectedRow ? 1 : 0.85,
@@ -15966,7 +15974,7 @@ function DetailedView({
                             data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleDetailInstrumentDropOnFunction("tmde", area)(event); }}
-                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                             style={{
                               ...functionBadgeStyle(tmdeFnKey),
                               opacity: isSelectedRow ? 1 : 0.85,
@@ -15974,6 +15982,8 @@ function DetailedView({
                             }}
                             onClick={(e) => handleTmdeClick(e, masterTmde.id)}
                             draggable={true}
+                              onMouseDown={event => { event.currentTarget.draggable = !isEditingInstrumentText(event.target); }}
+                              onMouseUp={event => { event.currentTarget.draggable = true; }}
                             onDragStart={handleDetailInstrumentDragStart(
                               "tmde",
                               masterTmde,
@@ -16120,6 +16130,7 @@ function DetailedView({
                                       onOpenTolerance={() =>
                                         openRangeToleranceDetail("tmde", masterTmde, range)
                                       }
+                                      onAdvanceRange={() => handleAddBlankRangeDetail("tmde", masterTmde, rangeIdOf(range), { focusNew: true })}
                                       onRequestEditAfterExpand={() =>
                                         requestRangeEditAfterExpandDetail(
                                           "tmde",

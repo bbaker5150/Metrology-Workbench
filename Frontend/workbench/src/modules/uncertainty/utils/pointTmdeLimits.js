@@ -1,3 +1,4 @@
+import { matchingResolution } from "./pointLimitDisplay";
 import { parse } from "mathjs";
 import { calculateUncertaintyFromToleranceObject, unitSystem } from "./uncertaintyMath";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
@@ -61,7 +62,7 @@ export function computePointTmdeLimits(point, session = {}) {
     const sources=reconcileTmdeInstances(point.tmdeTolerances || [],session.tmdes || []).map(t=>({
       id:t.id,sourceId:t.sourceId || t.id,rangeId:t.rangeId || t.tolerance?.id,variableType:t.variableType,
       name:t.name || t.description || "TMDE",tolerance:t.tolerance || t,
-      nominal:t.measurementPoint || (derived ? point.variableNominals?.[Object.keys(point.variableMappings || {}).find(k=>point.variableMappings[k]===t.variableType)] : nominal),quantity:Math.max(1,Number(t.quantity)||1)
+      nominal:derived ? (point.variableNominals?.[Object.keys(point.variableMappings || {}).find(k=>point.variableMappings[k]===t.variableType)] || t.measurementPoint) : (t.measurementPoint || nominal),quantity:Math.max(1,Number(t.quantity)||1)
     }));
     const seen=new Set(sources.map(s=>JSON.stringify([String(s.sourceId),String(s.rangeId),s.variableType || ""])));
     for (const c of point.components || []) {
@@ -86,7 +87,11 @@ export function computePointTmdeLimits(point, session = {}) {
     const bands={};
     let lowDev=0,highDev=0;
     for (const source of sources) {
-      const ref=source.nominal;
+      let ref=source.nominal;
+      const targetUnit=source.tolerance.unit || source.tolerance.functionUnit;
+      if (derived && targetUnit && ref?.unit && targetUnit !== ref.unit && unitSystem.units[targetUnit]?.quantity === unitSystem.units[ref.unit]?.quantity) {
+        ref={value:unitSystem.fromBaseUnit(unitSystem.toBaseUnit(Number(ref.value),ref.unit),targetUnit),unit:targetUnit};
+      }
       if (!numeric(ref?.value) || !unitSystem.units[ref?.unit]) throw Error("A TMDE measurement value or unit is missing.");
       const specs=(calculateUncertaintyFromToleranceObject(source.tolerance,ref).breakdown || []).filter(c=>numeric(c.absoluteLow)&&numeric(c.absoluteHigh));
       if (!specs.length) throw Error("A linked TMDE has no usable specification limits.");
@@ -94,7 +99,7 @@ export function computePointTmdeLimits(point, session = {}) {
       const lo=specs.reduce((v,c)=>v+Number(c.absoluteLow)-value,0),hi=specs.reduce((v,c)=>v+Number(c.absoluteHigh)-value,0);
       if (lo>hi) throw Error("A TMDE lower limit exceeds its upper limit.");
       entries.push({id:source.id,variableType:source.variableType,description:source.name,quantity:source.quantity,
-        low:`${value+lo} ${ref.unit}`,high:`${value+hi} ${ref.unit}`});
+        low:`${value+lo} ${ref.unit}`,high:`${value+hi} ${ref.unit}`,rawLow:value+lo,rawHigh:value+hi,unit:ref.unit,resolution:matchingResolution(source.tolerance,ref.unit)});
       if (derived) {
         const symbol=Object.keys(point.variableMappings || {}).find(k=>point.variableMappings[k]===source.variableType);
         if (!symbol) throw Error("A TMDE is not mapped to an equation input.");
@@ -105,6 +110,9 @@ export function computePointTmdeLimits(point, session = {}) {
         if (unitSystem.units[ref.unit].quantity!==unitSystem.units[nominal.unit].quantity) throw Error("TMDE and UUT units differ; use a measurement equation.");
         lowDev+=lo*scale*source.quantity;highDev+=hi*scale*source.quantity;
       }
+    }
+    if (derived && entries.some(entry => unitSystem.units[entry.unit]?.quantity !== unitSystem.units[nominal.unit]?.quantity)) {
+      return { low:null, high:null, span:null, entries, reason:"TAR is unavailable: TMDE limits are in different physical units from the measurement point.", method:"Individual TMDE specification limits" };
     }
     let low,high;
     if (derived) {

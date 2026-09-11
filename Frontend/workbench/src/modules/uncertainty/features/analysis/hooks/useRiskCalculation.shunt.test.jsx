@@ -33,7 +33,7 @@ it("preserves explicit shunt resolution and matches detailed risk and mitigation
     return {...risk,calcResults};
   });
   await waitFor(()=>expect(result.current.riskResults?.tur).toBeCloseTo(sidebar.tur,8));
-  for(const key of ["tar","pfa","pfr","gbLow","gbHigh","gbPfa","gbPfr"]){
+  for(const key of ["pfa","pfr","gbLow","gbHigh","gbPfa","gbPfr"]){
     expect(sidebar[key],key).toBeDefined();
     expect(result.current.riskResults[key],key).toBeCloseTo(sidebar[key],8);
   }
@@ -44,9 +44,13 @@ it("preserves explicit shunt resolution and matches detailed risk and mitigation
   });
   const row=report.functions[0].uuts[0].ranges[0].rows[0];
   expect(Number(row.tur)).toBeCloseTo(19.184,2);
-  expect(Number(row.tar)).toBeCloseTo(sidebar.tar,2);
-  expect(Number(row.tmdeLow)).toBeCloseTo(sidebar.tmdeLimits.low,3);
-  expect(Number(row.tmdeHigh)).toBeCloseTo(sidebar.tmdeLimits.high,3);
+  expect(sidebar.tar).toBeUndefined();
+  expect(result.current.riskResults.tar).toBeUndefined();
+  expect(row.tar).toBe("-");
+  expect(row.tmdeLow).toContain("mV");
+  expect(row.tmdeLow).toContain("Ohm");
+  expect(row.tmdeHigh).toContain("mV");
+  expect(row.tmdeHigh).toContain("Ohm");
   const changed=structuredClone(session); changed.tmdes[0].instrument.functions[0].ranges[0].tolerances.resolution=2e-7;
   expect(computePointRiskMetrics(point,changed).tur).toBeLessThan(sidebar.tur);
 });

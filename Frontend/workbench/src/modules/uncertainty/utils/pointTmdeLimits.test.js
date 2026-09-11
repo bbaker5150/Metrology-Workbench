@@ -9,15 +9,15 @@ const point={id:"p",measurementType:"derived",equationString:"V/R",variableMappi
   testPointInfo:{parameter:{value:500,unit:"A"}},uutTolerance:{floor:{low:-50,high:50,unit:"A",distribution:"1.732"}},
   components:[["meter","Voltage"],["shunt","Resistance"]].map(([id,type])=>({id,variableType:type,tmdeBudgetSourceId:id,tmdeBudgetRangeId:id+"-range",tmdeBudgetComponentKind:"Accuracy"}))};
 
-it("propagates linked meter and shunt specifications through V/R without double counting budget rows",()=>{
+it("keeps derived TMDE limits at their input nominals and does not invent an output-unit TAR",()=>{
   const p={...point,components:[...point.components,{...point.components[1],id:"resolution",tmdeBudgetComponentKind:"Resolution"}]};
   const limits=computePointTmdeLimits(p,session);
-  expect(limits.reason).toBeNull();
+  expect(limits.reason).toMatch(/different physical units/);
   expect(limits.entries).toHaveLength(2);
-  expect(limits.low).toBeCloseTo((.00625-.0000038125)/(.0000125+3.125e-8),10);
-  expect(limits.high).toBeCloseTo((.00625+.0000038125)/(.0000125-3.125e-8),10);
-  const risk=computePointRiskMetrics(point,session);
-  expect(risk.tar).toBeCloseTo(100/limits.span,9);
+  expect(limits.low).toBeNull();
+  expect(limits.entries[0]).toMatchObject({unit:"mV",rawLow:6.25-.0038125,rawHigh:6.25+.0038125});
+  expect(limits.entries[1].rawLow).toBeCloseTo(.0000125-3.125e-8,12);
+  expect(computePointRiskMetrics(point,session).tar).toBeUndefined();
 });
 it("updates live master specifications, preserves asymmetric limits and quantity",()=>{
   const p={measurementType:"direct",testPointInfo:{parameter:{value:0,unit:"V"}},tmdeTolerances:[{
@@ -26,16 +26,21 @@ it("updates live master specifications, preserves asymmetric limits and quantity
   const limits=computePointTmdeLimits(p);
   expect(limits.low).toBeCloseTo(-.004,10);expect(limits.high).toBeCloseTo(.006,10);
   const changed=structuredClone(session);changed.tmdes[0].instrument.functions[0].ranges[0].tolerances.floor.high=.01;
-  expect(computePointTmdeLimits(point,changed).high).toBeGreaterThan(computePointTmdeLimits(point,session).high);
+  expect(computePointTmdeLimits(point,changed).entries[0].rawHigh).toBeGreaterThan(computePointTmdeLimits(point,session).entries[0].rawHigh);
 });
 it("does not report fictitious limits for missing sources, wrong dimensions or singular equations",()=>{
   expect(computePointTmdeLimits(point,{tmdes:[]}).reason).toMatch(/missing/);
-  expect(computePointTmdeLimits({...point,variableNominals:{...point.variableNominals,R:{value:0,unit:"Ohm"}}},session).reason).toMatch(/zero/);
+  expect(computePointTmdeLimits({...point,variableNominals:{...point.variableNominals,R:{value:0,unit:"Ohm"}}},session).reason).toMatch(/different physical units/);
   expect(computePointTmdeLimits({...point,measurementType:"direct"},session).reason).toMatch(/units differ/);
-  expect(computePointTmdeLimits({...point,components:[point.components[0]]},session).reason).toMatch(/input R/);
+  expect(computePointTmdeLimits({...point,components:[point.components[0]]},session).reason).toMatch(/different physical units/);
 });
 it("includes interior extrema instead of assuming endpoint evaluations are sufficient",()=>{
-  const p={...point,equationString:"V^2",variableMappings:{V:"Voltage"},variableNominals:{V:{value:0,unit:"mV"}},components:[point.components[0]]};
+  const p={...point,testPointInfo:{parameter:{value:0,unit:"mV"}},equationString:"abs(V)",variableMappings:{V:"Voltage"},variableNominals:{V:{value:0,unit:"mV"}},components:[point.components[0]]};
   const result=computePointTmdeLimits(p,session);
-  expect(result.low).toBe(0);expect(result.high).toBeCloseTo((.0038125/1000)**2,16);
+  expect(result.low).toBe(0);expect(result.high).toBeCloseTo(.0038125,12);
+});
+
+it("uses mapped input nominal instead of an old output-valued TMDE snapshot",()=>{
+ const p={...point,components:[],tmdeTolerances:[{id:"meter",variableType:"Voltage",measurementPoint:{value:500,unit:"A"},tolerance:{unit:"mV",floor:{low:-.01,high:.01,unit:"mV",distribution:"1.732"}}}]};
+ expect(computePointTmdeLimits(p,session).entries[0]).toMatchObject({unit:"mV",rawLow:6.24,rawHigh:6.26});
 });
