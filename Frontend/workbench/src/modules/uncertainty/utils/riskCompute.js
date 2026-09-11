@@ -1,4 +1,4 @@
-import { resolveDynamicComponents, updateDynamicDefinition } from "./dynamicBudgetComponents";
+import { updateDynamicDefinition } from "./dynamicBudgetComponents";
 // src/modules/uncertainty/utils/riskCompute.js
 //
 // Pure, side-effect-free risk computation used to keep the sidebar's per-point
@@ -45,7 +45,7 @@ import {
   getBudgetComponentsFromTolerance,
   getUutResolutionComponent,
 } from "../features/analysis/utils/budgetUtils";
-import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
+import { resolvePointBudgetComponents } from "./resolvePointBudgetComponents";
 import { reconcileTmdeInstances } from "./tmdeReconcile";
 import { computeEmpiricalRisk, findEmpiricalGuardBand } from "./empiricalRisk";
 import {
@@ -99,88 +99,6 @@ const componentStandardUncertaintyBase = (
     : NaN;
 };
 
-// Derived points keep TMDE error sources as linked manual budget components.
-// Resolve those links against the live session master before computing sidebar
-// risk so a tolerance/range edit updates PFA/PFR immediately, just as it does
-// in the open point's Analysis component.
-const refreshLinkedDerivedManualComponents = (
-  point,
-  sessionData,
-  uutNominal,
-) => {
-  const components = resolveDynamicComponents(point?.components, point, sessionData);
-  if (point?.measurementType !== "derived" || components.length === 0) {
-    return components;
-  }
-
-  const getReferencePoint = (component) => {
-    if (component?.variableType) {
-      const symbol = Object.entries(point.variableMappings || {}).find(
-        ([, name]) =>
-          String(name || "").trim() ===
-          String(component.variableType || "").trim(),
-      )?.[0];
-      return symbol ? point.variableNominals?.[symbol] : null;
-    }
-    return uutNominal;
-  };
-
-  return components
-    .map((component) => {
-      if (!component?.tmdeBudgetSourceId) return component;
-
-      const sourceId = component.tmdeBudgetSourceId;
-      const master = (sessionData?.tmdes || []).find(
-        (tmde) =>
-          String(tmde.id) === String(sourceId) ||
-          String(tmde.sourceId) === String(sourceId),
-      );
-      if (!master) return null;
-
-      const ranges = getInstrumentRangeRows(master, { flattenTolerances: true });
-      const selectedRange =
-        ranges.find(
-          (range) =>
-            component.tmdeBudgetRangeId &&
-            String(range.rangeId ?? range.id) ===
-              String(component.tmdeBudgetRangeId) &&
-            (!component.tmdeBudgetFunctionId ||
-              !range.functionId ||
-              String(range.functionId) === String(component.tmdeBudgetFunctionId)),
-        ) ||
-        ranges.find(
-          (range) =>
-            component.tmdeBudgetFunctionName &&
-            String(range.functionName || "").trim() ===
-              String(component.tmdeBudgetFunctionName).trim(),
-        ) ||
-        ranges[0];
-      if (!selectedRange) return null;
-
-      const resolved = getBudgetComponentsFromTolerance(
-        selectedRange,
-        getReferencePoint(component),
-      );
-      const replacement = resolved.find(
-        (candidate) =>
-          String(candidate.name || "").split(" - ").slice(1).join(" - ") ===
-          String(component.tmdeBudgetComponentKind || ""),
-      );
-      if (!replacement) return null;
-
-      return {
-        ...component,
-        value: replacement.value,
-        isBaseUnitValue: replacement.isBaseUnitValue,
-        value_native: replacement.value_native,
-        unit_native: replacement.unit_native,
-        distribution: replacement.distribution,
-        distributionDivisor: replacement.distributionDivisor,
-      };
-    })
-    .filter(Boolean);
-};
-
 // --- Pure uncertainty (mirrors useUncertaintyCalculation, display fields only) ---
 // Returns { combined_uncertainty_absolute_base, expanded_uncertainty_absolute_base }
 // or null when the point isn't ready to evaluate.
@@ -196,10 +114,9 @@ export function computeUncertaintyForPoint(point, sessionData) {
     point.tmdeTolerances || [],
     sessionData?.tmdes || [],
   );
-  const manualComponents = refreshLinkedDerivedManualComponents(
+  const manualComponents = resolvePointBudgetComponents(
     point,
     sessionData,
-    uutNominal,
   );
   if (manualComponents.some(c => c.dynamicDefinitionId && c.pendingReason)) return null;
   const derivedNominalValue = parseFloat(uutNominal.value);

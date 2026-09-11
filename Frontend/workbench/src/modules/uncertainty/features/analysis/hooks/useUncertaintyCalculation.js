@@ -681,7 +681,9 @@ export const useUncertaintyCalculation = (
             name: component.name.replace(/^Input:\s*/, ""),
             nominalValue: component.sourcePointLabel,
             dof: component.dof,
-            standardUncertainty: component.value,
+            standardUncertainty: component.isBaseUnitValue
+              ? unitSystem.fromBaseUnit(component.value, component.unit)
+              : component.value,
             unit: component.unit,
             sensitivityCoefficient: component.sensitivityCoefficient,
             contribution: component.contribution,
