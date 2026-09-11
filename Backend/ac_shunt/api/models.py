@@ -250,7 +250,7 @@ class CalibrationSettings(models.Model):
     
     initial_warm_up_time = models.IntegerField(null=True, blank=True)
     num_samples = models.IntegerField(default=35, null=True, blank=True)
-    settling_time = models.IntegerField(default=120, null=True, blank=True)
+    settling_time = models.FloatField(default=120, null=True, blank=True)
     nplc = models.FloatField(default=20, null=True, blank=True, help_text="Integration time in Power Line Cycles for 34420A")
     input_switch_settling_time = models.FloatField(
         null=True,

@@ -62,3 +62,25 @@ describe("calibration settings scopes", () => {
     });
   });
 });
+
+import { SETTINGS_CATEGORY_KEYS, selectSettingsSection, settingNumber, reconcileSettingsDraft } from './calibrationSettingsScope';
+
+it.each(Object.keys(SETTINGS_CATEGORY_KEYS))('saves every %s field without another category', category => {
+  const settings = Object.fromEntries(Object.values(SETTINGS_CATEGORY_KEYS).flat().map((key, index) => [key, index]));
+  expect(Object.keys(selectSettingsSection(settings, category))).toEqual([...SETTINGS_CATEGORY_KEYS[category]]);
+});
+it('keeps valid zero values and falls back only for invalid numbers', () => {
+  expect(settingNumber('0', 45)).toBe(0);
+  expect(settingNumber('0.5', 45)).toBe(0.5);
+  expect(settingNumber('', 45)).toBe(45);
+  expect(settingNumber(undefined, 45)).toBe(45);
+});
+it('preserves unsaved categories while accepting a server refresh', () => {
+  const baseline = { n_cycles: 7, settling_time: 45, f5790_filter_mode: 'MEDIUM' };
+  const draft = { ...baseline, settling_time: 0 };
+  expect(reconcileSettingsDraft(draft, { ...baseline, f5790_filter_mode: 'FAST' }, baseline))
+    .toEqual({ ...draft, f5790_filter_mode: 'FAST' });
+});
+it('loads another point without carrying over the previous point edits', () => {
+  expect(reconcileSettingsDraft({ n_cycles: 7 }, { n_cycles: 12 }, null)).toEqual({ n_cycles: 12 });
+});

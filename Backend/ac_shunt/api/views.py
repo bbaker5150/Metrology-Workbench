@@ -1074,6 +1074,13 @@ class TestPointViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"detail": f"An unexpected error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @action(detail=False, methods=['post'], url_path='actions/save-settings-category')
+    def save_settings_category(self, request, session_pk=None):
+        from .settings_categories import save_category
+        result = save_category(session_pk, request.data)
+        _broadcast_test_point_sync(session_pk, 'Settings saved.')
+        return Response(result)
+
     @action(detail=False, methods=['post'], url_path='actions/apply-settings-to-all')
     def apply_settings_to_all(self, request, session_pk=None):
         full_settings_data = request.data.get('settings')

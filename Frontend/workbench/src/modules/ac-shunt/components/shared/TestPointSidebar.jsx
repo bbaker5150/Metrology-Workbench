@@ -500,7 +500,7 @@ function TestPointSidebar({
   // Single source of truth for the cycle count, shared across both
   // directions, so completion status judges Forward and Reverse against the
   // same target (see getDirectionCycleState).
-  const sessionNCycles = resolveSessionNCycles(orderedTestPoints, null);
+
 
   const [contextMenu, setContextMenu] = useState({
     isOpen: false,
@@ -692,6 +692,7 @@ function TestPointSidebar({
         >
           <div className="test-point-list">
             {orderedTestPoints.map((point) => {
+              const sessionNCycles = resolveSessionNCycles([point], null);
               const fwdCycleState = getDirectionCycleState(
                 point.forward,
                 sessionNCycles
