@@ -449,6 +449,19 @@ const SIDEBAR_COLUMN_MIN_WIDTHS = {
 export const getSidebarColumnMinWidth = (key) =>
   SIDEBAR_COLUMN_MIN_WIDTHS[key] || SIDEBAR_COLUMN_MIN_WIDTH;
 
+// Reserve room for the percentage and its method pill in every row and header.
+// Keep saved widths intact so removing the last boundary restores user sizing.
+export const getSidebarRiskColumnWidths = (columnWidths, riskMetricsMap) => {
+  if (!Object.values(riskMetricsMap).some(
+    (risk) => risk?.riskMethod === "risk8-pfa-boundary",
+  )) return columnWidths;
+  const custom = Number(columnWidths.pfa);
+  return {
+    ...columnWidths,
+    pfa: Math.max(128, Number.isFinite(custom) ? custom : 0),
+  };
+};
+
 const getSidebarGridTemplate = (
   visibleColumns,
   valueColumnWidth = "80px",
@@ -1083,7 +1096,7 @@ export const SidebarPointItem = ({
       ? {
           label: "Boundary",
           className: "",
-          note: "Single-sided measurement unknown: PFA-only acceptance boundary",
+          note: "Measured value unknown: this PFA is calculated at the acceptance cutoff set by your required PFA and measurement uncertainty. It is not a pass/fail result for a measured reading.",
         }
       : null;
   // Measurement-unknown rows expose only the Risk 8 PFA boundary. A known
@@ -1701,6 +1714,7 @@ export const SidebarPointItem = ({
           {riskMethodMark && (
             <span
               className={`point-method-badge ${riskMethodMark.className}`}
+              title={riskMethodMark.note}
             >
               {riskMethodMark.label}
             </span>
@@ -2433,6 +2447,11 @@ function App({ showThemeToggle = false }) {
       }),
     ])),
     [currentTestPoints, currentSessionData, pointRiskMap, pointRiskStatusMap, sidebarColumns],
+  );
+
+  const sidebarRenderedColumnWidths = useMemo(
+    () => getSidebarRiskColumnWidths(sidebarColumnWidths, pointRiskMap),
+    [sidebarColumnWidths, pointRiskMap],
   );
 
   // Measurement-point chronology is authored by the user. Never reorder it as
@@ -5075,7 +5094,7 @@ function App({ showThemeToggle = false }) {
         label: formatInstrumentIdentity(uut),
       }))}
       cellGroups={cellGroups}
-      columnWidths={sidebarColumnWidths}
+      columnWidths={sidebarRenderedColumnWidths}
       columnOrder={sidebarColumnOrder}
       highlightedPointIds={[
         ...selectedSidebarPointIds,
@@ -5265,7 +5284,7 @@ function App({ showThemeToggle = false }) {
     const gridTemplateColumns = getSidebarGridTemplate(
       visibleSidebarColumns,
       sidebarValueColumnWidth,
-      sidebarColumnWidths,
+      sidebarRenderedColumnWidths,
       sidebarColumnOrder,
     );
     const orderedVisibleColumns = getVisibleSidebarColumnOrder(

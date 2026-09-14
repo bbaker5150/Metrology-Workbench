@@ -13,6 +13,7 @@ import {
   getConsecutiveSidebarCellGroup,
   getConsecutiveSidebarCellGroupDuringEdit,
   getSidebarColumnMinWidth,
+  getSidebarRiskColumnWidths,
   getUutReassignmentPointIds,
   normalizeSidebarColumnOrder,
   pastePointBudget,
@@ -63,6 +64,23 @@ describe("measurement-point value editing", () => {
     expect(getSidebarColumnMinWidth("lowLimit")).toBe(82);
     expect(getSidebarColumnMinWidth("highLimit")).toBe(82);
     expect(getSidebarColumnMinWidth("section")).toBe(44);
+  });
+
+  test("reserves shared PFA space for boundary pills without changing saved or neighboring widths", () => {
+    const saved = { pfa: 44, pfr: 63 };
+    const risks = { unknown: { riskMethod: "risk8-pfa-boundary", pfa: 1.55 }, known: { pfa: 0.8 } };
+    const widths = getSidebarRiskColumnWidths(saved, risks);
+    const { container } = render(<>{Object.entries(risks).map(([id, risk]) => (
+      <SidebarPointItem key={id} point={{ id }} liveRiskMetrics={risk}
+        visibleColumns={{ pfa: true, pfr: true }} columnWidths={widths}
+        onSave={vi.fn()} onSelect={vi.fn()} />
+    ))}</>);
+    const rows = [...container.querySelectorAll(".point-grid-item")];
+    expect(rows.map(row => row.style.gridTemplateColumns)).toEqual(["128px 63px", "128px 63px"]);
+    expect(screen.getByText("Boundary")).toHaveAttribute("title", expect.stringContaining("Measured value unknown"));
+    expect(saved).toEqual({ pfa: 44, pfr: 63 });
+    expect(getSidebarRiskColumnWidths(saved, { known: risks.known, invalid: null })).toBe(saved);
+    expect(getSidebarRiskColumnWidths({ pfa: 180 }, risks).pfa).toBe(180);
   });
 
   test("places point cells into the saved visual column order", () => {
