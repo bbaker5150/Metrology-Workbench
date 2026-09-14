@@ -18538,6 +18538,8 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
     .inline-menu-select-trigger:hover,
     .inline-menu-select-trigger:focus,
     .inline-menu-select-trigger.is-open,
+    .inline-tolerance-greater-toggle:hover,
+    .inline-tolerance-greater-toggle:focus-within,
     .inline-tolerance-summary:hover,
     .inline-tolerance-summary:focus-visible,
     .inline-tolerance-shape-button:hover,
@@ -20431,31 +20433,83 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   gap: inherit;
 }
 
-/* Shared table/equation uncertainties use the budget's inline editor surface. */
-.budget-dynamic-row input, .budget-dynamic-row select { font: inherit; color: var(--text-color); background: var(--input-background); border: 1px solid var(--border-color); border-radius: 4px; padding: 5px 7px; min-width: 0; max-width: 100%; }
-.budget-dynamic-row .dynamic-source-name { width: 100%; background: transparent; border-color: transparent; padding-left: 0; }
-.dynamic-component-kind, .dynamic-component-pending { display: block; color: var(--text-color-muted); font-size: .7rem; margin-top: 4px; }
-.dynamic-component-pending { max-width: 260px; white-space: normal; }
-.dynamic-budget-editor { width: max-content; min-width: 360px; max-width: min(760px, 75vw); padding: 10px; background: var(--input-background); border: 1px solid var(--border-color); border-radius: 6px; }
-.dynamic-budget-options, .dynamic-column-names { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-.dynamic-budget-options label, .dynamic-column-names label { display: grid; gap: 3px; font-size: .72rem; }
-.dynamic-budget-options select { max-width: 180px; }
-.dynamic-table-scroll { max-width: 720px; max-height: 340px; overflow: auto; }
-.dynamic-input-table { width: 100%; border-collapse: collapse; table-layout: auto; }
-.dynamic-input-table th, .dynamic-input-table td { padding: 4px !important; border: 1px solid var(--border-color); text-align: left; }
-.uncertainty-module .dynamic-input-table td { color: var(--text-color); }
-.dynamic-input-table input:not([type=radio]) { width: 110px; }
-.dynamic-equation-entry { display: flex; align-items: center; margin: 8px 0; border: 1px solid var(--border-color); border-radius: 4px; }
-.dynamic-equation-entry input { flex: 1; width: 100%; border: 0; }
-.dynamic-equation-entry button, .dynamic-editor-actions button, .dynamic-input-table button { border: 0; background: transparent; color: var(--primary-color); cursor: pointer; padding: 6px; }
-.dynamic-editor-actions { display: flex; gap: 8px; }
-.dynamic-variable-binding { display: flex; align-items: center; gap: 4px; font-size: .7rem; white-space: nowrap; }
-.dynamic-editor-preview { margin-top: 8px; font-size: .8rem; white-space: normal; }
-.dynamic-editor-hint { margin: 5px 0 0; font-size: .7rem; color: var(--text-color-muted); white-space: normal; }
+/* Table/equation components use the same compact, transparent fields as the
+   expanded instrument cells. Only the active field receives an accent. */
+.uncertainty-module .budget-dynamic-row { --function-input-accent: var(--primary-color); }
+.uncertainty-module .budget-dynamic-row input {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  height: 26px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  font-size: .75rem;
+}
+.uncertainty-module .budget-dynamic-row input::placeholder { color: var(--text-color-muted); opacity: .75; }
+.uncertainty-module .budget-dynamic-row input:is(:hover, :focus) {
+  border-color: var(--function-input-accent);
+  background: color-mix(in srgb, var(--function-input-accent) 10%, transparent);
+  outline: none;
+}
+.uncertainty-module .budget-dynamic-row input:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--function-input-accent) 16%, transparent); }
+.uncertainty-module .budget-dynamic-row .dynamic-source-name { width: 190px; }
+.dynamic-source-editor { width: 190px; }
+.dynamic-component-kind { display: block; margin-top: 4px; color: var(--text-color-muted); font-size: .65rem; }
+.uncertainty-module .budget-dynamic-row .dynamic-source-label { text-align: left; padding: 0; max-width: 100%; white-space: inherit; overflow-wrap: inherit; }
+.uncertainty-module .budget-dynamic-row.is-editing > td { vertical-align: top; }
+.dynamic-budget-editor { width: var(--budget-editor-width, 640px); max-width: 80vw; min-width: 320px; padding: 2px 0; color: var(--text-color); font-size: .75rem; white-space: normal; }
+.dynamic-budget-options { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin: 0 0 10px; }
+.dynamic-inline-field { display: grid; gap: 4px; min-width: 0; }
+.dynamic-inline-field > span { color: var(--text-color-muted); font-size: .65rem; font-weight: 600; }
+.uncertainty-module .dynamic-budget-editor .inline-unit-select { width: max-content; min-width: max-content; flex: 0 0 auto; }
+.uncertainty-module .dynamic-budget-editor .inline-unit-combobox { min-height: 26px; height: 26px; font-size: .75rem; }
+.uncertainty-module .dynamic-budget-editor .inline-unit-base-button > span,
+.uncertainty-module .dynamic-budget-editor .inline-menu-select-trigger > span { overflow: visible; text-overflow: clip; white-space: nowrap; }
+.dynamic-table-scroll { max-width: 100%; max-height: 300px; overflow: auto; border-block: 1px solid var(--border-color); }
+.uncertainty-module .dynamic-input-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: auto; margin: 0; }
+.uncertainty-module .dynamic-input-table :is(th, td) { padding: 3px 5px; border: 0; border-bottom: 1px solid var(--table-divider-color, var(--border-color)); color: var(--text-color); text-align: left; white-space: nowrap; }
+.uncertainty-module .dynamic-input-table th { background: var(--table-header-bg); font-size: .65rem; font-weight: 600; letter-spacing: .03em; box-shadow: none; }
+.uncertainty-module .dynamic-input-table tbody tr:last-child td { border-bottom: 0; }
+.uncertainty-module .budget-resizable-table.has-custom-widths .dynamic-input-table :is(th, td) { white-space: nowrap; overflow-wrap: normal; }
+.uncertainty-module .budget-resizable-table .dynamic-input-table > thead > tr > th { font-size: .65rem; letter-spacing: .03em; }
 
-.budget-dynamic-row .dynamic-source-label { text-align: left; white-space: normal; padding: 0; }
-.budget-dynamic-row .action-cell button { border: 0; background: transparent; color: var(--danger-color, #d9534f); cursor: pointer; }
-.budget-dynamic-row > td > select { border-color: transparent; background: transparent; }
+.uncertainty-module .dynamic-input-table input { width: 130px; min-width: 85px; }
+.uncertainty-module .dynamic-input-table .dynamic-column-heading input { width: 145px; font-size: .7rem; font-weight: 600; }
+.dynamic-column-heading { display: flex; align-items: center; gap: 3px; }
+.dynamic-header-unit { margin-left: 3px; text-transform: none; color: var(--text-color-muted); font-size: .65rem; font-weight: 400; }
+.dynamic-editor-actions { display: flex; align-items: center; gap: 8px; padding-top: 5px; }
+.uncertainty-module .dynamic-inline-action {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  flex: 0 0 auto; min-height: 24px; padding: 3px 5px; border: 1px solid transparent;
+  border-radius: 4px; color: var(--text-color-muted); background: transparent;
+  font: inherit; font-size: .7rem; cursor: pointer;
+}
+.uncertainty-module .dynamic-inline-action:is(:hover, :focus-visible) { color: var(--primary-color); border-color: var(--border-color); background: var(--input-background); outline: none; }
+.dynamic-row-action-cell { width: 24px; }
+.dynamic-row-remove { opacity: 0; }
+.dynamic-input-table tr:is(:hover, :focus-within) .dynamic-row-remove { opacity: 1; }
+.uncertainty-module .dynamic-inline-action.dynamic-row-remove:hover { color: var(--danger-color, #d9534f); }
+.dynamic-equation-entry { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+.dynamic-equation-entry > span { color: var(--primary-color); font-size: .75rem; }
+.uncertainty-module .dynamic-equation-entry input { width: 100%; flex: 1; background: var(--input-background); border-color: var(--border-color); }
+.uncertainty-module .dynamic-equation-entry input[aria-invalid="true"] { border-color: var(--status-warning, #b58100); }
+.uncertainty-module .dynamic-variable-table .dynamic-variable-symbol { width: 55px; font-style: italic; color: var(--primary-color); }
+.uncertainty-module .dynamic-variable-table td:nth-child(2) input { width: 100%; min-width: 130px; }
+.dynamic-variable-value { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dynamic-bound-value { padding: 3px 6px; white-space: nowrap; }
+.dynamic-variable-binding { width: 26px; }
+.dynamic-editor-footer { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.dynamic-editor-preview { font-size: .72rem; white-space: normal; line-height: 1.4; }
+.dynamic-editor-preview > span { color: var(--text-color-muted); margin-right: 6px; }
+.dynamic-editor-preview.is-pending { color: var(--text-color-muted); }
+.dynamic-shared-note { color: var(--text-color-muted); font-size: .65rem; white-space: nowrap; }
+.dynamic-shared-note svg { margin-right: 3px; }
+.uncertainty-module .budget-dynamic-row > .action-cell { padding-inline: 0; text-align: center; }
+.uncertainty-module .budget-dynamic-row > .action-cell button { border: 0; background: transparent; color: var(--danger-color, #d9534f); cursor: pointer; }
 
 /* One column chooser for visibility and order. */
 .point-column-menu-body { display:grid; grid-template-columns:minmax(150px, .9fr) minmax(180px, 1.1fr); gap:16px; padding:12px; }
@@ -20469,3 +20523,247 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .inline-resolution-dist .inline-menu-select-trigger { white-space:normal; min-height:28px; }
 .instrument-function-row input, .instrument-function-row textarea, .instrument-function-row [contenteditable] { user-select:text; -webkit-user-select:text; }
 @media (max-width:480px) { .point-column-menu-body { grid-template-columns:1fr; } }
+
+/* September feedback: stable editing surfaces and unobstructed column handles. */
+.ui-settings { position: relative; flex: 0 0 auto; -webkit-app-region: no-drag; }
+.ui-settings summary { list-style: none; padding: 0; box-sizing: border-box; }
+.ui-settings summary::-webkit-details-marker { display: none; }
+.ui-scaling-icon { display: block; flex: 0 0 auto; }
+.ui-settings-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 10000; width: 232px; box-sizing: border-box; padding: 8px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--component-bg); color: var(--text-color); box-shadow: 0 8px 24px #0003; }
+.ui-scaling-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 7px 10px; }
+.ui-scaling-heading strong { font-size: .72rem; font-weight: 700; }
+.ui-scaling-heading > span { font-size: .67rem; color: var(--text-color-muted); white-space: nowrap; }
+.ui-settings-menu button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 7px 8px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-color); font: inherit; font-size: .75rem; text-align: left; cursor: pointer; }
+.ui-scaling-mode { justify-content: space-between; }
+.ui-settings-menu .ui-scaling-mode.is-selected { color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 7%, transparent); }
+.ui-settings-menu button:hover { background: var(--input-background); border-color: var(--border-color); }
+.ui-settings-menu button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+.ui-scaling-mode svg, .ui-scaling-reset svg { font-size: .7rem; }
+.ui-scaling-reset-row { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-color); }
+.ui-settings-menu .ui-scaling-reset { color: var(--text-color-muted); }
+.detail-workspace-collapse-button { padding: 6px; background: transparent; border: 0; color: inherit; cursor: pointer; }
+.detail-workspace-section-toggle { cursor: default; }
+.measurement-equation-card.is-editor-open > .scoped-zoom-content,
+.measurement-equation-card.is-editor-collapsed > .scoped-zoom-content { min-height: 96px; justify-content: center; }
+.measurement-equation-preview-trigger { border: 1px solid var(--border-color); border-radius: 6px; }
+.measurement-equation-preview-empty { font-size: 1rem; font-style: normal; }
+.measurement-point-empty-hint { display: flex; align-items: center; justify-content: flex-end; gap: 6px; position: sticky; left: 0; width: 100cqw; box-sizing: border-box; padding: 14px 14px 14px 18px; color: var(--text-color-muted); text-align: right; font-size: .75rem; cursor: default; }
+.uncertainty-module .instrument-column-insert-button { top: 0; bottom: auto; right: -8px; }
+.uncertainty-module .instrument-resizable-header { padding-top: 22px; }
+.uncertainty-module .instrument-column-resize-handle { top: 21px; height: calc(100% - 21px); }
+.uncertainty-module .instrument-equipment-table input,
+.uncertainty-module .instrument-equipment-table [contenteditable=true] { user-select: text; -webkit-user-drag: none; }
+.uncertainty-module .inline-resolution-editor .inline-menu-select-trigger > span { white-space: normal; overflow: visible; text-overflow: clip; }
+.tolerance-greater-option { display: flex; align-items: center; gap: 6px; font-size: .8rem; margin: 4px 0 8px; white-space: nowrap; }
+.unit-prefix-menu .unit-prefix-heading,
+.unit-prefix-menu .inline-unit-option { display: grid; grid-template-columns: 1fr 50px 80px; gap: 8px; align-items: center; text-align: left; }
+.unit-prefix-heading { padding: 8px 10px; font-size: .8rem; font-weight: 600; border-bottom: 1px solid var(--border-color); }
+.unit-prefix-menu .inline-unit-option.is-base-unit { background: color-mix(in srgb, #888 25%, var(--component-bg)); }
+.unit-prefix-menu .inline-unit-option:hover { background: var(--input-background); }
+.budget-tmde-picker-instrument-name { width: 100%; text-align: left; border: 0; color: inherit; background: transparent; }
+.budget-tmde-picker-instrument-name:not(:disabled) { cursor: pointer; }
+.budget-tmde-picker-instrument-name:not(:disabled):hover { background: var(--input-background); }
+
+.uncertainty-module .point-value-with-unit .point-edit-affordance { gap: 8px; }
+.unit-prefix-menu .inline-unit-options { overflow-x: hidden; }
+
+.measurement-point-empty-hint > span { flex: 0 0 24px; text-align: center; }
+
+/* Explicit column widths resize the complete card, keeping its header and
+   lower resize handle aligned with the table instead of leaving a dead strip. */
+.uncertainty-module .panel-card:has(> .instrument-panel-table-container) {
+  width: min(100%, var(--instrument-panel-width, 100%));
+  box-sizing: border-box;
+  align-self: flex-start;
+}
+
+/* Expanded editors measure their full unit controls, including compound units. */
+.uncertainty-module :is(.inline-range-editor.is-editing, .inline-tolerance-editor) .inline-unit-select:not(.inline-menu-select) {
+  width: max-content;
+  min-width: max-content;
+  flex: 0 0 auto;
+  grid-template-columns: max-content var(--inline-prefix-width, 70px);
+}
+.uncertainty-module :is(.inline-range-editor.is-editing, .inline-tolerance-editor) .inline-unit-base-button {
+  width: auto;
+  min-width: max-content;
+}
+.uncertainty-module :is(.inline-range-editor.is-editing, .inline-tolerance-editor) .inline-unit-base-button > span {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.inline-tolerance-greater-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 5px;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color-muted);
+  font-size: .62rem;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.inline-tolerance-greater-toggle input {
+  appearance: none;
+  position: relative;
+  flex: 0 0 11px;
+  width: 11px;
+  min-width: 11px;
+  height: 11px;
+  min-height: 11px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--text-color-muted);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+.inline-tolerance-greater-toggle input:checked { background: var(--function-input-accent, var(--primary-color)); border-color: var(--function-input-accent, var(--primary-color)); }
+.inline-tolerance-greater-toggle input:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  width: 3px;
+  height: 6px;
+  border: solid white;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+.uncertainty-module .instrument-panel-card-header { flex-wrap: wrap; gap: 8px; }
+
+/* Empty equation entry shares the typography and compact field treatment of
+   the measurement-area controls, with its editing actions immediately visible. */
+.uncertainty-module .sidebar-area-entry input,
+.uncertainty-module .measurement-equation-card.is-empty .measurement-equation-input,
+.uncertainty-module .measurement-equation-card.is-empty .add-point-fx-button {
+  font-family: inherit;
+  font-size: .75rem;
+  font-weight: 500;
+  letter-spacing: normal;
+}
+.uncertainty-module .sidebar-area-entry input::placeholder,
+.uncertainty-module .measurement-equation-input::placeholder {
+  color: var(--text-color-muted);
+  opacity: 1;
+}
+.uncertainty-module .measurement-equation-card.is-empty .measurement-equation-editor-stack {
+  width: max-content !important;
+  max-width: 100%;
+}
+.uncertainty-module .measurement-equation-card.is-empty .measurement-equation-input {
+  width: 180px;
+  height: 26px;
+  min-height: 26px;
+  padding: 3px 7px;
+}
+.uncertainty-module .measurement-equation-card.is-empty .add-point-fx-button {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 8px;
+}
+
+.uncertainty-module .inline-tolerance-readview:has(.is-alternative) { max-width: 100%; }
+.uncertainty-module .inline-tolerance-summary.is-alternative {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.uncertainty-module .inline-tolerance-greater-toggle:focus-within {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 18%, transparent);
+}
+.uncertainty-module .industry-table .inline-tolerance-greater-toggle:focus-within input:focus {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Budgets fit their full content by default; only an explicit resize may wrap it. */
+.budget-stack-section {
+  min-width: 0;
+  width: min(100%, var(--budget-panel-width, 100%));
+  box-sizing: border-box;
+}
+.uncertainty-module .budget-resizable-table {
+  width: max-content;
+  table-layout: auto;
+  max-width: none;
+}
+.uncertainty-module .budget-resizable-table.has-custom-widths { table-layout: fixed; }
+.uncertainty-module .budget-resizable-table :is(th, td) {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.uncertainty-module .budget-resizable-table.has-custom-widths td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.uncertainty-module .budget-resizable-table th { position: relative; }
+.uncertainty-module .budget-resizable-table > :is(thead, tbody, tfoot) > tr > :is(th, td):not(:last-child) {
+  border-right: 1px solid var(--border-color);
+}
+.uncertainty-module .budget-column-resize-handle::after {
+  top: 0;
+  bottom: 0;
+  background: var(--border-color);
+}
+.uncertainty-module .budget-column-resize-handle:is(:hover, :focus-visible, :active)::after {
+  background: var(--primary-color);
+  width: 2px;
+}
+
+.budget-resizable-header-content { display: block; overflow: hidden; text-overflow: ellipsis; }
+.uncertainty-module .budget-column-resize-handle { top: 0; height: 100%; }
+.uncertainty-module .budget-resizable-table th:last-child .budget-column-resize-handle { right: 0; }
+/* The trailing action gutter belongs visually to the final data column. Only
+   boundaries between data columns get dividers, never the table's outer edge. */
+.uncertainty-module .budget-resizable-table > thead > tr > th:has(+ [data-budget-column="actions"]),
+.uncertainty-module .budget-resizable-table > tbody > tr > td:has(+ .action-cell) {
+  border-right: 0;
+}
+.uncertainty-module .budget-resizable-table > thead > tr > th:is(:last-child, :has(+ [data-budget-column="actions"])) .budget-column-resize-handle::after {
+  display: none;
+}
+
+
+/* Keep the area-visibility control anchored when the optional entry wraps. */
+.uncertainty-module .instrument-panel-card-header:has(.instrument-visibility-toggle) {
+  position: relative;
+  padding-right: 46px;
+}
+.uncertainty-module .instrument-panel-card-header .instrument-visibility-toggle {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  margin: 0;
+}
+.uncertainty-module .instrument-panel-card-header:has(.instrument-visibility-toggle) .panel-card-actions {
+  margin-left: auto;
+}
+
+/* Open menus and persistent icon toggles share one active treatment. The
+   current measurement area's accent carries through its inline controls. */
+.uncertainty-module :is(
+  button[aria-haspopup][aria-expanded="true"],
+  button[data-ui-toggle][aria-expanded="true"],
+  button[data-ui-toggle][aria-pressed="true"],
+  .ui-settings[open] > summary
+),
+.uncertainty-module .measurement-group-container button[aria-haspopup][aria-expanded="true"],
+.uncertainty-module .industry-table :is(tr.instrument-area-section-row, tr.instrument-function-row) button[aria-haspopup][aria-expanded="true"] {
+  --toggle-accent: var(--function-input-accent, var(--sidebar-function-color, var(--primary-color)));
+  color: var(--toggle-accent) !important;
+  background: color-mix(in srgb, var(--toggle-accent) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--toggle-accent) 32%, transparent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--toggle-accent) 8%, transparent) !important;
+}

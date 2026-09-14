@@ -9,3 +9,8 @@ describe("temporary instrument column widths", () => {
     expect(weights).toEqual([10, 10, 40, 40]);
   });
 });
+
+it("keeps every other saved column fixed when the container is wider or narrower", () => {
+  expect(expandedInstrumentWidths([60, 200, 180], 1200, [], true)).toEqual([60, 200, 180]);
+  expect(expandedInstrumentWidths([60, 200, 180], 300, [140], true)).toEqual([140, 200, 180]);
+});

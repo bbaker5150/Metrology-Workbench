@@ -97,14 +97,14 @@ const createMissingTmdeComponent = (
 
   return {
     id: `missing_tmde_${tmde?.id ?? fallbackIndex}_${suffix}`,
-    name: `${displayName} - Set tolerance`,
-    sourceDisplayName: `${displayName} - Set tolerance`,
+    name: `${displayName} - Set error limit`,
+    sourceDisplayName: `${displayName} - Set error limit`,
     type: "B",
     value: NaN,
     value_native: NaN,
     unit_native: tmde?.measurementPoint?.unit || tmde?.unit || "",
     dof: Infinity,
-    distribution: "Set tolerance...",
+    distribution: "Set error limit...",
     sourceTmdeId: tmde?.id,
     tmdeIdentity: identity,
     sourcePointLabel: [point, rangeContext].filter(Boolean).join(" - "),

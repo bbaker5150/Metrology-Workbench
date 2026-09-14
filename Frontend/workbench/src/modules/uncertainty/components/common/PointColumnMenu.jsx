@@ -1,12 +1,11 @@
 import React from "react";
 
-export default function PointColumnMenu({ sections, columns, setColumns, selectedGroups, moveGroup, onReset, onClose }) {
+export default function PointColumnMenu({ sections, columns, setColumns, selectedGroups, moveGroup, onReset }) {
   const toggle = (keys, visible) => setColumns(previous => ({ ...previous, ...Object.fromEntries(keys.map(key => [key, visible])) }));
   return <>
-    <header className="sidebar-filter-header"><div><strong>Columns</strong><p>Choose columns and arrange their order.</p></div><button type="button" aria-label="Close columns menu" onClick={onClose}>×</button></header>
     <div className="point-column-menu-body">
       <section className="point-column-selected">
-        <div className="sidebar-column-order-heading"><strong>Displayed columns</strong><button type="button" onClick={onReset}>Reset order</button></div>
+        <div className="sidebar-column-order-heading"><strong>Displayed columns</strong><button type="button" onClick={onReset}>Reset</button></div>
         <div className="sidebar-column-order-list">
           {selectedGroups.map((group, index) => <div key={group.key} className="point-column-order-row" draggable
             tabIndex={0} aria-label={`Move ${group.label}`} title="Drag to arrange; use arrow keys when focused"

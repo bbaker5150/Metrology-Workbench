@@ -146,7 +146,8 @@ function Analysis({
   // refined. The modes and their content stay wired so re-enabling is just a
   // matter of listing them here again.
   const VISIBLE_ANALYSIS_MODES = ["overview", "uncertaintyTool", "notes"];
-  const analysisMode = VISIBLE_ANALYSIS_MODES.includes(preferredAnalysisMode)
+  const analysisMode = VISIBLE_ANALYSIS_MODES.includes(preferredAnalysisMode) &&
+    !(preferredAnalysisMode === "uncertaintyTool" && (testPointData.viewMode || "point") !== "point")
     ? preferredAnalysisMode
     : "overview";
   const resolvedOverviewCollapsedFunctionKeys =
@@ -179,6 +180,7 @@ function Analysis({
 
   // --- Modal Data State ---
   const [editingComponent, setEditingComponent] = useState(null);
+  const [newDynamicComponentId, setNewDynamicComponentId] = useState(null);
   const [manualComponentScope, setManualComponentScope] = useState(null);
   const [modalPosition, setModalPosition] = useState(null);
   const [derivedBreakdownData, setDerivedBreakdownData] = useState(null);
@@ -549,6 +551,7 @@ function Analysis({
     if (kind !== "manual") {
       const definition = existing || createDynamicDefinition(kind, scope?.nominalPoint || uutNominal);
       const component = createDynamicComponent(definition, outputId, scope);
+      if (!existing) setNewDynamicComponentId(component.id);
       const next = updateDynamicDefinition(sessionData, definition);
       onSessionSave?.({ ...next, testPoints: next.testPoints.map(point => String(point.id) === String(testPointData.id)
         ? { ...point, components: [...(point.components || []), component] } : point) });
@@ -982,9 +985,7 @@ function Analysis({
             className="analysis-content"
             style={{ flex: 1, overflowY: "auto", padding: "20px" }}
           >
-            {analysisMode === "notes" ? notesWorkspace : analysisMode === "uncertaintyTool" ? (
-              <div className="panel-empty-state" role="status">Select a Measurement Point.</div>
-            ) : (
+            {analysisMode === "notes" ? notesWorkspace : (
               <UncertaintyPanel
             // Data
             testPointData={testPointData}
@@ -1088,6 +1089,8 @@ function Analysis({
                 keyboardShortcutsEnabled={keyboardShortcutsEnabled}
                 // Handlers: Components
                 onAddManualComponent={handleAddInlineManualComponent}
+                newDynamicComponentId={newDynamicComponentId}
+                onDynamicEditorOpened={() => setNewDynamicComponentId(null)}
                 onEditManualComponent={handleEditComponent}
                 onRemoveComponent={handleRemoveComponent}
                 // Handlers: Instruments
@@ -1104,7 +1107,9 @@ function Analysis({
                 customEquations={customEquations}
                 onSaveCustomEquation={onSaveCustomEquation}
                 onDeleteCustomEquation={onDeleteCustomEquation}
-                onOpenCorrelation={() => setCorrelationModalOpen(true)}
+                onOpenCorrelation={() => setCorrelationModalOpen(open => !open)}
+                isCorrelationOpen={isCorrelationModalOpen}
+                isDerivedBreakdownOpen={isDerivedBreakdownOpen}
                 onDefineTestPoint={handleDefineTestPoint}
                 onDeleteTestPoint={onDeleteTestPoint}
                 // Selections
@@ -1118,6 +1123,10 @@ function Analysis({
                 setBreakdownPoint={setBreakdownPoint}
                 onBudgetRowContextMenu={handleBudgetRowContextMenu}
                 onShowDerivedBreakdown={() => {
+                  if (isDerivedBreakdownOpen) {
+                    setIsDerivedBreakdownOpen(false);
+                    return;
+                  }
                   if (calcResults)
                     handleBudgetRowContextMenu({ preventDefault: () => {} });
                 }}

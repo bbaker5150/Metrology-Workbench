@@ -62,6 +62,9 @@ const page = await browser.newPage();
 const subresourceFailures = [];
 const apiCalls = [];
 const pageErrors = [];
+const dialogs = [];
+const destructiveCalls = [];
+page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
 
 page.on('pageerror', (e) => pageErrors.push(e.message));
 page.on('requestfailed', (r) => subresourceFailures.push(r.url()));
@@ -71,10 +74,23 @@ page.on('response', (r) => {
 });
 
 const lists = new Set();
+const sessions = new Map([201, 202].map(id => [`session-7-${id}.json`, {
+  id, name: `Archive smoke ${id}`, uuts: [], tmdes: [], testPoints: [], measurementAreas: [], uncReq: {},
+}]));
+const instrumentItems = [301, 302].map(id => ({
+  Id: id, AuthorId: 7, RecordId: `instrument-${id}`,
+  PayloadJson: JSON.stringify({ id: `instrument-${id}`, manufacturer: 'Smoke', model: `DMM-${id}`, description: 'Archive smoke instrument', scope: 'validated', functions: [] }),
+}));
 await page.route('**/_api/**', async (route) => {
   const url = decodeURIComponent(new URL(route.request().url()).pathname + new URL(route.request().url()).search);
   apiCalls.push(url);
   const ok = (body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  const request = route.request();
+  const method = request.headers()['x-http-method'] || request.method();
+  if (/DELETE|MERGE/i.test(method) || /recycle|delete|\$batch/i.test(url)) {
+    destructiveCalls.push(`${method} ${url}`);
+    return route.fulfill({ status: 400, body: 'Unexpected destructive operation' });
+  }
 
   // The single-file build uses SharePoint's existing signed-in identity to
   // scope sessions and local instruments. Keep that authentication handshake
@@ -110,6 +126,31 @@ await page.route('**/_api/**', async (route) => {
     });
   }
   if (/RootFolder/.test(url)) return ok({ ServerRelativeUrl: '/sites/ISEA/UncertaintySessions' });
+  if (/UncertaintySessions'\)\/items\?/.test(url)) return ok({ value: [...sessions].map(([name, doc]) => ({
+    SessionId: doc._uncertaintyArchive ? null : doc.id, SessionName: doc.name, AuthorId: 7, FileLeafRef: name,
+  })) });
+  if (/UncertaintyInstruments'\)\/items\?/.test(url)) {
+    const recordId = /\$filter=RecordId eq '([^']+)'/.exec(url)?.[1];
+    return ok({ value: instrumentItems.filter(item => !recordId || item.RecordId === recordId) });
+  }
+  if (/getfilebyserverrelativeurl/.test(url)) {
+    const name = /session-7-\d+\.json/.exec(url)?.[0];
+    if (/ListItemAllFields/.test(url)) return ok({ Id: sessions.get(name)?.id });
+    if (/\$value$/.test(url) && sessions.has(name)) return ok(sessions.get(name));
+  }
+  if (/files\/add/.test(url)) {
+    const name = /url='([^']+)'/.exec(url)?.[1];
+    sessions.set(name, JSON.parse(request.postData()));
+    return ok({});
+  }
+  if (/ValidateUpdateListItem/.test(url)) {
+    const itemId = Number(/items\((\d+)\)/.exec(url)?.[1]);
+    const item = instrumentItems.find(item => item.Id === itemId);
+    if (item && url.includes('UncertaintyInstruments')) {
+      for (const field of JSON.parse(request.postData()).formValues) item[field.FieldName] = field.FieldValue;
+    }
+    return ok({ value: [] });
+  }
   return ok({ value: [] });
 });
 
@@ -175,7 +216,29 @@ if (/not set up yet/i.test(frameText)) {
   })));
   check('every image is embedded and decoded', images.length > 0 && images.every((i) => i.embedded && i.decoded),
     `(${images.length} images, ${images.filter((i) => !i.embedded).length} addressed, ${images.filter((i) => !i.decoded).length} blank)`);
+
+  const until = async predicate => {
+    for (let i = 0; i < 50 && !predicate(); i++) await page.waitForTimeout(100);
+    return predicate();
+  };
+  await frame.getByTitle('Delete Session', { exact: true }).click();
+  check('session deletion archives the full document without a dialog', await until(() => [...sessions.values()].some(doc => doc._uncertaintyArchive)) && dialogs.length === 0);
+  await frame.getByRole('button', { name: 'Instrument builder', exact: true }).click();
+  const first = frame.getByText('DMM-301', { exact: true });
+  const second = frame.getByText('DMM-302', { exact: true });
+  await first.click();
+  await second.click({ modifiers: ['Control'] });
+  await page.keyboard.press('Delete');
+  check('builder bulk removal archives only the selected records without a dialog', await until(() => instrumentItems.every(item => JSON.parse(item.PayloadJson)._uncertaintyArchive)) && dialogs.length === 0);
+  await page.reload({ waitUntil: 'networkidle' });
+  const reloaded = page.frames().find(f => f.url() === 'about:srcdoc');
+  await reloaded.getByRole('button', { name: 'Instrument builder', exact: true }).click();
+  check('archived instruments stay absent after reload', await reloaded.getByText('DMM-301', { exact: true }).count() === 0 && await reloaded.getByText('DMM-302', { exact: true }).count() === 0);
+  check('records remain recoverable in SharePoint', sessions.size === 2 && instrumentItems.every(item => JSON.parse(item.PayloadJson).description === 'Archive smoke instrument'));
 }
+
+check('no delete, recycle, bulk, or mutation override requests', destructiveCalls.length === 0, destructiveCalls.join('\n'));
+check('no native browser dialogs', dialogs.length === 0, dialogs.join('\n'));
 
 check('no uncaught errors', pageErrors.length === 0,
   pageErrors.length ? `\n      ${pageErrors.slice(0, 3).join('\n      ')}` : '');

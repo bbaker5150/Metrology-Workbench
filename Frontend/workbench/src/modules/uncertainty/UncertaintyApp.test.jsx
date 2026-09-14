@@ -471,7 +471,8 @@ describe("UncertaintyApp", () => {
     expect(screen.getByText(/Add a Measurement Area here/)).toHaveTextContent("use its + button to add a point");
     expect(screen.getAllByText("Add a Measurement Area to get started.")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Uncertainty Budget", exact: true }));
-    expect(screen.getByText("Select a Measurement Point.")).toBeInTheDocument();
+    expect(screen.queryByText("Select a Measurement Point.")).not.toBeInTheDocument();
+    expect(overviewTab).toHaveClass("active");
     fireEvent.click(overviewTab);
 
     fireEvent.click(screen.getByRole("button", { name: /Risk Inputs/i }));
@@ -693,6 +694,47 @@ describe("UncertaintyApp", () => {
     });
   }, 30000);
 
+  test.each([
+    ["Voltage", true, false],
+    ["Pressure", false, false],
+    ["Voltage", true, true],
+  ])("deleting %s returns to overview: %s (last area: %s)", async (deletedArea, returnsToOverview, lastArea) => {
+    const areas = lastArea ? ["Voltage"] : ["Voltage", "Pressure"];
+    apiMock.state.sessions = [{
+      id: 104, name: "Delete area navigation", measurementAreas: [],
+      measurementAreaGroups: areas.map(name => ({ name })),
+      uuts: areas.map(name => ({
+        id: `uut-${name}`, description: `${name} instrument`, measurementAreaNames: [name],
+        instrument: { functions: [{ id: `fn-${name}`, name, unit: "V", ranges: [{ id: `range-${name}`, min: 0, max: 10, unit: "V" }] }] },
+      })),
+      tmdes: [],
+      testPoints: areas.map(name => ({
+        id: `point-${name}`, associatedUutIds: [`uut-${name}`], measurementType: "direct",
+        testPointInfo: { measurementArea: name, parameter: { name, value: "5", unit: "V" } },
+        uutTolerance: { functionName: name, min: 0, max: 10, unit: "V" },
+        tmdeTolerances: [], components: [],
+      })),
+      uncReq: {},
+    }];
+    render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);
+    await screen.findByRole("button", { name: "Instrument Overview" });
+    fireEvent.click(screen.getByRole("button", { name: "Uncertainty Budget" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Uncertainty Budget" })).toHaveClass("active"));
+    fireEvent.click(screen.getByRole("button", { name: `Delete ${deletedArea} measurement area` }));
+    const confirmation = await screen.findByRole("alertdialog", { name: `Delete ${deletedArea}` });
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Delete", exact: true }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: `Delete ${deletedArea} measurement area` })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: returnsToOverview ? "Instrument Overview" : "Uncertainty Budget" })).toHaveClass("active");
+    });
+    expect(screen.queryByText("No measurement point selected.")).not.toBeInTheDocument();
+    expect(screen.queryByText("No Session Available")).not.toBeInTheDocument();
+    if (lastArea) {
+      fireEvent.click(screen.getByRole("button", { name: "Uncertainty Budget" }));
+      expect(screen.getByRole("button", { name: "Instrument Overview" })).toHaveClass("active");
+    }
+  });
+
   test("renders named function headers in the sidebar", async () => {
     apiMock.state.sessions = [
       {
@@ -884,16 +926,18 @@ describe("UncertaintyApp", () => {
     const resizedWidths = Array.from(uutTable.querySelectorAll("col")).map(
       (column) => Number.parseFloat(column.style.width),
     );
-    expect(resizedWidths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(
-      100,
-      5,
-    );
-    expect(resizedWidths[0]).toBeGreaterThan(widths[0]);
-    expect(resizedWidths[1]).toBeLessThan(widths[1]);
+    expect(resizedWidths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(1212, 5);
+    expect(resizedWidths[0]).toBeCloseTo(widths[0] * 12 + 12, 5);
+    expect(resizedWidths[1]).toBeCloseTo(widths[1] * 12, 5);
     const resizedTableWidth = Number.parseFloat(uutTable.style.minWidth);
     expect(resizedTableWidth).toBeGreaterThan(1000);
-    expect(resizedWidths[1] * resizedTableWidth / 100).toBeCloseTo(widths[1] * 12, 5);
-    expect(resizedWidths.at(-1) * resizedTableWidth / 100).toBeCloseTo(widths.at(-1) * 12, 5);
+    expect(resizedWidths[1]).toBeCloseTo(widths[1] * 12, 5);
+    expect(resizedWidths.at(-1)).toBeCloseTo(widths.at(-1) * 12, 5);
+    // A reset in the other instrument view must also leave pixel sizing mode.
+    fireEvent(window, new CustomEvent("uncert-size-instrument-column", {
+      detail: { kind: "uut", source: "other-view", widths: {} },
+    }));
+    expect(uutTable.querySelector("col").style.width).toContain("%");
 
     const cardHeader = uutTable
       .closest(".panel-card")
@@ -992,8 +1036,8 @@ describe("UncertaintyApp", () => {
       ).toBeInTheDocument();
       expect(uutTable.querySelector("tr.inline-range-row")).toBeInTheDocument();
     });
-    expect(uutTable.querySelector(".range-row-add")).not.toBeInTheDocument();
-    expect(uutTable.querySelector(".range-row-delete")).not.toBeInTheDocument();
+    expect(uutTable.querySelector(".range-row-add")).toBeInTheDocument();
+    expect(uutTable.querySelector(".range-row-delete")).toBeInTheDocument();
     fireEvent.pointerDown(descriptionResizeHandle, { clientX: 100 });
     fireEvent.pointerMove(document, { clientX: 120 });
     fireEvent.pointerUp(document);
@@ -1765,7 +1809,8 @@ describe("UncertaintyApp", () => {
     ).toBe(true);
   }, 30000);
 
-  test("zooms a table around the cursor without zooming the page", async () => {
+  test("zooms a table around the cursor without zooming the page when scale is unlocked", async () => {
+    localStorage.setItem("workbench:ui-scale-lock", "false");
     render(
       <ThemeProvider>
         <NotificationProvider>
@@ -1873,7 +1918,8 @@ describe("UncertaintyApp", () => {
     resultsSurface.remove();
   });
 
-  test("zooms the measurement equation area around the cursor", async () => {
+  test("zooms the measurement equation area around the cursor when scale is unlocked", async () => {
+    localStorage.setItem("workbench:ui-scale-lock", "false");
     render(
       <ThemeProvider>
         <NotificationProvider>

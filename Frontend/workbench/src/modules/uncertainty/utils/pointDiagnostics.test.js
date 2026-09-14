@@ -199,3 +199,11 @@ it("marks unsupported single-sided mitigation fields as information", () => {
     { riskMetrics: { riskAvailability: "pfa-boundary-only" }, visibleColumns: { gbCalInt: true } });
   expect(entries).toContainEqual(expect.objectContaining({ category: "info", message: expect.stringContaining("not calculated for this case") }));
 });
+
+it("clears a stale out-of-range warning when the linked instrument range changes", () => {
+  const component = { ...source, tmdeBudgetSourceId: "meter" };
+  const master = { id: "meter", instrument: { functions: [{ id: "voltage", name: "Voltage", unit: "V", ranges: [{ id: "r", min: 0, max: 20, unit: "V" }] }] } };
+  expect(getBudgetRangeWarnings({ components: [component], directNominal: { value: 5, unit: "V" }, tmdes: [master] })).toEqual({});
+  master.instrument.functions[0].ranges[0].max = 1;
+  expect(getBudgetRangeWarnings({ components: [component], directNominal: { value: 5, unit: "V" }, tmdes: [master] }).final).toHaveLength(1);
+});

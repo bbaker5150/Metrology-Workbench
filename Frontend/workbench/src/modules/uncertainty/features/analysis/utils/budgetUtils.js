@@ -13,6 +13,7 @@ import {
   DISTRIBUTION_NOT_SET,
   distributionDivisorValue,
   effectiveFloorTerm,
+  selectGreatestTolerance,
 } from "../../../utils/uncertaintyMath";
 
 export const oldErrorDistributions = [
@@ -161,6 +162,7 @@ export const getBudgetComponentsFromTolerance = (
     return [];
   }
 
+  toleranceObject = selectGreatestTolerance(toleranceObject, referenceMeasurementPoint);
   const budgetComponents = [];
   const nominalValue = parseFloat(referenceMeasurementPoint.value);
   const nominalUnit = referenceMeasurementPoint.unit;
@@ -240,7 +242,7 @@ export const getBudgetComponentsFromTolerance = (
 
       if (isNaN(baseValueForRelative)) return 0;
       
-      const absoluteValueInNominalUnit = halfSpan * multiplier * baseValueForRelative;
+      const absoluteValueInNominalUnit = halfSpan * multiplier * Math.abs(baseValueForRelative);
       valueInBaseUnits = unitSystem.toBaseUnit(absoluteValueInNominalUnit, nominalUnit);
       
     } else {

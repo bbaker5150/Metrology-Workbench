@@ -15,6 +15,7 @@ const InlineMenuSelect = ({
   ariaLabel = "Select",
   title,
   menuTitle,
+  prefixTable = false,
   headerAction,
   width = "72px",
   menuWidth = 220,
@@ -64,7 +65,7 @@ const InlineMenuSelect = ({
           preferredWidth: Math.max(rect.width, menuWidth),
           preferredMaxHeight: Math.min(
             320,
-            Math.max(48, options.length * 34 + 12 + (menuTitle ? 38 : 0)),
+            Math.max(48, options.length * 34 + 12 + (menuTitle || prefixTable ? 38 : 0)),
           ),
           gap: 4,
         }),
@@ -181,7 +182,7 @@ const InlineMenuSelect = ({
         menuRect &&
         ReactDOM.createPortal(
           <div
-            className="inline-unit-menu inline-menu-select-menu"
+            className={`inline-unit-menu inline-menu-select-menu${prefixTable ? " unit-prefix-menu" : ""}`}
             style={{
               top: menuRect.top,
               bottom: menuRect.bottom,
@@ -215,6 +216,7 @@ const InlineMenuSelect = ({
               items[next]?.focus();
             }}
           >
+            {prefixTable && <div className="unit-prefix-heading"><span>Prefix</span><span>Symbol</span><span>Multiplier</span></div>}
             {menuTitle && (
               <div className="instrument-menu-heading">
                 <span>{menuTitle}</span>
@@ -228,7 +230,7 @@ const InlineMenuSelect = ({
               style={{
                 maxHeight: Math.max(
                   1,
-                  menuRect.maxHeight - 12 - (menuTitle ? 38 : 0),
+                  menuRect.maxHeight - 12 - (menuTitle || prefixTable ? 38 : 0),
                 ),
               }}
             >
@@ -241,14 +243,15 @@ const InlineMenuSelect = ({
                     type="button"
                     role="option"
                     aria-selected={isSelected}
-                    className={`inline-unit-option${isSelected ? " is-selected" : ""}`}
+                    className={`inline-unit-option${isSelected ? " is-selected" : ""}${prefixTable && option.value === "" ? " is-base-unit" : ""}`}
                     onClick={() => {
                       onChange?.(option.value);
                       closeMenu();
                     }}
                   >
                     <span>{option.label}</span>
-                    {showOptionMeta &&
+                    {prefixTable && <><span>{option.value === "" ? "—" : option.shortLabel}</span><span>10<sup>{option.power}</sup></span></>}
+                    {!prefixTable && showOptionMeta &&
                       (option.shortLabel || option.value !== option.label) && (
                         <small>{option.shortLabel || option.value}</small>
                       )}

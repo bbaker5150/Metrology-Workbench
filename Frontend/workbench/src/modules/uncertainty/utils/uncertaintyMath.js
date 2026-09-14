@@ -1,3 +1,4 @@
+import { registerUnitPrefixes } from "./siPrefixes";
 import { getUnitSearchNames } from "./unitNames";
 import * as math from "mathjs";
 
@@ -287,6 +288,8 @@ export const unitSystem = {
   }
 };
 
+registerUnitPrefixes(unitSystem.units);
+
 // Direct unit lookups are used throughout the risk and budget engines. Expose
 // legacy spellings there as non-enumerable aliases: old data keeps working,
 // while Object.keys(unitSystem.units) (which feeds unit pickers) remains free
@@ -388,7 +391,14 @@ const displayUnitKey = (unit) => {
 
 export const getUnitDisplayLabel = (unit) => {
   const key = displayUnitKey(unit);
-  return UNIT_DISPLAY_LABELS[key] || key;
+  if (UNIT_DISPLAY_LABELS[key]) return UNIT_DISPLAY_LABELS[key];
+  const definition = unitSystem.units[key];
+  if (definition?.prefixKey) {
+    const symbol = definition.prefixKey === "u" ? "µ" : definition.prefixKey;
+    const base = getUnitDisplayLabel(definition.prefixBase);
+    return /[^a-zA-Z]/.test(definition.prefixBase) ? `${symbol}(${base})` : `${symbol}${base}`;
+  }
+  return key;
 };
 
 // Function headers combine units from persisted function defaults, ranges,
@@ -954,7 +964,8 @@ export const getToleranceSummary = (toleranceData) => {
   if (floorPart) parts.push(formatPart(floorPart));
   if (toleranceData.db) parts.push(formatPart(toleranceData.db));
 
-  return parts.filter((p) => p).join(" + ") || "Not Set";
+  const present = parts.filter(Boolean);
+  return present.length ? present.join(toleranceData.whicheverIsGreater ? ", or " : " + ") + (toleranceData.whicheverIsGreater ? ", whichever is greater" : "") : "Not Set";
 };
 
 // `readings_iv` is a legacy alias of `floor` (the same absolute "Floor Value")
@@ -978,6 +989,26 @@ export const effectiveFloorTerm = (tolerance = {}) =>
 // UPDATED: calculateUncertaintyFromToleranceObject
 // Includes fixes for: Normalization, Positive Low Values, and Zero Nominal Value
 // =================================================================================
+export const selectGreatestTolerance = (tolerance, point) => {
+  if (!tolerance?.whicheverIsGreater || !point || point.value === "" || point.value == null) return tolerance;
+  const keys = ["reading", "range", "floor", "readings_iv", "db"];
+  const base = { ...tolerance, whicheverIsGreater: false, max: tolerance.max ?? tolerance.range?.value };
+  keys.forEach(key => delete base[key]);
+  delete base.tolerance;
+  delete base.tolerances;
+  let winner = null;
+  let greatest = -1;
+  for (const key of ["reading", "range", "floor", "db"]) {
+    const term = key === "floor" ? effectiveFloorTerm(tolerance) : tolerance[key];
+    if (!term) continue;
+    const candidate = { ...base, [key]: term };
+    const { breakdown } = calculateUncertaintyFromToleranceObject(candidate, point, true);
+    const magnitude = breakdown.reduce((sum, row) => sum + Math.abs(row.absoluteHigh - row.absoluteLow) / 2, 0);
+    if (breakdown.length && magnitude > greatest) { greatest = magnitude; winner = candidate; }
+  }
+  return winner || base;
+};
+
 export const calculateUncertaintyFromToleranceObject = (
   rawToleranceObject,
   referenceMeasurementPoint,
@@ -1001,9 +1032,13 @@ export const calculateUncertaintyFromToleranceObject = (
   // Handle nested tolerance objects
   if (toleranceObject && typeof toleranceObject === 'object') {
      if (toleranceObject.tolerance) {
-        toleranceObject = toleranceObject.tolerance;
+        toleranceObject = { ...toleranceObject, ...toleranceObject.tolerance };
+        delete toleranceObject.tolerance;
+        delete toleranceObject.tolerances;
      } else if (toleranceObject.tolerances) {
-        toleranceObject = toleranceObject.tolerances;
+        toleranceObject = { ...toleranceObject, ...toleranceObject.tolerances };
+        delete toleranceObject.tolerance;
+        delete toleranceObject.tolerances;
      }
   }
 
@@ -1023,6 +1058,7 @@ export const calculateUncertaintyFromToleranceObject = (
     return { standardUncertainty: 0, totalToleranceForTar: 0, breakdown: [] };
   }
 
+  toleranceObject = selectGreatestTolerance(toleranceObject, referenceMeasurementPoint);
   const nominalValue = parseFloat(referenceMeasurementPoint.value);
   const nominalUnit = referenceMeasurementPoint.unit;
   let totalVariance = 0;

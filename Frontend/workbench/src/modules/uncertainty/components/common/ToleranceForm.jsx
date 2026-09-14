@@ -629,6 +629,8 @@ const ToleranceForm = ({
 
   return (
     <>
+      <label className="tolerance-greater-option"><input type="checkbox" checked={Boolean(tolerance.whicheverIsGreater)}
+        onChange={event => setTolerance(previous => ({ ...previous, whicheverIsGreater: event.target.checked }))} /> Whichever is greater</label>
       <div className="components-container">
         {addedComponents.length > 0 ? (
           addedComponents.map((key) => renderComponentCard(key))

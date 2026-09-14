@@ -48,6 +48,16 @@ describe.each(['session', 'point'])('independent Measurement Areas in %s view', 
   it('adds an area directly from the inline UUT name field', async () => {
     const save = vi.fn();
     render(<Harness viewMode={viewMode} save={save} />);
+    if (viewMode === 'point') {
+      expect(screen.queryByRole('textbox', { name: 'New UUT measurement area name' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('textbox', { name: 'New TMDE measurement area name' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Show all TMDE measurement areas' }));
+      expect(screen.getByRole('textbox', { name: 'New TMDE measurement area name' })).toBeInTheDocument();
+      expect(screen.queryByRole('textbox', { name: 'New UUT measurement area name' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Show this TMDE measurement area' }));
+      expect(screen.queryByRole('textbox', { name: 'New TMDE measurement area name' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Show all UUT measurement areas' }));
+    }
     fireEvent.change(screen.getByRole('textbox', { name: 'New UUT measurement area name' }), { target: { value: 'Inspection' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add Measurement Area from UUT table' }));
     await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ measurementAreaGroups: expect.arrayContaining([expect.objectContaining({ name: 'Inspection' })]) })));

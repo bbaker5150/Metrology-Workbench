@@ -270,7 +270,7 @@ describe("GhostRangeRow", () => {
     expect(onMaterialize).toHaveBeenCalledWith({ min: "0", max: "10", unit: "V" }, { openTolerance: true });
   });
 
-  it("tabs directly from a non-scalable unit into tolerance", async () => {
+  it("tabs through the newly available pressure prefix into tolerance", async () => {
     const onMaterialize = vi.fn();
     renderGhost(onMaterialize, "psig");
 
@@ -285,6 +285,8 @@ describe("GhostRangeRow", () => {
       { key: "Tab" },
     );
 
+    expect(onMaterialize).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByLabelText("New range unit prefix"), { key: "Tab" });
     expect(onMaterialize).toHaveBeenCalledWith({
       min: "0",
       max: "10",

@@ -14,7 +14,7 @@
 // Anything not matching an uncertainty route falls through to the real network
 // adapter untouched.
 
-import { SharePointStore } from './spStore';
+import { SharePointStore, isArchived } from './spStore';
 import { SharePointError, spGetText } from './spContext';
 
 /** Route table: [method, RegExp over the path after /uncertainty, handler]. */
@@ -86,6 +86,7 @@ async function listFullSessions(store, concurrency = 6) {
 /** Notes autosave patches one field without rewriting the whole document. */
 async function patchNotes(store, sessionId, body) {
   const session = await store.getSession(sessionId);
+  if (!session) throw new SharePointError('This session has been archived.', 404);
   session.notes = body?.notes ?? '';
   await store.saveSession(session);
   return { notes: session.notes };
@@ -111,6 +112,7 @@ async function listImages(store, sessionId) {
     try {
       const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/$value`;
       const image = JSON.parse(await spGetText(store.webUrl, path, store.fetchImpl));
+      if (isArchived(image)) continue;
       store.rememberImageFile(sessionId, image.imageId, name);
       images.push(image);
     } catch (error) {
@@ -135,15 +137,8 @@ async function saveImage(store, sessionId, body) {
 }
 
 async function deleteImage(store, sessionId, imageId) {
-  const folder = await store.libraryFolder();
   const name = await store.scopedImageFileName(sessionId, imageId);
-  const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/recycle()`;
-  try {
-    await store.post(path, {});
-  } catch (error) {
-    // Already gone is a successful delete from the caller's point of view.
-    if (!(error instanceof SharePointError && error.status === 404)) throw error;
-  }
+  await store.archiveJsonFile(name);
 }
 
 /**

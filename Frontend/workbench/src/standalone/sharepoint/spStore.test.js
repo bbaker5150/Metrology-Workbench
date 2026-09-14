@@ -417,9 +417,17 @@ describe("sessions", () => {
     );
   });
 
-  it("recycles rather than hard-deleting so a mistake is recoverable", async () => {
+  it("archives the complete session and clears its picker key without deleting a file", async () => {
+    const doc = { id: 5, name: 'Calibration', testPoints: [{ id: 'point', value: 10 }] };
+    http.on(/session-41-5.json.*\$value$/, { json: doc });
     await store.deleteSession(5);
-    expect(http.find(/recycle/)[0].url).toContain("session-41-5.json");
+    const archived = JSON.parse(http.find(/files\/add/)[0].body);
+    expect(archived).toMatchObject(doc);
+    expect(archived._uncertaintyArchive).toMatchObject({ userId: 41, at: expect.any(String) });
+    expect(formValueObject(http.find(/ValidateUpdateListItem/)[0])).toEqual({ SessionId: '' });
+    expect(http.find(/recycle|delete/i)).toHaveLength(0);
+    http.on(/session-41-5.json.*\$value$/, { json: archived });
+    expect(await store.getSession(5)).toBeNull();
   });
 
   it("uses the signed-in user's id in image filenames", async () => {
@@ -577,7 +585,8 @@ describe("user-scoped instrument records", () => {
     });
 
     expect(http.find(/items\(80\)\/ValidateUpdateListItem/)[0].spMethod).toBeUndefined();
-    expect(http.find(/items\(81\)\/recycle/)[0].spMethod).toBeUndefined();
+    const cleanup = formValueObject(http.find(/items\(81\)\/ValidateUpdateListItem/)[0]);
+    expect(JSON.parse(cleanup.PayloadJson)).toMatchObject({ id: 'my-copy', sourceId: 'shared', _uncertaintyArchive: { userId: 41 } });
     expect(http.find(/items\(82\)/)).toHaveLength(0);
     expect(saved).not.toHaveProperty("password");
   });
@@ -606,11 +615,12 @@ describe("user-scoped instrument records", () => {
     });
 
     await store.deleteInstrument("same");
-    expect(http.find(/items\(73\)\/recycle/)[0].spMethod).toBeUndefined();
+    const archived = JSON.parse(formValueObject(http.find(/items\(73\)\/ValidateUpdateListItem/)[0]).PayloadJson);
+    expect(archived).toMatchObject({ id: 'same', scope: 'local', _uncertaintyArchive: { userId: 41 } });
     expect(http.find(/items\(72\)/)).toHaveLength(0);
   });
 
-  it("never uses mutation override headers for update or recycle operations", async () => {
+  it("never requests deletion, recycling, bulk operations, or mutation override headers", async () => {
     http.on(/\$filter=RecordId/, {
       json: {
         value: [
@@ -624,5 +634,54 @@ describe("user-scoped instrument records", () => {
 
     expect(http.calls.some((call) => call.spMethod === "MERGE")).toBe(false);
     expect(http.calls.some((call) => call.spMethod === "DELETE")).toBe(false);
+    expect(http.calls.some(call => /recycle|delete|\$batch/i.test(call.url) || call.method === 'DELETE')).toBe(false);
+  });
+
+  it("keeps archived records hidden after reload and preserves a new record with the same id", async () => {
+    const archived = { id: 'same', scope: 'local', model: 'Old', _uncertaintyArchive: { at: '2026-09-13', userId: 41 } };
+    const active = { id: 'same', scope: 'local', model: 'New' };
+    http.on(/UncertaintyInstruments'\)\/items\?/, { json: { value: [
+      { Id: 71, AuthorId: 41, RecordId: 'same', PayloadJson: JSON.stringify(archived) },
+      { Id: 72, AuthorId: 41, RecordId: 'same', PayloadJson: JSON.stringify(active) },
+    ] } });
+    expect(await store.listInstruments()).toEqual([{ ...active, owner: 'sharepoint-user:41' }]);
+    expect(await store.listRecords('instruments')).toEqual([active]);
+    expect(await store.findItemId('instruments', 'same')).toBe(72);
+    await store.saveInstrument({ ...active, model: 'Updated' });
+    expect(http.find(/items\(71\)/)).toHaveLength(0);
+    expect(http.find(/items\(72\)\/ValidateUpdateListItem/)).toHaveLength(1);
+  });
+
+  it("archives equations and reports with their original content intact", async () => {
+    const record = { id: 'equation', equation: 'x * 2', name: 'Example' };
+    http.on(/\$filter=RecordId/, { json: { value: [{ Id: 12, PayloadJson: JSON.stringify(record) }] } });
+    await store.deleteRecord('equations', 'equation');
+    const saved = JSON.parse(formValueObject(http.find(/ValidateUpdateListItem/)[0]).PayloadJson);
+    expect(saved).toMatchObject({ ...record, _uncertaintyArchive: { userId: 41 } });
+  });
+
+  it("does not claim success or erase data when SharePoint rejects archiving", async () => {
+    http.on(/\$filter=RecordId/, { json: { value: [{ Id: 12, PayloadJson: '{"id":"eq"}' }] } });
+    http.on(/ValidateUpdateListItem/, { json: { value: [{ FieldName: 'PayloadJson', HasException: true, ErrorMessage: 'Denied' }] } });
+    await expect(store.deleteRecord('equations', 'eq')).rejects.toThrow('Denied');
+    expect(http.find(/recycle|delete/i)).toHaveLength(0);
+  });
+
+  it('continues past archived records on earlier SharePoint pages', async () => {
+    const archived = { id: 'old', _uncertaintyArchive: { at: '2026-09-13' } };
+    http.on(/UncertaintyInstruments'\)\/items\?/, { json: {
+      value: [{ Id: 1, PayloadJson: JSON.stringify(archived) }],
+      'odata.nextLink': `${WEB}/_api/page2`,
+    } });
+    http.on(/\/_api\/page2$/, { json: { value: [{ Id: 2, PayloadJson: '{"id":"active","scope":"validated"}' }] } });
+    expect(await store.listInstruments()).toEqual([{ id: 'active', scope: 'validated' }]);
+  });
+
+  it('leaves already archived file content untouched and treats missing files as removed', async () => {
+    http.on(/already.json.*\$value$/, { json: { id: 5, _uncertaintyArchive: { at: '2026-09-12', userId: 41 } } });
+    http.on(/missing.json.*\$value$/, { status: 404 });
+    await store.archiveJsonFile('already.json');
+    expect(await store.archiveJsonFile('missing.json')).toBeNull();
+    expect(http.find(/files\/add/)).toHaveLength(0);
   });
 });

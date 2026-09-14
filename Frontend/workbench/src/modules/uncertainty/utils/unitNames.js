@@ -1,3 +1,4 @@
+import { SI_PREFIX_OPTIONS } from "./siPrefixes";
 // Search names are separate from symbols and conversion factors.
 const bases = {
   V: "volt", A: "ampere", Ohm: "ohm", F: "farad", H: "henry", Hz: "hertz",
@@ -20,11 +21,17 @@ const special = {
   '%RH': "percent relative humidity", 'degC dp': "degrees Celsius dew point", 'degF dp': "degrees Fahrenheit dew point",
   ppmv: "parts per million by volume", '%v': "percent by volume", 'in-oz': "inch ounce force",
 };
-const prefixes = { p: "pico", n: "nano", u: "micro", m: "milli", c: "centi", d: "deci", h: "hecto", k: "kilo", M: "mega", G: "giga" };
-const tokenName = token => bases[token] || (prefixes[token[0]] && bases[token.slice(1)] ? prefixes[token[0]] + bases[token.slice(1)] : token);
+const prefixes = SI_PREFIX_OPTIONS.filter(p => p.key).sort((a, b) => b.key.length - a.key.length);
+const tokenName = token => {
+  if (bases[token]) return bases[token];
+  const prefix = prefixes.find(p => token.startsWith(p.key) && bases[token.slice(p.key.length)]);
+  return prefix ? prefix.label.toLowerCase() + bases[token.slice(prefix.key.length)] : token;
+};
 const fullName = unit => {
   if (special[unit]) return special[unit];
   if (bases[unit]) return bases[unit];
+  const scaled = prefixes.find(p => unit.startsWith(p.key) && special[unit.slice(p.key.length)]);
+  if (scaled) return scaled.label.toLowerCase() + " " + special[unit.slice(scaled.key.length)];
   if (/^1\//.test(unit)) return "inverse " + fullName(unit.slice(2));
   return unit.replace(/[A-Za-z%_]+(?:\^-?\d+)?/g, token => {
     const [symbol, power] = token.split('^');

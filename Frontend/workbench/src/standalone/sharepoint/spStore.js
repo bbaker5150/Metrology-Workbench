@@ -21,6 +21,7 @@ export const FIELD_TYPE = { TEXT: 2, NOTE: 3, NUMBER: 9 };
 
 /** Default container prefix; overridable so two instances can share a site. */
 export const DEFAULT_PREFIX = 'Uncertainty';
+export const isArchived = (record) => Boolean(record?._uncertaintyArchive?.at);
 
 export const CONTAINERS = [
   {
@@ -190,6 +191,20 @@ export class SharePointStore {
   get = (path) => spGet(this.webUrl, path, this.fetchImpl);
   post = (path, options) => spPost(this.webUrl, path, options, this.fetchImpl);
 
+  async getItems(path) {
+    const items = [];
+    while (path) {
+      const body = await this.get(path);
+      items.push(...(body.value || body.d?.results || []));
+      const next = body['odata.nextLink'] || body['@odata.nextLink'] || body.d?.__next;
+      if (!next) break;
+      const url = new URL(next, `${this.webUrl}${path}`);
+      if (!url.href.startsWith(`${this.webUrl}/`)) throw new SharePointError('SharePoint returned an unexpected paging URL.', 500);
+      path = url.href.slice(this.webUrl.length);
+    }
+    return items;
+  }
+
   async updateListItem(key, itemId, fields) {
     const result = await this.post(
       `${listApi(this.prefix, key)}/items(${itemId})/ValidateUpdateListItem()`,
@@ -219,8 +234,39 @@ export class SharePointStore {
     return this.updateListItem('sessions', itemId, fields);
   }
 
-  async recycleListItem(key, itemId) {
-    return this.post(`${listApi(this.prefix, key)}/items(${itemId})/recycle()`, {});
+  async archivedRecord(record) {
+    if (isArchived(record)) return record;
+    const user = await this.currentUser();
+    return { ...record, _uncertaintyArchive: { at: new Date().toISOString(), userId: user.id } };
+  }
+
+  async archiveListItem(key, item) {
+    const record = this.parsePayload(item, key);
+    if (!record) throw new SharePointError('Cannot archive an unreadable record.', 400);
+    if (isArchived(record)) return;
+    await this.updateListItem(key, item.Id, { PayloadJson: JSON.stringify(await this.archivedRecord(record)) });
+  }
+
+  // Removal from the app is a normal content update. The original data remains
+  // in SharePoint; no delete/recycle operation or bulk-delete permission is used.
+  async archiveJsonFile(name) {
+    const folder = await this.libraryFolder();
+    const readPath = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/$value`;
+    let record;
+    try {
+      record = JSON.parse(await spGetText(this.webUrl, readPath, this.fetchImpl));
+    } catch (error) {
+      if (error instanceof SharePointError && error.status === 404) return null;
+      throw error;
+    }
+    if (!record || typeof record !== 'object' || Array.isArray(record)) throw new SharePointError('Cannot archive an invalid JSON document.', 400);
+    if (!isArchived(record)) {
+      await this.post(
+        `/_api/web/getfolderbyserverrelativeurl('${encodeURIComponent(folder)}')/files/add(url='${encodeURIComponent(name)}',overwrite=true)`,
+        { raw: true, body: JSON.stringify(await this.archivedRecord(record)), headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    return record;
   }
 
   async currentUser() {
@@ -382,8 +428,8 @@ export class SharePointStore {
     const query =
       '$select=FileLeafRef,AuthorId&' +
       `$filter=AuthorId eq ${user.id}&$top=5000`;
-    const body = await this.get(`${listApi(this.prefix, 'sessions')}/items?${query}`);
-    return (body.value || []).map((item) => item.FileLeafRef).filter(Boolean);
+    const items = await this.getItems(`${listApi(this.prefix, 'sessions')}/items?${query}`);
+    return items.map((item) => item.FileLeafRef).filter(Boolean);
   }
 
   async listSessions() {
@@ -391,9 +437,9 @@ export class SharePointStore {
     const select =
       '$select=SessionId,SessionName,Analyst,Organization,DocumentRef,DocumentDate,Modified,FileLeafRef,AuthorId' +
       `&$filter=AuthorId eq ${user.id}&$orderby=Modified desc&$top=500`;
-    const body = await this.get(`${listApi(this.prefix, 'sessions')}/items?${select}`);
+    const items = await this.getItems(`${listApi(this.prefix, 'sessions')}/items?${select}`);
     const seen = new Set();
-    return (body.value || [])
+    return items
       .filter((item) => {
         if (item.SessionId === null || item.SessionId === undefined) return false;
         const id = Number(item.SessionId);
@@ -431,7 +477,8 @@ export class SharePointStore {
     const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/$value`;
     const text = await spGetText(this.webUrl, path, this.fetchImpl);
     try {
-      return JSON.parse(text);
+      const doc = JSON.parse(text);
+      return isArchived(doc) ? null : doc;
     } catch {
       throw new SharePointError(`Session ${id} is not valid JSON and may be corrupt.`, 200);
     }
@@ -469,10 +516,10 @@ export class SharePointStore {
   async deleteSession(id) {
     const folder = await this.libraryFolder();
     const name = await this.sessionFileName(id);
-    // recycle() rather than a hard delete, so a mistaken removal is
-    // recoverable from the site recycle bin.
-    const path = `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')/recycle()`;
-    await this.post(path, {});
+    const record = await this.archiveJsonFile(name);
+    // Keep the full JSON and descriptive metadata, but remove the picker key.
+    // getSession also filters the marker if this metadata update is interrupted.
+    if (record) await this.updateFileListItem(folder, name, { SessionId: null });
     this._sessionFiles.delete(Number(id));
     this._sessionMetadata.delete(Number(id));
   }
@@ -483,14 +530,14 @@ export class SharePointStore {
     const filter = recordId == null
       ? ''
       : `&$filter=RecordId eq '${String(recordId).replace(/'/g, "''")}'`;
-    const body = await this.get(
+    const items = await this.getItems(
       `${listApi(this.prefix, 'instruments')}/items?` +
       `$select=Id,RecordId,PayloadJson,AuthorId${filter}&$top=5000`,
     );
-    return (body.value || []).map((item) => ({
+    return items.map((item) => ({
       item,
       record: this.parsePayload(item, 'instruments'),
-    })).filter(({ record }) => Boolean(record));
+    })).filter(({ record }) => Boolean(record) && !isArchived(record));
   }
 
   /**
@@ -551,7 +598,7 @@ export class SharePointStore {
       );
       await Promise.all(
         ownLinkedLocals.map(({ item }) =>
-          this.recycleListItem('instruments', item.Id),
+          this.archiveListItem('instruments', item),
         ),
       );
     }
@@ -569,12 +616,12 @@ export class SharePointStore {
     // Another user's local row is intentionally indistinguishable from an
     // absent record and can never be deleted through the app.
     if (!target) return;
-    await this.recycleListItem('instruments', target.item.Id);
+    await this.archiveListItem('instruments', target.item);
   }
 
   async listRecords(key) {
-    const body = await this.get(`${listApi(this.prefix, key)}/items?$select=Id,RecordId,PayloadJson&$top=5000`);
-    return (body.value || []).map((item) => this.parsePayload(item, key)).filter(Boolean);
+    const items = await this.getItems(`${listApi(this.prefix, key)}/items?$select=Id,RecordId,PayloadJson&$top=5000`);
+    return items.map((item) => this.parsePayload(item, key)).filter(record => record && !isArchived(record));
   }
 
   parsePayload(item, key) {
@@ -588,10 +635,14 @@ export class SharePointStore {
     }
   }
 
+  async findRecordItem(key, recordId) {
+    const filter = `$filter=RecordId eq '${String(recordId).replace(/'/g, "''")}'&$select=Id,RecordId,PayloadJson&$top=5000`;
+    const items = await this.getItems(`${listApi(this.prefix, key)}/items?${filter}`);
+    return items.find(item => !isArchived(this.parsePayload(item, key)));
+  }
+
   async findItemId(key, recordId) {
-    const filter = `$filter=RecordId eq '${String(recordId).replace(/'/g, "''")}'&$select=Id&$top=1`;
-    const body = await this.get(`${listApi(this.prefix, key)}/items?${filter}`);
-    return body.value?.length ? body.value[0].Id : undefined;
+    return (await this.findRecordItem(key, recordId))?.Id;
   }
 
   async saveRecord(key, record) {
@@ -614,9 +665,9 @@ export class SharePointStore {
   }
 
   async deleteRecord(key, recordId) {
-    const existingId = await this.findItemId(key, recordId);
+    const item = await this.findRecordItem(key, recordId);
     // Deleting something already gone is not an error worth surfacing.
-    if (!existingId) return;
-    await this.recycleListItem(key, existingId);
+    if (!item) return;
+    await this.archiveListItem(key, item);
   }
 }

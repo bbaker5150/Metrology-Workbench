@@ -23,6 +23,7 @@ function fakeStore(overrides = {}) {
     scopedImageFileName: vi.fn(async (sessionId, imageId) =>
       `image-41-${sessionId}-${imageId}.json`),
     rememberImageFile: vi.fn(),
+    archiveJsonFile: vi.fn().mockResolvedValue({}),
     get: vi.fn().mockResolvedValue({ value: [] }),
     post: vi.fn().mockResolvedValue({}),
     webUrl: "https://t.example/sites/X",
@@ -247,6 +248,19 @@ describe("error translation", () => {
 });
 
 describe("request bodies", () => {
+  it('archives a removed session image without a recycle request', async () => {
+    await call('delete', '/sessions/8/images/image-a/');
+    expect(store.archiveJsonFile).toHaveBeenCalledWith('image-41-8-image-a.json');
+    expect(store.post).not.toHaveBeenCalled();
+  });
+
+  it('omits archived images while preserving active images', async () => {
+    store.listOwnedLibraryFileNames.mockResolvedValue(['image-41-8-a.json', 'image-41-8-b.json']);
+    store.fetchImpl.mockImplementation(async url => ({ ok: true, text: async () => JSON.stringify(url.includes('-a.json')
+      ? { imageId: 'a', _uncertaintyArchive: { at: '2026-09-13' } } : { imageId: 'b', dataBase64: 'original' }) }));
+    const result = await call('get', '/sessions/8/images/');
+    expect(result.data).toEqual([{ imageId: 'b', dataBase64: 'original' }]);
+  });
   it("parses a JSON string body, which is how axios hands it over", async () => {
     await call("post", "/instruments/", { id: "i", nested: { a: 1 } });
     expect(store.saveInstrument).toHaveBeenCalledWith({ id: "i", nested: { a: 1 } });

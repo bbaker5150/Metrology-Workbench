@@ -14,7 +14,7 @@ export default function MeasurementAreaEntry({ kind, onAdd }) {
     <div className="sidebar-area-entry instrument-area-entry" data-tour={`${kind}-add-function`}>
       <input
         aria-label={`New ${label} measurement area name`}
-        placeholder="Area name"
+        placeholder="Add Measurement Area"
         value={name}
         onChange={event => setName(event.target.value)}
         onKeyDown={event => {

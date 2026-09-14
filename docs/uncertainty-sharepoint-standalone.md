@@ -33,6 +33,31 @@ npm run build:singlefile     # -> build-singlefile/uncertainty-budget.html  (dep
 ```
 
 
+## Removing records without bulk-delete prompts
+
+In the SharePoint build, Delete removes a record from the app by archiving its
+content through ordinary updates. It does not call SharePoint delete, recycle,
+or batch endpoints. This applies to sessions, builder instruments (including
+multiple selections and linked-local cleanup), equations, reports, and images.
+Browser or hosting-page security settings are not changed.
+
+Archived list rows retain their full `PayloadJson` with an
+`_uncertaintyArchive` marker containing the timestamp and acting user ID.
+Archived session/image files retain their JSON with the same marker. A session's
+`SessionId` metadata is cleared so it leaves the picker; its JSON still contains
+the original ID. Reads also exclude the marker if a metadata update was interrupted.
+No new lists or columns are required. Lists are paged completely so retained
+archives do not hide active records on later pages.
+
+These records remain in the original SharePoint containers, not the recycle bin.
+To recover a record, a site maintainer can remove the marker from its JSON; for a
+session, also restore its `SessionId` metadata from the JSON's `id`. Deploy this
+updated HTML file to activate the behavior; an older open page must be reloaded.
+
+Validation: 149 focused tests and 19 checks of the built HTML in an embedded
+browser passed, including session removal, multiple builder selections, reload,
+retained content, and absence of native dialogs or destructive requests.
+
 ## Deploy to SharePoint (single file)
 
 Ship `build-singlefile/uncertainty-budget.html`. It is the only thing in

@@ -1,3 +1,4 @@
+import { isUiScaleLocked } from "./UiSettings";
 import React, { useEffect, useRef, useState } from "react";
 
 // Custom event other components dispatch to surface a scoped (per-panel) zoom
@@ -43,7 +44,6 @@ export default function ZoomToast() {
     const webFrame = getWebFrame();
     const root = document.documentElement;
     const originalZoom = root.style.zoom;
-    const initialZoom = webFrame?.getZoomFactor() ?? (parseFloat(originalZoom) || 1);
     const onKey = (event) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       const direction = ["+", "="].includes(event.key) ? 1
@@ -52,15 +52,23 @@ export default function ZoomToast() {
       if (!direction && !reset) return;
       event.preventDefault();
       const current = webFrame?.getZoomFactor() ?? (parseFloat(root.style.zoom) || 1);
-      const next = reset ? initialZoom
+      const next = reset ? 1
         : Math.max(0.3, Math.min(3, Math.round((current + direction * 0.1) * 100) / 100));
       if (webFrame) webFrame.setZoomFactor(next);
-      else root.style.zoom = reset ? originalZoom : String(next);
+      else root.style.zoom = String(next);
       showRef.current(`App zoom ${Math.round(next * 100)}%`);
     };
+    const onWheel = event => {
+      if (!(event.ctrlKey || event.metaKey) || !isUiScaleLocked()) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onKey({ ctrlKey: true, key: event.deltaY < 0 ? "+" : "-", preventDefault() {} });
+    };
+    window.addEventListener("wheel", onWheel, { capture: true, passive: false });
     window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("wheel", onWheel, true);
       if (!webFrame) root.style.zoom = originalZoom;
     };
   }, []);

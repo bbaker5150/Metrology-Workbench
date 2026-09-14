@@ -130,6 +130,8 @@ const EquationLibraryMenu = ({
             type="button"
             className="equation-library-save-btn"
             aria-label="Save current equation"
+            data-ui-toggle
+            aria-expanded={isSaveFormOpen}
             disabled={!canSaveCurrent}
             title={
               canSaveCurrent

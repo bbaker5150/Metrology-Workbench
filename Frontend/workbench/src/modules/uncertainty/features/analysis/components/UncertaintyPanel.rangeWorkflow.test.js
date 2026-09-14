@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { makeFunctionKey } from "../../../utils/functionGrouping";
 import {
   addRangeToItem,
+  instrumentCustomFieldGroup,
   applyTmdeIdentityToPoints,
   countTmdeBudgetUses,
   buildFunctionGroupedRows,
@@ -216,7 +217,7 @@ describe("shared instrument inline editing", () => {
     expect(point.tmdeTolerances[0].nickname).toBe("Bench Meter");
     expect(point.components[0]).toEqual(
       expect.objectContaining({
-        name: "Original Meter - Tolerance",
+        name: "(Bench Meter) DMM-1 Original Meter - Error Limit",
         tmdeIdentity: "(Bench Meter) DMM-1 Original Meter",
         sourcePointLabel: "(Bench Meter) DMM-1 Original Meter · 5 V",
       }),
@@ -905,4 +906,15 @@ describe("range edits for instruments without library identity", () => {
     expect(result[kind+"s"][1]).toBe(other);
     expect(result[kind === "uut" ? "tmdes" : "uuts"]).toEqual(session[kind === "uut" ? "tmdes" : "uuts"]);
   });
+});
+
+it("leaves new range fields separate, merges equal nonblank values, and retains distinct values", () => {
+  const rows = [{ range: { id: "r1" } }, { range: { id: "r2" } }, { range: { id: "r3" } }];
+  expect(instrumentCustomFieldGroup({}, "notes", rows, 0).rangeIds).toEqual(["r1"]);
+  expect(instrumentCustomFieldGroup({}, "notes", rows, 1).rangeIds).toEqual(["r2"]);
+  const item = { rangeCustomFields: { r1: { notes: "Shared" }, r2: { notes: "Shared" }, r3: { notes: "Other" } } };
+  expect(instrumentCustomFieldGroup(item, "notes", rows, 0)).toEqual({ value: "Shared", rangeIds: ["r1", "r2"] });
+  expect(instrumentCustomFieldGroup(item, "notes", rows, 1)).toBeNull();
+  expect(instrumentCustomFieldGroup(item, "notes", rows, 2).value).toBe("Other");
+  expect(removeInstrumentCustomColumn({ uuts: [item] }, "uut", "notes").uuts[0].rangeCustomFields.r1).toEqual({});
 });

@@ -1442,13 +1442,26 @@ it("shows explanations in place of unresolved component and total uncertainties"
  });
 
 
-it("uses the live instrument description and tolerance terminology for legacy budget links", () => {
+it("uses the full live instrument identity and error-limit terminology for legacy budget links", () => {
   renderDirectBudget({
-    budgetInstruments: [{ id: "tmde-1", description: "Mock DMM", model: "Model 123" }],
+    budgetInstruments: [{ id: "tmde-1", name: "Torque Transducer", description: "Old instrument description", nickname: "Reference", instrument: { manufacturer: "HBM", model: "K-T40B-200Q-MF-S-M-DU2-0-U" } }],
     components: [{ id: "linked", sourceTmdeId: "tmde-1", isBudgetInstance: true,
       tmdeBudgetComponentKind: "Accuracy", name: "Model 123 - Accuracy",
       type: "B", value_native: 1, unit_native: "V", distribution: "Rectangular" }],
   });
-  expect(screen.getByText("Mock DMM - Tolerance")).toBeInTheDocument();
+  expect(screen.getByText("(Reference) HBM K-T40B-200Q-MF-S-M-DU2-0-U Torque Transducer - Error Limit")).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "Error Limit", exact: true })).toBeInTheDocument();
   expect(screen.queryByText("Model 123 - Accuracy")).not.toBeInTheDocument();
+});
+
+it("shows only the evaluated greatest tolerance in a manual budget row", () => {
+  const term = (high, unit) => ({ high, low: -high, unit, distribution: "1.732", symmetric: true });
+  const tolerance = { whicheverIsGreater: true, reading: term(1, "%"), floor: term(.3, "V") };
+  renderDirectBudget({ referencePoint: { value: 2, unit: "V" }, components: [{
+    id: "max-spec", name: "Maximum specification", type: "B", isManual: true, isInlineManual: true,
+    value: 86602.54, value_native: .3 / Math.sqrt(3), unit_native: "V", distribution: "Rectangular", distributionDivisor: "1.732",
+    originalInput: { inputMode: "tolerance", tolerance, unit: "V", errorDistributionDivisor: "1.732" },
+  }] });
+  expect(screen.getByText("±0.300 V")).toBeInTheDocument();
+  expect(screen.queryByText(/whichever is greater/)).not.toBeInTheDocument();
 });

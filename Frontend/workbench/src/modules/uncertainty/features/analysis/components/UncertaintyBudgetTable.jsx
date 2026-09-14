@@ -1,3 +1,4 @@
+import ResizableBudgetTable from "./ResizableBudgetTable";
 import DynamicBudgetComponentRow from "./DynamicBudgetComponentRow";
 import { formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
 import React, {
@@ -13,6 +14,7 @@ import {
   errorDistributions,
   distributionDivisorValue,
   getUnitDisplayLabel,
+  getToleranceErrorSummary,
 } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 import {
@@ -150,7 +152,10 @@ const getComponentDisplayName = (component) => {
     component.tmdeIdentity ||
     component.name ||
     "Uncertainty component";
-  const label = name.replace(/ - Accuracy(?= \(|$)/, " - Tolerance");
+  const isTmde = component.sourceTmdeId != null || component.tmdeBudgetSourceId != null || Boolean(component.tmdeIdentity);
+  const label = isTmde
+    ? name.replace(/ - (?:Accuracy|Tolerance)(?= \(|$)/, " - Error Limit")
+    : name.replace(/ - Accuracy(?= \(|$)/, " - Tolerance");
   return quantity > 1 ? `${label} (Qty: ${quantity})` : label;
 };
 
@@ -526,7 +531,9 @@ const InlineManualComponentRow = ({
       original.inputMode === "standard";
     const tolerance = Number(original.toleranceLimit);
     const structuredTolerance = original.tolerance || component.tolerance || {};
-    const structuredSummary = formatToleranceSummary?.(structuredTolerance)?.[0];
+    const structuredSummary = structuredTolerance.whicheverIsGreater
+      ? getToleranceErrorSummary(structuredTolerance, referencePoint)
+      : formatToleranceSummary?.(structuredTolerance)?.[0];
     const toleranceText =
       !isStandard && structuredSummary && structuredSummary !== "-"
         ? structuredSummary
@@ -548,7 +555,7 @@ const InlineManualComponentRow = ({
           <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
           {fieldSummary("name", component.name)}
         </td>
-        <td data-budget-field="tolerance">{fieldSummary("tolerance", ToleranceEditorComponent ? <ToleranceEditorComponent tolerance={structuredTolerance} editable={false} /> : toleranceText, toleranceText === "Not Set")}</td>
+        <td data-budget-field="tolerance">{fieldSummary("tolerance", ToleranceEditorComponent && !structuredTolerance.whicheverIsGreater ? <ToleranceEditorComponent tolerance={structuredTolerance} editable={false} /> : toleranceText, toleranceText === "Not Set")}</td>
         <td data-budget-field="distribution">{fieldSummary("distribution", component.distribution)}</td>
         <td data-budget-field="type">{fieldSummary("type", component.type || "B")}</td>
         {showDof && <td>{formatDof(component.dof)}</td>}
@@ -821,16 +828,22 @@ const UncertaintyBudgetTable = ({
   measurementType,
   riskResults,
   onShowDerivedBreakdown,
+  isDerivedBreakdownOpen = false,
+  isCorrelationOpen = false,
   onShowRiskBreakdown,
   showContribution,
   setShowContribution,
   onAddManualComponent,
   onAddTmdeToBudget,
+  openBudgetScope,
   onOpenRepeatability,
   setNotification,
   onComponentUpdate,
   onMoveComponent,
   ToleranceEditorComponent,
+  UnitSelectComponent,
+  newDynamicComponentId,
+  onDynamicEditorOpened,
   applyToleranceChange,
   formatToleranceSummary,
   onOpenCorrelation,
@@ -1075,21 +1088,22 @@ const UncertaintyBudgetTable = ({
     });
     const displayNames = enumerateComponentDisplayNames(labeledComponents);
     return (
-    <table className="uncertainty-budget-table">
-      <thead>
-          <tr>
-            <th>Error Source Name</th>
-            <th>Tolerance Limit</th>
-            <th>Error Limit Distribution</th>
-            <th>Type (A/B)</th>
-          {showDof && <th>DOF</th>}
-            <th>Standard Uncertainty</th>
-            <th></th>
-        </tr>
-      </thead>
+    <ResizableBudgetTable
+      scope={`${group.kind}:${group.variableType || group.id}`}
+      columns={[
+        { key: "source", label: "Error Source Name" },
+        { key: "limit", label: "Error Limit" },
+        { key: "distribution", label: "Error Limit Distribution" },
+        { key: "type", label: "Type (A/B)" },
+        ...(showDof ? [{ key: "dof", label: "DOF" }] : []),
+        { key: "standard", label: "Standard Uncertainty" },
+        { key: "actions", label: "", accessibleLabel: "Actions" },
+      ]}
+    >
       <tbody className="component-group-tbody">
         {labeledComponents.map((component, componentIndex) => {
           if (component.dynamicDefinitionId) return <DynamicBudgetComponentRow key={component.id} component={component} referencePoint={manualReferencePoint} showDof={showDof}
+            UnitSelectComponent={UnitSelectComponent} autoEdit={component.id === newDynamicComponentId} onEditorOpened={onDynamicEditorOpened}
             onCommit={dynamicDefinition => onComponentUpdate?.(component.id, { dynamicDefinition }, component)} onRemove={onRemove}
             onMoveUp={() => onMoveComponent?.(component.id, -1)} onMoveDown={() => onMoveComponent?.(component.id, 1)}/>;
           if (isStandaloneManualComponent(component)) {
@@ -1187,7 +1201,7 @@ const UncertaintyBudgetTable = ({
           );
         })}
       </tbody>
-    </table>
+    </ResizableBudgetTable>
     );
   };
 
@@ -1196,17 +1210,17 @@ const UncertaintyBudgetTable = ({
     const showInfluence = group.method === "montecarlo";
     return (
     <>
-    <table className="uncertainty-budget-table">
-      <thead>
-        <tr>
-          <th>Input Variable</th>
-          {showDof && <th>DOF</th>}
-          <th>Standard Uncertainty</th>
-          <th>Sensitivity Coefficient</th>
-          <th>Contribution</th>
-          {showInfluence && <th>MC Influence</th>}
-        </tr>
-      </thead>
+    <ResizableBudgetTable
+      scope={`${group.kind}:${group.variableType || group.id}`}
+      columns={[
+        { key: "variable", label: "Input Variable" },
+        ...(showDof ? [{ key: "dof", label: "DOF" }] : []),
+        { key: "standard", label: "Standard Uncertainty" },
+        { key: "sensitivity", label: "Sensitivity Coefficient" },
+        { key: "contribution", label: "Contribution" },
+        ...(showInfluence ? [{ key: "influence", label: "MC Influence" }] : []),
+      ]}
+    >
       <tbody className="component-group-tbody">
         {(group.rows || []).map((row) => (
           <tr key={row.id}>
@@ -1231,7 +1245,7 @@ const UncertaintyBudgetTable = ({
           </tr>
         ))}
       </tbody>
-    </table>
+    </ResizableBudgetTable>
     {group.correlationApplied && (
       <p className="budget-correlation-note">
         Combined uncertainty includes input correlations (ρ); without
@@ -1285,6 +1299,8 @@ const UncertaintyBudgetTable = ({
           className="budget-section-action-btn"
           title="Input correlation matrix"
           aria-label="Input correlation matrix"
+          aria-haspopup="dialog"
+          aria-expanded={isCorrelationOpen}
           onClick={() => onOpenCorrelation()}
         >
           <FontAwesomeIcon icon={faProjectDiagram} />
@@ -1295,6 +1311,8 @@ const UncertaintyBudgetTable = ({
         className="budget-section-action-btn"
         title="Calculation breakdown"
         aria-label="Calculation breakdown"
+          aria-haspopup="dialog"
+          aria-expanded={isDerivedBreakdownOpen}
         onClick={() => onShowDerivedBreakdown?.()}
       >
         <FontAwesomeIcon icon={faCalculator} />
@@ -1565,6 +1583,7 @@ const UncertaintyBudgetTable = ({
                         className={`budget-contribution-button${showContribution ? " is-active" : ""}`}
                         title={showContribution ? "Hide contribution chart" : "Show contribution chart"}
                         aria-label={showContribution ? "Hide contribution chart" : "Show contribution chart"}
+                        data-ui-toggle
                         aria-pressed={!!showContribution}
                         onClick={() => setShowContribution?.(!showContribution)}
                       >
@@ -1594,6 +1613,8 @@ const UncertaintyBudgetTable = ({
                           data-tour="budget-add-component"
                           title="Add component to budget"
                           aria-label="Add component to budget"
+                          aria-haspopup="dialog"
+                          aria-expanded={Boolean(openBudgetScope && openBudgetScope.kind === group.kind && openBudgetScope.variableType === group.variableType)}
                           onClick={(event) =>
                             onAddTmdeToBudget(getGroupScope(group), event)
                           }

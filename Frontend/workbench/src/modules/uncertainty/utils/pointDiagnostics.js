@@ -61,12 +61,11 @@ export function getBudgetRangeWarnings({
       ),
     );
     const rawRange =
-      component.tmdeBudgetRange ||
       (source &&
         getInstrumentRangeRows(source, { flattenTolerances: true }).find(
           (r) =>
             String(r.rangeId ?? r.id) === String(component.tmdeBudgetRangeId),
-        ));
+        )) || component.tmdeBudgetRange;
     if (!rawRange) continue;
     const range = {
       ...rawRange,

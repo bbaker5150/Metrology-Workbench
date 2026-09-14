@@ -2,9 +2,9 @@ import { useCallback, useLayoutEffect, useState } from "react";
 
 const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor";
 
-export const expandedInstrumentWidths = (weights, baseline, requirements) => {
+export const expandedInstrumentWidths = (weights, baseline, requirements, absolute = false) => {
   const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
-  return weights.map((weight, index) => Math.max(baseline * weight / total, requirements[index] || 0));
+  return weights.map((weight, index) => Math.max(absolute ? weight : baseline * weight / total, requirements[index] || 0));
 };
 
 // Keep saved proportional widths untouched. Only the live colgroup receives
@@ -18,6 +18,7 @@ export default function useInstrumentTableLayout(containerRef) {
   useLayoutEffect(() => {
     const table = container?.querySelector(":scope > table");
     if (!table) return undefined;
+    const card = container.closest(".panel-card");
     let frame;
     const setProperty = (node, name, value) => {
       if (node.style.getPropertyValue(name) !== value) node.style.setProperty(name, value);
@@ -27,6 +28,10 @@ export default function useInstrumentTableLayout(containerRef) {
       // synchronize. ResizeObserver will schedule again when they are shown.
       if (!container.getClientRects().length) return;
       const cols = [...table.querySelectorAll(":scope > colgroup > col")];
+      const absolute = cols.every(col => col.style.width.endsWith("px"));
+      // Reset proportions against the full available panel, not its last saved
+      // pixel width. Explicit sizes let the whole card follow the table edge.
+      if (!absolute) card?.style.removeProperty("--instrument-panel-width");
       const requirements = [];
       table.querySelectorAll(EDITORS).forEach(editor => {
         const cell = editor.closest("td");
@@ -54,9 +59,15 @@ export default function useInstrumentTableLayout(containerRef) {
       });
       const zoom = parseFloat(getComputedStyle(table).zoom) || 1;
       const baseline = Math.max(container.clientWidth / zoom, parseFloat(table.style.minWidth) || 1200);
-      const widths = expandedInstrumentWidths(cols.map(col => parseFloat(col.style.width) || 1), baseline, requirements);
+      const widths = expandedInstrumentWidths(cols.map(col => parseFloat(col.style.width) || 1), baseline, requirements, absolute);
       cols.forEach((col, index) => setProperty(col, "--instrument-live-column-width", `${widths[index]}px`));
-      setProperty(table, "--instrument-live-table-width", `${widths.reduce((sum, width) => sum + width, 0)}px`);
+      const tableWidth = widths.reduce((sum, width) => sum + width, 0);
+      setProperty(table, "--instrument-live-table-width", `${tableWidth}px`);
+      if (absolute && card) {
+        const cardStyle = getComputedStyle(card);
+        const borders = (parseFloat(cardStyle.borderLeftWidth) || 0) + (parseFloat(cardStyle.borderRightWidth) || 0);
+        setProperty(card, "--instrument-panel-width", `${tableWidth * zoom + borders}px`);
+      }
 
       // Sticky cells normally stop at their own scroller's top, even when that
       // scroller has moved behind the analysis tabs. Offset them to the visible
@@ -93,6 +104,7 @@ export default function useInstrumentTableLayout(containerRef) {
     sync();
     return () => {
       cancelAnimationFrame(frame);
+      card?.style.removeProperty("--instrument-panel-width");
       mutation.disconnect();
       resize?.disconnect();
       container.removeEventListener("focusin", schedule);

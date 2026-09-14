@@ -1,3 +1,4 @@
+import { SI_PREFIX_OPTIONS, prefixedUnitKey } from "../../../utils/siPrefixes";
 import { updateSharedDynamicDefinition } from "../../../utils/riskCompute";
 import { availableDynamicDefinitions, findDynamicTableRow } from "../../../utils/dynamicBudgetComponents";
 import MeasurementAreaEntry from "../../../components/common/MeasurementAreaEntry";
@@ -341,46 +342,9 @@ const buildGroupedUnitOptions = () => {
   return options;
 };
 
-const SI_PREFIX_OPTIONS = [
-  { key: "", label: "Base", shortLabel: "Base" },
-  { key: "p", label: "Pico", shortLabel: "p" },
-  { key: "n", label: "Nano", shortLabel: "n" },
-  // SI's micro prefix is the micro sign (µ), not the ASCII letter u.
-  { key: "u", label: "Micro", shortLabel: "µ" },
-  { key: "m", label: "Milli", shortLabel: "m" },
-  { key: "c", label: "Centi", shortLabel: "c" },
-  { key: "h", label: "Hecto", shortLabel: "h" },
-  { key: "k", label: "Kilo", shortLabel: "k" },
-  { key: "M", label: "Mega", shortLabel: "M" },
-  { key: "G", label: "Giga", shortLabel: "G" },
-  { key: "T", label: "Tera", shortLabel: "T" },
-];
-
-const SCALABLE_UNIT_FAMILIES = [
-  { base: "V", prefixes: ["n", "u", "m", "", "k"] },
-  { base: "A", prefixes: ["p", "n", "u", "m", "", "k"] },
-  { base: "Ohm", prefixes: ["m", "", "k", "M", "G", "T"] },
-  { base: "F", prefixes: ["p", "n", "u", "m", ""] },
-  { base: "H", prefixes: ["u", "m", ""] },
-  { base: "W", prefixes: ["m", "", "k", "M"] },
-  { base: "Hz", prefixes: ["", "k", "M", "G", "T"] },
-  { base: "s", prefixes: ["p", "n", "u", "m", ""] },
-  { base: "m", prefixes: ["n", "u", "m", "c", "", "k"] },
-  { base: "g", prefixes: ["u", "m", "", "k"] },
-  { base: "rad", prefixes: ["m", ""] },
-  { base: "L", prefixes: ["m", ""] },
-  { base: "Pa", prefixes: ["", "h", "k", "M"] },
-  { base: "N", prefixes: ["", "k"] },
-  { base: "J", prefixes: ["", "k"] },
-  { base: "Wh", prefixes: ["", "k"] },
-  { base: "T", prefixes: ["u", "m", ""] },
-];
-
 const unitKeyFromParts = (base, prefix = "") => {
-  if (!base) return "";
-  if (base === "Ohm") return prefix ? `${prefix}Ohm` : "Ohm";
-  if (base === "g" && prefix === "k") return "kg";
-  return `${prefix}${base}`;
+  const key = prefixedUnitKey(base, prefix);
+  return unitSystem.units[key]?.prefixBase === base ? key : `${prefix}(${base})`;
 };
 
 const buildUnitPartModel = () => {
@@ -391,22 +355,11 @@ const buildUnitPartModel = () => {
   const usedBaseUnits = new Set();
   const usedScalableUnits = new Set();
 
-  SCALABLE_UNIT_FAMILIES.forEach((family) => {
-    const supportedPrefixes = family.prefixes.filter((prefix) =>
-      supportedUnitSet.has(unitKeyFromParts(family.base, prefix)),
-    );
-    if (supportedPrefixes.length === 0) return;
-    const defaultPrefix = supportedPrefixes.includes("") ? "" : supportedPrefixes[0];
-    supportedPrefixes.forEach((prefix) => {
-      const unit = unitKeyFromParts(family.base, prefix);
-      scalableByUnit.set(unit, {
-        base: family.base,
-        prefix,
-        defaultPrefix,
-        prefixes: supportedPrefixes,
-      });
-      usedScalableUnits.add(unit);
-    });
+  allSupportedUnits.forEach(unit => {
+    const definition = unitSystem.units[unit];
+    const base = definition.prefixBase || unit;
+    scalableByUnit.set(unit, { base, prefix: definition.prefixKey || "", defaultPrefix: "", prefixes: SI_PREFIX_OPTIONS.map(option => option.key) });
+    usedScalableUnits.add(unit);
   });
 
   Object.entries(unitCategories).forEach(([category, units]) => {
@@ -415,7 +368,7 @@ const buildUnitPartModel = () => {
       if (!supportedUnitSet.has(unit)) return;
       const scalable = scalableByUnit.get(unit);
       const base = scalable?.base || unit;
-      const key = `${category}:${base}`;
+      const key = base;
       if (usedBaseUnits.has(key)) return;
       usedBaseUnits.add(key);
       categoryOptions.push({
@@ -434,14 +387,14 @@ const buildUnitPartModel = () => {
   const knownBaseValues = new Set(
     baseOptionsByCategory.flatMap((group) => group.options.map((option) => option.value)),
   );
-  const leftovers = allSupportedUnits
-    .filter((unit) => !usedScalableUnits.has(unit) && !knownBaseValues.has(unit))
+  const leftovers = [...new Set(allSupportedUnits.map(unit => scalableByUnit.get(unit)?.base || unit))]
+    .filter((unit) => !knownBaseValues.has(unit))
     .sort()
     .map((unit) => ({
       value: unit,
       label: getUnitDisplayLabel(unit),
       category: "Other",
-      scalable: false,
+      scalable: true,
       unit,
     }));
 
@@ -550,7 +503,7 @@ const UnitSelect = ({
   // Range rows have to share a fixed table cell with one or two numeric
   // bounds. Keep that context deliberately compact while preserving the full
   // "Base" label and chevron; other unit selectors retain their roomier size.
-  const prefixSelectWidth = selectedModel ? (compact ? "52px" : "74px") : "58px";
+  const prefixSelectWidth = selectedModel ? (compact ? "70px" : "74px") : "58px";
   const openMenu = (initialQuery = "") => {
     const rect = rootRef.current?.getBoundingClientRect();
     const accentColor = rootRef.current
@@ -703,13 +656,15 @@ const UnitSelect = ({
             value: prefix.key,
             label: prefix.label,
             shortLabel: prefix.shortLabel,
+            power: prefix.power,
           }))}
           ariaLabel={`${ariaLabel} prefix`}
           title="Unit prefix"
+          prefixTable
           onChange={choosePrefix}
           onTab={onTab ? handleTab : undefined}
           width={prefixSelectWidth}
-          menuWidth={168}
+          menuWidth={300}
           className="inline-unit-prefix-select"
         />
       )}
@@ -2400,6 +2355,16 @@ const EditableCustomFieldCell = ({ value = "", onCommit }) => {
   );
 };
 
+export const instrumentCustomFieldGroup = (item, key, rows, index = 0) => {
+  const valueAt = i => item.rangeCustomFields?.[rangeIdOf(rows[i].range)]?.[key] ?? item.customFields?.[key] ?? "";
+  if (!rows) return { value: item.customFields?.[key] || "", rangeIds: [] };
+  const value = valueAt(index);
+  if (value !== "" && index > 0 && valueAt(index - 1) === value) return null;
+  let end = index + 1;
+  while (value !== "" && end < rows.length && valueAt(end) === value) end++;
+  return { value, rangeIds: rows.slice(index, end).map(({ range }) => rangeIdOf(range)) };
+};
+
 export const removeInstrumentCustomColumn = (sessionData = {}, kind, key) => {
   const listKey = kind === "uut" ? "uuts" : "tmdes";
   const columns = sessionData.instrumentCustomColumns || {};
@@ -2410,12 +2375,12 @@ export const removeInstrumentCustomColumn = (sessionData = {}, kind, key) => {
       [kind]: (columns[kind] || []).filter((column) => column.key !== key),
     },
     [listKey]: (sessionData[listKey] || []).map((item) => {
-      if (!Object.prototype.hasOwnProperty.call(item.customFields || {}, key)) {
-        return item;
-      }
       const customFields = { ...(item.customFields || {}) };
       delete customFields[key];
-      return { ...item, customFields };
+      const rangeCustomFields = Object.fromEntries(Object.entries(item.rangeCustomFields || {}).map(([id, fields]) => {
+        const next = { ...fields }; delete next[key]; return [id, next];
+      }));
+      return { ...item, customFields, ...(item.rangeCustomFields ? { rangeCustomFields } : {}) };
     }),
   };
 };
@@ -2573,7 +2538,7 @@ const resolutionDistributionDisplayLabel = (option) =>
 const renderedInstrumentColumnWidths = (table) => {
   const headers = Array.from(table?.querySelectorAll("thead [data-instrument-column]") || []);
   if (!headers.length || headers.some(header => !header.getBoundingClientRect().width)) return null;
-  return Object.fromEntries(headers.map(header => [header.dataset.instrumentColumn, header.getBoundingClientRect().width]));
+  return Object.fromEntries(headers.map(header => [header.dataset.instrumentColumn, header.getBoundingClientRect().width / (table.getBoundingClientRect().width / table.offsetWidth || 1)]));
 };
 
 const useInstrumentColumnWidths = (kind, customColumns = []) => {
@@ -2589,8 +2554,8 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
     // customSignature intentionally represents the dynamic column set.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, customSignature]);
-  // v2 stores proportional weights. The previous absolute-pixel values could
-  // leave blank space at the right edge when the table grew to its container.
+  // Keep existing proportional defaults until the user resizes a column.
+  // Explicit resizing stores pixels so neighboring columns retain their widths.
   const storageKey = `uncertalytics:${kind}:instrument-column-widths:v2`;
   const instanceIdRef = useRef(uuidv4());
   const [widths, setWidths] = useState(() => {
@@ -2610,12 +2575,12 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
       ) {
         return;
       }
-      setWidths((current) => ({ ...current, ...event.detail.widths }));
+      setWidths({ ...defaults, ...event.detail.widths });
     };
     window.addEventListener(INSTRUMENT_COLUMN_RESIZE_EVENT, syncWidths);
     return () =>
       window.removeEventListener(INSTRUMENT_COLUMN_RESIZE_EVENT, syncWidths);
-  }, [kind]);
+  }, [kind, defaults]);
 
   useEffect(() => {
     const resetWidths = () => {
@@ -2678,7 +2643,7 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
     setWidths(current => {
       const base = sourceWidths || current;
       const total = keys.reduce((sum, k) => sum + (base[k] || defaults[k] || 160), 0);
-      const scale = Math.max(1, tablePixelWidth || total) / total;
+      const scale = sourceWidths ? 1 : Math.max(1, tablePixelWidth || total) / total;
       const next = Object.fromEntries(keys.map(k => [k, (base[k] || defaults[k] || 160) * scale]));
       next[key] = Math.max(minimumWidth(key), next[key] + deltaPixels);
       next.__absolute = true;
@@ -2692,6 +2657,8 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
       event.preventDefault();
       event.stopPropagation();
       const startX = event.clientX;
+      const table = event.currentTarget.closest("table");
+      const visualScale = table?.offsetWidth ? table.getBoundingClientRect().width / table.offsetWidth : 1;
       const tablePixelWidth =
         event.currentTarget.closest("table")?.getBoundingClientRect().width ||
         1200;
@@ -2704,7 +2671,7 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
       const handleMove = (moveEvent) => {
         resizePair(
           key,
-          moveEvent.clientX - startX,
+          (moveEvent.clientX - startX) / visualScale,
           tablePixelWidth,
           startWidths,
         );
@@ -2723,7 +2690,7 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
 
   return {
     widthFor: (key) =>
-      `${((resolvedWidths[key] || 160) / totalWidth) * 100}%`,
+      widths.__absolute ? `${resolvedWidths[key] || 160}px` : `${((resolvedWidths[key] || 160) / totalWidth) * 100}%`,
     minimumTableWidth: widths.__absolute ? totalWidth : keys.reduce((sum, key) => sum + minimumWidth(key), 0),
     startResize,
     resizeBy: (key, delta, table) =>
@@ -4547,7 +4514,7 @@ export const InlineToleranceCell = ({
       <span className="inline-tolerance-readview">
         <button
           type="button"
-          className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}`}
+          className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}${tolerance.whicheverIsGreater ? " is-alternative" : ""}`}
           title={hasValue ? "Edit tolerance" : "Set tolerance"}
           aria-label={hasValue ? undefined : "Set tolerance"}
           onMouseDown={(event) => {
@@ -4652,6 +4619,11 @@ export const InlineToleranceCell = ({
             SS
           </button>
         </div>
+        <label className="inline-tolerance-greater-toggle">
+          <input type="checkbox" checked={Boolean(tolerance.whicheverIsGreater)}
+            onChange={event => onCommit("__replace__", { ...tolerance, whicheverIsGreater: event.target.checked })} />
+          <span>Whichever is greater</span>
+        </label>
       </div>
       {(sidedness === "single"
         ? TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key === "singleSided")
@@ -5418,6 +5390,8 @@ export const getSpecRows = (tolerance) => {
   }
 
   if (present.length === 0) return [getToleranceSummary(tolerance)];
+
+  if (tolerance.whicheverIsGreater) return [present.map(p => termText(p.comp, p.cfg.tag, { withSign: true })).join(", or ") + ", whichever is greater"];
 
   // All symmetric: factor the ± out front — "± 2% IV" or "±(2% IV + 1% FS)".
   if (!anyAsymmetric) {
@@ -6767,7 +6741,7 @@ const SummaryDashboard = ({
       onDelete={() => requestDeleteCustomColumn(kind, column)}
     />
   );
-  const updateCustomField = (kind, itemId, key, value) => {
+  const updateCustomField = (kind, itemId, key, value, rangeIds = []) => {
     const listKey = kind === "uut" ? "uuts" : "tmdes";
     onSessionSave({
       ...sessionData,
@@ -6775,21 +6749,26 @@ const SummaryDashboard = ({
         String(item.id) === String(itemId)
           ? {
               ...item,
-              customFields: { ...(item.customFields || {}), [key]: value },
+              ...(rangeIds.length ? {
+                rangeCustomFields: {
+                  ...item.rangeCustomFields,
+                  ...Object.fromEntries(rangeIds.map(id => [id, { ...item.rangeCustomFields?.[id], [key]: value }])),
+                },
+              } : { customFields: { ...(item.customFields || {}), [key]: value } }),
             }
           : item,
       ),
     });
   };
-  const renderCustomCellsAfter = (kind, item, anchorKey, rowSpan = 1) =>
-    customColumnsAfter(kind, customColumnsFor(kind), anchorKey).map((column) => (
-      <td key={column.key} rowSpan={rowSpan} className="instrument-custom-field-cell">
-        <EditableCustomFieldCell
-          value={item.customFields?.[column.key] || ""}
-          onCommit={(value) => updateCustomField(kind, item.id, column.key, value)}
-        />
-      </td>
-    ));
+  const renderCustomCellsAfter = (kind, item, anchorKey, rowSpan = 1, rows = null, index = 0) =>
+    customColumnsAfter(kind, customColumnsFor(kind), anchorKey).map((column) => {
+      const group = instrumentCustomFieldGroup(item, column.key, rows, index);
+      if (!group) return null;
+      return <td key={column.key} rowSpan={rows ? group.rangeIds.length : rowSpan} className="instrument-custom-field-cell">
+        <EditableCustomFieldCell value={group.value}
+          onCommit={(value) => updateCustomField(kind, item.id, column.key, value, group.rangeIds)} />
+      </td>;
+    });
 
   // Inline make/model/name edits from the Description cell. `name` is the
   // session label (uut.description / tmde.name); make+model live on the nested
@@ -8012,8 +7991,12 @@ const SummaryDashboard = ({
     // multi-instrument selection before that menu determines its batch target.
     if (event.button !== undefined && event.button !== 0) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
+    if (!(event.ctrlKey || event.metaKey || event.shiftKey)) {
+      (kind === "uut" ? uutSelectionAnchorRef : tmdeSelectionAnchorRef).current = item.id;
+      selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(event, item);
+    }
     const isRangeTarget = Boolean(event.target?.closest?.("[data-range-cell]"));
-    if (!isRangeTarget && (!isInlineRowControlTarget(event.target) || isModifiedInstrumentSelection(event))) {
+    if (!isRangeTarget && (event.ctrlKey || event.metaKey || event.shiftKey)) {
       (kind === "uut" ? handleUutClick : handleTmdeClick)(event, item.id);
     } else {
       activateRangeRow(kind, item.id, index);
@@ -8087,7 +8070,7 @@ const SummaryDashboard = ({
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range;
     const rangeGroupKey = itemStateKey(kind, stateId);
-    const showRangeActions = (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey)) || rangeEditingKeys.has(rangeGroupKey) || ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== "");
+    const showRangeActions = ((kind === "uut" ? selectedUutIds : selectedTmdeIds).some(id => sameId(id, item.id)) && ((kind === "uut" ? localRangeIndices : tmdeRangeIndices)[stateId] ?? (kind === "uut" ? localRangeIndices : tmdeRangeIndices)[item.id] ?? 0) === rangeIndex) || (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey)) || rangeEditingKeys.has(rangeGroupKey) || ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== "");
 
     return (
       <>
@@ -9119,8 +9102,7 @@ const SummaryDashboard = ({
                                   />
                                 </td>
                               )}
-                              {i === 0 &&
-                                renderCustomCellsAfter("uut", uut, "description", spanRows)}
+                              {renderCustomCellsAfter("uut", uut, "description", 1, visibleRangeRows, i)}
                               {renderRangeRowCells("uut", uut, range, {
                                 includeDistribution: false,
                                 stateId: uutRowKey,
@@ -9129,9 +9111,7 @@ const SummaryDashboard = ({
                                 totalRanges: n,
                                 nextRange: visibleRangeRows[i + 1]?.range || null,
                                 renderCustomAfter: (anchorKey) =>
-                                  i === 0
-                                    ? renderCustomCellsAfter("uut", uut, anchorKey, spanRows)
-                                    : null,
+                                  renderCustomCellsAfter("uut", uut, anchorKey, 1, visibleRangeRows, i),
                               })}
                               {i === 0 && (
                                 <td
@@ -9214,7 +9194,7 @@ const SummaryDashboard = ({
                             uut.description
                           )}
                         </td>
-                        {renderCustomCellsAfter("uut", uut, "description", rowSpan)}
+                        {renderCustomCellsAfter("uut", uut, "description", rowSpan, [{ range: activeRange }])}
                         <td
                           data-range-cell="true"
                           rowSpan={rowSpan}
@@ -9285,7 +9265,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
-                        {renderCustomCellsAfter("uut", uut, "range", rowSpan)}
+                        {renderCustomCellsAfter("uut", uut, "range", rowSpan, [{ range: activeRange }])}
                         <td
                           className={`cell-tolerance ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
@@ -9349,7 +9329,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
-                        {renderCustomCellsAfter("uut", uut, "tolerance", rowSpan)}
+                        {renderCustomCellsAfter("uut", uut, "tolerance", rowSpan, [{ range: activeRange }])}
                         <td
                           rowSpan={rowSpan}
                           className={`cell-value ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
@@ -9402,7 +9382,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
-                        {renderCustomCellsAfter("uut", uut, "resolution", rowSpan)}
+                        {renderCustomCellsAfter("uut", uut, "resolution", rowSpan, [{ range: activeRange }])}
                         <td
                           rowSpan={rowSpan}
                           className="cell-sync"
@@ -9602,8 +9582,7 @@ const SummaryDashboard = ({
                                   />
                                 </td>
                               )}
-                              {i === 0 &&
-                                renderCustomCellsAfter("tmde", tmde, "description", spanRows)}
+                              {renderCustomCellsAfter("tmde", tmde, "description", 1, visibleRangeRows, i)}
                               {renderRangeRowCells("tmde", tmde, range, {
                                 includeDistribution: true,
                                 stateId: tmdeRowKey,
@@ -9612,9 +9591,7 @@ const SummaryDashboard = ({
                                 totalRanges: n,
                                 nextRange: visibleRangeRows[i + 1]?.range || null,
                                 renderCustomAfter: (anchorKey) =>
-                                  i === 0
-                                    ? renderCustomCellsAfter("tmde", tmde, anchorKey, spanRows)
-                                    : null,
+                                  renderCustomCellsAfter("tmde", tmde, anchorKey, 1, visibleRangeRows, i),
                               })}
                               {i === 0 && (
                                 <td
@@ -9711,7 +9688,7 @@ const SummaryDashboard = ({
                             </>
                           )}
                         </td>
-                        {renderCustomCellsAfter("tmde", tmde, "description", rowSpan)}
+                        {renderCustomCellsAfter("tmde", tmde, "description", rowSpan, [{ range: activeRange }])}
                         <td
                           data-range-cell="true"
                           rowSpan={rowSpan}
@@ -9779,7 +9756,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
-                        {renderCustomCellsAfter("tmde", tmde, "range", rowSpan)}
+                        {renderCustomCellsAfter("tmde", tmde, "range", rowSpan, [{ range: activeRange }])}
                         <td
                           className={`cell-tolerance ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
@@ -9842,7 +9819,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
-                        {renderCustomCellsAfter("tmde", tmde, "tolerance", rowSpan)}
+                        {renderCustomCellsAfter("tmde", tmde, "tolerance", rowSpan, [{ range: activeRange }])}
                         <td
                           rowSpan={rowSpan}
                           className="cell-distribution"
@@ -9867,7 +9844,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
-                        {renderCustomCellsAfter("tmde", tmde, "distribution", rowSpan)}
+                        {renderCustomCellsAfter("tmde", tmde, "distribution", rowSpan, [{ range: activeRange }])}
                         <td
                           rowSpan={rowSpan}
                           className={`cell-value ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
@@ -9917,7 +9894,7 @@ const SummaryDashboard = ({
                             })}
                           </div>
                         </td>
-                        {renderCustomCellsAfter("tmde", tmde, "resolution", rowSpan)}
+                        {renderCustomCellsAfter("tmde", tmde, "resolution", rowSpan, [{ range: activeRange }])}
                         <td
                           rowSpan={rowSpan}
                           className="cell-sync"
@@ -10052,14 +10029,12 @@ const DetailWorkspaceSectionToggle = ({
   style,
   className = "",
 }) => (
-  <button
-    type="button"
+  <div
     className={`detail-workspace-section-toggle${
       canReorder ? " is-reorderable" : ""
     }${isDragging ? " is-dragging" : ""}${
       isDropTarget ? " is-drop-target" : ""
     } ${className}`.trim()}
-    onClick={onToggle}
     draggable={canReorder}
     data-detail-section={sectionId}
     onDragStart={onDragStart}
@@ -10069,18 +10044,19 @@ const DetailWorkspaceSectionToggle = ({
     onDragEnd={onDragEnd}
     style={style}
     title={canReorder ? `Reorder ${label}` : undefined}
-    aria-expanded={!collapsed}
-    aria-label={`${collapsed ? "Expand" : "Collapse"} ${label} section`}
     aria-grabbed={canReorder ? isDragging : undefined}
   >
     <span className="detail-workspace-section-label">{label}</span>
     <span className="detail-workspace-section-rule" aria-hidden="true" />
+    <button type="button" className="detail-workspace-collapse-button" onClick={onToggle}
+      aria-expanded={!collapsed} aria-label={`${collapsed ? "Expand" : "Collapse"} ${label} section`}>
     <FontAwesomeIcon
       className="detail-workspace-section-chevron"
       icon={collapsed ? faChevronRight : faChevronDown}
       size="xs"
     />
-  </button>
+    </button>
+  </div>
 );
 
 function DetailedView({
@@ -10096,12 +10072,16 @@ function DetailedView({
   uutToleranceData: propUutToleranceData,
   tmdeTolerancesData,
   onAddManualComponent,
+  newDynamicComponentId,
+  onDynamicEditorOpened,
   onEditManualComponent,
   onRemoveComponent,
   onInlineUutUpdate,
   onInlineTmdeUpdate,
   onBudgetRowContextMenu,
   onShowDerivedBreakdown,
+  isDerivedBreakdownOpen = false,
+  isCorrelationOpen = false,
   onShowRiskBreakdown,
   showContribution,
   setShowContribution,
@@ -10175,11 +10155,32 @@ function DetailedView({
   const [showIrrelevantTmdeFunctions, setShowIrrelevantTmdeFunctions] =
     useState(false);
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
+  const budgetTmdeMenuRef = useRef(null);
   useEffect(() => {
     if (!budgetTmdePicker) return;
-    const closeOnEscape = event => { if (event.key === "Escape") setBudgetTmdePicker(null); };
+    const closeOnEscape = event => {
+      if (event.key === "Escape") {
+        setBudgetTmdePicker(null);
+        budgetTmdePicker.anchor?.focus();
+      }
+    };
+    const closeOutside = event => {
+      if (!budgetTmdeMenuRef.current?.contains(event.target) && !budgetTmdePicker.anchor?.contains(event.target)) setBudgetTmdePicker(null);
+    };
+    const closeOnScroll = event => {
+      if (!budgetTmdeMenuRef.current?.contains(event.target)) setBudgetTmdePicker(null);
+    };
+    const closeOnResize = () => setBudgetTmdePicker(null);
     document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("scroll", closeOnScroll, true);
+    window.addEventListener("resize", closeOnResize);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("scroll", closeOnScroll, true);
+      window.removeEventListener("resize", closeOnResize);
+    };
   }, [budgetTmdePicker]);
 
   useEffect(() => {
@@ -10271,7 +10272,7 @@ function DetailedView({
       onDelete={() => requestDeleteCustomColumn(kind, column)}
     />
   );
-  const updateCustomField = (kind, itemId, key, value) => {
+  const updateCustomField = (kind, itemId, key, value, rangeIds = []) => {
     const listKey = kind === "uut" ? "uuts" : "tmdes";
     onSessionSave?.({
       ...sessionData,
@@ -10279,21 +10280,26 @@ function DetailedView({
         String(item.id) === String(itemId)
           ? {
               ...item,
-              customFields: { ...(item.customFields || {}), [key]: value },
+              ...(rangeIds.length ? {
+                rangeCustomFields: {
+                  ...item.rangeCustomFields,
+                  ...Object.fromEntries(rangeIds.map(id => [id, { ...item.rangeCustomFields?.[id], [key]: value }])),
+                },
+              } : { customFields: { ...(item.customFields || {}), [key]: value } }),
             }
           : item,
       ),
     });
   };
-  const renderCustomCellsAfter = (kind, item, anchorKey, rowSpan = 1) =>
-    customColumnsAfter(kind, customColumnsFor(kind), anchorKey).map((column) => (
-      <td key={column.key} rowSpan={rowSpan} className="instrument-custom-field-cell">
-        <EditableCustomFieldCell
-          value={item.customFields?.[column.key] || ""}
-          onCommit={(value) => updateCustomField(kind, item.id, column.key, value)}
-        />
-      </td>
-    ));
+  const renderCustomCellsAfter = (kind, item, anchorKey, rowSpan = 1, rows = null, index = 0) =>
+    customColumnsAfter(kind, customColumnsFor(kind), anchorKey).map((column) => {
+      const group = instrumentCustomFieldGroup(item, column.key, rows, index);
+      if (!group) return null;
+      return <td key={column.key} rowSpan={rows ? group.rangeIds.length : rowSpan} className="instrument-custom-field-cell">
+        <EditableCustomFieldCell value={group.value}
+          onCommit={(value) => updateCustomField(kind, item.id, column.key, value, group.rangeIds)} />
+      </td>;
+    });
   const [collapsedDetailSections, setCollapsedDetailSections] = useState(
     () => new Set(sessionData.detailCollapsedSections || []),
   );
@@ -11469,8 +11475,12 @@ function DetailedView({
   const selectRangeRowDetail = (event, kind, item, index, rangeId, stateItemId = item.id) => {
     if (event.button !== undefined && event.button !== 0) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
+    if (!(event.ctrlKey || event.metaKey || event.shiftKey)) {
+      (kind === "uut" ? uutSelectionAnchorRef : tmdeSelectionAnchorRef).current = item.id;
+      selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(event, item);
+    }
     const isRangeTarget = Boolean(event.target?.closest?.("[data-range-cell]"));
-    if (!isRangeTarget && (!isInlineRowControlTarget(event.target) || isModifiedInstrumentSelection(event))) {
+    if (!isRangeTarget && (event.ctrlKey || event.metaKey || event.shiftKey)) {
       (kind === "uut" ? handleUutClick : handleTmdeClick)(event, item.id);
     } else {
       activateRangeRowDetail(kind, item.id, index);
@@ -11537,7 +11547,7 @@ function DetailedView({
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range || {};
     const rangeGroupKey = itemStateKey(kind, stateId);
-    const showRangeActions = (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey)) || rangeEditingKeys.has(rangeGroupKey) || ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== "");
+    const showRangeActions = ((kind === "uut" ? selectedUutIds : selectedTmdeIds).some(id => sameId(id, item.id)) && ((kind === "uut" ? localRangeIndices : tmdeRangeIndices)[stateId] ?? (kind === "uut" ? localRangeIndices : tmdeRangeIndices)[item.id] ?? 0) === rangeIndex) || (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey)) || rangeEditingKeys.has(rangeGroupKey) || ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== "");
 
     return (
       <>
@@ -11966,6 +11976,19 @@ function DetailedView({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!isSymbolMenuOpen && !isLibraryOpen) return;
+    const closeEquationMenu = event => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setIsSymbolMenuOpen(false);
+      setIsLibraryOpen(false);
+      (isLibraryOpen ? libraryButtonRef : symbolButtonRef).current?.focus();
+    };
+    document.addEventListener("keydown", closeEquationMenu);
+    return () => document.removeEventListener("keydown", closeEquationMenu);
+  }, [isSymbolMenuOpen, isLibraryOpen]);
 
   const uutToleranceData = useMemo(() => {
     const isUnassigned =
@@ -12579,12 +12602,14 @@ function DetailedView({
   };
 
   const handleSymbolMenuToggle = () => {
+    setIsEquationEditorOpen(true);
     setIsLibraryOpen(false);
     positionEquationMenu(symbolButtonRef, setSymbolMenuPosition);
     setIsSymbolMenuOpen((open) => !open);
   };
 
   const handleLibraryMenuToggle = () => {
+    setIsEquationEditorOpen(true);
     setIsSymbolMenuOpen(false);
     positionEquationMenu(libraryButtonRef, setLibraryMenuPosition);
     setIsLibraryOpen((open) => !open);
@@ -12593,13 +12618,13 @@ function DetailedView({
   const positionEquationMenu = useCallback((buttonRef, setPosition) => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setPosition({
-      top: rect.bottom + 6,
-      left: Math.min(
-        Math.max(12, rect.right - 360),
-        Math.max(12, window.innerWidth - 372),
-      ),
-    });
+    setPosition(getAnchoredMenuPlacement({
+      anchorRect: rect,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      preferredWidth: 360,
+      preferredMaxHeight: window.innerHeight * 0.6,
+    }));
   }, []);
 
   useEffect(() => {
@@ -12710,7 +12735,7 @@ function DetailedView({
         <div
           className="add-point-symbol-popover"
           ref={symbolMenuRef}
-          style={{ top: symbolMenuPosition.top, left: symbolMenuPosition.left }}
+          style={symbolMenuPosition}
         >
           {Object.entries(symbolCategories).map(([category, symbols]) => (
             <div key={category} className="add-point-symbol-category">
@@ -13754,6 +13779,11 @@ function DetailedView({
 
   const openBudgetTmdePicker = useCallback(
     (scope, event = null, pickerOptions = {}) => {
+      const anchor = event?.currentTarget || null;
+      if (anchor && budgetTmdePicker?.anchor === anchor) {
+        setBudgetTmdePicker(null);
+        return;
+      }
       const functionKey = budgetFunctionKey(scope);
       // The derived FINAL budget scope carries no variableType (input-variable
       // scopes always do). The UUT's own measuring resolution belongs to that
@@ -13894,6 +13924,7 @@ function DetailedView({
       }
       const rect = event?.currentTarget?.getBoundingClientRect?.() || null;
       setBudgetTmdePicker({
+        anchor,
         scope,
         functionKey,
         options,
@@ -13908,6 +13939,7 @@ function DetailedView({
       });
     },
     [
+      budgetTmdePicker,
       budgetFunctionKey,
       relevantTmdes,
       activePointFunctionKey,
@@ -14226,10 +14258,9 @@ function DetailedView({
     return ReactDOM.createPortal(
       <>
         <div
-          onClick={() => setBudgetTmdePicker(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 4000 }}
-        />
-        <div
+          ref={budgetTmdeMenuRef}
+          role="dialog"
+          aria-label="Add component to budget"
           className="budget-settings-menu budget-tmde-picker-menu"
           data-tour="budget-component-menu"
           style={{
@@ -14381,10 +14412,12 @@ function DetailedView({
                   key={`tmde-group-${tmde.id ?? tmde.sourceId}`}
                   className="budget-tmde-picker-instrument"
                 >
-                  <div className="budget-tmde-picker-instrument-name">
+                  <button type="button" className="budget-tmde-picker-instrument-name"
+                    disabled={choices.length !== 1}
+                    onClick={() => choices.length === 1 && addBudgetTmde(tmde, choices[0])}>
                     <FontAwesomeIcon icon={faTools} />
                     <span>{getEquationTmdeLabel(tmde)}</span>
-                  </div>
+                  </button>
                   {choices.map((range, rangeIndex) => {
                 const detail = getBudgetTmdeDetail(tmde, range);
                 const functionLabel = range?.functionName
@@ -14890,6 +14923,7 @@ function DetailedView({
                   ? "Hide other measurement areas"
                   : "Show all UUT measurement areas"
               }
+              data-ui-toggle
               aria-pressed={showIrrelevantUutFunctions}
               aria-label={
                 showIrrelevantUutFunctions
@@ -14901,7 +14935,7 @@ function DetailedView({
                 icon={showIrrelevantUutFunctions ? faEye : faEyeSlash}
               />
             </button>
-            <MeasurementAreaEntry kind="uut" onAdd={handleAddFunction} />
+            {showIrrelevantUutFunctions && (<MeasurementAreaEntry kind="uut" onAdd={handleAddFunction} />)}
           </div>
         </div>
         <div
@@ -15065,8 +15099,7 @@ function DetailedView({
                                   </div>
                                 </td>
                               )}
-                              {i === 0 &&
-                                renderCustomCellsAfter("uut", uut, "description", spanRows)}
+                              {renderCustomCellsAfter("uut", uut, "description", 1, visibleRangeRows, i)}
                               {renderRangeRowCellsDetail("uut", uut, range, {
                                 includeDistribution: false,
                                 stateId: uutRowKey,
@@ -15076,9 +15109,7 @@ function DetailedView({
                                 totalRanges: n,
                                 nextRange: visibleRangeRows[i + 1]?.range || null,
                                 renderCustomAfter: (anchorKey) =>
-                                  i === 0
-                                    ? renderCustomCellsAfter("uut", uut, anchorKey, spanRows)
-                                    : null,
+                                  renderCustomCellsAfter("uut", uut, anchorKey, 1, visibleRangeRows, i),
                               })}
                               {i === 0 && (
                                 <td
@@ -15174,7 +15205,7 @@ function DetailedView({
                             )}
                           </div>
                         </td>
-                        {renderCustomCellsAfter("uut", uut, "description", rowSpan)}
+                        {renderCustomCellsAfter("uut", uut, "description", rowSpan, [{ range: activeRange }])}
 
                         <td
                           data-range-cell="true"
@@ -15253,7 +15284,7 @@ function DetailedView({
                             ))}
                           </div>
                         </td>
-                        {renderCustomCellsAfter("uut", uut, "range", rowSpan)}
+                        {renderCustomCellsAfter("uut", uut, "range", rowSpan, [{ range: activeRange }])}
 
                         <td
                           className={`cell-tolerance ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
@@ -15321,7 +15352,7 @@ function DetailedView({
                             })}
                           </div>
                         </td>
-                        {renderCustomCellsAfter("uut", uut, "tolerance", rowSpan)}
+                        {renderCustomCellsAfter("uut", uut, "tolerance", rowSpan, [{ range: activeRange }])}
                         <td
                           rowSpan={rowSpan}
                           className={`cell-value ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
@@ -15368,7 +15399,7 @@ function DetailedView({
                             ))}
                           </div>
                         </td>
-                        {renderCustomCellsAfter("uut", uut, "resolution", rowSpan)}
+                        {renderCustomCellsAfter("uut", uut, "resolution", rowSpan, [{ range: activeRange }])}
                         <td
                           rowSpan={rowSpan}
                           className="cell-sync"
@@ -15447,11 +15478,11 @@ function DetailedView({
               <div
                 ref={equationEditorSurfaceRef}
                 className={`measurement-equation-card measurement-equation-zoom-surface ${
-                  isEquationEditorOpen ? "is-editor-open" : "is-editor-collapsed"
-                }`}
+                  isEquationEditorOpen || !hasEquationText ? "is-editor-open" : "is-editor-collapsed"
+                }${!hasEquationText ? " is-empty" : ""}`}
               >
               <div className="scoped-zoom-content">
-              {isEquationEditorOpen ? (
+              {isEquationEditorOpen || !hasEquationText ? (
                 <>
                 <div
                   className="measurement-equation-editor-stack"
@@ -15471,6 +15502,9 @@ function DetailedView({
                         ref={equationInputRef}
                         type="text"
                         className="measurement-equation-input"
+                        placeholder="Set measurement equation"
+                        aria-label="Measurement equation"
+                        onFocus={() => setIsEquationEditorOpen(true)}
                         value={equationDisplayData.equation}
                         onChange={(e) => handleEquationChange(e.target.value)}
                         onKeyDown={(event) => {
@@ -15488,6 +15522,8 @@ function DetailedView({
                           className="add-point-fx-button"
                           title="Insert function or symbol"
                           ref={symbolButtonRef}
+                          aria-haspopup="dialog"
+                          aria-expanded={isSymbolMenuOpen}
                           onClick={handleSymbolMenuToggle}
                         >
                           f(x)
@@ -15497,6 +15533,8 @@ function DetailedView({
                           className="add-point-fx-button is-library"
                           title="Insert a common metrology equation"
                           ref={libraryButtonRef}
+                          aria-haspopup="dialog"
+                          aria-expanded={isLibraryOpen}
                           onClick={handleLibraryMenuToggle}
                         >
                           <FontAwesomeIcon icon={faBookOpen} />
@@ -15539,9 +15577,7 @@ function DetailedView({
                     className="add-point-symbol-popover"
                     ref={libraryMenuRef}
                     style={{
-                      top: libraryMenuPosition.top,
-                      left: libraryMenuPosition.left,
-                      maxHeight: "60vh",
+                      ...libraryMenuPosition,
                       overflowY: "auto",
                     }}
                   >
@@ -15642,13 +15678,7 @@ function DetailedView({
               )}
               </div>
             </div>
-            {!hasEquationText && (
-              <div className="equation-workflow-notice" role="status">
-                {testPointData?.id
-                  ? "Enter a measurement equation to create its input variables and budget tables."
-                  : "Create or select a measurement point, then enter its measurement equation to create input variables and budget tables."}
-              </div>
-            )}
+
           </div>
           {hasUsableEquation && equationDisplayData.variables.length > 0 && (
           <div className="measurement-equation-input-panel panel-card">
@@ -15718,6 +15748,7 @@ function DetailedView({
                     ? "Hide other measurement areas"
                     : "Show all TMDE measurement areas"
                 }
+                data-ui-toggle
                 aria-pressed={showIrrelevantTmdeFunctions}
                 aria-label={
                   showIrrelevantTmdeFunctions
@@ -15729,7 +15760,7 @@ function DetailedView({
                   icon={showIrrelevantTmdeFunctions ? faEye : faEyeSlash}
                 />
               </button>
-              <MeasurementAreaEntry kind="tmde" onAdd={handleAddFunction} />
+              {showIrrelevantTmdeFunctions && (<MeasurementAreaEntry kind="tmde" onAdd={handleAddFunction} />)}
             </div>
           </div>
 
@@ -15934,13 +15965,7 @@ function DetailedView({
                                       </div>
                                     </td>
                                   )}
-                                  {i === 0 &&
-                                    renderCustomCellsAfter(
-                                      "tmde",
-                                      masterTmde,
-                                      "description",
-                                      spanRows,
-                                    )}
+                                  {renderCustomCellsAfter("tmde", masterTmde, "description", 1, visibleRangeRows, i)}
                                   {renderRangeRowCellsDetail("tmde", masterTmde, range, {
                                     includeDistribution: true,
                                     stateId: tmdeRowKey,
@@ -15950,14 +15975,7 @@ function DetailedView({
                                     totalRanges: n,
                                     nextRange: visibleRangeRows[i + 1]?.range || null,
                                     renderCustomAfter: (anchorKey) =>
-                                      i === 0
-                                        ? renderCustomCellsAfter(
-                                            "tmde",
-                                            masterTmde,
-                                            anchorKey,
-                                            spanRows,
-                                          )
-                                        : null,
+                                      renderCustomCellsAfter("tmde", masterTmde, anchorKey, 1, visibleRangeRows, i),
                                   })}
                                   {i === 0 && (
                                     <td
@@ -16063,7 +16081,7 @@ function DetailedView({
                               "tmde",
                               masterTmde,
                               "description",
-                              rowSpan,
+                              rowSpan, [{ range: activeRange }],
                             )}
 
                             <td
@@ -16169,7 +16187,7 @@ function DetailedView({
                                 })}
                               </div>
                             </td>
-                            {renderCustomCellsAfter("tmde", masterTmde, "range", rowSpan)}
+                            {renderCustomCellsAfter("tmde", masterTmde, "range", rowSpan, [{ range: activeRange }], [{ range: activeRange }])}
 
                             <td
                               className={`cell-tolerance ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
@@ -16252,7 +16270,7 @@ function DetailedView({
                               "tmde",
                               masterTmde,
                               "tolerance",
-                              rowSpan,
+                              rowSpan, [{ range: activeRange }],
                             )}
 
                             <td
@@ -16289,7 +16307,7 @@ function DetailedView({
                               "tmde",
                               masterTmde,
                               "distribution",
-                              rowSpan,
+                              rowSpan, [{ range: activeRange }],
                             )}
 
                             <td
@@ -16372,7 +16390,7 @@ function DetailedView({
                               "tmde",
                               masterTmde,
                               "resolution",
-                              rowSpan,
+                              rowSpan, [{ range: activeRange }],
                             )}
                             <td
                               rowSpan={rowSpan}
@@ -16454,6 +16472,9 @@ function DetailedView({
               onComponentUpdate={handleComponentUpdate}
               onMoveComponent={moveBudgetComponent}
               ToleranceEditorComponent={InlineToleranceCell}
+              UnitSelectComponent={UnitSelect}
+              newDynamicComponentId={newDynamicComponentId}
+              onDynamicEditorOpened={onDynamicEditorOpened}
               applyToleranceChange={applyToleranceCaseChange}
               formatToleranceSummary={getSpecRows}
               calcResults={calcResults}
@@ -16487,12 +16508,15 @@ function DetailedView({
                 onUpdateTestPoint({ monteCarloTrials: trials })
               }
               onShowDerivedBreakdown={onShowDerivedBreakdown}
+              isDerivedBreakdownOpen={isDerivedBreakdownOpen}
+              isCorrelationOpen={isCorrelationOpen}
               onShowRiskBreakdown={onShowRiskBreakdown}
               showContribution={showContribution}
               setShowContribution={setShowContribution}
               hasTmde={tmdeTolerancesData.length > 0}
               onAddManualComponent={onAddManualComponent}
               onAddTmdeToBudget={openBudgetTmdePicker}
+              openBudgetScope={budgetTmdePicker?.mode === "add" ? budgetTmdePicker.scope : null}
               onEdit={onEditManualComponent}
               onOpenRepeatability={onOpenRepeatability}
               onOpenCorrelation={onOpenCorrelation}

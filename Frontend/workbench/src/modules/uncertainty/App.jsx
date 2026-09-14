@@ -1,3 +1,4 @@
+import UiSettings, { isUiScaleLocked } from "../../shared/UiSettings";
 import { formatPointLimit, pointDisplayResolution } from "./utils/pointLimitDisplay";
 import PointColumnMenu from "./components/common/PointColumnMenu";
 import { computePointTmdeLimits } from "./utils/pointTmdeLimits";
@@ -2911,6 +2912,19 @@ function App({ showThemeToggle = false }) {
     setExpandedUuts(new Set());
   };
 
+  const returnToInstrumentOverview = useCallback(() => {
+    setSelectedTestPointId(null);
+    setSelectedTestPointContextUutId(null);
+    setSelectedUutId(null);
+    setVirtualPoint(null);
+    setCurrentUutSelection([]);
+    setSelectedTablePointIds([]);
+    setSelectedSidebarPointIds([]);
+    setSidebarSelectionAnchor(null);
+    setRiskResults(null);
+    setAnalysisMode("overview");
+  }, [setSelectedTestPointId]);
+
   // --- DELETE HELPER (Defined before useEffect so it can be used inside) ---
   const handleDeleteTestPoint = useCallback(
     (idOrIds, immediate = false) => {
@@ -2931,7 +2945,7 @@ function App({ showThemeToggle = false }) {
         setAppNotification(null);
         // If the selected point was deleted, clear selection
         if (idsToDelete.includes(selectedTestPointId)) {
-          setSelectedTestPointId(null);
+          returnToInstrumentOverview();
         }
         // Clear multi-select
         setSelectedSidebarPointIds((prev) =>
@@ -2962,6 +2976,7 @@ function App({ showThemeToggle = false }) {
       currentSessionData,
       updateSession,
       selectedTestPointId,
+      returnToInstrumentOverview,
       setSelectedTestPointId,
     ],
   );
@@ -3239,6 +3254,7 @@ function App({ showThemeToggle = false }) {
       ) {
         e.preventDefault();
         setSidebarWidth(550);
+        setSidebarColumnWidths({});
         setScopedZoomLevels({});
         try {
           window.localStorage.setItem(
@@ -3252,6 +3268,9 @@ function App({ showThemeToggle = false }) {
           INSTRUMENT_SIZE_STORAGE_KEYS.forEach((storageKey) =>
             window.localStorage.removeItem(storageKey),
           );
+          Object.keys(window.localStorage)
+            .filter((storageKey) => storageKey.startsWith("uncertalytics:budget-column-widths:v1:"))
+            .forEach((storageKey) => window.localStorage.removeItem(storageKey));
         } catch {
           // The visible layout still resets when browser storage is blocked.
         }
@@ -3411,7 +3430,7 @@ function App({ showThemeToggle = false }) {
 
   useEffect(() => {
     const handleZoom = (e) => {
-      if (!e.ctrlKey && !e.metaKey) return;
+      if ((!e.ctrlKey && !e.metaKey) || isUiScaleLocked()) return;
 
       const zoomTarget = getScopedZoomTarget(e.target);
       // Let Chromium perform normal page zoom when the pointer is not over a
@@ -4825,7 +4844,7 @@ function App({ showThemeToggle = false }) {
           (candidate) => String(candidate.id) === String(rememberedId),
         ) || currentTestPoints[0];
       if (!point) {
-        setAnalysisMode("uncertaintyTool");
+        setAnalysisMode("overview");
         return;
       }
 
@@ -4853,15 +4872,23 @@ function App({ showThemeToggle = false }) {
     ],
   );
 
+  useEffect(() => {
+    if (!currentSessionData) return;
+    const missingPoint = selectedTestPointId && !currentTestPoints.some(
+      point => String(point.id) === String(selectedTestPointId),
+    );
+    const emptyBudget = analysisMode === "uncertaintyTool" && !selectedTestPointId && !virtualPoint;
+    if (missingPoint || emptyBudget) returnToInstrumentOverview();
+  }, [currentSessionData, currentTestPoints, selectedTestPointId, virtualPoint, analysisMode, returnToInstrumentOverview]);
+
   // --- LOGIC: Compute Data to Display ---
   const displayData = useMemo(() => {
     if (!currentSessionData) return null;
 
-    if (selectedTestPointId) {
-      const pointData = currentTestPoints.find(
-        (p) => p.id === selectedTestPointId,
-      );
-      if (!pointData) return null;
+    const pointData = currentTestPoints.find(
+      (point) => String(point.id) === String(selectedTestPointId),
+    );
+    if (selectedTestPointId && pointData) {
 
       let effectiveUutTolerance =
         pointData.uutTolerance !== null &&
@@ -5390,6 +5417,7 @@ function App({ showThemeToggle = false }) {
             data-tour="function-settings"
             title={`${fnGroup.name} measurement area settings`}
             aria-label={`${fnGroup.name} measurement area settings`}
+            aria-haspopup="dialog"
             aria-expanded={settingsOpen}
             onClick={(event) => {
               pointSettingsAnchorRef.current = event.currentTarget;
@@ -5482,6 +5510,12 @@ function App({ showThemeToggle = false }) {
               onConfirm: () => {
                 setAppNotification(null);
                 setOpenFunctionSettingsId(null);
+                const viewedPoint = currentTestPoints.find(
+                  point => String(point.id) === String(selectedTestPointId),
+                ) || virtualPoint;
+                if (viewedPoint && measurementAreaKeyOf(viewedPoint) === area.key) {
+                  returnToInstrumentOverview();
+                }
                 updateSession(deleteMeasurementArea(currentSessionData, area));
               },
             });
@@ -5713,6 +5747,7 @@ function App({ showThemeToggle = false }) {
                 role="group"
                 aria-label="Tools"
               >
+                <UiSettings />
                 <div
                   className="app-chrome-meta-group app-chrome-meta-group--tools"
                   aria-label="Session tools"
@@ -5729,6 +5764,8 @@ function App({ showThemeToggle = false }) {
                     }}
                     title="Instrument builder"
                     aria-label="Instrument builder"
+                    data-ui-toggle
+                    aria-expanded={isInstrumentBuilderOpen}
                   >
                     <FontAwesomeIcon icon={faRadio} />
                   </button>
@@ -5738,6 +5775,8 @@ function App({ showThemeToggle = false }) {
                     onClick={() => setIsTraceabilityOpen((o) => !o)}
                     title="Reverse traceability"
                     aria-label="Reverse traceability"
+                    data-ui-toggle
+                    aria-expanded={isTraceabilityOpen}
                   >
                     <FontAwesomeIcon icon={faHistory} />
                   </button>
@@ -5747,6 +5786,8 @@ function App({ showThemeToggle = false }) {
                     onClick={() => setIsConverterOpen((o) => !o)}
                     title="Unit converter"
                     aria-label="Unit converter"
+                    data-ui-toggle
+                    aria-expanded={isConverterOpen}
                   >
                     <FontAwesomeIcon icon={faRightLeft} />
                   </button>
@@ -5794,20 +5835,24 @@ function App({ showThemeToggle = false }) {
                     className="app-chrome-meta-icon"
                     data-tour="help-walkthrough"
                     onClick={() => {
-                      setWalkthroughStepIndex(0);
-                      setIsWalkthroughOpen(true);
+                      if (!isWalkthroughOpen) setWalkthroughStepIndex(0);
+                      setIsWalkthroughOpen(open => !open);
                     }}
                     title="Open walkthrough"
                     aria-label="Open walkthrough"
+                    data-ui-toggle
+                    aria-expanded={isWalkthroughOpen}
                   >
                     <FontAwesomeIcon icon={faQuestionCircle} />
                   </button>
                   {!workbenchIssues && (<button
                     type="button"
                     className="app-chrome-meta-icon"
-                    onClick={() => setIsBugReportOpen(true)}
+                    onClick={() => setIsBugReportOpen(open => !open)}
                     title="Report an issue"
                     aria-label="Report an issue"
+                    data-ui-toggle
+                    aria-expanded={isBugReportOpen}
                   >
                     <FontAwesomeIcon icon={faBug} />
                   </button>)}
@@ -5942,6 +5987,8 @@ function App({ showThemeToggle = false }) {
                         {/* Expand/Collapse All */}
                         <button
                           onClick={handleToggleExpandAll}
+                          data-ui-toggle
+                          aria-pressed={isGlobalExpanded}
                           title={isGlobalExpanded ? "Collapse All" : "Expand All"}
                           className="sidebar-action-btn-organic"
                         >
@@ -5955,7 +6002,7 @@ function App({ showThemeToggle = false }) {
                         </button>
 
                         <div className="sidebar-column-menu" ref={columnMenuRef}>
-                          <button title="Columns" aria-label="Columns" aria-expanded={isColumnMenuOpen}
+                          <button title="Columns" aria-label="Columns" aria-haspopup="dialog" aria-expanded={isColumnMenuOpen}
                             data-tour="sidebar-columns" className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
                             onClick={() => setIsColumnMenuOpen(open => !open)}><FontAwesomeIcon icon={faSlidersH} /></button>
                           {isColumnMenuOpen && <SidebarColumnPopover anchorRef={columnMenuRef} onClose={() => setIsColumnMenuOpen(false)}>
@@ -6023,13 +6070,12 @@ function App({ showThemeToggle = false }) {
                             },
                           ]} columns={sidebarColumns} setColumns={setSidebarColumns}
                               selectedGroups={sidebarSortGroups} moveGroup={moveSidebarSortGroup}
-                              onReset={() => setSidebarColumnOrder(DEFAULT_SIDEBAR_COLUMN_ORDER)}
-                              onClose={() => setIsColumnMenuOpen(false)} />
+                              onReset={() => setSidebarColumnOrder(DEFAULT_SIDEBAR_COLUMN_ORDER)} />
                           </SidebarColumnPopover>}
                         </div>
                       </>
                     <div className="sidebar-add-area-controls sidebar-area-entry">
-                      <input aria-label="New Measurement Area name" placeholder="Area name" value={newSidebarArea || ""}
+                      <input aria-label="New Measurement Area name" placeholder="Add Measurement Area" value={newSidebarArea || ""}
                         onChange={event => setNewSidebarArea(event.target.value)}
                         onKeyDown={event => { if (event.key === "Enter" && newSidebarArea?.trim()) handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(""); }} />
                       <button type="button" aria-label="Add Measurement Area from points" title="Add Measurement Area"
@@ -6160,6 +6206,11 @@ function App({ showThemeToggle = false }) {
                           {renderFunctionPointActions(fnGroup)}
                         </div>
 
+                        {points.length === 0 && (
+                          <div className="measurement-point-empty-hint">
+                            Click + to add a measurement point <span aria-hidden="true">↑</span>
+                          </div>
+                        )}
                         {isFnExpanded && points.length > 0 && (
                           <div className="tree-branch">
                             <div className="measurement-area-points">
@@ -6244,25 +6295,8 @@ function App({ showThemeToggle = false }) {
                 </TestPointDetailView>
               ) : (
                 <div className="placeholder-content">
-                  {currentSessionData ? (
-                    <>
-                      <h3>No measurement point selected.</h3>
-                      <p>
-                        Select a UUT Range or Measurement Area from the sidebar.
-                      </p>
-                      <button
-                        className="button primary"
-                        onClick={() => handleAddNewTestPoint()}
-                      >
-                        <FontAwesomeIcon icon={faPlus} /> Add New Point
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <h3>No Session Available</h3>
-                      <p>Create a new session to begin your analysis.</p>
-                    </>
-                  )}
+                  <h3>No Session Available</h3>
+                  <p>Create a new session to begin your analysis.</p>
                 </div>
               )}
             </main>
