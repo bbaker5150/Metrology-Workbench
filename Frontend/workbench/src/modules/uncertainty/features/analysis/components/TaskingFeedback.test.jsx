@@ -77,5 +77,6 @@ it("shows a range selector and final PFA/PFR, including unavailable PFR for unkn
   fireEvent.click(screen.getByRole("button", { name: /Range for/ }));
   fireEvent.click(within(screen.getByRole("listbox", { name: /Range for/ })).getAllByRole("option")[1]);
   expect(onUpdate.mock.calls[0][1].selectedBudgetRange.id).toBe("two");
-  expect(screen.getByRole("table", { name: "Final decision risk" })).toHaveTextContent("PFA at BoundaryPFR1.500 %—");
+  expect(screen.getByLabelText("Final decision risk")).toHaveTextContent("PFA at Boundary1.500 %");
+  expect(screen.getByLabelText("PFR: Unavailable")).toHaveTextContent("—");
 });

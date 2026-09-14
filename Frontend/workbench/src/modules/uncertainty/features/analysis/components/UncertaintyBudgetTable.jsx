@@ -1,6 +1,7 @@
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 import ResizableBudgetTable from "./ResizableBudgetTable";
+import DecisionRiskCards from "./DecisionRiskCards";
 import DynamicBudgetComponentRow from "./DynamicBudgetComponentRow";
 import { formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
 import React, {
@@ -830,6 +831,7 @@ const UncertaintyBudgetTable = ({
   equationString,
   measurementType,
   riskResults,
+  riskRequirements,
   onShowDerivedBreakdown,
   isDerivedBreakdownOpen = false,
   isCorrelationOpen = false,
@@ -1704,10 +1706,7 @@ const UncertaintyBudgetTable = ({
           </section>
         </React.Fragment>
       ))}
-      <table className="budget-decision-results" aria-label="Final decision risk">
-        <thead><tr><th title="Probability of false acceptance">{riskResults?.riskMethod === "risk8-pfa-boundary" ? "PFA at Boundary" : "PFA"}</th><th title="Probability of false rejection">PFR</th></tr></thead>
-        <tbody><tr>{["pfa", "pfr"].map(key => <td key={key}>{riskResults?.[key] != null && Number.isFinite(Number(riskResults[key])) ? `${formatNumber(riskResults[key], 4)} %` : "—"}</td>)}</tr></tbody>
-      </table>
+      <DecisionRiskCards results={riskResults} requiredPfa={riskRequirements?.reqPFA} formatValue={value => formatNumber(value, 4)} />
     </div>
   );
 };

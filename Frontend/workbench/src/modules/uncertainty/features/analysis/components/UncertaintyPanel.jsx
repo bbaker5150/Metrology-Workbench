@@ -16419,6 +16419,7 @@ function DetailedView({
               equationString={testPointData.equationString}
               measurementType={testPointData.measurementType}
               riskResults={riskResults}
+              riskRequirements={sessionData.uncReq}
               budgetPropagationMethod={
                 isDerived &&
                 testPointData.budgetPropagationMethod === "montecarlo"

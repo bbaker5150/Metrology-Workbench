@@ -1,4 +1,4 @@
-import { pfaPassesAtDisplayedPrecision } from "./utils/risk8/riskEngine8";
+import { decisionRiskColor } from "./utils/decisionRiskStatus";
 import UiSettings, { isUiScaleLocked } from "../../shared/UiSettings";
 import { formatPointLimit, pointDisplayResolution } from "./utils/pointLimitDisplay";
 import PointColumnMenu from "./components/common/PointColumnMenu";
@@ -1109,22 +1109,10 @@ export const SidebarPointItem = ({
   // Status colors are requirements-relative.  Keeping these thresholds local
   // to the row used to leave a freshly recalculated value painted against the
   // old hard-coded 2% / 4:1 defaults after the user changed Risk Inputs.
-  const configuredPfaLimit = Number(riskRequirements?.reqPFA);
-  const pfaLimit = Number.isFinite(configuredPfaLimit) && configuredPfaLimit >= 0
-    ? configuredPfaLimit
-    : 2;
   const configuredRatioLimit = Number(riskRequirements?.neededTUR);
   const ratioLimit = Number.isFinite(configuredRatioLimit) && configuredRatioLimit > 0
     ? configuredRatioLimit
     : 4;
-  const lowerIsBetterColor = (val, limit) => {
-    const numeric = Number(val);
-    if (!Number.isFinite(numeric)) return "var(--text-color-muted)";
-    if (numeric <= limit) return "var(--status-good)";
-    return numeric > Math.max(limit * 2.5, limit + 3)
-      ? "var(--status-bad)"
-      : "var(--status-warning)";
-  };
   const higherIsBetterColor = (val, limit) => {
     const numeric = Number(val);
     if (!Number.isFinite(numeric)) return "var(--text-color-muted)";
@@ -1134,17 +1122,8 @@ export const SidebarPointItem = ({
       : "var(--status-warning)";
   };
 
-  const getPfaColor = (val) => {
-    if (pfaPassesAtDisplayedPrecision(Number(val) / 100, pfaLimit / 100)) return "var(--status-good)";
-    return lowerIsBetterColor(val, pfaLimit);
-  };
-
-  const getPfrColor = (val) => {
-    // Risk Inputs expose one allowable decision-risk limit (Required PFA).
-    // Use it as the visual attention threshold for both decision-risk columns;
-    // the numerical PFR calculation itself remains independent.
-    return lowerIsBetterColor(val, pfaLimit);
-  };
+  const getPfaColor = (val) => decisionRiskColor(val, riskRequirements?.reqPFA, "pfa");
+  const getPfrColor = (val) => decisionRiskColor(val, riskRequirements?.reqPFA, "pfr");
 
   const getTurColor = (val) => {
     return higherIsBetterColor(val, ratioLimit);

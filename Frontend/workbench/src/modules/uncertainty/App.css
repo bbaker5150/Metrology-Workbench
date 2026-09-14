@@ -20775,7 +20775,60 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .budget-source-description { display: block; }
 .uncertainty-module .budget-range-selector { display: block; margin-top: 3px; max-width: 100%; color: var(--text-color-muted); font-size: .7rem; }
 .uncertainty-module .budget-range-selector .inline-menu-select-trigger { border-color: transparent; background: transparent; padding-left: 0; }
-.budget-decision-results { margin: 20px auto 0; width: min(360px, 100%); border: 1px solid var(--border-color); border-radius: 6px; border-spacing: 0; text-align: center; }
-.budget-decision-results th { padding: 8px 16px; background: var(--bg-secondary); font-size: .72rem; }
-.budget-decision-results td { padding: 12px 16px; font-size: .9rem; font-weight: 600; }
-.budget-decision-results :is(th, td):first-child { border-right: 1px solid var(--border-color); }
+.uncertainty-module .budget-decision-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 12px;
+  row-gap: 0;
+  align-self: center;
+  width: min(440px, 100%);
+  min-width: 0;
+  margin: 6px auto 0;
+  padding: 0;
+  text-align: center;
+}
+.budget-decision-card {
+  --decision-color: var(--text-color-muted);
+  display: grid;
+  grid-row: span 3;
+  grid-template-rows: subgrid;
+  min-width: 0;
+  padding: 16px 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--decision-color) 24%, var(--border-color));
+  border-radius: 8px;
+  background: linear-gradient(color-mix(in srgb, var(--decision-color) 5%, transparent), transparent), var(--content-background);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 4%);
+}
+.budget-decision-card.is-good { --decision-color: var(--status-good); }
+.budget-decision-card.is-warning { --decision-color: var(--status-warning); }
+.budget-decision-card.is-bad { --decision-color: var(--status-bad); }
+.budget-decision-card dt {
+  color: var(--text-color-muted);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+.budget-decision-card dd {
+  margin: 8px 0 6px;
+  color: var(--decision-color);
+  font-family: var(--readout-font);
+  font-size: 1.3rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.budget-decision-unit { font-size: .8em; font-weight: 500; }
+.budget-decision-card .budget-decision-caption {
+  display: block;
+  margin: 0;
+  color: var(--text-color-muted);
+  font-family: var(--main-font);
+  font-size: .68rem;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: normal;
+  text-wrap: balance;
+}
