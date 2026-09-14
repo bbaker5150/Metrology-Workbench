@@ -95,7 +95,8 @@ export default function DynamicBudgetComponentRow({
   let boundValue = "Not Set";
   try { boundValue = dynamicMeasurementValue(referencePoint, draft.measurementUnit); } catch { /* The live preview explains incomplete inputs. */ }
   const kindLabel = draft.kind === "table" ? "Tabular" : "Equation";
-  const cells = [{ label: "Measurement point", key: "point" }, ...draft.columns.flatMap(column =>
+  const displayColumns = draft.columns.filter(column => column.id === (component.dynamicOutputId || draft.columns[0]?.id));
+  const cells = [{ label: "Measurement point", key: "point" }, ...displayColumns.flatMap(column =>
     (draft.mode === "limits" ? ["low", "high"] : ["value"]).map(key => ({ column: column.id, key, label: `${column.name}${key === "low" ? " lower" : key === "high" ? " upper" : ""}` })))];
   const setCell = (rows, index, cell, value) => {
     const row = rows[index];
@@ -183,12 +184,12 @@ export default function DynamicBudgetComponentRow({
             {draft.kind === "table" ? <>
               <div className="dynamic-table-scroll"><table className="dynamic-input-table"><thead>
                 <tr><th rowSpan={draft.mode === "limits" ? 2 : 1}>Measurement point <span className="dynamic-header-unit">{getUnitDisplayLabel(draft.measurementUnit)}</span></th>
-                  {draft.columns.map((column, index) => <th key={column.id} colSpan={draft.mode === "limits" ? 2 : 1}>
+                  {displayColumns.map((column, index) => <th key={column.id} colSpan={draft.mode === "limits" ? 2 : 1}>
                     <div className="dynamic-column-heading"><input aria-label={`Uncertainty column ${index + 1} name`} value={column.name}
                       onChange={event => change({ columns: draft.columns.map(c => c.id === column.id ? { ...c, name: event.target.value } : c) })} />
                       <span className="dynamic-header-unit">{getUnitDisplayLabel(draft.outputUnit)}</span></div>
                   </th>)}<th rowSpan={draft.mode === "limits" ? 2 : 1} aria-label="Row actions" /></tr>
-                {draft.mode === "limits" && <tr>{draft.columns.flatMap(column => [<th key={`${column.id}-low`}>Lower</th>, <th key={`${column.id}-high`}>Upper</th>])}</tr>}
+                {draft.mode === "limits" && <tr>{displayColumns.flatMap(column => [<th key={`${column.id}-low`}>Lower</th>, <th key={`${column.id}-high`}>Upper</th>])}</tr>}
               </thead><tbody>
                 {draft.rows.map((row, index) => <tr key={row.id}>
                   {cells.map((cell, col) => <td key={`${cell.column || "point"}:${cell.key}`}>
@@ -222,11 +223,7 @@ export default function DynamicBudgetComponentRow({
               </tbody></table></div>
               <div className="dynamic-editor-actions">
                 <button type="button" className="dynamic-inline-action" onClick={addRow}><FontAwesomeIcon icon={faPlus} /> Row</button>
-                <button type="button" className="dynamic-inline-action" onClick={() => {
-                  const index = draft.columns.length;
-                  change({ columns: [...draft.columns, { id: uuid(), name: `Uncertainty ${index + 1}` }] });
-                  requestAnimationFrame(() => rowRef.current?.querySelector(`[aria-label="Uncertainty column ${index + 1} name"]`)?.select());
-                }}><FontAwesomeIcon icon={faPlus} /> Uncertainty column</button>
+
               </div>
             </> : <>
               <div className="dynamic-equation-entry">
@@ -272,7 +269,7 @@ export default function DynamicBudgetComponentRow({
       <td>{draft.mode === "standard" ? <span>Normal (k=1)</span> :
         <InlineMenuSelect ariaLabel="Dynamic component distribution" value={draft.distribution} options={DISTRIBUTIONS} onChange={changeDistribution} width="max-content" showOptionMeta={false} />}</td>
       <td>B</td>{showDof && <td>∞</td>}
-      <td>{preview.value_native == null ? "—" : `${Number(preview.value_native.toPrecision(6))} ${getUnitDisplayLabel(preview.unit_native)}`}</td>
+      <td>{preview.value_native == null ? "—" : `± ${Number(preview.value_native.toPrecision(6))} ${getUnitDisplayLabel(preview.unit_native)}`}</td>
       <td className="action-cell"><button type="button" title="Remove component from this budget" aria-label="Remove dynamic component" onClick={() => onRemove?.(component.id, component)}><FontAwesomeIcon icon={faTimes} /></button></td>
     </tr>
   );

@@ -168,8 +168,8 @@ describe("getBudgetComponentsFromTolerance - manual Type B components", () => {
     const mc = comps.find((c) => c.isManual);
     expect(mc.distribution).toBe("Not Set");
     expect(mc.distributionDivisor).toBe(DISTRIBUTION_NOT_SET);
-    expect(Number.isNaN(mc.value)).toBe(true);
-    expect(Number.isNaN(mc.value_native)).toBe(true);
+    expect(mc.value).toBeNull();
+    expect(mc.value_native).toBeNull();
   });
 });
 
@@ -472,8 +472,8 @@ describe("getBudgetComponentsFromTolerance - unvalidated distribution", () => {
     const accuracy = comps.find((c) => c.name === "DMM - Accuracy");
     expect(accuracy.distribution).toBe("Not Set");
     expect(accuracy.distributionDivisor).toBe(DISTRIBUTION_NOT_SET);
-    expect(Number.isNaN(accuracy.value)).toBe(true);
-    expect(Number.isNaN(accuracy.value_native)).toBe(true);
+    expect(accuracy.value).toBeNull();
+    expect(accuracy.value_native).toBeNull();
   });
 });
 

@@ -119,7 +119,12 @@ export function computeUncertaintyForPoint(point, sessionData) {
     point,
     sessionData,
   );
-  if (manualComponents.some(c => c.dynamicDefinitionId && c.pendingReason)) return null;
+  if (manualComponents.some(c => c.pendingReason || c.inlineValidation) || getUutResolutionComponent(point.uutTolerance || sessionData.uutTolerance, uutNominal)?.pendingReason) return null;
+  if (tmdeTolerancesData.some(tmde => {
+    const symbol = Object.entries(point.variableMappings || {}).find(([, name]) => name === tmde.variableType)?.[0];
+    const nominal = point.measurementType === "derived" ? (point.variableNominals?.[symbol] || tmde.measurementPoint) : uutNominal;
+    return getBudgetComponentsFromTolerance(tmde, nominal || {}).some(c => c.pendingReason);
+  })) return null;
   const derivedNominalValue = parseFloat(uutNominal.value);
   const derivedNominalUnit = uutNominal.unit;
   const targetUnitInfo = derivedNominalUnit ? unitSystem.units[derivedNominalUnit] : { to_si: 1 };

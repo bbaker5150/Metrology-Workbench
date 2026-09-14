@@ -49,6 +49,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
 import useInstrumentTableLayout from "../../../hooks/useInstrumentTableLayout";
+import usePointerResize from "../../../hooks/usePointerResize";
 import { getBudgetRangeWarnings } from "../../../utils/pointDiagnostics";
 export { getBudgetRangeWarnings } from "../../../utils/pointDiagnostics";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
@@ -2542,6 +2543,7 @@ const renderedInstrumentColumnWidths = (table) => {
 };
 
 const useInstrumentColumnWidths = (kind, customColumns = []) => {
+  const beginResize = usePointerResize();
   const customSignature = customColumns
     .map((column) => `${column.key}:${column.insertAfter || "legacy"}`)
     .join("|");
@@ -2640,20 +2642,21 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
 
   const resizePair = useCallback((key, deltaPixels, tablePixelWidth, sourceWidths = null) => {
     if (!keys.includes(key)) return;
-    setWidths(current => {
-      const base = sourceWidths || current;
-      const total = keys.reduce((sum, k) => sum + (base[k] || defaults[k] || 160), 0);
-      const scale = sourceWidths ? 1 : Math.max(1, tablePixelWidth || total) / total;
-      const next = Object.fromEntries(keys.map(k => [k, (base[k] || defaults[k] || 160) * scale]));
-      next[key] = Math.max(minimumWidth(key), next[key] + deltaPixels);
-      next.__absolute = true;
-      saveWidths(next);
-      return next;
-    });
-  }, [defaults, keys, minimumWidth, saveWidths]);
+    const base = sourceWidths || widths;
+    const total = keys.reduce((sum, k) => sum + (base[k] || defaults[k] || 160), 0);
+    const scale = sourceWidths ? 1 : Math.max(1, tablePixelWidth || total) / total;
+    const next = Object.fromEntries(keys.map(k => [k, (base[k] || defaults[k] || 160) * scale]));
+    next[key] = Math.max(minimumWidth(key), next[key] + deltaPixels);
+    next.__absolute = true;
+    setWidths(next);
+    // Publish outside a React state updater: another mounted table may
+    // synchronously receive this event and update its own state.
+    saveWidths(next);
+  }, [defaults, keys, minimumWidth, saveWidths, widths]);
 
   const startResize = useCallback(
     (event, key) => {
+      if (event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
       const startX = event.clientX;
@@ -2663,10 +2666,6 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
         event.currentTarget.closest("table")?.getBoundingClientRect().width ||
         1200;
       const startWidths = renderedInstrumentColumnWidths(event.currentTarget.closest("table")) || { ...resolvedWidths };
-      const previousCursor = document.body.style.cursor;
-      const previousUserSelect = document.body.style.userSelect;
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
 
       const handleMove = (moveEvent) => {
         resizePair(
@@ -2676,16 +2675,9 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
           startWidths,
         );
       };
-      const handleUp = () => {
-        document.removeEventListener("pointermove", handleMove);
-        document.removeEventListener("pointerup", handleUp);
-        document.body.style.cursor = previousCursor;
-        document.body.style.userSelect = previousUserSelect;
-      };
-      document.addEventListener("pointermove", handleMove);
-      document.addEventListener("pointerup", handleUp, { once: true });
+      beginResize(event, { onMove: handleMove });
     },
-    [resizePair, resolvedWidths],
+    [beginResize, resizePair, resolvedWidths],
   );
 
   return {
@@ -3310,6 +3302,7 @@ export const ResolutionCellInput = ({
           if (e.key === "Enter") e.currentTarget.blur();
         }}
         className="inline-tolerance-input inline-resolution-input"
+        style={{ width: `${Math.max(8, String(v).length + 2)}ch`, minWidth: `${Math.max(8, String(v).length + 2)}ch` }}
       />
       <UnitSelect
         value={unit || fallbackUnit || ""}
@@ -4689,6 +4682,14 @@ const formatRangeSummary = (range = {}) => {
 // The click fallback also covers the portal case where focus never returns to
 // the cell (picking a unit unmounts the focused search box), which would
 // otherwise leave the editor open with no focusout to close it.
+export const normalizeRangeBounds = (min, max) => {
+  const low = String(min ?? "").trim();
+  const high = String(max ?? "").trim();
+  const single = Boolean(low || high) && (!low || !high || (Number.isFinite(Number(low)) && Number(low) === Number(high)));
+  const value = low || high;
+  return { min: single ? value : low, max: single ? value : high, isSingleValue: single, value: single ? value : "" };
+};
+
 export const RangeCell = ({
   ranges = [],
   activeIndex,
@@ -4707,20 +4708,14 @@ export const RangeCell = ({
   onOpenRequestHandled,
   onRequestEditAfterExpand,
   onEditingChange,
-  allowSingleToggle = false,
-  editBlankByDefault = false,
+  actionsVisible = false,
+  onAddRange,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [isStagedBlankOpen, setIsStagedBlankOpen] = useState(
-    () =>
-      editBlankByDefault &&
-      Boolean(rangeIdOf(activeRange)) &&
-      !formatRangeSummary(activeRange),
-  );
   const containerRef = useRef(null);
   const onEditingChangeRef = useRef(onEditingChange);
   const openAfterInitialRangeRef = useRef(false);
-  const showEditor = isEditing || isStagedBlankOpen;
+  const showEditor = isEditing;
 
   useEffect(() => {
     onEditingChangeRef.current = onEditingChange;
@@ -4755,7 +4750,6 @@ export const RangeCell = ({
 
   const dismissRangeEditor = useCallback(() => {
     setIsEditing(false);
-    setIsStagedBlankOpen(false);
   }, []);
   useInlineColumnDismiss({
     expanded: isEditing,
@@ -4785,7 +4779,7 @@ export const RangeCell = ({
   }
 
   // Keep read/edit DOM separate: a summary press can open the editor before
-  // mouseup, and must never turn into a click on its newly mounted mode toggle.
+  // mouseup, and must never turn into a click on a newly mounted input.
   if (!showEditor) {
     const rangeSummary = formatRangeSummary(activeRange);
     // Use the same blank-cell affordance as an unentered range in the expanded
@@ -4829,6 +4823,8 @@ export const RangeCell = ({
           >
             {summary}
           </button>
+          {actionsVisible && onAddRange && <button type="button" className="range-row-add" aria-label="Add range" title="Add range" onClick={event => { event.stopPropagation(); onAddRange(); }}><FontAwesomeIcon icon={faPlus} /></button>}
+          {actionsVisible && onClearRange && <button type="button" className="range-row-delete" aria-label="Delete range" title="Delete range" onClick={event => { event.stopPropagation(); onClearRange(); }}>×</button>}
         </div>
       </div>
     );
@@ -4848,23 +4844,17 @@ export const RangeCell = ({
   };
 
   const unit = activeRange.unit || "";
-  // A range can be a single value (e.g. a 30 kg weight) instead of a min–max
-  // span. We mirror the value into min and max so all downstream math (%FS,
-  // value-based range homing, etc.) keeps working unchanged.
-  const isSingle = !!activeRange.isSingleValue;
-  const singleValue = activeRange.value ?? activeRange.max ?? activeRange.min ?? "";
-  const switchToSingle = () => {
-    const v = activeRange.max ?? activeRange.min ?? "";
-    onPatchRange?.({ isSingleValue: true, value: v, min: v, max: v });
-  };
-  const switchToRange = () => onPatchRange?.({ isSingleValue: false });
-  const commitSingle = (raw) => {
-    if (raw === String(toPlainNumber(singleValue))) return;
-    if (raw === "" && onClearRange) {
-      onClearRange();
+  const commitBounds = (field, raw) => {
+    const minimum = containerRef.current?.querySelector('[placeholder="min"]')?.value ?? activeRange.min ?? "";
+    const maximum = containerRef.current?.querySelector('[placeholder="max"]')?.value ?? activeRange.max ?? "";
+    if (minimum === "" && maximum === "") {
+      if (!rangeIsBlank(activeRange)) onClearRange?.();
       return;
     }
-    onPatchRange?.({ isSingleValue: true, value: raw, min: raw, max: raw });
+    const patch = normalizeRangeBounds(minimum, maximum);
+    if (["min", "max", "value", "isSingleValue"].every(key => String(patch[key] ?? "") === String(activeRange[key] ?? ""))) return;
+    if (onPatchRange) onPatchRange(patch);
+    else if (raw !== String(toPlainNumber(activeRange[field]))) onEditBound?.(field, raw);
   };
   const openToleranceFromUnit = () => {
     if (!onOpenTolerance) return;
@@ -4893,41 +4883,13 @@ export const RangeCell = ({
       }}
     >
       <div className="inline-range-main">
-        {onPatchRange && allowSingleToggle && (
-          <button
-            type="button"
-            className="inline-range-mode-toggle"
-            title={isSingle ? "Switch to a min–max range" : "Switch to a single value"}
-            aria-label={isSingle ? "Switch to a min–max range" : "Switch to a single value"}
-            onClick={isSingle ? switchToRange : switchToSingle}
-          >
-            {isSingle ? "↔" : "•"}
-          </button>
-        )}
-        {isSingle ? (
-          <input
-            key={`val-${rangeIdOf(activeRange) || "new"}`}
-            type="text"
-            inputMode="decimal"
-            defaultValue={toPlainNumber(singleValue)}
-            placeholder="value"
-            onBlur={(e) => commitSingle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.currentTarget.blur();
-            }}
-            className="inline-tolerance-input inline-range-bound-input"
-          />
-        ) : (
-          <>
             <input
               key={`min-${rangeIdOf(activeRange) || "new"}`}
               type="text"
               inputMode="decimal"
-              defaultValue={toPlainNumber(activeRange.min)}
+              defaultValue={toPlainNumber(activeRange.min ?? (activeRange.isSingleValue ? activeRange.value : ""))}
               placeholder="min"
-              onBlur={(e) => {
-                if (e.target.value !== String(toPlainNumber(activeRange.min))) onEditBound("min", e.target.value);
-              }}
+              onBlur={(e) => commitBounds("min", e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
               className="inline-tolerance-input inline-range-bound-input"
             />
@@ -4936,18 +4898,14 @@ export const RangeCell = ({
               key={`max-${rangeIdOf(activeRange) || "new"}`}
               type="text"
               inputMode="decimal"
-              defaultValue={toPlainNumber(activeRange.max)}
+              defaultValue={toPlainNumber(activeRange.max ?? (activeRange.isSingleValue ? activeRange.value : ""))}
               placeholder="max"
-              onBlur={(e) => {
-                if (e.target.value !== String(toPlainNumber(activeRange.max))) onEditBound("max", e.target.value);
-              }}
+              onBlur={(e) => commitBounds("max", e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") e.currentTarget.blur();
               }}
               className="inline-tolerance-input inline-range-bound-input"
             />
-          </>
-        )}
         <UnitSelect
           value={unit}
           ariaLabel="Range unit"
@@ -4979,11 +4937,6 @@ export const GhostRangeRow = ({
   const [min, setMin] = useState("");
   const [max, setMax] = useState("");
   const [rangeUnit, setRangeUnit] = useState(unit);
-  // A brand-new range can be created directly as a single value (e.g. a 30 kg
-  // mass) instead of a min–max span — the same "•"/"↔" toggle the real range
-  // rows carry, so the very first range added has the affordance too.
-  const [isSingle, setIsSingle] = useState(false);
-  const [value, setValue] = useState("");
   const rowRef = useRef(null);
 
   useEffect(() => {
@@ -4991,24 +4944,16 @@ export const GhostRangeRow = ({
   }, [unit]);
 
   const commit = ({ openTolerance = false } = {}) => {
-    if (isSingle) {
-      if (value === "") return; // nothing entered → stay a ghost
-      if (openTolerance) {
-        onMaterialize({ isSingleValue: true, value, unit: rangeUnit }, { openTolerance: true });
-      } else {
-        onMaterialize({ isSingleValue: true, value, unit: rangeUnit });
-      }
-      setValue("");
-      return;
-    }
     if (min === "" && max === "") return; // nothing entered → stay a ghost
+    const normalized = normalizeRangeBounds(min, max);
+    const bounds = normalized.isSingleValue ? normalized : { min, max };
     // New ranges inherit the active range's unit by default, but the selector
     // is editable before materialization so another unit can be assigned
     // directly while the range is being created.
     if (openTolerance) {
-      onMaterialize({ min, max, unit: rangeUnit }, { openTolerance: true });
+      onMaterialize({ ...bounds, unit: rangeUnit }, { openTolerance: true });
     } else {
-      onMaterialize({ min, max, unit: rangeUnit });
+      onMaterialize({ ...bounds, unit: rangeUnit });
     }
     setMin("");
     setMax("");
@@ -5029,7 +4974,7 @@ export const GhostRangeRow = ({
     commit({ openTolerance: true });
   };
   const advanceToNextRange = () => {
-    const hasBufferedRange = isSingle ? value !== "" : min !== "" || max !== "";
+    const hasBufferedRange = min !== "" || max !== "";
     if (!hasBufferedRange) onMaterialize({ min: "", max: "", unit: rangeUnit });
     else commit();
     // The ghost row keeps a stable key while the materialized range is inserted
@@ -5056,30 +5001,6 @@ export const GhostRangeRow = ({
         <div className="range-row-cell range-row-cell--ghost">
           <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
             <div className="inline-range-main">
-              <button
-                type="button"
-                className="inline-range-mode-toggle"
-                title={isSingle ? "Switch to a min–max range" : "Switch to a single value"}
-                aria-label={isSingle ? "Switch to a min–max range" : "Switch to a single value"}
-                onClick={() => setIsSingle((s) => !s)}
-              >
-                {isSingle ? "↔" : "•"}
-              </button>
-              {isSingle ? (
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={value}
-                  placeholder="+ value"
-                  aria-label="New single value"
-                  onChange={(e) => setValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") e.currentTarget.blur();
-                  }}
-                  className="inline-tolerance-input inline-range-bound-input"
-                />
-              ) : (
-                <>
                   <input
                     type="text"
                     inputMode="decimal"
@@ -5103,8 +5024,6 @@ export const GhostRangeRow = ({
                     }}
                     className="inline-tolerance-input inline-range-bound-input"
                   />
-                </>
-              )}
               <UnitSelect
                 value={rangeUnit}
                 ariaLabel="New range unit"
@@ -5186,7 +5105,7 @@ export const getUsableBudgetRangeChoices = (
     return getBudgetComponentsFromTolerance(range, nominalPoint).some(
       (component) =>
         !component.isResolution &&
-        Number.isFinite(Number(component.value_native ?? component.value)),
+        (component.pendingReason || Number.isFinite(Number(component.value_native ?? component.value))),
     );
   });
 
@@ -8070,7 +7989,7 @@ const SummaryDashboard = ({
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range;
     const rangeGroupKey = itemStateKey(kind, stateId);
-    const showRangeActions = ((kind === "uut" ? selectedUutIds : selectedTmdeIds).some(id => sameId(id, item.id)) && ((kind === "uut" ? localRangeIndices : tmdeRangeIndices)[stateId] ?? (kind === "uut" ? localRangeIndices : tmdeRangeIndices)[item.id] ?? 0) === rangeIndex) || (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey)) || rangeEditingKeys.has(rangeGroupKey) || ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== "");
+    const showRangeActions = ((kind === "uut" ? selectedUutIds : selectedTmdeIds).some(id => sameId(id, item.id)) && ((kind === "uut" ? localRangeIndices : tmdeRangeIndices)[stateId] ?? (kind === "uut" ? localRangeIndices : tmdeRangeIndices)[item.id] ?? 0) === rangeIndex) || (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey)) || rangeEditingKeys.has(rangeGroupKey);
 
     return (
       <>
@@ -8090,8 +8009,6 @@ const SummaryDashboard = ({
               activeIndex={0}
               activeRange={range}
               editable
-              allowSingleToggle
-              editBlankByDefault={showRangeActions}
               onEditingChange={(editing) => {
                 if (!editing) return;
                 setExpandedRangeKeys(previous => previous.has(rangeGroupKey) ? previous : new Set(previous).add(rangeGroupKey));
@@ -9230,8 +9147,7 @@ const SummaryDashboard = ({
                                   activeIndex={showAllRanges ? 0 : activeIndex}
                                   activeRange={range}
                                   editable={!!onSessionSave}
-                                  allowSingleToggle
-                                  onSelect={(idx) =>
+                                                      onSelect={(idx) =>
                                     setLocalRangeIndices((prev) => ({ ...prev, [uutRowKey]: idx }))
                                   }
                                   onEditBound={(field, value) =>
@@ -9253,6 +9169,8 @@ const SummaryDashboard = ({
                                     openRangeTolerance("uut", uut, range)
                                   }
                                   onAdvanceRange={() => handleAddBlankRange("uut", uut, rangeIdOf(range), { focusNew: true })}
+                                  actionsVisible={selectedUutIds.some(id => sameId(id, uut.id))}
+                                  onAddRange={() => handleAddBlankRange("uut", uut, rangeIdOf(range))}
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpand("uut", uut, range)
                                   }
@@ -9721,8 +9639,7 @@ const SummaryDashboard = ({
                                   activeIndex={showAllRanges ? 0 : activeIndex}
                                   activeRange={range}
                                   editable={!!onSessionSave}
-                                  allowSingleToggle
-                                  onSelect={(idx) =>
+                                                      onSelect={(idx) =>
                                     setTmdeRangeIndices((prev) => ({ ...prev, [tmdeRowKey]: idx }))
                                   }
                                   onEditBound={(field, value) =>
@@ -9744,6 +9661,8 @@ const SummaryDashboard = ({
                                     openRangeTolerance("tmde", tmde, range)
                                   }
                                   onAdvanceRange={() => handleAddBlankRange("tmde", tmde, rangeIdOf(range), { focusNew: true })}
+                                  actionsVisible={selectedTmdeIds.some(id => sameId(id, tmde.id))}
+                                  onAddRange={() => handleAddBlankRange("tmde", tmde, rangeIdOf(range))}
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpand("tmde", tmde, range)
                                   }
@@ -11547,7 +11466,7 @@ function DetailedView({
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range || {};
     const rangeGroupKey = itemStateKey(kind, stateId);
-    const showRangeActions = ((kind === "uut" ? selectedUutIds : selectedTmdeIds).some(id => sameId(id, item.id)) && ((kind === "uut" ? localRangeIndices : tmdeRangeIndices)[stateId] ?? (kind === "uut" ? localRangeIndices : tmdeRangeIndices)[item.id] ?? 0) === rangeIndex) || (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey)) || rangeEditingKeys.has(rangeGroupKey) || ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== "");
+    const showRangeActions = ((kind === "uut" ? selectedUutIds : selectedTmdeIds).some(id => sameId(id, item.id)) && ((kind === "uut" ? localRangeIndices : tmdeRangeIndices)[stateId] ?? (kind === "uut" ? localRangeIndices : tmdeRangeIndices)[item.id] ?? 0) === rangeIndex) || (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey)) || rangeEditingKeys.has(rangeGroupKey);
 
     return (
       <>
@@ -11567,8 +11486,6 @@ function DetailedView({
               activeIndex={0}
               activeRange={range}
               editable
-              allowSingleToggle
-              editBlankByDefault={showRangeActions}
               onEditingChange={(editing) => {
                 if (!editing) return;
                 setExpandedRangeKeys(previous => previous.has(rangeGroupKey) ? previous : new Set(previous).add(rangeGroupKey));
@@ -12996,6 +12913,21 @@ function DetailedView({
   };
 
   const handleComponentUpdate = (id, updates, component) => {
+    if (updates.selectedBudgetRange) {
+      const range = updates.selectedBudgetRange;
+      const rangeId = range.rangeId ?? range.id ?? "";
+      if (component.tmdeBudgetSourceId) {
+        onUpdateTestPoint({ components: (testPointData.components || []).map(row => String(row.id) === String(id) ? {
+          ...row, tmdeBudgetRangeId: rangeId, tmdeBudgetRange: budgetRangeSnapshot(range),
+          tmdeBudgetFunctionId: range.functionId || "", tmdeBudgetFunctionName: range.functionName || "",
+        } : row) });
+      } else if (component.sourceTmdeId) {
+        onUpdateTestPoint({ tmdeTolerances: tmdeTolerancesData.map(row => String(row.id) === String(component.sourceTmdeId) ? {
+          ...row, tolerance: range, rangeId, functionId: range.functionId || "", functionName: range.functionName || "",
+        } : row) });
+      }
+      return;
+    }
     if (component?.dynamicDefinitionId && updates.dynamicDefinition) {
       onSessionSave?.(updateSharedDynamicDefinition(latestSessionDataRef.current, updates.dynamicDefinition));
       return;
@@ -13541,7 +13473,7 @@ function DetailedView({
 
   const warnIfTmdeAccuracyIncomplete = (activeRange) => {
     const readiness = getTmdeAccuracyReadiness(activeRange);
-    if (readiness.ready) return false;
+    if (readiness.ready || readiness.reason === "distribution") return false;
     setNotification?.({
       title:
         readiness.reason === "distribution"
@@ -15237,8 +15169,7 @@ function DetailedView({
                                   activeIndex={showAllRanges ? 0 : activeIndex}
                                   activeRange={range}
                                   editable={!!onSessionSave}
-                                  allowSingleToggle
-                                  onSelect={(idx) =>
+                                                      onSelect={(idx) =>
                                     handleRangeChange(
                                       uut.id,
                                       idx,
@@ -15269,6 +15200,8 @@ function DetailedView({
                                     openRangeToleranceDetail("uut", uut, range)
                                   }
                                   onAdvanceRange={() => handleAddBlankRangeDetail("uut", uut, rangeIdOf(range), { focusNew: true })}
+                                  actionsVisible={selectedUutIds.some(id => sameId(id, uut.id))}
+                                  onAddRange={() => handleAddBlankRangeDetail("uut", uut, rangeIdOf(range))}
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpandDetail("uut", uut, range)
                                   }
@@ -16119,8 +16052,7 @@ function DetailedView({
                                       activeIndex={showAllRanges ? 0 : activeIndex}
                                       activeRange={range}
                                       editable={!!onSessionSave}
-                                      allowSingleToggle
-                                      onSelect={(idx) =>
+                                                              onSelect={(idx) =>
                                         handleTmdeRangeChange(
                                           masterTmde,
                                           idx,
@@ -16167,6 +16099,8 @@ function DetailedView({
                                         openRangeToleranceDetail("tmde", masterTmde, range)
                                       }
                                       onAdvanceRange={() => handleAddBlankRangeDetail("tmde", masterTmde, rangeIdOf(range), { focusNew: true })}
+                                  actionsVisible={selectedTmdeIds.some(id => sameId(id, masterTmde.id))}
+                                  onAddRange={() => handleAddBlankRangeDetail("tmde", masterTmde, rangeIdOf(range))}
                                       onRequestEditAfterExpand={() =>
                                         requestRangeEditAfterExpandDetail(
                                           "tmde",
@@ -16467,6 +16401,7 @@ function DetailedView({
           <>
             <UncertaintyBudgetTable
               budgetInstruments={sessionData.tmdes || []}
+              budgetUut={(sessionData.uuts || []).find(uut => String(uut.id) === String(testPointData.activeUutId || testPointData.associatedUutIds?.[0]))}
               components={calcResults?.calculatedBudgetComponents || []}
               onRemove={onRemoveComponent}
               onComponentUpdate={handleComponentUpdate}

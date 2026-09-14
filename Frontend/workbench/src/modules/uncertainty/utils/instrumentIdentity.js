@@ -13,7 +13,7 @@ export const formatInstrumentIdentity = (source = {}, fallback = "Instrument") =
   const name = parts.at(-1) || "";
   const prefix = parts.slice(0, -1).join(" ");
   if (prefix && name.toLowerCase().startsWith(prefix.toLowerCase())) identity = name;
-  const tag = String(source.nickname || "").trim();
+  const tag = String(source.nickname || source.tag || instrument.nickname || instrument.tag || "").trim();
   return [tag ? `(${tag})` : "", identity].filter(Boolean).join(" ") || fallback;
 };
 
@@ -21,6 +21,6 @@ export const formatInstrumentIdentity = (source = {}, fallback = "Instrument") =
 export const formatErrorSourceDescription = (source = {}, fallback = "TMDE") =>
   formatInstrumentIdentity({ ...source, description: source.name || source.description || source.instrument?.description }, fallback);
 
-export const formatErrorSourceKind = kind => String(kind || "Error Limit")
-  .replace(/^(Accuracy|Tolerance)$/i, "Error Limit")
+export const formatErrorSourceKind = kind => String(kind || "TMDE Error")
+  .replace(/^(Accuracy|Tolerance|Error Limit|dB.*)$/i, "TMDE Error")
   .replace(/^Set tolerance$/i, "Set error limit");

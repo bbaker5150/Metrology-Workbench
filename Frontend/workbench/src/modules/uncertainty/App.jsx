@@ -57,6 +57,7 @@ import { useNotifications } from "../../shared/NotificationContext";
 
 // --- Utils & Hooks ---
 import useSessionManager from "./hooks/useSessionManager";
+import usePointerResize from "./hooks/usePointerResize";
 import "./App.css";
 
 // --- Icons ---
@@ -2462,17 +2463,15 @@ function App({ showThemeToggle = false }) {
   // Drag the divider at a column's right edge to size it, the way the UUT and
   // TMDE tables resize. Only the dragged column is pinned; the rest keep their
   // default track sizing, and a double-click hands a column back to it.
+  const beginSidebarColumnResize = usePointerResize();
   const startSidebarColumnResize = useCallback((event, key) => {
+    if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     const cell = event.currentTarget.closest(".sidebar-column-header-cell");
     const startWidth =
       cell?.getBoundingClientRect().width || getSidebarColumnMinWidth(key);
     const startX = event.clientX;
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
 
     const handleMove = (moveEvent) => {
       const next = Math.max(
@@ -2483,14 +2482,8 @@ function App({ showThemeToggle = false }) {
         current[key] === next ? current : { ...current, [key]: next },
       );
     };
-    const handleUp = () => {
-      document.removeEventListener("pointermove", handleMove);
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-    };
-    document.addEventListener("pointermove", handleMove);
-    document.addEventListener("pointerup", handleUp, { once: true });
-  }, []);
+    beginSidebarColumnResize(event, { onMove: handleMove });
+  }, [beginSidebarColumnResize]);
 
   const resetSidebarColumnWidth = useCallback((key) => {
     setSidebarColumnWidths((current) => {
@@ -2601,14 +2594,20 @@ function App({ showThemeToggle = false }) {
 
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("blur", handleMouseUp);
+    document.addEventListener("dragstart", handleMouseUp, true);
 
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("blur", handleMouseUp);
+      document.removeEventListener("dragstart", handleMouseUp, true);
+      handleMouseUp();
     };
   }, []);
 
   const startResizing = (e) => {
+    if (e.button !== 0) return;
     e.preventDefault(); // Prevent text selection start
     isResizingRef.current = true;
     document.body.style.cursor = "col-resize";
@@ -2884,9 +2883,9 @@ function App({ showThemeToggle = false }) {
         const contents = getScopedZoomContents(surface);
         if (contents.length === 0) return;
 
-        surface.dataset.zoomLevel = String(zoom);
+        if (surface.dataset.zoomLevel !== String(zoom)) surface.dataset.zoomLevel = String(zoom);
         contents.forEach((content) => {
-          content.style.zoom = String(zoom);
+          if (content.style.zoom !== String(zoom)) content.style.zoom = String(zoom);
         });
       });
     };
@@ -6105,15 +6104,9 @@ function App({ showThemeToggle = false }) {
                   </div>
                 </div>
 
-                {currentTestPoints.length === 0 && (
+                {sidebarData.length === 0 && (
                   <div className="measurement-points-empty-state" role="status">
-                    <FontAwesomeIcon icon={faMicroscope} aria-hidden="true" />
-                    <div>
-                      <strong>Add your first Measurement Point</strong>
-                      <div className="measurement-points-empty-copy">
-                        <p>Add a Measurement Area here, then use its + button to add a point. You can start with an unassigned unit and a manual budget, or define instruments in Instrument Overview.</p>
-                      </div>
-                    </div>
+                    Add a Measurement Area to get started.
                   </div>
                 )}
 

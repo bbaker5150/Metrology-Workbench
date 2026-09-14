@@ -74,6 +74,8 @@ const qualifyTmdeComponent = (component, tmde, fallbackIndex = 0) => {
     name: `${displayName} - ${componentType}`,
     sourceDisplayName: `${displayName} - ${componentType}`,
     tmdeIdentity: identity,
+    sourceTmdeMasterId: tmde.sourceId || tmde.id,
+    sourceRangeId: tmde.rangeId || tmde.tolerance?.rangeId || tmde.tolerance?.id,
     sourcePointLabel: [point, rangeContext].filter(Boolean).join(" - "),
   };
 };
@@ -226,7 +228,11 @@ export const useUncertaintyCalculation = (
       const incompleteInputs = testPointData.measurementType === "derived" &&
         Object.keys(testPointData.variableMappings || {}).some(symbol =>
           !hasNominalValue(testPointData.variableNominals?.[symbol]) || !testPointData.variableNominals?.[symbol]?.unit);
-      if (!hasNominalValue(uutNominal) || (!uutNominal?.unit && testPointData.measurementType === "derived") || incompleteInputs || manualComponents.some(c => c.dynamicDefinitionId && c.pendingReason)) {
+      if (!hasNominalValue(uutNominal) || (!uutNominal?.unit && testPointData.measurementType === "derived") || incompleteInputs || manualComponents.some(c => c.pendingReason || c.inlineValidation) || getUutResolutionComponent(uutToleranceData, uutNominal)?.pendingReason || tmdeTolerancesData.some(tmde => {
+        const symbol = Object.entries(testPointData.variableMappings || {}).find(([, name]) => name === tmde.variableType)?.[0];
+        const nominal = testPointData.measurementType === "derived" ? (testPointData.variableNominals?.[symbol] || tmde.measurementPoint) : uutNominal;
+        return getBudgetComponentsFromTolerance(tmde, nominal || {}).some(c => c.pendingReason);
+      })) {
         const derived = testPointData.measurementType === "derived";
         const groupFor = (nominal, sources, label, id, variableType) => {
           const unit = nominal?.unit || "";

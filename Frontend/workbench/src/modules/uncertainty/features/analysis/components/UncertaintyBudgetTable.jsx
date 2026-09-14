@@ -1,3 +1,5 @@
+import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
+import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 import ResizableBudgetTable from "./ResizableBudgetTable";
 import DynamicBudgetComponentRow from "./DynamicBudgetComponentRow";
 import { formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
@@ -154,7 +156,7 @@ const getComponentDisplayName = (component) => {
     "Uncertainty component";
   const isTmde = component.sourceTmdeId != null || component.tmdeBudgetSourceId != null || Boolean(component.tmdeIdentity);
   const label = isTmde
-    ? name.replace(/ - (?:Accuracy|Tolerance)(?= \(|$)/, " - Error Limit")
+    ? name.replace(/ - (?:Accuracy|Tolerance|Error Limit|dB[^()]*)(?= \(|$)/, " - TMDE Error")
     : name.replace(/ - Accuracy(?= \(|$)/, " - Tolerance");
   return quantity > 1 ? `${label} (Qty: ${quantity})` : label;
 };
@@ -195,6 +197,7 @@ const isStandaloneManualComponent = (component = {}) =>
 // the standard uncertainty multiplied back up by its distribution divisor:
 //   limit = uᵢ × divisor.
 const getComponentToleranceLimit = (component, std) => {
+  if (component.toleranceLimit_native != null) return { value: component.toleranceLimit_native, unit: component.unit_native || std.unit };
   let divisor =
     parseFloat(component.distributionDivisor) ||
     parseFloat(component.originalInput?.errorDistributionDivisor);
@@ -312,7 +315,7 @@ const ManualValueCell = ({ component, onCommit, suffix }) => {
           borderBottom: "1px dotted var(--border-color)",
         }}
       >
-        {original || "—"}
+        {original ? `± ${original}` : "—"}
         {suffix ? ` ${suffix}` : ""}
       </span>
     );
@@ -561,7 +564,7 @@ const InlineManualComponentRow = ({
         {showDof && <td>{formatDof(component.dof)}</td>}
         <td>
           {component.pendingReason ? <PendingUncertainty reason={component.pendingReason} /> : Number(std.value) > 0 ? (
-            `${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}`
+            `± ${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}`
           ) : (
             <span className="inline-tolerance-summary is-empty budget-inline-not-set">
               Not Set
@@ -709,7 +712,7 @@ const InlineManualComponentRow = ({
       </td>
       {showDof && <td>{draft.type === "A" ? formatDof(component.dof) : ""}</td>}
       <td>
-        <span className="budget-standard-uncertainty" aria-label="Calculated standard uncertainty">{preview.pendingReason || !Number.isFinite(Number(std.value)) || Number(std.value) <= 0 ? "Not Set" : `${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}`}</span>
+        <span className="budget-standard-uncertainty" aria-label="Calculated standard uncertainty">{preview.pendingReason || !Number.isFinite(Number(std.value)) || Number(std.value) <= 0 ? "Not Set" : `± ${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}`}</span>
       </td>
       <td className="action-cell">{removeAction}</td>
     </tr>
@@ -772,7 +775,7 @@ const ResultsCard = ({
       >
         <span>Combined Uncertainty</span>
         <strong>
-          {results?.pendingReason ? <PendingUncertainty reason={results.pendingReason} /> : formatCalculatedResult(results?.combined)}
+          {results?.pendingReason ? <span title={results.pendingReason}>Undefined</span> : formatCalculatedResult(results?.combined)}
           {unitSuffix}
         </strong>
       </div>
@@ -809,7 +812,7 @@ const ResultsCard = ({
       >
         <span>Expanded Uncertainty</span>
         <strong>
-          {results?.pendingReason ? <PendingUncertainty reason={results.pendingReason} /> : formatCalculatedResult(results?.expanded)}
+          {results?.pendingReason ? <span title={results.pendingReason}>Undefined</span> : formatCalculatedResult(results?.expanded)}
           {unitSuffix}
         </strong>
       </div>
@@ -854,6 +857,7 @@ const UncertaintyBudgetTable = ({
   onPropagationMethodChange,
   onMonteCarloTrialsChange,
   budgetInstruments = [],
+  budgetUut,
   rangeWarningsByGroup = {},
 }) => {
   // Effective DOF is toggled per (sub)budget. Persist the change as a patch to
@@ -1079,12 +1083,17 @@ const UncertaintyBudgetTable = ({
       ...(group.components || []).filter(isStandaloneManualComponent),
     ];
     const labeledComponents = orderedComponents.map(component => {
-      const ids = [component.sourceTmdeId, component.tmdeBudgetSourceId].filter(id => id != null).map(String);
+      if (budgetUut && (component.uutResolutionBudgetSource || component.name === "UUT Resolution")) {
+        const name = `${formatErrorSourceDescription(budgetUut)} - Resolution`;
+        return { ...component, name, sourceDisplayName: name };
+      }
+      const ids = [component.sourceTmdeId, component.sourceTmdeMasterId, component.tmdeBudgetSourceId].filter(id => id != null).map(String);
       const source = budgetInstruments.find(instrument => [instrument.id, instrument.sourceId].some(id => id != null && ids.includes(String(id))));
       if (!source) return component;
       const kind = component.tmdeBudgetComponentKind || String(component.name || "Tolerance").split(" - ").at(-1);
       const name = `${formatErrorSourceDescription(source)} - ${formatErrorSourceKind(kind)}`;
-      return { ...component, name, sourceDisplayName: name };
+      const ranges = getInstrumentRangeRows(source, { flattenTolerances: true });
+      return { ...component, name, sourceDisplayName: name, budgetRangeOptions: ranges };
     });
     const displayNames = enumerateComponentDisplayNames(labeledComponents);
     return (
@@ -1162,7 +1171,23 @@ const UncertaintyBudgetTable = ({
                     onMoveDown={() => onMoveComponent(component.id, 1)}
                   />
                 )}
-                {displayName}
+                <span className="budget-source-description">{displayName}</span>
+                {component.budgetRangeOptions?.length > 0 && !component.isManual && (
+                  <InlineMenuSelect className="budget-range-selector" ariaLabel={`Range for ${displayName}`}
+                    width="max-content" menuWidth={440} showOptionMeta={false}
+                    value={String(Math.max(0, component.budgetRangeOptions.findIndex(range =>
+                      String(range.rangeId ?? range.id) === String(component.tmdeBudgetRangeId ?? component.sourceRangeId) &&
+                      (!component.tmdeBudgetFunctionId || String(range.functionId) === String(component.tmdeBudgetFunctionId)))))}
+                    getDisplayLabel={option => `Range: ${option?.rangeLabel || "Not Set"}`}
+                    options={component.budgetRangeOptions.map((range, index) => {
+                      const min = range.min ?? range.value ?? "";
+                      const max = range.max ?? range.value ?? "";
+                      const single = range.isSingleValue || String(min) === String(max) || min === "" || max === "";
+                      const rangeLabel = `${single ? (min !== "" ? min : max !== "" ? max : "Not Set") : `${min} to ${max}`} ${getUnitDisplayLabel(range.unit || range.functionUnit)}`.trim();
+                      return { value: String(index), rangeLabel, label: `${range.functionName ? `${range.functionName} · ` : ""}${rangeLabel} | ${getToleranceErrorSummary(range, manualReferencePoint)}` };
+                    })}
+                    onChange={index => onComponentUpdate?.(component.id, { selectedBudgetRange: component.budgetRangeOptions[Number(index)] }, component)} />
+                )}
                 <DeviationFlag component={component} />
               </td>
               <td>
@@ -1175,11 +1200,11 @@ const UncertaintyBudgetTable = ({
                 ) : component.pendingReason && component.authoredTolerance ? (
                   formatToleranceSummary?.(component.authoredTolerance)?.[0] || "Pending measurement value"
                 ) : component.isPropagationSummary ? (
-                  `${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`
+                  `± ${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`
                 ) : isStdEntry ? (
                   ""
                 ) : (
-                  `${formatNumber(tolLimit.value, uiSigFigs)} ${getUnitDisplayLabel(tolLimit.unit)}`
+                  `± ${formatNumber(tolLimit.value, uiSigFigs)} ${getUnitDisplayLabel(tolLimit.unit)}`
                 )}
               </td>
               <td>{renderDistributionCell(component)}</td>
@@ -1193,7 +1218,7 @@ const UncertaintyBudgetTable = ({
                     suffix={getUnitDisplayLabel(component.manualUnit || std.unit)}
                   />
                 ) : (
-                  `${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`
+                  `± ${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`
                 )}
               </td>
               <td className="action-cell">{renderActions(component)}</td>
@@ -1227,7 +1252,7 @@ const UncertaintyBudgetTable = ({
             <td>{row.name}</td>
             {showDof && <td>{formatDof(row.dof)}</td>}
             <td>
-              {formatNumber(row.standardUncertainty, getGroupSigFigs(group))}{" "}
+              ± {formatNumber(row.standardUncertainty, getGroupSigFigs(group))}{" "}
               {getUnitDisplayLabel(row.unit)}
             </td>
             <td>{formatNumber(row.sensitivityCoefficient, 4)}</td>
@@ -1679,7 +1704,10 @@ const UncertaintyBudgetTable = ({
           </section>
         </React.Fragment>
       ))}
-
+      <table className="budget-decision-results" aria-label="Final decision risk">
+        <thead><tr><th title="Probability of false acceptance">{riskResults?.riskMethod === "risk8-pfa-boundary" ? "PFA at Boundary" : "PFA"}</th><th title="Probability of false rejection">PFR</th></tr></thead>
+        <tbody><tr>{["pfa", "pfr"].map(key => <td key={key}>{riskResults?.[key] != null && Number.isFinite(Number(riskResults[key])) ? `${formatNumber(riskResults[key], 4)} %` : "—"}</td>)}</tr></tbody>
+      </table>
     </div>
   );
 };

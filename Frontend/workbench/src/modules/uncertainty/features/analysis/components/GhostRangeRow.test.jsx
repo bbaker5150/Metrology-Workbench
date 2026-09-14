@@ -674,8 +674,9 @@ describe("inline range editing", () => {
     );
 
     fireEvent.click(screen.getByTitle("Edit range"));
-    const value = screen.getByPlaceholderText("value");
+    const value = screen.getByPlaceholderText("min");
     fireEvent.change(value, { target: { value: "" } });
+    fireEvent.change(screen.getByPlaceholderText("max"), { target: { value: "" } });
     fireEvent.blur(value);
 
     expect(onClearRange).toHaveBeenCalledOnce();
@@ -1124,7 +1125,9 @@ describe("unfilled range preservation", () => {
   it.each([false, true])("does not clear an untouched blank range on blur (single=%s)", isSingleValue => {
     const onEditBound = vi.fn(), onClearRange = vi.fn(), onPatchRange = vi.fn();
     render(<RangeCell ranges={[]} activeRange={{id:"blank",min:"",max:"",value:"",isSingleValue}} editable editBlankByDefault onEditBound={onEditBound} onClearRange={onClearRange} onPatchRange={onPatchRange} />);
-    fireEvent.blur(screen.getByPlaceholderText(isSingleValue ? "value" : "min"));
+    expect(screen.queryByPlaceholderText("min")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Set range"));
+    fireEvent.blur(screen.getByPlaceholderText("min"));
     expect(onEditBound).not.toHaveBeenCalled();
     expect(onClearRange).not.toHaveBeenCalled();
     expect(onPatchRange).not.toHaveBeenCalled();

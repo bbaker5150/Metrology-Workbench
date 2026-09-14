@@ -467,9 +467,8 @@ describe("UncertaintyApp", () => {
     expect(assumedReliabilityHelp.title).toMatch(/probability/i);
     expect(assumedReliabilityHelp.title).not.toMatch(/workbook/i);
     expect(screen.queryByText("Uncertainty Requirements")).not.toBeInTheDocument();
-    expect(screen.getByText("Add your first Measurement Point")).toBeInTheDocument();
-    expect(screen.getByText(/Add a Measurement Area here/)).toHaveTextContent("use its + button to add a point");
-    expect(screen.getAllByText("Add a Measurement Area to get started.")).toHaveLength(2);
+    expect(screen.queryByText("Add your first Measurement Point")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Add a Measurement Area to get started.")).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: "Uncertainty Budget", exact: true }));
     expect(screen.queryByText("Select a Measurement Point.")).not.toBeInTheDocument();
     expect(overviewTab).toHaveClass("active");

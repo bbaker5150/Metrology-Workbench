@@ -245,7 +245,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       referencePoint: { name: "Voltage", unit: "V" },
     });
 
-    expect(screen.getByText("1.235 V")).toBeInTheDocument();
+    expect(screen.getByText("± 1.235 V")).toBeInTheDocument();
     expect(screen.queryByText("Nominal 12.34567")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("columnheader", { name: "Source / Nominal" }),
@@ -360,8 +360,8 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       },
     });
 
-    expect(screen.getAllByText("1.235 V")).toHaveLength(1);
-    expect(screen.getAllByText("7.654 A")).toHaveLength(1);
+    expect(screen.getAllByText("± 1.235 V")).toHaveLength(1);
+    expect(screen.getAllByText("± 7.654 A")).toHaveLength(1);
     expect(screen.getByText("1.234567 V")).toBeInTheDocument();
     expect(screen.getByText("7.654321 A")).toBeInTheDocument();
 
@@ -420,7 +420,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     // k=1 means the approximation's tolerance limit and standard uncertainty
     // are intentionally identical. Results cards retain calculation precision
     // separately from the table's fixed four-significant-digit formatting.
-    expect(screen.getAllByText("1.500 V")).toHaveLength(2);
+    expect(screen.getAllByText("± 1.500 V")).toHaveLength(2);
     expect(screen.getByText("1.5 V")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Monte Carlo trials"), {
       target: { value: "50000" },
@@ -1430,7 +1430,8 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
 it("shows explanations in place of unresolved component and total uncertainties", () => {
   const reason = "Enter a measurement value to calculate this value-dependent uncertainty.";
   renderDirectBudget({ components: [], calcResults: { calculatedBudgetGroups: [{ id: "final_budget", kind: "final", label: "Length Uncertainty Budget", unit: "um", components: [{ id: "pending", name: "Reference accuracy", isCore: true, value: null, value_native: null, unit_native: "um", pendingReason: reason }], results: { combined: null, expanded: null, pendingReason: reason } }] }, referencePoint: { value: "", unit: "um" } });
-  expect(screen.getAllByRole("img", { name: reason })).toHaveLength(3);
+  expect(screen.getAllByRole("img", { name: reason })).toHaveLength(1);
+  expect(screen.getAllByText("Undefined")).toHaveLength(2);
   expect(screen.getByText("Reference accuracy")).toBeInTheDocument();
 });
 
@@ -1449,7 +1450,7 @@ it("uses the full live instrument identity and error-limit terminology for legac
       tmdeBudgetComponentKind: "Accuracy", name: "Model 123 - Accuracy",
       type: "B", value_native: 1, unit_native: "V", distribution: "Rectangular" }],
   });
-  expect(screen.getByText("(Reference) HBM K-T40B-200Q-MF-S-M-DU2-0-U Torque Transducer - Error Limit")).toBeInTheDocument();
+  expect(screen.getByText("(Reference) HBM K-T40B-200Q-MF-S-M-DU2-0-U Torque Transducer - TMDE Error")).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "Error Limit", exact: true })).toBeInTheDocument();
   expect(screen.queryByText("Model 123 - Accuracy")).not.toBeInTheDocument();
 });

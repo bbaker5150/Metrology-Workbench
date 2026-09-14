@@ -4,7 +4,8 @@ const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .inline-t
 
 export const expandedInstrumentWidths = (weights, baseline, requirements, absolute = false) => {
   const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
-  return weights.map((weight, index) => Math.max(absolute ? weight : baseline * weight / total, requirements[index] || 0));
+  const scale = absolute ? Math.max(1, baseline / total) : baseline / total;
+  return weights.map((weight, index) => Math.max(weight * scale, requirements[index] || 0));
 };
 
 // Keep saved proportional widths untouched. Only the live colgroup receives
@@ -19,7 +20,7 @@ export default function useInstrumentTableLayout(containerRef) {
     const table = container?.querySelector(":scope > table");
     if (!table) return undefined;
     const card = container.closest(".panel-card");
-    let frame;
+    let frame = null;
     const setProperty = (node, name, value) => {
       if (node.style.getPropertyValue(name) !== value) node.style.setProperty(name, value);
     };
@@ -30,8 +31,8 @@ export default function useInstrumentTableLayout(containerRef) {
       const cols = [...table.querySelectorAll(":scope > colgroup > col")];
       const absolute = cols.every(col => col.style.width.endsWith("px"));
       // Reset proportions against the full available panel, not its last saved
-      // pixel width. Explicit sizes let the whole card follow the table edge.
-      if (!absolute) card?.style.removeProperty("--instrument-panel-width");
+      // pixel width. Distribute spare space so the full-width card stays filled.
+      card?.style.removeProperty("--instrument-panel-width");
       const requirements = [];
       table.querySelectorAll(EDITORS).forEach(editor => {
         const cell = editor.closest("td");
@@ -63,11 +64,6 @@ export default function useInstrumentTableLayout(containerRef) {
       cols.forEach((col, index) => setProperty(col, "--instrument-live-column-width", `${widths[index]}px`));
       const tableWidth = widths.reduce((sum, width) => sum + width, 0);
       setProperty(table, "--instrument-live-table-width", `${tableWidth}px`);
-      if (absolute && card) {
-        const cardStyle = getComputedStyle(card);
-        const borders = (parseFloat(cardStyle.borderLeftWidth) || 0) + (parseFloat(cardStyle.borderRightWidth) || 0);
-        setProperty(card, "--instrument-panel-width", `${tableWidth * zoom + borders}px`);
-      }
 
       // Sticky cells normally stop at their own scroller's top, even when that
       // scroller has moved behind the analysis tabs. Offset them to the visible
@@ -90,13 +86,18 @@ export default function useInstrumentTableLayout(containerRef) {
       setProperty(table, "--instrument-header-offset", `${offset / (containerScale * zoom)}px`);
     };
     const schedule = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(sync);
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        sync();
+      });
     };
-    // Editor mounts and row swaps must settle before the next paint.
-    const mutation = new MutationObserver(sync);
+    // Layout writes also notify this observer. Never recalculate in the
+    // mutation microtask itself: drag/zoom changes must yield to input/paint,
+    // and a burst of row changes only needs one measurement per frame.
+    const mutation = new MutationObserver(schedule);
     mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
-    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(sync);
+    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     resize?.observe(container);
     container.addEventListener("focusin", schedule);
     window.addEventListener("scroll", schedule, true);

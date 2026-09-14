@@ -24,7 +24,7 @@ export const unresolvedComponent = (component, reason = MISSING_NOMINAL) => ({
 });
 // A unit reference is used only to resolve absolute terms through the existing
 // converter. It is never substituted for the user's missing measurement.
-export const absoluteBudgetComponent = (component, unitSystem) => ({
+export const absoluteBudgetComponent = (component, unitSystem) => component.pendingReason ? component : ({
   ...component,
   isBaseUnitValue: true,
   value:
@@ -35,3 +35,12 @@ export const absoluteBudgetComponent = (component, unitSystem) => ({
   pendingReason: null,
 });
 export const relativeBudgetUnit = relative;
+
+export const budgetUnitMismatch = (unit, target, unitSystem) => {
+  if (!unit || !target || relative(unit)) return null;
+  const quantity = unitSystem.getQuantity(unit);
+  const targetQuantity = unitSystem.getQuantity(target);
+  return quantity && targetQuantity && quantity !== targetQuantity
+    ? `Unit mismatch: ${unit} cannot be combined in a ${target} uncertainty budget.`
+    : null;
+};

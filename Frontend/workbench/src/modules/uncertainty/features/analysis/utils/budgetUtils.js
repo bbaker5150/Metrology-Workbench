@@ -1,4 +1,4 @@
-import { hasNominalValue, toleranceNeedsNominal, unresolvedComponent, absoluteBudgetComponent, relativeBudgetUnit } from "../../../utils/incompleteBudget";
+import { hasNominalValue, toleranceNeedsNominal, unresolvedComponent, absoluteBudgetComponent, relativeBudgetUnit, budgetUnitMismatch } from "../../../utils/incompleteBudget";
 /**
  * * This utility file contains helper functions for breaking down tolerance objects
  * * into individual uncertainty budget components.
@@ -179,6 +179,7 @@ export const getBudgetComponentsFromTolerance = (
   // alongside the active one so the budget table can flag an override.
   let activeSpecDistributionRaw = null;
   let hasAccuracyComponents = false;
+  let missingAccuracyDistribution = false;
 
   const calculateComponentSpan = (
     tolComp,
@@ -196,7 +197,7 @@ export const getBudgetComponentsFromTolerance = (
         const rawDistribution =
           tolComp.distribution != null
             ? String(tolComp.distribution)
-            : DISTRIBUTION_NOT_SET;
+            : toleranceObject.bandDistribution ?? DISTRIBUTION_NOT_SET;
         const distEntry = errorDistributions.find(
           (d) =>
             d.value === rawDistribution ||
@@ -230,6 +231,8 @@ export const getBudgetComponentsFromTolerance = (
     
     const halfSpan = (high - low) / 2;
     if (halfSpan === 0) return 0;
+    const termDistribution = tolComp.distribution ?? toleranceObject.bandDistribution;
+    if (!termDistribution || termDistribution === DISTRIBUTION_NOT_SET || !Number.isFinite(distributionDivisorValue(termDistribution))) missingAccuracyDistribution = true;
 
     const unit = tolComp.unit;
     let valueInBaseUnits = 0;
@@ -307,6 +310,7 @@ export const getBudgetComponentsFromTolerance = (
         type: "B",
         value: finalValuePPM,        // Passing PPM to calculation engine
         isBaseUnitValue: isBaseUnitValue, 
+        toleranceLimit_native: unitSystem.fromBaseUnit(totalAccuracyHalfSpan_Base, nominalUnit),
         value_native: u_i_native,    // Passing Absolute to Table Display
         unit_native: nominalUnit,
         dof: Infinity,
@@ -653,7 +657,16 @@ export const getBudgetComponentsFromTolerance = (
     },
   );
 
-  return budgetComponents;
+  const mismatch = [toleranceObject.unit, ...["reading", "range", "floor", "readings_iv"].map(key => toleranceObject[key]?.unit)]
+    .map(unit => budgetUnitMismatch(unit, nominalUnit, unitSystem)).find(Boolean);
+  return budgetComponents.map(component => {
+    const resolutionMismatch = component.isResolution ? budgetUnitMismatch(toleranceObject.resolutionUnit || toleranceObject.measuringResolutionUnit, nominalUnit, unitSystem) : null;
+    if (resolutionMismatch || mismatch) return unresolvedComponent(component, resolutionMismatch || mismatch);
+    if (!Number.isFinite(Number(component.value_native)) || component.distribution === "Not Set" || (component.name.endsWith(" - Accuracy") && missingAccuracyDistribution)) {
+      return unresolvedComponent(component, "Choose an error limit distribution to calculate standard uncertainty.");
+    }
+    return component;
+  });
 };
 
 const sameId = (left, right) =>
@@ -869,6 +882,7 @@ export const refreshLinkedTypeBComponents = ({
       name,
       ...(resolved
         ? {
+            pendingReason: resolved.pendingReason || null,
             value: resolved.value,
             isBaseUnitValue: resolved.isBaseUnitValue,
             value_native: resolved.value_native,
@@ -972,14 +986,16 @@ export const getUutResolutionComponent = (
     isBaseUnitValue = true;
   }
 
+  const mismatch = budgetUnitMismatch(resUnit, nominalUnit, unitSystem);
   return {
     id: "uut_resolution",
+    pendingReason: mismatch,
     componentId: "UUT Resolution",
     name: "UUT Resolution",
     type: "B",
-    value: finalValuePPM,
+    value: mismatch ? null : finalValuePPM,
     isBaseUnitValue,
-    value_native: u_i_native,
+    value_native: mismatch ? null : u_i_native,
     unit_native: nominalUnit,
     dof: Infinity,
     isCore: true,

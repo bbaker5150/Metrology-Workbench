@@ -35,6 +35,8 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
       const viewport = table.parentElement;
       if (viewport?.clientWidth) {
         const zoom = parseFloat(getComputedStyle(table).zoom) || 1;
+        const minimum = `${viewport.clientWidth / zoom}px`;
+        if (table.style.getPropertyValue("--budget-table-min-width") !== minimum) table.style.setProperty("--budget-table-min-width", minimum);
         const editorWidth = `${Math.max(320, Math.min(640, viewport.clientWidth / zoom - 28))}px`;
         if (table.style.getPropertyValue("--budget-editor-width") !== editorWidth) table.style.setProperty("--budget-editor-width", editorWidth);
       }
@@ -95,28 +97,6 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
     };
   }, [storageKey]);
 
-  useLayoutEffect(() => {
-    const table = tableRef.current;
-    const panel = table?.closest(".budget-stack-section");
-    if (!panel) return;
-    const fitPanel = () => {
-      const panelScale = panel.offsetWidth ? panel.getBoundingClientRect().width / panel.offsetWidth : 1;
-      const width = table.getBoundingClientRect().width / (panelScale || 1);
-      if (width > 0) panel.style.setProperty("--budget-panel-width", `${Math.ceil(width) + 2}px`);
-    };
-    fitPanel();
-    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fitPanel);
-    resize?.observe(table);
-    // Scoped scaling changes the table's zoom without changing its layout width.
-    const mutation = new MutationObserver(fitPanel);
-    mutation.observe(table, { attributes: true, attributeFilter: ["style"] });
-    return () => {
-      resize?.disconnect();
-      mutation.disconnect();
-      panel.style.removeProperty("--budget-panel-width");
-    };
-  }, [fixed, widths, children]);
-
   const snapshot = () => {
     const table = tableRef.current;
     const scale = table.offsetWidth ? table.getBoundingClientRect().width / table.offsetWidth : 1;
@@ -164,7 +144,7 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
       {fixed && <colgroup>{columns.map(({ key }) => <col key={key} style={{ width: liveWidths[key] }} />)}</colgroup>}
       <thead><tr>{columns.map(({ key, label, accessibleLabel }) => (
         <th key={key} data-budget-column={key} aria-label={label || accessibleLabel}>
-          <span className="budget-resizable-header-content">{label}</span>
+          <span className="budget-resizable-header-content" title={label}>{label}</span>
           <button
             type="button"
             className="instrument-column-resize-handle budget-column-resize-handle"

@@ -1,4 +1,6 @@
 import { resolveDynamicComponents } from "./dynamicBudgetComponents";
+import { budgetUnitMismatch, unresolvedComponent } from "./incompleteBudget";
+import { unitSystem } from "./uncertaintyMath";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 import { getBudgetComponentsFromTolerance, getUutResolutionComponent, refreshLinkedTypeBComponents } from "../features/analysis/utils/budgetUtils";
 import { normalizeInlineManualComponent, getInlineManualDraft } from "../features/analysis/utils/manualComponentUtils";
@@ -138,8 +140,10 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
           (candidate) =>
             String(candidate.name || "").split(" - ").slice(1).join(" - ") ===
             String(component.tmdeBudgetComponentKind || ""),
-        );
-        if (!replacement) return null;
+        ) || (/^(Accuracy|Tolerance|Error Limit|TMDE Error|dB.*)$/i.test(component.tmdeBudgetComponentKind || "")
+          ? resolved.find(candidate => !candidate.isResolution && !candidate.isManual)
+          : null);
+        if (!replacement) return component.tmdeBudgetComponentKind === "Resolution" ? null : unresolvedComponent(component, "Set an error limit for the selected TMDE range.");
         const divisor = replacement.distributionDivisor;
         const numericDivisor = Number(divisor);
         const toleranceLimit =
@@ -151,6 +155,7 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
           ...component,
           pendingReason: replacement.pendingReason || null,
           authoredTolerance: replacement.authoredTolerance,
+          toleranceLimit_native: replacement.toleranceLimit_native,
           value: replacement.value,
           isBaseUnitValue: replacement.isBaseUnitValue,
           value_native: replacement.value_native,
@@ -173,5 +178,9 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
       sessionTmdes: sessionData.tmdes || [],
       instruments,
       getReferencePoint,
+    }).map(component => {
+      const unit = component.manualUnit || component.originalInput?.unit || component.unit_native || component.unit;
+      const reason = [unit, ...Object.values(component.originalInput?.tolerance || {}).map(term => term?.unit)].map(sourceUnit => budgetUnitMismatch(sourceUnit, getReferencePoint(component)?.unit, unitSystem)).find(Boolean);
+      return reason ? unresolvedComponent(component, reason) : component;
     });
 }

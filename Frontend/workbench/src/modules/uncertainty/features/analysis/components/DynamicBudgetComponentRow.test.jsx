@@ -23,14 +23,13 @@ it("starts with two columns and one row, grows with Tab, and commits on Enter",a
   expect(onCommit.mock.calls.at(-1)[0].rows).toHaveLength(2);
   expect(onCommit.mock.calls.at(-1)[0].rows[1].point).toBe('200');
 });
-it("pastes two spreadsheet columns and creates a second uncertainty column",()=>{
+it("pastes measurement and uncertainty columns while keeping one uncertainty per definition",()=>{
   const {onCommit}=setup('table');
   fireEvent.paste(screen.getByLabelText('Measurement point row 1'),{clipboardData:{getData:()=> '100\t.012\n200\t.023'}});
   expect(screen.getByLabelText('Uncertainty row 2')).toHaveValue('.023');
-  fireEvent.click(screen.getByRole('button',{name:'Uncertainty column'}));
-  expect(screen.getByLabelText('Uncertainty 2 row 1')).toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Uncertainty column'})).not.toBeInTheDocument();
   fireEvent.keyDown(screen.getByLabelText('Measurement point row 1'),{key:'Enter'});
-  expect(onCommit.mock.calls.at(-1)[0].columns).toHaveLength(2);
+  expect(onCommit.mock.calls.at(-1)[0].columns).toHaveLength(1);
 });
 it("builds equation variables while typing with one measurement binding",()=>{
   const {onCommit}=setup('equation');

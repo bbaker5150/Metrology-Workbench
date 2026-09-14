@@ -44,7 +44,7 @@ describe("inline instrument column navigation", () => {
     expect(editingChanges.mock.calls.filter(([editing]) => editing)).toHaveLength(1);
   });
 
-  it("renders an added blank range as an editable row immediately", () => {
+  it("keeps a newly added blank range collapsed until its summary is clicked", () => {
     render(
       <RangeCell
         ranges={[{ id: "blank-range", min: "", max: "", unit: "V" }]}
@@ -57,6 +57,9 @@ describe("inline instrument column navigation", () => {
       />,
     );
 
+    expect(screen.getByText("Not Set")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("min")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Set range"));
     expect(screen.getByPlaceholderText("min")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("max")).toBeInTheDocument();
     expect(screen.queryByText("Not Set")).not.toBeInTheDocument();
@@ -116,6 +119,7 @@ describe("inline instrument column navigation", () => {
     };
 
     render(<RangeHarness />);
+    fireEvent.click(screen.getByTitle("Set range"));
     const min = screen.getByPlaceholderText("min");
     const max = screen.getByPlaceholderText("max");
     const prefix = screen.getByRole("button", { name: "Range unit prefix" });
