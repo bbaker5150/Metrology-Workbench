@@ -181,7 +181,7 @@ describe("computeOneRow — unknown measured value (types 5/6)", () => {
     expect(out.obs).toBe("");
     // Physical GB limit offset by U_cal * z_alpha / 1.96.
     expect(out.physGbLower).toBeCloseTo(9 - (0.1 * normalInvCDF(0.02)) / 1.96, 12);
-    expect(out.mitPfa).toBe(0.02);
+    expect(out.mitPfa).toBeCloseTo(0.02, 12);
     expect(out.statusMit).toBe("OK");
     expect(out.statusInt).toBe("not used");
   });

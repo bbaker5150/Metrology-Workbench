@@ -1,5 +1,5 @@
 import { resolveDynamicComponents } from "./dynamicBudgetComponents";
-import { getMitigationDiagnostics } from "./mitigationDiagnostics";
+import { getMitigationDiagnostics, explainRiskConstraint } from "./mitigationDiagnostics";
 import {
   calculateDerivedUncertainty,
   calculateUncertaintyFromToleranceObject,
@@ -236,9 +236,9 @@ export function getPointDiagnosticEntries(
       if (!filled(getSingleSidedTolerance(tolerance)?.limit))
         add("Enter the UUT single-sided acceptance limit.");
       const pfa = Number(session.uncReq?.reqPFA);
-      if (!(pfa > 0 && pfa < 100))
+      if (!(pfa > 0 && pfa < 50))
         add(
-          "Set PFA Required between 0% and 100% in session mitigation inputs.",
+          "Set PFA Required strictly between 0% and 50% for an unknown-measurement acceptance boundary.",
         );
     } else {
       const { breakdown = [] } = calculateUncertaintyFromToleranceObject(
@@ -275,6 +275,8 @@ export function getPointDiagnosticEntries(
     if (filled(assumed) && !(Number(assumed) > 0 && Number(assumed) < 100))
       add("Set Assumed REOP between 0% and 100% in session risk inputs.");
   }
+  if (riskStatus.core === "Assumed REOP exceeds MAX REOP")
+    add(explainRiskConstraint(riskStatus.core), "warning");
   if (riskStatus.core === "input exceeds MAX REOP")
     add(
       `Assumed REOP exceeds the maximum achievable REOP${Number.isFinite(riskStatus.maxReop) ? ` (${Number(riskStatus.maxReop.toPrecision(6))}%)` : ""} for this point. Review the assumed REOP, TUR, uncertainty, and tolerance.`, "warning",

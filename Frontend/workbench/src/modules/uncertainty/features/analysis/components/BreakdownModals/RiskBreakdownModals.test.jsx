@@ -101,11 +101,11 @@ describe("Risk 8.0 breakdown modal", () => {
     );
 
     expect(
-      screen.getByText("Method: Risk 8.0 Type 2 asymmetric measurement known."),
+      screen.getByText("Method: two-sided asymmetric measurement known."),
     ).toBeInTheDocument();
     expect(screen.getByText("Normalized Two-Sided Model")).toBeInTheDocument();
     expect(
-      screen.getByText("Core Risk 8.0 Type 2: decision probabilities"),
+      screen.getByText("Core risk: decision probabilities"),
     ).toBeInTheDocument();
   });
 
@@ -120,21 +120,21 @@ describe("Risk 8.0 breakdown modal", () => {
     );
 
     expect(
-      screen.getByText("Risk 8.0 Probability of False Accept Breakdown"),
+      screen.getByText("Probability of False Accept Breakdown"),
     ).toBeInTheDocument();
     expect(screen.getByTestId("risk8-breakdown")).toBeInTheDocument();
     expect(
-      screen.getByText("Method: Risk 8.0 single-sided measurement known."),
+      screen.getByText("Method: single-sided measurement known."),
     ).toBeInTheDocument();
     expect(screen.getByText("Normalized Single-Sided Model")).toBeInTheDocument();
     expect(
-      screen.getByText("Core Risk 8.0: normalized calibration uncertainty"),
+      screen.getByText("Core risk: normalized calibration uncertainty"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Core Risk 8.0: recover the UUT population spread"),
+      screen.getByText("Core risk: recover the UUT population spread"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Core Risk 8.0: classify the probability regions"),
+      screen.getByText("Core risk: classify the probability regions"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/bivariate-normal integrals/i)).not.toBeInTheDocument();
   });
@@ -165,10 +165,10 @@ describe("Risk 8.0 breakdown modal", () => {
     );
 
     expect(
-      screen.getByText("E1 exponential interval calculation"),
+      screen.getByText("Exponential interval calculation"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Observed reliability is used for exponential reliability decay/i),
+      screen.getByText(/Decay acts on excess reliability above 50%/i),
     ).toBeInTheDocument();
   });
 
@@ -260,7 +260,7 @@ describe("Risk 8.0 breakdown modal", () => {
     );
 
     expect(
-      screen.getByText("Method: Risk 8.0 two-sided symmetric measurement known."),
+      screen.getByText("Method: two-sided symmetric measurement known."),
     ).toBeInTheDocument();
     expect(
       screen.getByText("Recommended guardband: decision probabilities"),

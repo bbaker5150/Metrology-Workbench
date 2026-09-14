@@ -12,21 +12,23 @@
  * RB_CopyScratchOutputsToMain):
  *   inputs : nominal(F) lowerLimit(G) upperLimit(H) initialGB(I) uCal(J) mu(K)
  *            xcal(L) tur(S) reop(T) turNeeded(U) originalInterval(Z)
- *            pfaTarget(AA) reopTarget(AB) decayModel(AC) weibullBeta(AD)
+ *            pfaTarget(AA) reopTarget(AB) decayModel(AC) weibullBeta(AD) resolution(AE)
  *   outputs: obs(AG) pfa(AH) pfr(AI) maxReop(AJ) trueReop(AK) gbMult(AL)
  *            physGbLower(AM) physGbUpper(AN) mitPfa(AO) mitPfr(AP)
  *            gbInterval(AQ) mitReop(AR) intPfa(AS) intPfr(AT) intInterval(AU)
  *            intReop(AV) statusCore(AX) statusMit(AY) statusInt(AZ)
+ *            mitObs(BA) intObs(BB)
  *   plus the VBA-controlled tolerance outputs asymmetry(M) and tolType(N).
  *
  * Blank/cleared cells are represented by "" (empty string); flag strings like
  * "check inputs" / "input error" pass through as strings; numeric outputs are
- * numbers. Resolution snapping of the physical GB limits is intentionally NOT
- * done here — the workbook applies it in RB_ApplyResolutionToScratchGB after
- * ComputeOneRow, so it belongs to the bridge (Phase 4).
+ * numbers. Beta.7 integrates inward resolution rounding into mitigation and
+ * re-solves reliability/probabilities before publishing any recommendation.
+ * See resolutionMitigation8.js for ApplyResolutionToMitigation_DS / _SS.
  */
 
 import {
+  EPS, guardbandFromRatio,
   MODE_TWO_SIDED,
   MODE_SS_LOWER,
   MODE_SS_UPPER,
@@ -55,9 +57,10 @@ import {
   safeAsymmetry,
   safeInitialGB,
   safeOptionalDouble,
-  writePhysicalGBFromMultiplier,
   writePhysicalGBForUnknownMeasuredValue,
 } from "./toleranceTypes8";
+
+import { applyResolutionToMitigation } from "./resolutionMitigation8";
 
 // Sentinel used to model the VBA `GoTo badInput` (mirrors riskEngine8's _FAIL).
 const _BAD_INPUT = Symbol("ComputeOneRow.badInput");
@@ -82,6 +85,9 @@ export function blankOutput() {
     intPfa: "",
     intPfr: "",
     intInterval: "",
+    intReop: "",
+    mitObs: "",
+    intObs: "",
     statusCore: "",
     statusMit: "",
     statusInt: "",
@@ -149,7 +155,7 @@ function rowInputsBlank(input) {
 // VBA (see modRiskBackend.bas lines ~1905-1958). Types 5/6 are a PFA-only
 // worst-case boundary method: no core risk is computed, AL (gbMult) is left
 // blank, and AM/AN hold the physical guard-band acceptance limit. The PFA target
-// (AA) doubles as the boundary alpha and is echoed into AO (mitPfa).
+// (AA) supplies boundary alpha; AO is the achieved PFA after resolution rounding.
 function handleUnknownMeasuredValue(input, tolType, out) {
   const vPFATarget = input.pfaTarget;
 
@@ -178,6 +184,7 @@ function handleUnknownMeasuredValue(input, tolType, out) {
     tolType,
     {
       uCal: input.uCal,
+      resolution: input.resolution,
       lowerLimit: input.lowerLimit,
       upperLimit: input.upperLimit,
       turBlank: isBlankCell(input.tur),
@@ -197,7 +204,7 @@ function handleUnknownMeasuredValue(input, tolType, out) {
   if (gb.gbUpper !== undefined) out.physGbUpper = gb.gbUpper;
 
   // Type 5/6 remains a PFA-only worst-case boundary method.
-  out.mitPfa = alpha;
+  out.mitPfa = gb.actualPFA;
   out.statusMit = "OK";
   out.statusInt = "not used";
   return out;
@@ -272,8 +279,7 @@ export function computeOneRow(input) {
         const delta = safeAsymmetry(tol.asymmetry);
         LTL = delta - 1;
         UTL = delta + 1;
-        GB_L = gInit * LTL;
-        GB_H = gInit * UTL;
+        ({ GB_L, GB_H } = guardbandFromRatio(LTL, UTL, gInit));
         break;
       }
 
@@ -312,6 +318,16 @@ export function computeOneRow(input) {
 
     if (!r.OK) throw _BAD_INPUT;
 
+    // Beta.7 stops infeasible assumptions before publishing core risk or mitigation.
+    // maxREOP_solve is the calibration floor at the reference TUR; the displayed
+    // maximum remains maxREOP_input, evaluated using the actual calibration TUR.
+    if (REOP_ref > r.maxREOP_solve + EPS) {
+      out.maxReop = r.maxREOP_input;
+      out.statusCore = "Assumed REOP exceeds MAX REOP";
+      out.statusMit = out.statusInt = "not calculated";
+      return out;
+    }
+
     out.obs = r.pObs;
     out.pfa = r.pPFA;
     out.pfr = r.pPFR;
@@ -344,6 +360,12 @@ export function computeOneRow(input) {
     const reqPFA = Number(vPFATarget);
     const reqREOP = Number(vREOPTarget);
 
+    // A finite one-sided recommendation requires a target above the 50% limit.
+    if (mode !== MODE_TWO_SIDED && reqREOP <= 0.5) {
+      out.statusMit = out.statusInt = "REOP target must exceed 50% for Type 3/4";
+      return out;
+    }
+
     // ---- GB + REOP mitigation ------------------------------------------------
     let RR;
     if (mode === MODE_TWO_SIDED) {
@@ -352,29 +374,21 @@ export function computeOneRow(input) {
       RR = recommendMitigationSS(TUR_in, REOP_ref, TUR_solve, activeGB, activeUUT, mode, mu, XCAL, reqPFA, reqREOP);
     }
 
+    let gb;
+    if (RR.Found) {
+      gb = applyResolutionToMitigation(input, tolType, RR, {
+        mode, TUR_in, TUR_solve, reqPFA, reqREOP, mu, XCAL, LTL, UTL, activeUUT,
+      });
+      if (!gb.ok) {
+        RR.Found = false;
+        RR.Status = "solution not found";
+      }
+    }
     if (RR.Found) {
       out.gbMult = RR.recGB;
-
-      const gb = writePhysicalGBFromMultiplier(
-        tolType,
-        { nominal: input.nominal, lowerLimit: input.lowerLimit, upperLimit: input.upperLimit },
-        RR.recGB
-      );
-      if (gb.ok) {
-        if (gb.gbLower !== undefined) out.physGbLower = gb.gbLower;
-        if (gb.gbUpper !== undefined) out.physGbUpper = gb.gbUpper;
-      } else if (gb.checkInputs) {
-        // Mirror WriteCheckInputsForPhysicalGB for the sides that apply.
-        if (tolType === TOLTYPE_DS_SYM || tolType === TOLTYPE_DS_ASYM) {
-          out.physGbLower = "check inputs";
-          out.physGbUpper = "check inputs";
-        } else if (tolType === TOLTYPE_SS_LOWER) {
-          out.physGbLower = "check inputs";
-        } else if (tolType === TOLTYPE_SS_UPPER) {
-          out.physGbUpper = "check inputs";
-        }
-      }
-
+      if (gb.gbLower !== undefined) out.physGbLower = gb.gbLower;
+      if (gb.gbUpper !== undefined) out.physGbUpper = gb.gbUpper;
+      out.mitObs = RR.pObs;
       out.mitPfa = RR.pPFA;
       out.mitPfr = RR.pPFR;
       out.mitReop = RR.recREOP;
@@ -393,7 +407,7 @@ export function computeOneRow(input) {
         origInt.ok, origInt.value, origInt.issue,
         beta.ok, beta.value, beta.issue,
         originalReferenceREOP, RR.recREOP,
-        r, RFinalGB
+        r, RFinalGB, mode !== MODE_TWO_SIDED
       );
       if (iv.ok) {
         out.gbInterval = iv.interval;
@@ -415,6 +429,7 @@ export function computeOneRow(input) {
     }
 
     if (RR2.Found) {
+      out.intObs = RR2.pObs;
       out.intPfa = RR2.pPFA;
       out.intPfr = RR2.pPFR;
       out.intReop = RR2.recREOP;
@@ -432,7 +447,7 @@ export function computeOneRow(input) {
         origInt.ok, origInt.value, origInt.issue,
         beta.ok, beta.value, beta.issue,
         originalReferenceREOP, RR2.recREOP,
-        r, RFinalInt
+        r, RFinalInt, mode !== MODE_TWO_SIDED
       );
       if (iv.ok) {
         out.intInterval = iv.interval;
@@ -452,6 +467,7 @@ export function computeOneRow(input) {
     const tolTypeSoFar = out.tolType;
     const blanked = blankOutput();
     blanked.tolType = tolTypeSoFar;
+    blanked.asymmetry = out.asymmetry;
     blanked.statusCore = "bad input";
     blanked.statusMit = "solution not found";
     blanked.statusInt = "solution not found";

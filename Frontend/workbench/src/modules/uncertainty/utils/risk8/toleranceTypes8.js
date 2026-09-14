@@ -15,7 +15,7 @@
  * workbook, VBA quoted inline.
  */
 
-import { EPS, normalInvCDF } from "./riskEngine8";
+import { EPS, normalInvCDF, normalCDF, clamp01 } from "./riskEngine8";
 
 /* =============================================================================
  * Tolerance-type constants  (modRiskBackend)
@@ -408,8 +408,9 @@ export function roundLimitDownToResolution(x, res) {
 
 // ── modRiskBackend › WritePhysicalGBFromMultiplier ───────────────────────────
 // VBA (see modRiskBackend.bas lines ~1826-1866). Types 1-4:
-//   GB lower = nominal - g*(nominal - lowerLimit)
-//   GB upper = nominal + g*(upperLimit - nominal)
+//   Types 1/2: GB lower/upper = midpoint +/- g * tolerance half-width.
+//   Type 3: GB lower = nominal - g*(nominal - lowerLimit).
+//   Type 4: GB upper = nominal + g*(upperLimit - nominal).
 // The VBA writes AM/AN and returns a Boolean; missing nominal returns False
 // silently (limits left blank), missing a needed limit routes to "check inputs".
 // Pure port returns:
@@ -428,8 +429,8 @@ export function writePhysicalGBFromMultiplier(tolType, inputs, g) {
       if (!need(lowerLimit) || !need(upperLimit)) return { ok: false, checkInputs: true, tolType };
       return {
         ok: true,
-        gbLower: Number(nominal) - g * (Number(nominal) - Number(lowerLimit)),
-        gbUpper: Number(nominal) + g * (Number(upperLimit) - Number(nominal)),
+        gbLower: (Number(lowerLimit) + Number(upperLimit)) / 2 - g * (Number(upperLimit) - Number(lowerLimit)) / 2,
+        gbUpper: (Number(lowerLimit) + Number(upperLimit)) / 2 + g * (Number(upperLimit) - Number(lowerLimit)) / 2,
       };
 
     case TOLTYPE_SS_LOWER:
@@ -454,7 +455,9 @@ export function writePhysicalGBFromMultiplier(tolType, inputs, g) {
 //   Type 5 (lower): GB lower = lowerLimit - U_cal * z_alpha / 1.96
 //   Type 6 (upper): GB upper = upperLimit + U_cal * z_alpha / 1.96
 // Requires TUR blank (this method uses U_cal directly) and U_cal > 0.
-// Returns { ok, gbLower? / gbUpper? } or { ok: false, checkInputs: true, tolType }.
+// Beta.7 rounds inward to resolution and returns actualPFA from the normal tail
+// at the final physical limit, rather than echoing alpha. No nominal is needed.
+// Returns { ok, gbLower? / gbUpper?, actualPFA } or a failed-input record.
 export function writePhysicalGBForUnknownMeasuredValue(tolType, inputs, alpha) {
   const { uCal, lowerLimit, upperLimit, turBlank } = inputs;
   const fail = { ok: false, checkInputs: true, tolType };
@@ -465,15 +468,24 @@ export function writePhysicalGBForUnknownMeasuredValue(tolType, inputs, alpha) {
   if (!(alpha > 0 && alpha < 0.5)) return fail;
 
   const zAlpha = normalInvCDF(alpha);
+  const sigmaCal = Number(uCal) / 1.96;
+  const resolution = isBlankCell(inputs.resolution) ? 0 : Number(inputs.resolution);
+  if (!Number.isFinite(resolution) || resolution < 0) return fail;
 
   switch (tolType) {
-    case TOLTYPE_SS_LOWER_UNKNOWN:
+    case TOLTYPE_SS_LOWER_UNKNOWN: {
       if (!isNumericCell(lowerLimit)) return fail;
-      return { ok: true, gbLower: Number(lowerLimit) - Number(uCal) * zAlpha / 1.96 };
+      const raw = Number(lowerLimit) - sigmaCal * zAlpha;
+      const gbLower = resolution > 0 ? roundLimitUpToResolution(raw, resolution) : raw;
+      return { ok: true, gbLower, actualPFA: clamp01(1 - normalCDF((gbLower - Number(lowerLimit)) / sigmaCal)) };
+    }
 
-    case TOLTYPE_SS_UPPER_UNKNOWN:
+    case TOLTYPE_SS_UPPER_UNKNOWN: {
       if (!isNumericCell(upperLimit)) return fail;
-      return { ok: true, gbUpper: Number(upperLimit) + Number(uCal) * zAlpha / 1.96 };
+      const raw = Number(upperLimit) + sigmaCal * zAlpha;
+      const gbUpper = resolution > 0 ? roundLimitDownToResolution(raw, resolution) : raw;
+      return { ok: true, gbUpper, actualPFA: clamp01(normalCDF((gbUpper - Number(upperLimit)) / sigmaCal)) };
+    }
 
     default:
       return fail;

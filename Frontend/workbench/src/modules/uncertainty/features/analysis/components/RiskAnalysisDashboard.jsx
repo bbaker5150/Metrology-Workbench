@@ -1,3 +1,4 @@
+import { explainRiskConstraint } from "../../../utils/mitigationDiagnostics";
 import React from "react";
 import RiskDistributionVisualizer from "./RiskDistributionVisualizer";
 import RiskGauge from "./RiskGauge";
@@ -78,14 +79,15 @@ const RiskAnalysisDashboard = ({
 
   return (
     <div className="risk-dashboard">
+      {results.riskAvailability === "unavailable" && <p className="risk-inputs-panel">{explainRiskConstraint(results.risk8?.out?.statusCore, singleSidedKnown)}</p>}
       <section className="risk-inputs-panel">
         <button
           type="button"
           className={`risk-inputs-header ${isActive("inputs") ? "active" : ""}`}
-          onClick={boundaryOnly ? undefined : () => onShowBreakdown("inputs")}
+          onClick={() => onShowBreakdown("inputs")}
         >
           <span>Key Calculation Inputs</span>
-          {!boundaryOnly && <span className="risk-inputs-hint">View breakdown</span>}
+          <span className="risk-inputs-hint">View breakdown</span>
         </button>
         <div className="risk-inputs-grid">
           {inputSpecs.map((spec, i) => (
@@ -101,12 +103,15 @@ const RiskAnalysisDashboard = ({
         <>
           <RiskGauge
             label="PFA Boundary"
+            active={isActive("pfa")} onClick={() => onShowBreakdown("pfa")}
             value={fmt(results.pfa, 4) + " %"}
             accent="accent-primary"
-            note="The requested PFA used to establish the one-sided acceptance boundary."
+            note="The achieved PFA at the acceptance boundary after inward resolution rounding."
           />
           <RiskGauge
             label={typeof results.ALow === "number" ? "Lower Acceptance Limit" : "Upper Acceptance Limit"}
+            active={isActive(typeof results.ALow === "number" ? "gblow" : "gbhigh")}
+            onClick={() => onShowBreakdown(typeof results.ALow === "number" ? "gblow" : "gbhigh")}
             value={`${fmt(
               typeof results.ALow === "number" ? results.ALow : results.AUp
             )} ${nativeUnit}`}
@@ -121,7 +126,7 @@ const RiskAnalysisDashboard = ({
           <RiskGauge label="Test Uncertainty Ratio" value={fmt(results.tur, 5)} accent="accent-primary" active={isActive("tur")} onClick={() => onShowBreakdown("tur")} />
           <RiskGauge label="Observed Reliability" value={`${fmt(results.observedReop, 4)} %`} accent="accent-secondary" />
         </>
-      ) : (
+      ) : results.riskAvailability === "unavailable" ? null : (
         <RiskDistributionVisualizer
           results={results}
           calcResults={calcResults}

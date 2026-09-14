@@ -1,3 +1,4 @@
+import vectors from "./risk8/beta7Vectors.json";
 import { describe, expect, it } from "vitest";
 import {
   computePointRiskMetrics,
@@ -120,7 +121,7 @@ describe("computePointRiskMetrics Layer 3 integration", () => {
     expect(metrics.riskMethod).toBe("risk8-two-sided-asymmetric");
     expect(metrics.pfa).toBeCloseTo(3.42, 1);
     expect(metrics.pfr).toBeCloseTo(7.69, 1);
-    expect(metrics.gbPfa).toBeCloseTo(2, 3);
+    expect(metrics.gbPfa).toBeCloseTo(2.005, 7);
   });
 
   it("uses Risk 8.0 Type 1 for symmetric linear-mode points", () => {
@@ -188,10 +189,13 @@ describe("computePointRiskMetrics Layer 3 integration", () => {
     expect(metrics.riskMethod).toBe("risk8-two-sided-symmetric");
     expect(metrics.pfa).toBeCloseTo(2.07, 2);
     expect(metrics.pfr).toBeCloseTo(3.18, 2);
-    expect(metrics.gbPfa).toBeCloseTo(2.0, 2);
-    expect(metrics.gbPfr).toBeCloseTo(3.21, 2);
-    expect(metrics.gbCalInt).toBeCloseTo(11.5759, 3);
-    expect(metrics.noGbCalInt).toBeCloseTo(11.2529, 3);
+    const expected = vectors.cases.find(v => v.id === 'physical/pressure').expected;
+    expect(metrics.gbPfa).toBeCloseTo(expected.mitPfa * 100, 8);
+    expect(metrics.gbPfr).toBeCloseTo(expected.mitPfr * 100, 8);
+    expect(metrics.gbCalInt).toBeCloseTo(expected.gbInterval, 8);
+    // This test rebuilds the budget; the reference U value is recorded to nine
+    // decimal places. Identical-input parity uses full precision separately.
+    expect(metrics.noGbCalInt).toBeCloseTo(expected.intInterval, 6);
   });
 
   it("ignores legacy direct Monte Carlo state in sidebar risk calculations", () => {
@@ -445,7 +449,7 @@ describe("computePointRiskMetrics Layer 3 integration", () => {
 
     expect(metrics).not.toBeNull();
     expect(metrics.riskMethod).toBe("risk8-pfa-boundary");
-    expect(metrics.pfa).toBe(2);
+    expect(metrics.pfa).toBeCloseTo(2, 12);
     expect(metrics.gbLow).toBeTypeOf("number");
     expect(metrics.gbLow).toBeGreaterThan(9);
     expect(metrics.pfr).toBeUndefined();

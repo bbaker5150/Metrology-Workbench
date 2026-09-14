@@ -1,79 +1,115 @@
-# Risk engine 8.0 migration audit
+# Risk calculation audit — Excel v8.00 Beta.7
 
-## Sources reviewed
+Updated 2026-09-14. This supersedes the earlier Beta.4 cutover notes.
 
-- Legacy baseline available in the attachment set: `Unc Tool v7.09_OPEN.xlsm`.
-  The request names 7.07, but no 7.07 workbook was present; this review uses
-  7.09 as the legacy implementation.
-- Target: `Unc Tool v8.00-Beta.4-Unlocked.xlsm`, especially VBA module
-  `modRiskBackend`, `frmUUTTolerance`, and the MAIN/RISK table bridge.
-- App implementation: `uncertaintyMath.js` (legacy 7.x path) and this `risk8`
-  directory (8.0 port and comparison harness).
+## Reference and scope
 
-## Material calculation changes
+The supplied `Tasking.docx` requests parity with `Unc Tool v8.00-Beta.7.xlsm`,
+including single-sided 50% limits, impossible reliability/TUR combinations,
+translated biased/asymmetric cases, mitigation, and user-facing derivations.
 
-| Area | Legacy 7.x | Workbook 8.0 Beta.4 |
+Reference workbook SHA-256:
+`29A044C33581B8E5118DCC858B466830D92A6ACA7CA06C95D36A0611095B97DE`.
+
+The VBA project and populated/formula cells were extracted read-only. The
+calculation authority is `modRiskBackend`; `frmUUTTolerance`, the uncertainty
+budget and equation forms, and the MAIN/RISK bridge establish input semantics.
+The workbook's normal approximation and adaptive integration are retained.
+These are parity checks against that workbook, not a claim that every possible
+physical uncertainty model is independently validated.
+
+## Mathematical changes
+
+| Workbook procedure | App implementation | Beta.7 behavior |
 | --- | --- | --- |
-| Tolerance classification | Threshold vs. non-threshold branches inferred by the risk managers | Six explicit types: symmetric, asymmetric, lower/upper known, and lower/upper unknown |
-| Coordinate system | Physical error limits recentered inside individual managers | A normalized tolerance frame (`-1..+1`, shifted by `delta` for type 2) |
-| Bias | Average/nominal recentering is embedded in the managers | Explicit normalized UUT bias (`mu`) and calibration bias (`xcal`) |
-| Core probability | Bivariate-normal CDF helpers (`PFA`, `PFR`, threshold variants) | Joint correct-accept integration plus explicit PFA/PFR/PCR quadrants |
-| Guard band | Separate iterative low/high/multiplier managers | One recommendation solver returning GB, PFA, PFR, and target REOP together |
-| Reliability inputs | UI fields are reused by several managers | `Assumed_REOP` (current evaluation) and `REOP_Required` (mitigation target) are distinct |
-| Interval model | Primarily logarithmic reliability scaling | E1, E2, diffusion, and two Weibull modes (W1/W2) |
-| Unknown measurement | Alternate threshold behavior in the legacy managers | Types 5/6 use a PFA-only worst-case boundary based on expanded `U_cal` |
+| `ComputeOneRow` | `computeOneRow8.js` | An assumed REOP above `maxREOP_solve + EPS` stops core risk and mitigation. Preserve the actual-TUR maximum; do not publish zero-risk or stale results. |
+| `SolveSigmaObsSingle`, `Min/MaxAchievableSinglePass` | `riskEngine8.js` | Feasible one-sided reliability lies between the calibration-floor pass probability and 50%. The exact 50% asymptote has no finite spread unless the observed mean is at the active limit. The existing solver already implemented this boundary behavior; it is now covered by the matrix. |
+| `ComputeOneRow` mitigation gate | `computeOneRow8.js` | Type 3/4 mitigation requires a reliability target above 50%, while feasible core calculations below 50% remain distinct from mitigation. |
+| `GuardbandFromRatio`, `WritePhysicalGBFromMultiplier` | `riskEngine8.js`, `toleranceTypes8.js` | Two-sided bands contract about the tolerance midpoint: `GB = midpoint ± g × half-width`. Nominal remains the normalization origin. |
+| `PFAHundredthsOfPercent`, `PFAPassesAtDisplayedPrecision` | `riskEngine8.js` | Compare `floor(max(PFA,0) × 10000 + 0.5000000001)`. This is half-up rounding to 0.01 percentage points, used only for target acceptance. Outputs retain full precision. |
+| `RecommendMitigation_DS/SS` | `riskEngine8.js` | Recommendation searches use 32 iterations and the displayed-PFA comparison. Sigma bracketing and integration keep their own original iteration limits. |
+| `RecommendREOPOnly_DS/SS` | `riskEngine8.js` | First find the lowest reference reliability meeting observed reliability; search upward for PFA only if necessary. A currently compliant point may receive a longer interval. Current interval is marked retained only within 0.0000005 of the reference reliability. |
+| `BuildRecommendationCandidate_DS_FromLimits`, `_SS_FromLimit` | `riskEngine8.js` | Solve reliability for explicit acceptance limits, including a grid-induced midpoint shift. |
+| `ApplyResolutionToMitigation_DS/SS` | `resolutionMitigation8.js` | Round physical limits inward, normalize, solve again at the required observed reliability, and recheck PFA. Update multiplier, reference reliability, observed reliability, PFA, PFR, and subsequent interval together. A collapsed or infeasible rounded band produces no recommendation. |
+| `GetRPairForInterval` | `riskEngine8.js` | E1/W1 use observed reliability; E2/W2 use true reliability. Type 3/4 transform either to `q = 2R − 1`. Two-sided cases use `q = R`. Both logarithm arguments must lie in (0,1). |
+| `WriteIntervalFromFinalRisk` | `riskEngine8.js`, `computeOneRow8.js` | Exponential: `Inew = I0 × ln(qnew)/ln(q0)`. Weibull: raise the ratio to `1/beta`. Diffusion: use the UUT variance ratio. All aging states retain the original acceptance limits, even for guardband mitigation. |
+| `WritePhysicalGBForUnknownMeasuredValue` | `toleranceTypes8.js` | Types 5/6 use `sigmaCal = Ucal/1.96`, an inverse-normal PFA boundary, inward rounding, then the actual normal tail probability at the final boundary. Achieved PFA is no longer an echo of the target. |
 
-## App status
+`mitObs` and `intObs` mirror scratch columns BA/BB and map to
+`Observed_REOP_With_GB` and `Observed_REOP_Interval_Only`.
 
-- `riskEngine8.js`, `toleranceTypes8.js`, and `computeOneRow8.js` are literal,
-  reviewer-oriented ports with the governing VBA quoted beside the JavaScript.
-- The comparison panel calls the 8.0 engine for reviewer parity checks. The
-  approved type-5/type-6 PFA-only path is also live in both the selected-point
-  hook and the all-points/sidebar calculator, because the legacy engine cannot
-  represent measurement unknown. The workbook-parity Type 3/4 known
-  single-sided path is live in those same entry points. Types 1/2 still use the
-  legacy production functions until the remaining cutover gates are complete.
-- Full-precision workbook captures now verify types 1-4 in
-  `goldenVectors8.js`. The captures were produced by populating MAIN and running
-  the public VBA entry point `ComputeRiskForMainTable`, then reading the numeric
-  cell values rather than formatted percentages.
+## App wiring and presentation
 
-## Beta.4 type-5/type-6 bridge correction
+Both the selected-point hook and the all-points/sidebar calculator already use
+this model for valid known two-sided and single-sided tolerances. Invalid
+geometry now cannot fall through to retired probability managers. Impossible
+assumptions publish unavailable risk values with a usable maximum, replacing
+previous results rather than retaining them.
 
-`RB_RowHasMinimumRiskInputs` requires `TUR` to be numeric for every tolerance
-type. `HandleUnknownMeasuredValue` and `WritePhysicalGBForUnknownMeasuredValue`
-require `TUR` to be blank for types 5/6. Therefore:
+Diagnostics use the exact rounded physical acceptance limits. Distribution
+views use the corresponding core or recommended population spread and physical
+biases. PFA colors use the same displayed-precision acceptance rule as mitigation.
+Required and achieved boundary PFA are presented separately.
 
-1. blank TUR: the MAIN bridge clears the row before `ComputeOneRow` runs;
-2. numeric TUR: `ComputeOneRow` reaches the unknown-value branch, which returns
-   `check inputs` because TUR is not blank.
+Breakdowns show probability integrals, uncertainty deconvolution, midpoint
+contraction, resolution, PFA comparison precision, interval substitutions, and
+the single-sided floor. User-facing version labels and internal status codes
+were removed. Invalid cases explain the mathematical/input constraint. Types
+5/6 have a dedicated boundary derivation rather than full-risk equations.
 
-The product owner confirmed that the dedicated PFA-only backend behavior is the
-intended result. The app therefore corrects the bridge gate for types 5/6:
+The app's existing default interval model remains E1. The pure contract supports
+E1, E2, D, W1, and W2; all five are included in the comparison matrix.
 
-- the active physical limit, expanded `U_cal`, and PFA target must be numeric;
-- `TUR` must be blank;
-- `Assumed_REOP` and `REOP_Required` are not required because the handler does
-  not use them;
-- the physical one-sided acceptance limit and `PFA_With_GB` are produced, while
-  TUR/REOP/PFR/interval-dependent outputs remain deliberately blank.
+## Retained bridge correction for Types 5/6
 
-This is explicitly tracked as a correction to the unreachable Beta.4 MAIN-table
-path. It does not change the formulas in `HandleUnknownMeasuredValue` or
-`WritePhysicalGBForUnknownMeasuredValue`.
+Beta.7 still has the earlier contradictory MAIN gate:
+`RB_RowHasMinimumRiskInputs` requires numeric TUR for all six types, while the
+unknown-measurement handler requires TUR to be blank. Literal MAIN routing thus
+cannot produce Types 5/6 results. The app retains its previously accepted
+correction: use the dedicated unknown-measurement backend with a physical limit,
+positive expanded uncertainty, blank TUR, and PFA strictly between 0 and 50%.
+Reliability, PFR, and interval results remain unavailable. This is the sole
+intentional bridge exception; it is not hidden by the parity harness.
 
-## Cutover gate
+## Reproducible verification
 
-Before making 8.0 the production engine:
+`beta7Vectors.json` contains 786 synthetic input/output cases captured from an
+isolated Excel instance executing the reference workbook's own private
+`modRiskBackend.ComputeOneRow` on scratch row 7. Excel events are disabled;
+the workbook is opened read-only and closed without saving. Every written input
+is read back and verified before execution, including numeric zeros. Outputs
+are read with `Value2`, never copied from formatted percentage text.
 
-1. ~~approve the type-5/type-6 policy above~~ — approved: use the intended
-   PFA-only backend path and correct the bridge;
-2. confirm the app mapping `Calculated/Assumed Meas. Reliability ->
-   Assumed_REOP` and `Measurement Reliability Target -> REOP_Required`;
-3. capture at least one full-precision workbook vector for each approved type
-   and each interval model used in production;
-4. update the user-facing calculation breakdowns so they explain the 8.0
-   integrals and mitigation solver rather than the retired 7.x bivariate-CDF
-   formulas;
-5. switch both the selected-point hook and the all-points/sidebar calculator in
-   the same commit, preventing two risk engines from being displayed at once.
+Coverage includes all six tolerance types; both bias directions and calibration
+bias; actual/reference TUR mismatches; all five decay models; blank, fine,
+coarse, invalid and nonpositive resolution; 50% and feasibility boundaries;
+missing/invalid targets and intervals; equivalent translated physical cases;
+seven historical regression inputs recaptured against Beta.7; and the voltage
+and coarse-resolution pressure examples.
+
+`beta7Parity.test.js` compares every captured output, with exact strings/blanks
+and numeric tolerance `1e-10 + abs(expected) × 1e-8`. It also checks the bridge,
+rounded-limit presentation diagnostics, translated-case equivalence, and
+unavailable-risk behavior. Expected values are never generated by the app.
+
+From `Frontend/workbench`:
+
+```powershell
+node scripts/risk-beta7-cases.mjs "$env:TEMP/beta7-cases.json"
+./scripts/capture-risk-beta7.ps1 -WorkbookPath '<reference.xlsm>' -CasesPath "$env:TEMP/beta7-cases.json" -OutputPath "$env:TEMP/beta7-capture.json"
+npx vitest run src/modules/uncertainty/utils/risk8
+node scripts/smoke-risk-beta7.mjs
+npm run build:singlefile
+```
+
+The capture JSON is the reviewable source for refreshing `beta7Vectors.json`.
+The browser smoke test renders actual React breakdowns for 118 case/metric
+combinations in Chromium, checks that KaTeX rendered, checks equation errors and
+unavailable-input explanations, and saves representative screenshots in the
+reported temporary output folder. It uses synthetic data only and does not
+contact the app database or SharePoint.
+
+Verification outcome: 241 focused unit/integration tests passed, including the
+786-case Excel matrix and selected-point/sidebar parity checks; 118 Chromium
+breakdown checks passed. The SharePoint single-file production build succeeded.
+Changes are local; this task has not been committed, pushed, or deployed.

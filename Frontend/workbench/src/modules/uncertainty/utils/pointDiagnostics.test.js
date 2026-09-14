@@ -28,6 +28,21 @@ const source = {
   value: 10,
 };
 
+it("explains an impossible assumed reliability even when mitigation columns are hidden", () => {
+  const entries = getPointDiagnosticEntries(point, session, {
+    riskMetrics: { riskAvailability: 'unavailable' },
+    riskStatus: { core: 'Assumed REOP exceeds MAX REOP', maxReop: 99 },
+  });
+  expect(entries).toContainEqual(expect.objectContaining({
+    category: 'warning', message: expect.stringContaining('reference TUR can support'),
+  }));
+});
+
+it("rejects an unknown-measurement PFA boundary target at 50%", () => {
+  const unknown = { ...point, uutTolerance: { singleSided: { measurement: 'unknown', direction: 'high', limit: 10 } } };
+  expect(getPointDiagnostics(unknown, { uncReq: { reqPFA: 50 } }).join(' ')).toContain('strictly between 0% and 50%');
+});
+
 describe("point diagnostics", () => {
   it("evaluates legacy derived source tolerances in their input units", () => {
     const legacy = {

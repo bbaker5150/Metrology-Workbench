@@ -1,0 +1,156 @@
+[
+  {
+    "id": "legacy-row-0",
+    "name": "workbook Type-2 voltage — asymmetric, measured 5 V, limits [3,16]",
+    "input": {
+      "nominal": 5,
+      "lowerLimit": 3,
+      "upperLimit": 16,
+      "initialGB": 1,
+      "uCal": "",
+      "mu": 0,
+      "xcal": 0,
+      "tur": 114.31,
+      "reop": 0.85,
+      "turNeeded": 4,
+      "originalInterval": 12,
+      "pfaTarget": 0.02,
+      "reopTarget": 0.85,
+      "decayModel": "",
+      "weibullBeta": "",
+      "resolution": 0.01
+    }
+  },
+  {
+    "id": "legacy-row-1",
+    "name": "workbook Type-1 symmetric — nominal 10, limits [9,11]",
+    "input": {
+      "nominal": 10,
+      "lowerLimit": 9,
+      "upperLimit": 11,
+      "initialGB": 1,
+      "uCal": "",
+      "mu": "",
+      "xcal": "",
+      "tur": 4,
+      "reop": 0.9,
+      "turNeeded": "",
+      "originalInterval": 12,
+      "pfaTarget": 0.02,
+      "reopTarget": 0.85,
+      "decayModel": "",
+      "weibullBeta": "",
+      "resolution": ""
+    }
+  },
+  {
+    "id": "legacy-row-2",
+    "name": "workbook Type-2 asymmetric — nominal 10, limits [9,12]",
+    "input": {
+      "nominal": 10,
+      "lowerLimit": 9,
+      "upperLimit": 12,
+      "initialGB": 1,
+      "uCal": "",
+      "mu": "",
+      "xcal": "",
+      "tur": 4,
+      "reop": 0.9,
+      "turNeeded": "",
+      "originalInterval": 12,
+      "pfaTarget": 0.02,
+      "reopTarget": 0.85,
+      "decayModel": "",
+      "weibullBeta": "",
+      "resolution": ""
+    }
+  },
+  {
+    "id": "legacy-row-3",
+    "name": "workbook Type-3 single-sided lower known",
+    "input": {
+      "nominal": 10,
+      "lowerLimit": 9,
+      "upperLimit": "",
+      "initialGB": 1,
+      "uCal": "",
+      "mu": "",
+      "xcal": "",
+      "tur": 4,
+      "reop": 0.95,
+      "turNeeded": "",
+      "originalInterval": 12,
+      "pfaTarget": 0.02,
+      "reopTarget": 0.9,
+      "decayModel": "",
+      "weibullBeta": "",
+      "resolution": ""
+    }
+  },
+  {
+    "id": "legacy-row-4",
+    "name": "workbook Type-4 single-sided upper known",
+    "input": {
+      "nominal": 10,
+      "lowerLimit": "",
+      "upperLimit": 11,
+      "initialGB": 1,
+      "uCal": "",
+      "mu": "",
+      "xcal": "",
+      "tur": 4,
+      "reop": 0.95,
+      "turNeeded": "",
+      "originalInterval": 12,
+      "pfaTarget": 0.02,
+      "reopTarget": 0.9,
+      "decayModel": "",
+      "weibullBeta": "",
+      "resolution": ""
+    }
+  },
+  {
+    "id": "legacy-row-5",
+    "name": "Type-5 lower unknown — intended backend path",
+    "input": {
+      "nominal": "",
+      "lowerLimit": 9,
+      "upperLimit": "",
+      "initialGB": 1,
+      "uCal": 0.2,
+      "mu": "",
+      "xcal": "",
+      "tur": "",
+      "reop": "",
+      "turNeeded": "",
+      "originalInterval": 12,
+      "pfaTarget": 0.02,
+      "reopTarget": 0.9,
+      "decayModel": "",
+      "weibullBeta": "",
+      "resolution": ""
+    }
+  },
+  {
+    "id": "legacy-row-6",
+    "name": "Type-6 upper unknown — intended backend path",
+    "input": {
+      "nominal": "",
+      "lowerLimit": "",
+      "upperLimit": 11,
+      "initialGB": 1,
+      "uCal": 0.2,
+      "mu": "",
+      "xcal": "",
+      "tur": "",
+      "reop": "",
+      "turNeeded": "",
+      "originalInterval": 12,
+      "pfaTarget": 0.02,
+      "reopTarget": 0.9,
+      "decayModel": "",
+      "weibullBeta": "",
+      "resolution": ""
+    }
+  }
+]

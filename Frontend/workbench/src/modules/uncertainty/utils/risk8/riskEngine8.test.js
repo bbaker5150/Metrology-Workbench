@@ -40,6 +40,7 @@ import {
   recommendMitigationSS,
   recommendREOPOnlyDS,
   riskTargetsMet,
+  pfaPassesAtDisplayedPrecision,
   computeLogInterval,
   computeWeibullInterval,
   computeDiffusionInterval,
@@ -272,7 +273,7 @@ describe("guard-band mitigation: two-sided", () => {
     expect(RR.Found).toBe(true);
     expect(RR.recGB).toBeGreaterThan(0);
     expect(RR.recGB).toBeLessThanOrEqual(1);
-    expect(RR.pPFA).toBeLessThanOrEqual(reqPFA + 5e-7);
+    expect(pfaPassesAtDisplayedPrecision(RR.pPFA, reqPFA)).toBe(true);
 
     // Self-consistency: re-evaluating at the recommended REOP + physical GB
     // reproduces the reported PFA (GB_L = g*LTL, GB_H = g*UTL for symmetric).
@@ -299,7 +300,7 @@ describe("guard-band mitigation: single-sided", () => {
     expect(RR.Found).toBe(true);
     expect(RR.recGB).toBeGreaterThan(0);
     expect(RR.recGB).toBeLessThanOrEqual(1);
-    expect(RR.pPFA).toBeLessThanOrEqual(reqPFA + 5e-7);
+    expect(pfaPassesAtDisplayedPrecision(RR.pPFA, reqPFA)).toBe(true);
   });
 
   test("invalid mode yields target input error", () => {
@@ -315,7 +316,7 @@ describe("REOP-only mitigation", () => {
     const reqAdjREOP = 0.8;
     const RR = recommendREOPOnlyDS(4, 0.9, 4, -1, 1, 0, -1, 1, 0, reqPFA, reqAdjREOP);
     expect(RR.Found).toBe(true);
-    expect(RR.pPFA).toBeLessThanOrEqual(reqPFA + 5e-7);
+    expect(pfaPassesAtDisplayedPrecision(RR.pPFA, reqPFA)).toBe(true);
     expect(RR.pObs).toBeGreaterThanOrEqual(reqAdjREOP - 5e-7);
 
     // The reported result must itself satisfy the targets.
@@ -323,12 +324,13 @@ describe("REOP-only mitigation", () => {
     expect(riskTargetsMet(check, reqPFA, reqAdjREOP)).toBe(true);
   });
 
-  test("flags AlreadyCompliant when current inputs already pass", () => {
-    // Very loose targets: the current REOP is already compliant.
+  test("extends the interval when looser targets allow a lower reference reliability", () => {
+    // Beta.7 seeks the minimum feasible reference REOP, even when current inputs pass.
     const RR = recommendREOPOnlyDS(4, 0.9, 4, -1, 1, 0, -1, 1, 0, 0.5, 0.5);
     expect(RR.Found).toBe(true);
-    expect(RR.AlreadyCompliant).toBe(true);
-    expect(RR.Status).toMatch(/already compliant/);
+    expect(RR.AlreadyCompliant).toBe(false);
+    expect(RR.recREOP).toBeCloseTo(0.5, 5);
+    expect(RR.Status).toBe("solution found");
   });
 });
 

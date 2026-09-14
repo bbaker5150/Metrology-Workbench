@@ -57,6 +57,30 @@ const intervalReasons = {
     "The interval model did not produce a valid calibration interval for these reliability values. Review the interval and mitigation inputs.",
 };
 
+// Present mathematical/input constraints, never internal return codes. Shared by
+// the calculation breakdowns and the point's missing-mitigation explanation.
+export function explainRiskConstraint(status = "", singleSided = false) {
+  const parts = String(status).split(";").map((part) => part.trim());
+  if (parts.includes("Assumed REOP exceeds MAX REOP"))
+    return "The assumed reliability exceeds what the reference TUR can support with calibration uncertainty alone. No population spread or risk recommendation can satisfy these inputs. Reduce the assumed reliability or improve the reference measurement capability.";
+  if (parts.includes("REOP target must exceed 50% for Type 3/4"))
+    return "A single-sided mitigation target must exceed 50%. As population spread increases, the one-sided normal pass probability approaches 50%; this boundary cannot define a finite interval recommendation.";
+  for (const part of parts) {
+    if (intervalReasons[part]) {
+      const floorNote = singleSided && /R outside/.test(part)
+        ? " For single-sided exponential and Weibull decay, q = 2R − 1 must lie strictly between 0 and 1, so reliability must exceed 50%." : "";
+      return intervalReasons[part] + floorNote;
+    }
+  }
+  if (parts.includes("mitigation target missing") || parts.includes("target input error"))
+    return "Enter a valid PFA target and a reliability target strictly between 0% and 100%.";
+  if (parts.includes("solution not found"))
+    return "No feasible recommendation meets both targets with these tolerance limits, uncertainty, and measuring resolution. Review the targets or measurement capability.";
+  if (parts.some((part) => ["bad input", "input error", "check inputs", "missing required input"].includes(part)))
+    return "These inputs do not define a feasible probability calculation. Check the tolerance limits, positive TUR, and assumed reliability. A one-sided reliability of exactly 50% needs the observed mean at the active limit; otherwise it is only an infinite-spread limit.";
+  return "";
+}
+
 // Only explain blank columns the user has requested. Zero is a valid result;
 // successful solutions (including already-compliant inputs) need no warning.
 export function getMitigationDiagnostics({
@@ -107,6 +131,8 @@ export function getMitigationDiagnostics({
       continue;
     }
     const details = [];
+    const coreConstraint = explainRiskConstraint(status.core, !!single);
+    if (coreConstraint) details.push(coreConstraint);
     const raw = status[group.key] || "";
     const issues = raw
       .split(";")
@@ -137,6 +163,10 @@ export function getMitigationDiagnostics({
         ],
       );
     for (const issue of issues) {
+      if (issue === "REOP target must exceed 50% for Type 3/4") {
+        details.push(explainRiskConstraint(issue, true));
+        continue;
+      }
       if (intervalReasons[issue] && intervalMissing) {
         if (
           !(issue === "interval missing" || issue === "interval input error") ||

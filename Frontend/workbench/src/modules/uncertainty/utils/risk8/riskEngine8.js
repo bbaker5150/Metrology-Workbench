@@ -1,7 +1,7 @@
 /**
  * riskEngine8.js — literal port of the 8.0 workbook risk engine
  * =============================================================================
- * SOURCE OF TRUTH: `Unc_Tool_v8.00Beta` › VBA module `modRiskBackend` (the
+ * SOURCE OF TRUTH: `Unc Tool v8.00-Beta.7.xlsm` › VBA module `modRiskBackend` (the
  * "STANDARD MODULE: Module1" math half). The workbook VBA is authoritative;
  * this file must reproduce it function-for-function. Where a function is ported
  * its governing VBA is quoted verbatim in the comment directly above it so a
@@ -22,9 +22,9 @@
  * knows nothing about React, units, Monte Carlo, or the app's data shapes —
  * exactly like the VBA standard module. App wiring lives in riskBridge8.js.
  *
- * Phase 1 scope: distribution primitives, sigma solvers, PCA integration, and
- * the two core evaluators (EvaluateCase_DS / EvaluateCase_SS). Mitigation,
- * interval decay, tolerance typing and the row driver land in later phases.
+ * Beta.7 audit: core evaluators, recommendation searches, and interval decay
+ * are covered by Excel-captured vectors. Branch-changing updates are annotated
+ * by VBA procedure name; see MIGRATION_AUDIT.md for capture provenance.
  */
 
 /* =============================================================================
@@ -48,6 +48,9 @@ export const T_CUTOFF = 12;
 export const SOLVE_TOL = 0.000000000001;
 export const EPS = 0.0000000001;
 export const REC_TOL = 0.0000005;
+// Beta.7: recommendation intervals have width <= 1; 32 bisections resolve
+// them to < 2.4e-10. Distribution/sigma/integration iterations stay unchanged.
+export const OPT_SEARCH_ITERS = 32;
 
 export const MODE_INVALID = -1;
 export const MODE_TWO_SIDED = 0;
@@ -1150,12 +1153,18 @@ export function currentGBRatioSS(activeGB, activeUUT) {
 // ── modRiskBackend › GuardbandFromRatio ──────────────────────────────────────
 // VBA:
 //   Private Sub GuardbandFromRatio(LTL As Double, UTL As Double, g As Double, ByRef GB_L As Double, ByRef GB_H As Double)
-//       GB_L = g * LTL
-//       GB_H = g * UTL
+//       tolMidpoint = 0.5 * (LTL + UTL)
+//       tolHalfWidth = 0.5 * (UTL - LTL)
+//       GB_L = tolMidpoint - g * tolHalfWidth
+//       GB_H = tolMidpoint + g * tolHalfWidth
 //   End Sub
 // VBA writes GB_L/GB_H by-ref; the JS port returns them as { GB_L, GB_H }.
 export function guardbandFromRatio(LTL, UTL, g) {
-  return { GB_L: g * LTL, GB_H: g * UTL };
+  const tolMidpoint = .5 * (LTL + UTL);
+  const tolHalfWidth = .5 * (UTL - LTL);
+  // Scaling width about the specification midpoint preserves a physical
+  // acceptance region when only the nominal/bias coordinate origin changes.
+  return { GB_L: tolMidpoint - g * tolHalfWidth, GB_H: tolMidpoint + g * tolHalfWidth };
 }
 
 // ── modRiskBackend › SingleToEffectiveREOP ───────────────────────────────────
@@ -1213,10 +1222,15 @@ export function effectiveToSingleREOP(rEff) {
 //   End Function
 // Returns { ok, recREOP, GB_L, GB_H, r } (the VBA by-ref outputs).
 export function buildRecommendationCandidateDS(TUR_in, TUR_solve, reqAdjREOP, g, mu, LTL, UTL, XCAL) {
+  const { GB_L, GB_H } = guardbandFromRatio(LTL, UTL, g);
+  return buildRecommendationCandidateDSFromLimits(TUR_in, TUR_solve, reqAdjREOP, GB_L, GB_H, mu, LTL, UTL, XCAL);
+}
+
+// Beta.7: BuildRecommendationCandidate_DS_FromLimits. Explicit limits let the
+// resolution step re-solve reliability for the actual rounded acceptance region.
+export function buildRecommendationCandidateDSFromLimits(TUR_in, TUR_solve, reqAdjREOP, GB_L, GB_H, mu, LTL, UTL, XCAL) {
   try {
     const muObs = mu + XCAL;
-
-    const { GB_L, GB_H } = guardbandFromRatio(LTL, UTL, g);
 
     if (!(reqAdjREOP > 0 && reqAdjREOP < 1)) return { ok: false };
     if (!(LTL < muObs && muObs < UTL)) return { ok: false };
@@ -1257,10 +1271,10 @@ export function buildRecommendationCandidateDS(TUR_in, TUR_solve, reqAdjREOP, g,
 //   Private Function RecommendMitigation_DS(TUR_in, REOP_current, TUR_solve, GB_L_cur, GB_H_cur, _
 //                                           mu, LTL, UTL, XCAL, reqPFA, reqAdjREOP) As RecResult
 //       ' Guard: reqPFA in [0,1), reqAdjREOP in (0,1) -> "target input error"
-//       ' Try g = 1. If PFA <= reqPFA + REC_TOL -> Found, recGB = 1.
-//       ' Else bracket the smallest feasible g in [0,1] (80-iter bisection when
-//       ' g = 0 is infeasible), require PFA <= reqPFA + REC_TOL, then tighten g
-//       ' upward (80-iter) keeping the largest g that still meets PFA.
+//       ' Try g = 1. If PFAPassesAtDisplayedPrecision(PFA, reqPFA) -> Found, recGB = 1.
+//       ' Else bracket the smallest feasible g in [0,1] (OPT_SEARCH_ITERS = 32 bisection when
+//       ' g = 0 is infeasible), require PFAPassesAtDisplayedPrecision(PFA, reqPFA), then tighten g
+//       ' upward (32 iterations) keeping the largest g that still meets PFA.
 //   End Function
 // REOP_current is part of the VBA signature but unused in the body; kept for a
 // 1:1 signature match with the workbook.
@@ -1285,7 +1299,7 @@ export function recommendMitigationDS(TUR_in, REOP_current, TUR_solve, GB_L_cur,
     return RR;
   }
 
-  if (cand.r.pPFA <= reqPFA + REC_TOL) {
+  if (pfaPassesAtDisplayedPrecision(cand.r.pPFA, reqPFA)) {
     RR.Found = true;
     RR.recREOP = cand.recREOP;
     RR.recGB = 1;
@@ -1302,7 +1316,7 @@ export function recommendMitigationDS(TUR_in, REOP_current, TUR_solve, GB_L_cur,
   cand = buildRecommendationCandidateDS(TUR_in, TUR_solve, reqAdjREOP, gLow, mu, LTL, UTL, XCAL);
   if (!cand.ok) {
     // Bisect to find the smallest guard-band ratio that yields a valid candidate.
-    for (let i = 1; i <= 80; i++) {
+    for (let i = 1; i <= OPT_SEARCH_ITERS; i++) {
       const gMid = 0.5 * (gLow + gHigh);
       const c = buildRecommendationCandidateDS(TUR_in, TUR_solve, reqAdjREOP, gMid, mu, LTL, UTL, XCAL);
       if (c.ok) {
@@ -1321,7 +1335,7 @@ export function recommendMitigationDS(TUR_in, REOP_current, TUR_solve, GB_L_cur,
     }
   }
 
-  if (cand.r.pPFA > reqPFA + REC_TOL) {
+  if (!pfaPassesAtDisplayedPrecision(cand.r.pPFA, reqPFA)) {
     RR.Status = "solution not found";
     return RR;
   }
@@ -1333,11 +1347,11 @@ export function recommendMitigationDS(TUR_in, REOP_current, TUR_solve, GB_L_cur,
   gHigh = 1;
 
   // Tighten: keep the largest g that still meets the PFA target.
-  for (let i = 1; i <= 80; i++) {
+  for (let i = 1; i <= OPT_SEARCH_ITERS; i++) {
     const gMid = 0.5 * (bestGB + gHigh);
     const c = buildRecommendationCandidateDS(TUR_in, TUR_solve, reqAdjREOP, gMid, mu, LTL, UTL, XCAL);
     if (c.ok) {
-      if (c.r.pPFA <= reqPFA + REC_TOL) {
+      if (pfaPassesAtDisplayedPrecision(c.r.pPFA, reqPFA)) {
         bestGB = gMid;
         bestREOP = c.recREOP;
         Rbest = c.r;
@@ -1387,16 +1401,17 @@ export function recommendMitigationDS(TUR_in, REOP_current, TUR_solve, GB_L_cur,
 //   End Function
 // Returns { ok, recREOP_single, activeGB, r }.
 export function buildRecommendationCandidateSS(TUR_in, TUR_solve, reqAdjREOP_single, g, activeUUT, mode, mu, XCAL) {
+  if (!(g >= 0 && g <= 1)) return { ok: false };
+  return buildRecommendationCandidateSSFromLimit(TUR_in, TUR_solve, reqAdjREOP_single, g * activeUUT, activeUUT, mode, mu, XCAL);
+}
+
+// Beta.7: BuildRecommendationCandidate_SS_FromLimit; the active limit is already
+// normalized after inward resolution rounding, so no multiplier is reconstructed.
+export function buildRecommendationCandidateSSFromLimit(TUR_in, TUR_solve, reqAdjREOP_single, activeGB, activeUUT, mode, mu, XCAL) {
   try {
     const muObs = mu + XCAL;
-
     if (!(reqAdjREOP_single > 0 && reqAdjREOP_single < 1)) return { ok: false };
     if (mode !== MODE_SS_UPPER && mode !== MODE_SS_LOWER) return { ok: false };
-    if (!(g >= 0 && g <= 1)) return { ok: false };
-
-    // Keeps the worksheet convention: upper limit positive, lower negative,
-    // GB ratio scales the active limit toward zero.
-    const activeGB = g * activeUUT;
 
     const sc_in = sigmaCalFromTUR(TUR_in);
     const sc_solve = sigmaCalFromTUR(TUR_solve);
@@ -1440,7 +1455,7 @@ export function recommendMitigationSS(TUR_in, REOP_current_single, TUR_solve, ac
       return RR;
     }
 
-    if (cand.r.pPFA <= reqPFA_single + REC_TOL) {
+    if (pfaPassesAtDisplayedPrecision(cand.r.pPFA, reqPFA_single)) {
       RR.Found = true;
       RR.recREOP = cand.recREOP_single;
       RR.recGB = 1;
@@ -1462,7 +1477,7 @@ export function recommendMitigationSS(TUR_in, REOP_current_single, TUR_solve, ac
 
     cand = buildRecommendationCandidateSS(TUR_in, TUR_solve, reqAdjREOP_single, gLow, activeUUT, mode, mu, XCAL);
     if (!cand.ok) {
-      for (let i = 1; i <= 80; i++) {
+      for (let i = 1; i <= OPT_SEARCH_ITERS; i++) {
         const gMid = 0.5 * (gLow + gHigh);
         const c = buildRecommendationCandidateSS(TUR_in, TUR_solve, reqAdjREOP_single, gMid, activeUUT, mode, mu, XCAL);
         if (c.ok) {
@@ -1481,7 +1496,7 @@ export function recommendMitigationSS(TUR_in, REOP_current_single, TUR_solve, ac
       }
     }
 
-    if (cand.r.pPFA > reqPFA_single + REC_TOL) {
+    if (!pfaPassesAtDisplayedPrecision(cand.r.pPFA, reqPFA_single)) {
       RR.Status = "solution not found";
       return RR;
     }
@@ -1492,11 +1507,11 @@ export function recommendMitigationSS(TUR_in, REOP_current_single, TUR_solve, ac
 
     gHigh = 1;
 
-    for (let i = 1; i <= 80; i++) {
+    for (let i = 1; i <= OPT_SEARCH_ITERS; i++) {
       const gMid = 0.5 * (bestGB + gHigh);
       const c = buildRecommendationCandidateSS(TUR_in, TUR_solve, reqAdjREOP_single, gMid, activeUUT, mode, mu, XCAL);
       if (c.ok) {
-        if (c.r.pPFA <= reqPFA_single + REC_TOL) {
+        if (pfaPassesAtDisplayedPrecision(c.r.pPFA, reqPFA_single)) {
           bestGB = gMid;
           bestREOP = c.recREOP_single;
           Rbest = c.r;
@@ -1533,14 +1548,26 @@ export function recommendMitigationSS(TUR_in, REOP_current_single, TUR_solve, ac
 // VBA:
 //   Private Function RiskTargetsMet(r As RiskResult, reqPFA As Double, reqAdjREOP As Double) As Boolean
 //       If Not r.OK Then RiskTargetsMet = False
-//       ElseIf r.pObs >= reqAdjREOP - REC_TOL And r.pPFA <= reqPFA + REC_TOL Then RiskTargetsMet = True
+//       ElseIf r.pObs >= reqAdjREOP - REC_TOL And pfaPassesAtDisplayedPrecision(r.pPFA, reqPFA) Then RiskTargetsMet = True
 //       Else RiskTargetsMet = False
 //       End If
 //   End Function
 export function riskTargetsMet(r, reqPFA, reqAdjREOP) {
   if (!r.OK) return false;
-  if (r.pObs >= reqAdjREOP - REC_TOL && r.pPFA <= reqPFA + REC_TOL) return true;
+  if (r.pObs >= reqAdjREOP - REC_TOL && pfaPassesAtDisplayedPrecision(r.pPFA, reqPFA)) return true;
   return false;
+}
+
+// ── Beta.7 › PFAHundredthsOfPercent / PFAPassesAtDisplayedPrecision ──────────
+// VBA: CLng(Int(Max(p,0) * 10000# + 0.5000000001)). This is half-up rounding
+// to 0.01 percentage points, not VBA Round's ties-to-even rule. The workbook
+// uses these integers ONLY for target acceptance. Preserve full-precision PFA
+// in all probability/interval outputs and subsequent numerical calculations.
+export function pfaHundredthsOfPercent(p) {
+  return Math.floor(Math.max(0, p) * 10000 + .5000000001);
+}
+export function pfaPassesAtDisplayedPrecision(actualPFA, requiredPFA) {
+  return pfaHundredthsOfPercent(actualPFA) <= pfaHundredthsOfPercent(requiredPFA);
 }
 
 // ── modRiskBackend › RecommendREOPOnly_DS ────────────────────────────────────
@@ -1549,8 +1576,9 @@ export function riskTargetsMet(r, reqPFA, reqAdjREOP) {
 //                                         mu, LTL, UTL, XCAL, reqPFA, reqAdjREOP) As RecResult
 //       ' Hold the current GB fixed. Bracket REOP in (1e-9, maxREOP_solve]; if
 //       ' the top of the range fails the targets -> "solution not found".
-//       ' 90-iter bisection for the minimum REOP meeting both targets. If the
-//       ' current REOP already complies, flag AlreadyCompliant.
+//       ' First 32-step search: lowest REOP meeting observed-reliability target.
+//       ' Second 32-step search only if PFA still fails at that lower boundary.
+//       ' Flag current interval retained only within 0.0000005 of current REOP.
 //   End Function
 export function recommendREOPOnlyDS(TUR_in, REOP_current, TUR_solve, GB_L_cur, GB_H_cur, mu, LTL, UTL, XCAL, reqPFA, reqAdjREOP) {
   const RR = newRecResult();
@@ -1575,6 +1603,16 @@ export function recommendREOPOnlyDS(TUR_in, REOP_current, TUR_solve, GB_L_cur, G
     }
 
     let lo = 0.000000001;
+    // Beta.7 first brackets the lowest internal reference REOP satisfying the
+    // observed/test-point REOP target, independent of PFA. The second search
+    // starts at that boundary; a single combined search is not equivalent.
+    for (let i = 1; i <= OPT_SEARCH_ITERS; i++) {
+      const mid = .5 * (lo + hi);
+      const Rmid = evaluateCaseDS(TUR_in, mid, TUR_solve, GB_L_cur, GB_H_cur, mu, LTL, UTL, XCAL);
+      if (Rmid.OK && Rmid.pObs >= reqAdjREOP - REC_TOL) hi = mid;
+      else lo = mid;
+    }
+    lo = hi;
     const Rlo = evaluateCaseDS(TUR_in, lo, TUR_solve, GB_L_cur, GB_H_cur, mu, LTL, UTL, XCAL);
 
     if (riskTargetsMet(Rlo, reqPFA, reqAdjREOP)) {
@@ -1583,13 +1621,15 @@ export function recommendREOPOnlyDS(TUR_in, REOP_current, TUR_solve, GB_L_cur, G
       RR.pObs = Rlo.pObs;
       RR.pPFA = Rlo.pPFA;
       RR.pPFR = Rlo.pPFR;
-      RR.Status = "solution found";
+      RR.AlreadyCompliant = Math.abs(lo - REOP_current) <= .0000005;
+      RR.Status = RR.AlreadyCompliant ? "solution found; current interval retained" : "solution found";
       return RR;
     }
 
+    hi = Math.min(Math.max(Rcur.maxREOP_solve, .000000001), .999999999);
     let Rbest = Rhi;
 
-    for (let i = 1; i <= 90; i++) {
+    for (let i = 1; i <= OPT_SEARCH_ITERS; i++) {
       const mid = 0.5 * (lo + hi);
       const Rmid = evaluateCaseDS(TUR_in, mid, TUR_solve, GB_L_cur, GB_H_cur, mu, LTL, UTL, XCAL);
 
@@ -1607,12 +1647,7 @@ export function recommendREOPOnlyDS(TUR_in, REOP_current, TUR_solve, GB_L_cur, G
     RR.pPFA = Rbest.pPFA;
     RR.pPFR = Rbest.pPFR;
 
-    if (riskTargetsMet(Rcur, reqPFA, reqAdjREOP)) {
-      RR.AlreadyCompliant = true;
-      RR.Status = "solution found; current inputs already compliant";
-    } else {
-      RR.Status = "solution found";
-    }
+    RR.Status = "solution found";
 
     return RR;
   } catch (e) {
@@ -1645,7 +1680,10 @@ export function recommendREOPOnlySS(TUR_in, REOP_current, TUR_solve, activeGB, a
     let lo = Math.max(minFeasible, 0.000000001);
     let hi = Math.min(maxFeasible, 0.999999999);
 
-    if (hi <= lo) throw _FAIL;
+    if (hi < lo) {
+      RR.Status = "solution not found";
+      return RR;
+    }
 
     const Rhi = evaluateCaseSS(TUR_in, hi, TUR_solve, activeGB, activeUUT, mode, mu, XCAL);
     if (!riskTargetsMet(Rhi, reqPFA, reqAdjREOP)) {
@@ -1657,6 +1695,15 @@ export function recommendREOPOnlySS(TUR_in, REOP_current, TUR_solve, activeGB, a
     // Avoid exact one-sided 50% when it is only an asymptotic solution.
     if (Math.abs(lo - 0.5) < 0.000000001) lo = lo + 0.000000001;
 
+    // Match Beta.7's two-stage search: find the observed-REOP-compliant lower
+    // edge, then (only if necessary) increase reference REOP to satisfy PFA.
+    for (let i = 1; i <= OPT_SEARCH_ITERS; i++) {
+      const mid = .5 * (lo + hi);
+      const candidate = evaluateCaseSS(TUR_in, mid, TUR_solve, activeGB, activeUUT, mode, mu, XCAL);
+      if (candidate.OK && candidate.pObs >= reqAdjREOP - REC_TOL) hi = mid;
+      else lo = mid;
+    }
+    lo = hi;
     let Rmid = evaluateCaseSS(TUR_in, lo, TUR_solve, activeGB, activeUUT, mode, mu, XCAL);
     if (riskTargetsMet(Rmid, reqPFA, reqAdjREOP)) {
       RR.Found = true;
@@ -1664,13 +1711,15 @@ export function recommendREOPOnlySS(TUR_in, REOP_current, TUR_solve, activeGB, a
       RR.pObs = Rmid.pObs;
       RR.pPFA = Rmid.pPFA;
       RR.pPFR = Rmid.pPFR;
-      RR.Status = "solution found";
+      RR.AlreadyCompliant = Math.abs(lo - REOP_current) <= .0000005;
+      RR.Status = RR.AlreadyCompliant ? "solution found; current interval retained" : "solution found";
       return RR;
     }
 
+    hi = Math.min(maxFeasible, .999999999);
     let Rbest = Rhi;
 
-    for (let i = 1; i <= 90; i++) {
+    for (let i = 1; i <= OPT_SEARCH_ITERS; i++) {
       const mid = 0.5 * (lo + hi);
       Rmid = evaluateCaseSS(TUR_in, mid, TUR_solve, activeGB, activeUUT, mode, mu, XCAL);
 
@@ -1688,12 +1737,7 @@ export function recommendREOPOnlySS(TUR_in, REOP_current, TUR_solve, activeGB, a
     RR.pPFA = Rbest.pPFA;
     RR.pPFR = Rbest.pPFR;
 
-    if (riskTargetsMet(Rcur, reqPFA, reqAdjREOP)) {
-      RR.AlreadyCompliant = true;
-      RR.Status = "solution found; current inputs already compliant";
-    } else {
-      RR.Status = "solution found";
-    }
+    RR.Status = "solution found";
 
     return RR;
   } catch (e) {
@@ -1794,25 +1838,29 @@ export function actualReferenceREOPForInterval(inputREOP, RBase) {
 // VBA:
 //   Private Sub GetRPairForInterval(modelCode As String, ByRef RBase As RiskResult, ByRef RFinal As RiskResult, _
 //                                   originalReferenceREOP As Double, targetReferenceREOP As Double, _
-//                                   ByRef originalR As Double, ByRef newTargetR As Double)
+//                                   useSingleSidedFloor As Boolean, ByRef originalR As Double, ByRef newTargetR As Double)
 //       Select Case modelCode
 //           Case "E2", "W2"
 //               originalR = RBase.pTrue : newTargetR = RFinal.pTrue
 //           Case Else
 //               originalR = RBase.pObs : newTargetR = RFinal.pObs
 //       End Select
+//       If useSingleSidedFloor Then originalR = 2*originalR-1 : newTargetR = 2*newTargetR-1
 //   End Sub
 // E2/W2 decay on the TRUE (population-in-tolerance) reliability; E1/W1 decay on
 // the OBSERVED (accepted) reliability. originalReferenceREOP/targetReferenceREOP
 // are in the VBA signature but unused by the body; returns { originalR, newTargetR }.
-export function getRPairForInterval(modelCode, RBase, RFinal, originalReferenceREOP, targetReferenceREOP) {
-  switch (modelCode) {
-    case "E2":
-    case "W2":
-      return { originalR: RBase.pTrue, newTargetR: RFinal.pTrue };
-    default:
-      return { originalR: RBase.pObs, newTargetR: RFinal.pObs };
+export function getRPairForInterval(modelCode, RBase, RFinal, originalReferenceREOP, targetReferenceREOP, useSingleSidedFloor = false) {
+  const useTrue = modelCode === "E2" || modelCode === "W2";
+  let originalR = useTrue ? RBase.pTrue : RBase.pObs;
+  let newTargetR = useTrue ? RFinal.pTrue : RFinal.pObs;
+  // Beta.7: single-sided exponential/Weibull aging acts on excess reliability
+  // q = 2R - 1, mapping R=1 to q=1 and the 50% asymptote to q=0.
+  if (useSingleSidedFloor) {
+    originalR = singleToEffectiveREOP(originalR);
+    newTargetR = singleToEffectiveREOP(newTargetR);
   }
+  return { originalR, newTargetR };
 }
 
 // ── modRiskBackend › ReadIntervalDecayModel (validation half) ────────────────
@@ -1851,6 +1899,7 @@ export function validateDecayModel(raw) {
 // ByVal flags produced by ReadIntervalDecayModel / ReadOriginalInterval /
 // ReadWeibullBeta. originalReferenceREOP/targetReferenceREOP are passed through
 // to GetRPairForInterval to match the VBA signature (unused there).
+// useSingleSidedFloor is true for Types 3/4; diffusion continues to use variance.
 export function intervalFromFinalRisk(
   modelCode,
   modelOK,
@@ -1864,7 +1913,8 @@ export function intervalFromFinalRisk(
   originalReferenceREOP,
   targetReferenceREOP,
   RBase,
-  RFinal
+  RFinal,
+  useSingleSidedFloor = false
 ) {
   if (!modelOK) return { ok: false, issue: modelIssue };
   if (!intervalInputOK) return { ok: false, issue: intervalIssue };
@@ -1882,7 +1932,8 @@ export function intervalFromFinalRisk(
     RBase,
     RFinal,
     originalReferenceREOP,
-    targetReferenceREOP
+    targetReferenceREOP,
+    useSingleSidedFloor
   );
 
   if (modelCode === "W1" || modelCode === "W2") {

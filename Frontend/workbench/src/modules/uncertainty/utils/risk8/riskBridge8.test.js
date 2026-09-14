@@ -175,7 +175,7 @@ describe("computeRiskRow8 end-to-end", () => {
     expect(computed).toBe(true);
     expect(out.tolType).toBe(5);
     expect(out.statusMit).toBe("OK");
-    expect(fields.PFA_With_GB).toBe(0.02);
+    expect(fields.PFA_With_GB).toBeCloseTo(0.02, 12);
     expect(typeof fields.GB_LL).toBe("number");
     expect(fields.REOP_At_Test_TUR).toBe("");
     expect(fields.Test_PFR).toBe("");

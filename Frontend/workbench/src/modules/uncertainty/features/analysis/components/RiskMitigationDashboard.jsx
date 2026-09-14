@@ -22,7 +22,7 @@ const RiskMitigationDashboard = ({ results, onShowBreakdown, activeModals = [] }
   const fmt = (v, p = 6) => (typeof v === "number" ? v.toPrecision(p) : "N/A");
 
   if (boundaryOnly) {
-    const isLower = typeof guardBand.GBLOW === "number";
+    const isLower = typeof guardBandInputs.uutLower === "number";
     const acceptanceLimit = isLower ? guardBand.GBLOW : guardBand.GBUP;
     const specLimit = isLower ? guardBandInputs.uutLower : guardBandInputs.uutUpper;
 
@@ -43,7 +43,7 @@ const RiskMitigationDashboard = ({ results, onShowBreakdown, activeModals = [] }
             </div>
             <div className="risk-spec">
               <span className="risk-spec-label">Required PFA</span>
-              <span className="risk-spec-value">{fmtPct(guardBand.GBPFA)}</span>
+              <span className="risk-spec-value">{fmtPct(guardBandInputs.reqPFA * 100)}</span>
             </div>
             <div className="risk-spec">
               <span className="risk-spec-label">Available Calculation</span>
@@ -54,12 +54,14 @@ const RiskMitigationDashboard = ({ results, onShowBreakdown, activeModals = [] }
 
         <RiskGauge
           label={isLower ? "Lower Acceptance Limit" : "Upper Acceptance Limit"}
+          active={isActive(isLower ? "gblow" : "gbhigh")} onClick={() => onShowBreakdown(isLower ? "gblow" : "gbhigh")}
           value={`${fmt(acceptanceLimit)} ${nativeUnit}`}
           accent="accent-guardband"
           note="Calculated from expanded uncertainty and the requested PFA."
         />
         <RiskGauge
           label="Probability of False Accept at Boundary"
+          active={isActive("gbpfa")} onClick={() => onShowBreakdown("gbpfa")}
           value={fmtPct(guardBand.GBPFA)}
           accent="accent-guardband"
           note="PFR, TUR, REOP, and calibration-interval recommendations require a measured value and remain N/A."
@@ -69,7 +71,7 @@ const RiskMitigationDashboard = ({ results, onShowBreakdown, activeModals = [] }
   }
 
   if (singleSidedKnown) {
-    const isLower = typeof guardBand.GBLOW === "number";
+    const isLower = typeof guardBandInputs.uutLower === "number";
     return (
       <div className="risk-dashboard">
         <section className="risk-inputs-panel">

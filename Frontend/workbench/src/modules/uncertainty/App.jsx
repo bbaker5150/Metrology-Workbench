@@ -1,3 +1,4 @@
+import { pfaPassesAtDisplayedPrecision } from "./utils/risk8/riskEngine8";
 import UiSettings, { isUiScaleLocked } from "../../shared/UiSettings";
 import { formatPointLimit, pointDisplayResolution } from "./utils/pointLimitDisplay";
 import PointColumnMenu from "./components/common/PointColumnMenu";
@@ -1120,6 +1121,7 @@ export const SidebarPointItem = ({
   };
 
   const getPfaColor = (val) => {
+    if (pfaPassesAtDisplayedPrecision(Number(val) / 100, pfaLimit / 100)) return "var(--status-good)";
     return lowerIsBetterColor(val, pfaLimit);
   };
 

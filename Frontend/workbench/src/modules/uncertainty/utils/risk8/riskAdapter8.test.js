@@ -82,7 +82,7 @@ describe("buildRisk8Contract — AVERAGE -> mu and field mapping", () => {
   test("REOP/PFA fields map through; reqReop defaults to reliability when blank", () => {
     const { input } = buildRisk8Contract({ ...appRow(), reopTarget: "" });
     expect(input.reop).toBe(0.9); // assumed REOP <- reliability
-    expect(input.pfaTarget).toBe(0.02); // <- reqPFA
+    expect(input.pfaTarget).toBeCloseTo(0.02, 12); // <- reqPFA
     expect(input.reopTarget).toBe(0.9); // defaults to reliability
     expect(input.tur).toBe(4);
     expect(input.initialGB).toBe(1);
@@ -159,7 +159,7 @@ describe("runRisk8FromApp end-to-end", () => {
       expect(meta.tolType).toBe(expectedType);
       expect(computed).toBe(true);
       expect(out.statusMit).toBe("OK");
-      expect(fields.PFA_With_GB).toBe(0.02);
+      expect(fields.PFA_With_GB).toBeCloseTo(0.02, 12);
       expect(typeof fields[boundaryField]).toBe("number");
       expect(fields.REOP_At_Test_TUR).toBe("");
       expect(fields.Test_PFR).toBe("");

@@ -1,3 +1,4 @@
+import vectors from "../../../utils/risk8/beta7Vectors.json";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { useRiskCalculation } from "./useRiskCalculation";
@@ -68,10 +69,11 @@ describe("useRiskCalculation single-sided validation", () => {
     });
     expect(result.current.riskResults.pfa).toBeCloseTo(2.07, 2);
     expect(result.current.riskResults.pfr).toBeCloseTo(3.18, 2);
-    expect(result.current.riskResults.gbPfa).toBeCloseTo(2.0, 2);
-    expect(result.current.riskResults.gbPfr).toBeCloseTo(3.21, 2);
-    expect(result.current.riskResults.gbCalInt).toBeCloseTo(11.5759, 3);
-    expect(result.current.riskResults.noGbCalInt).toBeCloseTo(11.2529, 3);
+    const expected = vectors.cases.find(v => v.id === 'physical/pressure').expected;
+    expect(result.current.riskResults.gbPfa).toBeCloseTo(expected.mitPfa * 100, 8);
+    expect(result.current.riskResults.gbPfr).toBeCloseTo(expected.mitPfr * 100, 8);
+    expect(result.current.riskResults.gbCalInt).toBeCloseTo(expected.gbInterval, 8);
+    expect(result.current.riskResults.noGbCalInt).toBeCloseTo(expected.intInterval, 8);
   });
 
   test("routes a Type 2 asymmetric UUT through the Risk 8.0 engine", async () => {
@@ -112,7 +114,7 @@ describe("useRiskCalculation single-sided validation", () => {
     });
     expect(result.current.riskResults.pfa).toBeCloseTo(3.42, 1);
     expect(result.current.riskResults.pfr).toBeCloseTo(7.69, 1);
-    expect(result.current.riskResults.gbResults.GBPFA).toBeCloseTo(2, 3);
+    expect(result.current.riskResults.gbResults.GBPFA).toBeCloseTo(2.005, 7);
   });
 
   test("calculates a direct 2 V point with a known ≥1 V lower limit", async () => {

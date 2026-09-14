@@ -14,7 +14,7 @@
  *   1. AVERAGE -> mu.  8.0 centers the UUT truth distribution with a normalized
  *      UUT bias `mu` and cal bias `xcal` (both in units of the tolerance
  *      half-span). We map the app's measured operating point (riskAverage) to
- *      mu by normalizing its offset from the tolerance center:
+ *      mu by normalizing its offset from nominal:
  *          mu = (riskAverage - center) / halfSpan
  *      and default xcal to calBias/halfSpan (0 unless a cal-bias field is set).
  *      For a symmetric, centered, no-MC point this is 0 — identical to today.
@@ -27,10 +27,11 @@
  *      pass them as `assumedReop` and `requiredReop`; the legacy
  *      `reliability`/`reopTarget` names remain as compatibility fallbacks only.
  *
- * FLAG (asymmetric): the mu reference for asymmetric (type 2) tolerances uses
- * the tolerance midpoint, same as symmetric. The engine represents asymmetry via
- * the delta term (LTL=delta-1, UTL=delta+1), so the exact physical reference for
- * mu in the asymmetric case should be confirmed against the workbook front end.
+ * Coordinate origin: nominal is zero for both symmetric and asymmetric cases.
+ * Type 2 uses delta=(L+U-2N)/(U-L), LTL=delta-1, UTL=delta+1.
+ * Changing nominal while preserving the same physical mean changes mu and delta
+ * together. Guardband contraction is about the tolerance midpoint, preserving
+ * physical equivalence (covered by the Beta.7 paired regression cases).
  */
 
 import { computeRiskRow8 } from "./riskBridge8";
@@ -151,7 +152,7 @@ export function buildRisk8Contract(appInputs) {
   const frame = normalizeToleranceFrame(tolType, nominal, lowerLimit, upperLimit);
 
   // AVERAGE -> mu: normalized offset of the measured average from the tolerance
-  // center. xcal: normalized cal bias. Both 0 when there is no usable frame.
+  // nominal. xcal: normalized cal bias. Both 0 when there is no usable frame.
   let mu = "";
   let xcal = "";
   if (frame) {
@@ -191,6 +192,7 @@ export function buildRisk8Contract(appInputs) {
       !measurementUnknown && Number.isFinite(reqReop) ? reqReop : "",
     decayModel: isBlankCell(appInputs.decayModel) ? "" : String(appInputs.decayModel),
     weibullBeta: isBlankCell(appInputs.weibullBeta) ? "" : num(appInputs.weibullBeta),
+    resolution: isBlankCell(appInputs.resolution) ? "" : num(appInputs.resolution),
   };
 
   return {

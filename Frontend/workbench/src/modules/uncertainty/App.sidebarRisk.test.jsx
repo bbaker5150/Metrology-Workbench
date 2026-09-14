@@ -877,6 +877,16 @@ describe("measurement-point Risk 8 metric interactions", () => {
     expect(screen.getByTitle("3.1")).toHaveStyle({ color: "var(--status-warning)" });
   });
 
+  test("uses the same displayed PFA precision as mitigation", () => {
+    const common = { point: { id: 'rounded-pfa', testPointInfo: { parameter: { value: 1, unit: 'V' } },
+      riskMetrics: { pfa: 2.0049 } }, visibleColumns: { pfa: true }, onSelect: vi.fn(), onSave: vi.fn(),
+      riskRequirements: { reqPFA: 2 } };
+    const { rerender } = render(<SidebarPointItem {...common} />);
+    expect(screen.getByTitle('2.0049')).toHaveStyle({ color: 'var(--status-good)' });
+    rerender(<SidebarPointItem {...common} point={{ ...common.point, riskMetrics: { pfa: 2.005 } }} />);
+    expect(screen.getByTitle('2.005')).toHaveStyle({ color: 'var(--status-warning)' });
+  });
+
   test("does not show a Risk 8 badge and Ctrl-click requests the PFA breakdown", () => {
     const onSelect = vi.fn();
     const onShowRiskBreakdown = vi.fn();

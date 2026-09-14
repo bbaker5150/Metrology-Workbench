@@ -596,6 +596,8 @@ export function computePointRiskMetrics(
     LLow,
     LUp,
   );
+  // Invalid geometry must not fall through to the retired probability managers.
+  if (!knownSingleSided && !knownTwoSided) return null;
   if (knownSingleSided || knownTwoSided) {
     const sharedRisk8Inputs = {
       nominal: nominalValue,

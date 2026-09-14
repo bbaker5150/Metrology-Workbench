@@ -194,10 +194,10 @@ export const useRiskCalculation = (
         publishRiskMetrics(null);
         return;
       }
-      if (isNaN(reliability) || reliability <= 0 || reliability >= 1) return;
+      if (isNaN(reliability) || reliability <= 0 || reliability >= 1) { publishRiskMetrics(null); return; }
     } else {
       if (!hasLowerLimit || !hasUpperLimit || LUp === LLow) return;
-      if (isNaN(reliability) || reliability <= 0 || reliability >= 1) return;
+      if (isNaN(reliability) || reliability <= 0 || reliability >= 1) { publishRiskMetrics(null); return; }
     }
     setNotification(null);
     if (!calcResults) {
@@ -265,7 +265,7 @@ export const useRiskCalculation = (
         resolution: safeRes,
       });
       const summary = toUnknownMeasurementSummary(boundary);
-      if (!summary) return;
+      if (!summary) { publishRiskMetrics(null); return; }
 
       const gbInputs = {
         nominal: undefined,
@@ -379,6 +379,8 @@ export const useRiskCalculation = (
       LUp,
     );
 
+    // Invalid geometry must not fall through to the retired probability managers.
+    if (!knownSingleSided && !knownTwoSided) { publishRiskMetrics(null); return; }
     if (knownSingleSided || knownTwoSided) {
       const safeRes = resolveResolutionNative(uutToleranceData, nominalUnit);
       const sharedRisk8Inputs = {
@@ -405,7 +407,7 @@ export const useRiskCalculation = (
             upperLimit: LUp,
           });
       const summary = toKnownMeasurementSummary(risk8Result);
-      if (!summary) return;
+      if (!summary) { publishRiskMetrics(null); return; }
 
       const gbInputs = {
         nominal: parseFloat(uutNominal.value),
@@ -440,8 +442,8 @@ export const useRiskCalculation = (
         ...summary,
         LLow: risk8Result.lowerLimit,
         LUp: risk8Result.upperLimit,
-        ALow: summary.gbLow,
-        AUp: summary.gbHigh,
+        ALow: summary.ALow,
+        AUp: summary.AUp,
         riskAverage,
         tmdeLimits,
         tar: tmdeLimits.span > 0 && Number.isFinite(Number(tarResult)) ? Number(tarResult) : undefined,

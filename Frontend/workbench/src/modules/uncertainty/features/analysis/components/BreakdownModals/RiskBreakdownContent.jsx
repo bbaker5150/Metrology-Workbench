@@ -69,7 +69,7 @@ const LegacyMetricBreakdown = ({
       <p>
         <strong>{title}: {safeFixed(value, 4)}%</strong>
       </p>
-      {status && <p>Engine status: {status}</p>}
+
     </div>
   </div>
 );

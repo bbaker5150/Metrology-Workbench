@@ -29,7 +29,7 @@ describe("unknown-measurement Risk 8.0 app wiring", () => {
 
     expect(boundary.computed).toBe(true);
     expect(boundary.out.statusMit).toBe("OK");
-    expect(boundary.fields.PFA_With_GB).toBe(0.02);
+    expect(boundary.fields.PFA_With_GB).toBeCloseTo(0.015541776764677828, 12);
     expect(typeof boundary.fields[active]).toBe("number");
     expect(boundary.fields[inactive]).toBe("");
     expect(boundary.fields.Test_PFA).toBe("");
@@ -46,8 +46,8 @@ describe("unknown-measurement Risk 8.0 app wiring", () => {
       })
     );
 
-    expect(summary.pfa).toBe(2);
-    expect(summary.gbPfa).toBe(2);
+    expect(summary.pfa).toBeCloseTo(2, 12);
+    expect(summary.gbPfa).toBeCloseTo(2, 12);
     expect(summary.gbLow).toBeTypeOf("number");
     expect(summary.pfr).toBeUndefined();
     expect(summary.tur).toBeUndefined();

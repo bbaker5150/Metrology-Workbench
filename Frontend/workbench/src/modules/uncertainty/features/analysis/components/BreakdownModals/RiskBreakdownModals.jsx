@@ -42,6 +42,7 @@ const RiskBreakdownModal = ({ isOpen, onClose, modalType, data }) => {
 
   const { title, Component } = config;
   const isKnownMeasurementRisk8 =
+    results?.riskMethod === "risk8-pfa-boundary" ||
     results?.riskMethod === "risk8-single-sided-known" ||
     results?.riskMethod === "risk8-two-sided-symmetric" ||
     results?.riskMethod === "risk8-two-sided-asymmetric";

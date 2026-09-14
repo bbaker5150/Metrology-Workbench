@@ -10,6 +10,7 @@
 import { runRisk8FromApp } from "./riskAdapter8";
 import { getSingleSidedTolerance } from "./unknownMeasurementRisk8";
 import {
+  guardbandFromRatio,
   evaluateCaseDS,
   evaluateCaseSS,
   getRPairForInterval,
@@ -186,8 +187,7 @@ export function buildKnownTwoSidedDiagnostics(result) {
   const initialGB = safeInitialGB(input.initialGB);
   const LTL = delta - 1;
   const UTL = delta + 1;
-  const GBL = initialGB * LTL;
-  const GBH = initialGB * UTL;
+  const { GB_L: GBL, GB_H: GBH } = guardbandFromRatio(LTL, UTL, initialGB);
 
   if (
     !(tur > 0) ||
@@ -217,8 +217,10 @@ export function buildKnownTwoSidedDiagnostics(result) {
           tur,
           Number(out.mitReop),
           turSolve,
-          Number(out.gbMult) * LTL,
-          Number(out.gbMult) * UTL,
+          // Rounded physical limits are authoritative; a width ratio alone
+          // loses the small midpoint shift introduced by the resolution grid.
+          (Number(out.physGbLower) - Number(input.nominal)) / result.meta.frame.halfSpan,
+          (Number(out.physGbUpper) - Number(input.nominal)) / result.meta.frame.halfSpan,
           mu,
           LTL,
           UTL,
@@ -431,11 +433,11 @@ export function buildKnownMeasurementDiagnostics(result, direction) {
   const model = validateDecayModel(input.decayModel);
   const gbIntervalPair =
     guardbandIntervalRisk?.OK && model.ok
-      ? getRPairForInterval(model.modelCode, core, guardbandIntervalRisk)
+      ? getRPairForInterval(model.modelCode, core, guardbandIntervalRisk, undefined, undefined, true)
       : null;
   const reopOnlyIntervalPair =
     reopOnly?.OK && model.ok
-      ? getRPairForInterval(model.modelCode, core, reopOnly)
+      ? getRPairForInterval(model.modelCode, core, reopOnly, undefined, undefined, true)
       : null;
 
   return {
@@ -461,8 +463,34 @@ export function buildKnownMeasurementDiagnostics(result, direction) {
   };
 }
 
+/** Physical distribution used by the decision visualization. A guardband view
+ * must use the recommended population spread as well as the rounded limits;
+ * displaying core spread with recommended risks mixes two different states. */
+export function toKnownRiskDistribution(result, withGuardband = false) {
+  const frame = result?.meta?.frame;
+  const diagnostics = result?.diagnostics;
+  const state = withGuardband ? diagnostics?.recommended : diagnostics?.core;
+  if (result?.out?.statusCore !== 'OK' || !frame || !state?.OK) return {};
+  const half = frame.halfSpan, center = frame.center;
+  const twoSided = result.out.tolType <= 2;
+  return {
+    uUUT: state.su * half,
+    uDev: state.sobs_in * half,
+    riskCalSigma: state.sc_in * half,
+    correlation: state.sobs_in > 0 ? state.su / state.sobs_in : undefined,
+    trueMean: center + diagnostics.mu * half,
+    observedMean: center + diagnostics.muObserved * half,
+    ALow: withGuardband ? (finite(result.out.physGbLower) ? Number(result.out.physGbLower) : undefined)
+      : twoSided ? center + diagnostics.GBL * half
+        : result.out.tolType === 3 ? center + diagnostics.activeGB * half : undefined,
+    AUp: withGuardband ? (finite(result.out.physGbUpper) ? Number(result.out.physGbUpper) : undefined)
+      : twoSided ? center + diagnostics.GBH * half
+        : result.out.tolType === 4 ? center + diagnostics.activeGB * half : undefined,
+  };
+}
+
 export function toKnownMeasurementSummary(result) {
-  if (!result?.computed || result.out?.statusCore !== "OK") return null;
+  if (!result?.computed) return null;
 
   const { out } = result;
   const riskMethod =
@@ -472,8 +500,9 @@ export function toKnownMeasurementSummary(result) {
         ? "risk8-two-sided-asymmetric"
         : "risk8-single-sided-known";
   return {
+    ...toKnownRiskDistribution(result),
     riskMethod,
-    riskAvailability: "full",
+    riskAvailability: out.statusCore === "OK" ? "full" : "unavailable",
     pfa: percent(out.pfa),
     pfr: percent(out.pfr),
     tur: finite(result.tur) ? Number(result.tur) : undefined,
@@ -487,9 +516,11 @@ export function toKnownMeasurementSummary(result) {
     gbPfr: percent(out.mitPfr),
     gbCalInt: finite(out.gbInterval) ? Number(out.gbInterval) : undefined,
     gbMeasRel: percent(out.mitReop),
+    gbObservedReop: percent(out.mitObs),
     noGbPfa: percent(out.intPfa),
     noGbPfr: percent(out.intPfr),
     noGbCalInt: finite(out.intInterval) ? Number(out.intInterval) : undefined,
     noGbMeasRel: percent(out.intReop),
+    noGbObservedReop: percent(out.intObs),
   };
 }

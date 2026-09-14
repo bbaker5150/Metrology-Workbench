@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import vectors from "./beta7Vectors.json";
 import {
   computeKnownAsymmetricRisk8,
   computeKnownMeasurementRisk8,
@@ -90,9 +91,12 @@ describe("known-measurement Risk 8.0 app wiring", () => {
     expect(summary.observedReop).toBeCloseTo(82.7849872, 6);
     expect(summary.pfa).toBeCloseTo(3.42532438, 6);
     expect(summary.pfr).toBeCloseTo(7.69587381, 6);
-    expect(summary.gbMult).toBeCloseTo(92.7030237, 6);
-    expect(summary.gbPfa).toBeCloseTo(2.00005, 6);
-    expect(summary.gbPfr).toBeCloseTo(9.84364898, 6);
+    const expected = vectors.cases.find(v => v.id === 'physical/asymmetric-voltage').expected;
+    expect(summary.gbMult).toBeCloseTo(expected.gbMult * 100, 8);
+    expect(summary.gbPfa).toBeCloseTo(expected.mitPfa * 100, 8);
+    expect(summary.gbPfr).toBeCloseTo(expected.mitPfr * 100, 8);
+    expect(result.diagnostics.recommended.pPFA).toBeCloseTo(expected.mitPfa, 10);
+
   });
 
   test("reproduces the workbook Type 1 pressure mitigation row", () => {
@@ -119,13 +123,13 @@ describe("known-measurement Risk 8.0 app wiring", () => {
     expect(summary.observedReop).toBeCloseTo(84.59, 2);
     expect(summary.pfa).toBeCloseTo(2.07, 2);
     expect(summary.pfr).toBeCloseTo(3.18, 2);
-    expect(summary.gbMult).toBeCloseTo(99.78, 2);
-    expect(summary.gbPfa).toBeCloseTo(2.0, 2);
-    expect(summary.gbPfr).toBeCloseTo(3.21, 2);
-    expect(summary.gbCalInt).toBeCloseTo(11.5759, 3);
-    expect(summary.gbMeasRel).toBeCloseTo(result.out.mitReop * 100, 10);
-    expect(summary.noGbPfa).toBeCloseTo(2.0, 2);
-    expect(summary.noGbPfr).toBeCloseTo(3.12, 2);
-    expect(summary.noGbCalInt).toBeCloseTo(11.2529, 3);
+    const expected = vectors.cases.find(v => v.id === 'physical/pressure').expected;
+    for (const [field, key] of Object.entries({gbMult:'gbMult', gbPfa:'mitPfa', gbPfr:'mitPfr',
+      gbMeasRel:'mitReop', noGbPfa:'intPfa', noGbPfr:'intPfr'})) {
+      expect(summary[field], field).toBeCloseTo(expected[key] * 100, 8);
+    }
+    expect(summary.gbCalInt).toBeCloseTo(expected.gbInterval, 8);
+    expect(summary.noGbCalInt).toBeCloseTo(expected.intInterval, 8);
+
   });
 });

@@ -6,11 +6,10 @@
  * RB_CopyScratchOutputsToMain / ...ToRiskTable).
  *
  * In the workbook this layer reads a row of tblMain, copies the inputs onto a
- * hidden fixed-column scratch row, runs ComputeOneRow, snaps the physical guard-
- * band limits to the UUT's measuring resolution, then writes the outputs back to
+ * hidden fixed-column scratch row, runs ComputeOneRow (including resolution and risk recalculation), then writes outputs back to
  * tblMain and tblRisk. This module is the pure equivalent: it takes the
  * fixed-column input object (see computeOneRow8.js), applies the same minimum-
- * input gate and resolution snap, and returns the outputs both raw and keyed by
+ * input gate and integrated resolution calculation, and returns the outputs both raw and keyed by
  * the workbook's MAIN/RISK column names.
  *
  * NOTE (for the reviewer): this module deliberately does NOT compute TUR or
@@ -53,6 +52,8 @@ export const RISK8_OUTPUT_FIELD_MAP = Object.freeze({
   physGbUpper: "GB_UL",
   mitPfa: "PFA_With_GB",
   mitPfr: "PFR_With_GB",
+  mitObs: "Observed_REOP_With_GB",
+  intObs: "Observed_REOP_Interval_Only",
   gbInterval: "Interval_With_GB",
   mitReop: "Target_REOP_With_GB",
   intPfa: "PFA_REOP_Only",
@@ -66,7 +67,7 @@ export const RISK8_OUTPUT_FIELD_MAP = Object.freeze({
 // is complete enough to compute; if not, the workbook clears the row's risk
 // outputs and deletes its RISK record.
 //
-// APPROVED BETA.4 BRIDGE CORRECTION: the workbook's literal bridge requires TUR,
+// APPROVED BRIDGE CORRECTION (still needed in Beta.7): the workbook's literal bridge requires TUR,
 // Assumed_REOP, PFA_Required and REOP_Required for every type. Its dedicated
 // HandleUnknownMeasuredValue path, however, requires TUR to be blank and only
 // consumes ExpandedUncertainty (U_cal), the active physical limit, and the PFA
@@ -74,7 +75,7 @@ export const RISK8_OUTPUT_FIELD_MAP = Object.freeze({
 // handler is authoritative. We therefore validate unknown-measurement rows
 // against the inputs that handler actually uses, before applying the generic
 // TUR/REOP gate to types 1-4. This is a deliberate, documented correction to
-// Beta.4's unreachable MAIN-table path, not an unreviewed math change.
+// Beta.7's unreachable MAIN-table path, not an unreviewed math change.
 export function rowHasMinimumRiskInputs(input) {
   // The workbook reads MAIN.TolType (written by the tolerance form). We derive
   // the same type from the physical limits so the gate is self-contained.
@@ -136,6 +137,8 @@ export function rowHasMinimumRiskInputs(input) {
 // (inward), the upper limit rounds DOWN (inward). If the snapped limits cross,
 // both are replaced with "resolution too coarse". Non-numeric GB cells (e.g.
 // "check inputs") and a missing/invalid resolution are left untouched.
+// Historical standalone rounding utility; not called by the Beta.7 bridge.
+// Rounding after the risk solve would leave stale probabilities and intervals.
 // Mutates and returns `out`.
 export function applyResolutionToGB(out, resolution) {
   if (isBlankCell(resolution) || !isNumericCell(resolution)) return out;
@@ -182,8 +185,8 @@ export function toMainRiskFields(out) {
 /**
  * computeRiskRow8 — pure equivalent of ComputeRiskForMainRow.
  *
- * Applies the minimum-input gate, runs ComputeOneRow, snaps the physical guard
- * band to `resolution`, and returns both the raw output object and the
+ * Applies the minimum-input gate and runs ComputeOneRow with resolution,
+ * returning both the raw output object and the
  * MAIN/RISK-named field object.
  *
  * @param {object} input        fixed-column inputs (see computeOneRow8.js)
@@ -201,8 +204,7 @@ export function computeRiskRow8(input, options = {}) {
     return { out: cleared, fields: toMainRiskFields(cleared), computed: false };
   }
 
-  const out = computeOneRow(input);
-  applyResolutionToGB(out, resolution);
+  const out = computeOneRow({ ...input, resolution: resolution ?? input.resolution });
 
   return { out, fields: toMainRiskFields(out), computed: true };
 }

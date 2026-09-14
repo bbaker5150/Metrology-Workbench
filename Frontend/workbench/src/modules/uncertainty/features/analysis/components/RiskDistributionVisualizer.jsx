@@ -1,3 +1,5 @@
+import { toKnownRiskDistribution } from "../../../utils/risk8/knownMeasurementRisk8";
+import { pfaPassesAtDisplayedPrecision } from "../../../utils/risk8/riskEngine8";
 import React, { useEffect, useId, useMemo, useState } from "react";
 import {
   drawFromQuantiles,
@@ -38,7 +40,7 @@ const pfaStatus = (value, requiredPercent = 2) => {
   if (!Number.isFinite(parsed)) return "muted";
   const configured = Number(requiredPercent);
   const limit = Number.isFinite(configured) && configured >= 0 ? configured : 2;
-  if (parsed <= limit) return "good";
+  if (pfaPassesAtDisplayedPrecision(parsed / 100, limit / 100)) return "good";
   if (parsed > Math.max(limit * 2.5, limit + 3)) return "bad";
   return "warning";
 };
@@ -309,7 +311,7 @@ const MC_OUTCOMES = [
 ];
 
 const RiskDistributionVisualizer = ({
-  results,
+  results: suppliedResults,
   calcResults,
   onShowBreakdown,
   activeModals = [],
@@ -317,6 +319,10 @@ const RiskDistributionVisualizer = ({
   const gradientId = useId().replace(/:/g, "");
   const [mode, setMode] = useState("decision");
   const [showGuardband, setShowGuardband] = useState(false);
+  const results = useMemo(() => {
+    const physical = toKnownRiskDistribution(suppliedResults.risk8, showGuardband);
+    return { ...suppliedResults, ...physical, uCal: physical.riskCalSigma ?? suppliedResults.uCal };
+  }, [suppliedResults, showGuardband]);
   const [riskZoom, setRiskZoom] = useState(1);
   const [mcZoom, setMcZoom] = useState(1);
   const [componentZoom, setComponentZoom] = useState(1);
@@ -348,6 +354,8 @@ const RiskDistributionVisualizer = ({
     results.nominalValue,
     (finite(results.LLow) + finite(results.LUp)) / 2,
   );
+  const trueMean = finite(results.trueMean, nominal);
+  const observedMean = finite(results.observedMean, nominal);
   const toleranceLow = finite(results.LLow);
   const toleranceHigh = finite(results.LUp);
   const acceptanceLow = guardbandEnabled
@@ -377,14 +385,14 @@ const RiskDistributionVisualizer = ({
 
     const truePoints = buildCurve({
       kind: "normal",
-      center: nominal,
+      center: trueMean,
       spread: trueSigma,
       domainLow: low,
       domainHigh: high,
     });
     const observedPoints = buildCurve({
       kind: "normal",
-      center: nominal,
+      center: observedMean,
       spread: observedSigma,
       domainLow: low,
       domainHigh: high,
@@ -395,8 +403,8 @@ const RiskDistributionVisualizer = ({
     // itself, which is the joint event of one of these still reading inside
     // acceptance.
     const pOOT =
-      (normCdf((toleranceLow - nominal) / trueSigma) +
-        (1 - normCdf((toleranceHigh - nominal) / trueSigma))) *
+      (normCdf((toleranceLow - trueMean) / trueSigma) +
+        (1 - normCdf((toleranceHigh - trueMean) / trueSigma))) *
       100;
 
     // ±U decision-risk zones around each acceptance limit: the band where
@@ -433,7 +441,7 @@ const RiskDistributionVisualizer = ({
       truePath: curvePath(truePoints, toX, 0.82),
       observedPath: curvePath(observedPoints, toX, 1),
     };
-  }, [acceptanceHigh, acceptanceLow, nominal, results, toleranceHigh, toleranceLow]);
+  }, [acceptanceHigh, acceptanceLow, nominal, trueMean, observedMean, results, toleranceHigh, toleranceLow]);
 
   // Joint simulation behind the 9-quadrant plot: each trial draws a true UUT
   // error, then observes it through the calibration uncertainty. Comparing
@@ -481,11 +489,11 @@ const RiskDistributionVisualizer = ({
       // Box-Muller transform: two independent standard normal draws.
       const radius = Math.sqrt(-2 * Math.log(1 - rand()));
       const angle = 2 * Math.PI * rand();
-      const trueError = trueSigma * radius * Math.cos(angle);
+      const trueError = trueSigma * radius * Math.cos(angle) + (errorQuantiles ? 0 : trueMean - nominal);
       const measurementError = errorQuantiles
         ? drawFromQuantiles(errorQuantiles, rand())
         : calSigma * radius * Math.sin(angle);
-      const observedError = trueError + measurementError;
+      const observedError = trueError + measurementError + (errorQuantiles ? 0 : observedMean - trueMean);
       const inTolerance = trueError >= tolLow && trueError <= tolHigh;
       const accepted = observedError >= accLow && observedError <= accHigh;
       const outcome = inTolerance
@@ -543,7 +551,7 @@ const RiskDistributionVisualizer = ({
       correlation: finite(results.correlation, trueSigma / observedSigma),
       empirical: Boolean(errorQuantiles),
     };
-  }, [acceptanceHigh, acceptanceLow, nominal, results, toleranceHigh, toleranceLow]);
+  }, [acceptanceHigh, acceptanceLow, nominal, trueMean, observedMean, results, toleranceHigh, toleranceLow]);
 
   const componentChart = useMemo(() => {
     if (!selectedComponent) return null;
