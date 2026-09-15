@@ -1477,9 +1477,9 @@ it("uses the current point for an equation row even when a copied result contain
   const { rerender } = render(<UncertaintyBudgetTable {...props} />);
   fireEvent.click(document.querySelector('.dynamic-tolerance-cell button'));
   expect(document.querySelector('.dynamic-bound-value')).toHaveTextContent('4 °F');
-  expect(screen.getByRole('status')).toHaveTextContent('0.4 degF');
+  expect(screen.getByRole('status')).toHaveTextContent('0.4 °F');
   expect(document.querySelector('.budget-standard-uncertainty')).toHaveTextContent('0.4 °F');
   rerender(<UncertaintyBudgetTable {...props} referencePoint={{ value: 7, unit: 'degF' }} />);
   expect(document.querySelector('.dynamic-bound-value')).toHaveTextContent('7 °F');
-  expect(screen.getByRole('status')).toHaveTextContent('0.7 degF');
+  expect(screen.getByRole('status')).toHaveTextContent('0.7 °F');
 });

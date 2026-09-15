@@ -181,7 +181,16 @@ export default function DynamicBudgetComponentRow({
     </div>
   );
   return (
-    <tr ref={rowRef} className={`budget-dynamic-row budget-inline-manual-row${editing ? " is-editing" : ""}${preview.pendingReason ? " has-warning" : ""}`}
+    <tr ref={rowRef} className={`budget-dynamic-row budget-inline-manual-row${editorActive ? ` is-editing is-editing-${editing ? "tolerance" : naming ? "name" : "distribution"}` : ""}${preview.pendingReason ? " has-warning" : ""}`}
+      onClick={event => {
+        // Match manual rows: cell whitespace is an edit target too. Explicit
+        // controls (especially remove/reorder) retain their own behavior.
+        if (editorActive || event.target.closest("button, input, select, textarea, .action-cell, .budget-order-controls")) return;
+        const cell = event.target.closest("td")?.cellIndex;
+        if (cell === 0) setNaming(true);
+        else if (cell === 2) setDistributionEditing(true);
+        else openEditor();
+      }}
       onKeyDown={event => {
         if (event.defaultPrevented || isEditorPortal(event.target)) return;
         if (event.key === "Escape") {

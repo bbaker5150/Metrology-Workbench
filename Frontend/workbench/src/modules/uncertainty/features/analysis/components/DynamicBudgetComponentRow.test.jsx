@@ -155,7 +155,7 @@ it.each(["Enter", "collapse"])("saves a symmetric table limit and distribution o
   else fireEvent.click(screen.getByRole('button', { name: 'Outside' }));
   await waitFor(() => expect(onCommit).toHaveBeenCalledOnce());
   expect(onCommit.mock.calls[0][0]).toMatchObject({ mode: 'tolerance', distribution: '1.732' });
-  expect(document.querySelector('.dynamic-tolerance-cell button')).toHaveTextContent('± 0.2 degF');
+  expect(document.querySelector('.dynamic-tolerance-cell button')).toHaveTextContent('± 0.2 °F');
   expect(document.querySelector('.budget-standard-uncertainty')).toHaveTextContent('0.115473 °F');
 });
 
@@ -175,4 +175,29 @@ it("keeps the saved error limit visible when distribution is selected after Ente
   expect(document.querySelector('.dynamic-tolerance-cell button')).toHaveTextContent('± 0.2 V');
   expect(document.querySelector('.budget-standard-uncertainty')).toHaveTextContent('0.1 V');
   expect(commit.mock.calls.at(-1)[0].rows[0]).toMatchObject({ point: 0, values: { [definition.columns[0].id]: { value: '.2' } } });
+});
+
+
+it.each(["table", "equation"])("opens collapsed %s rows from cell whitespace and highlights only active editors", async kind => {
+  const definition = createDynamicDefinition(kind, { value: 1, unit: 'degF' });
+  const remove = vi.fn(), move = vi.fn();
+  render(<><button>Outside</button><table><tbody><DynamicBudgetComponentRow component={createDynamicComponent(definition)}
+    referencePoint={{ value: 1, unit: 'degF' }} onCommit={vi.fn()} onRemove={remove} onMoveUp={move} /></tbody></table></>);
+  const row = document.querySelector('.budget-dynamic-row');
+  expect(row).not.toHaveClass('is-editing');
+  for (const index of [0, 1, 2, 3, 4]) {
+    fireEvent.click(row.cells[index]);
+    expect(row).toHaveClass('is-editing');
+    if (index === 0) expect(screen.getByLabelText('Error source name')).toBeInTheDocument();
+    else if (index === 2) expect(screen.getByLabelText('Error limit distribution')).toBeInTheDocument();
+    else expect(screen.getByRole('group', { name: `${kind === 'table' ? 'Tabular' : 'Equation'} uncertainty editor` })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Outside' }));
+    await waitFor(() => expect(row).not.toHaveClass('is-editing'));
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Move component up' }));
+  expect(move).toHaveBeenCalledOnce();
+  expect(row).not.toHaveClass('is-editing');
+  fireEvent.click(screen.getByRole('button', { name: 'Remove dynamic component' }));
+  expect(remove).toHaveBeenCalledOnce();
+  expect(row).not.toHaveClass('is-editing');
 });

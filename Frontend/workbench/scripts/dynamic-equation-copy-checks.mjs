@@ -24,7 +24,10 @@ export async function checkDynamicEquationCopies({ frame, page, saved, until, ch
   if (await expand.count()) await expand.first().click();
   const points = frame.locator('.point-grid-item');
   const selectPoint = async row => { await row.locator('.point-value-number').click(); await page.keyboard.press('Escape'); };
-  const outside = () => frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
+  const outside = async () => {
+    await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
+    await frame.locator('.dynamic-budget-editor').first().waitFor({ state: 'hidden' });
+  };
   await selectPoint(points.first());
   await frame.getByRole('button', { name: 'Add component to budget', exact: true }).last().click();
   await frame.getByRole('button', { name: 'Add equation uncertainty', exact: true }).click();
@@ -66,8 +69,10 @@ export async function checkDynamicEquationCopies({ frame, page, saved, until, ch
   await frame.getByTitle('Asymmetric tolerance', { exact: true }).last().click();
   await frame.getByTitle('Symmetric tolerance', { exact: true }).last().click();
   await frame.getByLabel('Uncertainty row 1', { exact: true }).press('Enter');
-  check('Enter retains the authored tabular error limit before distribution is selected', await tableRow.locator('.dynamic-tolerance-cell button').innerText() === '± 0.2 degF');
+  check('Enter retains the authored tabular error limit before distribution is selected', await tableRow.locator('.dynamic-tolerance-cell button').innerText() === '± 0.2 °F');
+  check('a collapsed incomplete component has no selection stripe', await tableRow.evaluate(row => !row.classList.contains('is-editing') && getComputedStyle(row).boxShadow === 'none'));
   await tableRow.getByRole('button', { name: 'Edit error limit distribution', exact: true }).click();
+  check('distribution editing activates the row highlight', await tableRow.evaluate(row => row.classList.contains('is-editing') && getComputedStyle(row).boxShadow !== 'none'));
   await frame.getByLabel('Error limit distribution', { exact: true }).selectOption('2.000');
   check('tabular value and distribution persist together', await until(() => {
     const definition = saved().dynamicBudgetDefinitions.find(d => d.kind === 'table');
@@ -77,10 +82,21 @@ export async function checkDynamicEquationCopies({ frame, page, saved, until, ch
   await tableRow.locator('.dynamic-tolerance-cell button').click();
   await frame.getByLabel('Uncertainty row 1', { exact: true }).fill('.4');
   await outside();
-  check('collapsing saves the updated tabular error limit', await tableRow.locator('.dynamic-tolerance-cell button').innerText() === '± 0.4 degF');
+  check('collapsing saves the updated tabular error limit', await tableRow.locator('.dynamic-tolerance-cell button').innerText() === '± 0.4 °F');
   await selectPoint(points.first());
   await selectPoint(points.last());
-  check('reopening the point retains the saved tabular error limit', await tableRow.locator('.dynamic-tolerance-cell button').innerText() === '± 0.4 degF');
+  check('reopening the point retains the saved tabular error limit', await tableRow.locator('.dynamic-tolerance-cell button').innerText() === '± 0.4 °F');
   check('reopening retains the recalculated tabular standard uncertainty', await tableRow.locator('.budget-standard-uncertainty').innerText() === '± 0.2 °F');
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/saved-tabular-limit.png` });
+  for (const [index, kind] of ['equation', 'tabular'].entries()) {
+    const row = frame.locator('.budget-dynamic-row').nth(index);
+    await row.locator(':scope > td').nth(3).click();
+    check(`${kind} collapsed row opens from a non-input cell`, await row.evaluate(row => row.classList.contains('is-editing') && Boolean(row.querySelector('.dynamic-budget-editor'))));
+    check(`${kind} active editor has the edit stripe`, await row.evaluate(row => getComputedStyle(row).boxShadow !== 'none'));
+    check(`${kind} preview uses the temperature symbol`, await row.locator('.dynamic-editor-preview').innerText().then(text => text.includes('°F') && !text.includes('degF')));
+    if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/${kind}-row-editing.png` });
+    await outside();
+    await row.locator('.dynamic-budget-editor').waitFor({ state: 'hidden' });
+    check(`${kind} edit stripe clears on collapse`, await row.evaluate(row => getComputedStyle(row).boxShadow === 'none'));
+  }
 }

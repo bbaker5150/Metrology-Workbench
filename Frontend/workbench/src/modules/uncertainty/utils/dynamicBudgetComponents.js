@@ -1,6 +1,6 @@
 import { evaluate, parse } from "mathjs";
 import { v4 as uuid } from "uuid";
-import { unitSystem } from "./uncertaintyMath";
+import { unitSystem, getUnitDisplayLabel } from "./uncertaintyMath";
 import { validateEquation } from "./equationValidation";
 import { unresolvedComponent } from "./incompleteBudget";
 
@@ -63,7 +63,7 @@ export const findDynamicTableRow = (definition, nominal) => {
   const value = dynamicMeasurementValue(nominal, definition.measurementUnit || nominal?.unit);
   const matches = (definition.rows || []).filter(row => filled(row.point) && Math.abs(Number(row.point) - value) <= Number.EPSILON * 32 * Math.max(Number.MIN_VALUE, Math.abs(value), Math.abs(Number(row.point))));
   if (matches.length > 1) throw Error("Duplicate measurement values in the table; keep one row for this point.");
-  if (!matches.length) throw Error(`No table entry for ${value} ${definition.measurementUnit}. Add this point to the table.`);
+  if (!matches.length) throw Error(`No table entry for ${value} ${getUnitDisplayLabel(definition.measurementUnit)}. Add this point to the table.`);
   return matches[0];
 };
 export const resolveDynamicComponent = (component, definition, nominal) => {
@@ -114,7 +114,7 @@ export const resolveDynamicComponent = (component, definition, nominal) => {
     if (magnitude < 0) throw Error("Uncertainty cannot be negative.");
     // The authored error limit is valid before a distribution is selected.
     // Keep it visible while standard uncertainty still needs its divisor.
-    base.dynamicSummary = `${definition.mode === "limits" ? "" : "± "}${summary} ${definition.outputUnit}`;
+    base.dynamicSummary = `${definition.mode === "limits" ? "" : "± "}${summary} ${getUnitDisplayLabel(definition.outputUnit)}`;
     const divisor = definition.mode === "standard" ? 1 : Number(definition.distribution);
     if (!Number.isFinite(divisor) || divisor <= 0) throw Error("Choose an error-limit distribution.");
     const standard = magnitude / divisor;

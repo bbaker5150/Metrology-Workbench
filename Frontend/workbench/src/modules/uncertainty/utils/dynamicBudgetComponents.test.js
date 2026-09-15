@@ -97,3 +97,14 @@ it("refreshes cached uncertainty for unopened points on a shared edit",()=>{
   const next=updateSharedDynamicDefinition(session,changed);
   expect(next.testPoints.map(p=>p.combined_uncertainty_absolute_base)).toEqual([.5,.5]);
 });
+
+
+it.each([["degF", "°F"], ["degC", "°C"], ["Ohm", "Ω"], ["um", "µm"]])("formats dynamic budget limits with display symbols for %s", (unit, label) => {
+  for (const kind of ['table', 'equation']) {
+    const d = { ...createDynamicDefinition(kind, { value: 1, unit }), mode: 'standard', equation: 'x*2', pointVariable: 'x' };
+    d.rows[0] = { ...d.rows[0], point: 1, values: { [d.columns[0].id]: { value: 2 } } };
+    const resolved = resolveDynamicComponent(createDynamicComponent(d), d, { value: 1, unit });
+    expect(resolved.dynamicSummary).toBe(`± 2 ${label}`);
+    expect(resolved.unit_native).toBe(unit);
+  }
+});

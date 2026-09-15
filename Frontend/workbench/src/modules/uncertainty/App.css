@@ -5138,10 +5138,6 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
   padding-bottom: 9px;
 }
 
-.budget-inline-manual-row.has-warning {
-  box-shadow: inset 2px 0 0 var(--status-warning, #e0a106);
-}
-
 .budget-inline-input {
   box-sizing: border-box;
   width: 100%;
