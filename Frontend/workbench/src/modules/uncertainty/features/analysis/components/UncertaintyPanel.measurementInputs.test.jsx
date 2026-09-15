@@ -80,7 +80,7 @@ describe("measurement input compact editors", () => {
       name: "Display name for equation variable Irms",
     });
     fireEvent.change(input, { target: { value: "RMS Current" } });
-    fireEvent.mouseDown(document.body);
+    fireEvent.blur(input);
 
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(

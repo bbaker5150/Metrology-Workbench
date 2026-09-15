@@ -6,9 +6,11 @@ const statusLabels = { good: "Within threshold", warning: "Above threshold", bad
 
 export default function DecisionRiskCards({ results, requiredPfa, formatValue }) {
   const boundary = results?.riskMethod === "risk8-pfa-boundary";
+  const metrics = ["pfa", "pfr"].filter(metric => !(boundary && metric === "pfr") && decisionRiskStatus(results?.[metric], requiredPfa, metric) !== "neutral");
+  if (!metrics.length) return null;
   return (
     <dl className="budget-decision-results" aria-label="Final decision risk">
-      {["pfa", "pfr"].map(metric => {
+      {metrics.map(metric => {
         const value = boundary && metric === "pfr" ? null : results?.[metric];
         const status = decisionRiskStatus(value, requiredPfa, metric);
         const label = metric === "pfa" && boundary ? "PFA at Boundary" : metric.toUpperCase();

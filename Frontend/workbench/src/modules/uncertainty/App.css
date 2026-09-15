@@ -14336,14 +14336,6 @@ input.inline-resolution-input {
   min-width: 52px;
 }
 
-/* Measurement inputs intentionally reuse the inline UUT/TMDE field classes.
-   Only relax their fixed cell widths so they fill these wider table columns. */
-.measurement-inputs-table input.inline-tolerance-input.measurement-input-value {
-  width: 100%;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
 /* Two-view Distribution cell (TMDE tables): edit view wraps the dropdown so it
    fills the column the same way the other inline editors do. */
 .inline-distribution-editor {
@@ -20466,7 +20458,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .dynamic-source-editor { width: 190px; }
 .dynamic-component-kind { display: block; margin-top: 4px; color: var(--text-color-muted); font-size: .65rem; }
 .uncertainty-module .budget-dynamic-row .dynamic-source-label { text-align: left; padding: 0; max-width: 100%; white-space: inherit; overflow-wrap: inherit; }
-.uncertainty-module .budget-dynamic-row.is-editing > td { vertical-align: top; }
+.uncertainty-module .budget-dynamic-row.is-editing > td { vertical-align: middle; }
 .dynamic-budget-editor { width: var(--budget-editor-width, 640px); max-width: 80vw; min-width: 320px; padding: 2px 0; color: var(--text-color); font-size: .75rem; white-space: normal; }
 .dynamic-budget-options { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin: 0 0 10px; }
 .dynamic-inline-field { display: grid; gap: 4px; min-width: 0; }
@@ -20944,3 +20936,15 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 :is(.context-menu-item, .point-column-add, .point-column-order-row, .add-point-symbol-button, .ui-scaling-mode):is(:hover, :focus-visible) {
   background-color: color-mix(in srgb, var(--primary-color) 14%, var(--input-background));
 }
+
+/* Dynamic budgets and measurement inputs share instrument editing surfaces. */
+.uncertainty-module .budget-dynamic-row.is-editing .budget-source-cell { text-align: center; }
+.uncertainty-module .budget-dynamic-row.is-editing .dynamic-source-label { text-align: center; }
+.uncertainty-module .budget-dynamic-row input { font-size: inherit; }
+.uncertainty-module .measurement-inputs-table { table-layout: auto; }
+.uncertainty-module .measurement-inputs-table .measurement-input-cell-editor { width: max-content; min-width: 100%; }
+.uncertainty-module .measurement-inputs-table .measurement-input-nominal { display: inline-flex; width: max-content; min-width: max-content; gap: 4px; }
+.uncertainty-module .measurement-inputs-table .inline-resolution-editor .inline-unit-select { width: max-content; min-width: max-content; }
+.uncertainty-module .measurement-inputs-table .measurement-input-symbol-input { width: 72px; height: auto; font: inherit; padding: 4px 6px; }
+.uncertainty-module .measurement-inputs-table { --function-input-accent: var(--primary-color); }
+.uncertainty-module .measurement-inputs-table .inline-tolerance-input:is(:hover, :focus) { border-color: var(--function-input-accent); background: color-mix(in srgb, var(--function-input-accent) 10%, transparent); }

@@ -3,6 +3,7 @@ export function prepareFollowupSession(session) {
   Object.assign(point, { id: 'equation-point', measurementType: 'derived', equationString: 'a+b',
     variableMappings: { a: 'First input', b: 'Second input' },
     variableNominals: { a: { value: 2, unit: 'V' }, b: { value: 3, unit: 'V' } } });
+  point.components = [0, 1].map(index => ({ id: `badge-use-${index}`, name: `Reference use ${index + 1}`, type: 'B', sourceTmdeId: session.tmdes[0].id, tmdeBudgetSourceId: session.tmdes[0].id, tmdeBudgetRangeId: session.tmdes[0].ranges[0].id, tmdeBudgetComponentKind: 'Accuracy', variableType: 'First input', value: .01, value_native: .01, unit_native: 'V', distributionDivisor: '1', isBaseUnitValue: true }));
   point.testPointInfo.parameter.value = 5;
   session.testPoints.push(point);
   const instrument = structuredClone(session.tmdes[0]);
@@ -37,6 +38,20 @@ export async function checkTaskingFollowup({ frame, page, saved, until, check })
   await equation.fill('a+b+c');
   await outside();
   check('equation commits on deselection', await until(() => saved().testPoints.at(-1).equationString === 'a+b+c'));
+  await frame.getByRole('button', { name: 'Edit nominal for equation variable a', exact: true }).click();
+  check('measurement nominal reuses compact resolution controls', await frame.getByLabel('Nominal value for equation variable a', { exact: true }).evaluate(input => input.classList.contains('inline-resolution-input') && input.offsetWidth <= 64));
+  await frame.getByRole('button', { name: 'Edit name for equation variable a', exact: true }).click();
+  check('measurement name reuses the custom-field editor', await frame.getByLabel('Display name for equation variable a', { exact: true }).evaluate(input => input.classList.contains('instrument-custom-field-input')));
+  await outside();
+  const budgetBadge = frame.locator('.instrument-usage-badge').filter({ hasText: 'In Budget ×2' }).first();
+  await budgetBadge.waitFor();
+  check('default description width contains the complete In Budget ×2 pill', await budgetBadge.evaluate(badge => {
+    const rect = badge.getBoundingClientRect(), cell = badge.closest('td').getBoundingClientRect();
+    return rect.left >= cell.left && rect.right <= cell.right && badge.scrollWidth <= badge.clientWidth + 1;
+  }));
+  const badgeTable = budgetBadge.locator('xpath=ancestor::table[1]');
+  await badgeTable.locator('th[data-instrument-column="description"]').dblclick();
+  check('fitting a description includes its usage pill', await budgetBadge.evaluate(badge => badge.getBoundingClientRect().right <= badge.closest('td').getBoundingClientRect().right));
   await frame.locator('[data-tour="tab-overview"]').click();
   const table = frame.locator('.instrument-equipment-table').nth(1);
   const description = table.locator('.cell-description').filter({ hasText: 'Selection' }).last();
@@ -88,6 +103,12 @@ export async function checkTaskingFollowup({ frame, page, saved, until, check })
     await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/column-menu.png` });
   }
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  const beforeFit = await table.locator('th[data-instrument-column="range"]').evaluate(cell => cell.getBoundingClientRect().width);
+  await header.dblclick();
+  check('header double-click fits description text and preserves its neighbor', await table.evaluate((table, previous) => {
+    const range = table.querySelector('th[data-instrument-column="range"]');
+    return Math.abs(range.getBoundingClientRect().width - previous) < 2 && [...table.querySelectorAll('.inline-desc-combined')].every(node => node.scrollWidth <= node.clientWidth + 2);
+  }, beforeFit));
   // Real native drags, including Escape cancellation, must return control.
   await frame.evaluate(() => {
     window.__nativeDragStarts = 0;

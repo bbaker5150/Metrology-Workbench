@@ -21,7 +21,7 @@ export const validateBudgetEquation = equation => {
 
 export const createDynamicDefinition = (kind, nominal = {}) => ({
   id: uuid(), kind, name: "", measurementUnit: nominal.unit || "", outputUnit: nominal.unit || "",
-  mode: "standard", distribution: "1", columns: [{ id: uuid(), name: "Uncertainty" }],
+  mode: "tolerance", distribution: "", columns: [{ id: uuid(), name: "Uncertainty" }],
   rows: [{ id: uuid(), point: "", values: {} }], equation: "", variables: {}, pointVariable: "",
 });
 export const createDynamicComponent = (definition, outputId, scope) => ({
@@ -53,7 +53,7 @@ export const dynamicMeasurementValue = (nominal, unit) => {
   return unitSystem.fromBaseUnit(unitSystem.toBaseUnit(Number(nominal.value), nominal.unit), unit);
 };
 export const findDynamicTableRow = (definition, nominal) => {
-  const value = dynamicMeasurementValue(nominal, definition.measurementUnit);
+  const value = dynamicMeasurementValue(nominal, definition.measurementUnit || nominal?.unit);
   const matches = (definition.rows || []).filter(row => filled(row.point) && Math.abs(Number(row.point) - value) <= Number.EPSILON * 32 * Math.max(Number.MIN_VALUE, Math.abs(value), Math.abs(Number(row.point))));
   if (matches.length > 1) throw Error("Duplicate measurement values in the table; keep one row for this point.");
   if (!matches.length) throw Error(`No table entry for ${value} ${definition.measurementUnit}. Add this point to the table.`);
@@ -61,6 +61,7 @@ export const findDynamicTableRow = (definition, nominal) => {
 };
 export const resolveDynamicComponent = (component, definition, nominal) => {
   if (!definition) return unresolvedComponent(component, "This shared uncertainty definition is missing.");
+  definition = { ...definition, measurementUnit: definition.measurementUnit || nominal?.unit || "", outputUnit: definition.outputUnit || nominal?.unit || "" };
   const column = definition.columns.find(c => c.id === component.dynamicOutputId);
   const base = { ...component, dynamicDefinition: definition,
     name: definition.name ? `${definition.name}${definition.columns.length > 1 && column ? ` — ${column.name}` : ""}` : "",
@@ -87,17 +88,21 @@ export const resolveDynamicComponent = (component, definition, nominal) => {
         magnitude = Number(values.value); summary = String(magnitude);
       }
     } else {
-      const validation = validateBudgetEquation(definition.equation);
-      if (validation.status !== "ok") throw Error(validation.error || "Enter an equation.");
+      const equations = definition.mode === "limits" ? [definition.lowerEquation, definition.upperEquation] : [definition.equation];
+      const validations = equations.map(equation => validateBudgetEquation(equation || ""));
+      const invalid = validations.find(validation => validation.status !== "ok");
+      if (invalid) throw Error(invalid.error || (definition.mode === "limits" ? "Enter both error-limit equations." : "Enter an equation."));
       const scope = new Map();
-      for (const symbol of validation.variables) {
+      for (const symbol of new Set(validations.flatMap(validation => validation.variables))) {
         const value = symbol === definition.pointVariable ? dynamicMeasurementValue(nominal, definition.measurementUnit) : definition.variables?.[symbol]?.value;
         if (!filled(value)) throw Error(`Enter a nominal value for ${symbol}.`);
         scope.set(symbol, Number(value));
       }
-      magnitude = evaluate(validation.expression, scope);
-      if (typeof magnitude !== "number" || !Number.isFinite(magnitude)) throw Error("The equation must produce one finite real number.");
-      summary = String(Number(magnitude.toPrecision(8)));
+      const values = validations.map(validation => evaluate(validation.expression, scope));
+      if (values.some(value => typeof value !== "number" || !Number.isFinite(value))) throw Error("The equation must produce one finite real number.");
+      if (definition.mode === "limits" && values[1] < values[0]) throw Error("The upper error limit must be at least the lower limit.");
+      magnitude = definition.mode === "limits" ? (values[1] - values[0]) / 2 : values[0];
+      summary = values.map(value => String(Number(value.toPrecision(8)))).join(" to ");
     }
     if (magnitude < 0) throw Error("Uncertainty cannot be negative.");
     const divisor = definition.mode === "standard" ? 1 : Number(definition.distribution);

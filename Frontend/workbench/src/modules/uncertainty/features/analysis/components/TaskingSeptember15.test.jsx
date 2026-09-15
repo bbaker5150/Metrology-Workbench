@@ -49,13 +49,13 @@ it("adds a TMDE with mismatched units as a linked, warned budget component", () 
 });
 
 it("keeps the entered table on collapse while the parent save is still pending", async () => {
-  const definition = createDynamicDefinition("table", { unit: "V" });
+  const definition = { ...createDynamicDefinition("table", { unit: "V" }), mode: "standard", distribution: "1" };
   const component = createDynamicComponent(definition);
   const commit = vi.fn();
   const ui = saved => <><button>Outside</button><table><tbody><DynamicBudgetComponentRow component={saved}
     referencePoint={{ value: 3000, unit: "V" }} onCommit={commit} /></tbody></table></>;
   const { rerender } = render(ui(component));
-  fireEvent.click(screen.getByRole("button", { name: "Not Set" }));
+  fireEvent.click(document.querySelector(".dynamic-tolerance-cell button"));
   fireEvent.paste(screen.getByLabelText("Measurement point row 1"), { clipboardData: { getData: () => "3000\t3\n4000\t4" } });
   fireEvent.click(screen.getByRole("button", { name: "Outside" }));
   await waitFor(() => expect(commit).toHaveBeenCalledOnce());
@@ -64,8 +64,8 @@ it("keeps the entered table on collapse while the parent save is still pending",
   expect(screen.getByRole("button", { name: "± 3 V" })).toBeInTheDocument();
   const saved = commit.mock.calls[0][0];
   rerender(ui({ ...component, dynamicDefinition: saved }));
-  fireEvent.click(screen.getByRole("button", { name: "Dynamic component distribution" }));
-  fireEvent.click(screen.getByRole("option", { name: "Rectangular", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit error limit distribution" }));
+  fireEvent.change(screen.getByLabelText("Error limit distribution"), { target: { value: "1.732" } });
   expect(commit.mock.calls.at(-1)[0]).toMatchObject({ mode: "tolerance", distribution: "1.732" });
   expect(screen.getByRole("button", { name: "± 3 V" })).toBeInTheDocument();
 });

@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { preserveTableTextSelection } from "../../../utils/tableTextSelection";
+import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
 
 const STORAGE_PREFIX = "uncertalytics:budget-column-widths:v1:";
 const RESET_EVENT = "uncert-reset-ui-sizes";
@@ -117,6 +118,11 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
     ...(fixed ? widths : sizes),
     [key]: Math.max(minimumWidth(key), sizes[key] + delta),
   });
+  const fitColumn = key => {
+    const measured = measureTableColumnWidths(tableRef.current, "budgetColumn");
+    const { sizes } = snapshot();
+    saveWidths({ ...sizes, [key]: Math.max(minimumWidth(key), measured[key] || sizes[key]) });
+  };
   const startResize = (event, key) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -151,15 +157,15 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
     >
       {fixed && <colgroup>{columns.map(({ key }) => <col key={key} style={{ width: liveWidths[key] }} />)}</colgroup>}
       <thead><tr>{columns.map(({ key, label, accessibleLabel }) => (
-        <th key={key} data-budget-column={key} aria-label={label || accessibleLabel}>
+        <th key={key} data-budget-column={key} aria-label={label || accessibleLabel} onDoubleClick={() => fitColumn(key)}>
           <span className="budget-resizable-header-content" title={label}>{label}</span>
           <button
             type="button"
             className="instrument-column-resize-handle budget-column-resize-handle"
             aria-label={`Resize ${label || accessibleLabel} column`}
-            title={`Drag to resize ${label || accessibleLabel} column. Double-click to fit all columns.`}
+            title={`Drag to resize ${label || accessibleLabel} column. Double-click to fit contents.`}
             onPointerDown={event => startResize(event, key)}
-            onDoubleClick={() => saveWidths(null)}
+            onDoubleClick={event => { event.stopPropagation(); fitColumn(key); }}
             onKeyDown={event => {
               if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
                 event.preventDefault();

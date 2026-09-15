@@ -55,6 +55,16 @@ export default function useInstrumentTableLayout(containerRef) {
       // pixel width. Distribute spare space so the full-width card stays filled.
       card?.style.removeProperty("--instrument-panel-width");
       const requirements = [];
+      if (!absolute) {
+        // Preserve wrapping in descriptions, but reserve space for their badges.
+        table.querySelectorAll('.uut-description-content').forEach(wrapper => {
+          const badge = wrapper.querySelector('.instrument-usage-badge, .active-uut-badge');
+          if (!badge) return;
+          const cell = wrapper.closest('td'), style = getComputedStyle(cell);
+          const index = [...table.tHead.rows[0].cells].findIndex(header => header.dataset.instrumentColumn === 'description');
+          requirements[index] = Math.max(requirements[index] || 0, badge.scrollWidth + 100 + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight));
+        });
+      }
       table.querySelectorAll(EDITORS).forEach(editor => {
         const cell = editor.closest("td");
         if (!cell || cell.colSpan !== 1) return;

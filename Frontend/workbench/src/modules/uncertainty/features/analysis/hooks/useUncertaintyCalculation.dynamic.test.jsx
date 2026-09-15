@@ -4,7 +4,7 @@ import { useUncertaintyCalculation } from "./useUncertaintyCalculation";
 import { createDynamicDefinition, createDynamicComponent, resolveDynamicComponents } from "../../../utils/dynamicBudgetComponents";
 
 it("recalculates a dynamic budget on point changes and clears totals for missing entries", async () => {
-  const definition = createDynamicDefinition("table", { unit:"V" });
+  const definition = { ...createDynamicDefinition("table", { unit:"V" }), mode: "standard", distribution: "1" };
   const id = definition.columns[0].id;
   definition.rows = [{id:"a",point:100,values:{[id]:{value:.012}}},{id:"b",point:200,values:{[id]:{value:.023}}}];
   const component = createDynamicComponent(definition);

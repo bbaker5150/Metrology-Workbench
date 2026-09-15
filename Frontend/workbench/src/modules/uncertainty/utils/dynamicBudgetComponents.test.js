@@ -3,8 +3,23 @@ import { createDynamicDefinition, createDynamicComponent, resolveDynamicComponen
 import { computeUncertaintyForPoint, computePointRiskMetrics, updateSharedDynamicDefinition } from "./riskCompute";
 
 const table = () => { const d = createDynamicDefinition("table", {unit:"V"}); const id=d.columns[0].id;
-  return {...d,name:"Head correction",rows:[{id:"a",point:"100",values:{[id]:{value:"0.012"}}},{id:"b",point:"200",values:{[id]:{value:"0.023"}}}]}; };
+  return {...d,mode:"standard",distribution:"1",name:"Head correction",rows:[{id:"a",point:"100",values:{[id]:{value:"0.012"}}},{id:"b",point:"200",values:{[id]:{value:"0.023"}}}]}; };
 const point = (value, component) => ({id:String(value),measurementType:"direct",testPointInfo:{parameter:{name:"Voltage",value,unit:"V"}},components:[component],tmdeTolerances:[],uutTolerance:{floor:{high:1,low:-1,unit:"V",symmetric:true,distribution:"1.732"}}});
+it("new error-limit components wait for an explicit distribution", () => {
+  const d = createDynamicDefinition("table", { unit: "V" });
+  d.rows[0] = { ...d.rows[0], point: 25, values: { [d.columns[0].id]: { value: .2 } } };
+  const c = createDynamicComponent(d);
+  expect(resolveDynamicComponent(c, d, { value: 25, unit: "V" }).pendingReason).toMatch(/distribution/);
+  expect(resolveDynamicComponent(c, { ...d, distribution: "2" }, { value: 25, unit: "V" }).value_native).toBe(.1);
+  expect(resolveDynamicComponent(c, { ...d, measurementUnit: "", outputUnit: "", distribution: "2" }, { value: 25, unit: "V" })).toMatchObject({ value_native: .1, unit_native: "V" });
+});
+it("evaluates asymmetric equations with shared variables and validates their order", () => {
+  const d = { ...createDynamicDefinition("equation", { unit: "V" }), mode: "limits", distribution: "2", lowerEquation: "-x*a", upperEquation: "x*b", pointVariable: "x", variables: { a: { value: .01 }, b: { value: .02 } } };
+  const c = createDynamicComponent(d);
+  expect(resolveDynamicComponent(c, d, { value: 100, unit: "V" })).toMatchObject({ value_native: .75, dynamicSummary: "-1 to 2 V" });
+  expect(resolveDynamicComponent(c, { ...d, lowerEquation: "3" }, { value: 100, unit: "V" }).pendingReason).toMatch(/upper/);
+  expect(resolveDynamicComponent(c, { ...d, outputUnit: "A" }, { value: 100, unit: "V" }).pendingReason).toMatch(/incompatible/);
+});
 describe("shared dynamic budget definitions",()=>{
   it("looks up copied and newly created points without carrying the source's result",()=>{
     const d=table(), c=createDynamicComponent(d); const session={dynamicBudgetDefinitions:[d],uncReq:{uncertaintyConfidence:95}};
@@ -43,7 +58,7 @@ describe("shared dynamic budget definitions",()=>{
     expect(resolveDynamicComponent(createDynamicComponent(d),d,{value:100,unit:"V"}).value_native).toBeCloseTo(.0675);
   });
   it("evaluates the measurement variable independently on each point",()=>{
-    const d={...createDynamicDefinition("equation",{unit:"V"}),equation:"A*B+C",pointVariable:"A",variables:{A:{name:"Point",value:""},B:{name:"Scale",value:"10"},C:{name:"Offset",value:"2.2"}}};
+    const d={...createDynamicDefinition("equation",{unit:"V"}),mode:"standard",distribution:"1",equation:"A*B+C",pointVariable:"A",variables:{A:{name:"Point",value:""},B:{name:"Scale",value:"10"},C:{name:"Offset",value:"2.2"}}};
     const c=createDynamicComponent(d);
     expect(resolveDynamicComponent(c,d,{value:100,unit:"V"}).value_native).toBe(1002.2);
     expect(resolveDynamicComponent(c,d,{value:200,unit:"V"}).value_native).toBe(2002.2);

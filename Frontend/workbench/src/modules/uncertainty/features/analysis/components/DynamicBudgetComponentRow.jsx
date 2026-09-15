@@ -1,30 +1,28 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faTimes, faArrowUp, faArrowDown, faLink } from "@fortawesome/free-solid-svg-icons";
+import { faPlus, faTimes, faArrowUp, faArrowDown, faLink, faExclamationTriangle } from "@fortawesome/free-solid-svg-icons";
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import { unitSystem, getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 import { resolveDynamicComponent, validateBudgetEquation, dynamicMeasurementValue } from "../../../utils/dynamicBudgetComponents";
 
 const emptyRow = () => ({ id: uuid(), point: "", values: {} });
-const MODE_OPTIONS = [
-  { value: "standard", label: "Standard uncertainty" },
-  { value: "tolerance", label: "Error limit (±)" },
-  { value: "limits", label: "Lower / upper error limits" },
-];
 const DISTRIBUTIONS = oldErrorDistributions.map(option => ({ value: option.value, label: option.label }));
 const UNIT_OPTIONS = Object.keys(unitSystem.units).map(unit => ({ value: unit, label: getUnitDisplayLabel(unit) }));
 const FallbackUnitSelect = props => <InlineMenuSelect {...props} options={UNIT_OPTIONS} width="max-content" />;
 const isEditorPortal = target => target instanceof Element && Boolean(target.closest(".inline-unit-menu"));
+const implicitUnits = (definition, point) => definition && ({ ...definition, measurementUnit: definition.measurementUnit || point?.unit || "", outputUnit: definition.outputUnit || point?.unit || "" });
 
 export default function DynamicBudgetComponentRow({
   component, referencePoint, showDof, onCommit, onRemove, onMoveUp, onMoveDown,
   UnitSelectComponent = FallbackUnitSelect, autoEdit = false, onEditorOpened,
 }) {
-  const [draft, setDraft] = useState(component.dynamicDefinition);
+  const [draft, setDraft] = useState(() => implicitUnits(component.dynamicDefinition, referencePoint));
   const [editing, setEditing] = useState(autoEdit);
   const [naming, setNaming] = useState(false);
+  const [distributionEditing, setDistributionEditing] = useState(false);
+  const editorActive = editing || naming || distributionEditing;
   const rowRef = useRef(null);
   const triggerRef = useRef(null);
   const draftRef = useRef(draft);
@@ -43,11 +41,11 @@ export default function DynamicBudgetComponentRow({
       // flash "Not Set" on collapse. Accept the next changed saved definition.
       if (pendingCommit.current && JSON.stringify(component.dynamicDefinition) === pendingCommit.current.previous) return;
       pendingCommit.current = null;
-      draftRef.current = component.dynamicDefinition;
-      setDraft(component.dynamicDefinition);
+      draftRef.current = implicitUnits(component.dynamicDefinition, referencePoint);
+      setDraft(draftRef.current);
       variableCache.current = component.dynamicDefinition?.variables || {};
     }
-  }, [component.dynamicDefinition, editing, naming]);
+  }, [component.dynamicDefinition, referencePoint?.unit, editing, naming]);
 
   const change = useCallback(patch => {
     const next = { ...draftRef.current, ...patch };
@@ -67,18 +65,18 @@ export default function DynamicBudgetComponentRow({
     dirty.current = false;
     setEditing(false);
     setNaming(false);
+    setDistributionEditing(false);
   }, []);
 
   useEffect(() => {
     if (!autoEdit) return;
     setEditing(true);
     onEditorOpened?.();
-    // New components begin in the name field; Tab continues into the definition.
-    rowRef.current?.querySelector('[aria-label="Error source name"]')?.focus();
+    requestAnimationFrame(() => rowRef.current?.querySelector('[data-dynamic-cell="0:0"], [aria-label="Uncertainty equation"]')?.focus());
   }, [autoEdit, onEditorOpened]);
 
   useEffect(() => {
-    if (!editing && !naming) return;
+    if (!editorActive) return;
     let pending;
     const outside = event => {
       if (rowRef.current?.contains(event.target) || isEditorPortal(event.target)) return;
@@ -94,7 +92,7 @@ export default function DynamicBudgetComponentRow({
       document.removeEventListener("click", outside, true);
       document.removeEventListener("focusin", outside, true);
     };
-  }, [editing, naming, finish]);
+  }, [editorActive, finish]);
 
   const validation = useMemo(() => draft?.kind === "equation" ? validateBudgetEquation(draft.equation) : null, [draft?.kind, draft?.equation]);
   if (!draft) return null;
@@ -102,12 +100,21 @@ export default function DynamicBudgetComponentRow({
   let boundValue = "Not Set";
   try { boundValue = dynamicMeasurementValue(referencePoint, draft.measurementUnit); } catch { /* The live preview explains incomplete inputs. */ }
   const kindLabel = draft.kind === "table" ? "Tabular" : "Equation";
+  const measurementUnit = referencePoint?.unit || draft.measurementUnit;
+  const displayPoint = value => {
+    if (value === "" || value == null || measurementUnit === draft.measurementUnit) return value;
+    try { return Number(dynamicMeasurementValue({ value, unit: draft.measurementUnit }, measurementUnit).toPrecision(14)); } catch { return value; }
+  };
   const displayColumns = draft.columns.filter(column => column.id === (component.dynamicOutputId || draft.columns[0]?.id));
   const cells = [{ label: "Measurement point", key: "point" }, ...displayColumns.flatMap(column =>
-    (draft.mode === "limits" ? ["low", "high"] : ["value"]).map(key => ({ column: column.id, key, label: `${column.name}${key === "low" ? " lower" : key === "high" ? " upper" : ""}` })))];
+    (draft.mode === "limits" ? ["low", "high"] : ["value"]).map(key => ({ column: column.id, key, label: key === "low" ? "Low" : key === "high" ? "High" : "Uncertainty" })))];
   const setCell = (rows, index, cell, value) => {
     const row = rows[index];
-    rows[index] = cell.key === "point" ? { ...row, point: value } : { ...row, values: { ...row.values, [cell.column]: { ...row.values?.[cell.column], [cell.key]: value } } };
+    let point = value;
+    if (cell.key === "point" && value !== "" && Number.isFinite(Number(value)) && measurementUnit !== draft.measurementUnit) {
+      try { point = dynamicMeasurementValue({ value, unit: measurementUnit }, draft.measurementUnit); } catch { /* Validation remains visible. */ }
+    }
+    rows[index] = cell.key === "point" ? { ...row, point } : { ...row, values: { ...row.values, [cell.column]: { ...row.values?.[cell.column], [cell.key]: value } } };
   };
   const focusCell = (row, col = 0) => requestAnimationFrame(() => rowRef.current?.querySelector(`[data-dynamic-cell="${row}:${col}"]`)?.focus());
   const addRow = () => {
@@ -115,18 +122,42 @@ export default function DynamicBudgetComponentRow({
     change({ rows: [...draftRef.current.rows, emptyRow()] });
     focusCell(nextIndex);
   };
-  const updateEquation = equation => {
-    const result = validateBudgetEquation(equation);
+  const updateEquation = (equation, key = "equation") => {
     const current = draftRef.current;
+    const next = { ...current, [key]: equation };
+    const results = (next.mode === "limits" ? [next.lowerEquation, next.upperEquation] : [next.equation]).map(value => validateBudgetEquation(value || ""));
+    const result = { status: results.every(value => value.status === "empty") ? "empty" : results.some(value => value.status === "invalid") ? "invalid" : "ok", variables: [...new Set(results.flatMap(value => value.variables || []))] };
     variableCache.current = { ...variableCache.current, ...current.variables };
-    if (result.status === "empty") { change({ equation, variables: {}, pointVariable: "" }); return; }
-    if (result.status !== "ok") { change({ equation }); return; }
+    if (result.status === "empty") { change({ [key]: equation, variables: {}, pointVariable: "" }); return; }
+    if (result.status !== "ok") { change({ [key]: equation }); return; }
     change({
-      equation,
+      [key]: equation,
       variables: Object.fromEntries(result.variables.map(symbol => [symbol, variableCache.current[symbol] || { name: "", value: "" }])),
       pointVariable: result.variables.includes(current.pointVariable) ? current.pointVariable
         : current.pointVariable || Object.keys(current.variables).length === 0 ? result.variables[0] || "" : "",
     });
+  };
+  const changeSymmetry = asymmetric => {
+    const current = draftRef.current;
+    if (asymmetric === (current.mode === "limits")) return;
+    const patch = { mode: asymmetric ? "limits" : "tolerance",
+      ...(current.kind === "equation" && asymmetric ? {
+        lowerEquation: current.lowerEquation ?? (current.equation ? `-(${current.equation})` : ""),
+        upperEquation: current.upperEquation ?? current.equation,
+      } : {}),
+      rows: current.rows.map(row => ({ ...row, values: Object.fromEntries(Object.entries(row.values || {}).map(([id, values]) => [id, asymmetric
+        ? { ...values, low: values.low ?? (values.value !== "" && values.value != null ? -Number(values.value) : ""), high: values.high ?? values.value ?? "" }
+        : { ...values, value: values.low !== "" && values.high !== "" && values.low != null && values.high != null ? Math.max(Math.abs(Number(values.low)), Math.abs(Number(values.high))) : "" }])) })),
+    };
+    if (current.kind === "equation") {
+      if (!asymmetric && !current.equation && current.lowerEquation && current.upperEquation) patch.equation = `max(abs(${current.lowerEquation}), abs(${current.upperEquation}))`;
+      const next = { ...current, ...patch };
+      const symbols = [...new Set((asymmetric ? [next.lowerEquation, next.upperEquation] : [next.equation]).flatMap(equation => validateBudgetEquation(equation || "").variables || []))];
+      variableCache.current = { ...variableCache.current, ...current.variables };
+      patch.variables = Object.fromEntries(symbols.map(symbol => [symbol, variableCache.current[symbol] || { name: "", value: "" }]));
+      patch.pointVariable = symbols.includes(current.pointVariable) ? current.pointVariable : "";
+    }
+    change(patch);
   };
   const changeDistribution = distribution => {
     // Choosing an error-limit distribution also makes the interpretation
@@ -150,7 +181,7 @@ export default function DynamicBudgetComponentRow({
     </div>
   );
   return (
-    <tr ref={rowRef} className={`budget-dynamic-row${editing ? " is-editing" : ""}`}
+    <tr ref={rowRef} className={`budget-dynamic-row budget-inline-manual-row${editing ? " is-editing" : ""}${preview.pendingReason ? " has-warning" : ""}`}
       onKeyDown={event => {
         if (event.defaultPrevented || isEditorPortal(event.target)) return;
         if (event.key === "Escape") {
@@ -166,13 +197,13 @@ export default function DynamicBudgetComponentRow({
           <button type="button" title="Move component up" aria-label="Move component up" onClick={onMoveUp}><FontAwesomeIcon icon={faArrowUp} /></button>
           <button type="button" title="Move component down" aria-label="Move component down" onClick={onMoveDown}><FontAwesomeIcon icon={faArrowDown} /></button>
         </div>
-        <div className={editing || naming ? "dynamic-source-editor" : "dynamic-source-content"} data-budget-editor={editing || naming ? "source" : undefined}>
-        {!draft.name || naming || editing ? (
-          <input autoFocus={naming} className="dynamic-source-name" aria-label="Error source name" placeholder="Error source name" value={draft.name}
+        <div className={naming ? "dynamic-source-editor" : "dynamic-source-content"} data-budget-editor={naming ? "source" : undefined}>
+        {naming ? (
+          <input autoFocus className="budget-inline-input budget-inline-name dynamic-source-name" aria-label="Error source name" placeholder="Not Set" value={draft.name}
+            onBlur={() => editing ? setNaming(false) : finish()}
             onFocus={() => { if (!editing) setNaming(true); }}
             onChange={event => { if (!editing) setNaming(true); change({ name: event.target.value }); }} />
-        ) : <button type="button" className="inline-tolerance-summary dynamic-source-label" title="Edit error source name" onClick={() => setNaming(true)}>{draft.name}</button>}
-        <span className="dynamic-component-kind">{kindLabel}{draft.columns.length > 1 ? ` · ${draft.columns.find(column => column.id === component.dynamicOutputId)?.name || "Removed column"}` : ""}</span>
+        ) : <button type="button" className={`inline-tolerance-summary dynamic-source-label${draft.name ? "" : " is-empty"}`} aria-label="Edit error source name" onMouseDown={event => { event.preventDefault(); setNaming(true); }} onClick={() => setNaming(true)}>{draft.name || "Not Set"}</button>}
         </div>
       </td>
       <td className="dynamic-tolerance-cell">
@@ -184,28 +215,21 @@ export default function DynamicBudgetComponentRow({
         ) : (
           <div className="dynamic-budget-editor" data-budget-editor="limit" role="group" aria-label={`${kindLabel} uncertainty editor`}>
             <div className="dynamic-budget-options">
-              {unitField("measurementUnit", "Measurement unit")}
               {unitField("outputUnit", "Uncertainty unit")}
-              <div className="dynamic-inline-field"><span>Values represent</span>
-                <InlineMenuSelect ariaLabel="Values represent" value={draft.mode} width="max-content" menuWidth={245} showOptionMeta={false}
-                  options={draft.kind === "table" ? MODE_OPTIONS : MODE_OPTIONS.slice(0, 2)}
-                  onChange={mode => change({ mode, distribution: mode === "standard" ? "1" : draft.mode === "standard" ? "1.732" : draft.distribution })} />
+              <div className="inline-tolerance-mini-toggle" role="group" aria-label="Error limit symmetry">
+                <button type="button" title="Symmetric tolerance" aria-pressed={draft.mode !== "limits"} className={draft.mode !== "limits" ? "is-active" : ""} onClick={() => changeSymmetry(false)}>±</button>
+                <button type="button" title="Asymmetric tolerance" aria-pressed={draft.mode === "limits"} className={draft.mode === "limits" ? "is-active" : ""} onClick={() => changeSymmetry(true)}>+/−</button>
               </div>
             </div>
             {draft.kind === "table" ? <>
               <div className="dynamic-table-scroll"><table className="dynamic-input-table"><thead>
-                <tr><th rowSpan={draft.mode === "limits" ? 2 : 1}>Measurement point <span className="dynamic-header-unit">{getUnitDisplayLabel(draft.measurementUnit)}</span></th>
-                  {displayColumns.map((column, index) => <th key={column.id} colSpan={draft.mode === "limits" ? 2 : 1}>
-                    <div className="dynamic-column-heading"><input aria-label={`Uncertainty column ${index + 1} name`} value={column.name}
-                      onChange={event => change({ columns: draft.columns.map(c => c.id === column.id ? { ...c, name: event.target.value } : c) })} />
-                      <span className="dynamic-header-unit">{getUnitDisplayLabel(draft.outputUnit)}</span></div>
-                  </th>)}<th rowSpan={draft.mode === "limits" ? 2 : 1} aria-label="Row actions" /></tr>
-                {draft.mode === "limits" && <tr>{displayColumns.flatMap(column => [<th key={`${column.id}-low`}>Lower</th>, <th key={`${column.id}-high`}>Upper</th>])}</tr>}
+                <tr><th>Measurement point <span className="dynamic-header-unit">{getUnitDisplayLabel(measurementUnit)}</span></th>
+                  {cells.slice(1).map(cell => <th key={`${cell.column}:${cell.key}`}>{cell.key === "value" ? "±" : cell.label}<span className="dynamic-header-unit">{getUnitDisplayLabel(draft.outputUnit)}</span></th>)}<th aria-label="Row actions" /></tr>
               </thead><tbody>
                 {draft.rows.map((row, index) => <tr key={row.id}>
                   {cells.map((cell, col) => <td key={`${cell.column || "point"}:${cell.key}`}>
                     <input inputMode="decimal" data-dynamic-cell={`${index}:${col}`} aria-label={`${cell.label} row ${index + 1}`}
-                      placeholder="—" value={cell.key === "point" ? row.point : row.values?.[cell.column]?.[cell.key] ?? ""}
+                      placeholder="—" value={cell.key === "point" ? displayPoint(row.point) : row.values?.[cell.column]?.[cell.key] ?? ""}
                       onChange={event => { const rows = [...draft.rows]; setCell(rows, index, cell, event.target.value); change({ rows }); }}
                       onPaste={event => {
                         const text = event.clipboardData.getData("text/plain");
@@ -237,11 +261,11 @@ export default function DynamicBudgetComponentRow({
 
               </div>
             </> : <>
-              <div className="dynamic-equation-entry">
-                <span aria-hidden="true">f(x)</span>
-                <input aria-label="Uncertainty equation" placeholder="a * x + b" value={draft.equation}
-                  aria-invalid={Boolean(draft.equation && validation?.status === "invalid")}
-                  onChange={event => updateEquation(event.target.value)}
+              {(draft.mode === "limits" ? ["lowerEquation", "upperEquation"] : ["equation"]).map(key => <div className="dynamic-equation-entry" key={key}>
+                <span>{key === "equation" ? "±" : key === "lowerEquation" ? "Low" : "High"}</span>
+                <input aria-label={key === "equation" ? "Uncertainty equation" : key === "lowerEquation" ? "Low error limit equation" : "High error limit equation"} placeholder="a * x + b" value={draft[key] || ""}
+                  aria-invalid={Boolean(draft[key] && validateBudgetEquation(draft[key]).status === "invalid")}
+                  onChange={event => updateEquation(event.target.value, key)}
                   onKeyDown={event => {
                     if (event.key !== "Enter" || validation?.status !== "ok") return;
                     const next = Object.keys(draft.variables).find(symbol => symbol !== draft.pointVariable && draft.variables[symbol].value === "");
@@ -250,7 +274,7 @@ export default function DynamicBudgetComponentRow({
                       rowRef.current?.querySelector(`[data-dynamic-nominal="${next}"]`)?.focus();
                     }
                   }} />
-              </div>
+              </div>)}
               {Object.keys(draft.variables).length > 0 && <div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-variable-table">
                 <thead><tr><th>Variable</th><th>Description</th><th>Value</th></tr></thead>
                 <tbody>{Object.entries(draft.variables).map(([symbol, variable]) => <tr key={symbol}>
@@ -258,7 +282,7 @@ export default function DynamicBudgetComponentRow({
                   <td><input aria-label={`${symbol} name`} placeholder="Description" value={variable.name}
                     onChange={event => change({ variables: { ...draft.variables, [symbol]: { ...variable, name: event.target.value } } })} /></td>
                   <td><div className="dynamic-variable-value">
-                    {draft.pointVariable === symbol ? <span className="dynamic-bound-value">{boundValue} {getUnitDisplayLabel(draft.measurementUnit)}</span> :
+                    {draft.pointVariable === symbol ? <span className="dynamic-bound-value">{displayPoint(boundValue)} {getUnitDisplayLabel(measurementUnit)}</span> :
                       <input inputMode="decimal" placeholder="Value" data-dynamic-nominal={symbol} aria-label={`${symbol} nominal`} value={variable.value}
                         onChange={event => change({ variables: { ...draft.variables, [symbol]: { ...variable, value: event.target.value } } })} />}
                     <button type="button" className="dynamic-inline-action dynamic-variable-binding" data-ui-toggle aria-pressed={draft.pointVariable === symbol}
@@ -277,11 +301,13 @@ export default function DynamicBudgetComponentRow({
           </div>
         )}
       </td>
-      <td><InlineMenuSelect ariaLabel="Dynamic component distribution" value={draft.mode === "standard" ? "standard" : draft.distribution}
-        options={[{ value: "standard", label: "Standard uncertainty (k=1)" }, ...DISTRIBUTIONS]}
-        onChange={changeDistribution} width="max-content" showOptionMeta={false} /></td>
+      <td>{distributionEditing ? <select autoFocus className="mini-select budget-inline-distribution" aria-label="Error limit distribution" value={draft.mode === "standard" ? "standard" : draft.distribution}
+        onChange={event => { changeDistribution(event.target.value); setDistributionEditing(false); }}>
+        <option value="" disabled>Not Set</option>{draft.mode === "standard" && <option value="standard">Standard uncertainty (k=1)</option>}
+        {DISTRIBUTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select> : <button type="button" className={`inline-tolerance-summary${draft.distribution ? "" : " is-empty"}`} aria-label="Edit error limit distribution" onClick={() => setDistributionEditing(true)}>{draft.mode === "standard" ? "Standard uncertainty (k=1)" : DISTRIBUTIONS.find(option => option.value === draft.distribution)?.label || "Not Set"}</button>}</td>
       <td>B</td>{showDof && <td>∞</td>}
-      <td>{preview.value_native == null ? "—" : `± ${Number(preview.value_native.toPrecision(6))} ${getUnitDisplayLabel(preview.unit_native)}`}</td>
+      <td>{/incompatible/i.test(preview.pendingReason || "") ? <span role="img" aria-label={preview.pendingReason} title={preview.pendingReason} className="budget-pending-uncertainty" style={{ color: "var(--status-warning, #b58100)" }}><FontAwesomeIcon icon={faExclamationTriangle} /></span> : <span className={preview.value_native == null ? "inline-tolerance-summary is-empty budget-inline-not-set" : "budget-standard-uncertainty"} title={preview.pendingReason || undefined}>{preview.value_native == null ? "Not Set" : `± ${Number(preview.value_native.toPrecision(6))} ${getUnitDisplayLabel(preview.unit_native)}`}</span>}</td>
       <td className="action-cell"><button type="button" title="Remove component from this budget" aria-label="Remove dynamic component" onClick={() => onRemove?.(component.id, component)}><FontAwesomeIcon icon={faTimes} /></button></td>
     </tr>
   );

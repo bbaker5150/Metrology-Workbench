@@ -7,7 +7,9 @@ const setup = (kind) => {
   const definition = createDynamicDefinition(kind,{unit:"V"});
   const onCommit=vi.fn();
   render(<><button>Outside</button><table><tbody><DynamicBudgetComponentRow component={createDynamicComponent(definition)} referencePoint={{value:100,unit:"V"}} onCommit={onCommit}/></tbody></table></>);
-  fireEvent.click(screen.getByRole('button',{name:'Not Set'}));
+  fireEvent.click(document.querySelector('.dynamic-tolerance-cell button'));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit error limit distribution' }));
+  fireEvent.change(screen.getByLabelText('Error limit distribution'), { target: { value: '1.000' } });
   return {onCommit,definition};
 };
 it("starts with two columns and one row, grows with Tab, and commits on Enter",async()=>{
@@ -42,19 +44,20 @@ it("builds equation variables while typing with one measurement binding",()=>{
   expect(onCommit.mock.calls.at(-1)[0].pointVariable).toBe('A');
 });
 
-it("opens a newly created definition directly and focuses its name", () => {
+it("opens a new definition with a quiet centered source name", () => {
   const definition = createDynamicDefinition('table', { unit: 'V' });
   const opened = vi.fn();
   render(<table><tbody><DynamicBudgetComponentRow component={createDynamicComponent(definition)} referencePoint={{ value: 100, unit: 'V' }} onCommit={vi.fn()} autoEdit onEditorOpened={opened}/></tbody></table>);
   expect(screen.getByRole('group', { name: 'Tabular uncertainty editor' })).toBeInTheDocument();
-  expect(screen.getByLabelText('Error source name')).toHaveFocus();
+  expect(screen.queryByLabelText('Error source name')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Edit error source name' })).toHaveTextContent('Not Set');
   expect(opened).toHaveBeenCalledOnce();
 });
 it("keeps portaled selectors inside the editing session and Escape discards the draft", () => {
   const { onCommit } = setup('table');
   fireEvent.change(screen.getByLabelText('Measurement point row 1'), { target: { value: '100' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Values represent' }));
-  const option = screen.getByRole('option', { name: 'Error limit (±)' });
+  fireEvent.click(screen.getByRole('button', { name: 'Uncertainty unit' }));
+  const option = screen.getByRole('option', { name: 'mV' });
   option.focus();
   fireEvent.click(option);
   expect(screen.getByRole('group', { name: 'Tabular uncertainty editor' })).toBeInTheDocument();
@@ -66,10 +69,11 @@ it("keeps portaled selectors inside the editing session and Escape discards the 
 it("applies the complete latest draft on outside click", async () => {
   const { onCommit } = setup('table');
   fireEvent.paste(screen.getByLabelText('Measurement point row 1'), { clipboardData: { getData: () => '100\t.012\n200\t.024' } });
-  fireEvent.change(screen.getByLabelText('Uncertainty column 1 name'), { target: { value: 'Calibration' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Edit error source name' }));
+  fireEvent.change(screen.getByLabelText('Error source name'), { target: { value: 'Calibration' } });
   fireEvent.click(screen.getByRole('button', { name: 'Outside' }));
   await waitFor(() => expect(onCommit).toHaveBeenCalledOnce());
-  expect(onCommit.mock.calls[0][0].columns[0].name).toBe('Calibration');
+  expect(onCommit.mock.calls[0][0].name).toBe('Calibration');
   expect(onCommit.mock.calls[0][0].rows).toHaveLength(2);
   expect(screen.queryByRole('group', { name: 'Tabular uncertainty editor' })).not.toBeInTheDocument();
 });
@@ -86,10 +90,50 @@ it("preserves variable edits while an equation is incomplete and supports fixed 
   expect(screen.getByLabelText('B name')).toHaveValue('Scale factor');
   fireEvent.click(screen.getByLabelText('Use measurement point for A'));
   fireEvent.change(screen.getByLabelText('A nominal'), { target: { value: '50' } });
-  fireEvent.change(screen.getByLabelText('C nominal'), { target: { value: '1' } });
+  fireEvent.change(screen.getByLabelText('C nominal'), { target: { value: '1.000' } });
   fireEvent.change(equation, { target: { value: 'A*B+C+1' } });
   expect(screen.getByLabelText('Use measurement point for A')).toHaveAttribute('aria-pressed', 'false');
   expect(screen.getByRole('status')).toHaveTextContent('3 V');
   fireEvent.keyDown(screen.getByLabelText('C nominal'), { key: 'Enter' });
   expect(onCommit.mock.calls.at(-1)[0].pointVariable).toBe('');
+});
+
+it("uses the point unit in the header and supports symmetric and asymmetric table entries", () => {
+  const { onCommit } = setup('table');
+  expect(screen.queryByRole('button', { name: 'Measurement unit' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Values represent' })).not.toBeInTheDocument();
+  expect(screen.getByRole('columnheader', { name: 'Measurement point V' })).toBeInTheDocument();
+  expect(screen.getByRole('columnheader', { name: '± V' })).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Measurement point row 1'), { target: { value: '100' } });
+  fireEvent.change(screen.getByLabelText('Uncertainty row 1'), { target: { value: '.2' } });
+  fireEvent.click(screen.getByTitle('Asymmetric tolerance'));
+  expect(screen.getByLabelText('Low row 1')).toHaveValue('-0.2');
+  expect(screen.getByLabelText('High row 1')).toHaveValue('.2');
+  fireEvent.change(screen.getByLabelText('Low row 1'), { target: { value: '-.1' } });
+  fireEvent.keyDown(screen.getByLabelText('High row 1'), { key: 'Enter' });
+  expect(onCommit.mock.calls.at(-1)[0].mode).toBe('limits');
+});
+
+it("displays shared table points in the current point unit without changing their stored scale", () => {
+  const definition = createDynamicDefinition('table', { unit: 'V' });
+  definition.rows[0].point = 1;
+  const commit = vi.fn();
+  render(<table><tbody><DynamicBudgetComponentRow component={createDynamicComponent(definition)} referencePoint={{ value: 1000, unit: 'mV' }} onCommit={commit} autoEdit /></tbody></table>);
+  expect(screen.getByRole('columnheader', { name: 'Measurement point mV' })).toBeInTheDocument();
+  const input = screen.getByLabelText('Measurement point row 1');
+  expect(input).toHaveValue('1000');
+  fireEvent.change(input, { target: { value: '2000' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(commit.mock.calls.at(-1)[0].rows[0].point).toBe(2);
+});
+
+it("supports low and high equations and warns about incompatible output units", () => {
+  setup('equation');
+  fireEvent.change(screen.getByLabelText('Uncertainty equation'), { target: { value: 'x/100' } });
+  fireEvent.click(screen.getByTitle('Asymmetric tolerance'));
+  fireEvent.change(screen.getByLabelText('High error limit equation'), { target: { value: 'x/50' } });
+  expect(screen.getByRole('status')).toHaveTextContent('-1 to 2 V');
+  fireEvent.click(screen.getByRole('button', { name: 'Uncertainty unit' }));
+  fireEvent.click(screen.getByRole('option', { name: 'A' }));
+  expect(screen.getByRole('img', { name: /incompatible/ })).toBeInTheDocument();
 });

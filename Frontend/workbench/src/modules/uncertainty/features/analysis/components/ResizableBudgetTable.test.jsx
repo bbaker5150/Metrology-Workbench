@@ -41,7 +41,7 @@ describe("budget column resizing", () => {
     render(fixture());
     expect(widths()).toEqual(["350px", "120px"]);
     fireEvent.doubleClick(screen.getByRole("button", { name: "Resize Source column" }));
-    expect(widths()).toEqual([]);
+    expect(widths()).toEqual(["402px", "120px"]);
   });
 
   it("restores naturally narrow columns without discarding the saved table layout", () => {

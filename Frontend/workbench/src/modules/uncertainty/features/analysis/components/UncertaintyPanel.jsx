@@ -1,3 +1,4 @@
+import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
 import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
 import { SI_PREFIX_OPTIONS, prefixedUnitKey } from "../../../utils/siPrefixes";
@@ -1611,7 +1612,7 @@ export const MeasurementInputSymbolCell = ({ symbol, onCommit }) => {
         <input
           autoFocus
           type="text"
-          className="inline-function-input measurement-input-symbol-input"
+          className="instrument-custom-field-input measurement-input-symbol-input"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={commit}
@@ -1630,7 +1631,7 @@ export const MeasurementInputSymbolCell = ({ symbol, onCommit }) => {
       ) : (
         <button
           type="button"
-          className="measurement-input-symbol"
+          className="inline-tolerance-summary"
           title="Rename variable"
           aria-label={`Rename equation variable ${symbol}`}
           onClick={() => setEditing(true)}
@@ -1647,42 +1648,9 @@ export const MeasurementInputNameCell = ({
   value = "",
   onChange,
 }) => {
-  const { editing, setEditing, rootRef } = useMeasurementInputEditor();
-  const displayValue = String(value || "").trim();
-
-  return (
-    <div ref={rootRef} className="measurement-input-cell-editor">
-      {editing ? (
-        <input
-          autoFocus
-          type="text"
-          className="inline-function-input measurement-input-name"
-          value={value || ""}
-          placeholder="Name this input"
-          onChange={(event) => onChange?.(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === "Escape") {
-              event.preventDefault();
-              setEditing(false);
-            }
-          }}
-          aria-label={`Display name for equation variable ${symbol}`}
-        />
-      ) : (
-        <button
-          type="button"
-          className={`measurement-input-summary measurement-input-name-summary${
-            displayValue ? "" : " is-empty"
-          }`}
-          aria-label={`Edit name for equation variable ${symbol}`}
-          title="Edit input name"
-          onClick={() => setEditing(true)}
-        >
-          {displayValue || "Name this input"}
-        </button>
-      )}
-    </div>
-  );
+  return <div className="measurement-input-cell-editor"><EditableCustomFieldCell value={value}
+    onCommit={onChange} ariaLabel={`Display name for equation variable ${symbol}`}
+    editLabel={`Edit name for equation variable ${symbol}`} /></div>;
 };
 
 export const MeasurementInputNominalCell = ({
@@ -1707,12 +1675,12 @@ export const MeasurementInputNominalCell = ({
   return (
     <div ref={rootRef} className="measurement-input-cell-editor">
       {editing ? (
-        <div className="measurement-input-nominal">
+        <div className="inline-resolution-editor measurement-input-nominal">
           <input
             autoFocus
             type="number"
             step="any"
-            className="inline-tolerance-input measurement-input-value"
+            className="inline-tolerance-input inline-resolution-input measurement-input-value"
             value={value ?? ""}
             placeholder="Enter value"
             onChange={(event) => onValueChange?.(event.target.value)}
@@ -1728,13 +1696,13 @@ export const MeasurementInputNominalCell = ({
             value={unit || ""}
             onChange={onUnitChange}
             ariaLabel={`Nominal unit for equation variable ${symbol}`}
-            width="124px"
+            compact width="max-content"
           />
         </div>
       ) : (
         <button
           type="button"
-          className={`measurement-input-summary measurement-input-nominal-summary${
+          className={`inline-tolerance-summary${
             summary ? "" : " is-empty"
           }`}
           aria-label={`Edit nominal for equation variable ${symbol}`}
@@ -2341,7 +2309,7 @@ export const EditableDescriptionCell = ({
 // standard assumption for a least-significant-digit / quantization error.
 const RESOLUTION_DIST_DEFAULT = "3.464";
 
-const EditableCustomFieldCell = ({ value = "", onCommit }) => {
+const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel }) => {
   const [draft, setDraft] = useState(value ?? "");
   const [editing, setEditing] = useState(false);
   useEffect(() => setDraft(value ?? ""), [value]);
@@ -2359,6 +2327,7 @@ const EditableCustomFieldCell = ({ value = "", onCommit }) => {
         type="button"
         className={`inline-tolerance-summary${value ? "" : " is-empty"}`}
         title="Edit field"
+        aria-label={editLabel}
         onMouseDown={(event) => { event.stopPropagation(); event.preventDefault(); setEditing(true); }}
         onClick={(event) => {
           event.stopPropagation();
@@ -2373,6 +2342,7 @@ const EditableCustomFieldCell = ({ value = "", onCommit }) => {
     <input
       autoFocus
       className="instrument-custom-field-input"
+      aria-label={ariaLabel}
       style={{ width: `${Math.max(150, String(draft).length * 8 + 22)}px` }}
       value={draft}
       placeholder="Not Set"
@@ -2722,6 +2692,12 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
     startResize,
     resizeBy: (key, delta, table) =>
       resizePair(key, delta, table?.getBoundingClientRect().width, renderedInstrumentColumnWidths(table)),
+    fitColumn: (key, table) => {
+      const measured = measureTableColumnWidths(table, "instrumentColumn");
+      const current = renderedInstrumentColumnWidths(table) || resolvedWidths;
+      const next = { ...current, [key]: Math.max(minimumWidth(key), measured[key] || current[key]), __absolute: true };
+      setWidths(next); saveWidths(next);
+    },
     resetWidths: () => {
       setWidths(defaults);
       saveWidths(defaults);
@@ -2742,6 +2718,7 @@ const ResizableInstrumentHeader = ({
     className={`instrument-resizable-header ${className}`.trim()}
     aria-label={label}
     data-instrument-column={columnKey}
+    onDoubleClick={event => { if (!event.target.closest(".instrument-column-insert-button")) columns.fitColumn(columnKey, event.currentTarget.closest("table")); }}
   >
     <span className="instrument-resizable-header-content">{children}</span>
     {onInsertAfter && (
@@ -2765,7 +2742,7 @@ const ResizableInstrumentHeader = ({
       title={`Drag to resize ${label} column`}
       aria-label={`Resize ${label} column`}
       onPointerDown={(event) => columns.startResize(event, columnKey)}
-      onDoubleClick={() => columns.resetWidths()}
+      onDoubleClick={event => { event.stopPropagation(); columns.fitColumn(columnKey, event.currentTarget.closest("table")); }}
       onKeyDown={(event) => {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault();
