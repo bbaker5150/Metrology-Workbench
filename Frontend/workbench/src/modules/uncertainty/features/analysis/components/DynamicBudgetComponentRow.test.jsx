@@ -137,3 +137,42 @@ it("supports low and high equations and warns about incompatible output units", 
   fireEvent.click(screen.getByRole('option', { name: 'A' }));
   expect(screen.getByRole('img', { name: /incompatible/ })).toBeInTheDocument();
 });
+
+
+it.each(["Enter", "collapse"])("saves a symmetric table limit and distribution on %s", async action => {
+  const definition = createDynamicDefinition("table", { value: 1, unit: "degF" });
+  const onCommit = vi.fn();
+  const component = createDynamicComponent(definition);
+  render(<><button>Outside</button><table><tbody><DynamicBudgetComponentRow component={component}
+    referencePoint={{ value: 1, unit: "degF" }} onCommit={onCommit} autoEdit /></tbody></table></>);
+  expect(screen.getByLabelText('Measurement point row 1')).toHaveValue('1');
+  fireEvent.change(screen.getByLabelText('Uncertainty row 1'), { target: { value: '.2' } });
+  fireEvent.click(screen.getByTitle('Asymmetric tolerance'));
+  fireEvent.click(screen.getByTitle('Symmetric tolerance'));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit error limit distribution' }));
+  fireEvent.change(screen.getByLabelText('Error limit distribution'), { target: { value: '1.732' } });
+  if (action === 'Enter') fireEvent.keyDown(screen.getByLabelText('Uncertainty row 1'), { key: 'Enter' });
+  else fireEvent.click(screen.getByRole('button', { name: 'Outside' }));
+  await waitFor(() => expect(onCommit).toHaveBeenCalledOnce());
+  expect(onCommit.mock.calls[0][0]).toMatchObject({ mode: 'tolerance', distribution: '1.732' });
+  expect(document.querySelector('.dynamic-tolerance-cell button')).toHaveTextContent('± 0.2 degF');
+  expect(document.querySelector('.budget-standard-uncertainty')).toHaveTextContent('0.115473 °F');
+});
+
+
+it("keeps the saved error limit visible when distribution is selected after Enter", () => {
+  const definition = createDynamicDefinition("table", { value: 0, unit: "V" });
+  const component = createDynamicComponent(definition), commit = vi.fn();
+  render(<table><tbody><DynamicBudgetComponentRow component={component} referencePoint={{ value: 0, unit: "V" }} onCommit={commit} autoEdit /></tbody></table>);
+  expect(screen.getByLabelText('Measurement point row 1')).toHaveValue('0');
+  fireEvent.change(screen.getByLabelText('Uncertainty row 1'), { target: { value: '.2' } });
+  fireEvent.keyDown(screen.getByLabelText('Uncertainty row 1'), { key: 'Enter' });
+  expect(document.querySelector('.dynamic-tolerance-cell button')).toHaveTextContent('± 0.2 V');
+  expect(document.querySelector('.dynamic-tolerance-cell button')).toHaveAttribute('title', 'Choose an error-limit distribution.');
+  expect(document.querySelector('.budget-standard-uncertainty')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit error limit distribution' }));
+  fireEvent.change(screen.getByLabelText('Error limit distribution'), { target: { value: '2.000' } });
+  expect(document.querySelector('.dynamic-tolerance-cell button')).toHaveTextContent('± 0.2 V');
+  expect(document.querySelector('.budget-standard-uncertainty')).toHaveTextContent('0.1 V');
+  expect(commit.mock.calls.at(-1)[0].rows[0]).toMatchObject({ point: 0, values: { [definition.columns[0].id]: { value: '.2' } } });
+});

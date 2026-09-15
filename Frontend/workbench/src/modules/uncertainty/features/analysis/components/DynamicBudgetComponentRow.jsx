@@ -208,9 +208,9 @@ export default function DynamicBudgetComponentRow({
       </td>
       <td className="dynamic-tolerance-cell">
         {!editing ? (
-          <button ref={triggerRef} type="button" className={`inline-tolerance-summary${preview.pendingReason ? " is-empty" : ""}`}
+          <button ref={triggerRef} type="button" className={`inline-tolerance-summary${preview.dynamicSummary ? "" : " is-empty"}`}
             title={preview.pendingReason || `Edit ${kindLabel.toLowerCase()} uncertainty`} onClick={openEditor}>
-            {preview.pendingReason ? "Not Set" : preview.dynamicSummary}
+            {preview.dynamicSummary || "Not Set"}
           </button>
         ) : (
           <div className="dynamic-budget-editor" data-budget-editor="limit" role="group" aria-label={`${kindLabel} uncertainty editor`}>

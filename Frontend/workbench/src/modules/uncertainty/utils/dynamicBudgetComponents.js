@@ -22,7 +22,7 @@ export const validateBudgetEquation = equation => {
 export const createDynamicDefinition = (kind, nominal = {}) => ({
   id: uuid(), kind, name: "", measurementUnit: nominal.unit || "", outputUnit: nominal.unit || "",
   mode: "tolerance", distribution: "", columns: [{ id: uuid(), name: "Uncertainty" }],
-  rows: [{ id: uuid(), point: "", values: {} }], equation: "", variables: {}, pointVariable: "",
+  rows: [{ id: uuid(), point: kind === "table" && filled(nominal.value) ? Number(nominal.value) : "", values: {} }], equation: "", variables: {}, pointVariable: "",
 });
 export const createDynamicComponent = (definition, outputId, scope) => ({
   id: uuid(), name: definition.name, type: "B", isManual: true, isCore: false,
@@ -112,12 +112,14 @@ export const resolveDynamicComponent = (component, definition, nominal) => {
       summary = values.map(value => String(Number(value.toPrecision(8)))).join(" to ");
     }
     if (magnitude < 0) throw Error("Uncertainty cannot be negative.");
+    // The authored error limit is valid before a distribution is selected.
+    // Keep it visible while standard uncertainty still needs its divisor.
+    base.dynamicSummary = `${definition.mode === "limits" ? "" : "± "}${summary} ${definition.outputUnit}`;
     const divisor = definition.mode === "standard" ? 1 : Number(definition.distribution);
     if (!Number.isFinite(divisor) || divisor <= 0) throw Error("Choose an error-limit distribution.");
     const standard = magnitude / divisor;
     return { ...base, pendingReason: null, value_native: standard,
       value: standard * unitSystem.units[definition.outputUnit].to_si,
-      dynamicSummary: `${definition.mode === "limits" ? "" : "± "}${summary} ${definition.outputUnit}`,
     };
   } catch (error) { return unresolvedComponent(base, error.message); }
 };

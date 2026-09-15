@@ -58,4 +58,29 @@ export async function checkDynamicEquationCopies({ frame, page, saved, until, ch
   check('source and first destination keep their own nominals', saved().testPoints.slice(0, 2).map(point => Number(point.testPointInfo.parameter.value)).join(',') === '1,4');
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/copied-equation.png` });
   await outside();
+  await frame.getByRole('button', { name: 'Add component to budget', exact: true }).last().click();
+  await frame.getByRole('button', { name: 'Add tabular uncertainty', exact: true }).click();
+  const tableRow = frame.locator('.budget-dynamic-row').last();
+  check('new tabular entry starts at the current measurement point', await frame.getByLabel('Measurement point row 1', { exact: true }).inputValue() === '7');
+  await frame.getByLabel('Uncertainty row 1', { exact: true }).fill('.2');
+  await frame.getByTitle('Asymmetric tolerance', { exact: true }).last().click();
+  await frame.getByTitle('Symmetric tolerance', { exact: true }).last().click();
+  await frame.getByLabel('Uncertainty row 1', { exact: true }).press('Enter');
+  check('Enter retains the authored tabular error limit before distribution is selected', await tableRow.locator('.dynamic-tolerance-cell button').innerText() === '± 0.2 degF');
+  await tableRow.getByRole('button', { name: 'Edit error limit distribution', exact: true }).click();
+  await frame.getByLabel('Error limit distribution', { exact: true }).selectOption('2.000');
+  check('tabular value and distribution persist together', await until(() => {
+    const definition = saved().dynamicBudgetDefinitions.find(d => d.kind === 'table');
+    return definition?.distribution === '2.000' && Number(definition.rows[0].values[definition.columns[0].id].value) === .2;
+  }));
+  check('tabular standard uncertainty uses the selected distribution', await tableRow.locator('.budget-standard-uncertainty').innerText() === '± 0.1 °F');
+  await tableRow.locator('.dynamic-tolerance-cell button').click();
+  await frame.getByLabel('Uncertainty row 1', { exact: true }).fill('.4');
+  await outside();
+  check('collapsing saves the updated tabular error limit', await tableRow.locator('.dynamic-tolerance-cell button').innerText() === '± 0.4 degF');
+  await selectPoint(points.first());
+  await selectPoint(points.last());
+  check('reopening the point retains the saved tabular error limit', await tableRow.locator('.dynamic-tolerance-cell button').innerText() === '± 0.4 degF');
+  check('reopening retains the recalculated tabular standard uncertainty', await tableRow.locator('.budget-standard-uncertainty').innerText() === '± 0.2 °F');
+  if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/saved-tabular-limit.png` });
 }
