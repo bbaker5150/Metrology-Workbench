@@ -93,4 +93,17 @@ describe("budget column resizing", () => {
     fireEvent.pointerMove(document, { clientX: 700 });
     expect(localStorage.length).toBe(0);
   });
+
+  it("fits the manual tolerance editor and full range label even with saved narrow columns", async () => {
+    localStorage.setItem('uncertalytics:budget-column-widths:v1:final:length', JSON.stringify({ source: 100, limit: 90 }));
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function () {
+      return this.matches('.inline-tolerance-editor') ? 360 : this.matches('.budget-range-selector') ? 240 : 0;
+    });
+    render(<ResizableBudgetTable scope="final:length" columns={columns}><tbody><tr>
+      <td><span className="budget-range-selector">Range: -454 to 753 °F</span></td>
+      <td className="budget-inline-tolerance-cell"><div className="inline-tolerance-editor">± tolerance</div></td>
+    </tr></tbody></ResizableBudgetTable>);
+    await waitFor(() => expect(widths()).toEqual(['242px', '362px']));
+    expect(JSON.parse(localStorage.getItem('uncertalytics:budget-column-widths:v1:final:length'))).toEqual({ source: 100, limit: 90 });
+  });
 });

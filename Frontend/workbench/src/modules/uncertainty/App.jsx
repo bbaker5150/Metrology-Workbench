@@ -58,6 +58,7 @@ import { useNotifications } from "../../shared/NotificationContext";
 // --- Utils & Hooks ---
 import useSessionManager from "./hooks/useSessionManager";
 import usePointerResize from "./hooks/usePointerResize";
+import { preserveTableTextSelection } from "./utils/tableTextSelection";
 import "./App.css";
 
 // --- Icons ---
@@ -395,7 +396,7 @@ const SIDEBAR_COLUMN_LABELS = {
   section: "Section",
   value: "Value",
   qualifier: "Qualifier",
-  tolerance: "Tolerance",
+  tolerance: "Tolerance (±)",
   lowLimit: "UUT Low Limit",
   highLimit: "UUT High Limit",
   standardUncertainty: "Comb. Uncertainty",
@@ -2854,6 +2855,7 @@ function App({ showThemeToggle = false }) {
   useEffect(() => {
     const root = zoomRootRef.current;
     if (!root) return undefined;
+    const releaseTextSelection = preserveTableTextSelection(root);
 
     const applyZoomLevels = () => {
       root.querySelectorAll(SCOPED_ZOOM_SURFACE_SELECTOR).forEach((surface) => {
@@ -2872,7 +2874,7 @@ function App({ showThemeToggle = false }) {
     applyZoomLevels();
     const observer = new MutationObserver(applyZoomLevels);
     observer.observe(root, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    return () => { releaseTextSelection(); observer.disconnect(); };
   }, [scopedZoomLevels]);
 
   // --- CLIPBOARD STATE ---
@@ -5295,7 +5297,7 @@ function App({ showThemeToggle = false }) {
         },
       ],
       qualifier: ["Qual."],
-      tolerance: ["Tolerance"],
+      tolerance: ["Tolerance (±)"],
       lowLimit: ["UUT Low", { title: "UUT Low Limit" }],
       highLimit: ["UUT High", { title: "UUT High Limit" }],
       standardUncertainty: [
@@ -5385,7 +5387,7 @@ function App({ showThemeToggle = false }) {
   const sidebarSortGroups = sidebarColumnOrder.filter(key => sidebarColumns[key]).reduce((groups, key) => {
     const pairs = { lowLimit: ["lowLimit", "highLimit"], highLimit: ["lowLimit", "highLimit"], tmdeLow: ["tmdeLow", "tmdeHigh"], tmdeHigh: ["tmdeLow", "tmdeHigh"], gbLow: ["gbLow", "gbHigh"], gbHigh: ["gbLow", "gbHigh"] };
     const keys = (pairs[key] || [key]).filter(k => sidebarColumns[k]);
-    if (!groups.some(g => g.keys.includes(key))) groups.push({ key: keys[0], keys, label: keys.includes("lowLimit") || keys.includes("highLimit") ? "UUT Limits" : keys.includes("tmdeLow") || keys.includes("tmdeHigh") ? "TMDE Limits" : keys.includes("gbLow") || keys.includes("gbHigh") ? "GB Limits" : SIDEBAR_COLUMN_LABELS[key] });
+    if (!groups.some(g => g.keys.includes(key))) groups.push({ key: keys[0], keys, label: keys.includes("lowLimit") || keys.includes("highLimit") ? "Tolerance (Limits)" : keys.includes("tmdeLow") || keys.includes("tmdeHigh") ? "TMDE Limits" : keys.includes("gbLow") || keys.includes("gbHigh") ? "GB Limits" : SIDEBAR_COLUMN_LABELS[key] });
     return groups;
   }, []);
   const moveSidebarSortGroup = (source, target) => {
@@ -6013,8 +6015,8 @@ function App({ showThemeToggle = false }) {
                                 { key: "section", label: "Section" },
                                 { key: "value", label: "Value" },
                                 { key: "qualifier", label: "Qualifier" },
-                                { key: "tolerance", label: "Tolerance" },
-                                { key: "lowLimit", keys: ["lowLimit", "highLimit"], label: "UUT Limits" },
+                                { key: "tolerance", label: "Tolerance (±)" },
+                                { key: "lowLimit", keys: ["lowLimit", "highLimit"], label: "Tolerance (Limits)" },
                                 {
                                   key: "standardUncertainty",
                                   label: "Comb. Uncertainty",
@@ -6069,7 +6071,7 @@ function App({ showThemeToggle = false }) {
                             },
                           ]} columns={sidebarColumns} setColumns={setSidebarColumns}
                               selectedGroups={sidebarSortGroups} moveGroup={moveSidebarSortGroup}
-                              onReset={() => setSidebarColumnOrder(DEFAULT_SIDEBAR_COLUMN_ORDER)} />
+                              onReset={() => { setSidebarColumnOrder([...DEFAULT_SIDEBAR_COLUMN_ORDER]); setSidebarColumns({ ...DEFAULT_SIDEBAR_COLUMNS }); }} />
                           </SidebarColumnPopover>}
                         </div>
                       </>

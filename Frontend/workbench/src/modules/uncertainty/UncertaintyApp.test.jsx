@@ -359,27 +359,21 @@ describe("UncertaintyApp", () => {
     await screen.findByText(/No Session Available/i);
     fireEvent.click(screen.getByTitle("Columns"));
 
-    expect(screen.getByRole("checkbox", { name: "Comb. Uncertainty", exact: true })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Exp. Uncertainty", exact: true })).toBeInTheDocument();
+    expect(screen.getByText("Comb. Uncertainty", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("Exp. Uncertainty", { exact: true })).toBeInTheDocument();
     expect(screen.getByText("Risk")).toBeInTheDocument();
     expect(screen.getByText("Mitigation (GB + Int)")).toBeInTheDocument();
     expect(screen.getByText("Mitigation (Int Only)")).toBeInTheDocument();
     expect(screen.getByText("REOP @ test pt TUR")).toBeInTheDocument();
     expect(screen.getByText("Targeted REOP w/ GB")).toBeInTheDocument();
     expect(screen.getByText("Targeted REOP w/o GB")).toBeInTheDocument();
-    const riskGroupToggle = screen.getByRole("checkbox", {
-      name: "Toggle all Risk columns",
-    });
-    const riskGroup = riskGroupToggle.closest(".filter-option-group");
-    expect(riskGroupToggle.indeterminate).toBe(true);
-    fireEvent.click(riskGroupToggle);
-    within(riskGroup)
-      .getAllByRole("checkbox")
-      .forEach((checkbox) => expect(checkbox).toBeChecked());
-    fireEvent.click(riskGroupToggle);
-    within(riskGroup)
-      .getAllByRole("checkbox")
-      .forEach((checkbox) => expect(checkbox).not.toBeChecked());
+    const menu = screen.getByRole("dialog", { name: "Visible measurement point columns" });
+    expect(within(menu).queryByRole("checkbox")).not.toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("button", { name: "Hide PFA" }));
+    expect(within(menu).getByRole("button", { name: "Add PFA column" })).toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("button", { name: "Reset" }));
+    expect(within(menu).getByRole("button", { name: "Hide PFA" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("button", { name: "Add PFA column" })).not.toBeInTheDocument();
     expect(
       screen.queryByText("Standard Uncertainty (combined)"),
     ).not.toBeInTheDocument();
@@ -1540,7 +1534,7 @@ describe("UncertaintyApp", () => {
       "span 1",
     ]);
     fireEvent.click(screen.getByTitle("Columns"));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Section" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Section column" }));
     expect(
       document.querySelector(".sidebar-column-header-cell--section"),
     ).toBeInTheDocument();

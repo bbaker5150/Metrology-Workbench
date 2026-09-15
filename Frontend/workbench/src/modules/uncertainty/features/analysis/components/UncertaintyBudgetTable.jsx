@@ -1703,10 +1703,10 @@ const UncertaintyBudgetTable = ({
                 />
               </div>
             </div>
+            {group === groups.at(-1) && <DecisionRiskCards results={riskResults} requiredPfa={riskRequirements?.reqPFA} formatValue={value => formatNumber(value, 4)} />}
           </section>
         </React.Fragment>
       ))}
-      <DecisionRiskCards results={riskResults} requiredPfa={riskRequirements?.reqPFA} formatValue={value => formatNumber(value, 4)} />
     </div>
   );
 };

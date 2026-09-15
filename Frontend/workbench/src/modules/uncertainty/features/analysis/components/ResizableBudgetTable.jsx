@@ -1,9 +1,11 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { preserveTableTextSelection } from "../../../utils/tableTextSelection";
 
 const STORAGE_PREFIX = "uncertalytics:budget-column-widths:v1:";
 const RESET_EVENT = "uncert-reset-ui-sizes";
 const CHANGE_EVENT = "uncert-size-budget-column";
 const minimumWidth = (key) => key === "actions" ? 36 : 60;
+const EDITORS = "[data-budget-editor], .budget-inline-tolerance-cell .inline-tolerance-editor, .budget-range-selector";
 
 function readWidths(key) {
   try {
@@ -31,6 +33,7 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
   useLayoutEffect(() => {
     const table = tableRef.current;
     if (!table) return;
+    const releaseTextSelection = preserveTableTextSelection(table);
     const measure = () => {
       const viewport = table.parentElement;
       if (viewport?.clientWidth) {
@@ -41,11 +44,11 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
         if (table.style.getPropertyValue("--budget-editor-width") !== editorWidth) table.style.setProperty("--budget-editor-width", editorWidth);
       }
       const next = {};
-      table.querySelectorAll("[data-budget-editor]").forEach(editor => {
+      table.querySelectorAll(EDITORS).forEach(editor => {
         const cell = editor.closest("td");
         if (!cell || cell.closest("table") !== table) return;
         const style = getComputedStyle(cell);
-        const key = editor.dataset.budgetEditor;
+        const key = editor.dataset.budgetEditor || (editor.matches(".budget-range-selector") ? "source" : "limit");
         next[key] = Math.max(next[key] || 0, Math.ceil(Math.max(editor.offsetWidth, editor.scrollWidth) + parseFloat(style.paddingLeft || 0) + parseFloat(style.paddingRight || 0) + 2));
       });
       setEditorMinimums(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
@@ -54,16 +57,21 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
     const observeEditors = () => {
       resize?.disconnect();
       if (table.parentElement) resize?.observe(table.parentElement);
-      table.querySelectorAll("[data-budget-editor]").forEach(editor => resize?.observe(editor));
+      table.querySelectorAll(EDITORS).forEach(editor => resize?.observe(editor));
       measure();
     };
     observeEditors();
-    const mutation = new MutationObserver(observeEditors);
-    mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-budget-editor"] });
+    let frame = null;
+    const schedule = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => { frame = null; observeEditors(); });
+    };
+    const mutation = new MutationObserver(schedule);
+    mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-budget-editor", "class"] });
     const zoomMutation = new MutationObserver(measure);
     zoomMutation.observe(table, { attributes: true, attributeFilter: ["style"] });
     window.addEventListener("resize", measure);
-    return () => { resize?.disconnect(); mutation.disconnect(); zoomMutation.disconnect(); window.removeEventListener("resize", measure); };
+    return () => { releaseTextSelection(); cancelAnimationFrame(frame); resize?.disconnect(); mutation.disconnect(); zoomMutation.disconnect(); window.removeEventListener("resize", measure); };
   }, []);
 
 

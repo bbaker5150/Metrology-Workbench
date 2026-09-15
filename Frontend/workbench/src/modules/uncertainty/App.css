@@ -20832,3 +20832,79 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   white-space: normal;
   text-wrap: balance;
 }
+
+/* Column picking uses the same compact add/remove controls as the tables. */
+.point-column-menu-body .point-column-order-row:is(:hover, :focus-visible, .is-drop-target) {
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--content-background));
+  box-shadow: inset 3px 0 0 var(--primary-color);
+  outline: none;
+}
+.point-column-menu-body .point-column-order-row.is-dragging { opacity: .55; background: var(--primary-color-light); }
+.point-column-menu-body .point-column-order-row .point-column-remove {
+  color: var(--status-bad); font-size: 21px; width: 24px; height: 24px; flex: 0 0 24px;
+  padding: 0; line-height: 1; border-radius: 4px;
+}
+.point-column-menu-body .point-column-remove:hover { background: color-mix(in srgb, var(--status-bad) 10%, transparent); }
+.point-column-add, .point-column-indicators {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  width: 100%; padding: 6px 8px; border: 0; border-radius: 4px;
+  color: var(--text-color); background: transparent; font: inherit; font-size: .75rem; text-align: left; cursor: pointer;
+}
+.point-column-add > span:last-child { color: var(--primary-color); font-size: 18px; line-height: 1; }
+.point-column-add:is(:hover, :focus-visible), .point-column-indicators:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--primary-color) 9%, transparent); outline: none; }
+.point-column-indicators { grid-column: 1 / -1; border-top: 1px solid var(--border-color); border-radius: 0; color: var(--text-color-muted); }
+.point-column-indicators[aria-pressed="true"] { color: var(--primary-color); }
+
+/* Measure intrinsic controls even when the user has saved narrow columns. */
+.uncertainty-module .budget-inline-tolerance-cell .inline-tolerance-editor--all {
+  width: max-content; min-width: 285px; max-width: none;
+}
+.uncertainty-module .budget-range-selector,
+.uncertainty-module .budget-range-selector .inline-menu-select-trigger {
+  width: max-content !important; max-width: none; min-width: max-content;
+}
+.uncertainty-module .budget-range-selector .inline-menu-select-trigger > span { max-width: none; overflow: visible; }
+.budget-section-row > .budget-decision-results { grid-column: 1; justify-self: center; }
+.uncertainty-module .panel-card:has(> .instrument-panel-table-container) { max-width: none; min-width: 0; }
+.budget-tmde-picker-instrument-name:not(:disabled):is(:hover, :focus-visible),
+.budget-tmde-picker-range:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--content-background)) !important;
+  box-shadow: inset 3px 0 0 var(--primary-color); outline: none;
+}
+.uncertainty-module :is(.inline-desc-combined, .inline-tolerance-summary, .inline-range-main) { user-select: text; -webkit-user-select: text; }
+
+/* Important rules in this layer supersede the older unlayered table tints.
+   Each real range row is independent; only row-spanned cells share its cue. */
+@layer instrument-highlights {
+  .uncertainty-module .instrument-equipment-table {
+    --instrument-base-tint: 12%; --instrument-column-tint: 16%;
+    --instrument-hover-tint: 20%; --instrument-selected-tint: 26%;
+  }
+  body.dark-mode .uncertainty-module .instrument-equipment-table {
+    --instrument-base-tint: 20%; --instrument-column-tint: 24%;
+    --instrument-hover-tint: 30%; --instrument-selected-tint: 36%;
+  }
+  .uncertainty-module .instrument-equipment-table tr.instrument-function-row > td {
+    --instrument-cell-tint: var(--instrument-base-tint);
+    background-color: color-mix(in srgb, var(--instrument-function-color) var(--instrument-cell-tint), var(--content-background)) !important;
+    box-shadow: none !important;
+  }
+  .uncertainty-module .instrument-equipment-table tr.instrument-function-row > td.col-hovered {
+    --instrument-cell-tint: var(--instrument-column-tint);
+  }
+  .uncertainty-module .instrument-equipment-table tr.instrument-function-row:hover > td,
+  .uncertainty-module .instrument-equipment-table:hover tr.row-hovered > td[rowspan]:not([rowspan="1"]) {
+    --instrument-cell-tint: var(--instrument-hover-tint);
+  }
+  .uncertainty-module .instrument-equipment-table tr.instrument-function-row:is(.selected-row, .selected-spec-row) > td,
+  .uncertainty-module .instrument-equipment-table tr.inline-range-row:is(.is-active-range, .is-selected-range) > td,
+  .uncertainty-module .instrument-equipment-table tr.inline-range-row.instrument-selected > td[rowspan]:not([rowspan="1"]) {
+    --instrument-cell-tint: var(--instrument-selected-tint);
+    --selection-edge: color-mix(in srgb, var(--instrument-function-color) 82%, var(--primary-color));
+    box-shadow: inset 0 1px var(--selection-edge), inset 0 -1px var(--selection-edge), 0 0 5px color-mix(in srgb, var(--instrument-function-color) 18%, transparent) !important;
+  }
+  .uncertainty-module .instrument-equipment-table tr.instrument-function-row:is(.selected-row, .selected-spec-row, .is-active-range, .is-selected-range) > td:is(:first-child, :last-child),
+  .uncertainty-module .instrument-equipment-table tr.inline-range-row.instrument-selected > td[rowspan]:not([rowspan="1"]) {
+    box-shadow: inset 0 0 0 1px var(--selection-edge), 0 0 5px color-mix(in srgb, var(--instrument-function-color) 18%, transparent) !important;
+  }
+}

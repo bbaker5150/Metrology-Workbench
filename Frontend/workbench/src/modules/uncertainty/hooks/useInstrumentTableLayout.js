@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useState } from "react";
+import { preserveTableTextSelection } from "../utils/tableTextSelection";
 
 const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor";
 
@@ -19,6 +20,7 @@ export default function useInstrumentTableLayout(containerRef) {
   useLayoutEffect(() => {
     const table = container?.querySelector(":scope > table");
     if (!table) return undefined;
+    const releaseTextSelection = preserveTableTextSelection(table);
     const card = container.closest(".panel-card");
     let frame = null;
     const setProperty = (node, name, value) => {
@@ -104,6 +106,7 @@ export default function useInstrumentTableLayout(containerRef) {
     window.addEventListener("resize", schedule);
     sync();
     return () => {
+      releaseTextSelection();
       cancelAnimationFrame(frame);
       card?.style.removeProperty("--instrument-panel-width");
       mutation.disconnect();
