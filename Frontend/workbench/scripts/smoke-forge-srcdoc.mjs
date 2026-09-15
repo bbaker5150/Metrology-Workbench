@@ -1,3 +1,4 @@
+import { prepareDynamicEquationSession, checkDynamicEquationCopies } from "./dynamic-equation-copy-checks.mjs";
 import { prepareFollowupSession, checkTaskingFollowup } from "./tasking-followup-checks.mjs";
 import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
@@ -65,7 +66,7 @@ const browser = await chromium.launch({
   executablePath: process.env.PLAYWRIGHT_CHROMIUM || undefined,
 });
 const page = await browser.newPage();
-if (process.env.TASKING_FEEDBACK_SMOKE || process.env.TASKING_FOLLOWUP_SMOKE) await page.setViewportSize({ width: 1440, height: 1000 });
+if (process.env.TASKING_FEEDBACK_SMOKE || process.env.TASKING_FOLLOWUP_SMOKE || process.env.DYNAMIC_EQUATION_COPY_SMOKE) await page.setViewportSize({ width: 1440, height: 1000 });
 
 const subresourceFailures = [];
 const apiCalls = [];
@@ -107,6 +108,7 @@ if (process.env.INSTRUMENT_SESSION_JSON) {
 }
 if (process.env.TASKING_FEEDBACK_SMOKE || process.env.TASKING_FOLLOWUP_SMOKE) for (const session of sessions.values()) prepareFeedbackSession(session);
 if (process.env.TASKING_FOLLOWUP_SMOKE) for (const session of sessions.values()) prepareFollowupSession(session);
+if (process.env.DYNAMIC_EQUATION_COPY_SMOKE) for (const session of sessions.values()) prepareDynamicEquationSession(session);
 const instrumentItems = [301, 302].map(id => ({
   Id: id, AuthorId: 7, RecordId: `instrument-${id}`,
   PayloadJson: JSON.stringify({ id: `instrument-${id}`, manufacturer: 'Smoke', model: `DMM-${id}`, description: 'Archive smoke instrument', scope: 'validated', functions: [] }),
@@ -264,6 +266,7 @@ if (/not set up yet/i.test(frameText)) {
   const saved = () => [...sessions.values()].find(doc => String(doc.id) === sessionId);
   if (process.env.TASKING_FEEDBACK_SMOKE) await checkTaskingFeedback({ frame, page, saved, until, check });
   if (process.env.TASKING_FOLLOWUP_SMOKE) await checkTaskingFollowup({ frame, page, saved, until, check });
+  if (process.env.DYNAMIC_EQUATION_COPY_SMOKE) await checkDynamicEquationCopies({ frame, page, saved, until, check });
   for (const view of ['overview', 'point']) {
     if (view === 'overview') await frame.locator('[data-tour="tab-overview"]').click();
     else {

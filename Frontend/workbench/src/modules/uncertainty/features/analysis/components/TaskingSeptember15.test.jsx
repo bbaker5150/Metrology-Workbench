@@ -1,3 +1,5 @@
+import { preparePointForPaste } from "../../../utils/pointClipboard";
+import { computeUncertaintyForPoint } from "../../../utils/riskCompute";
 import React from "react";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
@@ -84,4 +86,26 @@ it.each(["table", "equation"])("re-evaluates a copied %s component at the destin
   expect(result.value_native).toBe(2);
   expect(result.dynamicReferencePoint.value).toBe(4000);
   expect(source.testPointInfo.parameter.value).toBe(3000);
+});
+
+
+it("recalculates copied Fahrenheit equation budgets and edited point copies without carrying source results", () => {
+  const definition = { ...createDynamicDefinition("equation", { unit: "degF" }),
+    mode: "standard", distribution: "1", equation: "x*a", pointVariable: "x", variables: { x: { value: 1 }, a: { value: .1 } } };
+  const session = { dynamicBudgetDefinitions: [definition], uncReq: { uncertaintyConfidence: 95 } };
+  const source = { id: "source", measurementType: "direct", testPointInfo: { parameter: { value: 1, unit: "degF" } }, components: [createDynamicComponent(definition)] };
+  source.components = resolveDynamicComponents(source.components, source, session);
+  const pasted = pastePointBudget({ id: "destination", measurementType: "direct", testPointInfo: { parameter: { value: 4, unit: "degF" } } }, copyPointBudget(source));
+  expect(pasted.components[0]).not.toHaveProperty("dynamicReferencePoint");
+  expect(pasted.components[0].value_native).toBeNull();
+  expect(computeUncertaintyForPoint(pasted, session).combined_uncertainty_absolute_base).toBeCloseTo(.4 * 5/9, 7);
+  pasted.components = resolveDynamicComponents(pasted.components, pasted, session);
+  const copy = preparePointForPaste(pasted, { mode: "copy" });
+  expect(copy.components[0]).not.toHaveProperty("dynamicReferencePoint");
+  copy.testPointInfo = { parameter: { value: 7, unit: "degF" } };
+  expect(computeUncertaintyForPoint(copy, session).combined_uncertainty_absolute_base).toBeCloseTo(.7 * 5/9, 7);
+  expect(resolveDynamicComponents(copy.components, copy, session)[0].value_native).toBeCloseTo(.7);
+  expect(definition.variables.a.value).toBe(.1);
+  expect(source.testPointInfo.parameter.value).toBe(1);
+  expect(pasted.testPointInfo.parameter.value).toBe(4);
 });

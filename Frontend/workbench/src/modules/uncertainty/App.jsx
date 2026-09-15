@@ -1,3 +1,4 @@
+import { clearDynamicComponentResults } from "./utils/dynamicBudgetComponents";
 import { decisionRiskColor } from "./utils/decisionRiskStatus";
 import UiSettings, { isUiScaleLocked } from "../../shared/UiSettings";
 import { formatPointLimit, pointDisplayResolution } from "./utils/pointLimitDisplay";
@@ -234,6 +235,7 @@ export const pastePointBudget = (point = {}, budget = {}) => {
       next[field] = clonePointSettingValue(budget[field]);
     }
   });
+  if (next.components) next.components = next.components.map(clearDynamicComponentResults);
   return next;
 };
 

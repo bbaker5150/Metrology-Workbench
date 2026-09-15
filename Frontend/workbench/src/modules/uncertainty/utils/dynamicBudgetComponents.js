@@ -30,6 +30,12 @@ export const createDynamicComponent = (definition, outputId, scope) => ({
   dynamicDefinition: definition, value: null, value_native: null, dof: Infinity,
   ...(scope?.kind === "input" ? { variableType: scope.variableType } : {}),
 });
+// A portable definition carries its binding, never the source point's evaluated result.
+export const clearDynamicComponentResults = component => {
+  if (!component?.dynamicDefinitionId) return component;
+  const { dynamicReferencePoint, dynamicSummary, pendingReason, ...authored } = component;
+  return { ...authored, value: null, value_native: null };
+};
 export const getDynamicDefinition = (component, session = {}) =>
   (session.dynamicBudgetDefinitions || []).find(d => d.id === component.dynamicDefinitionId) || component.dynamicDefinition;
 export const componentReferencePoint = (component, point) => {
@@ -43,6 +49,7 @@ export const dynamicMeasurementValue = (nominal, unit) => {
   if (!filled(nominal?.value)) throw Error("Enter a measurement point value.");
   if (!unit || !unitSystem.units[unit] || !unitSystem.units[nominal.unit]) throw Error("Choose valid measurement and output units.");
   if (unitSystem.units[unit].quantity !== unitSystem.units[nominal.unit].quantity) throw Error("The component's measurement unit is incompatible with this point.");
+  if (nominal.unit === unit) return Number(nominal.value);
   // Nominal temperatures need offsets; uncertainty magnitudes below use only scale.
   if (unitSystem.units[unit].quantity === "Temperature") {
     const source = unitSystem.units[nominal.unit], target = unitSystem.units[unit];

@@ -20504,8 +20504,6 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .dynamic-editor-preview { font-size: .72rem; white-space: normal; line-height: 1.4; }
 .dynamic-editor-preview > span { color: var(--text-color-muted); margin-right: 6px; }
 .dynamic-editor-preview.is-pending { color: var(--text-color-muted); }
-.dynamic-shared-note { color: var(--text-color-muted); font-size: .65rem; white-space: nowrap; }
-.dynamic-shared-note svg { margin-right: 3px; }
 .uncertainty-module .budget-dynamic-row > .action-cell { padding-inline: 0; text-align: center; }
 .uncertainty-module .budget-dynamic-row > .action-cell button { border: 0; background: transparent; color: var(--danger-color, #d9534f); cursor: pointer; }
 

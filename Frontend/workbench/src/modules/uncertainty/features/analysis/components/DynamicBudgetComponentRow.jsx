@@ -296,7 +296,6 @@ export default function DynamicBudgetComponentRow({
               <span className={`dynamic-editor-preview${preview.pendingReason ? " is-pending" : ""}`} role="status">
                 {preview.pendingReason || <><span>This point</span> {preview.dynamicSummary}</>}
               </span>
-              <span className="dynamic-shared-note" title="Edits apply to every budget using this shared component."><FontAwesomeIcon icon={faLink} /> Shared component</span>
             </div>
           </div>
         )}

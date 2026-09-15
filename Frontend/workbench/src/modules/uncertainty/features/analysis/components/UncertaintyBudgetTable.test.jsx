@@ -1,3 +1,4 @@
+import { createDynamicDefinition, createDynamicComponent, resolveDynamicComponent } from "../../../utils/dynamicBudgetComponents";
 import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -1465,4 +1466,20 @@ it("shows only the evaluated greatest tolerance in a manual budget row", () => {
   }] });
   expect(screen.getByText("±0.300 V")).toBeInTheDocument();
   expect(screen.queryByText(/whichever is greater/)).not.toBeInTheDocument();
+});
+
+
+it("uses the current point for an equation row even when a copied result contains its old reference", () => {
+  const definition = { ...createDynamicDefinition("equation", { unit: "degF" }),
+    mode: "standard", distribution: "1", equation: "x/10", pointVariable: "x", variables: { x: { name: "Measurement point", value: 1 } } };
+  const component = resolveDynamicComponent(createDynamicComponent(definition), definition, { value: 1, unit: "degF" });
+  const props = { components: [component], referencePoint: { value: 4, unit: "degF" }, measurementType: "direct", calcResults: {} };
+  const { rerender } = render(<UncertaintyBudgetTable {...props} />);
+  fireEvent.click(document.querySelector('.dynamic-tolerance-cell button'));
+  expect(document.querySelector('.dynamic-bound-value')).toHaveTextContent('4 °F');
+  expect(screen.getByRole('status')).toHaveTextContent('0.4 degF');
+  expect(document.querySelector('.budget-standard-uncertainty')).toHaveTextContent('0.4 °F');
+  rerender(<UncertaintyBudgetTable {...props} referencePoint={{ value: 7, unit: 'degF' }} />);
+  expect(document.querySelector('.dynamic-bound-value')).toHaveTextContent('7 °F');
+  expect(screen.getByRole('status')).toHaveTextContent('0.7 degF');
 });

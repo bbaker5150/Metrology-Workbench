@@ -1,3 +1,4 @@
+import { clearDynamicComponentResults } from "./dynamicBudgetComponents";
 import { calculateDerivedUncertainty } from "./uncertaintyMath";
 
 // Cached uncertainty-calculation outputs. These are derived from the point's
@@ -94,6 +95,7 @@ export const preparePointForPaste = (
     delete preparedPoint[field];
   });
   preparedPoint.is_detailed_uncertainty_calculated = false;
+  if (preparedPoint.components) preparedPoint.components = preparedPoint.components.map(clearDynamicComponentResults);
 
   if (mode === "copy") {
     delete preparedPoint.id;
