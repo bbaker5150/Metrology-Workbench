@@ -67,6 +67,7 @@ export const resolveDynamicComponent = (component, definition, nominal) => {
     distributionDivisor: definition.mode === "standard" ? "1" : definition.distribution,
     distribution: definition.mode === "standard" ? "Standard uncertainty" : `k=${definition.distribution}`,
     unit_native: definition.outputUnit, isBaseUnitValue: true, dynamicSummary: null,
+    dynamicReferencePoint: nominal,
   };
   try {
     if (!column) throw Error("This uncertainty column was removed from the shared table.");

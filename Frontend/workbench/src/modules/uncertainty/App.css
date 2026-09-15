@@ -20919,3 +20919,34 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   vector-effect: non-scaling-stroke;
   filter: drop-shadow(0 0 3px color-mix(in srgb, var(--instrument-function-color) 65%, transparent));
 }
+
+/* Separate, compact hit targets for the point value and its unit. */
+.uncertainty-module .point-value-with-unit .point-edit-affordance { gap: 5px; }
+.uncertainty-module .point-value-with-unit .point-unit-control { flex: 0 0 auto; }
+.uncertainty-module .point-value-number,
+.uncertainty-module .measurement-group-container .point-unit-control .point-unit-select {
+  border: 1px solid color-mix(in srgb, var(--border-color) 75%, var(--text-color) 25%);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--input-background) 65%, transparent);
+  box-sizing: border-box;
+  min-height: 24px;
+  padding: 2px 6px;
+}
+.uncertainty-module .measurement-group-container .point-unit-control .point-unit-select { padding-right: 18px; }
+.uncertainty-module .point-value-number:hover,
+.uncertainty-module .measurement-group-container .point-unit-control .point-unit-select:is(:hover, :focus, :focus-visible) {
+  border: 1px solid var(--primary-color) !important;
+  background: var(--primary-color-light) !important;
+  text-decoration: none;
+}
+.measurement-point-empty-hint > span { font-size: 2em; line-height: 1; }
+.point-column-menu-footer { grid-column: 1 / -1; display: flex; justify-content: flex-start; }
+.point-column-menu-footer button {
+  border: 1px solid var(--border-color); border-radius: 4px;
+  background: var(--input-background); color: var(--text-color);
+  padding: 4px 9px; font: inherit; cursor: pointer;
+}
+.point-column-menu-footer button:hover { background: var(--primary-color-light); }
+.budget-tmde-picker-detail { font-size: .72rem; color: var(--text-color-muted); white-space: normal; overflow-wrap: anywhere; }
+.budget-tmde-picker-menu button,
+.budget-tmde-picker-menu button span { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere; }

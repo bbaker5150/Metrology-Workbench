@@ -9,7 +9,7 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
   const available = sections.map(section => ({ ...section, cols: section.cols.filter(col => !(col.keys || [col.key]).every(key => columns[key])) })).filter(section => section.cols.length);
   return <div className="point-column-menu-body">
     <section className="point-column-selected">
-      <div className="sidebar-column-order-heading"><strong>Displayed columns</strong><button type="button" onClick={() => { finishDrag(); onReset(); }}>Reset</button></div>
+      <div className="sidebar-column-order-heading"><strong>Displayed columns</strong></div>
       <div className="sidebar-column-order-list">
         {selectedGroups.map((group, index) => <div key={group.key}
           className={`point-column-order-row${dragging === group.key ? " is-dragging" : ""}${dropTarget === group.key && dragging !== group.key ? " is-drop-target" : ""}`} draggable
@@ -48,5 +48,6 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
     </section>
     <button type="button" className="point-column-indicators" aria-pressed={columns.warningIcons !== false}
       onClick={() => toggle(["warningIcons"], columns.warningIcons === false)}><span>Point indicators</span><span aria-hidden="true">{columns.warningIcons !== false ? "−" : "+"}</span></button>
+    <footer className="point-column-menu-footer"><button type="button" onClick={() => { finishDrag(); onReset(); }}>Reset</button></footer>
   </div>;
 }

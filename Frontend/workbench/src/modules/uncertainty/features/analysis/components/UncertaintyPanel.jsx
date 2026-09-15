@@ -1,6 +1,7 @@
 import { SI_PREFIX_OPTIONS, prefixedUnitKey } from "../../../utils/siPrefixes";
 import { updateSharedDynamicDefinition } from "../../../utils/riskCompute";
 import { availableDynamicDefinitions, findDynamicTableRow } from "../../../utils/dynamicBudgetComponents";
+import { budgetUnitMismatch } from "../../../utils/incompleteBudget";
 import MeasurementAreaEntry from "../../../components/common/MeasurementAreaEntry";
 import { showFirstInstrumentHint } from "../../../utils/instrumentOnboarding";
 /**
@@ -57,7 +58,6 @@ import { formatRangeLabel } from "../../../utils/rangeFormatting";
 import { getNextInstrumentSelection } from "../../../utils/instrumentSelection";
 import {
   assessRangeCompatibility,
-  assessTmdeCompatibility,
 } from "../../../utils/tmdeCompatibility";
 import { resolvePointAreaId } from "../../../utils/areaWorkspace";
 import {
@@ -108,6 +108,7 @@ import {
 // Utils
 import {
   getToleranceSummary,
+  selectGreatestTolerance,
   getToleranceErrorSummary,
   getAbsoluteLimits,
   calculateUncertaintyFromToleranceObject,
@@ -4454,6 +4455,7 @@ const SingleSidedToleranceEditor = ({
 export const InlineToleranceCell = ({
   tolerance = {},
   activeRange = {},
+  referencePoint,
   editable,
   showMeasurementStatus = false,
   onCommit,
@@ -4504,9 +4506,7 @@ export const InlineToleranceCell = ({
     onDismiss: dismissToleranceEditor,
   });
 
-  const summaryRows = showMeasurementStatus
-    ? getUutSpecRows(tolerance)
-    : getSpecRows(tolerance);
+  const summaryRows = getCollapsedSpecRows({ ...activeRange, ...tolerance }, referencePoint);
   const summary = summaryRows[0] || "";
 
   // Read-only surfaces (no save handler) just render the clean summary.
@@ -4525,7 +4525,7 @@ export const InlineToleranceCell = ({
         <button
           type="button"
           className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}${tolerance.whicheverIsGreater ? " is-alternative" : ""}`}
-          title={hasValue ? "Edit tolerance" : "Set tolerance"}
+          title={hasValue ? (tolerance.whicheverIsGreater ? getSpecRows(tolerance)[0] : "Edit tolerance") : "Set tolerance"}
           aria-label={hasValue ? undefined : "Set tolerance"}
           onMouseDown={(event) => {
             event.stopPropagation();
@@ -5083,11 +5083,8 @@ export const getBudgetRangeChoices = (instrument) => {
   return ranges.length > 0 ? ranges : [null];
 };
 
-// The add-to-budget menu is a list of actions, not an inventory browser. Only
-// expose range accuracies that can resolve into at least one real component for
-// this budget's nominal and unit. This prevents cross-quantity rows (for
-// example a voltage accuracy in a weight budget) from appearing and then
-// silently doing nothing when selected.
+// Incompatible units remain selectable. The budget resolver preserves these
+// sources as pending rows with a unit warning instead of silently omitting them.
 export const getUsableBudgetRangeChoices = (
   instrument,
   nominalPoint,
@@ -5095,20 +5092,6 @@ export const getUsableBudgetRangeChoices = (
 ) =>
   getBudgetRangeChoices(instrument).filter((range) => {
     if (!range || !nominalPoint?.unit) return false;
-    const nominalUnit = nominalPoint.unit;
-    const rangeUnit = range.functionUnit || range.unit || "";
-    if (rangeUnit) {
-      const nominalQuantity = unitSystem.getQuantity?.(nominalUnit) || null;
-      const rangeQuantity = unitSystem.getQuantity?.(rangeUnit) || null;
-      const sameUnit =
-        normalizeUnitToken(rangeUnit) === normalizeUnitToken(nominalUnit);
-      if (
-        (nominalQuantity && rangeQuantity && nominalQuantity !== rangeQuantity) ||
-        ((!nominalQuantity || !rangeQuantity) && !sameUnit)
-      ) {
-        return false;
-      }
-    }
     if (requireFunctionMatch && functionKey) {
       const rangeFunctionName = range.functionName || "";
       const rangeFunctionUnit = range.functionUnit || range.unit || "";
@@ -5353,6 +5336,18 @@ export const getSpecRows = (tolerance) => {
 // single-sided workbook cases. getSpecRows already appends that state to those
 // rows, so ordinary symmetric/asymmetric UUT tolerances stay compact.
 export const getUutSpecRows = (tolerance) => getSpecRows(tolerance);
+
+export const getCollapsedSpecRows = (tolerance = {}, referencePoint) => {
+  const source = { ...tolerance, ...(tolerance.tolerance || tolerance.tolerances || {}) };
+  if (!source.whicheverIsGreater) return getSpecRows(source);
+  const unitWarning = [source.unit || source.functionUnit, ...["reading", "range", "floor", "readings_iv"].map(key => source[key]?.unit)]
+    .some(unit => budgetUnitMismatch(unit, referencePoint?.unit, unitSystem));
+  if (unitWarning) return ["Unit mismatch"];
+  if (!referencePoint || referencePoint.value === "" || referencePoint.value == null || !Number.isFinite(Number(referencePoint.value))) {
+    return ["Point-dependent"];
+  }
+  return getSpecRows(selectGreatestTolerance(source, referencePoint));
+};
 
 const formatResolutionLabel = (range = {}) => {
   const resolution = range?.resolution ?? range?.measuringResolution;
@@ -11572,6 +11567,7 @@ function DetailedView({
           title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
         >
           <InlineToleranceCell
+            referencePoint={getInstrumentToleranceNominal(kind, item, range)}
             tolerance={tolerance}
             activeRange={range}
             editable
@@ -13311,6 +13307,20 @@ function DetailedView({
     [getVariableNominal, testPointData.variableMappings],
   );
 
+  const getInstrumentToleranceNominal = (kind, instrument, range) => {
+    if (kind === "uut" || !isDerived) return uutNominal;
+    const sourceId = instrument.sourceId ?? instrument.id;
+    const linked = [...(testPointData.components || []), ...tmdeTolerancesData]
+      .filter(item => String(item.tmdeBudgetSourceId ?? item.sourceTmdeId ?? item.sourceId ?? item.id) === String(sourceId));
+    const names = [...new Set(linked.map(item => item.variableType).filter(Boolean))];
+    const candidates = (names.length ? names.map(getNominalForVariableType)
+      : Object.values(testPointData.variableNominals || {}))
+      .filter(point => point && point.value !== "" && point.value != null &&
+        unitSystem.getQuantity(point.unit) === unitSystem.getQuantity(range?.unit || range?.functionUnit));
+    const unique = [...new Map(candidates.map(point => [`${point.value}:${point.unit}`, point])).values()];
+    return unique.length === 1 ? unique[0] : null;
+  };
+
   const tmdeMasterIdOf = (tmde) => tmde?.sourceId ?? tmde?.id;
   const sameTmdeMaster = (tmde, masterTmde) =>
     String(tmdeMasterIdOf(tmde) ?? "") === String(masterTmde?.id ?? "");
@@ -13520,17 +13530,6 @@ function DetailedView({
         );
         const activeRange = resolution.activeRange || {};
         if (warnIfTmdeAccuracyIncomplete(activeRange)) return;
-        const compatibility = assessTmdeCompatibility(
-          activeRange,
-          uutNominal,
-        );
-        if (!compatibility.compatible) {
-          setNotification({
-            title: "Incompatible TMDE",
-            message: compatibility.reason,
-          });
-          return;
-        }
         const { id: rangeId, ...rangeSpecs } = activeRange;
 
         const newInstance = {
@@ -13563,20 +13562,6 @@ function DetailedView({
           (!isDerived && String(t.sourceId) === String(tmde.id)),
       );
     const selectedRange = ranges[newIndex] || {};
-
-    if (activeInstance && !isDerived) {
-      const compatibility = assessTmdeCompatibility(
-        selectedRange,
-        uutNominal,
-      );
-      if (!compatibility.compatible) {
-        setNotification({
-          title: "Incompatible TMDE Range",
-          message: compatibility.reason,
-        });
-        return;
-      }
-    }
 
     setTmdeRangeIndices((prev) => ({ ...prev, [targetId]: newIndex }));
 
@@ -13751,7 +13736,6 @@ function DetailedView({
       const options = isDerivedFinalScope
         ? []
         : areaTmdes
-            .filter(isMatch)
             .filter(
               (tmde) =>
                 getUsableBudgetRangeChoices(tmde, budgetNominal, {
@@ -13759,7 +13743,7 @@ function DetailedView({
                   requireFunctionMatch: false,
                 }).length > 0,
             )
-            .sort(byLabel);
+            .sort((a, b) => Number(isMatch(b)) - Number(isMatch(a)) || byLabel(a, b));
       // The UUT's measuring resolution is offered for direct points AND for the
       // derived final budget (where the derived UUT's rounding lives). Modeling
       // it as a proper resolution component keeps it absolute (LSD/2/divisor,
@@ -14369,6 +14353,7 @@ function DetailedView({
                   </button>
                   {choices.map((range, rangeIndex) => {
                 const detail = getBudgetTmdeDetail(tmde, range);
+                const unitWarning = budgetUnitMismatch(range.unit || range.functionUnit, (isDerived ? scope.nominalPoint : uutNominal)?.unit, unitSystem);
                 const functionLabel = range?.functionName
                   ? `${range.functionName} · `
                   : "";
@@ -14377,6 +14362,7 @@ function DetailedView({
                   key={`${tmde.id}:${rangeIdOf(range || {}) || rangeIndex}`}
                   type="button"
                   className="budget-tmde-picker-range"
+                  title={unitWarning || detail}
                   style={itemStyle}
                   onClick={() => addBudgetTmde(tmde, range)}
                   onMouseEnter={(e) =>
@@ -14396,16 +14382,8 @@ function DetailedView({
                     }}
                   >
                     {detail && (
-                      <span
-                        style={{
-                          fontSize: "0.72rem",
-                          color: "var(--text-color-muted)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {functionLabel}{detail}
+                      <span className="budget-tmde-picker-detail">
+                        {unitWarning && <FontAwesomeIcon icon={faExclamationTriangle} role="img" aria-label={unitWarning} style={{ color: "var(--status-warning, #b58100)", marginRight: 5 }} />}{functionLabel}{detail}
                       </span>
                     )}
                   </span>
@@ -15255,6 +15233,7 @@ function DetailedView({
                                 <div className="range-stack-row" key={key}>
                                   {onSessionSave ? (
                                     <InlineToleranceCell
+                                      referencePoint={getInstrumentToleranceNominal("uut", uut, range)}
                                       tolerance={tolerance}
                                       activeRange={range}
                                       editable={!!onSessionSave}
@@ -16165,6 +16144,7 @@ function DetailedView({
                                     <div className="range-stack-row" key={key}>
                                       {onSessionSave ? (
                                         <InlineToleranceCell
+                                          referencePoint={getInstrumentToleranceNominal("tmde", masterTmde, range)}
                                           tolerance={tolerance}
                                           activeRange={range}
                                           editable={!!onSessionSave}

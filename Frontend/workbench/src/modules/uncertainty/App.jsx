@@ -696,9 +696,11 @@ const getSidebarValueColumnWidth = (points = []) => {
     const parameter = point?.testPointInfo?.parameter || {};
     const valueLength = String(parameter.value ?? "").length;
     const unitLength = (parameter.unit ? getUnitDisplayLabel(parameter.unit) : "Units").length;
-    return Math.max(max, valueLength + (unitLength ? unitLength + 1 : 0));
+    // Reserve the independent value/unit borders, unit chevron and diagnostic
+    // icons. The unit select must retain enough space for its selected label.
+    return Math.max(max, valueLength * 8 + unitLength * 13 + 76);
   }, 0);
-  return `${Math.max(104, longest * 8 + 52)}px`;
+  return `${Math.max(128, longest)}px`;
 };
 
 const readUiSizingPreferences = () => {
@@ -1470,6 +1472,7 @@ export const SidebarPointItem = ({
               </span>
               <span className="point-unit-control">
               <select className="point-unit-select" aria-label="Measurement point unit"
+                style={{ width: `calc(${getUnitDisplayLabel(displayUnit || "Units").length}em + 26px)` }}
                 value={displayUnit || ""} onClick={event => event.stopPropagation()}
                 onPointerDown={event => event.stopPropagation()}
                 onChange={event => {

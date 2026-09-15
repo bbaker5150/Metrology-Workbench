@@ -379,7 +379,7 @@ describe("add-to-budget range filtering", () => {
     expect(choices.map((range) => range.id)).toEqual(["weight-range"]);
   });
 
-  it("does not offer an incompatible voltage accuracy to a weight budget", () => {
+  it("offers an incompatible voltage accuracy so it can be added with a warning", () => {
     expect(
       getUsableBudgetRangeChoices(
         {
@@ -388,7 +388,7 @@ describe("add-to-budget range filtering", () => {
         },
         { value: 5, unit: "kg" },
       ),
-    ).toEqual([]);
+    ).toHaveLength(1);
   });
 });
 

@@ -31,12 +31,18 @@ export default function DynamicBudgetComponentRow({
   const definitionRef = useRef(component.dynamicDefinition);
   const commitRef = useRef(onCommit);
   const dirty = useRef(false);
+  const pendingCommit = useRef(null);
   const variableCache = useRef(draft?.variables || {});
   definitionRef.current = component.dynamicDefinition;
   commitRef.current = onCommit;
 
   useEffect(() => {
     if (!editing && !naming) {
+      // A SharePoint save may not have reached the parent yet. Do not replace
+      // the just-committed table/equation with its older empty definition and
+      // flash "Not Set" on collapse. Accept the next changed saved definition.
+      if (pendingCommit.current && JSON.stringify(component.dynamicDefinition) === pendingCommit.current.previous) return;
+      pendingCommit.current = null;
       draftRef.current = component.dynamicDefinition;
       setDraft(component.dynamicDefinition);
       variableCache.current = component.dynamicDefinition?.variables || {};
@@ -55,6 +61,7 @@ export default function DynamicBudgetComponentRow({
       setDraft(definitionRef.current);
       variableCache.current = definitionRef.current?.variables || {};
     } else if (dirty.current) {
+      pendingCommit.current = { previous: JSON.stringify(definitionRef.current) };
       commitRef.current?.(draftRef.current);
     }
     dirty.current = false;
@@ -122,8 +129,12 @@ export default function DynamicBudgetComponentRow({
     });
   };
   const changeDistribution = distribution => {
-    change({ distribution });
+    // Choosing an error-limit distribution also makes the interpretation
+    // explicit; a standard-uncertainty entry must not silently divide by k.
+    change(distribution === "standard" ? { mode: "standard", distribution: "1" }
+      : { mode: draftRef.current.mode === "standard" ? "tolerance" : draftRef.current.mode, distribution });
     if (!editing && !naming) {
+      pendingCommit.current = { previous: JSON.stringify(definitionRef.current) };
       commitRef.current?.(draftRef.current);
       dirty.current = false;
     }
@@ -266,8 +277,9 @@ export default function DynamicBudgetComponentRow({
           </div>
         )}
       </td>
-      <td>{draft.mode === "standard" ? <span>Normal (k=1)</span> :
-        <InlineMenuSelect ariaLabel="Dynamic component distribution" value={draft.distribution} options={DISTRIBUTIONS} onChange={changeDistribution} width="max-content" showOptionMeta={false} />}</td>
+      <td><InlineMenuSelect ariaLabel="Dynamic component distribution" value={draft.mode === "standard" ? "standard" : draft.distribution}
+        options={[{ value: "standard", label: "Standard uncertainty (k=1)" }, ...DISTRIBUTIONS]}
+        onChange={changeDistribution} width="max-content" showOptionMeta={false} /></td>
       <td>B</td>{showDof && <td>∞</td>}
       <td>{preview.value_native == null ? "—" : `± ${Number(preview.value_native.toPrecision(6))} ${getUnitDisplayLabel(preview.unit_native)}`}</td>
       <td className="action-cell"><button type="button" title="Remove component from this budget" aria-label="Remove dynamic component" onClick={() => onRemove?.(component.id, component)}><FontAwesomeIcon icon={faTimes} /></button></td>
