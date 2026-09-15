@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useState } from "react";
 import { preserveTableTextSelection } from "../utils/tableTextSelection";
+import { createInstrumentSelectionOutline } from "../utils/instrumentSelectionOutline";
 
 const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor";
 
@@ -21,6 +22,9 @@ export default function useInstrumentTableLayout(containerRef) {
     const table = container?.querySelector(":scope > table");
     if (!table) return undefined;
     const releaseTextSelection = preserveTableTextSelection(table);
+    // A sibling overlay stays outside the table observer and cannot trigger
+    // another layout pass when its perimeter changes.
+    const selectionOutline = createInstrumentSelectionOutline(container, table);
     const card = container.closest(".panel-card");
     let frame = null;
     const setProperty = (node, name, value) => {
@@ -86,6 +90,7 @@ export default function useInstrumentTableLayout(containerRef) {
         Math.max(0, container.clientHeight * containerScale - headerHeight),
       );
       setProperty(table, "--instrument-header-offset", `${offset / (containerScale * zoom)}px`);
+      selectionOutline.sync();
     };
     const schedule = () => {
       if (frame !== null) return;
@@ -98,15 +103,17 @@ export default function useInstrumentTableLayout(containerRef) {
     // mutation microtask itself: drag/zoom changes must yield to input/paint,
     // and a burst of row changes only needs one measurement per frame.
     const mutation = new MutationObserver(schedule);
-    mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+    mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "rowspan", "colspan"] });
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     resize?.observe(container);
+    resize?.observe(table);
     container.addEventListener("focusin", schedule);
     window.addEventListener("scroll", schedule, true);
     window.addEventListener("resize", schedule);
     sync();
     return () => {
       releaseTextSelection();
+      selectionOutline.destroy();
       cancelAnimationFrame(frame);
       card?.style.removeProperty("--instrument-panel-width");
       mutation.disconnect();

@@ -20900,11 +20900,16 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   .uncertainty-module .instrument-equipment-table tr.inline-range-row:is(.is-active-range, .is-selected-range) > td,
   .uncertainty-module .instrument-equipment-table tr.inline-range-row.instrument-selected > td[rowspan]:not([rowspan="1"]) {
     --instrument-cell-tint: var(--instrument-selected-tint);
-    --selection-edge: color-mix(in srgb, var(--instrument-function-color) 82%, var(--primary-color));
-    box-shadow: inset 0 1px var(--selection-edge), inset 0 -1px var(--selection-edge), 0 0 5px color-mix(in srgb, var(--instrument-function-color) 18%, transparent) !important;
   }
-  .uncertainty-module .instrument-equipment-table tr.instrument-function-row:is(.selected-row, .selected-spec-row, .is-active-range, .is-selected-range) > td:is(:first-child, :last-child),
-  .uncertainty-module .instrument-equipment-table tr.inline-range-row.instrument-selected > td[rowspan]:not([rowspan="1"]) {
-    box-shadow: inset 0 0 0 1px var(--selection-edge), 0 0 5px color-mix(in srgb, var(--instrument-function-color) 18%, transparent) !important;
-  }
+}
+
+.instrument-panel-table-container { position: relative; }
+.instrument-selection-outline {
+  position: absolute; pointer-events: none; overflow: visible; z-index: 2;
+  fill: none; stroke-width: 1.5; stroke-linecap: square;
+}
+.instrument-selection-outline path {
+  stroke: var(--instrument-function-color);
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--instrument-function-color) 65%, transparent));
 }
