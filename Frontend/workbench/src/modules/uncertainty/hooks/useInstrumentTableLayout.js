@@ -3,6 +3,12 @@ import { preserveTableTextSelection } from "../utils/tableTextSelection";
 import { createInstrumentSelectionOutline } from "../utils/instrumentSelectionOutline";
 
 const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor";
+const HOVER_CLASSES = new Set(['row-hovered', 'col-hovered', 'hovered-spec-row']);
+const layoutClasses = value => (value || '').split(/\s+/).filter(name => name && !HOVER_CLASSES.has(name)).sort().join(' ');
+
+export const instrumentMutationAffectsLayout = record =>
+  record.type !== 'attributes' || record.attributeName !== 'class' ||
+  layoutClasses(record.oldValue) !== layoutClasses(record.target.getAttribute('class'));
 
 export const expandedInstrumentWidths = (weights, baseline, requirements, absolute = false) => {
   const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
@@ -102,8 +108,12 @@ export default function useInstrumentTableLayout(containerRef) {
     // Layout writes also notify this observer. Never recalculate in the
     // mutation microtask itself: drag/zoom changes must yield to input/paint,
     // and a burst of row changes only needs one measurement per frame.
-    const mutation = new MutationObserver(schedule);
-    mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "rowspan", "colspan"] });
+    // Hover changes color only. Re-measuring every cell on mouse movement can
+    // feed rounding/scrollbar changes back into the widths of a large table.
+    const mutation = new MutationObserver(records => {
+      if (!records || records.some(instrumentMutationAffectsLayout)) schedule();
+    });
+    mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "style", "rowspan", "colspan"] });
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     resize?.observe(container);
     resize?.observe(table);

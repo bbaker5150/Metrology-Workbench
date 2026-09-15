@@ -74,9 +74,29 @@ page.on('response', (r) => {
 });
 
 const lists = new Set();
+const rangeInstrument = id => ({
+  id, rangeId: `${id}-low`, ranges: [{ id: `${id}-low`, min: 0, max: 10, unit: 'V' }], description: `Range action ${id}`, measurementArea: 'Voltage', measurementAreaId: 'voltage',
+  instrument: { manufacturer: 'Smoke', model: id, description: `Range action ${id}`,
+    functions: [{ id: 'voltage-fn', name: 'Voltage', unit: 'V', ranges: [
+      { id: `${id}-low`, min: 0, max: 10, unit: 'V' },
+      { id: `${id}-high`, min: 10, max: 20, unit: 'V' },
+    ] }],
+  },
+});
 const sessions = new Map([201, 202].map(id => [`session-7-${id}.json`, {
-  id, name: `Archive smoke ${id}`, uuts: [], tmdes: [], testPoints: [], measurementAreas: [], uncReq: {},
+  id, name: `Archive smoke ${id}`, uuts: [rangeInstrument('uut')], tmdes: [rangeInstrument('tmde')],
+  measurementAreaGroups: [{ name: 'Voltage', color: '#cc3030' }],
+  testPoints: [{ id: 'point', measurementAreaId: 'voltage', uutRangeId: 'uut-low', associatedUutIds: ['uut'], activeUutId: 'uut', measurementType: 'direct',
+    testPointInfo: { parameter: { name: 'Voltage', value: '5', unit: 'V' } },
+    uutTolerance: { functionId: 'voltage-fn', functionName: 'Voltage', rangeId: 'uut-low', min: 0, max: 10, unit: 'V' },
+    tmdeTolerances: [], components: [], specifications: {},
+  }], measurementAreas: [{id:'voltage',name:'Voltage',unit:'V'}], uncReq: {},
 }]));
+// Optional full exported-session fixture for reproducing large imported sessions.
+if (process.env.INSTRUMENT_SESSION_JSON) {
+  const imported = JSON.parse(readFileSync(process.env.INSTRUMENT_SESSION_JSON, 'utf8'));
+  for (const [name, doc] of sessions) sessions.set(name, { ...structuredClone(imported), id: doc.id });
+}
 const instrumentItems = [301, 302].map(id => ({
   Id: id, AuthorId: 7, RecordId: `instrument-${id}`,
   PayloadJson: JSON.stringify({ id: `instrument-${id}`, manufacturer: 'Smoke', model: `DMM-${id}`, description: 'Archive smoke instrument', scope: 'validated', functions: [] }),
@@ -158,6 +178,13 @@ await page.route('**/_api/**', async (route) => {
 await page.addInitScript((html) => {
   window.__APP_HTML__ = html;
 }, appHtml);
+if (process.env.INSTRUMENT_ZOOM_LEVEL) {
+  await page.addInitScript(zoom => {
+    localStorage.setItem('uncertalytics.uiSizing.v1', JSON.stringify({
+      scopedZoomLevels: Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`panel-table-container:${i}`, zoom])),
+    }));
+  }, Number(process.env.INSTRUMENT_ZOOM_LEVEL));
+}
 
 await page.goto(`http://127.0.0.1:${PORT}/sites/ISEA/pages/app.aspx`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(4000);
@@ -221,6 +248,55 @@ if (/not set up yet/i.test(frameText)) {
     for (let i = 0; i < 50 && !predicate(); i++) await page.waitForTimeout(100);
     return predicate();
   };
+  // Exercise the shipped HTML, including its real SharePoint adapter and
+  // frame coordinates. Component-only fixtures miss host/layout regressions.
+  const sessionId = await frame.getByRole('combobox', { name: 'Analysis Session' }).inputValue();
+  const saved = () => [...sessions.values()].find(doc => String(doc.id) === sessionId);
+  for (const view of ['overview', 'point']) {
+    if (view === 'overview') await frame.locator('[data-tour="tab-overview"]').click();
+    else {
+      const expand = frame.getByRole('button', { name: 'Expand measurement area', exact: true });
+      if (await expand.count()) await expand.first().click();
+      await frame.locator('.point-grid-item').first().click();
+    }
+    for (const [tableIndex, kind] of ['uut', 'tmde'].entries()) {
+      const table = frame.locator('.instrument-equipment-table').nth(tableIndex);
+      const row = table.locator('tr.instrument-function-row').first();
+      await row.locator('td').first().click({ position: { x: 3, y: 3 } });
+      const geometry = await table.evaluate(async table => {
+        const widths = [];
+        for (let i = 0; i < 20; i++) {
+          await new Promise(requestAnimationFrame);
+          widths.push(table.getBoundingClientRect().width);
+        }
+        return widths;
+      });
+      check(`${view} ${kind} table stays stable while hovered`, Math.max(...geometry) - Math.min(...geometry) < 1, JSON.stringify(geometry));
+      const rowCount = await table.locator('tr.instrument-function-row').count();
+      const positions = [];
+      for (const index of [...new Set([0, Math.min(1, rowCount - 1), Math.min(3, rowCount - 1), 0])]) {
+        await table.locator('tr.instrument-function-row').nth(index).locator('td').first().hover();
+        positions.push(await table.evaluate(async t => {
+          await new Promise(requestAnimationFrame);
+          return [...t.tHead.rows[0].cells].flatMap(cell => {
+            const rect = cell.getBoundingClientRect(); return [rect.x, rect.width];
+          });
+        }));
+      }
+      check(`${view} ${kind} columns do not shift between hovered instruments`, positions.every(p => p.every((x, i) => Math.abs(x - positions[0][i]) < 1)));
+      await row.locator('td').first().hover();
+      const list = `${kind}s`;
+      const before = saved()[list][0].ranges.length;
+      const visibleBefore = await table.locator('tr.instrument-function-row').count();
+      await table.getByRole('button', { name: 'Add range', exact: true }).first().click({ timeout: 5000 });
+      check(`${view} ${kind} range + persists through the HTML adapter`, await until(() => saved()[list][0].ranges.length === before + 1));
+      check(`${view} ${kind} added range is visible`, await table.locator('tr.instrument-function-row').count() === visibleBefore + 1);
+      const blank = table.locator('tr.inline-range-row').filter({ has: frame.locator('[data-range-cell] .is-empty') }).first();
+      await blank.locator('[data-range-cell]').click({ position: { x: 3, y: 3 } });
+      await blank.getByRole('button', { name: 'Delete range', exact: true }).click({ timeout: 5000 });
+      check(`${view} ${kind} range × persists through the HTML adapter`, await until(() => saved()[list][0].ranges.length === before));
+    }
+  }
   await frame.getByTitle('Delete Session', { exact: true }).click();
   check('session deletion archives the full document without a dialog', await until(() => [...sessions.values()].some(doc => doc._uncertaintyArchive)) && dialogs.length === 0);
   await frame.getByRole('button', { name: 'Instrument builder', exact: true }).click();

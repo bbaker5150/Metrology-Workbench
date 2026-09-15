@@ -818,6 +818,8 @@ const referencesArea = (record = {}, area = {}, canonicalArea = null) => {
 export const getItemRangeTolerance = (item, rangeId) => {
   const inst = item?.instrument || {};
   const find = (ranges) => (ranges || []).find((r) => rangeMatches(r, rangeId));
+  const custom = find(item?.ranges);
+  if (custom) return custom.tolerances || custom.tolerance || {};
   if (Array.isArray(inst.functions)) {
     for (const fn of inst.functions) {
       const r = find(fn.ranges);
@@ -836,6 +838,8 @@ export const getItemRangeTolerance = (item, rangeId) => {
 const findItemRange = (item, rangeId) => {
   const inst = item?.instrument || {};
   const find = (ranges) => (ranges || []).find((r) => rangeMatches(r, rangeId));
+  const custom = find(item?.ranges);
+  if (custom) return custom;
   if (Array.isArray(inst.functions)) {
     for (const fn of inst.functions) {
       const r = find(fn.ranges);
@@ -1009,6 +1013,8 @@ export const applyItemRangePatch = (item, rangeId, rangePatch) => {
       }
       return next;
     });
+  // The displayed instance range list takes precedence over its library definition.
+  if (has(item?.ranges)) return { ...item, ranges: patch(item.ranges) };
   if (Array.isArray(inst.functions) && inst.functions.some((fn) => has(fn.ranges))) {
     return {
       ...item,
@@ -1160,6 +1166,9 @@ export const addRangeToItem = (item, activeRangeId) => {
   const seededTolerances = blankToleranceFrom(getItemRangeTolerance(item, activeRangeId));
   const inheritedUnit = activeRange?.unit || "";
   const newRange = { id: uuidv4(), min: "", max: "", unit: inheritedUnit, resolution: "", tolerances: seededTolerances };
+  if (Array.isArray(item.ranges) && item.ranges.length > 0) {
+    return { item: { ...item, ranges: insertAfterId(item.ranges, newRange, activeRangeId, rangeIdOf) }, newRangeId: newRange.id };
+  }
   if (Array.isArray(inst.functions) && inst.functions.length) {
     let fnIdx = inst.functions.findIndex((fn) =>
       (fn.ranges || []).some((r) => rangeMatches(r, activeRangeId)),
@@ -1212,6 +1221,9 @@ export const pasteRangeIntoItem = (item, activeRangeId, clipRange) => {
   item = { ...item, rangeOrderMode: "manual" };
   const inst = item?.instrument || {};
   const newRange = cloneRangeForPaste(clipRange);
+  if (Array.isArray(item.ranges) && item.ranges.length > 0) {
+    return { item: { ...item, ranges: insertAfterId(item.ranges, newRange, activeRangeId, rangeIdOf) }, newRangeId: newRange.id };
+  }
   if (Array.isArray(inst.functions) && inst.functions.length) {
     let fnIdx = inst.functions.findIndex((fn) =>
       (fn.ranges || []).some((r) => rangeMatches(r, activeRangeId)),
@@ -1240,6 +1252,27 @@ export const pasteRangeIntoItem = (item, activeRangeId, clipRange) => {
 export const removeRangeFromItem = (item, rangeId) => {
   const inst = item?.instrument || {};
   const filt = (ranges) => (ranges || []).filter((r) => !rangeMatches(r, rangeId));
+  if (Array.isArray(item.ranges) && item.ranges.length > 0) {
+    const removed = item.ranges.find((range) => rangeMatches(range, rangeId));
+    if (!removed) return item;
+    const remaining = filt(item.ranges);
+    return {
+      ...item,
+      ranges:
+        remaining.length > 0
+          ? remaining
+          : [
+              {
+                id: uuidv4(),
+                min: "",
+                max: "",
+                unit: removed.unit || item.unit || "",
+                resolution: "",
+                tolerances: {},
+              },
+            ],
+    };
+  }
   if (Array.isArray(inst.functions)) {
     const containingFunction = inst.functions.find((fn) =>
       (fn.ranges || []).some((range) => rangeMatches(range, rangeId)),
@@ -1303,27 +1336,7 @@ export const removeRangeFromItem = (item, rangeId) => {
       },
     };
   }
-  if (Array.isArray(item.ranges) && item.ranges.length > 0) {
-    const removed = item.ranges.find((range) => rangeMatches(range, rangeId));
-    if (!removed) return item;
-    const remaining = filt(item.ranges);
-    return {
-      ...item,
-      ranges:
-        remaining.length > 0
-          ? remaining
-          : [
-              {
-                id: uuidv4(),
-                min: "",
-                max: "",
-                unit: removed.unit || item.unit || "",
-                resolution: "",
-                tolerances: {},
-              },
-            ],
-    };
-  }
+
   return item;
 };
 
