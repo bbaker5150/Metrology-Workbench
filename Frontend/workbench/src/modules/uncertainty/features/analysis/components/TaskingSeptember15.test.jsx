@@ -59,15 +59,15 @@ it("keeps the entered table on collapse while the parent save is still pending",
   fireEvent.paste(screen.getByLabelText("Measurement point row 1"), { clipboardData: { getData: () => "3000\t3\n4000\t4" } });
   fireEvent.click(screen.getByRole("button", { name: "Outside" }));
   await waitFor(() => expect(commit).toHaveBeenCalledOnce());
-  expect(screen.getByRole("button", { name: "3 V" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "± 3 V" })).toBeInTheDocument();
   rerender(ui({ ...component, dynamicDefinition: structuredClone(definition) }));
-  expect(screen.getByRole("button", { name: "3 V" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "± 3 V" })).toBeInTheDocument();
   const saved = commit.mock.calls[0][0];
   rerender(ui({ ...component, dynamicDefinition: saved }));
   fireEvent.click(screen.getByRole("button", { name: "Dynamic component distribution" }));
   fireEvent.click(screen.getByRole("option", { name: "Rectangular", exact: true }));
   expect(commit.mock.calls.at(-1)[0]).toMatchObject({ mode: "tolerance", distribution: "1.732" });
-  expect(screen.getByRole("button", { name: "3 V" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "± 3 V" })).toBeInTheDocument();
 });
 
 it.each(["table", "equation"])("re-evaluates a copied %s component at the destination measurement value", kind => {
@@ -80,7 +80,7 @@ it.each(["table", "equation"])("re-evaluates a copied %s component at the destin
   const destination = { id: "b", measurementType: "direct", testPointInfo: { parameter: { value: 4000, unit: "V" } } };
   const copy = pastePointBudget(destination, copyPointBudget(source));
   const result = resolveDynamicComponents(copy.components, copy, { dynamicBudgetDefinitions: [definition] })[0];
-  expect(result.dynamicSummary).toBe("4 V");
+  expect(result.dynamicSummary).toBe("± 4 V");
   expect(result.value_native).toBe(2);
   expect(result.dynamicReferencePoint.value).toBe(4000);
   expect(source.testPointInfo.parameter.value).toBe(3000);

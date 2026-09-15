@@ -361,7 +361,7 @@ describe("UncertaintyApp", () => {
 
     expect(screen.getByText("Comb. Uncertainty", { exact: true })).toBeInTheDocument();
     expect(screen.getByText("Exp. Uncertainty", { exact: true })).toBeInTheDocument();
-    expect(screen.getByText("Risk")).toBeInTheDocument();
+    expect(screen.getAllByText("Risk")).toHaveLength(2);
     expect(screen.getByText("Mitigation (GB + Int)")).toBeInTheDocument();
     expect(screen.getByText("Mitigation (Int Only)")).toBeInTheDocument();
     expect(screen.getByText("REOP @ test pt TUR")).toBeInTheDocument();

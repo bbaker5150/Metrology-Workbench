@@ -20646,36 +20646,9 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 
 .uncertainty-module .instrument-panel-card-header { flex-wrap: wrap; gap: 8px; }
 
-/* Empty equation entry shares the typography and compact field treatment of
-   the measurement-area controls, with its editing actions immediately visible. */
-.uncertainty-module .sidebar-area-entry input,
-.uncertainty-module .measurement-equation-card.is-empty .measurement-equation-input,
-.uncertainty-module .measurement-equation-card.is-empty .add-point-fx-button {
-  font-family: inherit;
-  font-size: .75rem;
-  font-weight: 500;
-  letter-spacing: normal;
-}
+.uncertainty-module .sidebar-area-entry input { font-family: inherit; font-size: .75rem; font-weight: 500; letter-spacing: normal; }
 .uncertainty-module .sidebar-area-entry input::placeholder,
-.uncertainty-module .measurement-equation-input::placeholder {
-  color: var(--text-color-muted);
-  opacity: 1;
-}
-.uncertainty-module .measurement-equation-card.is-empty .measurement-equation-editor-stack {
-  width: max-content !important;
-  max-width: 100%;
-}
-.uncertainty-module .measurement-equation-card.is-empty .measurement-equation-input {
-  width: 180px;
-  height: 26px;
-  min-height: 26px;
-  padding: 3px 7px;
-}
-.uncertainty-module .measurement-equation-card.is-empty .add-point-fx-button {
-  height: 26px;
-  min-height: 26px;
-  padding: 0 8px;
-}
+.uncertainty-module .measurement-equation-input::placeholder { color: var(--text-color-muted); opacity: 1; }
 
 .uncertainty-module .inline-tolerance-readview:has(.is-alternative) { max-width: 100%; }
 .uncertainty-module .inline-tolerance-summary.is-alternative {
@@ -20898,13 +20871,12 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   .uncertainty-module .instrument-equipment-table tr.instrument-function-row > td.col-hovered {
     --instrument-cell-tint: var(--instrument-column-tint);
   }
-  .uncertainty-module .instrument-equipment-table tr.instrument-function-row:hover > td,
-  .uncertainty-module .instrument-equipment-table:hover tr.row-hovered > td[rowspan]:not([rowspan="1"]) {
+  .uncertainty-module .instrument-equipment-table tr.instrument-function-row:not([data-selection-key]):hover > td,
+  .uncertainty-module .instrument-equipment-table td[data-cell-hovered] {
     --instrument-cell-tint: var(--instrument-hover-tint);
   }
   .uncertainty-module .instrument-equipment-table tr.instrument-function-row:is(.selected-row, .selected-spec-row) > td,
-  .uncertainty-module .instrument-equipment-table tr.inline-range-row:is(.is-active-range, .is-selected-range) > td,
-  .uncertainty-module .instrument-equipment-table tr.inline-range-row.instrument-selected > td[rowspan]:not([rowspan="1"]) {
+  .uncertainty-module .instrument-equipment-table td[data-cell-selected] {
     --instrument-cell-tint: var(--instrument-selected-tint);
   }
 }
@@ -20950,3 +20922,25 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .budget-tmde-picker-detail { font-size: .72rem; color: var(--text-color-muted); white-space: normal; overflow-wrap: anywhere; }
 .budget-tmde-picker-menu button,
 .budget-tmde-picker-menu button span { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere; }
+
+/* Quiet controls reveal their affordance without changing their geometry. */
+.uncertainty-module .point-value-number,
+.uncertainty-module .measurement-group-container .point-unit-control .point-unit-select { border-color: transparent; background: transparent; }
+.uncertainty-module .point-value-number:focus-within { border-color: var(--primary-color); background: var(--input-background); }
+.inline-unit-menu .inline-unit-option:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--primary-color) 14%, var(--input-background)); color: var(--text-color); outline: none; }
+.uncertainty-module .inline-range-main > .range-row-add { margin-left: auto; }
+.uncertainty-module .inline-range-editor:not(.is-editing),
+.uncertainty-module .inline-range-editor:not(.is-editing) > .inline-range-main { width: 100%; }
+.uncertainty-module .instrument-equipment-table td.cell-sync { border-left: 1px solid var(--border-color); }
+.uncertainty-module .instrument-column-insert-button { top: -10px; bottom: auto; z-index: 8; }
+.point-column-menu-footer button { color: var(--primary-color); border: 0; background: transparent; padding: 4px 0; }
+.point-column-menu-body .sidebar-column-order-heading strong,
+.point-column-menu-footer button { font-size: .75rem; font-weight: 600; }
+.point-column-add > span:last-child { opacity: 0; }
+.point-column-add:is(:hover, :focus-visible) > span:last-child { opacity: 1; }
+
+.uncertainty-module .instrument-panel-table-container { padding-top: 10px; }
+.uncertainty-module .instrument-custom-field-input { min-width: 150px; }
+:is(.context-menu-item, .point-column-add, .point-column-order-row, .add-point-symbol-button, .ui-scaling-mode):is(:hover, :focus-visible) {
+  background-color: color-mix(in srgb, var(--primary-color) 14%, var(--input-background));
+}

@@ -92,7 +92,7 @@ export const getBudgetComponentsFromTolerance = (
   scopeContext = undefined,
 ) => {
 
-  if (referenceMeasurementPoint && !hasNominalValue(referenceMeasurementPoint)) {
+  if (referenceMeasurementPoint && (!hasNominalValue(referenceMeasurementPoint) || !referenceMeasurementPoint.unit)) {
     const unit = referenceMeasurementPoint.unit || rawToleranceObject?.unit || "V";
     return getBudgetComponentsFromTolerance(rawToleranceObject, { ...referenceMeasurementPoint, value: 1, unit }, instrumentTypeBComponents, scopeContext)
       .map(component => {

@@ -105,7 +105,7 @@ export const resolveDynamicComponent = (component, definition, nominal) => {
     const standard = magnitude / divisor;
     return { ...base, pendingReason: null, value_native: standard,
       value: standard * unitSystem.units[definition.outputUnit].to_si,
-      dynamicSummary: `${summary} ${definition.outputUnit}`,
+      dynamicSummary: `${definition.mode === "limits" ? "" : "± "}${summary} ${definition.outputUnit}`,
     };
   } catch (error) { return unresolvedComponent(base, error.message); }
 };

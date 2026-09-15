@@ -38,3 +38,14 @@ it("keeps the dragged column identity through protected drag data and clears its
   expect(source).not.toHaveClass("is-dragging");
   expect(target).not.toHaveClass("is-drop-target");
 });
+
+it("adds an available limit pair at the dropped position", () => {
+  const setColumns = vi.fn(), move = vi.fn();
+  render(<PointColumnMenu sections={[{ group: "Measurement", cols: [{ key: "lowLimit", keys: ["lowLimit", "highLimit"], label: "Tolerance" }] }]}
+    columns={{ value: true }} setColumns={setColumns} selectedGroups={[{ key: "value", keys: ["value"], label: "Value" }]} moveGroup={move} />);
+  const dataTransfer = { setData: vi.fn(), getData: () => "" };
+  fireEvent.dragStart(screen.getByRole("button", { name: "Add Tolerance column" }), { dataTransfer });
+  fireEvent.drop(screen.getByLabelText("Move Value"), { dataTransfer });
+  expect(setColumns.mock.calls[0][0]({ value: true })).toEqual({ value: true, lowLimit: true, highLimit: true });
+  expect(move).toHaveBeenCalledWith("lowLimit", "value", ["lowLimit", "highLimit"]);
+});

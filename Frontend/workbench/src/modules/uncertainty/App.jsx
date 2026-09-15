@@ -5393,8 +5393,8 @@ function App({ showThemeToggle = false }) {
     if (!groups.some(g => g.keys.includes(key))) groups.push({ key: keys[0], keys, label: keys.includes("lowLimit") || keys.includes("highLimit") ? "Tolerance (Limits)" : keys.includes("tmdeLow") || keys.includes("tmdeHigh") ? "TMDE Limits" : keys.includes("gbLow") || keys.includes("gbHigh") ? "GB Limits" : SIDEBAR_COLUMN_LABELS[key] });
     return groups;
   }, []);
-  const moveSidebarSortGroup = (source, target) => {
-    const from = sidebarSortGroups.find(g => g.key === source), to = sidebarSortGroups.find(g => g.key === target);
+  const moveSidebarSortGroup = (source, target, addedKeys) => {
+    const from = sidebarSortGroups.find(g => g.key === source) || (addedKeys && { key: source, keys: addedKeys }), to = sidebarSortGroups.find(g => g.key === target);
     if (!from || !to || from === to) return;
     setSidebarColumnOrder(previous => {
       const next = previous.filter(key => !from.keys.includes(key));

@@ -39,7 +39,7 @@ export async function checkInstrumentAutoHeight({ frame, page, check, view }) {
   check(`${view} double-click restores automatic height`,
     await heightHandle.getAttribute('data-sizing-mode') === 'auto');
   check(`${view} auto height shows the full table`, await table.evaluate(t =>
-    t.parentElement.style.height === '' &&
+    ['', 'auto'].includes(t.parentElement.style.height) &&
     t.parentElement.clientHeight >= Math.floor(t.getBoundingClientRect().height)));
   await table.locator('tr.instrument-function-row td').first().hover();
   await snapshot();

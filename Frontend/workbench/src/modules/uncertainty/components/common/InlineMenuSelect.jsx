@@ -30,6 +30,7 @@ const InlineMenuSelect = ({
   const [menuAccentColor, setMenuAccentColor] = useState("");
   const rootRef = useRef(null);
   const selectedRef = useRef(null);
+  const menuRef = useRef(null);
 
   const selectedOption = options.find(
     (option) => String(option.value) === String(value),
@@ -64,7 +65,7 @@ const InlineMenuSelect = ({
           viewportHeight: visualViewport?.height || window.innerHeight,
           preferredWidth: Math.max(rect.width, menuWidth),
           preferredMaxHeight: Math.min(
-            320,
+            prefixTable ? 360 : 320,
             Math.max(48, options.length * 34 + 12 + (menuTitle || prefixTable ? 38 : 0)),
           ),
           gap: 4,
@@ -133,17 +134,28 @@ const InlineMenuSelect = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    requestAnimationFrame(() => {
-      if (typeof selectedRef.current?.scrollIntoView === "function") {
-        selectedRef.current.scrollIntoView({ block: "nearest" });
+    const frame = requestAnimationFrame(() => {
+      const menu = menuRef.current;
+      const list = menu?.querySelector('[role="listbox"]');
+      const selected = selectedRef.current || list?.querySelector('[role="option"]');
+      selected?.focus({ preventScroll: true });
+      const target = prefixTable ? menu?.querySelector('.is-base-unit') : selected;
+      if (list && target) {
+        const row = target.getBoundingClientRect(), bounds = list.getBoundingClientRect();
+        list.scrollTop += row.top - bounds.top - (list.clientHeight - row.height) / 2;
       }
     });
-  }, [isOpen, value]);
+    return () => cancelAnimationFrame(frame);
+  }, [isOpen]);
 
   const handleKeyDown = (event) => {
+    if (!isOpen && ["ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault(); event.stopPropagation(); openMenu(); return;
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       closeMenu();
+      rootRef.current?.querySelector("button")?.focus({ preventScroll: true });
       return;
     }
     if (event.key === "Tab" && !event.shiftKey && onTab) {
@@ -182,6 +194,7 @@ const InlineMenuSelect = ({
         menuRect &&
         ReactDOM.createPortal(
           <div
+            ref={menuRef}
             className={`inline-unit-menu inline-menu-select-menu${prefixTable ? " unit-prefix-menu" : ""}`}
             style={{
               top: menuRect.top,
@@ -197,6 +210,7 @@ const InlineMenuSelect = ({
             onClick={(event) => event.stopPropagation()}
             onKeyDown={(event) => {
               handleKeyDown(event);
+              if (event.key === "Enter" && event.target.getAttribute("role") === "option") { event.preventDefault(); event.target.click(); return; }
               if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key))
                 return;
               event.preventDefault();

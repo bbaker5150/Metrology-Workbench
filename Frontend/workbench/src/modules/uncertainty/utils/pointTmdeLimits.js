@@ -1,4 +1,4 @@
-import { matchingResolution } from "./pointLimitDisplay";
+import { matchingResolution, pointDisplayResolution } from "./pointLimitDisplay";
 import { parse } from "mathjs";
 import { calculateUncertaintyFromToleranceObject, unitSystem } from "./uncertaintyMath";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
@@ -99,7 +99,7 @@ export function computePointTmdeLimits(point, session = {}) {
       const lo=specs.reduce((v,c)=>v+Number(c.absoluteLow)-value,0),hi=specs.reduce((v,c)=>v+Number(c.absoluteHigh)-value,0);
       if (lo>hi) throw Error("A TMDE lower limit exceeds its upper limit.");
       entries.push({id:source.id,variableType:source.variableType,description:source.name,quantity:source.quantity,
-        low:`${value+lo} ${ref.unit}`,high:`${value+hi} ${ref.unit}`,rawLow:value+lo,rawHigh:value+hi,unit:ref.unit,resolution:matchingResolution(source.tolerance,ref.unit)});
+        low:`${value+lo} ${ref.unit}`,high:`${value+hi} ${ref.unit}`,rawLow:value+lo,rawHigh:value+hi,unit:ref.unit,resolution:pointDisplayResolution(point,session,ref.unit) || matchingResolution(source.tolerance,ref.unit)});
       if (derived) {
         const symbol=Object.keys(point.variableMappings || {}).find(k=>point.variableMappings[k]===source.variableType);
         if (!symbol) throw Error("A TMDE is not mapped to an equation input.");

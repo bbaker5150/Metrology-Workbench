@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { faCheck, faGear, faRotateLeft } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faRotateLeft } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 
 export const UI_SCALE_LOCK_KEY = "workbench:ui-scale-lock";
@@ -36,10 +36,8 @@ export default function UiSettings() {
   return <details className="ui-settings" ref={menuRef}>
     <summary className="app-chrome-meta-icon" title="UI scaling" aria-label="UI Settings">
       <svg className="ui-scaling-icon" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
-        <path d="M12.5 4H3a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-5M12 18v4M8 22h8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        <svg x="14" y="0" width="10" height="10" viewBox={`0 0 ${faGear.icon[0]} ${faGear.icon[1]}`}>
-          <path d={faGear.icon[4]} fill="currentColor" />
-        </svg>
+        <path d="M9 4h11v11M20 4l-8 8M14 4h6v6M9 4H7v13h13v-2" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <rect x="3" y="15" width="7" height="7" rx="1" fill="var(--background-color, #fff)" stroke="currentColor" strokeWidth="2.5" />
       </svg>
     </summary>
     <div className="ui-settings-menu" role="group" aria-label="UI scaling">

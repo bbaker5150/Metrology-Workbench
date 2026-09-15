@@ -1,8 +1,9 @@
+import { updateInstrumentCellHighlights } from "../utils/instrumentCellSelection";
 import { useCallback, useLayoutEffect, useState } from "react";
 import { preserveTableTextSelection } from "../utils/tableTextSelection";
 import { createInstrumentSelectionOutline } from "../utils/instrumentSelectionOutline";
 
-const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor";
+const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor, .instrument-custom-field-input";
 const HOVER_CLASSES = new Set(['row-hovered', 'col-hovered', 'hovered-spec-row']);
 const layoutClasses = value => (value || '').split(/\s+/).filter(name => name && !HOVER_CLASSES.has(name)).sort().join(' ');
 
@@ -31,6 +32,14 @@ export default function useInstrumentTableLayout(containerRef) {
     // A sibling overlay stays outside the table observer and cannot trigger
     // another layout pass when its perimeter changes.
     const selectionOutline = createInstrumentSelectionOutline(container, table);
+    let hoveredRow = null;
+    const hover = event => {
+      hoveredRow = event.target?.closest?.('tr[data-selection-key]') || null;
+      updateInstrumentCellHighlights(table, hoveredRow);
+    };
+    const leave = () => { hoveredRow = null; updateInstrumentCellHighlights(table); };
+    table.addEventListener("pointerover", hover);
+    table.addEventListener("pointerleave", leave);
     const card = container.closest(".panel-card");
     let frame = null;
     const setProperty = (node, name, value) => {
@@ -66,7 +75,7 @@ export default function useInstrumentTableLayout(containerRef) {
         const key = editor.matches('.inline-desc-fields') ? 'description'
           : editor.matches('.inline-range-editor') ? 'range'
           : editor.matches('.inline-tolerance-editor') ? 'tolerance'
-          : editor.matches('.inline-resolution-editor') ? 'resolution' : 'distribution';
+          : editor.matches('.inline-resolution-editor') ? 'resolution' : editor.matches('.instrument-custom-field-input') ? cell.dataset.customColumn : 'distribution';
         const index = [...(table.tHead?.rows[0]?.cells || [])].findIndex(header => header.dataset.instrumentColumn === key);
         if (index >= 0) requirements[index] = Math.max(requirements[index] || 0, width + padding);
       });
@@ -96,6 +105,7 @@ export default function useInstrumentTableLayout(containerRef) {
         Math.max(0, container.clientHeight * containerScale - headerHeight),
       );
       setProperty(table, "--instrument-header-offset", `${offset / (containerScale * zoom)}px`);
+      updateInstrumentCellHighlights(table, hoveredRow);
       selectionOutline.sync();
     };
     const schedule = () => {
@@ -113,7 +123,7 @@ export default function useInstrumentTableLayout(containerRef) {
     const mutation = new MutationObserver(records => {
       if (!records || records.some(instrumentMutationAffectsLayout)) schedule();
     });
-    mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "style", "rowspan", "colspan"] });
+    mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "style", "rowspan", "colspan", "data-range-selected", "data-selection-mode"] });
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     resize?.observe(container);
     resize?.observe(table);
@@ -122,6 +132,8 @@ export default function useInstrumentTableLayout(containerRef) {
     window.addEventListener("resize", schedule);
     sync();
     return () => {
+      table.removeEventListener("pointerover", hover);
+      table.removeEventListener("pointerleave", leave);
       releaseTextSelection();
       selectionOutline.destroy();
       cancelAnimationFrame(frame);

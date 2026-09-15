@@ -1,3 +1,4 @@
+import { prepareFollowupSession, checkTaskingFollowup } from "./tasking-followup-checks.mjs";
 import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
@@ -25,7 +26,7 @@ import { prepareFeedbackSession, checkTaskingFeedback } from './tasking-feedback
 // cutting the bundle at a `<script` that was only ever a string. Playwright is
 // too forgiving to catch that, so the file is checked statically as well.
 
-const PORT = 4190;
+const PORT = Number(process.env.FORGE_SMOKE_PORT || 4190);
 const WEB = `http://127.0.0.1:${PORT}/sites/ISEA`;
 const appHtml = readFileSync(new URL('../build-singlefile/uncertainty-budget.html', import.meta.url), 'utf8');
 
@@ -64,7 +65,7 @@ const browser = await chromium.launch({
   executablePath: process.env.PLAYWRIGHT_CHROMIUM || undefined,
 });
 const page = await browser.newPage();
-if (process.env.TASKING_FEEDBACK_SMOKE) await page.setViewportSize({ width: 1440, height: 1000 });
+if (process.env.TASKING_FEEDBACK_SMOKE || process.env.TASKING_FOLLOWUP_SMOKE) await page.setViewportSize({ width: 1440, height: 1000 });
 
 const subresourceFailures = [];
 const apiCalls = [];
@@ -104,7 +105,8 @@ if (process.env.INSTRUMENT_SESSION_JSON) {
   const imported = JSON.parse(readFileSync(process.env.INSTRUMENT_SESSION_JSON, 'utf8'));
   for (const [name, doc] of sessions) sessions.set(name, { ...structuredClone(imported), id: doc.id });
 }
-if (process.env.TASKING_FEEDBACK_SMOKE) for (const session of sessions.values()) prepareFeedbackSession(session);
+if (process.env.TASKING_FEEDBACK_SMOKE || process.env.TASKING_FOLLOWUP_SMOKE) for (const session of sessions.values()) prepareFeedbackSession(session);
+if (process.env.TASKING_FOLLOWUP_SMOKE) for (const session of sessions.values()) prepareFollowupSession(session);
 const instrumentItems = [301, 302].map(id => ({
   Id: id, AuthorId: 7, RecordId: `instrument-${id}`,
   PayloadJson: JSON.stringify({ id: `instrument-${id}`, manufacturer: 'Smoke', model: `DMM-${id}`, description: 'Archive smoke instrument', scope: 'validated', functions: [] }),
@@ -261,6 +263,7 @@ if (/not set up yet/i.test(frameText)) {
   const sessionId = await frame.getByRole('combobox', { name: 'Analysis Session' }).inputValue();
   const saved = () => [...sessions.values()].find(doc => String(doc.id) === sessionId);
   if (process.env.TASKING_FEEDBACK_SMOKE) await checkTaskingFeedback({ frame, page, saved, until, check });
+  if (process.env.TASKING_FOLLOWUP_SMOKE) await checkTaskingFollowup({ frame, page, saved, until, check });
   for (const view of ['overview', 'point']) {
     if (view === 'overview') await frame.locator('[data-tour="tab-overview"]').click();
     else {

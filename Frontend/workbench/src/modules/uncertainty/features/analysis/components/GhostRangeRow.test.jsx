@@ -643,7 +643,7 @@ describe("inline range editing", () => {
     expect(screen.queryByRole("button", { name: "Clear range" })).not.toBeInTheDocument();
   });
 
-  it("clears a blanked single-value range through the row removal path", () => {
+  it("keeps a blanked single-value range for explicit deletion", () => {
     const onClearRange = vi.fn();
     render(
       <RangeCell
@@ -679,7 +679,7 @@ describe("inline range editing", () => {
     fireEvent.change(screen.getByPlaceholderText("max"), { target: { value: "" } });
     fireEvent.blur(value);
 
-    expect(onClearRange).toHaveBeenCalledOnce();
+    expect(onClearRange).not.toHaveBeenCalled();
   });
 
   it("dismisses blank range inputs with Escape without committing a bound", () => {

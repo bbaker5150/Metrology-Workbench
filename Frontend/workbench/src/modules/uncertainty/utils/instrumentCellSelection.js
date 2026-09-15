@@ -1,0 +1,36 @@
+// Selection records physical range rows, including every row covered by a shared cell.
+export function nextInstrumentCellSelection({ rows, clickedIndex, span = 1, rangeTarget, previous = {}, previousMode, anchor, shift, additive }) {
+  const mode = rangeTarget && (!additive && !shift || previousMode === "range" || !Object.values(previous).some(ids => ids.length)) ? "range" : "instrument";
+  const start = shift && Number.isInteger(anchor) ? Math.min(anchor, clickedIndex) : clickedIndex;
+  const end = shift && Number.isInteger(anchor) ? Math.max(anchor, clickedIndex + span - 1) : clickedIndex + span - 1;
+  const selected = rows.slice(start, end + 1);
+  const next = additive ? Object.fromEntries(Object.entries(previous).map(([key, ids]) => [key, [...ids]])) : {};
+  const remove = additive && !shift && selected.every(row => next[row.key]?.includes(row.rangeId));
+  for (const row of selected) {
+    const ids = new Set(next[row.key] || []);
+    if (remove) ids.delete(row.rangeId); else ids.add(row.rangeId);
+    if (ids.size) next[row.key] = [...ids]; else delete next[row.key];
+  }
+  return { ranges: next, mode, anchor: shift && Number.isInteger(anchor) ? anchor : clickedIndex };
+}
+export function instrumentRowSelectionFromEvent(event, previous, previousMode, anchor) {
+  const row = event.currentTarget, table = row.closest("table");
+  const elements = [...table.querySelectorAll("tr[data-selection-key][data-range-id]")];
+  const rows = elements.map(node => ({ key: node.dataset.selectionKey, rangeId: node.dataset.rangeId }));
+  return nextInstrumentCellSelection({ rows, clickedIndex: elements.indexOf(row), span: event.target.closest("td")?.rowSpan || 1,
+    rangeTarget: Boolean(event.target.closest("[data-range-cell]")), previous, previousMode,
+    anchor: anchor?.table === table ? anchor.index : null, shift: event.shiftKey, additive: event.ctrlKey || event.metaKey });
+}
+export function updateInstrumentCellHighlights(table, hoveredRow = null) {
+  const rows = [...table.querySelectorAll("tr[data-selection-key][data-range-id]")];
+  const hoverIndex = rows.indexOf(hoveredRow);
+  rows.forEach((row, index) => {
+    [...row.cells].forEach(cell => {
+      const covered = rows.slice(index, index + cell.rowSpan).filter(candidate => candidate.dataset.selectionKey === row.dataset.selectionKey);
+      const selected = covered.some(candidate => candidate.dataset.rangeSelected === "true") &&
+        !(table.dataset.selectionMode === "range" && cell.classList.contains("cell-description"));
+      cell.toggleAttribute("data-cell-selected", selected);
+      cell.toggleAttribute("data-cell-hovered", hoverIndex >= index && hoverIndex < index + covered.length);
+    });
+  });
+}

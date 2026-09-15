@@ -1,7 +1,6 @@
 const SELECTED_CELLS = [
-  'tr.instrument-function-row:is(.selected-row, .selected-spec-row) > td',
-  'tr.inline-range-row:is(.is-active-range, .is-selected-range) > td',
-  'tr.inline-range-row.instrument-selected > td[rowspan]:not([rowspan="1"])',
+  'tr.instrument-function-row:not([data-selection-key]):is(.selected-row, .selected-spec-row) > td',
+  'td[data-cell-selected]',
 ].join(',');
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const snap = value => Math.round(value * 100) / 100;
