@@ -2237,13 +2237,15 @@ export const calculateDerivedUncertainty = (
       const nominal = variableNominals[symbol] || variableNominals[type];
       const value = parseFloat(nominal?.value);
       const unit = nominal?.unit || "";
-      if (!type || !unit || isNaN(value) || uncertaintyInputs[type]) return;
+      if (!type || !unit || isNaN(value)) return;
 
       const nominalInBase = unitSystem.toBaseUnit(value, unit);
       if (isNaN(nominalInBase)) return;
 
       uncertaintyInputs[type] = {
-        ui_squared_sum_base: 0,
+        // The point's current nominal is authoritative; contributors retain
+        // their uncertainty magnitudes but cannot replace its value or units.
+        ui_squared_sum_base: uncertaintyInputs[type]?.ui_squared_sum_base || 0,
         nominalBase: nominalInBase,
         unit,
       };

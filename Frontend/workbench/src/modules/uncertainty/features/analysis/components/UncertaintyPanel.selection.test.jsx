@@ -47,16 +47,30 @@ describe.each(["session", "point"])("instrument selection in %s view", viewMode 
     expect(session.uuts[1].name).toBe("First TMDE");
   });
 
+  it.each(["uut", "tmde"])("selects a single %s range without selecting its description", kind => {
+    render(<Harness viewMode={viewMode} />);
+    const row = document.querySelector(`tr[data-range-group="${kind}:${kind === 'uut' ? 'u1' : 't1'}"]`);
+    fireEvent.mouseDown(row.querySelector('[data-range-cell]'));
+    expect(row.closest('table')).toHaveAttribute('data-selection-mode', 'range');
+    expect(row).toHaveAttribute('data-range-selected', 'true');
+    expect(row.querySelector('.cell-description')).not.toHaveAttribute('data-cell-selected');
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    const session = JSON.parse(screen.getByTestId('session-state').textContent);
+    expect(session[kind === 'uut' ? 'uuts' : 'tmdes']).toHaveLength(2);
+    expect(session[kind === 'uut' ? 'uuts' : 'tmdes'][0].instrument.functions[0].ranges).toHaveLength(2);
+  });
+
   it("cuts a mixed selection immediately and pastes the whole batch into either table", () => {
     render(<Harness viewMode={viewMode} />);
-    fireEvent.click(screen.getByText("First UUT").closest("tr"));
-    fireEvent.click(screen.getByText("Second UUT").closest("tr"), { ctrlKey: true });
-    fireEvent.click(screen.getByText("First TMDE").closest("tr"), { ctrlKey: true });
+    fireEvent.mouseDown(screen.getByText("First UUT").closest("td"));
+    fireEvent.mouseDown(screen.getByText("Second UUT").closest("td"), { ctrlKey: true });
+    fireEvent.mouseDown(screen.getByText("First TMDE").closest("td"), { ctrlKey: true });
     fireEvent.keyDown(window, { key: "x", ctrlKey: true });
     let session = JSON.parse(screen.getByTestId("session-state").textContent);
     expect(session.uuts).toHaveLength(0);
     expect(session.tmdes.map(item => item.id)).toEqual(["t2"]);
-    fireEvent.click(screen.getByText("Second TMDE").closest("tr"));
+    fireEvent.mouseDown(screen.getByText("Second TMDE").closest("td"));
     fireEvent.keyDown(window, { key: "v", ctrlKey: true });
     session = JSON.parse(screen.getByTestId("session-state").textContent);
     expect(session.uuts).toHaveLength(0);
@@ -85,28 +99,28 @@ describe.each(["session", "point"])("instrument selection in %s view", viewMode 
     render(<Harness {...{ viewMode, onDeleteUut, onDeleteTmdeDefinition }} />);
     const uut = screen.getByText("First UUT").closest("tr");
     const tmde = screen.getByText("First TMDE").closest("tr");
-    fireEvent.click(uut);
-    fireEvent.click(tmde, { ctrlKey: true });
-    expect(uut).toHaveClass("selected-row");
-    expect(tmde).toHaveClass("selected-row");
+    fireEvent.mouseDown(uut.querySelector(".cell-description"));
+    fireEvent.mouseDown(tmde.querySelector(".cell-description"), { ctrlKey: true });
+    expect(uut).toHaveClass("instrument-selected");
+    expect(tmde).toHaveClass("instrument-selected");
     fireEvent.keyDown(window, { key: "Delete" });
     expect(onDeleteUut).not.toHaveBeenCalled();
     expect(onDeleteTmdeDefinition).toHaveBeenCalledWith(["t1"]);
-    fireEvent.click(uut);
-    expect(tmde).not.toHaveClass("selected-row");
-    expect(uut).not.toHaveClass("selected-row");
-    fireEvent.click(uut);
-    expect(uut).toHaveClass("selected-row");
+    fireEvent.mouseDown(uut.querySelector(".cell-description"));
+    expect(tmde).not.toHaveClass("instrument-selected");
+    expect(uut).toHaveClass("instrument-selected");
+    fireEvent.mouseDown(uut.querySelector(".cell-description"));
+    expect(uut).toHaveClass("instrument-selected");
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(uut).not.toHaveClass("selected-row");
+    expect(uut).not.toHaveClass("instrument-selected");
     fireEvent.keyDown(window, { key: "Delete" });
     expect(onDeleteUut).not.toHaveBeenCalled();
   });
 
   it("copies and pastes TMDE after switching from a selected UUT", () => {
     render(<Harness viewMode={viewMode} />);
-    fireEvent.click(screen.getByText("First UUT").closest("tr"));
-    fireEvent.click(screen.getByText("First TMDE").closest("tr"));
+    fireEvent.mouseDown(screen.getByText("First UUT").closest("td"));
+    fireEvent.mouseDown(screen.getByText("First TMDE").closest("td"));
     fireEvent.keyDown(window, { key: "c", ctrlKey: true });
     fireEvent.keyDown(window, { key: "v", ctrlKey: true });
     expect(screen.getAllByText("First TMDE")).toHaveLength(2);

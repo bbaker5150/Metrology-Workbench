@@ -29,6 +29,16 @@ const makeTmdeAt = (id, variableType, value) => ({
 });
 
 describe("calculateDerivedUncertainty stationary-point handling", () => {
+  it("uses current Fahrenheit input nominals after their units change, retaining component uncertainty", () => {
+    const mappings = { a: 'First', b: 'Second' };
+    const components = Object.values(mappings).map((variableType, index) => ({ id: String(index), variableType, nominal: 0, unit_native: 'degC', value_native: .1 }));
+    const run = unit => calculateDerivedUncertainty('a+b', mappings, [], { value: 2, unit: 'degF', variableNominals: { a: { value: 1, unit }, b: { value: 1, unit } } }, components, { strictUnitValidation: true });
+    expect(run('degC').nominalResult).toBeCloseTo(3.6, 6);
+    const updated = run('degF');
+    expect(updated.nominalResult).toBeCloseTo(2, 10);
+    expect(updated.combinedUncertaintyNative).toBeGreaterThan(0);
+    expect(updated.error).toBeNull();
+  });
   it("errors (degenerate) when every input has zero sensitivity but nonzero uncertainty", () => {
     // d/dx (x-5)^2 = 2(x-5) = 0 at the nominal x = 5: a pure null measurement.
     const result = calculateDerivedUncertainty(

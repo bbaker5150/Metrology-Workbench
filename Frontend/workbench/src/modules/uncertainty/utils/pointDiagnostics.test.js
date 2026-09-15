@@ -222,3 +222,20 @@ it("clears a stale out-of-range warning when the linked instrument range changes
   master.instrument.functions[0].ranges[0].max = 1;
   expect(getBudgetRangeWarnings({ components: [component], directNominal: { value: 5, unit: "V" }, tmdes: [master] }).final).toHaveLength(1);
 });
+
+
+it("refreshes equation mismatch diagnostics after temperature input units change", () => {
+  const derived = {
+    measurementType: "derived", equationString: "a+b",
+    variableMappings: { a: "First", b: "Second" },
+    variableNominals: { a: { value: 1, unit: "degC" }, b: { value: 1, unit: "degC" } },
+    testPointInfo: { parameter: { value: 2, unit: "degF" } },
+    components: ["First", "Second"].map(variableType => ({
+      id: variableType, name: variableType, variableType, type: "B",
+      value: .01, nominal: 0, unit: "degC", unit_native: "degC", distributionDivisor: "1",
+    })),
+  };
+  expect(getPointDiagnostics(derived, session).join(" ")).toContain("does not equal Measurement Point");
+  derived.variableNominals = { a: { value: 1, unit: "degF" }, b: { value: 1, unit: "degF" } };
+  expect(getPointDiagnostics(derived, session).join(" ")).not.toContain("does not equal Measurement Point");
+});

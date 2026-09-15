@@ -44,3 +44,14 @@ it("uses mapped input nominal instead of an old output-valued TMDE snapshot",()=
  const p={...point,components:[],tmdeTolerances:[{id:"meter",variableType:"Voltage",measurementPoint:{value:500,unit:"A"},tolerance:{unit:"mV",floor:{low:-.01,high:.01,unit:"mV",distribution:"1.732"}}}]};
  expect(computePointTmdeLimits(p,session).entries[0]).toMatchObject({unit:"mV",rawLow:6.25-.0038125,rawHigh:6.25+.0038125});
 });
+
+it("uses each TMDE's own matching range precision at its associated input nominal", () => {
+  const instrument = master('meter', 'V', .02);
+  instrument.instrument.functions[0].ranges = [{ id: 'small', min: 0, max: 1, resolution: .001, tolerances: { floor: { high: .02, low: -.02, unit: 'V' } } }, { id: 'large', min: 1, max: 10, resolution: .1, tolerances: { floor: { high: .2, low: -.2, unit: 'V' } } }];
+  const p = { measurementType: 'derived', equationString: 'x*10', variableMappings: { x: 'Input' }, variableNominals: { x: { value: .5, unit: 'V' } }, testPointInfo: { parameter: { value: 5, unit: 'V' } }, uutTolerance: { resolution: .000001, unit: 'V' }, components: [{ id: 'c', tmdeBudgetSourceId: 'meter', tmdeBudgetRangeId: 'small', variableType: 'Input' }] };
+  const limits = computePointTmdeLimits(p, { tmdes: [instrument] });
+  expect(limits.entries[0]).toMatchObject({ rawLow: .48, rawHigh: .52, resolution: .001 });
+  const direct = computePointTmdeLimits({ ...p, measurementType: 'direct', components: [{ ...p.components[0], tmdeBudgetRangeId: 'large' }] }, { tmdes: [instrument] });
+  expect(direct.resolution).toBe(.1);
+  expect(direct.low).toBeCloseTo(4.8);
+});

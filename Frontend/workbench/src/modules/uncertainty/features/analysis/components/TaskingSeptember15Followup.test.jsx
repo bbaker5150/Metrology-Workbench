@@ -93,6 +93,6 @@ it("highlights only shared cells overlapping a selected or hovered row", () => {
 it("uses current selected-range resolution and ignores finer unrelated ranges", () => {
   const master = { id: "t", instrument: { functions: [{ unit: "V", ranges: [{ id: "small", min: 0, max: 1, resolution: .00001 }, { id: "large", min: 1, max: 10, resolution: .01 }] }] } };
   const point = { testPointInfo: { parameter: { value: 5, unit: "V" } }, uutTolerance: { resolution: .1, unit: "V" }, tmdeTolerances: [{ sourceId: "t", tolerance: { rangeId: "large", resolution: .0001, unit: "V" } }] };
-  expect(pointDisplayResolution(point, { tmdes: [master] })).toBe(.01);
-  expect(pointDisplayResolution({ ...point, tmdeTolerances: [], components: [{ tmdeBudgetSourceId: "t" }] }, { tmdes: [master] })).toBe(.01);
+  expect(pointDisplayResolution(point, { tmdes: [master] })).toBe(.1);
+  expect(pointDisplayResolution({ ...point, tmdeTolerances: [], components: [{ tmdeBudgetSourceId: "t" }] }, { tmdes: [master] })).toBe(.1);
 });

@@ -7704,10 +7704,22 @@ const SummaryDashboard = ({
   // --- SELECTION STATE ---
   // Use global UUT selection for sync with sidebar Quick Add
   const selectedUutIds = currentUutSelection || [];
-  const setSelectedUutIds = setCurrentUutSelection || (() => {});
+  const internalUutSelectionRef = useRef(currentUutSelection);
+  const setSelectedUutIds = useCallback((update) => {
+    setCurrentUutSelection?.(previous => {
+      const next = typeof update === "function" ? update(previous) : update;
+      internalUutSelectionRef.current = next;
+      return next;
+    });
+  }, [setCurrentUutSelection]);
   const [selectedTmdeIds, setSelectedTmdeIds] = useState([]);
   useEffect(() => {
-    if (selectedUutIds.length) setSelectedTmdeIds(current => current.length ? [] : current);
+    // Sidebar selection replaces the table selection; table Ctrl/Shift selection
+    // intentionally supports a mixed batch of UUTs and TMDEs.
+    if (selectedUutIds !== internalUutSelectionRef.current && selectedUutIds.length) {
+      setSelectedTmdeIds(current => current.length ? [] : current);
+    }
+    internalUutSelectionRef.current = selectedUutIds;
   }, [selectedUutIds]);
 
   // Ctrl/Cmd-click range selection is scoped to the active instrument. The
@@ -8909,7 +8921,7 @@ const SummaryDashboard = ({
                   // Range / Tolerance / Resolution columns line up row-for-row.
                   // Description + Sync span the group via rowSpan; clicking a row
                   // selects that range so the header +/-/tolerance buttons act on it.
-                  if (showAllRanges || visibleRangeRows.length > 1) {
+                  if (showAllRanges || visibleRangeRows.length > 1 || ranges.length === 1) {
                     const n = visibleRangeRows.length;
                     const spanRows = n;
                     const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
@@ -9397,7 +9409,7 @@ const SummaryDashboard = ({
                   // Expanded "view all ranges": one real <tr> per range (see the
                   // UUT block above for the rationale). TMDE adds the Distribution
                   // per-range cell.
-                  if (showAllRanges || visibleRangeRows.length > 1) {
+                  if (showAllRanges || visibleRangeRows.length > 1 || ranges.length === 1) {
                     const n = visibleRangeRows.length;
                     const spanRows = n;
                     const activeRangeIndex = tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
@@ -14858,7 +14870,7 @@ function DetailedView({
 
                   // Expanded "view all ranges": one real <tr> per range so the
                   // columns line up (see the Session-Overview panel for rationale).
-                  if (showAllRanges || visibleRangeRows.length > 1) {
+                  if (showAllRanges || visibleRangeRows.length > 1 || ranges.length === 1) {
                     const n = visibleRangeRows.length;
                     const spanRows = n;
                     const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
@@ -15727,7 +15739,7 @@ function DetailedView({
                       // Expanded "view all ranges": one real <tr> per range.
                       // Description and sync span the group via rowSpan on the
                       // first range row.
-                      if (showAllRanges || visibleRangeRows.length > 1) {
+                      if (showAllRanges || visibleRangeRows.length > 1 || ranges.length === 1) {
                         const n = visibleRangeRows.length;
                         const spanRows = n;
                         const activeRangeIndex =

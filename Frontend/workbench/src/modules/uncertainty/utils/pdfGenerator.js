@@ -1,4 +1,4 @@
-import { formatPointLimit, pointDisplayResolution } from "./pointLimitDisplay";
+import { formatPointLimit } from "./pointLimitDisplay";
 import { computePointTmdeLimits } from "./pointTmdeLimits";
 import { formatInstrumentIdentity } from "./instrumentIdentity";
 import { rgb } from "pdf-lib";
@@ -319,7 +319,7 @@ export const buildSessionReportModel = (
       low:limits.entries.map(entry => `${entry.description}: ${formatPointLimit(entry.rawLow,entry.resolution)} ${entry.unit}`).join("\n"),
       high:limits.entries.map(entry => `${entry.description}: ${formatPointLimit(entry.rawHigh,entry.resolution)} ${entry.unit}`).join("\n"),
     };
-    const resolution=pointDisplayResolution(point,session);
+    const resolution=limits.resolution;
     return {low:formatPointLimit(limits.low,resolution),high:formatPointLimit(limits.high,resolution)};
   }};
   const uuts = session.uuts || [];

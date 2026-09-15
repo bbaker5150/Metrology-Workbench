@@ -1,4 +1,5 @@
-import { matchingResolution, pointDisplayResolution } from "./pointLimitDisplay";
+import { matchingResolution, resolutionRange } from "./pointLimitDisplay";
+import { dynamicMeasurementValue } from "./dynamicBudgetComponents";
 import { parse } from "mathjs";
 import { calculateUncertaintyFromToleranceObject, unitSystem } from "./uncertaintyMath";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
@@ -61,6 +62,7 @@ export function computePointTmdeLimits(point, session = {}) {
     const derived=point.measurementType==="derived";
     const sources=refreshTmdeInstancesFromMasters(reconcileTmdeInstances(point.tmdeTolerances || [],session.tmdes || []),session.tmdes || []).map(t=>({
       id:t.id,sourceId:t.sourceId || t.id,rangeId:t.rangeId || t.tolerance?.id,variableType:t.variableType,
+      master:(session.tmdes || []).find(master => [t.sourceId, t.id].some(id => id != null && String(id) === String(master.id))),
       name:t.name || t.description || "TMDE",tolerance:t.tolerance || t,
       nominal:derived ? (point.variableNominals?.[Object.keys(point.variableMappings || {}).find(k=>point.variableMappings[k]===t.variableType)] || t.measurementPoint) : (t.measurementPoint || nominal),quantity:Math.max(1,Number(t.quantity)||1)
     }));
@@ -69,18 +71,18 @@ export function computePointTmdeLimits(point, session = {}) {
       if (!c.tmdeBudgetSourceId) continue;
       const master=(session.tmdes || []).find(t=>String(t.id)===String(c.tmdeBudgetSourceId)||String(t.sourceId)===String(c.tmdeBudgetSourceId));
       if (!master) throw Error("A linked TMDE is missing; reassign its budget source.");
+      const reference = derived ? point.variableNominals?.[Object.keys(point.variableMappings || {}).find(k=>point.variableMappings[k]===c.variableType)] : nominal;
       const ranges=getInstrumentRangeRows(master,{flattenTolerances:true});
       const range=c.tmdeBudgetRangeId
         ? ranges.find(r=>String(r.rangeId??r.id)===String(c.tmdeBudgetRangeId) && (!c.tmdeBudgetFunctionId || !r.functionId || String(r.functionId)===String(c.tmdeBudgetFunctionId)))
-        : ranges.find(r=>r.functionName===c.tmdeBudgetFunctionName) || ranges[0];
+        : resolutionRange(master, { functionId: c.tmdeBudgetFunctionId }, reference || {});
       if (!range) throw Error("A linked TMDE range is missing; reassign its budget source.");
-      const reference = derived ? point.variableNominals?.[Object.keys(point.variableMappings || {}).find(k=>point.variableMappings[k]===c.variableType)] : nominal;
       if (range.unit && unitSystem.units[range.unit] && reference?.unit && unitSystem.units[range.unit].quantity !== unitSystem.units[reference.unit]?.quantity) throw Error("TMDE and measurement units differ; correct the equation input units.");
       const key=JSON.stringify([String(master.id),String(range.rangeId??range.id),c.variableType || ""]);
       if (seen.has(key) || sources.some(s=>String(s.sourceId)===String(master.id) && s.variableType===c.variableType && (!s.rangeId || String(s.rangeId)===String(range.rangeId??range.id)))) continue;
       seen.add(key);
       const symbol=Object.keys(point.variableMappings || {}).find(k=>point.variableMappings[k]===c.variableType);
-      sources.push({id:key,name:master.name || master.description || c.name || "TMDE",tolerance:range,
+      sources.push({id:key,master,name:master.name || master.description || c.name || "TMDE",tolerance:range,
         nominal:derived ? point.variableNominals?.[symbol] : nominal,variableType:c.variableType,quantity:1});
     }
     if (!sources.length) throw Error("No TMDE specification is linked to this point.");
@@ -90,7 +92,7 @@ export function computePointTmdeLimits(point, session = {}) {
       let ref=source.nominal;
       const targetUnit=source.tolerance.unit || source.tolerance.functionUnit;
       if (derived && targetUnit && ref?.unit && targetUnit !== ref.unit && unitSystem.units[targetUnit]?.quantity === unitSystem.units[ref.unit]?.quantity) {
-        ref={value:unitSystem.fromBaseUnit(unitSystem.toBaseUnit(Number(ref.value),ref.unit),targetUnit),unit:targetUnit};
+        ref={value:dynamicMeasurementValue(ref,targetUnit),unit:targetUnit};
       }
       if (!numeric(ref?.value) || !unitSystem.units[ref?.unit]) throw Error("A TMDE measurement value or unit is missing.");
       const specs=(calculateUncertaintyFromToleranceObject(source.tolerance,ref).breakdown || []).filter(c=>numeric(c.absoluteLow)&&numeric(c.absoluteHigh));
@@ -99,7 +101,7 @@ export function computePointTmdeLimits(point, session = {}) {
       const lo=specs.reduce((v,c)=>v+Number(c.absoluteLow)-value,0),hi=specs.reduce((v,c)=>v+Number(c.absoluteHigh)-value,0);
       if (lo>hi) throw Error("A TMDE lower limit exceeds its upper limit.");
       entries.push({id:source.id,variableType:source.variableType,description:source.name,quantity:source.quantity,
-        low:`${value+lo} ${ref.unit}`,high:`${value+hi} ${ref.unit}`,rawLow:value+lo,rawHigh:value+hi,unit:ref.unit,resolution:pointDisplayResolution(point,session,ref.unit) || matchingResolution(source.tolerance,ref.unit)});
+        low:`${value+lo} ${ref.unit}`,high:`${value+hi} ${ref.unit}`,rawLow:value+lo,rawHigh:value+hi,unit:ref.unit,resolution:matchingResolution(resolutionRange(source.master,source.tolerance,source.nominal),ref.unit)});
       if (derived) {
         const symbol=Object.keys(point.variableMappings || {}).find(k=>point.variableMappings[k]===source.variableType);
         if (!symbol) throw Error("A TMDE is not mapped to an equation input.");
@@ -131,7 +133,8 @@ export function computePointTmdeLimits(point, session = {}) {
       high=Number(nominal.value)+highDev/unitSystem.units[nominal.unit].to_si;
     }
     if (!(high > low)) throw Error("The TMDE specification has zero width; TAR is unavailable.");
-    return {low,high,span:high-low,entries,unit:nominal.unit,reason:null,
+    const resolutions = entries.map(entry => matchingResolution({ resolution: entry.resolution, unit: entry.unit }, nominal.unit)).filter(value => value > 0);
+    return {low,high,span:high-low,entries,unit:nominal.unit,resolution:resolutions.length ? Math.min(...resolutions) : 0,reason:null,
       method:derived ? "Conservative equation bounds from TMDE specification limits" : "Combined TMDE specification limits"};
   } catch(error) { return {low:null,high:null,span:null,entries,reason:error.message}; }
 }

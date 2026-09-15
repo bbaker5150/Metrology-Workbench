@@ -23,6 +23,19 @@ export async function checkTaskingFollowup({ frame, page, saved, until, check })
   const outside = () => frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
   await frame.locator('.point-grid-item').last().locator('.point-value-number').click();
   await page.keyboard.press('Escape');
+  const pointRow = frame.locator('.point-grid-item').last();
+  await pointRow.locator('.point-unit-select').hover();
+  check('hovering the unit highlights only the unit control', await pointRow.locator('.point-edit-affordance').evaluate(node => getComputedStyle(node).boxShadow === 'none' && getComputedStyle(node).backgroundColor === 'rgba(0, 0, 0, 0)'));
+  if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/point-unit-hover.png` });
+  await pointRow.locator('.point-value-number').click();
+  check('value editing retains the adjacent unit selector', await pointRow.locator('.point-value-editing .point-unit-select').isVisible());
+  check('value editing uses a compact independent field', await pointRow.locator('input.sidebar-inline-input.value').evaluate(input => input.classList.contains('inline-tolerance-input') && input.offsetWidth <= 62 && getComputedStyle(input.parentElement).boxShadow === 'none'));
+  if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/point-value-editor.png` });
+  await pointRow.locator('input.sidebar-inline-input.value').fill('5');
+  await pointRow.locator('.point-unit-select').focus();
+  await pointRow.locator('.point-unit-select').selectOption('V');
+  await outside();
+  check('switching from value to unit retains the entered nominal', await until(() => Number(saved().testPoints.at(-1).testPointInfo.parameter.value) === 5));
   await frame.getByRole('button', { name: 'Edit measurement equation', exact: true }).click();
   const equation = frame.getByLabel('Measurement equation', { exact: true });
   const before = await frame.locator('.measurement-inputs-table').boundingBox();
@@ -49,10 +62,20 @@ export async function checkTaskingFollowup({ frame, page, saved, until, check })
     const rect = badge.getBoundingClientRect(), cell = badge.closest('td').getBoundingClientRect();
     return rect.left >= cell.left && rect.right <= cell.right && badge.scrollWidth <= badge.clientWidth + 1;
   }));
+  const checkSingleRange = async view => {
+    for (const role of ['uut', 'tmde']) {
+      const single = frame.locator(`tr[data-selection-key="${role}:${role}"]`).first();
+      await single.locator('[data-range-cell]').click({ position: { x: 3, y: 3 } });
+      await page.waitForTimeout(70);
+      check(`${view} ${role} single range selects independently of its description`, await single.evaluate(row => row.closest('table').dataset.selectionMode === 'range' && row.querySelector('[data-range-cell]').hasAttribute('data-cell-selected') && !row.querySelector('.cell-description').hasAttribute('data-cell-selected')));
+    }
+  };
+  await checkSingleRange('point');
   const badgeTable = budgetBadge.locator('xpath=ancestor::table[1]');
   await badgeTable.locator('th[data-instrument-column="description"]').dblclick();
   check('fitting a description includes its usage pill', await budgetBadge.evaluate(badge => badge.getBoundingClientRect().right <= badge.closest('td').getBoundingClientRect().right));
   await frame.locator('[data-tour="tab-overview"]').click();
+  await checkSingleRange('overview');
   const table = frame.locator('.instrument-equipment-table').nth(1);
   const description = table.locator('.cell-description').filter({ hasText: 'Selection' }).last();
   await description.locator('..').locator('[data-range-cell]').getByRole('button', { name: '0 V', exact: true }).click();
@@ -67,7 +90,7 @@ export async function checkTaskingFollowup({ frame, page, saved, until, check })
   check('partial-row copy creates one instrument with only selected ranges', await until(() => saved().tmdes.some(t => t.id !== 'selection' && t.instrument.model === 'Selection' && t.ranges.length === 2 && t.ranges[0].min === 1 && t.ranges[1].min === 3)));
   const copied = saved().tmdes.find(t => t.id !== 'selection' && t.instrument.model === 'Selection');
   check('copied merged value becomes a single row', copied?.rangeCustomFields?.['sel-1']?.note === 'Combined' && !copied.rangeCustomFields['sel-0']);
-  await table.getByRole('button', { name: 'Edit ranges', exact: true }).first().click();
+  await table.locator('[data-range-cell] .inline-tolerance-summary').first().click();
   await frame.getByRole('button', { name: 'Range unit prefix', exact: true }).click();
   await page.waitForTimeout(150);
   check('prefix menu opens centered on Base', await frame.locator('.unit-prefix-menu').evaluate(menu => {

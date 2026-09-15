@@ -960,8 +960,8 @@ describe("UncertaintyApp", () => {
       within(functionActions).getByRole("button", { name: "Delete Measurement Area" }),
     ).toHaveClass("range-header-action-btn--delete");
 
-    fireEvent.click(uutRow);
-    expect(uutRow).toHaveClass("selected-row");
+    fireEvent.mouseDown(uutRow.querySelector(".cell-description"));
+    expect(uutRow).toHaveClass("instrument-selected");
     expect(
       within(uutRow).getByRole("button", {
         name: "Delete Instrument",
@@ -1081,7 +1081,7 @@ describe("UncertaintyApp", () => {
     });
     const collapsedUutRow = screen.getByText("Layout UUT").closest("tr");
     fireEvent.click(
-      within(collapsedUutRow).getByRole("button", { name: "Edit ranges" }),
+      within(collapsedUutRow).getByRole("button", { name: "0 to 10 V" }),
     );
     await waitFor(() => {
       expect(uutTable.querySelector(".range-row-add")).toBeInTheDocument();

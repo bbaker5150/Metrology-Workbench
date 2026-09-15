@@ -975,6 +975,24 @@ export const SidebarPointItem = ({
   const displayValue = point.testPointInfo?.parameter?.value;
   const displayUnit = point.testPointInfo?.parameter?.unit || "";
 
+  const pointUnitControl = (editing = false) => <span className="point-unit-control" onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
+    <select className="inline-unit-combobox point-unit-select" aria-label="Measurement point unit"
+      style={{ width: `calc(${Math.max(2, getUnitDisplayLabel(displayUnit || "Units").length)}ch + 22px)` }}
+      value={displayUnit || ""}
+      onBlur={event => { if (editing && !event.relatedTarget?.closest('.point-edit-affordance')) commitEdit(); }}
+      onChange={event => {
+        const unit = event.target.value;
+        onSave({ ...point, testPointInfo: { ...point.testPointInfo,
+          parameter: { ...point.testPointInfo?.parameter, ...(editing ? { value: tempValue } : {}), unit, unitSelectionExplicit: true, unavailableUnit: undefined } } });
+        if (editing) setEditingField(null);
+      }}>
+      <option value="">Units</option>
+      {displayUnit && !unitOptions.includes(displayUnit) && <option value={displayUnit} disabled>{getUnitDisplayLabel(displayUnit)} (unavailable)</option>}
+      {unitOptions.map(unit => <option key={unit} value={unit}>{getUnitDisplayLabel(unit)}</option>)}
+    </select>
+    <FontAwesomeIcon icon={faChevronDown} className="point-unit-chevron" aria-hidden="true" />
+  </span>;
+
   // The spanning content is absolutely positioned, so measuring it cannot
   // enlarge the point rows. Use the real rendered row bounds to keep merged
   // labels centered when zoom or taller metrics change the row rhythm.
@@ -1191,7 +1209,7 @@ export const SidebarPointItem = ({
         shortLow:`${formatPointLimit(entry.rawLow ?? parseFloat(entry.low), entry.resolution)} ${getUnitDisplayLabel(entry.unit)}`,
         shortHigh:`${formatPointLimit(entry.rawHigh ?? parseFloat(entry.high), entry.resolution)} ${getUnitDisplayLabel(entry.unit)}`,
       }))};
-      return {low:formatPointLimit(liveTmdeLimits.low,limitResolution), high:formatPointLimit(liveTmdeLimits.high,limitResolution),entries:[]};
+      return {low:formatPointLimit(liveTmdeLimits.low,liveTmdeLimits.resolution), high:formatPointLimit(liveTmdeLimits.high,liveTmdeLimits.resolution),entries:[]};
     }
     if (point.measurementType === "derived") {
       const entries = getTmdeAbsoluteLimitEntries(point.tmdeTolerances).map(
@@ -1422,23 +1440,21 @@ export const SidebarPointItem = ({
       {/* Col 2: Value */}
       {visibleColumns.value &&
         (editingField === "value" ? (
-          <div className="sidebar-inline-input-wrapper sidebar-value-sticky">
+          <div className="sidebar-inline-input-wrapper sidebar-value-sticky point-value-editing">
             {visibleColumns.warningIcons !== false && <span className="point-diagnostics" aria-hidden="true" />}
+            <span className="point-edit-affordance inline-resolution-editor">
             <input
               autoFocus
-              className="sidebar-inline-input value"
+              className="sidebar-inline-input value inline-tolerance-input inline-resolution-input"
               size={Math.max(1, String(tempValue ?? "").length)}
               value={tempValue}
               onChange={(e) => setTempValue(e.target.value)}
-              onBlur={commitEdit}
+              onBlur={event => { if (!event.relatedTarget?.closest('.point-unit-control')) commitEdit(); }}
               onKeyDown={handleKeyDown}
               onClick={(e) => e.stopPropagation()}
             />
-            {displayUnit && (
-              <span className="point-value-unit point-value-unit--editor">
-                {getUnitDisplayLabel(displayUnit)}
-              </span>
-            )}
+            {pointUnitControl(true)}
+            </span>
           </div>
         ) : (
           <span
@@ -1470,22 +1486,7 @@ export const SidebarPointItem = ({
               <span className="point-value-number">
                 {displayValue || <span className="point-placeholder">-</span>}
               </span>
-              <span className="point-unit-control">
-              <select className="point-unit-select" aria-label="Measurement point unit"
-                style={{ width: `calc(${getUnitDisplayLabel(displayUnit || "Units").length}em + 26px)` }}
-                value={displayUnit || ""} onClick={event => event.stopPropagation()}
-                onPointerDown={event => event.stopPropagation()}
-                onChange={event => {
-                  const unit = event.target.value;
-                  onSave({ ...point, testPointInfo: { ...point.testPointInfo,
-                    parameter: { ...point.testPointInfo?.parameter, unit, unitSelectionExplicit: true, unavailableUnit: undefined } } });
-                }}>
-                <option value="">Units</option>
-                {displayUnit && !unitOptions.includes(displayUnit) && <option value={displayUnit} disabled>{getUnitDisplayLabel(displayUnit)} (unavailable)</option>}
-                {unitOptions.map(unit => <option key={unit} value={unit}>{getUnitDisplayLabel(unit)}</option>)}
-              </select>
-              <FontAwesomeIcon icon={faChevronDown} className="point-unit-chevron" aria-hidden="true" />
-              </span>
+              {pointUnitControl()}
             </span>
 
           </span>
