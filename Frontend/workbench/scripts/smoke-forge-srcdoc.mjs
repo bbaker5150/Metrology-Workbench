@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import { assertSanitiserSafe } from './hardenInlineHtml.mjs';
+import { checkInstrumentAutoHeight } from './instrument-layout-checks.mjs';
 
 // ---------------------------------------------------------------------------
 // Simulates how Forge hosts an app, to prove the single-file build survives it.
@@ -52,6 +53,10 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 
 const browser = await chromium.launch({
+  ...(process.env.INSTRUMENT_CLASSIC_SCROLLBARS ? {
+    headless: false,
+    args: ['--window-position=-32000,-32000', '--disable-features=OverlayScrollbar,FluentOverlayScrollbar'],
+  } : {}),
   // Left to Playwright unless pointed somewhere explicitly, so this runs on a
   // CI runner (`npx playwright install chromium`) as well as on a workstation
   // or in a sandbox with a preinstalled browser.
@@ -259,6 +264,7 @@ if (/not set up yet/i.test(frameText)) {
       if (await expand.count()) await expand.first().click();
       await frame.locator('.point-grid-item').first().click();
     }
+    await checkInstrumentAutoHeight({ frame, page, check, view });
     for (const [tableIndex, kind] of ['uut', 'tmde'].entries()) {
       const table = frame.locator('.instrument-equipment-table').nth(tableIndex);
       const row = table.locator('tr.instrument-function-row').first();

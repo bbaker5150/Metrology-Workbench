@@ -2848,10 +2848,9 @@ const getInstrumentTableContentHeight = (container) => {
         ? numberOf(style.borderTopWidth) + numberOf(style.borderBottomWidth)
         : 0),
   );
-  const horizontalScrollbar =
-    container.scrollWidth > container.clientWidth ? measuredScrollbar : 0;
-
-  return Math.ceil(tableHeight + verticalChrome + horizontalScrollbar);
+  // The horizontal track is reserved even when the table currently fits.
+  // Include that space when clamping a manual height or restoring auto height.
+  return Math.ceil(tableHeight + verticalChrome + measuredScrollbar);
 };
 
 const clampInstrumentTableHeight = (requestedHeight, contentHeight = null) => {
@@ -2936,6 +2935,10 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
   }, [resetHeight]);
 
   useLayoutEffect(() => {
+    // Auto height belongs to CSS. Observing it and writing React state feeds
+    // fractional layout/scrollbar changes back through both instrument tables.
+    // Only a user-constrained height needs a measured content limit.
+    if (height === null || resizing) return undefined;
     const container = containerRef.current;
     if (!container) return undefined;
 
@@ -2953,7 +2956,7 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
     const observer = new ResizeObserver(syncToContent);
     observer.observe(table);
     return () => observer.disconnect();
-  }, [instrumentCount]);
+  }, [instrumentCount, height, resizing]);
 
   const startResize = useCallback(
     (event) => {

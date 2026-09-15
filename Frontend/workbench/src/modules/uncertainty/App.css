@@ -20371,7 +20371,13 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   outline: 2px solid var(--primary-color);
   outline-offset: 1px;
 }
-.uncertainty-module .instrument-panel-table-container { max-height: none; }
+.uncertainty-module .instrument-panel-table-container {
+  max-height: none;
+  /* A classic horizontal scrollbar contributes to an auto-sized panel's
+     height. Reserve its track so crossing the overflow threshold cannot move
+     every section below the table (or move a row out from under the pointer). */
+  overflow-x: scroll;
+}
 .uncertainty-module .instrument-table-height-resize-handle.is-auto-height::after {
   background: var(--primary-color);
   animation: var(--auto-height-animation, instrument-auto-height-pulse) .65s ease-out;
