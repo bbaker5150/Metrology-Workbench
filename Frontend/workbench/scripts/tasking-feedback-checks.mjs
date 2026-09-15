@@ -32,7 +32,7 @@ export async function checkTaskingFeedback({ frame, page, saved, until, check })
     getComputedStyle(n).whiteSpace === 'normal' && n.scrollWidth <= n.clientWidth + 1)));
   check('mismatched unit is offered with a warning', await frame.locator('.budget-tmde-picker-menu [aria-label*="Unit mismatch"]').count() > 0);
   await frame.getByRole('button', { name: 'Add tabular uncertainty', exact: true }).click();
-  check('dynamic source name stays collapsed while its limit editor opens', await frame.getByRole('button', { name: 'Edit error source name', exact: true }).innerText() === 'Not Set');
+  check('dynamic source name stays collapsed while its limit editor opens', await frame.getByRole('button', { name: 'Edit error source name', exact: true }).innerText() === 'Tabular component 1');
   check('dynamic editor inherits measurement units without a selector', await frame.getByRole('button', { name: 'Measurement unit', exact: true }).count() === 0);
   await frame.getByRole('button', { name: 'Edit error source name', exact: true }).click();
   await frame.getByLabel('Error source name', { exact: true }).fill('Tabular verification');

@@ -1483,3 +1483,17 @@ it("uses the current point for an equation row even when a copied result contain
   expect(document.querySelector('.dynamic-bound-value')).toHaveTextContent('7 °F');
   expect(screen.getByRole('status')).toHaveTextContent('0.7 °F');
 });
+
+
+it("shows the selected point in a derived input-budget equation binding", () => {
+  const definition = { ...createDynamicDefinition('equation', { unit: 'degF' }), mode: 'standard', equation: 'x/10', pointVariable: 'x', variables: { x: { value: 1 } } };
+  const component = createDynamicComponent(definition, null, { kind: 'input', variableType: 'Sensor' });
+  const props = { referencePoint: { value: 20, unit: 'degF' }, measurementType: 'derived', calcResults: { calculatedBudgetGroups: [{ id: 'input', kind: 'input', label: 'Sensor Uncertainty Budget', nominalPoint: { value: 1, unit: 'degF' }, unit: 'degF', components: [component], results: {} }] } };
+  const { rerender } = render(<UncertaintyBudgetTable {...props} />);
+  fireEvent.click(document.querySelector('.dynamic-tolerance-cell button'));
+  expect(document.querySelector('.dynamic-bound-value')).toHaveTextContent('20 °F');
+  expect(document.querySelector('.budget-standard-uncertainty')).toHaveTextContent('2 °F');
+  rerender(<UncertaintyBudgetTable {...props} referencePoint={{ value: 40, unit: 'degF' }} />);
+  expect(document.querySelector('.dynamic-bound-value')).toHaveTextContent('40 °F');
+  expect(document.querySelector('.budget-standard-uncertainty')).toHaveTextContent('4 °F');
+});

@@ -3,7 +3,7 @@ import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
 import { SI_PREFIX_OPTIONS, prefixedUnitKey } from "../../../utils/siPrefixes";
 import { updateSharedDynamicDefinition } from "../../../utils/riskCompute";
-import { availableDynamicDefinitions, findDynamicTableRow } from "../../../utils/dynamicBudgetComponents";
+import { availableDynamicDefinitions, canUseDynamicDefinition, dynamicDefinitionLabel } from "../../../utils/dynamicBudgetComponents";
 import { budgetUnitMismatch } from "../../../utils/incompleteBudget";
 import MeasurementAreaEntry from "../../../components/common/MeasurementAreaEntry";
 import { showFirstInstrumentHint } from "../../../utils/instrumentOnboarding";
@@ -14205,16 +14205,16 @@ function DetailedView({
                 </button>
               )}
               {budgetTmdePicker.canAddManual && <>
-                {[['table', 'Add tabular uncertainty'], ['equation', 'Add equation uncertainty']].map(([kind, label]) => <button key={kind} type="button" style={itemStyle}
-                  onClick={() => { onAddManualComponent?.(budgetTmdePicker.scope || null, kind); setBudgetTmdePicker(null); }}><FontAwesomeIcon icon={faPlus}/><span>{label}</span></button>)}
-                {availableDynamicDefinitions(sessionData).flatMap(definition => {
+                {availableDynamicDefinitions(sessionData).flatMap((definition, definitionIndex) => {
                   const nominal = budgetTmdePicker.scope?.kind === "input" ? budgetTmdePicker.scope.nominalPoint : uutNominal;
-                  if (definition.kind === 'table') { try { findDynamicTableRow(definition, nominal); } catch { return []; } }
+                  if (!canUseDynamicDefinition(definition, nominal, uutNominal)) return [];
                   return definition.columns.map(column => <button type="button" key={`${definition.id}:${column.id}`} style={itemStyle}
                     onClick={() => { onAddManualComponent?.(budgetTmdePicker.scope || null, definition.kind, definition, column.id); setBudgetTmdePicker(null); }}>
-                    <FontAwesomeIcon icon={faPlus}/><span>{definition.name || (definition.kind === 'table' ? 'Untitled table' : 'Untitled equation')}{definition.columns.length > 1 ? ` — ${column.name}` : ''}</span>
+                    <FontAwesomeIcon icon={faPlus}/><span>{dynamicDefinitionLabel(definition, definitionIndex)}{definition.columns.length > 1 ? ` — ${column.name}` : ''}</span>
                   </button>);
                 })}
+                {[['table', 'Add tabular uncertainty'], ['equation', 'Add equation uncertainty']].map(([kind, label]) => <button key={kind} type="button" aria-label={label} style={itemStyle}
+                  onClick={() => { onAddManualComponent?.(budgetTmdePicker.scope || null, kind); setBudgetTmdePicker(null); }}><FontAwesomeIcon icon={faPlus}/><span>{kind === "table" ? "New tabular component" : "New equation component"}</span></button>)}
               </>}
               {budgetTmdePicker.canAddRepeatability && (
                 <button

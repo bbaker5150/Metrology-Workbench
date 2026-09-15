@@ -19,8 +19,8 @@ export const validateBudgetEquation = equation => {
   return error ? { ...result, status: "invalid", error } : result;
 };
 
-export const createDynamicDefinition = (kind, nominal = {}) => ({
-  id: uuid(), kind, name: "", measurementUnit: nominal.unit || "", outputUnit: nominal.unit || "",
+export const createDynamicDefinition = (kind, nominal = {}, measurementPoint = nominal) => ({
+  id: uuid(), kind, name: "", measurementUnit: (kind === "equation" ? measurementPoint.unit : nominal.unit) || "", outputUnit: nominal.unit || "",
   mode: "tolerance", distribution: "", columns: [{ id: uuid(), name: "Uncertainty" }],
   rows: [{ id: uuid(), point: kind === "table" && filled(nominal.value) ? Number(nominal.value) : "", values: {} }], equation: "", variables: {}, pointVariable: "",
 });
@@ -66,9 +66,9 @@ export const findDynamicTableRow = (definition, nominal) => {
   if (!matches.length) throw Error(`No table entry for ${value} ${getUnitDisplayLabel(definition.measurementUnit)}. Add this point to the table.`);
   return matches[0];
 };
-export const resolveDynamicComponent = (component, definition, nominal) => {
+export const resolveDynamicComponent = (component, definition, nominal, measurementPoint = nominal) => {
   if (!definition) return unresolvedComponent(component, "This shared uncertainty definition is missing.");
-  definition = { ...definition, measurementUnit: definition.measurementUnit || nominal?.unit || "", outputUnit: definition.outputUnit || nominal?.unit || "" };
+  definition = { ...definition, measurementUnit: definition.measurementUnit || (definition.kind === "equation" ? measurementPoint?.unit : nominal?.unit) || "", outputUnit: definition.outputUnit || nominal?.unit || "" };
   const column = definition.columns.find(c => c.id === component.dynamicOutputId);
   const base = { ...component, dynamicDefinition: definition,
     name: definition.name ? `${definition.name}${definition.columns.length > 1 && column ? ` — ${column.name}` : ""}` : "",
@@ -101,7 +101,7 @@ export const resolveDynamicComponent = (component, definition, nominal) => {
       if (invalid) throw Error(invalid.error || (definition.mode === "limits" ? "Enter both error-limit equations." : "Enter an equation."));
       const scope = new Map();
       for (const symbol of new Set(validations.flatMap(validation => validation.variables))) {
-        const value = symbol === definition.pointVariable ? dynamicMeasurementValue(nominal, definition.measurementUnit) : definition.variables?.[symbol]?.value;
+        const value = symbol === definition.pointVariable ? dynamicMeasurementValue(measurementPoint, definition.measurementUnit) : definition.variables?.[symbol]?.value;
         if (!filled(value)) throw Error(`Enter a nominal value for ${symbol}.`);
         scope.set(symbol, Number(value));
       }
@@ -124,7 +124,7 @@ export const resolveDynamicComponent = (component, definition, nominal) => {
   } catch (error) { return unresolvedComponent(base, error.message); }
 };
 export const resolveDynamicComponents = (components, point, session) => (components || []).map(component =>
-  component.dynamicDefinitionId ? resolveDynamicComponent(component, getDynamicDefinition(component, session), componentReferencePoint(component, point)) : component);
+  component.dynamicDefinitionId ? resolveDynamicComponent(component, getDynamicDefinition(component, session), componentReferencePoint(component, point), point.testPointInfo?.parameter || {}) : component);
 
 // Keep a portable snapshot in every linked instance as well as the session
 // library. Budget/point copies and exported sessions retain the same link.
@@ -142,3 +142,43 @@ export const availableDynamicDefinitions = session => {
   for (const definition of session.dynamicBudgetDefinitions || []) definitions.set(definition.id, definition);
   return [...definitions.values()];
 };
+
+
+export const dynamicDefinitionLabel = (definition, index = 0) => definition.name?.trim() || `${definition.kind === "table" ? "Tabular" : "Equation"} component ${index + 1}`;
+const sameQuantity = (a, b) => Boolean(unitSystem.units[a] && unitSystem.units[b] && unitSystem.units[a].quantity === unitSystem.units[b].quantity);
+export const canUseDynamicDefinition = (definition, nominal, measurementPoint = nominal) =>
+  sameQuantity(definition.outputUnit, nominal?.unit) && sameQuantity(definition.measurementUnit,
+    definition.kind === "equation" ? measurementPoint?.unit : nominal?.unit);
+const isEmptyDefinition = definition => definition.kind === "equation"
+  ? ![definition.equation, definition.lowerEquation, definition.upperEquation].some(value => String(value || "").trim())
+  : !(definition.rows || []).some(row => Object.values(row.values || {}).some(values => Object.values(values).some(filled)));
+const nextDefinitionName = (kind, definitions) => {
+  const names = new Set(definitions.map(d => d.name));
+  let index = 0, name;
+  do { name = dynamicDefinitionLabel({ kind }, index++); } while (names.has(name));
+  return name;
+};
+
+// One definition per shared component; each point holds only one use per budget.
+// Repeated creation resumes an unfinished definition rather than accumulating drafts.
+export function attachDynamicComponent(session, pointId, kind, scope, existing, outputId) {
+  const point = (session.testPoints || []).find(point => String(point.id) === String(pointId));
+  if (!point) return { session, component: null };
+  const measurementPoint = point.testPointInfo?.parameter || {};
+  const nominal = componentReferencePoint({ variableType: scope?.kind === 'input' ? scope.variableType : undefined }, point);
+  const definitions = availableDynamicDefinitions(session);
+  let definition = existing ? definitions.find(d => d.id === existing.id) || existing
+    : definitions.find(d => d.kind === kind && isEmptyDefinition(d) && canUseDynamicDefinition(d, nominal, measurementPoint));
+  definition ||= createDynamicDefinition(kind, nominal, measurementPoint);
+  if (!definition.name?.trim()) definition = { ...definition, name: nextDefinitionName(kind, definitions) };
+  if (kind === 'table' && filled(nominal.value) && canUseDynamicDefinition(definition, nominal, measurementPoint)) {
+    const value = dynamicMeasurementValue(nominal, definition.measurementUnit);
+    const matches = definition.rows.some(row => filled(row.point) && Math.abs(Number(row.point) - value) <= Number.EPSILON * 32 * Math.max(Number.MIN_VALUE, Math.abs(value), Math.abs(Number(row.point))));
+    if (!matches) definition = { ...definition, rows: [...definition.rows, { id: uuid(), point: value, values: {} }] };
+  }
+  const variableType = scope?.kind === 'input' ? scope.variableType : undefined;
+  const column = outputId || definition.columns[0].id;
+  const component = (point.components || []).find(c => c.dynamicDefinitionId === definition.id && (c.dynamicOutputId || definition.columns[0].id) === column && (c.variableType || '') === (variableType || '')) || createDynamicComponent(definition, column, scope);
+  const next = updateDynamicDefinition(session, definition);
+  return { component, session: { ...next, testPoints: next.testPoints.map(p => String(p.id) !== String(point.id) || p.components?.some(c => c.id === component.id) ? p : { ...p, components: [...(p.components || []), component] }) } };
+}

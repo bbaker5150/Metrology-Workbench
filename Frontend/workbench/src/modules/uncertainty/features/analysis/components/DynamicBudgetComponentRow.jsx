@@ -5,20 +5,20 @@ import { faPlus, faTimes, faArrowUp, faArrowDown, faLink, faExclamationTriangle 
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import { unitSystem, getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
-import { resolveDynamicComponent, validateBudgetEquation, dynamicMeasurementValue } from "../../../utils/dynamicBudgetComponents";
+import { resolveDynamicComponent, validateBudgetEquation, dynamicMeasurementValue, findDynamicTableRow } from "../../../utils/dynamicBudgetComponents";
 
 const emptyRow = () => ({ id: uuid(), point: "", values: {} });
 const DISTRIBUTIONS = oldErrorDistributions.map(option => ({ value: option.value, label: option.label }));
 const UNIT_OPTIONS = Object.keys(unitSystem.units).map(unit => ({ value: unit, label: getUnitDisplayLabel(unit) }));
 const FallbackUnitSelect = props => <InlineMenuSelect {...props} options={UNIT_OPTIONS} width="max-content" />;
 const isEditorPortal = target => target instanceof Element && Boolean(target.closest(".inline-unit-menu"));
-const implicitUnits = (definition, point) => definition && ({ ...definition, measurementUnit: definition.measurementUnit || point?.unit || "", outputUnit: definition.outputUnit || point?.unit || "" });
+const implicitUnits = (definition, point, measurementPoint) => definition && ({ ...definition, measurementUnit: definition.measurementUnit || (definition.kind === "equation" ? measurementPoint?.unit : point?.unit) || "", outputUnit: definition.outputUnit || point?.unit || "" });
 
 export default function DynamicBudgetComponentRow({
-  component, referencePoint, showDof, onCommit, onRemove, onMoveUp, onMoveDown,
+  component, referencePoint, measurementPoint = referencePoint, showDof, onCommit, onRemove, onMoveUp, onMoveDown,
   UnitSelectComponent = FallbackUnitSelect, autoEdit = false, onEditorOpened,
 }) {
-  const [draft, setDraft] = useState(() => implicitUnits(component.dynamicDefinition, referencePoint));
+  const [draft, setDraft] = useState(() => implicitUnits(component.dynamicDefinition, referencePoint, measurementPoint));
   const [editing, setEditing] = useState(autoEdit);
   const [naming, setNaming] = useState(false);
   const [distributionEditing, setDistributionEditing] = useState(false);
@@ -41,11 +41,11 @@ export default function DynamicBudgetComponentRow({
       // flash "Not Set" on collapse. Accept the next changed saved definition.
       if (pendingCommit.current && JSON.stringify(component.dynamicDefinition) === pendingCommit.current.previous) return;
       pendingCommit.current = null;
-      draftRef.current = implicitUnits(component.dynamicDefinition, referencePoint);
+      draftRef.current = implicitUnits(component.dynamicDefinition, referencePoint, measurementPoint);
       setDraft(draftRef.current);
       variableCache.current = component.dynamicDefinition?.variables || {};
     }
-  }, [component.dynamicDefinition, referencePoint?.unit, editing, naming]);
+  }, [component.dynamicDefinition, referencePoint?.unit, measurementPoint?.unit, editing, naming]);
 
   const change = useCallback(patch => {
     const next = { ...draftRef.current, ...patch };
@@ -68,12 +68,26 @@ export default function DynamicBudgetComponentRow({
     setDistributionEditing(false);
   }, []);
 
+  const focusEditor = useCallback(() => {
+    requestAnimationFrame(() => {
+      const definition = draftRef.current;
+      if (definition?.kind !== "table") {
+        rowRef.current?.querySelector('[aria-label="Uncertainty equation"], [aria-label="Low error limit equation"]')?.focus();
+        return;
+      }
+      let index = 0;
+      try { index = definition.rows.indexOf(findDynamicTableRow(definition, referencePoint)); } catch { /* Show incomplete entries for editing. */ }
+      const column = definition.rows[index]?.point === "" ? 0 : 1;
+      rowRef.current?.querySelector(`[data-dynamic-cell="${index}:${column}"]`)?.focus();
+    });
+  }, [referencePoint?.value, referencePoint?.unit]);
+
   useEffect(() => {
     if (!autoEdit) return;
     setEditing(true);
     onEditorOpened?.();
-    requestAnimationFrame(() => rowRef.current?.querySelector('[data-dynamic-cell="0:0"], [aria-label="Uncertainty equation"]')?.focus());
-  }, [autoEdit, onEditorOpened]);
+    focusEditor();
+  }, [autoEdit, onEditorOpened, focusEditor]);
 
   useEffect(() => {
     if (!editorActive) return;
@@ -96,11 +110,11 @@ export default function DynamicBudgetComponentRow({
 
   const validation = useMemo(() => draft?.kind === "equation" ? validateBudgetEquation(draft.equation) : null, [draft?.kind, draft?.equation]);
   if (!draft) return null;
-  const preview = resolveDynamicComponent(component, draft, referencePoint || {});
+  const preview = resolveDynamicComponent(component, draft, referencePoint || {}, measurementPoint || {});
   let boundValue = "Not Set";
-  try { boundValue = dynamicMeasurementValue(referencePoint, draft.measurementUnit); } catch { /* The live preview explains incomplete inputs. */ }
+  try { boundValue = dynamicMeasurementValue(draft.kind === "equation" ? measurementPoint : referencePoint, draft.measurementUnit); } catch { /* The live preview explains incomplete inputs. */ }
   const kindLabel = draft.kind === "table" ? "Tabular" : "Equation";
-  const measurementUnit = referencePoint?.unit || draft.measurementUnit;
+  const measurementUnit = (draft.kind === "equation" ? measurementPoint?.unit : referencePoint?.unit) || draft.measurementUnit;
   const displayPoint = value => {
     if (value === "" || value == null || measurementUnit === draft.measurementUnit) return value;
     try { return Number(dynamicMeasurementValue({ value, unit: draft.measurementUnit }, measurementUnit).toPrecision(14)); } catch { return value; }
@@ -172,7 +186,7 @@ export default function DynamicBudgetComponentRow({
   };
   const openEditor = () => {
     setEditing(true);
-    requestAnimationFrame(() => rowRef.current?.querySelector(draft.kind === "table" ? '[data-dynamic-cell="0:0"]' : '[aria-label="Uncertainty equation"]')?.focus());
+    focusEditor();
   };
   const unitField = (key, label) => (
     <div className="dynamic-inline-field">

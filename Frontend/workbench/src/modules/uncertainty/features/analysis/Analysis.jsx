@@ -60,7 +60,7 @@ import {
   removeSavedBudgetComponent,
 } from "./utils/budgetUtils";
 import { resolvePointBudgetComponents } from "../../utils/resolvePointBudgetComponents";
-import { createDynamicDefinition, createDynamicComponent, updateDynamicDefinition } from "../../utils/dynamicBudgetComponents";
+import { attachDynamicComponent } from "../../utils/dynamicBudgetComponents";
 import { createInlineManualComponent } from "./utils/manualComponentUtils";
 
 /**
@@ -549,12 +549,10 @@ function Analysis({
 
   const handleAddInlineManualComponent = (scope = null, kind = "manual", existing = null, outputId = null) => {
     if (kind !== "manual") {
-      const definition = existing || createDynamicDefinition(kind, scope?.nominalPoint || uutNominal);
-      const component = createDynamicComponent(definition, outputId, scope);
-      if (!existing) setNewDynamicComponentId(component.id);
-      const next = updateDynamicDefinition(sessionData, definition);
-      onSessionSave?.({ ...next, testPoints: next.testPoints.map(point => String(point.id) === String(testPointData.id)
-        ? { ...point, components: [...(point.components || []), component] } : point) });
+      const result = attachDynamicComponent(sessionData, testPointData.id, kind, scope, existing, outputId);
+      if (!result.component) return;
+      setNewDynamicComponentId(result.component.id);
+      onSessionSave?.(result.session);
       return;
     }
     const id = `manual_${Date.now()}_${uuidv4()}`;

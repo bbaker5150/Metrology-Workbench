@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createDynamicDefinition, createDynamicComponent, resolveDynamicComponent, resolveDynamicComponents, updateDynamicDefinition, availableDynamicDefinitions } from "./dynamicBudgetComponents";
+import { createDynamicDefinition, createDynamicComponent, resolveDynamicComponent, resolveDynamicComponents, updateDynamicDefinition, availableDynamicDefinitions, attachDynamicComponent } from "./dynamicBudgetComponents";
 import { computeUncertaintyForPoint, computePointRiskMetrics, updateSharedDynamicDefinition } from "./riskCompute";
 
 const table = () => { const d = createDynamicDefinition("table", {unit:"V"}); const id=d.columns[0].id;
@@ -107,4 +107,59 @@ it.each([["degF", "°F"], ["degC", "°C"], ["Ohm", "Ω"], ["um", "µm"]])("forma
     expect(resolved.dynamicSummary).toBe(`± 2 ${label}`);
     expect(resolved.unit_native).toBe(unit);
   }
+});
+
+
+it("binds an input-budget equation to the selected 20 F point, not its 1 F input nominal", () => {
+  const d = { ...createDynamicDefinition('equation', { unit: 'degF' }), mode: 'standard', equation: 'x/10', pointVariable: 'x', variables: { x: { value: 1 } } };
+  const c = createDynamicComponent(d, null, { kind: 'input', variableType: 'Sensor' });
+  const p = { ...point(20, c), measurementType: 'derived', equationString: 'a*20', variableMappings: { a: 'Sensor' }, variableNominals: { a: { value: 1, unit: 'degF' } }, testPointInfo: { parameter: { value: 20, unit: 'degF' } } };
+  const session = { dynamicBudgetDefinitions: [d], uncReq: { uncertaintyConfidence: 95 } };
+  expect(resolveDynamicComponents(p.components, p, session)[0].value_native).toBe(2);
+  p.testPointInfo.parameter.value = 40;
+  expect(resolveDynamicComponents(p.components, p, session)[0].value_native).toBe(4);
+  expect(p.variableNominals.a.value).toBe(1);
+});
+
+it("keeps equation measurement units separate from the input budget output units", () => {
+  const p = { id: 'power-point', components: [], measurementType: 'derived', variableMappings: { a: 'Voltage' }, variableNominals: { a: { value: 1, unit: 'V' } }, testPointInfo: { parameter: { value: 20, unit: 'W' } } };
+  const attached = attachDynamicComponent({ testPoints: [p] }, p.id, 'equation', { kind: 'input', variableType: 'Voltage' });
+  const definition = { ...attached.session.dynamicBudgetDefinitions[0], mode: 'standard', equation: 'x/10', pointVariable: 'x' };
+  expect(definition.measurementUnit).toBe('W');
+  expect(definition.outputUnit).toBe('V');
+  const session = updateDynamicDefinition(attached.session, definition);
+  const resolved = resolveDynamicComponents(session.testPoints[0].components, p, session)[0];
+  expect(resolved.value_native).toBe(2);
+  expect(resolved.unit_native).toBe('V');
+});
+
+it.each(['table', 'equation'])("reuses one named %s draft across points and avoids duplicate budget rows", kind => {
+  const p1 = point(100, null), p2 = point(200, null);
+  p1.components = []; p2.components = [];
+  let session = { testPoints: [p1, p2] };
+  session = attachDynamicComponent(session, p1.id, kind).session;
+  session = attachDynamicComponent(session, p1.id, kind).session;
+  session = attachDynamicComponent(session, p2.id, kind).session;
+  expect(session.dynamicBudgetDefinitions).toHaveLength(1);
+  expect(session.dynamicBudgetDefinitions[0].name).toBe(`${kind === 'table' ? 'Tabular' : 'Equation'} component 1`);
+  expect(session.testPoints.map(p => p.components.length)).toEqual([1, 1]);
+  expect(session.testPoints[0].components[0].dynamicDefinitionId).toBe(session.testPoints[1].components[0].dynamicDefinitionId);
+  if (kind === 'table') expect(session.dynamicBudgetDefinitions[0].rows.map(row => row.point)).toEqual([100, 200]);
+});
+
+it("reuses an authored table at a new point and shares later edits without altering other rows", () => {
+  const p1 = point(100, null), p2 = point(200, null); p1.components = []; p2.components = [];
+  let session = attachDynamicComponent({ testPoints: [p1, p2] }, p1.id, 'table').session;
+  const definition = session.dynamicBudgetDefinitions[0], column = definition.columns[0].id;
+  session = updateDynamicDefinition(session, { ...definition, mode: 'standard', rows: [{ ...definition.rows[0], values: { [column]: { value: .1 } } }] });
+  session = attachDynamicComponent(session, p2.id, 'table', null, session.dynamicBudgetDefinitions[0]).session;
+  session = attachDynamicComponent(session, p2.id, 'table', null, definition).session;
+  expect(session.dynamicBudgetDefinitions).toHaveLength(1);
+  expect(session.testPoints[1].components).toHaveLength(1);
+  const updated = { ...session.dynamicBudgetDefinitions[0], rows: session.dynamicBudgetDefinitions[0].rows.map(row => ({ ...row, values: { [column]: { value: row.point / 1000 } } })) };
+  session = updateDynamicDefinition(session, updated);
+  expect(session.testPoints.map(p => resolveDynamicComponents(p.components, p, session)[0].value_native)).toEqual([.1, .2]);
+  const distinct = attachDynamicComponent(session, p1.id, 'table').session;
+  expect(distinct.dynamicBudgetDefinitions).toHaveLength(2);
+  expect(distinct.dynamicBudgetDefinitions[1].name).toBe('Tabular component 2');
 });

@@ -1113,7 +1113,7 @@ const UncertaintyBudgetTable = ({
     >
       <tbody className="component-group-tbody">
         {labeledComponents.map((component, componentIndex) => {
-          if (component.dynamicDefinitionId) return <DynamicBudgetComponentRow key={component.id} component={component} referencePoint={manualReferencePoint} showDof={showDof}
+          if (component.dynamicDefinitionId) return <DynamicBudgetComponentRow key={component.id} component={component} referencePoint={manualReferencePoint} measurementPoint={referencePoint} showDof={showDof}
             UnitSelectComponent={UnitSelectComponent} autoEdit={component.id === newDynamicComponentId} onEditorOpened={onDynamicEditorOpened}
             onCommit={dynamicDefinition => onComponentUpdate?.(component.id, { dynamicDefinition }, component)} onRemove={onRemove}
             onMoveUp={() => onMoveComponent?.(component.id, -1)} onMoveDown={() => onMoveComponent?.(component.id, 1)}/>;
