@@ -26,13 +26,13 @@ export default function MeasurementBiasEditor({ point, session, calculatedAverag
       {result.error ? "Check bias settings" : `UUT: ${unknown ? "Not applicable" : `${display(result.uutBias)} ${unitLabel}`} · System: ${display(result.calBias)} ${unitLabel}`}
     </span></summary>
     <div className="measurement-bias-body">
-      <div className="measurement-bias-setting"><span className="measurement-bias-label">UUT bias</span>
+      <div className="measurement-bias-setting"><span className="measurement-bias-label">Bias</span>
         {unknown ? <span>Not applicable without a known measurement</span> : <>
           <InlineMenuSelect ariaLabel="UUT bias source" width="auto" showOptionMeta={false} value={point.uutBias?.mode || "inherit"}
             options={[{ value: "inherit", label: "Use UUT range" }, { value: "override", label: "This point" }]}
             onChange={mode => onChange({ uutBias: mode === "inherit" ? undefined : { mode, value: String(result.uutBias || 0), unit } })} />
           {point.uutBias?.mode === "override" ? <BiasValueEditor label="Point UUT bias" unit={unit} value={point.uutBias}
-            onChange={uutBias => onChange({ uutBias })} /> : <span>{result.uutOrigin === "assumed" ? "Assumed zero" : `${display(result.uutBias)} ${unitLabel} (${result.uutOrigin === "calculated" ? "calculated mean" : "range default"})`}</span>}
+            onChange={uutBias => onChange({ uutBias })} /> : <span>{result.uutOrigin === "assumed" ? "0" : `${display(result.uutBias)} ${unitLabel} (${result.uutOrigin === "calculated" ? "calculated mean" : "range default"})`}</span>}
         </>}
       </div>
       <div className="measurement-bias-setting"><span className="measurement-bias-label">Measurement system bias</span>
@@ -40,7 +40,7 @@ export default function MeasurementBiasEditor({ point, session, calculatedAverag
           options={[{ value: "sources", label: "From budget sources" }, { value: "manual", label: "Enter net bias" }]}
           onChange={mode => patch({ mode })} />
         {settings.mode === "manual" ? <BiasValueEditor label="Net measurement system bias" unit={unit} value={settings} onChange={measurementBias => onChange({ measurementBias })} allowCorrection />
-          : <span>{result.sources.some(row => row.spec?.value !== undefined && row.spec?.value !== "") ? `${display(result.calBias)} ${unitLabel}` : "Assumed zero"}</span>}
+          : <span>{result.sources.some(row => row.spec?.value !== undefined && row.spec?.value !== "") ? `${display(result.calBias)} ${unitLabel}` : "0"}</span>}
       </div>
       <p className="measurement-bias-help">Enter signed residual errors. Positive system bias makes the evaluated result read high. Mark a source already corrected only when its correction is included in the measurement. Its uncertainty stays in the budget.</p>
       {settings.mode !== "manual" && <div className="measurement-bias-sources">
