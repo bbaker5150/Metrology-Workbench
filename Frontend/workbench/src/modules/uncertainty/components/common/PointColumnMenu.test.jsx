@@ -3,6 +3,31 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import PointColumnMenu from "./PointColumnMenu";
 
+it("cancels pointer sorting without changing column order or leaking the grabbing cursor", () => {
+  const move = vi.fn();
+  const previousHitTest = document.elementFromPoint;
+  const { unmount } = render(<PointColumnMenu sections={[]} columns={{}} setColumns={()=>{}}
+    selectedGroups={[{ key: "value", keys: ["value"], label: "Value" }, { key: "pfa", keys: ["pfa"], label: "PFA" }]} moveGroup={move} />);
+  const source = screen.getByLabelText("Move Value"), target = screen.getByLabelText("Move PFA");
+  document.elementFromPoint = () => target;
+  try {
+    // MouseEvent supplies pointer coordinates in jsdom as it does in browsers.
+    fireEvent(source, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientY: 1 }));
+    fireEvent(window, new MouseEvent("pointermove", { bubbles: true, clientY: 20 }));
+    expect(source).toHaveClass("is-dragging");
+    expect(document.body).toHaveClass("point-columns-dragging");
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent(window, new MouseEvent("pointerup", { bubbles: true }));
+    expect(move).not.toHaveBeenCalled();
+    expect(source).not.toHaveClass("is-dragging");
+    expect(document.body).not.toHaveClass("point-columns-dragging");
+  } finally {
+    unmount();
+    if (previousHitTest) document.elementFromPoint = previousHitTest;
+    else delete document.elementFromPoint;
+  }
+});
+
 it("toggles a limit pair together and removes it with the displayed-column control", () => {
   function Harness() {
     const [columns,setColumns]=useState({lowLimit:false,highLimit:false});

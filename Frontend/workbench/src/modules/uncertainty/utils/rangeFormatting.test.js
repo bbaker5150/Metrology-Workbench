@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { formatRangeLabel } from "./rangeFormatting";
 
 describe("formatRangeLabel", () => {
+  it("renders equal numeric bounds as one point without duplicating its unit", () => {
+    expect(formatRangeLabel({ min: '1', max: 1, unit: 'lbf' }, { preferBounds: true })).toBe('1 lbf');
+    expect(formatRangeLabel({ min: 0, max: '0', unit: 'V' })).toBe('0 V');
+  });
   it("does not repeat a unit already included in the range name", () => {
     expect(formatRangeLabel({ range: "100 V", unit: "V" })).toBe("100 V");
     expect(formatRangeLabel({ range: "100V Range", unit: "V" })).toBe(

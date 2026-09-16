@@ -12,19 +12,21 @@ it("updates both card colors when the session threshold changes", () => {
   expect(screen.getByText("PFA").parentElement).toHaveClass("is-good");
   expect(screen.getByText("PFR").parentElement).toHaveClass("is-good");
 });
-it("labels boundary results and hides PFR for unknown measurements", () => {
+it("labels boundary results and retains an unavailable PFR slot", () => {
   render(<DecisionRiskCards results={{ riskMethod: "risk8-pfa-boundary", pfa: 1.5, pfr: 0 }} formatValue={formatValue} />);
   expect(screen.getByText("PFA at Boundary").parentElement).toHaveClass("is-good");
-  expect(screen.queryByLabelText("PFR: Unavailable")).not.toBeInTheDocument();
-  expect(screen.queryByText("PFR")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("PFR: Unavailable")).toBeInTheDocument();
+  expect(screen.getByText("PFR")).toBeInTheDocument();
 });
 
-it("hides uncalculated cards and preserves valid zero results", () => {
+it("retains uncalculated cards and preserves valid zero results", () => {
   const { rerender, container } = render(<DecisionRiskCards results={null} formatValue={formatValue} />);
-  expect(container).toBeEmptyDOMElement();
+  expect(screen.getByLabelText("PFA: Unavailable")).toBeInTheDocument();
+  expect(screen.getByLabelText("PFR: Unavailable")).toBeInTheDocument();
   rerender(<DecisionRiskCards results={{ pfa: NaN, pfr: null }} formatValue={formatValue} />);
-  expect(container).toBeEmptyDOMElement();
+  expect(screen.getByLabelText("PFA: Unavailable")).toBeInTheDocument();
+  expect(screen.getByLabelText("PFR: Unavailable")).toBeInTheDocument();
   rerender(<DecisionRiskCards results={{ pfa: 0, pfr: "" }} formatValue={formatValue} />);
   expect(screen.getByText("PFA")).toBeInTheDocument();
-  expect(screen.queryByText("PFR")).not.toBeInTheDocument();
+  expect(screen.getByText("PFR")).toBeInTheDocument();
 });

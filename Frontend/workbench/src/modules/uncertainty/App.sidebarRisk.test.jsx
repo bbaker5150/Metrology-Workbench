@@ -812,7 +812,7 @@ describe("measurement-point value editing", () => {
     await waitFor(() => expect(onAdvanceValue).toHaveBeenCalledWith({ insert: true }));
   });
 
-  test("plain Enter commits and requests navigation without insertion", async () => {
+  test("plain Enter commits without selecting another point", async () => {
     const onSave = vi.fn();
     const onAdvanceValue = vi.fn();
     render(
@@ -835,7 +835,8 @@ describe("measurement-point value editing", () => {
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(onSave).toHaveBeenCalledOnce();
-    await waitFor(() => expect(onAdvanceValue).toHaveBeenCalledWith({ insert: false }));
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    expect(onAdvanceValue).not.toHaveBeenCalled();
   });
 
   test("opens an already-mounted blank row when value focus advances", async () => {

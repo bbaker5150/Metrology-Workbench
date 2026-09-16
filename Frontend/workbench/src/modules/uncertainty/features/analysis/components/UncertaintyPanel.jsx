@@ -3411,9 +3411,9 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
     // InlineMenuSelect renders its option list in a portal attached to
     // document.body. Moving focus from the trigger into that list therefore
     // looks like a blur outside this editor even though the user is still
-    // choosing a distribution. Keep the editor mounted until the option's
-    // onChange closes it; otherwise a real browser click closes the menu before
-    // the selection can be committed.
+    // choosing a distribution. Keep the editor mounted through selection and
+    // restored trigger focus; otherwise a browser click can close the menu
+    // before committing, or leave subsequent Tab navigation without an anchor.
     if (
       next &&
       (containerRef.current?.contains(next) ||
@@ -3443,10 +3443,9 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
         options={errorDistributions}
         ariaLabel="Spec band distribution"
         title="Distribution used for this tolerance band"
-        onChange={(value) => {
-          onChange(value);
-          setIsEditing(false);
-        }}
+        // Keep the field mounted after selection; InlineMenuSelect restores its
+        // trigger focus. Blur/Tab dismisses it after focus reaches the next cell.
+        onChange={onChange}
         onTab={moveToNextInlineTableColumn}
         width="118px"
         menuWidth={240}
@@ -7965,7 +7964,9 @@ const SummaryDashboard = ({
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range;
     const rangeGroupKey = itemStateKey(kind, stateId);
-    const showRangeActions = ((kind === "uut" ? selectedUutIds : selectedTmdeIds).some(id => sameId(id, item.id)) && ((kind === "uut" ? localRangeIndices : tmdeRangeIndices)[stateId] ?? (kind === "uut" ? localRangeIndices : tmdeRangeIndices)[item.id] ?? 0) === rangeIndex) || (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey)) || rangeEditingKeys.has(rangeGroupKey);
+    // Whole-instrument selection also includes range IDs for copy/delete, but
+    // range controls belong only to an explicitly selected range.
+    const showRangeActions = lastSelectionTarget === "range" && (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey));
 
     return (
       <>
@@ -9154,7 +9155,7 @@ const SummaryDashboard = ({
                                     openRangeTolerance("uut", uut, range)
                                   }
                                   onAdvanceRange={() => handleAddBlankRange("uut", uut, rangeIdOf(range), { focusNew: true })}
-                                  actionsVisible={selectedUutIds.some(id => sameId(id, uut.id))}
+                                  actionsVisible={lastSelectionTarget === "range" && (selectedRangeIds[itemStateKey("uut", uut.id)] || []).some(id => sameId(id, rangeKey))}
                                   onAddRange={() => handleAddBlankRange("uut", uut, rangeIdOf(range))}
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpand("uut", uut, range)
@@ -9653,7 +9654,7 @@ const SummaryDashboard = ({
                                     openRangeTolerance("tmde", tmde, range)
                                   }
                                   onAdvanceRange={() => handleAddBlankRange("tmde", tmde, rangeIdOf(range), { focusNew: true })}
-                                  actionsVisible={selectedTmdeIds.some(id => sameId(id, tmde.id))}
+                                  actionsVisible={lastSelectionTarget === "range" && (selectedRangeIds[itemStateKey("tmde", tmde.id)] || []).some(id => sameId(id, rangeKey))}
                                   onAddRange={() => handleAddBlankRange("tmde", tmde, rangeIdOf(range))}
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpand("tmde", tmde, range)
@@ -11409,7 +11410,9 @@ function DetailedView({
     const rangeKey = rangeIdOf(range);
     const tolerance = getItemRangeTolerance(item, rangeKey) || range || {};
     const rangeGroupKey = itemStateKey(kind, stateId);
-    const showRangeActions = ((kind === "uut" ? selectedUutIds : selectedTmdeIds).some(id => sameId(id, item.id)) && ((kind === "uut" ? localRangeIndices : tmdeRangeIndices)[stateId] ?? (kind === "uut" ? localRangeIndices : tmdeRangeIndices)[item.id] ?? 0) === rangeIndex) || (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey)) || rangeEditingKeys.has(rangeGroupKey);
+    // Whole-instrument selection also includes range IDs for copy/delete, but
+    // range controls belong only to an explicitly selected range.
+    const showRangeActions = lastSelectionTarget === "range" && (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey));
 
     return (
       <>
@@ -14288,6 +14291,22 @@ function DetailedView({
                   requireFunctionMatch: false,
                 },
               );
+              // A one-choice instrument is one click target, with its range
+              // description inside the same tile. Multiple choices retain the
+              // instrument heading and indented children so scope stays clear.
+              if (choices.length === 1) {
+                const range = choices[0];
+                const detail = getBudgetTmdeDetail(tmde, range);
+                const unitWarning = budgetUnitMismatch(range.unit || range.functionUnit, (isDerived ? scope.nominalPoint : uutNominal)?.unit, unitSystem);
+                return <button key={`tmde-group-${tmde.id ?? tmde.sourceId}`} type="button"
+                  className="budget-tmde-picker-single" title={unitWarning || detail}
+                  onClick={() => addBudgetTmde(tmde, range)}>
+                  <span className="budget-tmde-picker-single-name"><FontAwesomeIcon icon={faTools} />{getEquationTmdeLabel(tmde)}</span>
+                  <span className="budget-tmde-picker-detail">
+                    {unitWarning && <FontAwesomeIcon icon={faExclamationTriangle} role="img" aria-label={unitWarning} />}{detail}
+                  </span>
+                </button>;
+              }
               return (
                 <div
                   key={`tmde-group-${tmde.id ?? tmde.sourceId}`}
@@ -15143,7 +15162,7 @@ function DetailedView({
                                     openRangeToleranceDetail("uut", uut, range)
                                   }
                                   onAdvanceRange={() => handleAddBlankRangeDetail("uut", uut, rangeIdOf(range), { focusNew: true })}
-                                  actionsVisible={selectedUutIds.some(id => sameId(id, uut.id))}
+                                  actionsVisible={lastSelectionTarget === "range" && (selectedRangeIds[itemStateKey("uut", uut.id)] || []).some(id => sameId(id, rangeKey))}
                                   onAddRange={() => handleAddBlankRangeDetail("uut", uut, rangeIdOf(range))}
                                   onRequestEditAfterExpand={() =>
                                     requestRangeEditAfterExpandDetail("uut", uut, range)
@@ -16008,7 +16027,7 @@ function DetailedView({
                                         openRangeToleranceDetail("tmde", masterTmde, range)
                                       }
                                       onAdvanceRange={() => handleAddBlankRangeDetail("tmde", masterTmde, rangeIdOf(range), { focusNew: true })}
-                                  actionsVisible={selectedTmdeIds.some(id => sameId(id, masterTmde.id))}
+                                  actionsVisible={lastSelectionTarget === "range" && (selectedRangeIds[itemStateKey("tmde", masterTmde.id)] || []).some(id => sameId(id, rangeKey))}
                                   onAddRange={() => handleAddBlankRangeDetail("tmde", masterTmde, rangeIdOf(range))}
                                       onRequestEditAfterExpand={() =>
                                         requestRangeEditAfterExpandDetail(

@@ -6,8 +6,9 @@ const statusLabels = { good: "Within threshold", warning: "Above threshold", bad
 
 export default function DecisionRiskCards({ results, requiredPfa, formatValue }) {
   const boundary = results?.riskMethod === "risk8-pfa-boundary";
-  const metrics = ["pfa", "pfr"].filter(metric => !(boundary && metric === "pfr") && decisionRiskStatus(results?.[metric], requiredPfa, metric) !== "neutral");
-  if (!metrics.length) return null;
+  // Keep the final result slots visible even before inputs are complete. A dash
+  // denotes unavailable data; zero remains a valid, color-coded probability.
+  const metrics = ["pfa", "pfr"];
   return (
     <dl className="budget-decision-results" aria-label="Final decision risk">
       {metrics.map(metric => {

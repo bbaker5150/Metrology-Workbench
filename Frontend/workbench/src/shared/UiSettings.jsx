@@ -4,6 +4,7 @@ import { faCheck, faRotateLeft } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 
 export const UI_SCALE_LOCK_KEY = "workbench:ui-scale-lock";
+export const UI_FIT_WINDOW_EVENT = "workbench:fit-window";
 export const isUiScaleLocked = () => {
   try { return localStorage.getItem(UI_SCALE_LOCK_KEY) !== "false"; }
   catch { return true; }
@@ -51,6 +52,10 @@ export default function UiSettings() {
         ))}
       </div>
       <div className="ui-scaling-reset-row">
+        <button type="button" className="ui-scaling-reset" title="Fit the app to the available window while respecting your display scaling"
+          onClick={() => window.dispatchEvent(new Event(UI_FIT_WINDOW_EVENT))}>
+          <ToolbarLayoutIcon /><span>Fit to window</span>
+        </button>
         <button type="button" className="ui-scaling-reset" onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "0", ctrlKey: true, bubbles: true }))}>
           <FontAwesomeIcon icon={faRotateLeft} aria-hidden="true" /><span>Reset to 100%</span>
         </button>

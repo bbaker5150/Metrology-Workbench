@@ -62,6 +62,7 @@ it("moves a distribution highlight without selecting until Enter", async () => {
   expect(change).not.toHaveBeenCalled();
   fireEvent.keyDown(document.activeElement, { key: "Enter" });
   expect(change).toHaveBeenCalledWith("b");
+  expect(screen.getByRole("button", { name: "Distribution" })).toHaveFocus();
 });
 const rows = [0,1,2,3].map(n => ({ key: "tmde:t", rangeId: String(n) }));
 it("selects shared rows and promotes ranges when another column is added", () => {

@@ -1,3 +1,4 @@
+import { prepareTaskingLayout, checkTaskingLayout } from "./tasking-layout-checks.mjs";
 import { prepareBiasSession, checkMeasurementBias } from "./measurement-bias-checks.mjs";
 import { prepareSeptember16Layout, checkSeptember16 } from "./september16-checks.mjs";
 import { prepareSharedEquationSession, checkSharedEquations } from "./shared-equation-checks.mjs";
@@ -114,6 +115,7 @@ if (process.env.TASKING_FOLLOWUP_SMOKE) for (const session of sessions.values())
 if (process.env.DYNAMIC_EQUATION_COPY_SMOKE) for (const session of sessions.values()) prepareDynamicEquationSession(session);
 if (process.env.SHARED_EQUATION_SMOKE) for (const session of sessions.values()) prepareSharedEquationSession(session);
 if (process.env.SEPTEMBER16_LAYOUT_ONLY) for (const session of sessions.values()) prepareSeptember16Layout(session);
+if (process.env.TASKING_LAYOUT_SMOKE) for (const session of sessions.values()) prepareTaskingLayout(session);
 if (process.env.MEASUREMENT_BIAS_SMOKE) for (const session of sessions.values()) prepareBiasSession(session);
 const instrumentItems = [301, 302].map(id => ({
   Id: id, AuthorId: 7, RecordId: `instrument-${id}`,
@@ -276,6 +278,7 @@ if (/not set up yet/i.test(frameText)) {
   if (process.env.SHARED_EQUATION_SMOKE) await checkSharedEquations({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER16_SMOKE) await checkSeptember16({ frame, page, check });
   if (process.env.MEASUREMENT_BIAS_SMOKE) await checkMeasurementBias({ frame, page, saved, until, check });
+  if (process.env.TASKING_LAYOUT_SMOKE) await checkTaskingLayout({ frame, page, saved, until, check });
   for (const view of ['overview', 'point']) {
     if (view === 'overview') await frame.locator('[data-tour="tab-overview"]').click();
     else {
@@ -310,6 +313,9 @@ if (/not set up yet/i.test(frameText)) {
       }
       check(`${view} ${kind} columns do not shift between hovered instruments`, positions.every(p => p.every((x, i) => Math.abs(x - positions[0][i]) < 1)));
       await row.locator('td').first().hover();
+      check(`${view} ${kind} whole-instrument selection hides range actions`, await table.getByRole('button', { name: 'Add range', exact: true }).count() === 0);
+      await row.locator('[data-range-cell]').click({ position: { x: 3, y: 3 } });
+      await row.locator('[data-range-cell]').hover();
       const list = `${kind}s`;
       const before = saved()[list][0].ranges.length;
       const visibleBefore = await table.locator('tr.instrument-function-row').count();
@@ -318,6 +324,7 @@ if (/not set up yet/i.test(frameText)) {
       check(`${view} ${kind} added range is visible`, await table.locator('tr.instrument-function-row').count() === visibleBefore + 1);
       const blank = table.locator('tr.inline-range-row').filter({ has: frame.locator('[data-range-cell] .is-empty') }).first();
       await blank.locator('[data-range-cell]').click({ position: { x: 3, y: 3 } });
+      await blank.locator('.range-row-cell').hover();
       await blank.getByRole('button', { name: 'Delete range', exact: true }).click({ timeout: 5000 });
       check(`${view} ${kind} range × persists through the HTML adapter`, await until(() => saved()[list][0].ranges.length === before));
     }

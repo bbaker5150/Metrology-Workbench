@@ -1,4 +1,4 @@
-import { isUiScaleLocked } from "./UiSettings";
+import { isUiScaleLocked, UI_FIT_WINDOW_EVENT } from "./UiSettings";
 import React, { useEffect, useRef, useState } from "react";
 
 // Custom event other components dispatch to surface a scoped (per-panel) zoom
@@ -44,6 +44,30 @@ export default function ZoomToast() {
     const webFrame = getWebFrame();
     const root = document.documentElement;
     const originalZoom = root.style.zoom;
+    // CSS zoom scales vh lengths too, unlike native Electron/browser zoom.
+    // Expose the unscaled layout height so every app zoom still fills the frame.
+    // innerHeight already reflects OS/native zoom; do not divide by DPR, which
+    // would double-apply monitor scaling and shrink high-DPI displays.
+    const syncViewport = () => {
+      const cssZoom = parseFloat(root.style.zoom) || 1;
+      root.style.setProperty('--app-viewport-height', `${window.innerHeight / cssZoom}px`);
+    };
+    const applyZoom = next => {
+      if (webFrame) webFrame.setZoomFactor(next);
+      else root.style.zoom = String(next);
+      syncViewport();
+      showRef.current(`App zoom ${Math.round(next * 100)}%`);
+    };
+    const fitWindow = () => {
+      // Fit to the usable CSS-pixel window, not monitor pixel resolution. Native
+      // Electron zoom changes innerWidth/Height, so recover its 100% dimensions.
+      const nativeZoom = webFrame?.getZoomFactor() || 1;
+      const fit = Math.min(1, window.innerWidth * nativeZoom / 1440, window.innerHeight * nativeZoom / 900);
+      applyZoom(Math.max(.6, Math.floor(fit * 100) / 100));
+    };
+    syncViewport();
+    window.addEventListener('resize', syncViewport);
+    window.addEventListener(UI_FIT_WINDOW_EVENT, fitWindow);
     const onKey = (event) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       const direction = ["+", "="].includes(event.key) ? 1
@@ -54,9 +78,7 @@ export default function ZoomToast() {
       const current = webFrame?.getZoomFactor() ?? (parseFloat(root.style.zoom) || 1);
       const next = reset ? 1
         : Math.max(0.3, Math.min(3, Math.round((current + direction * 0.1) * 100) / 100));
-      if (webFrame) webFrame.setZoomFactor(next);
-      else root.style.zoom = String(next);
-      showRef.current(`App zoom ${Math.round(next * 100)}%`);
+      applyZoom(next);
     };
     const onWheel = event => {
       if (!(event.ctrlKey || event.metaKey) || !isUiScaleLocked()) return;
@@ -69,6 +91,9 @@ export default function ZoomToast() {
     return () => {
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("wheel", onWheel, true);
+      window.removeEventListener('resize', syncViewport);
+      window.removeEventListener(UI_FIT_WINDOW_EVENT, fitWindow);
+      root.style.removeProperty('--app-viewport-height');
       if (!webFrame) root.style.zoom = originalZoom;
     };
   }, []);

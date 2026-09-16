@@ -13,7 +13,9 @@ export const formatRangeLabel = (range = {}, { preferBounds = false } = {}) => {
     range.max !== undefined &&
     range.max !== null &&
     range.max !== "";
-  const boundedLabel = hasBounds ? `${range.min} to ${range.max}` : "";
+  // A single-point range is one value, including numeric strings from imports.
+  const sameBound = hasBounds && Number.isFinite(Number(range.min)) && Number(range.min) === Number(range.max);
+  const boundedLabel = hasBounds ? sameBound ? String(range.min) : `${range.min} to ${range.max}` : "";
   const rangeText = preferBounds
     ? boundedLabel || explicitLabel || "Full Range"
     : explicitLabel || boundedLabel || "Full Range";

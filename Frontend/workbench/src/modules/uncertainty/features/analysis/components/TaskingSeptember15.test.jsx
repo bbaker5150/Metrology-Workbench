@@ -41,7 +41,7 @@ it("adds a TMDE with mismatched units as a linked, warned budget component", () 
   fireEvent.click(screen.getByRole("button", { name: "Add component to budget" }));
   const menu = document.querySelector(".budget-tmde-picker-menu");
   expect(within(menu).getByRole("img", { name: /Unit mismatch/ })).toBeInTheDocument();
-  fireEvent.click(within(menu).getByRole("button", { name: "Current reference", exact: true }));
+  fireEvent.click(within(menu).getByRole("button", { name: /^Current reference/ }));
   const components = update.mock.calls.at(-1)[0].components;
   expect(components).toHaveLength(1);
   expect(components[0].tmdeBudgetRangeId).toBe("amp-range");

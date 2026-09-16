@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import UiSettings, { UI_SCALE_LOCK_KEY } from "./UiSettings";
+import UiSettings, { UI_SCALE_LOCK_KEY, UI_FIT_WINDOW_EVENT } from "./UiSettings";
 import ZoomToast from "./ZoomToast";
 
 afterEach(() => {
@@ -10,6 +10,23 @@ afterEach(() => {
 });
 
 describe("app zoom shortcuts", () => {
+  it("compensates layout height at every CSS zoom and on window resize", () => {
+    render(<ZoomToast />);
+    fireEvent.keyDown(window, { key: '-', ctrlKey: true });
+    const root = document.documentElement;
+    expect(parseFloat(root.style.getPropertyValue('--app-viewport-height')) * .9).toBeCloseTo(window.innerHeight);
+    fireEvent(window, new Event('resize'));
+    expect(parseFloat(root.style.getPropertyValue('--app-viewport-height')) * .9).toBeCloseTo(window.innerHeight);
+  });
+  it("fits usable window space without multiplying OS display density", () => {
+    render(<ZoomToast />);
+    fireEvent(window, new Event(UI_FIT_WINDOW_EVENT));
+    const expected = Math.max(.6, Math.floor(Math.min(1, window.innerWidth / 1440, window.innerHeight / 900) * 100) / 100);
+    expect(Number(document.documentElement.style.zoom)).toBe(expected);
+    // A later resize preserves the user's chosen scale; Fit is explicit.
+    fireEvent(window, new Event('resize'));
+    expect(Number(document.documentElement.style.zoom)).toBe(expected);
+  });
   it("zooms the entire browser app in 10% steps, including from inputs, and resets", () => {
     render(<><input aria-label="Editing" /><ZoomToast /></>);
     const input = screen.getByLabelText("Editing");

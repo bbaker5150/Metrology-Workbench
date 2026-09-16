@@ -12,9 +12,10 @@ export async function checkInstrumentAutoHeight({ frame, page, check, view }) {
   });
 
   await heightHandle.dblclick();
-  // At reduced UI scale the outer half of a divider lies beneath the next
-  // header. Click its in-column edge, as a user can, instead of that overlap.
-  await columnHandle.dblclick({ position: { x: 1, y: 1 } });
+  // The insert-column button straddles the TOP border; the lower divider remains
+  // its resize target. Stay on the in-column edge at reduced section zoom too.
+  const resizeSpot = async () => ({ x: 1, y: (await columnHandle.boundingBox()).height * .75 });
+  await columnHandle.dblclick({ position: await resizeSpot() });
   const fitted = await snapshot();
   for (let i = 0; i < 12; i++) await columnHandle.press('ArrowRight');
   const widened = await snapshot();
@@ -22,7 +23,7 @@ export async function checkInstrumentAutoHeight({ frame, page, check, view }) {
     Math.abs(fitted.gutter - widened.gutter) < 1,
     JSON.stringify({ fitted, widened }));
   check(`${view} widened table remains horizontally scrollable`, widened.overflow);
-  await columnHandle.dblclick({ position: { x: 1, y: 1 } });
+  await columnHandle.dblclick({ position: await resizeSpot() });
 
   // Exercise a genuinely constrained height before handing it back to CSS.
   if (fitted.height > 220) {

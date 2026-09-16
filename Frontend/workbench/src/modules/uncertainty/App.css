@@ -1073,7 +1073,7 @@ body {
 }
 
 body.uncertainty-active {
-  height: 100vh;
+  height: var(--app-viewport-height, 100dvh);
   overflow: hidden;
 }
 
@@ -1205,7 +1205,7 @@ body.theme-cyberpunk .button {
   text-align: left;
   margin: 0;
   padding: 0;
-  height: calc(100vh - var(--workbench-topbar-h, 40px));
+  height: calc(var(--app-viewport-height, 100dvh) - var(--workbench-topbar-h, 40px));
   min-height: 0;
   width: 100%;
   display: flex;
@@ -20537,12 +20537,12 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .detail-workspace-section-toggle { cursor: default; }
 .measurement-equation-card.is-editor-open > .scoped-zoom-content,
 .measurement-equation-card.is-editor-collapsed > .scoped-zoom-content { min-height: 96px; justify-content: center; }
-.measurement-equation-preview-trigger { border: 1px solid var(--border-color); border-radius: 6px; }
+.measurement-equation-preview-trigger { border: 0; border-radius: 0; }
 .measurement-equation-preview-empty { font-size: 1rem; font-style: normal; }
 .measurement-point-empty-hint { display: flex; align-items: center; justify-content: flex-end; gap: 6px; position: sticky; left: 0; width: 100cqw; box-sizing: border-box; padding: 14px 14px 14px 18px; color: var(--text-color-muted); text-align: right; font-size: .75rem; cursor: default; }
-.uncertainty-module .instrument-column-insert-button { top: 0; bottom: auto; right: -8px; }
-.uncertainty-module .instrument-resizable-header { padding-top: 22px; }
-.uncertainty-module .instrument-column-resize-handle { top: 21px; height: calc(100% - 21px); }
+.uncertainty-module .instrument-column-insert-button { top: -8px; bottom: auto; right: -8px; }
+.uncertainty-module .instrument-resizable-header { padding-top: 8px; padding-bottom: 8px; }
+.uncertainty-module .instrument-column-resize-handle { top: 0; height: 100%; }
 .uncertainty-module .instrument-equipment-table input,
 .uncertainty-module .instrument-equipment-table [contenteditable=true] { user-select: text; -webkit-user-drag: none; }
 .uncertainty-module .inline-resolution-editor .inline-menu-select-trigger > span { white-space: normal; overflow: visible; text-overflow: clip; }
@@ -20967,7 +20967,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .uncertainty-module .budget-resizable-table.has-custom-widths { min-width: 0; }
 .uncertainty-module .instrument-equipment-table > tbody > tr.instrument-function-row > td,
 .uncertainty-module .budget-resizable-table.has-custom-widths > tbody > tr > td {
-  overflow: hidden; white-space: nowrap; overflow-wrap: normal; text-overflow: clip;
+  overflow: hidden; white-space: normal; overflow-wrap: anywhere; text-overflow: clip;
 }
 .uncertainty-module .budget-resizable-table > tbody > tr > .action-cell,
 .uncertainty-module .budget-resizable-table > thead > tr > [data-budget-column="actions"] {
@@ -20988,7 +20988,10 @@ body .uncertainty-module .budget-resizable-table > tbody > tr:hover,
 .uncertainty-module .budget-dynamic-row > .action-cell > button { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
 .uncertainty-module .budget-dynamic-row:is(:hover, :focus-within) > .action-cell > button { opacity: 1; pointer-events: auto; }
 .uncertainty-module .analysis-content { scrollbar-gutter: stable; }
-.sidebar-filter-dropdown:has(.point-column-menu-body) { overflow-y: auto; }
+/* This is a drag surface: keep target coordinates fixed even when the user
+   starts immediately after opening it. Other menus retain their slide-in. */
+.sidebar-filter-dropdown:has(.point-column-menu-body) { overflow-y: auto; animation: columnMenuIn .12s ease-out; }
+@keyframes columnMenuIn { from { opacity: 0; } to { opacity: 1; } }
 .point-column-menu-body { position: relative; align-items: start; }
 .point-column-menu-body .sidebar-column-order-list { max-height: none; overflow: visible; }
 .point-column-menu-body .point-column-available .sidebar-filter-sections {
@@ -21009,3 +21012,54 @@ body .uncertainty-module .budget-resizable-table > tbody > tr:hover,
 .uncertainty-module .budget-resizable-table .dynamic-source-label {
   max-width: 100%; min-width: 0; text-align: left;
 }
+
+/* Narrow user-sized columns wrap at words, then within long tokens. Keep the
+   automatic budget layout content-sized; only authored widths constrain it. */
+.uncertainty-module .instrument-equipment-table :is(th, td),
+.uncertainty-module .instrument-equipment-table :is(.inline-desc-combined, .inline-tolerance-summary, .instrument-resizable-header-content),
+.uncertainty-module .budget-resizable-table.has-custom-widths :is(th, td, .budget-resizable-header-content, .inline-tolerance-summary),
+.uncertainty-module .measurement-points-table :is(.sidebar-sort-header, .sidebar-sort-header > span, .point-metric-content, .point-metric) {
+  white-space: normal; overflow-wrap: anywhere; word-break: normal; text-overflow: clip;
+}
+.uncertainty-module .range-collapsed-cell > .range-stack-row { height: auto; }
+.uncertainty-module .measurement-points-table :is([data-sidebar-column], .point-value-number, .point-grouped-cell-label) {
+  min-width: 0; white-space: normal; overflow-wrap: anywhere; text-overflow: clip;
+}
+.uncertainty-module .measurement-points-table .point-edit-affordance { flex-wrap: wrap; }
+/* Selection gates whether controls exist; hover is local to that range, not
+   the owning row-spanned instrument or a different range in its stack. */
+.uncertainty-module .instrument-equipment-table tr.inline-range-row :is(.range-row-add, .range-row-delete) { opacity: 0; pointer-events: none; }
+.uncertainty-module .instrument-equipment-table tr.inline-range-row :is(.range-row-cell, .range-stack-row):is(:hover, :focus-within) :is(.range-row-add, .range-row-delete),
+.uncertainty-module .instrument-equipment-table tr.inline-range-row :is(.range-row-add, .range-row-delete):focus-visible { opacity: 1; pointer-events: auto; }
+
+/* All source kinds share a single paint-only row hover, including dynamically
+   evaluated tabular/equation terms, without changing editor or table geometry. */
+.uncertainty-module .budget-resizable-table > .component-group-tbody > tr:is(:hover, :focus-within) > td {
+  background: color-mix(in srgb, var(--primary-color) 9%, var(--content-background)) !important;
+}
+.budget-picker-section button:not(:disabled):is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--content-background)) !important;
+}
+.budget-tmde-picker-single {
+  display: flex; flex-direction: column; gap: 4px; width: 100%; box-sizing: border-box;
+  padding: 8px 10px; border: 0; border-left: 3px solid transparent; border-radius: 5px;
+  background: transparent; color: var(--text-color); font: inherit; text-align: left; cursor: pointer;
+}
+.budget-tmde-picker-single + .budget-tmde-picker-single { margin-top: 4px; }
+.budget-tmde-picker-single:is(:hover, :focus-visible) { border-left-color: var(--primary-color); outline: none; }
+.budget-tmde-picker-single-name { display: flex; align-items: center; gap: 7px; font-size: .82rem; font-weight: 650; }
+.budget-tmde-picker-single .budget-tmde-picker-detail { padding-left: 0; }
+
+/* Pointer sorting keeps the original row highlighted and marks the exact gap
+   before/after the destination. No moving clone, browser ghost, or reflow. */
+.point-column-order-row, .point-column-add { user-select: none; touch-action: none; position: relative; }
+body.point-columns-dragging, body.point-columns-dragging * { cursor: grabbing !important; user-select: none !important; }
+.point-column-menu-body .point-column-order-row.is-dragging { opacity: 1; background: var(--primary-color-light); }
+.point-column-menu-body .point-column-add.is-dragging { background: var(--primary-color-light); }
+.point-column-menu-body .point-column-order-row.is-drop-target { background: transparent; box-shadow: none; }
+.point-column-order-row.is-drop-target::after {
+  content: ""; position: absolute; left: 0; right: 0; height: 2px;
+  background: var(--primary-color); pointer-events: none;
+}
+.point-column-order-row.is-drop-target.drop-before::after { top: -1px; }
+.point-column-order-row.is-drop-target.drop-after::after { bottom: -1px; }

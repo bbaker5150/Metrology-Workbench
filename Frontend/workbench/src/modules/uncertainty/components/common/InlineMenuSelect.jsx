@@ -261,6 +261,9 @@ const InlineMenuSelect = ({
                     onClick={() => {
                       onChange?.(option.value);
                       closeMenu();
+                      // Options live in a portal that is about to unmount. Put
+                      // focus back on the field so Tab continues from this cell.
+                      rootRef.current?.querySelector("button")?.focus({ preventScroll: true });
                     }}
                   >
                     <span>{option.label}</span>

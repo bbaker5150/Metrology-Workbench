@@ -982,7 +982,7 @@ export const SidebarPointItem = ({
       e.stopPropagation();
       const insert = e.ctrlKey || e.metaKey;
       e.target.blur(); // Commit before navigating or inserting against fresh state.
-      requestAnimationFrame(() => onAdvanceValue?.({ insert }));
+      if (insert) requestAnimationFrame(() => onAdvanceValue?.({ insert: true }));
     }
     if (e.key === "Escape") cancelEdit();
   };
@@ -4757,7 +4757,7 @@ function App({ showThemeToggle = false }) {
     const nextPoint = nextPointId
       ? currentTestPoints.find((point) => point.id === nextPointId)
       : null;
-    if (!insert && nextPoint) {
+    if (nextPoint) {
       const nextUutId = nextPoint.associatedUutIds?.[0] || null;
       setSelectedSidebarPointIds([nextPoint.id]);
       setSelectedTestPointId(nextPoint.id);
@@ -4809,10 +4809,11 @@ function App({ showThemeToggle = false }) {
     [expandedFunctions, sidebarData, sortSidebarPoints],
   );
 
-  // Selected rows also own Enter when no inline field is being edited.
+  // Ctrl+Enter advances through existing values, creating a point only at the
+  // end. Plain Enter commits an inline edit without changing point selection.
   useEffect(() => {
     const onPointKey = event => {
-      if (event.key !== "Enter" || event.altKey || event.shiftKey || isInstrumentBuilderOpen) return;
+      if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || isInstrumentBuilderOpen) return;
       const target = event.target;
       if (target?.closest?.("input, textarea, select, [contenteditable=true], [role=dialog], [role=alertdialog], .floating-window-content")) return;
       if (document.querySelector("[role=alertdialog], [role=dialog]")) return;
@@ -5414,12 +5415,12 @@ function App({ showThemeToggle = false }) {
     if (!groups.some(g => g.keys.includes(key))) groups.push({ key: keys[0], keys, label: keys.includes("lowLimit") || keys.includes("highLimit") ? "Tolerance (Limits)" : keys.includes("tmdeLow") || keys.includes("tmdeHigh") ? "TMDE Limits" : keys.includes("gbLow") || keys.includes("gbHigh") ? "GB Limits" : SIDEBAR_COLUMN_LABELS[key] });
     return groups;
   }, []);
-  const moveSidebarSortGroup = (source, target, addedKeys) => {
+  const moveSidebarSortGroup = (source, target, addedKeys, position) => {
     const from = sidebarSortGroups.find(g => g.key === source) || (addedKeys && { key: source, keys: addedKeys }), to = sidebarSortGroups.find(g => g.key === target);
     if (!from || !to || from === to) return;
     setSidebarColumnOrder(previous => {
       const next = previous.filter(key => !from.keys.includes(key));
-      const movingDown = sidebarSortGroups.indexOf(from) < sidebarSortGroups.indexOf(to);
+      const movingDown = position ? position === "after" : sidebarSortGroups.indexOf(from) < sidebarSortGroups.indexOf(to);
       const insertion = movingDown ? next.indexOf(to.keys.at(-1)) + 1 : next.indexOf(to.keys[0]);
       next.splice(insertion, 0, ...from.keys);
       return next;

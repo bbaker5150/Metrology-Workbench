@@ -1,6 +1,10 @@
 /* Styles owned by the standalone SharePoint shell only. The module's own
    stylesheets are imported unchanged alongside these. */
 
+/* There is no Workbench title bar in the HTML/SharePoint shell. Reserving its
+   40px fallback created a permanent strip below the application. */
+:root { --workbench-topbar-h: 0px; }
+
 html,
 body,
 #root {
