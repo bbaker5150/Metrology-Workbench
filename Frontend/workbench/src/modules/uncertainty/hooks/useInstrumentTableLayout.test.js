@@ -11,15 +11,15 @@ describe("temporary instrument column widths", () => {
   });
 });
 
-it("fills spare panel space with only the last column and preserves overflow widths", () => {
+it("preserves all authored widths even when their sum is narrower than the workspace", () => {
   const fitted = expandedInstrumentWidths([60, 200, 180], 1200, [], true);
-  expect(fitted).toEqual([60, 200, 940]);
+  expect(fitted).toEqual([60, 200, 180]);
   expect(fitted[0] / fitted[1]).toBeCloseTo(60 / 200);
   expect(expandedInstrumentWidths([60, 200, 180], 300, [140], true)).toEqual([140, 200, 180]);
-  expect(expandedInstrumentWidths([60, 200, 180], 1200, [140], true)).toEqual([140, 200, 860]);
+  expect(expandedInstrumentWidths([60, 200, 180], 1200, [140], true)).toEqual([140, 200, 180]);
 });
 
-it("can reverse repeated drags without saving trailing fill or expanding neighboring columns", () => {
+it("can reverse repeated drags without saving an expanded neighbor's editor width", () => {
   const initial = { description: 300, range: 200, sync: 60 };
   const visible = { description: 300, range: 200, sync: 300 };
   const narrow = resizeTableColumn(initial, visible, 'range', -100, 80);

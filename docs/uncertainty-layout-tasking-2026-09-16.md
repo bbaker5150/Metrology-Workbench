@@ -32,3 +32,23 @@ node scripts/smoke-forge-srcdoc.mjs
 ```
 
 The new focused tests are `TaskingLayoutAudit.test.jsx`, the pointer-cancellation case in `PointColumnMenu.test.jsx`, and the viewport/fit cases in `ZoomToast.test.jsx`. The rendered audit is `scripts/tasking-layout-checks.mjs`.
+
+## Follow-up: library removal and independent column widths
+
+Source: Tasking.docx attachment `C497CC95-E66C-4F8F-85A1-83E75A873186`.
+
+- Each reusable tabular/equation entry has a separate red × at its right edge. It appears on hover or keyboard focus without moving the add target. A multi-output definition has one removal control for the shared definition.
+- Removing a used definition hides it from the picker while preserving all existing budget instances and calculations. The persisted `hiddenFromPicker` flag travels with the shared definition and its portable snapshots, so reloads and later edits do not restore the removed choice. Unused definitions are deleted outright. New creation does not resume removed drafts or reuse names still present in existing budgets.
+- Removed trailing-column fill from manually resized instrument and budget tables. Pixel widths now remain independent even when their sum falls below the available workspace. The card, title, and table viewport shrink to that sum; wider content scrolls. Growing a column pushes subsequent columns right without changing their widths. Default content/proportional sizing and temporary local editor expansion remain available.
+- Unit regressions cover fixed peer widths, editor expansion, used/unused definition removal, shared calculations after JSON reload, and separate delete/add click targets. **115 distinct targeted tests passed** across eight files. One existing portaled-unit-selector test timed out in the combined run; all 15 tests in that file passed when rerun separately without changes.
+- Production single-file build passed. **92 HTML/Forge checks passed**, including large physical drags in UUT, TMDE, input-budget, equation-budget, and final-budget tables; reversing adjustments; zoom; overflow; no trailing strips; light/dark delete visibility; persisted removal; and the existing hover/height/range/archive regressions. Light and dark screenshots were visually inspected.
+
+Reproduce the follow-up rendered checks from `Frontend/workbench`:
+
+```powershell
+npm run build:singlefile
+$env:INDEPENDENT_COLUMNS_SMOKE = '1'
+node scripts/smoke-forge-srcdoc.mjs
+```
+
+The helper is `scripts/independent-columns-checks.mjs`. It uses synthetic sessions and the smoke host's in-memory SharePoint routes, preserving real user sessions.

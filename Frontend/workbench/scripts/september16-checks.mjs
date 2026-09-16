@@ -24,10 +24,10 @@ export async function checkSeptember16({ frame, page, check }) {
     await page.mouse.up();
     await settle();
     const after = await widths(table);
-    check(`${index ? 'TMDE' : 'UUT'} extreme column shrink preserves intermediate widths and fills with the last column`, after.every((w, i) => i === 1 || i === after.length - 1 || Math.abs(w - before[i]) < 1) && after.at(-1) >= before.at(-1) - 1, JSON.stringify({ before, after }));
+    check(`${index ? 'TMDE' : 'UUT'} extreme column shrink preserves every other column`, after.every((w, i) => i === 1 || Math.abs(w - before[i]) < 1), JSON.stringify({ before, after }));
     check('instrument table fills its viewport without a trailing blank strip', await table.evaluate(node => node.getBoundingClientRect().width >= node.parentElement.getBoundingClientRect().width - 3));
-    // Repeated adjustments must consume/release the live trailing fill, not
-    // save it as a new minimum and push the table farther right each time.
+    // Reversing a target adjustment restores every boundary; no peer receives
+    // spare panel width and no rendered expansion becomes a new saved minimum.
     for (let step = 0; step < 3; step++) await handle.press('ArrowRight');
     await settle();
     const wider = await widths(table);
@@ -62,7 +62,7 @@ export async function checkSeptember16({ frame, page, check }) {
   await handle.press('ArrowLeft');
   await settle();
   const after = await widths(budget);
-  check('budget column resize preserves intermediate widths and the action gutter', after.every((w, i) => i === 0 || i === after.length - 2 || Math.abs(w - before[i]) < 1), JSON.stringify({ before, after }));
+  check('budget column resize preserves every other column and the action gutter', after.every((w, i) => i === 0 || Math.abs(w - before[i]) < 1), JSON.stringify({ before, after }));
   check('budget table fills its viewport without a trailing blank strip', await budget.evaluate(node => node.getBoundingClientRect().width >= node.parentElement.getBoundingClientRect().width - 3));
   if (process.env.SEPTEMBER16_LAYOUT_ONLY) {
     for (let i = 0; i < Math.ceil((after[0] - 160) / 12); i++) await handle.press('ArrowLeft');

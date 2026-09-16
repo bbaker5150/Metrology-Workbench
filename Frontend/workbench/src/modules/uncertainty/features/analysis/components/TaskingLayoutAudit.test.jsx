@@ -3,6 +3,20 @@ import { render, screen, fireEvent, within, waitFor } from '@testing-library/rea
 import { it, expect, vi } from 'vitest';
 import UncertaintyPanel, { InlineDistributionCell } from './UncertaintyPanel';
 
+it.each(['table', 'equation'])('removes a reusable %s choice without firing its add action', kind => {
+  const definition = { id: 'shared', kind, name: 'Shared component', measurementUnit: 'V', outputUnit: 'V', mode: 'standard', columns: [{ id: 'u', name: 'Uncertainty' }], rows: [] };
+  const point = { id: 'p', measurementType: 'direct', testPointInfo: { parameter: { name: 'Voltage', value: 1, unit: 'V' } }, components: [] };
+  const save = vi.fn(), add = vi.fn();
+  render(<UncertaintyPanel testPointData={point} sessionData={{ id: 's', uuts: [], tmdes: [], testPoints: [point], dynamicBudgetDefinitions: [definition], measurementAreas: [], uncReq: {} }}
+    onSessionSave={save} onAddManualComponent={add} uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]}
+    calcResults={{ combined_uncertainty: 0, expanded_uncertainty: 0, k_value: 2, effective_dof: Infinity }} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add component to budget' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Delete Shared component' }));
+  expect(save.mock.calls.at(-1)[0].dynamicBudgetDefinitions).toEqual([]);
+  expect(add).not.toHaveBeenCalled();
+  expect(document.querySelector('.budget-tmde-picker-menu')).toBeInTheDocument();
+});
+
 it('keeps one-range instruments as one named, unindented point-range tile', () => {
   const tmde = { id: 't', tag: 'W2', description: 'Diagnostic Equipment', instrument: { model: 'MD1217', functions: [
     { name: 'Voltage', unit: 'V', ranges: [{ id: 'r', min: 1, max: 1, unit: 'V', tolerances: { floor: { low: -.1, high: .1, unit: 'V', distribution: '1.732' } } }] },

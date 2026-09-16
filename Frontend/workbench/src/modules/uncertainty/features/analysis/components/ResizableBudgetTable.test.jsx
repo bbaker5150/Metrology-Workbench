@@ -50,13 +50,13 @@ describe("budget column resizing", () => {
     expect(widths()).toEqual(['400px', '24px']);
   });
 
-  it("fills a wider panel with the final data column, keeping other widths and the action gutter unchanged", async () => {
+  it("keeps every authored width when the workspace is wider than the table", async () => {
     localStorage.setItem('uncertalytics:budget-column-widths:v1:final:length', JSON.stringify({ source: 200, limit: 120, actions: 36 }));
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
     render(<ResizableBudgetTable scope="final:length" columns={[...columns, { key: 'actions', accessibleLabel: 'Actions' }]}>
       <tbody><tr><td>Source</td><td>Error Limit</td><td className="action-cell">Remove</td></tr></tbody>
     </ResizableBudgetTable>);
-    await waitFor(() => expect(widths()).toEqual(['200px', '564px', '36px']));
+    await waitFor(() => expect(widths()).toEqual(['200px', '120px', '36px']));
     const saved = JSON.parse(localStorage.getItem('uncertalytics:budget-column-widths:v1:final:length'));
     expect(saved).toEqual({ source: 200, limit: 120, actions: 36 });
   });

@@ -2,7 +2,6 @@ import { updateInstrumentCellHighlights } from "../utils/instrumentCellSelection
 import { useCallback, useLayoutEffect, useState } from "react";
 import { preserveTableTextSelection } from "../utils/tableTextSelection";
 import { createInstrumentSelectionOutline } from "../utils/instrumentSelectionOutline";
-import { fillTrailingColumn } from "../utils/fillTrailingColumn";
 
 const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor, .instrument-custom-field-input";
 const HOVER_CLASSES = new Set(['row-hovered', 'col-hovered', 'hovered-spec-row']);
@@ -15,7 +14,9 @@ export const instrumentMutationAffectsLayout = record =>
 export const expandedInstrumentWidths = (weights, baseline, requirements, absolute = false) => {
   const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
   const scale = absolute ? 1 : baseline / total;
-  return fillTrailingColumn(weights.map((weight, index) => Math.max(weight * scale, requirements[index] || 0)), baseline);
+  // Default proportions fill the viewport. Authored pixel widths do not: the
+  // panel follows their sum, so shrinking one column cannot stretch a neighbor.
+  return weights.map((weight, index) => Math.max(weight * scale, requirements[index] || 0));
 };
 
 // Keep saved proportional widths untouched. Only the live colgroup receives
@@ -52,9 +53,8 @@ export default function useInstrumentTableLayout(containerRef) {
       if (!container.getClientRects().length) return;
       const cols = [...table.querySelectorAll(":scope > colgroup > col")];
       const absolute = cols.every(col => col.style.width.endsWith("px"));
-      // Explicit widths stay fixed except for the final column, which absorbs
-      // spare panel space. Editor requirements grow only their own columns.
-      card?.style.removeProperty("--instrument-panel-width");
+      // Editor requirements grow only their own columns. The panel may shrink
+      // below the workspace width, or cap at it and scroll for wider content.
       const requirements = [];
       if (!absolute) {
         // Preserve wrapping in descriptions, but reserve space for their badges.
@@ -96,6 +96,13 @@ export default function useInstrumentTableLayout(containerRef) {
       cols.forEach((col, index) => setProperty(col, "--instrument-live-column-width", `${widths[index]}px`));
       const tableWidth = widths.reduce((sum, width) => sum + width, 0);
       setProperty(table, "--instrument-live-table-width", `${tableWidth}px`);
+      if (card) {
+        if (absolute) {
+          const style = getComputedStyle(card);
+          const edges = (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.borderRightWidth) || 0);
+          setProperty(card, "--instrument-panel-width", `${tableWidth * zoom + edges}px`);
+        } else card.style.removeProperty("--instrument-panel-width");
+      }
 
       // Sticky cells normally stop at their own scroller's top, even when that
       // scroller has moved behind the analysis tabs. Offset them to the visible

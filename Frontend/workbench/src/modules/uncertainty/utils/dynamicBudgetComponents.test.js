@@ -1,10 +1,38 @@
 import { describe, it, expect } from "vitest";
-import { createDynamicDefinition, createDynamicComponent, resolveDynamicComponent, resolveDynamicComponents, updateDynamicDefinition, availableDynamicDefinitions, attachDynamicComponent } from "./dynamicBudgetComponents";
+import { createDynamicDefinition, createDynamicComponent, resolveDynamicComponent, resolveDynamicComponents, updateDynamicDefinition, availableDynamicDefinitions, attachDynamicComponent, removeDynamicDefinitionFromPicker } from "./dynamicBudgetComponents";
 import { computeUncertaintyForPoint, computePointRiskMetrics, updateSharedDynamicDefinition } from "./riskCompute";
 
 const table = () => { const d = createDynamicDefinition("table", {unit:"V"}); const id=d.columns[0].id;
   return {...d,mode:"standard",distribution:"1",name:"Head correction",rows:[{id:"a",point:"100",values:{[id]:{value:"0.012"}}},{id:"b",point:"200",values:{[id]:{value:"0.023"}}}]}; };
 const point = (value, component) => ({id:String(value),measurementType:"direct",testPointInfo:{parameter:{name:"Voltage",value,unit:"V"}},components:[component],tmdeTolerances:[],uutTolerance:{floor:{high:1,low:-1,unit:"V",symmetric:true,distribution:"1.732"}}});
+
+it.each(['table', 'equation'])('removes a shared %s choice without changing existing budgets or resurrecting it on reload', kind => {
+  const definition = kind === 'table' ? table() : { ...createDynamicDefinition('equation', { unit: 'V' }), mode: 'standard', equation: 'x/1000', pointVariable: 'x' };
+  const component = createDynamicComponent(definition);
+  // Legacy imports may carry the definition only in linked point snapshots.
+  const session = { testPoints: [point(100, component), point(200, { ...component, id: 'second' })] };
+  const before = session.testPoints.map(p => resolveDynamicComponents(p.components, p, session)[0].value_native);
+  const removed = removeDynamicDefinitionFromPicker(session, definition.id);
+  const reloaded = JSON.parse(JSON.stringify(removed));
+  expect(availableDynamicDefinitions(reloaded)).toEqual([]);
+  expect(reloaded.testPoints.map(p => p.components.length)).toEqual([1, 1]);
+  expect(reloaded.testPoints.map(p => resolveDynamicComponents(p.components, p, reloaded)[0].value_native)).toEqual(before);
+  const edited = updateDynamicDefinition(reloaded, { ...reloaded.dynamicBudgetDefinitions[0], name: 'Renamed in existing budget' });
+  expect(availableDynamicDefinitions(edited)).toEqual([]);
+  expect(availableDynamicDefinitions(session)).toHaveLength(1);
+});
+
+it('deletes unused library definitions and does not reuse removed unfinished components', () => {
+  const p = { ...point(100), components: [] };
+  const session = attachDynamicComponent({ testPoints: [p] }, p.id, 'table').session;
+  const definition = session.dynamicBudgetDefinitions[0];
+  const removed = removeDynamicDefinitionFromPicker(session, definition.id);
+  const created = attachDynamicComponent(removed, p.id, 'table');
+  expect(created.component.dynamicDefinitionId).not.toBe(definition.id);
+  expect(created.component.dynamicDefinition.name).toBe('Tabular component 2');
+  const unused = { ...session, testPoints: [p] };
+  expect(removeDynamicDefinitionFromPicker(unused, definition.id).dynamicBudgetDefinitions).toEqual([]);
+});
 it("keeps a reused complete table collapsed but opens missing or unfinished entries", () => {
   const definition = table();
   const p = { ...point(100), components: [] };

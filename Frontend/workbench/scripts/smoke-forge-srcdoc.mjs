@@ -1,4 +1,5 @@
 import { prepareTaskingLayout, checkTaskingLayout } from "./tasking-layout-checks.mjs";
+import { prepareIndependentColumns, checkIndependentColumns } from "./independent-columns-checks.mjs";
 import { prepareBiasSession, checkMeasurementBias } from "./measurement-bias-checks.mjs";
 import { prepareSeptember16Layout, checkSeptember16 } from "./september16-checks.mjs";
 import { prepareSharedEquationSession, checkSharedEquations } from "./shared-equation-checks.mjs";
@@ -116,6 +117,7 @@ if (process.env.DYNAMIC_EQUATION_COPY_SMOKE) for (const session of sessions.valu
 if (process.env.SHARED_EQUATION_SMOKE) for (const session of sessions.values()) prepareSharedEquationSession(session);
 if (process.env.SEPTEMBER16_LAYOUT_ONLY) for (const session of sessions.values()) prepareSeptember16Layout(session);
 if (process.env.TASKING_LAYOUT_SMOKE) for (const session of sessions.values()) prepareTaskingLayout(session);
+if (process.env.INDEPENDENT_COLUMNS_SMOKE) for (const session of sessions.values()) prepareIndependentColumns(session);
 if (process.env.MEASUREMENT_BIAS_SMOKE) for (const session of sessions.values()) prepareBiasSession(session);
 const instrumentItems = [301, 302].map(id => ({
   Id: id, AuthorId: 7, RecordId: `instrument-${id}`,
@@ -279,6 +281,7 @@ if (/not set up yet/i.test(frameText)) {
   if (process.env.SEPTEMBER16_SMOKE) await checkSeptember16({ frame, page, check });
   if (process.env.MEASUREMENT_BIAS_SMOKE) await checkMeasurementBias({ frame, page, saved, until, check });
   if (process.env.TASKING_LAYOUT_SMOKE) await checkTaskingLayout({ frame, page, saved, until, check });
+  if (process.env.INDEPENDENT_COLUMNS_SMOKE) await checkIndependentColumns({ frame, page, saved, until, check });
   for (const view of ['overview', 'point']) {
     if (view === 'overview') await frame.locator('[data-tour="tab-overview"]').click();
     else {

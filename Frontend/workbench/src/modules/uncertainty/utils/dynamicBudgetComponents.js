@@ -150,7 +150,21 @@ export const availableDynamicDefinitions = session => {
   const definitions = new Map();
   for (const point of session.testPoints || []) for (const c of point.components || []) if (c.dynamicDefinition) definitions.set(c.dynamicDefinition.id, c.dynamicDefinition);
   for (const definition of session.dynamicBudgetDefinitions || []) definitions.set(definition.id, definition);
-  return [...definitions.values()];
+  return [...definitions.values()].filter(definition => !definition.hiddenFromPicker);
+};
+
+// Removing a reusable choice must not silently subtract uncertainty from an
+// existing budget. Used definitions keep their shared identity and portable
+// snapshots, but disappear from creation/reuse menus (including after reload).
+// Unused definitions can be removed outright. Editing a retained definition
+// preserves this flag, so an old point cannot resurrect the deleted choice.
+export const removeDynamicDefinitionFromPicker = (session, id) => {
+  const definition = availableDynamicDefinitions(session).find(item => item.id === id);
+  if (!definition) return session;
+  const used = (session.testPoints || []).some(point => (point.components || []).some(component =>
+    component.dynamicDefinitionId === id || component.dynamicDefinition?.id === id));
+  return used ? updateDynamicDefinition(session, { ...definition, hiddenFromPicker: true })
+    : { ...session, dynamicBudgetDefinitions: (session.dynamicBudgetDefinitions || []).filter(item => item.id !== id) };
 };
 
 
@@ -180,7 +194,7 @@ export function attachDynamicComponent(session, pointId, kind, scope, existing, 
     : definitions.find(d => d.kind === kind && isEmptyDefinition(d) && canUseDynamicDefinition(d, nominal));
   definition ||= createDynamicDefinition(kind, nominal);
   definition = { ...definition, measurementUnit: dynamicMeasurementUnit(definition, nominal), outputUnit: definition.outputUnit || nominal?.unit || "" };
-  if (!definition.name?.trim()) definition = { ...definition, name: nextDefinitionName(kind, definitions) };
+  if (!definition.name?.trim()) definition = { ...definition, name: nextDefinitionName(kind, [...definitions, ...(session.dynamicBudgetDefinitions || [])]) };
   if (kind === 'table' && unitSystem.units[nominal?.unit] && unitSystem.units[definition.measurementUnit] && filled(nominal.value) && canUseDynamicDefinition(definition, nominal)) {
     const value = dynamicMeasurementValue(nominal, definition.measurementUnit);
     const matches = definition.rows.some(row => filled(row.point) && Math.abs(Number(row.point) - value) <= Number.EPSILON * 32 * Math.max(Number.MIN_VALUE, Math.abs(value), Math.abs(Number(row.point))));

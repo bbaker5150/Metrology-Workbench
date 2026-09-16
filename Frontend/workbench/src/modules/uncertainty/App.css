@@ -20561,9 +20561,10 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 
 .measurement-point-empty-hint > span { flex: 0 0 24px; text-align: center; }
 
-/* Instrument cards span the workspace; the live columns fill their viewport. */
+/* Resized cards follow their columns rather than stretching a trailing column.
+   Wide content keeps its authored widths and scrolls within the workspace. */
 .uncertainty-module .panel-card:has(> .instrument-panel-table-container) {
-  width: 100%;
+  width: min(100%, var(--instrument-panel-width, 100%));
   box-sizing: border-box;
   align-self: flex-start;
 }
@@ -20652,10 +20653,10 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   outline: none !important;
 }
 
-/* Budgets fill their panel and fit content by default; manual resizing may wrap cells. */
+/* Budgets fit content by default; manually sized panels follow the column sum. */
 .budget-stack-section {
   min-width: 0;
-  width: 100%;
+  width: min(100%, var(--budget-panel-width, 100%));
   box-sizing: border-box;
 }
 .uncertainty-module .budget-resizable-table {
@@ -21063,3 +21064,18 @@ body.point-columns-dragging, body.point-columns-dragging * { cursor: grabbing !i
 }
 .point-column-order-row.is-drop-target.drop-before::after { top: -1px; }
 .point-column-order-row.is-drop-target.drop-after::after { bottom: -1px; }
+
+/* Library removal is a separate hit target from adding a component. Reserve
+   its space at rest so revealing the red action never shifts the option. */
+.budget-dynamic-picker-entry { display: flex; align-items: flex-start; gap: 4px; }
+.budget-dynamic-picker-choices { flex: 1; min-width: 0; }
+.budget-dynamic-picker-delete {
+  flex: 0 0 26px; width: 26px; height: 28px; margin-top: 2px; padding: 0;
+  border: 0; border-radius: 4px; background: transparent; color: var(--status-bad);
+  font-size: 20px; line-height: 1; cursor: pointer; opacity: 0; pointer-events: none;
+}
+.budget-dynamic-picker-entry:is(:hover, :focus-within) .budget-dynamic-picker-delete,
+.budget-dynamic-picker-delete:focus-visible { opacity: 1; pointer-events: auto; }
+.budget-picker-section .budget-dynamic-picker-delete:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--status-bad) 12%, var(--content-background)) !important;
+}

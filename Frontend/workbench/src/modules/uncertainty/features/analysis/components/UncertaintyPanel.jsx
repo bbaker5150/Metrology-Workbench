@@ -5,7 +5,7 @@ import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
 import { SI_PREFIX_OPTIONS, prefixedUnitKey } from "../../../utils/siPrefixes";
 import { updateSharedDynamicDefinition } from "../../../utils/riskCompute";
-import { availableDynamicDefinitions, canUseDynamicDefinition, dynamicDefinitionLabel } from "../../../utils/dynamicBudgetComponents";
+import { availableDynamicDefinitions, canUseDynamicDefinition, dynamicDefinitionLabel, removeDynamicDefinitionFromPicker } from "../../../utils/dynamicBudgetComponents";
 import { budgetUnitMismatch } from "../../../utils/incompleteBudget";
 import MeasurementAreaEntry from "../../../components/common/MeasurementAreaEntry";
 import { showFirstInstrumentHint } from "../../../utils/instrumentOnboarding";
@@ -14230,10 +14230,16 @@ function DetailedView({
                 {availableDynamicDefinitions(sessionData).flatMap((definition, definitionIndex) => {
                   const nominal = budgetTmdePicker.scope?.kind === "input" ? budgetTmdePicker.scope.nominalPoint : uutNominal;
                   if (!canUseDynamicDefinition(definition, nominal)) return [];
-                  return definition.columns.map(column => <button type="button" key={`${definition.id}:${column.id}`} style={itemStyle}
+                  const name = dynamicDefinitionLabel(definition, definitionIndex);
+                  return <div className="budget-dynamic-picker-entry" key={definition.id}>
+                    <div className="budget-dynamic-picker-choices">{definition.columns.map(column => <button type="button" key={column.id} style={itemStyle}
                     onClick={() => { onAddManualComponent?.(budgetTmdePicker.scope || null, definition.kind, definition, column.id); setBudgetTmdePicker(null); }}>
-                    <FontAwesomeIcon icon={faPlus}/><span>{dynamicDefinitionLabel(definition, definitionIndex)}{definition.columns.length > 1 ? ` — ${column.name}` : ''}</span>
-                  </button>);
+                    <FontAwesomeIcon icon={faPlus}/><span>{name}{definition.columns.length > 1 ? ` — ${column.name}` : ''}</span>
+                  </button>)}</div>
+                    {onSessionSave && <button type="button" className="budget-dynamic-picker-delete" aria-label={`Delete ${name}`}
+                      title="Remove from the picker; existing budgets are preserved"
+                      onClick={event => { event.stopPropagation(); onSessionSave(removeDynamicDefinitionFromPicker(latestSessionDataRef.current, definition.id)); }}>×</button>}
+                  </div>;
                 })}
                 {[['table', 'Add tabular uncertainty'], ['equation', 'Add equation uncertainty']].map(([kind, label]) => <button key={kind} type="button" aria-label={label} style={itemStyle}
                   onClick={() => { onAddManualComponent?.(budgetTmdePicker.scope || null, kind); setBudgetTmdePicker(null); }}><FontAwesomeIcon icon={faPlus}/><span>{kind === "table" ? "New tabular component" : "New equation component"}</span></button>)}
