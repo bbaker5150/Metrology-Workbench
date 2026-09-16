@@ -2,6 +2,7 @@ import { updateInstrumentCellHighlights } from "../utils/instrumentCellSelection
 import { useCallback, useLayoutEffect, useState } from "react";
 import { preserveTableTextSelection } from "../utils/tableTextSelection";
 import { createInstrumentSelectionOutline } from "../utils/instrumentSelectionOutline";
+import { fillTrailingColumn } from "../utils/fillTrailingColumn";
 
 const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor, .instrument-custom-field-input";
 const HOVER_CLASSES = new Set(['row-hovered', 'col-hovered', 'hovered-spec-row']);
@@ -14,7 +15,7 @@ export const instrumentMutationAffectsLayout = record =>
 export const expandedInstrumentWidths = (weights, baseline, requirements, absolute = false) => {
   const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
   const scale = absolute ? 1 : baseline / total;
-  return weights.map((weight, index) => Math.max(weight * scale, requirements[index] || 0));
+  return fillTrailingColumn(weights.map((weight, index) => Math.max(weight * scale, requirements[index] || 0)), baseline);
 };
 
 // Keep saved proportional widths untouched. Only the live colgroup receives
@@ -51,8 +52,8 @@ export default function useInstrumentTableLayout(containerRef) {
       if (!container.getClientRects().length) return;
       const cols = [...table.querySelectorAll(":scope > colgroup > col")];
       const absolute = cols.every(col => col.style.width.endsWith("px"));
-      // Proportional defaults use the panel; explicit pixel widths never stretch
-      // to fill spare space. Editor requirements grow only their own columns.
+      // Explicit widths stay fixed except for the final column, which absorbs
+      // spare panel space. Editor requirements grow only their own columns.
       card?.style.removeProperty("--instrument-panel-width");
       const requirements = [];
       if (!absolute) {

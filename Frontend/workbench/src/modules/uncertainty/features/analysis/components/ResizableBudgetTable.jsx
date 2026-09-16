@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { preserveTableTextSelection } from "../../../utils/tableTextSelection";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
+import { fillTrailingColumn } from "../../../utils/fillTrailingColumn";
 
 const STORAGE_PREFIX = "uncertalytics:budget-column-widths:v1:";
 const RESET_EVENT = "uncert-reset-ui-sizes";
@@ -29,7 +30,11 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
   const widths = saved.key === storageKey ? saved.widths : readWidths(storageKey);
   const fixed = Boolean(widths && columns.every(({ key }) => Number.isFinite(widths[key])));
   const [editorMinimums, setEditorMinimums] = useState({});
-  const liveWidths = fixed ? Object.fromEntries(columns.map(({ key }) => [key, Math.max(widths[key], editorMinimums[key] || 0)])) : null;
+  const [viewportWidth, setViewportWidth] = useState(0);
+  // Keep the action gutter compact; the last data column owns spare space.
+  const trailingIndex = columns.findLastIndex(({ key }) => key !== "actions");
+  const filledWidths = fixed ? fillTrailingColumn(columns.map(({ key }) => Math.max(widths[key], editorMinimums[key] || 0)), viewportWidth, trailingIndex) : null;
+  const liveWidths = fixed ? Object.fromEntries(columns.map(({ key }, index) => [key, filledWidths[index]])) : null;
 
   useLayoutEffect(() => {
     const table = tableRef.current;
@@ -39,6 +44,7 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
       const viewport = table.parentElement;
       if (viewport?.clientWidth) {
         const zoom = parseFloat(getComputedStyle(table).zoom) || 1;
+        setViewportWidth(viewport.clientWidth / zoom);
         const minimum = `${viewport.clientWidth / zoom}px`;
         if (table.style.getPropertyValue("--budget-table-min-width") !== minimum) table.style.setProperty("--budget-table-min-width", minimum);
         const editorWidth = `${Math.max(320, Math.min(640, viewport.clientWidth / zoom - 28))}px`;

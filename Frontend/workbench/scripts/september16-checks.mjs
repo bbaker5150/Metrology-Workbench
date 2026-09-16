@@ -1,7 +1,8 @@
 export function prepareSeptember16Layout(session) {
   const definition = { id:'layout-table',kind:'table',name:'Layout check',measurementUnit:'V',outputUnit:'V',mode:'standard',columns:[{id:'u',name:'Uncertainty'}],rows:[{id:'r',point:5,values:{u:{value:.2}}}] };
   session.dynamicBudgetDefinitions = [definition];
-  session.testPoints[0].components = [{ id:'layout-component',dynamicDefinitionId:definition.id,dynamicOutputId:'u',dynamicDefinition:definition,type:'B',isManual:true }];
+  session.testPoints[0].components = [{ id:'layout-component',dynamicDefinitionId:definition.id,dynamicOutputId:'u',dynamicDefinition:definition,type:'B',isManual:true },
+    { id:'layout-static',name:'Static layout check',type:'B',isManual:true,value:.1,value_native:.1,unit_native:'V',manualUnit:'V',manualValue:.1,distributionDivisor:'1' }];
 }
 
 export async function checkSeptember16({ frame, page, check }) {
@@ -23,7 +24,8 @@ export async function checkSeptember16({ frame, page, check }) {
     await page.mouse.up();
     await settle();
     const after = await widths(table);
-    check(`${index ? 'TMDE' : 'UUT'} extreme column shrink preserves all neighboring widths`, after.every((w, i) => i === 1 || Math.abs(w - before[i]) < 1), JSON.stringify({ before, after }));
+    check(`${index ? 'TMDE' : 'UUT'} extreme column shrink preserves intermediate widths and fills with the last column`, after.every((w, i) => i === 1 || i === after.length - 1 || Math.abs(w - before[i]) < 1) && after.at(-1) >= before.at(-1) - 1, JSON.stringify({ before, after }));
+    check('instrument table fills its viewport without a trailing blank strip', await table.evaluate(node => node.getBoundingClientRect().width >= node.parentElement.getBoundingClientRect().width - 3));
     check('narrow instrument cells clip text at column boundaries', await table.locator('tr.instrument-function-row > td').evaluateAll(cells => cells.every(c => getComputedStyle(c).overflowX === 'hidden')));
   }
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
@@ -51,7 +53,8 @@ export async function checkSeptember16({ frame, page, check }) {
   await handle.press('ArrowLeft');
   await settle();
   const after = await widths(budget);
-  check('budget column resize preserves adjacent widths', after.slice(1).every((w, i) => Math.abs(w - before[i + 1]) < 1), JSON.stringify({ before, after }));
+  check('budget column resize preserves intermediate widths and the action gutter', after.every((w, i) => i === 0 || i === after.length - 2 || Math.abs(w - before[i]) < 1), JSON.stringify({ before, after }));
+  check('budget table fills its viewport without a trailing blank strip', await budget.evaluate(node => node.getBoundingClientRect().width >= node.parentElement.getBoundingClientRect().width - 3));
   // Create horizontal overflow without altering other columns.
   for (let i = 0; i < 80; i++) await handle.press('ArrowRight');
   await settle();
@@ -62,6 +65,38 @@ export async function checkSeptember16({ frame, page, check }) {
   const scrolled = await action.boundingBox();
   const position = await action.evaluate(cell => getComputedStyle(cell).position);
   check('budget delete action remains anchored while horizontally scrolling', Math.abs(left.x - scrolled.x) < 1 && position === 'sticky', JSON.stringify({left,scrolled,position}));
+  const rows = budget.locator(':scope > tbody > tr');
+  for (const theme of ['light', 'dark']) {
+    await frame.locator('body').evaluate((body, theme) => body.classList.toggle('dark-mode', theme === 'dark'), theme);
+    check(`${theme} action header matches the other headers`, await budget.locator('thead tr').evaluate(node => {
+      const first = getComputedStyle(node.firstElementChild), last = getComputedStyle(node.lastElementChild);
+      return first.backgroundColor === last.backgroundColor && first.backgroundImage === last.backgroundImage;
+    }));
+    for (let index = 0; index < await rows.count(); index++) {
+      const row = rows.nth(index);
+      const remove = row.locator('.action-cell :is(.delete-action, button)').last();
+      if (!await remove.count()) continue;
+      await page.mouse.move(5, 5);
+      await budget.locator('thead button').last().focus();
+      await budget.locator('thead th').last().hover();
+      await settle();
+      check(`${theme} row ${index} remove icon is hidden at rest`, await remove.evaluate(node => getComputedStyle(node).opacity === '0'));
+      check(`${theme} row ${index} action background matches its resting row`, await row.evaluate(node => {
+        const row = getComputedStyle(node), action = getComputedStyle(node.querySelector('.action-cell'));
+        return row.backgroundColor === action.backgroundColor && row.backgroundImage === action.backgroundImage;
+      }));
+      await row.locator('.action-cell').hover();
+      await settle();
+      check(`${theme} row ${index} remove icon appears on hover`, await remove.evaluate(node => getComputedStyle(node).opacity === '1' && getComputedStyle(node).pointerEvents === 'auto'));
+      const background = await row.evaluate(node => {
+        const row = getComputedStyle(node), action = getComputedStyle(node.querySelector('.action-cell'));
+        return { row: [row.backgroundColor, row.backgroundImage], action: [action.backgroundColor, action.backgroundImage] };
+      });
+      check(`${theme} row ${index} action background matches its hovered row`, JSON.stringify(background.row) === JSON.stringify(background.action), JSON.stringify(background));
+    }
+    if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/budget-actions-${theme}.png` });
+  }
+  await frame.locator('body').evaluate(body => body.classList.remove('dark-mode'));
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/budget-scroll.png` });
   check('workspace reserves a vertical scrollbar gutter', await frame.locator('.analysis-content').evaluate(node => getComputedStyle(node).scrollbarGutter === 'stable'));
 }

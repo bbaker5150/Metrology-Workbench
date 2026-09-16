@@ -5111,7 +5111,7 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
   transition: opacity 0.12s ease;
 }
 
-.uncertainty-budget-table tr:hover .budget-row-actions .delete-action {
+.uncertainty-budget-table tr:is(:hover, :focus-within) .budget-row-actions .delete-action {
   opacity: 1;
   pointer-events: auto;
 }
@@ -20962,7 +20962,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .uncertainty-module .point-value-editing .point-unit-chevron { opacity: 1; }
 .uncertainty-module .measurement-group-container .point-value-number:hover { border-color: var(--sidebar-function-color, var(--primary-color)) !important; background: color-mix(in srgb, var(--sidebar-function-color, var(--primary-color)) 10%, transparent) !important; }
 
-/* Explicit column widths never redistribute spare panel space. */
+/* Explicit widths preserve intermediate columns; only the final column fills spare space. */
 .uncertainty-module .budget-resizable-table { overflow: visible; }
 .uncertainty-module .budget-resizable-table.has-custom-widths { min-width: 0; }
 .uncertainty-module .instrument-equipment-table > tbody > tr.instrument-function-row > td,
@@ -20971,9 +20971,22 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 }
 .uncertainty-module .budget-resizable-table > tbody > tr > .action-cell,
 .uncertainty-module .budget-resizable-table > thead > tr > [data-budget-column="actions"] {
-  position: sticky; right: 0; z-index: 5; background: var(--panel-background, var(--background-color));
+  position: sticky; right: 0; z-index: 5;
 }
-.uncertainty-module .uncertainty-budget-table .budget-row-actions .delete-action { opacity: 1; }
+/* Give sticky actions the same opaque surface as their row so scrolled text
+   cannot show through, including themes with translucent content colors. */
+.uncertainty-module .budget-resizable-table > tbody > tr { --budget-row-tint: transparent; }
+.uncertainty-module .budget-resizable-table > tbody > tr:hover { --budget-row-tint: var(--table-hover-row-bg, transparent); }
+body:is(.dark-mode, .theme-orbital) .uncertainty-module .budget-resizable-table > tbody > tr:hover { --budget-row-tint: var(--primary-color-light); }
+.uncertainty-module .budget-resizable-table > tbody > tr.is-editing { --budget-row-tint: color-mix(in srgb, var(--primary-color) 5%, transparent); }
+body .uncertainty-module .budget-resizable-table > tbody > tr,
+body .uncertainty-module .budget-resizable-table > tbody > tr:hover,
+.uncertainty-module .budget-resizable-table > tbody > tr > .action-cell {
+  background: linear-gradient(var(--budget-row-tint), var(--budget-row-tint)),
+    linear-gradient(var(--content-background), var(--content-background)), var(--background-color);
+}
+.uncertainty-module .budget-dynamic-row > .action-cell > button { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+.uncertainty-module .budget-dynamic-row:is(:hover, :focus-within) > .action-cell > button { opacity: 1; pointer-events: auto; }
 .uncertainty-module .analysis-content { scrollbar-gutter: stable; }
 .sidebar-filter-dropdown:has(.point-column-menu-body) { overflow-y: auto; }
 .point-column-menu-body { position: relative; align-items: start; }
