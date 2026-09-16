@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { availableParallelism } from 'node:os';
 import { docxRuntime, docxDedupe, docxOptimizeDeps } from './scripts/docxRuntime.mjs';
 
 // Some managed lab networks probe every listening HTTP server and may abort
@@ -106,6 +107,10 @@ export default defineConfig(({ mode }) => {
       // Real layout is verified by scripts/smoke-instrument-tables.cjs in Electron;
       // DOM tests still check class names, inline styles, and interactions.
       css: false,
+      // Each worker imports a large React/math tree. Unbounded workers on a
+      // many-core desktop oversubscribe memory/CPU and time out otherwise fast
+      // parity and portaled-menu tests. Keep the same assertions/time limits.
+      maxWorkers: Math.min(4, availableParallelism()),
       // Several statistical validation tests intentionally run tens of
       // thousands of deterministic Monte Carlo trials. They complete in a
       // few seconds in isolation, but can exceed Vitest's 5 s default while

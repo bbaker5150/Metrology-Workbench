@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { it, expect, vi } from "vitest";
 import DynamicBudgetComponentRow from "./DynamicBudgetComponentRow";
 import { createDynamicDefinition, createDynamicComponent } from "../../../utils/dynamicBudgetComponents";
@@ -72,7 +72,11 @@ it("keeps portaled selectors inside the editing session and Escape discards the 
   const { onCommit } = setup('table');
   fireEvent.change(screen.getByLabelText('Measurement point row 1'), { target: { value: '100' } });
   fireEvent.click(screen.getByRole('button', { name: 'Uncertainty unit' }));
-  const option = screen.getByRole('option', { name: 'mV' });
+  // The full unit catalog has hundreds of options. Find the visible label
+  // within its list first, then verify the option's accessible identity;
+  // computing every option's accessible name makes jsdom needlessly slow.
+  const option = within(screen.getByRole('listbox')).getByText('mV', { exact: true }).closest('[role="option"]');
+  expect(option).toHaveAccessibleName('mV');
   option.focus();
   fireEvent.click(option);
   expect(screen.getByRole('group', { name: 'Tabular uncertainty editor' })).toBeInTheDocument();
@@ -149,7 +153,10 @@ it("supports low and high equations and warns about incompatible output units", 
   fireEvent.change(screen.getByLabelText('High error limit equation'), { target: { value: 'x/50' } });
   expect(screen.getByRole('status')).toHaveTextContent('-1 to 2 V');
   fireEvent.click(screen.getByRole('button', { name: 'Uncertainty unit' }));
-  fireEvent.click(screen.getByRole('option', { name: 'A' }));
+  // Scope this lookup as above instead of naming every unit in the catalog.
+  const option = within(screen.getByRole('listbox')).getByText('A', { exact: true }).closest('[role="option"]');
+  expect(option).toHaveAccessibleName('A');
+  fireEvent.click(option);
   expect(screen.getByRole('img', { name: /incompatible/ })).toBeInTheDocument();
 });
 

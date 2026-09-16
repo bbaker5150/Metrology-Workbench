@@ -15,10 +15,13 @@ it.each([1, 2])("requires a range choice only when the TMDE has multiple ranges 
   />);
   fireEvent.click(screen.getByRole("button", { name: "Add component to budget" }));
   const menu = document.querySelector(".budget-tmde-picker-menu");
-  const name = within(menu).getByRole("button", { name: "Reference meter", exact: true });
   if (count === 1) {
+    // A single range is one selectable tile containing both instrument identity
+    // and its specification; its accessible name includes both visible lines.
+    const name = within(menu).getByRole("button", { name: "Reference meter 0 to 10 V | ± 1 V | Rectangular", exact: true });
     expect(name).toBeEnabled(); fireEvent.click(name);
   } else {
+    const name = within(menu).getByRole("button", { name: "Reference meter", exact: true });
     expect(name).toBeDisabled();
     fireEvent.click(menu.querySelectorAll(".budget-tmde-picker-range")[1]);
   }

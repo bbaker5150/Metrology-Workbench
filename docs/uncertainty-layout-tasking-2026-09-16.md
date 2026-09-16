@@ -73,3 +73,46 @@ npm run build:singlefile
 $env:FIELD_STABILITY_SMOKE = '1'
 node scripts/smoke-forge-srcdoc.mjs
 ```
+
+## Release-gate correction
+
+The feature-specific validation above did not establish release-pipeline
+success. Runs for `e1a5dfc`, `392e7de`, `3aa4c50`, and `305cf55` stopped at the
+full Test step. The latest run reported three failures in two integration files:
+
+- The UUT assignment test sent a click without the browser's preceding focus
+  and blur sequence, leaving the newly added point's value editor uncommitted.
+  It now uses `userEvent` for the UUT trigger and option, retaining the assertion
+  that the point displays its newly assigned instrument.
+- The range-action test assumed opening a tolerance editor also selected a
+  range. It now explicitly selects the expanded range before asserting that
+  both add and delete actions exist, as required by the current UI contract.
+- The single-range TMDE test expected the old identity-only accessible name.
+  It now expects the complete combined instrument/specification tile and still
+  verifies that selecting it assigns the exact range. Multiple-range selection
+  remains separately covered.
+
+The full local suite also exposed CPU-contention timeouts on this 16-thread
+workstation. Vitest now caps concurrency at four workers (or available CPU
+parallelism if lower), retaining the existing 30-second timeout and all parity
+assertions. `AGENTS.md` records the user's mandatory full pre-push gates and
+post-push verification of the exact commit's remote workflow.
+
+Two further test-only timing issues surfaced during full local validation.
+The app integration setup now preloads the real lazy Notes module so cold
+module transforms do not compete with the one-second DOM assertion deadline.
+Dynamic-component unit choices now locate their exact visible labels within
+the listbox and verify the resulting options' accessible names, avoiding
+expensive accessible-name computation across the entire unit catalog. Neither
+change stubs production behavior, removes assertions, or raises timeouts.
+
+Pre-push validation after these corrections:
+
+- `npm audit --audit-level=high`: zero vulnerabilities.
+- `npm test`: all 2,049 tests in 161 files passed.
+- `npm run build:singlefile`: passed.
+- `node scripts/smoke-forge-srcdoc.mjs`: all 54 checks passed, including
+  table geometry, range add/delete persistence, and dialog-free archival.
+
+The preceding field-stability change also passed its 110-check HTML smoke run;
+this release-gate correction changes only tests, test concurrency, and docs.

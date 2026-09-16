@@ -54,7 +54,11 @@ import UncertaintyApp from "./UncertaintyApp";
 import { ThemeProvider } from "../../shared/ThemeContext";
 import { NotificationProvider } from "../../shared/NotificationContext";
 
-beforeAll(() => {
+beforeAll(async () => {
+  // Resolve the real lazy Notes module before measuring user interaction.
+  // Cold Vite transforms otherwise race findByRole's one-second DOM wait;
+  // this keeps the production component and all Notes assertions intact.
+  await import("./features/analysis/components/SessionNotesWorkspace");
   if (!window.matchMedia) {
     window.matchMedia = () => ({
       matches: false,
@@ -241,11 +245,13 @@ describe("UncertaintyApp", () => {
       { name: "UUT" },
       { timeout: 15000 },
     );
-    fireEvent.click(uutSelect);
+    // Real pointer activation blurs/commits the new point's value before the
+    // UUT menu opens. A click-only event skips that critical browser sequence.
+    userEvent.click(uutSelect);
     const uutList = await screen.findByRole("listbox", { name: "UUT" });
     expect(within(uutList).getByRole("option", { name: /Mock 100 Primary DMM/i })).toBeInTheDocument();
     expect(within(uutList).getByRole("option", { name: /Mock 200 Backup DMM/i })).toBeInTheDocument();
-    fireEvent.click(within(uutList).getByRole("option", { name: /Mock 100 Primary DMM/i }));
+    userEvent.click(within(uutList).getByRole("option", { name: /Mock 100 Primary DMM/i }));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "UUT" })).toHaveTextContent(
         /Mock 100 Primary DMM/i,
@@ -1020,7 +1026,8 @@ describe("UncertaintyApp", () => {
     });
 
     const currentUutRow = screen.getByText("Layout UUT").closest("tr");
-    fireEvent.click(
+    // Open the editor through the real pointer sequence.
+    userEvent.click(
       within(currentUutRow).getByRole("button", { name: "Set tolerance" }),
     );
     await waitFor(() => {
@@ -1029,6 +1036,9 @@ describe("UncertaintyApp", () => {
       ).toBeInTheDocument();
       expect(uutTable.querySelector("tr.inline-range-row")).toBeInTheDocument();
     });
+    // Expanding the instrument does not select a range. The current UI exposes
+    // +/x only after the user selects that specific range, not the instrument.
+    userEvent.click(uutTable.querySelector("tr.inline-range-row .range-row-cell"));
     expect(uutTable.querySelector(".range-row-add")).toBeInTheDocument();
     expect(uutTable.querySelector(".range-row-delete")).toBeInTheDocument();
     fireEvent.pointerDown(descriptionResizeHandle, { clientX: 100 });
@@ -1080,9 +1090,10 @@ describe("UncertaintyApp", () => {
       ).not.toBeInTheDocument();
     });
     const collapsedUutRow = screen.getByText("Layout UUT").closest("tr");
-    fireEvent.click(
+    userEvent.click(
       within(collapsedUutRow).getByRole("button", { name: "0 to 10 V" }),
     );
+    userEvent.click(uutTable.querySelector("tr.inline-range-row .range-row-cell"));
     await waitFor(() => {
       expect(uutTable.querySelector(".range-row-add")).toBeInTheDocument();
       expect(uutTable.querySelector(".range-row-delete")).toBeInTheDocument();
