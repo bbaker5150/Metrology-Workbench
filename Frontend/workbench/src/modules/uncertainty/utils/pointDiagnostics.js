@@ -147,6 +147,9 @@ export function getPointDiagnosticEntries(
         !(result.degenerate && point.budgetPropagationMethod === "montecarlo")
       )
         add(`Check the measurement equation: ${result.error}`, "warning");
+      if (point.budgetPropagationMethod !== "montecarlo") {
+        (result.warnings || []).forEach(message => add(message, "warning"));
+      }
       if (
         Number.isFinite(result.nominalResult) &&
         Math.abs(result.nominalResult - Number(nominal.value)) >

@@ -190,5 +190,6 @@ export function attachDynamicComponent(session, pointId, kind, scope, existing, 
   const column = outputId || definition.columns[0].id;
   const component = (point.components || []).find(c => c.dynamicDefinitionId === definition.id && (c.dynamicOutputId || definition.columns[0].id) === column && (c.variableType || '') === (variableType || '')) || createDynamicComponent(definition, column, scope);
   const next = updateDynamicDefinition(session, definition);
-  return { component, session: { ...next, testPoints: next.testPoints.map(p => String(p.id) !== String(point.id) || p.components?.some(c => c.id === component.id) ? p : { ...p, components: [...(p.components || []), component] }) } };
+  const openEditor = !existing || kind !== 'table' || Boolean(resolveDynamicComponent(component, definition, nominal).pendingReason);
+  return { component, openEditor, session: { ...next, testPoints: next.testPoints.map(p => String(p.id) !== String(point.id) || p.components?.some(c => c.id === component.id) ? p : { ...p, components: [...(p.components || []), component] }) } };
 }

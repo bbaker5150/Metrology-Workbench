@@ -1,8 +1,8 @@
 export function prepareSeptember16Layout(session) {
-  const definition = { id:'layout-table',kind:'table',name:'Layout check',measurementUnit:'V',outputUnit:'V',mode:'standard',columns:[{id:'u',name:'Uncertainty'}],rows:[{id:'r',point:5,values:{u:{value:.2}}}] };
+  const definition = { id:'layout-table',kind:'table',name:'Long tabular uncertainty component description that should wrap inside its source column',measurementUnit:'V',outputUnit:'V',mode:'standard',columns:[{id:'u',name:'Uncertainty'}],rows:[{id:'r',point:5,values:{u:{value:.2}}}] };
   session.dynamicBudgetDefinitions = [definition];
   session.testPoints[0].components = [{ id:'layout-component',dynamicDefinitionId:definition.id,dynamicOutputId:'u',dynamicDefinition:definition,type:'B',isManual:true },
-    { id:'layout-static',name:'Static layout check',type:'B',isManual:true,value:.1,value_native:.1,unit_native:'V',manualUnit:'V',manualValue:.1,distributionDivisor:'1' }];
+    { id:'layout-static',name:'Long manual uncertainty component description that should wrap inside its source column',type:'B',isManual:true,isInlineManual:true,originalInput:{inputMode:'standard',unit:'V',manualValue:.1},value:.1,value_native:.1,unit_native:'V',manualUnit:'V',manualValue:.1,distributionDivisor:'1' }];
 }
 
 export async function checkSeptember16({ frame, page, check }) {
@@ -26,6 +26,15 @@ export async function checkSeptember16({ frame, page, check }) {
     const after = await widths(table);
     check(`${index ? 'TMDE' : 'UUT'} extreme column shrink preserves intermediate widths and fills with the last column`, after.every((w, i) => i === 1 || i === after.length - 1 || Math.abs(w - before[i]) < 1) && after.at(-1) >= before.at(-1) - 1, JSON.stringify({ before, after }));
     check('instrument table fills its viewport without a trailing blank strip', await table.evaluate(node => node.getBoundingClientRect().width >= node.parentElement.getBoundingClientRect().width - 3));
+    // Repeated adjustments must consume/release the live trailing fill, not
+    // save it as a new minimum and push the table farther right each time.
+    for (let step = 0; step < 3; step++) await handle.press('ArrowRight');
+    await settle();
+    const wider = await widths(table);
+    for (let step = 0; step < 3; step++) await handle.press('ArrowLeft');
+    await settle();
+    const returned = await widths(table);
+    check('reversing repeated column adjustments restores every border', Math.abs(wider[1] - after[1] - 36) < 1 && returned.every((width, i) => Math.abs(width - after[i]) < 1), JSON.stringify({ after, wider, returned }));
     check('narrow instrument cells clip text at column boundaries', await table.locator('tr.instrument-function-row > td').evaluateAll(cells => cells.every(c => getComputedStyle(c).overflowX === 'hidden')));
   }
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
@@ -55,6 +64,18 @@ export async function checkSeptember16({ frame, page, check }) {
   const after = await widths(budget);
   check('budget column resize preserves intermediate widths and the action gutter', after.every((w, i) => i === 0 || i === after.length - 2 || Math.abs(w - before[i]) < 1), JSON.stringify({ before, after }));
   check('budget table fills its viewport without a trailing blank strip', await budget.evaluate(node => node.getBoundingClientRect().width >= node.parentElement.getBoundingClientRect().width - 3));
+  if (process.env.SEPTEMBER16_LAYOUT_ONLY) {
+    for (let i = 0; i < Math.ceil((after[0] - 160) / 12); i++) await handle.press('ArrowLeft');
+    await settle();
+    const names = budget.locator('.budget-source-cell .inline-tolerance-summary');
+    const geometry = await names.evaluateAll(nodes => nodes.map(node => ({
+      width: node.getBoundingClientRect().width, cell: node.closest('td').getBoundingClientRect().width,
+      height: node.getBoundingClientRect().height, line: parseFloat(getComputedStyle(node).lineHeight),
+      wrap: getComputedStyle(node).whiteSpace, scroll: node.scrollWidth, client: node.clientWidth,
+    })));
+    check('manual and tabular source names wrap within a narrowed column', geometry.length >= 2 && geometry.every(g => g.wrap === 'normal' && g.width <= g.cell && g.scroll <= g.client + 1 && g.height > g.line * 1.5), JSON.stringify(geometry));
+    if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/wrapped-source-names.png` });
+  }
   // Create horizontal overflow without altering other columns.
   for (let i = 0; i < 80; i++) await handle.press('ArrowRight');
   await settle();

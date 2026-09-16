@@ -56,6 +56,7 @@ import useInstrumentTableLayout from "../../../hooks/useInstrumentTableLayout";
 import usePointerResize from "../../../hooks/usePointerResize";
 import { isTableDragBlockedTarget } from "../../../utils/tableTextSelection";
 import { getBudgetRangeWarnings } from "../../../utils/pointDiagnostics";
+import { resizeTableColumn } from "../../../utils/fillTrailingColumn";
 export { getBudgetRangeWarnings } from "../../../utils/pointDiagnostics";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
 import { getNextInstrumentSelection } from "../../../utils/instrumentSelection";
@@ -2650,14 +2651,14 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
     const base = sourceWidths || widths;
     const total = keys.reduce((sum, k) => sum + (base[k] || defaults[k] || 160), 0);
     const scale = sourceWidths ? 1 : Math.max(1, tablePixelWidth || total) / total;
-    const next = Object.fromEntries(keys.map(k => [k, (base[k] || defaults[k] || 160) * scale]));
-    next[key] = Math.max(minimumWidth(key), next[key] + deltaPixels);
+    const rendered = Object.fromEntries(keys.map(k => [k, (base[k] || defaults[k] || 160) * scale]));
+    const next = resizeTableColumn(widths.__absolute ? resolvedWidths : null, rendered, key, deltaPixels, minimumWidth(key));
     next.__absolute = true;
     setWidths(next);
     // Publish outside a React state updater: another mounted table may
     // synchronously receive this event and update its own state.
     saveWidths(next);
-  }, [defaults, keys, minimumWidth, saveWidths, widths]);
+  }, [defaults, keys, minimumWidth, saveWidths, widths, resolvedWidths]);
 
   const startResize = useCallback(
     (event, key) => {
@@ -2696,7 +2697,7 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
     fitColumn: (key, table) => {
       const measured = measureTableColumnWidths(table, "instrumentColumn");
       const current = renderedInstrumentColumnWidths(table) || resolvedWidths;
-      const next = { ...current, [key]: Math.max(minimumWidth(key), measured[key] || current[key]), __absolute: true };
+      const next = { ...resizeTableColumn(widths.__absolute ? resolvedWidths : null, current, key, (measured[key] || current[key]) - current[key], minimumWidth(key)), __absolute: true };
       setWidths(next); saveWidths(next);
     },
     resetWidths: () => {
@@ -14602,13 +14603,6 @@ function DetailedView({
         .map((c) => c.nonlinearityWarning),
     [calcResults],
   );
-  const isStationaryPointError = Boolean(
-    calculationError && /stationary point/i.test(calculationError),
-  );
-  const showMonteCarloSuggestion =
-    isDerived &&
-    testPointData.budgetPropagationMethod !== "montecarlo" &&
-    (nonlinearityWarnings.length > 0 || isStationaryPointError);
 
   const calculatedNominal = calcResults?.calculatedNominalValue;
   const targetNominal = parseFloat(uutNominal?.value);
@@ -15504,44 +15498,6 @@ function DetailedView({
                 </button>
               )}
 
-              {showMonteCarloSuggestion && (
-                <div className="method-callout warn">
-                  <div className="method-callout-main">
-                    <FontAwesomeIcon icon={faExclamationTriangle} />
-                    <span>
-                      {isStationaryPointError
-                        ? "This operating point is a stationary point of the equation — the linear (GUM) budget cannot evaluate it."
-                        : "The linear (GUM) budget may understate uncertainty at this operating point:"}
-                    </span>
-                  </div>
-                  {nonlinearityWarnings.length > 0 && (
-                    <ul className="method-callout-list">
-                      {nonlinearityWarnings.map((warning, idx) => (
-                        <li key={idx}>{warning}</li>
-                      ))}
-                    </ul>
-                  )}
-                  <div className="method-callout-actions">
-                    <button
-                      type="button"
-                      className="method-callout-btn"
-                      onClick={() =>
-                        onUpdateTestPoint({
-                          budgetPropagationMethod: "montecarlo",
-                          monteCarloTrials: testPointData.monteCarloTrials || 10000,
-                          propagationMode: "linear",
-                          mcSummary: null,
-                        })
-                      }
-                    >
-                      Re-evaluate with Monte Carlo
-                    </button>
-                    <span className="method-callout-hint">
-                      Risk 8.0 Monte Carlo will replace the equation-uncertainty component.
-                    </span>
-                  </div>
-                </div>
-              )}
               </div>
             </div>
 
@@ -16402,6 +16358,7 @@ function DetailedView({
                 testPointData.useEffectiveDofByGroup || {}
               }
               rangeWarningsByGroup={budgetRangeWarningsByGroup}
+              propagationWarnings={isDerived && testPointData.budgetPropagationMethod !== "montecarlo" ? nonlinearityWarnings : []}
             />
           </>
         )}

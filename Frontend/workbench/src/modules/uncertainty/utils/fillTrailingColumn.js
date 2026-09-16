@@ -7,3 +7,9 @@ export function fillTrailingColumn(widths, minimum, index = widths.length - 1) {
   }
   return result;
 }
+
+// A drag starts at the visible border, but only the target width is saved.
+// Do not bake automatic fill or another column's expanded editor into storage.
+export function resizeTableColumn(saved, rendered, key, delta, minimum) {
+  return { ...(saved || rendered), [key]: Math.max(minimum, rendered[key] + delta) };
+}

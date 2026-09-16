@@ -20998,3 +20998,14 @@ body .uncertainty-module .budget-resizable-table > tbody > tr:hover,
 .point-column-available .sidebar-column-order-heading { padding-right: 45px; }
 .point-column-reset { position: absolute; top: 12px; right: 12px; border: 0; background: transparent; color: var(--primary-color); font-size: .75rem; font-weight: 600; cursor: pointer; }
 .point-column-reset:hover { background: var(--primary-color-light); }
+
+/* Source names wrap inside the chosen width for every component type. Numeric
+   columns retain their compact single-line layout. */
+.uncertainty-module .budget-resizable-table.has-custom-widths > tbody > tr > .budget-source-cell,
+.uncertainty-module .budget-resizable-table > tbody > tr > .budget-source-cell :is(.inline-tolerance-summary, .budget-source-description) {
+  white-space: normal; overflow-wrap: anywhere; word-break: normal;
+}
+.uncertainty-module .budget-resizable-table .budget-source-cell > .inline-tolerance-summary,
+.uncertainty-module .budget-resizable-table .dynamic-source-label {
+  max-width: 100%; min-width: 0; text-align: left;
+}

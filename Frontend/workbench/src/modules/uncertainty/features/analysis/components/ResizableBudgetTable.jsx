@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { preserveTableTextSelection } from "../../../utils/tableTextSelection";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
-import { fillTrailingColumn } from "../../../utils/fillTrailingColumn";
+import { fillTrailingColumn, resizeTableColumn } from "../../../utils/fillTrailingColumn";
 
 const STORAGE_PREFIX = "uncertalytics:budget-column-widths:v1:";
 const RESET_EVENT = "uncert-reset-ui-sizes";
@@ -120,14 +120,11 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
     ]));
     return { scale: scale || 1, sizes };
   };
-  const resizeColumn = (key, delta, sizes) => saveWidths({
-    ...(fixed ? widths : sizes),
-    [key]: Math.max(minimumWidth(key), sizes[key] + delta),
-  });
+  const resizeColumn = (key, delta, sizes) => saveWidths(resizeTableColumn(fixed ? widths : null, sizes, key, delta, minimumWidth(key)));
   const fitColumn = key => {
     const measured = measureTableColumnWidths(tableRef.current, "budgetColumn");
     const { sizes } = snapshot();
-    saveWidths({ ...sizes, [key]: Math.max(minimumWidth(key), measured[key] || sizes[key]) });
+    resizeColumn(key, (measured[key] || sizes[key]) - sizes[key], sizes);
   };
   const startResize = (event, key) => {
     if (event.button !== 0) return;

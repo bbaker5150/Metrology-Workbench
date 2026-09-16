@@ -861,6 +861,7 @@ const UncertaintyBudgetTable = ({
   budgetInstruments = [],
   budgetUut,
   rangeWarningsByGroup = {},
+  propagationWarnings = [],
 }) => {
   // Effective DOF is toggled per (sub)budget. Persist the change as a patch to
   // the keyed map (variableType / "equation" / "final"). Default ON.
@@ -1603,6 +1604,13 @@ const UncertaintyBudgetTable = ({
               <div className="budget-section-title-row">
                 <h4>{simplifyBudgetLabel(group.label)}</h4>
                 <div className="budget-section-title-actions">
+                  {group.kind === "equation" && propagationWarnings.length > 0 && (
+                    <span className="budget-range-warning" tabIndex={0} role="img"
+                      aria-label={`Calculation warning: ${propagationWarnings.join(" ")}`}
+                      title={propagationWarnings.join("\n\n")}>
+                      <FontAwesomeIcon icon={faExclamationTriangle} />
+                    </span>
+                  )}
                   {group.kind === "final" && (
                     <>
                       <button

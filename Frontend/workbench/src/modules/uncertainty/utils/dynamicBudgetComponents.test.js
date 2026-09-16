@@ -5,6 +5,19 @@ import { computeUncertaintyForPoint, computePointRiskMetrics, updateSharedDynami
 const table = () => { const d = createDynamicDefinition("table", {unit:"V"}); const id=d.columns[0].id;
   return {...d,mode:"standard",distribution:"1",name:"Head correction",rows:[{id:"a",point:"100",values:{[id]:{value:"0.012"}}},{id:"b",point:"200",values:{[id]:{value:"0.023"}}}]}; };
 const point = (value, component) => ({id:String(value),measurementType:"direct",testPointInfo:{parameter:{name:"Voltage",value,unit:"V"}},components:[component],tmdeTolerances:[],uutTolerance:{floor:{high:1,low:-1,unit:"V",symmetric:true,distribution:"1.732"}}});
+it("keeps a reused complete table collapsed but opens missing or unfinished entries", () => {
+  const definition = table();
+  const p = { ...point(100), components: [] };
+  const session = { testPoints: [p], dynamicBudgetDefinitions: [definition] };
+  expect(attachDynamicComponent(session, p.id, 'table', null, definition).openEditor).toBe(false);
+  const missing = { ...p, testPointInfo: { parameter: { value: 300, unit: 'V' } } };
+  expect(attachDynamicComponent({ ...session, testPoints: [missing] }, p.id, 'table', null, definition).openEditor).toBe(true);
+  const input = { ...p, measurementType: 'derived', variableMappings: { v: 'Voltage' }, variableNominals: { v: { value: 200000, unit: 'mV' } } };
+  expect(attachDynamicComponent({ ...session, testPoints: [input] }, p.id, 'table', { kind: 'input', variableType: 'Voltage' }, definition).openEditor).toBe(false);
+  const unfinished = { ...definition, mode: 'tolerance', distribution: '' };
+  expect(attachDynamicComponent({ ...session, dynamicBudgetDefinitions: [unfinished] }, p.id, 'table', null, unfinished).openEditor).toBe(true);
+  expect(attachDynamicComponent({ testPoints: [p] }, p.id, 'table').openEditor).toBe(true);
+});
 it("new error-limit components wait for an explicit distribution", () => {
   const d = createDynamicDefinition("table", { unit: "V" });
   d.rows[0] = { ...d.rows[0], point: 25, values: { [d.columns[0].id]: { value: .2 } } };

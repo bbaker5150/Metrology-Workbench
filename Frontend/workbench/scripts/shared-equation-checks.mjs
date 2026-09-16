@@ -77,4 +77,12 @@ export async function checkSharedEquations({ frame, page, saved, until, check })
     const tables = saved().dynamicBudgetDefinitions.filter(d => d.kind === 'table');
     return tables.length === 1 && tables[0].rows.map(r => Number(r.point)).join(',') === '40,20';
   }));
+  const row = frame.locator('.budget-dynamic-row').filter({ hasText: 'Tabular component 1' });
+  await row.hover();
+  await row.getByRole('button', { name: 'Remove dynamic component', exact: true }).click();
+  await until(() => !saved().testPoints[0].components.some(c => c.dynamicDefinition?.kind === 'table'));
+  await picker(false);
+  await frame.getByRole('button', { name: 'Tabular component 1', exact: true }).click();
+  await until(() => saved().testPoints[0].components.some(c => c.dynamicDefinition?.kind === 'table'));
+  check('reusing a complete matching table keeps its error-limit editor collapsed', await frame.locator('.dynamic-budget-editor').count() === 0 && await row.count() === 1);
 }

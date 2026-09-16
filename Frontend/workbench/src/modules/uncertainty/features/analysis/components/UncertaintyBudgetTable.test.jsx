@@ -73,6 +73,13 @@ const derivedApproximationGroups = (finalOverrides = {}) => [
 ];
 
 describe("UncertaintyBudgetTable direct budget actions", () => {
+  it("shows propagation details in the table warning triangle", () => {
+    const warning = 'The linear budget may understate this input.';
+    renderDirectBudget({ measurementType: 'derived', propagationWarnings: [warning],
+      calcResults: { calculatedBudgetGroups: derivedApproximationGroups() } });
+    expect(screen.getByRole('img', { name: `Calculation warning: ${warning}` })).toHaveAttribute('title', warning);
+    expect(screen.queryByRole('button', { name: 'Re-evaluate with Monte Carlo' })).not.toBeInTheDocument();
+  });
   it("keeps manually added components at the bottom of the budget", () => {
     const { container } = renderDirectBudget({
       components: [

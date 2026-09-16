@@ -28,6 +28,15 @@ const source = {
   value: 10,
 };
 
+it("shows nonlinear propagation as a standard point warning only for the linear method", () => {
+  const derived = { ...point, measurementType: 'derived', equationString: 'x^2/r',
+    variableMappings: { x: 'Voltage', r: 'Resistance' }, variableNominals: { x: { value: 1, unit: 'V' }, r: { value: 1, unit: 'ohm' } },
+    testPointInfo: { parameter: { value: 1, unit: 'W' } },
+    components: [{ id: 'input', name: 'Voltage uncertainty', variableType: 'Voltage', value_native: .5, unit_native: 'V' }] };
+  expect(getPointDiagnosticEntries(derived, session)).toContainEqual(expect.objectContaining({ category: 'warning', message: expect.stringMatching(/second-order/i) }));
+  expect(getPointDiagnosticEntries({ ...derived, budgetPropagationMethod: 'montecarlo' }, session).some(entry => /second-order/i.test(entry.message))).toBe(false);
+});
+
 it("explains an impossible assumed reliability even when mitigation columns are hidden", () => {
   const entries = getPointDiagnosticEntries(point, session, {
     riskMetrics: { riskAvailability: 'unavailable' },

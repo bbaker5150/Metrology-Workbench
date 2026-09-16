@@ -551,7 +551,7 @@ function Analysis({
     if (kind !== "manual") {
       const result = attachDynamicComponent(sessionData, testPointData.id, kind, scope, existing, outputId);
       if (!result.component) return;
-      setNewDynamicComponentId(result.component.id);
+      setNewDynamicComponentId(result.openEditor ? result.component.id : null);
       onSessionSave?.(result.session);
       return;
     }
