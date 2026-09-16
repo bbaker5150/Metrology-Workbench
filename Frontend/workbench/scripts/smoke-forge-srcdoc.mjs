@@ -1,3 +1,4 @@
+import { prepareBiasSession, checkMeasurementBias } from "./measurement-bias-checks.mjs";
 import { prepareSeptember16Layout, checkSeptember16 } from "./september16-checks.mjs";
 import { prepareSharedEquationSession, checkSharedEquations } from "./shared-equation-checks.mjs";
 import { prepareDynamicEquationSession, checkDynamicEquationCopies } from "./dynamic-equation-copy-checks.mjs";
@@ -68,7 +69,7 @@ const browser = await chromium.launch({
   executablePath: process.env.PLAYWRIGHT_CHROMIUM || undefined,
 });
 const page = await browser.newPage();
-if (process.env.TASKING_FEEDBACK_SMOKE || process.env.TASKING_FOLLOWUP_SMOKE || process.env.DYNAMIC_EQUATION_COPY_SMOKE || process.env.SHARED_EQUATION_SMOKE || process.env.SEPTEMBER16_SMOKE) await page.setViewportSize({ width: 1440, height: 1000 });
+if (process.env.MEASUREMENT_BIAS_SMOKE || process.env.TASKING_FEEDBACK_SMOKE || process.env.TASKING_FOLLOWUP_SMOKE || process.env.DYNAMIC_EQUATION_COPY_SMOKE || process.env.SHARED_EQUATION_SMOKE || process.env.SEPTEMBER16_SMOKE) await page.setViewportSize({ width: 1440, height: 1000 });
 
 const subresourceFailures = [];
 const apiCalls = [];
@@ -113,6 +114,7 @@ if (process.env.TASKING_FOLLOWUP_SMOKE) for (const session of sessions.values())
 if (process.env.DYNAMIC_EQUATION_COPY_SMOKE) for (const session of sessions.values()) prepareDynamicEquationSession(session);
 if (process.env.SHARED_EQUATION_SMOKE) for (const session of sessions.values()) prepareSharedEquationSession(session);
 if (process.env.SEPTEMBER16_LAYOUT_ONLY) for (const session of sessions.values()) prepareSeptember16Layout(session);
+if (process.env.MEASUREMENT_BIAS_SMOKE) for (const session of sessions.values()) prepareBiasSession(session);
 const instrumentItems = [301, 302].map(id => ({
   Id: id, AuthorId: 7, RecordId: `instrument-${id}`,
   PayloadJson: JSON.stringify({ id: `instrument-${id}`, manufacturer: 'Smoke', model: `DMM-${id}`, description: 'Archive smoke instrument', scope: 'validated', functions: [] }),
@@ -273,6 +275,7 @@ if (/not set up yet/i.test(frameText)) {
   if (process.env.DYNAMIC_EQUATION_COPY_SMOKE) await checkDynamicEquationCopies({ frame, page, saved, until, check });
   if (process.env.SHARED_EQUATION_SMOKE) await checkSharedEquations({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER16_SMOKE) await checkSeptember16({ frame, page, check });
+  if (process.env.MEASUREMENT_BIAS_SMOKE) await checkMeasurementBias({ frame, page, saved, until, check });
   for (const view of ['overview', 'point']) {
     if (view === 'overview') await frame.locator('[data-tour="tab-overview"]').click();
     else {

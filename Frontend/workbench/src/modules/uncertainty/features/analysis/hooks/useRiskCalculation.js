@@ -1,3 +1,4 @@
+import { resolveMeasurementBias } from "../../../utils/measurementBias";
 import { computePointTmdeLimits } from "../../../utils/pointTmdeLimits";
 /**
  * src/hooks/useRiskCalculation.js
@@ -255,10 +256,20 @@ export const useRiskCalculation = (
       if (Number.isFinite(mcMeanNative)) riskAverage = mcMeanNative;
     }
 
+    const measurementAverage = riskAverage;
+    const bias = resolveMeasurementBias({ ...testPointData, uutTolerance: uutToleranceData, testPointInfo: { ...testPointData?.testPointInfo, parameter: uutNominal } }, sessionData, riskAverage, { includeSources: false });
+    if (bias.error) {
+      setNotification({ title: "Check bias settings", message: bias.error });
+      publishRiskMetrics(null);
+      return;
+    }
+    riskAverage = bias.riskAverage;
+
     if (unknownMeasurement) {
       const safeRes = resolveResolutionNative(uutToleranceData, nominalUnit);
       const boundary = computeUnknownMeasurementBoundary8({
         tolerance: uutToleranceData,
+        calBias: bias.calBias,
         // Workbook column J is expanded U_cal for the type-5/6 boundary.
         uCalNative: U_Native,
         reqPFA: pfaRequired,
@@ -320,6 +331,7 @@ export const useRiskCalculation = (
         gbResults,
         risk8: {
           out: boundary.out,
+          calBias: boundary.calBias,
           fields: boundary.fields,
           meta: boundary.meta,
         },
@@ -359,7 +371,7 @@ export const useRiskCalculation = (
     // ... [Math Calculations] ...
     let tarResult = calcTAR(
       uutNominal.value,
-      riskAverage,
+      measurementAverage,
       LLow,
       LUp,
       parseFloat(uutNominal.value) + tmdeToleranceLow_Native,
@@ -367,7 +379,7 @@ export const useRiskCalculation = (
     );
     let turResult = calcTUR(
       uutNominal.value,
-      riskAverage,
+      measurementAverage,
       LLow,
       LUp,
       U_Native
@@ -386,6 +398,7 @@ export const useRiskCalculation = (
       const sharedRisk8Inputs = {
         nominal: parseFloat(uutNominal.value),
         riskAverage,
+        calBias: bias.calBias,
         expandedUncertaintyNative: U_Native,
         tur: turResult,
         assumedReop: measRelCalc,
@@ -445,6 +458,7 @@ export const useRiskCalculation = (
         ALow: summary.ALow,
         AUp: summary.AUp,
         riskAverage,
+        measurementAverage,
         tmdeLimits,
         tar: tmdeLimits.span > 0 && Number.isFinite(Number(tarResult)) ? Number(tarResult) : undefined,
         uCal: uCal_Native,
@@ -820,6 +834,9 @@ export const useRiskCalculation = (
     sessionData.uncReq.neededTUR,
     sessionData.uutDescription,
     sessionData.tmdes,
+    testPointData?.uutBias,
+    testPointData?.measurementBias,
+    sessionData?.uuts,
     testPointData?.components,
     testPointData?.equationString,
     testPointData?.variableMappings,

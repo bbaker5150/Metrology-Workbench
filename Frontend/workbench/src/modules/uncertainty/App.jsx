@@ -186,6 +186,7 @@ const clonePointSettingValue = (value) => {
 };
 
 const POINT_BUDGET_FIELDS = [
+  "measurementBias",
   "components",
   "tmdeTolerances",
   "inputCorrelations",

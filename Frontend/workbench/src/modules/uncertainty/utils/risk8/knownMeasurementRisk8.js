@@ -88,6 +88,7 @@ export function isKnownTwoSidedTolerance(nominal, lowerLimit, upperLimit) {
 export function computeKnownTwoSidedRisk8({
   nominal,
   riskAverage,
+  calBias,
   lowerLimit,
   upperLimit,
   expandedUncertaintyNative,
@@ -113,6 +114,7 @@ export function computeKnownTwoSidedRisk8({
     uutLowerLimit: lowerLimit,
     uutUpperLimit: upperLimit,
     riskAverage: average,
+    calBias,
     uCalNative: expandedUncertaintyNative,
     tur,
     assumedReop,
@@ -139,6 +141,7 @@ export function computeKnownTwoSidedRisk8({
 export function computeKnownAsymmetricRisk8({
   nominal,
   riskAverage,
+  calBias,
   lowerLimit,
   upperLimit,
   expandedUncertaintyNative,
@@ -159,6 +162,7 @@ export function computeKnownAsymmetricRisk8({
   return computeKnownTwoSidedRisk8({
     nominal,
     riskAverage,
+    calBias,
     lowerLimit,
     upperLimit,
     expandedUncertaintyNative,
@@ -294,6 +298,7 @@ export function computeKnownMeasurementRisk8({
   tolerance,
   nominal,
   riskAverage,
+  calBias,
   expandedUncertaintyNative,
   tur,
   assumedReop,
@@ -326,6 +331,7 @@ export function computeKnownMeasurementRisk8({
     uutLowerLimit: lowerLimit,
     uutUpperLimit: upperLimit,
     riskAverage: average,
+    calBias,
     uCalNative: expandedUncertaintyNative,
     tur: calculatedTur,
     assumedReop,

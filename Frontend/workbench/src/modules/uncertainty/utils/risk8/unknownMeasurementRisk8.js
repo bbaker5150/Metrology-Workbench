@@ -32,6 +32,7 @@ export function computeUnknownMeasurementBoundary8({
   tolerance,
   uCalNative,
   reqPFA,
+  calBias = 0,
   resolution = "",
 }) {
   const singleSided = getSingleSidedTolerance(tolerance);
@@ -39,14 +40,18 @@ export function computeUnknownMeasurementBoundary8({
 
   const direction = singleSided.direction === "low" ? "low" : "high";
   const limit = singleSided.limit;
+  if (limit == null || String(limit).trim() === "" || !Number.isFinite(Number(limit)) || !Number.isFinite(Number(calBias))) return { computed: false };
+  // Shift into observed-reading coordinates before resolution snapping, so
+  // achieved PFA is recomputed on the actual measurement grid.
+  const observedLimit = Number(limit) + Number(calBias);
   const lowerLimit = direction === "low" ? limit : "";
   const upperLimit = direction === "high" ? limit : "";
 
   const result = runRisk8FromApp({
     measurement: "unknown",
     nominal: "",
-    uutLowerLimit: lowerLimit,
-    uutUpperLimit: upperLimit,
+    uutLowerLimit: direction === "low" ? observedLimit : "",
+    uutUpperLimit: direction === "high" ? observedLimit : "",
     uCalNative,
     tur: "",
     assumedReop: "",
@@ -57,6 +62,7 @@ export function computeUnknownMeasurementBoundary8({
 
   return {
     ...result,
+    calBias: Number(calBias),
     direction,
     lowerLimit:
       lowerLimit === "" || !Number.isFinite(Number(lowerLimit))

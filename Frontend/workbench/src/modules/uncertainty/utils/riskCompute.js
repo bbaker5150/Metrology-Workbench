@@ -1,3 +1,4 @@
+import { resolveMeasurementBias } from "./measurementBias";
 import { computePointTmdeLimits } from "./pointTmdeLimits";
 import { updateDynamicDefinition } from "./dynamicBudgetComponents";
 // src/modules/uncertainty/utils/riskCompute.js
@@ -479,8 +480,11 @@ export function computePointRiskMetrics(
 
     const expandedUncertaintyNative =
       calcResults.expanded_uncertainty_absolute_base / targetUnitInfo.to_si;
+    const bias = resolveMeasurementBias(point, sessionData, undefined, { includeSources: false });
+    if (bias.error) { onStatus?.({ core: "Bias input error", gb: "Bias input error", interval: "Bias input error", message: bias.error }); return null; }
     const boundary = computeUnknownMeasurementBoundary8({
       tolerance: uutToleranceData,
+      calBias: bias.calBias,
       uCalNative: expandedUncertaintyNative,
       reqPFA,
       resolution: resolveResolutionNative(uutToleranceData, uutNominal.unit),
@@ -577,12 +581,17 @@ export function computePointRiskMetrics(
     if (Number.isFinite(mcMeanNative)) riskAverage = mcMeanNative;
   }
 
+  // A modeled population bias must not change the physical TUR/TAR geometry.
+  const measurementAverage = riskAverage;
+  const bias = resolveMeasurementBias(point, sessionData, riskAverage, { includeSources: false });
+  if (bias.error) { onStatus?.({ core: "Bias input error", gb: "Bias input error", interval: "Bias input error", message: bias.error }); return null; }
+  riskAverage = bias.riskAverage;
   const tmdeLimits = computePointTmdeLimits(point, sessionData);
   const tmdeToleranceLow_Native = tmdeLimits.low == null ? NaN : tmdeLimits.low - nominalValue;
   const tmdeToleranceHigh_Native = tmdeLimits.high == null ? NaN : tmdeLimits.high - nominalValue;
   const tarResult = calcTAR(
     uutNominal.value,
-    riskAverage,
+    measurementAverage,
     LLow,
     LUp,
     nominalValue + tmdeToleranceLow_Native,
@@ -590,7 +599,7 @@ export function computePointRiskMetrics(
   );
   const turResult = calcTUR(
     uutNominal.value,
-    riskAverage,
+    measurementAverage,
     LLow,
     LUp,
     U_Native,
@@ -607,6 +616,7 @@ export function computePointRiskMetrics(
     const sharedRisk8Inputs = {
       nominal: nominalValue,
       riskAverage,
+      calBias: bias.calBias,
       expandedUncertaintyNative: U_Native,
       tur: turResult,
       assumedReop: measRelCalc,

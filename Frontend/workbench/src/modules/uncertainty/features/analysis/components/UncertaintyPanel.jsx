@@ -1,3 +1,5 @@
+import BiasValueEditor from "../../../components/common/BiasValueEditor";
+import MeasurementBiasEditor from "./MeasurementBiasEditor";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
 import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
@@ -4458,6 +4460,7 @@ export const InlineToleranceCell = ({
   referencePoint,
   editable,
   showMeasurementStatus = false,
+  biasRole,
   onCommit,
   openRequested = false,
   onOpenRequest,
@@ -4662,6 +4665,13 @@ export const InlineToleranceCell = ({
           )}
         </span>
       ))}
+      {biasRole && <div className="instrument-bias-editor">
+        <span>{biasRole === "uut" ? "UUT bias" : "Source bias"}</span>
+        <BiasValueEditor label={biasRole === "uut" ? "Range UUT bias" : "Range source bias"}
+          value={tolerance.bias} unit={activeRange.unit || referencePoint?.unit}
+          allowCorrection={biasRole !== "uut"}
+          onChange={bias => onCommit("__replace__", { ...tolerance, bias })} />
+      </div>}
     </div>
   );
 };
@@ -8039,7 +8049,7 @@ const SummaryDashboard = ({
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: 2 })}
           title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
         >
-          <InlineToleranceCell
+          <InlineToleranceCell biasRole={kind}
             tolerance={tolerance}
             activeRange={range}
             editable
@@ -9169,7 +9179,7 @@ const SummaryDashboard = ({
                               return (
                                 <div className="range-stack-row" key={key}>
                                   {onSessionSave ? (
-                                    <InlineToleranceCell
+                                    <InlineToleranceCell biasRole="uut"
                                       tolerance={tolerance}
                                       activeRange={range}
                                       editable={!!onSessionSave}
@@ -9668,7 +9678,7 @@ const SummaryDashboard = ({
                               return (
                                 <div className="range-stack-row" key={key}>
                                   {onSessionSave ? (
-                                    <InlineToleranceCell
+                                    <InlineToleranceCell biasRole="tmde"
                                       tolerance={tolerance}
                                       activeRange={range}
                                       editable={!!onSessionSave}
@@ -11483,7 +11493,7 @@ function DetailedView({
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.tol })}
           title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
         >
-          <InlineToleranceCell
+          <InlineToleranceCell biasRole={kind}
             referencePoint={getInstrumentToleranceNominal(kind, item, range)}
             tolerance={tolerance}
             activeRange={range}
@@ -15165,7 +15175,7 @@ function DetailedView({
                               return (
                                 <div className="range-stack-row" key={key}>
                                   {onSessionSave ? (
-                                    <InlineToleranceCell
+                                    <InlineToleranceCell biasRole="uut"
                                       referencePoint={getInstrumentToleranceNominal("uut", uut, range)}
                                       tolerance={tolerance}
                                       activeRange={range}
@@ -16041,7 +16051,7 @@ function DetailedView({
                                   return (
                                     <div className="range-stack-row" key={key}>
                                       {onSessionSave ? (
-                                        <InlineToleranceCell
+                                        <InlineToleranceCell biasRole="tmde"
                                           referencePoint={getInstrumentToleranceNominal("tmde", masterTmde, range)}
                                           tolerance={tolerance}
                                           activeRange={range}
@@ -16288,6 +16298,9 @@ function DetailedView({
         }`}
         style={detailSectionStyle("budget", 1)}
       >
+      <MeasurementBiasEditor point={testPointData} session={sessionData}
+        calculatedAverage={calcResults?.calculatedNominalValue}
+        onChange={onUpdateTestPoint} />
       {!hasMeasurementPoint && <p className="form-section-warning" role="status">Enter a measurement value when ready. You can build the uncertainty budget now; value-dependent components will show a warning until a value is assigned.</p>}
       {calculationError && hasMeasurementPoint ? (
           <div className="form-section-warning">

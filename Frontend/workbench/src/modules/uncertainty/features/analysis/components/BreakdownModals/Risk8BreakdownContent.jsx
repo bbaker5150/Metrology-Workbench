@@ -337,7 +337,7 @@ const CalculationChain = ({ modalType, results }) => {
   const lower = activeSide(results) === "Lower";
   const limit = activeLimit(results);
   const nominal = results.nominalValue ?? frame.center;
-  const measured = results.riskAverage;
+  const measured = results.measurementAverage ?? results.riskAverage;
   const distance =
     finite(measured) && finite(limit) ? Math.abs(measured - limit) : NaN;
   const tmdeHalfSpan = results.tmdeToleranceSpan / 2;
@@ -652,7 +652,7 @@ const metricDetails = (modalType, results) => {
             ? "For a two-sided tolerance, TUR is the full UUT tolerance width divided by twice the expanded measurement uncertainty."
             : "For a known single-sided point, TUR is the physical distance from the measured value to the active specification limit divided by expanded measurement uncertainty.",
         rows: [
-          [twoSided ? "Full UUT tolerance width" : "Distance to active limit", withUnit(twoSided ? results.LUp - results.LLow : Math.abs(results.riskAverage - limit), unit)],
+          [twoSided ? "Full UUT tolerance width" : "Distance to active limit", withUnit(twoSided ? results.LUp - results.LLow : Math.abs((results.measurementAverage ?? results.riskAverage) - limit), unit)],
           ["Expanded measurement uncertainty", withUnit(results.expandedUncertainty, unit)],
           ["TUR", number(results.tur)],
         ],
@@ -664,7 +664,7 @@ const metricDetails = (modalType, results) => {
           results.tmdeLimits?.reason || `${results.tmdeLimits?.method || "TMDE specification limits"}. TAR compares specification widths. Risk probabilities use TUR and the uncertainty budget.`,
         rows: [
           ["TAR", number(results.tar)],
-          [twoSided ? "Full UUT tolerance width" : "Distance from measurement to active limit", withUnit(twoSided ? results.LUp - results.LLow : Math.abs(results.riskAverage - limit), unit)],
+          [twoSided ? "Full UUT tolerance width" : "Distance from measurement to active limit", withUnit(twoSided ? results.LUp - results.LLow : Math.abs((results.measurementAverage ?? results.riskAverage) - limit), unit)],
           [twoSided ? "Full TMDE tolerance width" : "TMDE half-span", withUnit(results.tmdeToleranceSpan == null ? undefined : results.tmdeToleranceSpan / (twoSided ? 1 : 2), unit)],
         ],
       };
@@ -794,7 +794,7 @@ const metricDetails = (modalType, results) => {
                 ["Active specification side", side],
                 ["Active specification limit", withUnit(limit, unit)],
               ]),
-          ["Measured value", withUnit(results.riskAverage, unit)],
+          ["Measured value", withUnit(results.measurementAverage ?? results.riskAverage, unit)],
           ["Expanded uncertainty", withUnit(results.expandedUncertainty, unit)],
           ["TUR", number(results.tur)],
           ["Assumed reliability", fractionPercent(inputs.measrelCalcAssumed)],
@@ -815,6 +815,7 @@ const Risk8BreakdownContent = ({ modalType, results }) => {
     const inputs = results.gbInputs || {};
     const lower = finite(results.LLow);
     const limit = lower ? results.LLow : results.LUp;
+    const calBias = results.risk8?.calBias || 0;
     const acceptance = lower ? results.gbLow ?? results.ALow : results.gbHigh ?? results.AUp;
     const uncertainty = results.expandedUncertainty;
     const alpha = inputs.reqPFA;
@@ -825,13 +826,14 @@ const Risk8BreakdownContent = ({ modalType, results }) => {
         equations={[
           `s_c=U_{cal}/1.96=${latexNumber(uncertainty)}/1.96=\\mathbf{${latexNumber(uncertainty / 1.96)}}`,
           `z_\\alpha=\\Phi^{-1}(${latexNumber(alpha)})=\\mathbf{${latexNumber(z)}}`,
-          lower ? "GB_{raw}=L-s_c z_\\alpha" : "GB_{raw}=U+s_c z_\\alpha",
+          `b_{cal}=\\mathbf{${latexNumber(calBias)}}`,
+          lower ? "GB_{raw}=L+b_{cal}-s_c z_\\alpha" : "GB_{raw}=U+b_{cal}+s_c z_\\alpha",
           `GB=\\operatorname{${lower ? 'roundUp' : 'roundDown'}}_{res}(GB_{raw})=\\mathbf{${latexNumber(acceptance)}}`,
         ]} />
       <MathStep title="Achieved PFA after resolution rounding"
         description="Round the lower limit up or the upper limit down. Recalculate the normal tail probability at this final physical boundary; the achieved PFA may be below the target."
         equations={[
-          lower ? "PFA=1-\\Phi((GB-L)/s_c)" : "PFA=\\Phi((GB-U)/s_c)",
+          lower ? "PFA=1-\\Phi((GB-L-b_{cal})/s_c)" : "PFA=\\Phi((GB-U-b_{cal})/s_c)",
           `L_{active}=\\mathbf{${latexNumber(limit)}},\\quad res=\\mathbf{${latexNumber(inputs.safeRes || 0)}}`,
           `PFA_{achieved}=\\mathbf{${latexPercent(results.risk8?.out?.mitPfa)}}`,
         ]} />
