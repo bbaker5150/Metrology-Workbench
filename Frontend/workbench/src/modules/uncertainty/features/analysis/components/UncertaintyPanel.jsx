@@ -57,7 +57,7 @@ import {
 import ContextMenu from "../../../components/common/ContextMenu";
 import useInstrumentTableLayout from "../../../hooks/useInstrumentTableLayout";
 import usePointerResize from "../../../hooks/usePointerResize";
-import { isTableDragBlockedTarget } from "../../../utils/tableTextSelection";
+
 import { getBudgetRangeWarnings } from "../../../utils/pointDiagnostics";
 import { resizeTableColumn } from "../../../utils/fillTrailingColumn";
 export { getBudgetRangeWarnings } from "../../../utils/pointDiagnostics";
@@ -8975,15 +8975,15 @@ const SummaryDashboard = ({
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "uut", uut, index, rangeIdOf(range), uutRowKey)
                               }
-                              draggable={true}
-                              onMouseDown={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); }}
-                              onMouseUp={event => { event.currentTarget.draggable = true; }}
+                              draggable={false}
+
+
                               onDragStart={handleInstrumentDragStart("uut", uut, uutFnKey)}
                               onDragEnd={handleInstrumentDragEnd}
                               data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area)(event); }}
-                        onPointerDownCapture={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(uutFnKey, {
                                 cursor: "pointer",
                               })}
@@ -9057,9 +9057,9 @@ const SummaryDashboard = ({
                           openInstrumentRowMenu(event, "uut", uut)
                         }
                         onMouseEnter={() => setHoveredRowId(uut.id)}
-                        draggable={true}
-                              onMouseDown={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); }}
-                              onMouseUp={event => { event.currentTarget.draggable = true; }}
+                        draggable={false}
+
+
                         onDragStart={handleInstrumentDragStart("uut", uut, uutFnKey)}
                         onDragEnd={handleInstrumentDragEnd}
                         onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
@@ -9071,7 +9071,7 @@ const SummaryDashboard = ({
                         data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area)(event); }}
-                        onPointerDownCapture={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(uutFnKey, {
                           cursor: "pointer",
                           opacity: draggingInstrumentId === uut.id ? 0.4 : undefined,
@@ -9319,7 +9319,7 @@ const SummaryDashboard = ({
                           data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area)(event); }}
-                        onPointerDownCapture={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(uutFnKey, {
                             cursor: "pointer",
                           })}
@@ -9463,15 +9463,15 @@ const SummaryDashboard = ({
                               onMouseDownCapture={(e) =>
                                 selectRangeRow(e, "tmde", tmde, index, rangeIdOf(range), tmdeRowKey)
                               }
-                              draggable={true}
-                              onMouseDown={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); }}
-                              onMouseUp={event => { event.currentTarget.draggable = true; }}
+                              draggable={false}
+
+
                               onDragStart={handleInstrumentDragStart("tmde", tmde, tmdeFnKey)}
                               onDragEnd={handleInstrumentDragEnd}
                               data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area)(event); }}
-                        onPointerDownCapture={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(tmdeFnKey, {
                                 cursor: "pointer",
                               })}
@@ -9545,9 +9545,9 @@ const SummaryDashboard = ({
                           openInstrumentRowMenu(event, "tmde", tmde)
                         }
                         onMouseEnter={() => setHoveredRowId(tmde.id)}
-                        draggable={true}
-                              onMouseDown={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); }}
-                              onMouseUp={event => { event.currentTarget.draggable = true; }}
+                        draggable={false}
+
+
                         onDragStart={handleInstrumentDragStart("tmde", tmde, tmdeFnKey)}
                         onDragEnd={handleInstrumentDragEnd}
                         onDragOver={showAreaColumn ? allowInstrumentDrop : undefined}
@@ -9559,7 +9559,7 @@ const SummaryDashboard = ({
                         data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area)(event); }}
-                        onPointerDownCapture={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(tmdeFnKey, {
                           cursor: "pointer",
                           opacity: draggingInstrumentId === tmde.id ? 0.4 : undefined,
@@ -9838,7 +9838,7 @@ const SummaryDashboard = ({
                           data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area)(event); }}
-                        onPointerDownCapture={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(tmdeFnKey, {
                             cursor: "pointer",
                           })}
@@ -14950,9 +14950,9 @@ function DetailedView({
                                   handleRangeChange(uut.id, index, ranges, isActivePointUut);
                                 }
                               }}
-                              draggable={true}
-                              onMouseDown={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); }}
-                              onMouseUp={event => { event.currentTarget.draggable = true; }}
+                              draggable={false}
+
+
                               onDragStart={handleDetailInstrumentDragStart(
                                       "uut",
                                       uut,
@@ -14962,7 +14962,7 @@ function DetailedView({
                               data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area)(event); }}
-                        onPointerDownCapture={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={{
                                 ...functionBadgeStyle(uutFnKey),
                                 cursor: "pointer",
@@ -15053,7 +15053,7 @@ function DetailedView({
                         data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area)(event); }}
-                        onPointerDownCapture={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                         style={{
                           ...functionBadgeStyle(uutFnKey),
                           cursor: "pointer",
@@ -15062,9 +15062,9 @@ function DetailedView({
                         }}
                         onClickCapture={e => { if (isModifiedInstrumentSelection(e)) { handleUutClick(e, uut.id); e.preventDefault(); e.stopPropagation(); } }}
                         onClick={(e) => handleUutClick(e, uut.id)}
-                        draggable={true}
-                              onMouseDown={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); }}
-                              onMouseUp={event => { event.currentTarget.draggable = true; }}
+                        draggable={false}
+
+
                         onDragStart={handleDetailInstrumentDragStart(
                           "uut",
                           uut,
@@ -15335,7 +15335,7 @@ function DetailedView({
                           data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area)(event); }}
-                        onPointerDownCapture={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                           style={{
                             ...functionBadgeStyle(uutFnKey),
                             cursor: "pointer",
@@ -15787,9 +15787,9 @@ function DetailedView({
                                       );
                                     }
                                   }}
-                                  draggable={true}
-                              onMouseDown={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); }}
-                              onMouseUp={event => { event.currentTarget.draggable = true; }}
+                                  draggable={false}
+
+
                                   onDragStart={handleDetailInstrumentDragStart(
                                           "tmde",
                                           masterTmde,
@@ -15799,7 +15799,7 @@ function DetailedView({
                                   data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleDetailInstrumentDropOnFunction("tmde", area)(event); }}
-                        onPointerDownCapture={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                                   style={{
                                     ...functionBadgeStyle(tmdeFnKey),
                                     opacity: isSelectedRow ? 1 : 0.85,
@@ -15889,7 +15889,7 @@ function DetailedView({
                             data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleDetailInstrumentDropOnFunction("tmde", area)(event); }}
-                        onPointerDownCapture={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
+                        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                             style={{
                               ...functionBadgeStyle(tmdeFnKey),
                               opacity: isSelectedRow ? 1 : 0.85,
@@ -15897,9 +15897,9 @@ function DetailedView({
                             }}
                             onClickCapture={e => { if (isModifiedInstrumentSelection(e)) { handleTmdeClick(e, masterTmde.id); e.preventDefault(); e.stopPropagation(); } }}
                         onClick={(e) => handleTmdeClick(e, masterTmde.id)}
-                            draggable={true}
-                              onMouseDown={event => { event.currentTarget.draggable = !isTableDragBlockedTarget(event.target); }}
-                              onMouseUp={event => { event.currentTarget.draggable = true; }}
+                            draggable={false}
+
+
                             onDragStart={handleDetailInstrumentDragStart(
                               "tmde",
                               masterTmde,

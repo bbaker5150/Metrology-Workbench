@@ -20879,20 +20879,27 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
     background-color: color-mix(in srgb, var(--instrument-function-color) var(--instrument-cell-tint), var(--content-background)) !important;
     box-shadow: none !important;
   }
-  .uncertainty-module .instrument-equipment-table tr.instrument-function-row > td.col-hovered {
+  .uncertainty-module .instrument-equipment-table tr.instrument-function-row > td[data-column-hovered] {
     --instrument-cell-tint: var(--instrument-column-tint);
   }
   .uncertainty-module .instrument-equipment-table tr.instrument-function-row:not([data-selection-key]):hover > td,
-  .uncertainty-module .instrument-equipment-table td[data-cell-hovered] {
+  .uncertainty-module .instrument-equipment-table tr.instrument-function-row > td[data-cell-hovered] {
     --instrument-cell-tint: var(--instrument-hover-tint);
   }
   .uncertainty-module .instrument-equipment-table tr.instrument-function-row:is(.selected-row, .selected-spec-row) > td,
-  .uncertainty-module .instrument-equipment-table td[data-cell-selected] {
+  .uncertainty-module .instrument-equipment-table tr.instrument-function-row > td[data-cell-selected] {
     --instrument-cell-tint: var(--instrument-selected-tint);
   }
 }
 
 .instrument-panel-table-container { position: relative; }
+.instrument-pointer-drag-preview {
+  position: fixed; left: 0; top: 0; z-index: 2147483647;
+  pointer-events: none; padding: 8px 12px; border-radius: 6px;
+  color: var(--text-color); background: var(--component-bg);
+  border: 1px solid var(--primary-color); box-shadow: 0 3px 12px #0003;
+  font: 500 12px/1.4 Inter, sans-serif;
+}
 .instrument-selection-outline {
   position: absolute; pointer-events: none; overflow: visible; z-index: 2;
   fill: none; stroke-width: 1.5; stroke-linecap: square;
@@ -20942,7 +20949,8 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .uncertainty-module .inline-range-main > .range-row-add { margin-left: auto; }
 .uncertainty-module .inline-range-editor:not(.is-editing),
 .uncertainty-module .inline-range-editor:not(.is-editing) > .inline-range-main { width: 100%; }
-.uncertainty-module .instrument-equipment-table td.cell-sync { border-left: 1px solid var(--border-color); }
+.uncertainty-module .instrument-equipment-table td.cell-sync { border-left: 1px solid var(--table-divider-color); }
+.uncertainty-module .instrument-equipment-table td[data-before-sync] { border-right: 0; }
 .uncertainty-module .instrument-column-insert-button { top: -10px; bottom: auto; z-index: 8; }
 .point-column-menu-footer button { color: var(--primary-color); border: 0; background: transparent; padding: 4px 0; }
 .point-column-menu-body .sidebar-column-order-heading strong,

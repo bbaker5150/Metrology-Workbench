@@ -1,5 +1,6 @@
 import { prepareTaskingLayout, checkTaskingLayout } from "./tasking-layout-checks.mjs";
 import { prepareGrowingInputs, checkGrowingInputs } from "./growing-inputs-checks.mjs";
+import { prepareInstrumentInteractions, checkInstrumentInteractions } from "./instrument-interaction-checks.mjs";
 import { prepareFieldStability, checkFieldStability } from "./field-stability-checks.mjs";
 import { prepareIndependentColumns, checkIndependentColumns } from "./independent-columns-checks.mjs";
 import { prepareBiasSession, checkMeasurementBias } from "./measurement-bias-checks.mjs";
@@ -122,6 +123,7 @@ if (process.env.TASKING_LAYOUT_SMOKE) for (const session of sessions.values()) p
 if (process.env.INDEPENDENT_COLUMNS_SMOKE) for (const session of sessions.values()) prepareIndependentColumns(session);
 if (process.env.FIELD_STABILITY_SMOKE) for (const session of sessions.values()) prepareFieldStability(session);
 if (process.env.GROWING_INPUTS_SMOKE) for (const session of sessions.values()) prepareGrowingInputs(session);
+if (process.env.INSTRUMENT_INTERACTION_SMOKE) for (const session of sessions.values()) prepareInstrumentInteractions(session);
 if (process.env.MEASUREMENT_BIAS_SMOKE) for (const session of sessions.values()) prepareBiasSession(session);
 const instrumentItems = [301, 302].map(id => ({
   Id: id, AuthorId: 7, RecordId: `instrument-${id}`,
@@ -288,6 +290,7 @@ if (/not set up yet/i.test(frameText)) {
   if (process.env.INDEPENDENT_COLUMNS_SMOKE) await checkIndependentColumns({ frame, page, saved, until, check });
   if (process.env.FIELD_STABILITY_SMOKE) await checkFieldStability({ frame, page, saved, until, check });
   if (process.env.GROWING_INPUTS_SMOKE) await checkGrowingInputs({ frame, page, saved, until, check });
+  if (process.env.INSTRUMENT_INTERACTION_SMOKE) await checkInstrumentInteractions({ frame, page, saved, until, check });
   for (const view of ['overview', 'point']) {
     if (view === 'overview') await frame.locator('[data-tour="tab-overview"]').click();
     else {

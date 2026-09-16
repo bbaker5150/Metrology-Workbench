@@ -1,4 +1,5 @@
 import { updateInstrumentCellHighlights } from "../utils/instrumentCellSelection";
+import { attachInstrumentPointerDrag } from "../utils/instrumentPointerDrag";
 import { useCallback, useLayoutEffect, useState } from "react";
 import { preserveTableTextSelection } from "../utils/tableTextSelection";
 import { createInstrumentSelectionOutline } from "../utils/instrumentSelectionOutline";
@@ -31,16 +32,30 @@ export default function useInstrumentTableLayout(containerRef) {
     const table = container?.querySelector(":scope > table");
     if (!table) return undefined;
     const releaseTextSelection = preserveTableTextSelection(table);
+    const releasePointerDrag = attachInstrumentPointerDrag(table);
     // A sibling overlay stays outside the table observer and cannot trigger
     // another layout pass when its perimeter changes.
     const selectionOutline = createInstrumentSelectionOutline(container, table);
     let hoveredRow = null;
+    let hoveredCell = null;
     const hover = event => {
-      hoveredRow = event.target?.closest?.('tr[data-selection-key]') || null;
-      updateInstrumentCellHighlights(table, hoveredRow);
+      const cell = event.target?.closest?.('td');
+      let row = cell?.closest('tr[data-selection-key]') || null;
+      if (row && cell.rowSpan > 1) {
+        // Moving within a shared cell emits no new pointerover. Resolve the
+        // physical range by Y so shared cells follow exactly that range.
+        row = [...table.querySelectorAll('tr[data-selection-key]')].find(candidate => {
+          const rect = candidate.getBoundingClientRect();
+          return candidate.dataset.selectionKey === row.dataset.selectionKey && event.clientY >= rect.top && event.clientY < rect.bottom;
+        }) || row;
+      }
+      if (row === hoveredRow && cell === hoveredCell) return;
+      hoveredRow = row; hoveredCell = cell;
+      updateInstrumentCellHighlights(table, hoveredRow, hoveredCell);
     };
-    const leave = () => { hoveredRow = null; updateInstrumentCellHighlights(table); };
+    const leave = () => { hoveredRow = null; hoveredCell = null; updateInstrumentCellHighlights(table); };
     table.addEventListener("pointerover", hover);
+    table.addEventListener("pointermove", hover);
     table.addEventListener("pointerleave", leave);
     const card = container.closest(".panel-card");
     let frame = null;
@@ -123,7 +138,7 @@ export default function useInstrumentTableLayout(containerRef) {
         Math.max(0, container.clientHeight * containerScale - headerHeight),
       );
       setProperty(table, "--instrument-header-offset", `${offset / (containerScale * zoom)}px`);
-      updateInstrumentCellHighlights(table, hoveredRow);
+      updateInstrumentCellHighlights(table, hoveredRow, hoveredCell);
       selectionOutline.sync();
     };
     const schedule = () => {
@@ -151,8 +166,10 @@ export default function useInstrumentTableLayout(containerRef) {
     sync();
     return () => {
       table.removeEventListener("pointerover", hover);
+      table.removeEventListener("pointermove", hover);
       table.removeEventListener("pointerleave", leave);
       releaseTextSelection();
+      releasePointerDrag();
       selectionOutline.destroy();
       cancelAnimationFrame(frame);
       card?.style.removeProperty("--instrument-panel-width");
