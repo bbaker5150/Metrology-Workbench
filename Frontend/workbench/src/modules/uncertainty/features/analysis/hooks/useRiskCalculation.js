@@ -256,6 +256,10 @@ export const useRiskCalculation = (
       if (Number.isFinite(mcMeanNative)) riskAverage = mcMeanNative;
     }
 
+    // Mirror riskCompute's sidebar contract: retain the physical measured/MC
+    // value for TUR/TAR, then separately shift the modeled UUT mean for risk.
+    // Use the effective selected tolerance/nominal so live edits and inherited
+    // defaults cannot disagree with the open point's displayed budget.
     const measurementAverage = riskAverage;
     const bias = resolveMeasurementBias({ ...testPointData, uutTolerance: uutToleranceData, testPointInfo: { ...testPointData?.testPointInfo, parameter: uutNominal } }, sessionData, riskAverage, { includeSources: false });
     if (bias.error) {

@@ -52,3 +52,10 @@ risk calculations, panel/sidebar agreement, and unknown boundaries. The
 production HTML integration check runs with `MEASUREMENT_BIAS_SMOKE=1 node
 scripts/smoke-forge-srcdoc.mjs` from `Frontend/workbench` after
 `npm run build:singlefile`; it uses an isolated mock SharePoint site.
+
+The [Risk 8 audit](../Frontend/workbench/src/modules/uncertainty/utils/risk8/MIGRATION_AUDIT.md)
+records the workbook hash, capture procedure, numeric tolerance, reproducible
+commands, and the explicit unknown-boundary parity exception. The additional
+`biasWorkflowParity.test.js` compares native bias ownership/propagation to 48
+outputs captured from Excel itself; it does not manufacture expected risk values
+using the app's calculator.

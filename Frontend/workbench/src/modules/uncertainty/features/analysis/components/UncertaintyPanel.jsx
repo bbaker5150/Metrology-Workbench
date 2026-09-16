@@ -4665,6 +4665,10 @@ export const InlineToleranceCell = ({
           )}
         </span>
       ))}
+      {/* Range-owned bias is stored beside, not inside, uncertainty terms. Only
+          instrument editors supply biasRole; editing a budget error limit must
+          not accidentally author a new shared instrument default. __replace__
+          retains every tolerance field while atomically updating its bias. */}
       {biasRole && <div className="instrument-bias-editor">
         <span>{biasRole === "uut" ? "UUT bias" : "Source bias"}</span>
         <BiasValueEditor label={biasRole === "uut" ? "Range UUT bias" : "Range source bias"}

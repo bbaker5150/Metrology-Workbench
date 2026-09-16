@@ -186,6 +186,9 @@ const clonePointSettingValue = (value) => {
 };
 
 const POINT_BUDGET_FIELDS = [
+  // Copy the system-bias MODEL (source keys/overrides or manual net), never its
+  // evaluated total. Destination nominals drive percentages and sensitivities.
+  // uutBias is intentionally absent: the destination UUT owns that property.
   "measurementBias",
   "components",
   "tmdeTolerances",

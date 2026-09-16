@@ -1,3 +1,23 @@
+/**
+ * Native-unit bias ownership and propagation (app layer, not workbook VBA).
+ * ==========================================================================
+ * Workbook authority: modRiskBackend.ComputeOneRow consumes normalized UUT_Bias
+ * (K, mu) and Cal_Bias (L, XCAL); its observed mean is mu + XCAL. The app stores
+ * signed residual errors in physical units and lets riskAdapter8 normalize them:
+ *   riskAverage = nominal + bUUT; mu = bUUT / h; XCAL = bSystem / h.
+ * h is the tolerance half-span, or nominal-to-limit distance for known SS.
+ * Positive bSystem means the evaluated result reads high. Bias is a mean shift,
+ * never an uncertainty component: it must not be added in quadrature or change
+ * TUR, TAR, coverage factors, or the uncertainty retained after a correction.
+ *
+ * Persisted specs: { value, kind: "absolute" | "percent", unit, corrected? }.
+ * UUT ownership: point.uutBias(mode=override) > selected UUT range > legacy mean.
+ * System ownership: manual net replaces all sources; otherwise source overrides
+ * replace inherited defaults, then signed source contributions are summed.
+ * Blank means no authored bias; explicit zero is meaningful and stops inheritance.
+ * Unknown-value limits have no UUT population mean; their separate system-bias
+ * extension is documented in unknownMeasurementRisk8, not claimed as VBA parity.
+ */
 import { calculateDerivedUncertainty, unitSystem } from "./uncertaintyMath";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 import { resolvePointBudgetComponents } from "./resolvePointBudgetComponents";
@@ -8,7 +28,13 @@ const configured = spec => present(spec?.value);
 const same = (a, b) => present(a) && present(b) && String(a) === String(b);
 const biasOf = source => source?.bias ?? source?.tolerances?.bias ?? source?.tolerance?.bias;
 
-// Bias is an interval, including for Celsius/Fahrenheit: never apply a unit offset.
+/**
+ * Convert a residual error, not an absolute temperature coordinate. Subtracting
+ * base(0) from base(1) cancels affine offsets (1.8 degF error = 1 degC error).
+ * A percentage uses |reference value| so the entered sign alone controls bias.
+ * Corrected sources contribute zero systematic error; their original uncertainty
+ * is untouched because this module does not mutate budget components.
+ */
 export function biasInUnit(spec, reference, outputUnit = reference?.unit) {
   if (!configured(spec) || spec.corrected) return 0;
   const value = Number(spec.value);
@@ -27,19 +53,29 @@ export function biasInUnit(spec, reference, outputUnit = reference?.unit) {
 }
 
 function selectedRange(master, rangeId, functionId) {
+  // A range ID can recur across instrument functions. Respect both identifiers
+  // when available; legacy sessions lacking function IDs retain range matching.
   return getInstrumentRangeRows(master, { flattenTolerances: true }).find(range =>
     same(range.rangeId ?? range.id, rangeId) && (!functionId || !range.functionId || same(functionId, range.functionId)));
 }
 
 export function getUutBiasDefault(point = {}, session = {}) {
+  // Read live masters on each calculation. Saved point tolerances are fallback
+  // snapshots, not a cache that may hide a subsequent instrument-range edit.
   const tolerance = point.uutTolerance || session.uutTolerance || {};
   const master = (session.uuts || []).find(item => same(item.id, point.activeUutId || point.associatedUutIds?.[0]));
   const range = master && selectedRange(master, tolerance.rangeId ?? tolerance.id, tolerance.functionId);
   return biasOf(range) ?? biasOf(tolerance) ?? biasOf(master);
 }
 
-// One source per included error-limit/component, not per calculated breakdown row.
-// Resolution rows never inherit an instrument's bias a second time.
+/**
+ * Enumerate actual budget sources, not calculated breakdown rows. Resolution
+ * derived from the same instrument must never inherit its bias a second time.
+ * Linked accuracy components use stable provenance keys so copy/paste preserves
+ * overrides; variableType distinguishes one instrument used at different inputs.
+ * Legacy instances retain their instance identity and use the same reconciliation
+ * as uncertainty evaluation. Component definitions and masters are resolved live.
+ */
 export function getPointBiasSources(point = {}, session = {}) {
   const nominal = point.testPointInfo?.parameter || {};
   const derived = point.measurementType === "derived";
@@ -50,6 +86,8 @@ export function getPointBiasSources(point = {}, session = {}) {
     sources.push({ key, name, variableType, reference, inherited: spec, spec: override ?? spec, overridden: override != null, quantity: Number(quantity) || 1 });
   };
   const referenceFor = (variableType, fallback) => {
+    // Re-read destination input values rather than storing a numeric bias during
+    // copy/paste. Relative errors therefore track edits to the receiving point.
     const symbol = Object.keys(point.variableMappings || {}).find(symbol => point.variableMappings[symbol] === variableType);
     return derived ? point.variableNominals?.[symbol] || point.variableNominals?.[variableType] || fallback || nominal : nominal;
   };
@@ -92,6 +130,8 @@ export function resolveMeasurementBias(point = {}, session = {}, calculatedAvera
       result.uutOrigin = result.uutBias ? "calculated" : "assumed";
     }
     if (point.measurementBias?.mode === "manual") {
+      // This is the measured/estimated NET residual. Adding source offsets here
+      // would count those effects twice; saved source settings remain restorable.
       result.calBias = biasInUnit(point.measurementBias, reference);
       return result;
     }
@@ -107,6 +147,9 @@ export function resolveMeasurementBias(point = {}, session = {}, calculatedAvera
     let breakdown = [];
     if (point.measurementType === "derived" && active.some(row => row.variableType)) {
       const instances = refreshTmdeInstancesFromMasters(reconcileTmdeInstances(point.tmdeTolerances || [], session.tmdes || []), session.tmdes || []);
+      // Reuse the uncertainty evaluator's nominal units and SIGNED derivatives.
+      // This is first-order propagation b_y = sum(q_i * df/dx_i * b_i), not RSS
+      // and not f(x+b)-f(x). Large biases/nonlinear equations need user review.
       const derived = calculateDerivedUncertainty(point.equationString, point.variableMappings, instances,
         { ...reference, variableNominals: point.variableNominals || {} }, resolvePointBudgetComponents(point, session), { allowFiniteDifference: true });
       if (derived.error || derived.missingInputs) throw new Error(derived.error || "Set equation input values to calculate source bias.");
@@ -117,11 +160,15 @@ export function resolveMeasurementBias(point = {}, session = {}, calculatedAvera
       const input = mapped ? breakdown.find(input => input.type === row.variableType) : null;
       if (mapped && (!input || !Number.isFinite(input.ci))) throw new Error(`Cannot calculate bias sensitivity for ${row.variableType}.`);
       const referencePoint = input ? { value: input.nominal, unit: input.unit } : reference;
+      // Convert b_i to the derivative's input unit before multiplication; ci then
+      // produces output units. An output-level/direct source has sensitivity 1.
       row.contribution = biasInUnit(row.spec, referencePoint, input?.unit || reference.unit) * (input?.ci ?? 1) * row.quantity;
       result.calBias += row.contribution;
     }
     if (!Number.isFinite(result.calBias)) throw new Error("The measurement system bias could not be calculated.");
   } catch (error) {
+    // Fail closed: callers clear risk results on error. A missing sensitivity,
+    // incompatible unit, or invalid entry must not masquerade as zero bias.
     result.error = error.message;
     result.calBias = NaN;
   }

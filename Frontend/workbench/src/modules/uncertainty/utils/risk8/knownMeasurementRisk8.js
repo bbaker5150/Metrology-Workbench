@@ -5,6 +5,13 @@
  * Keeping their validation and output mapping here prevents the surrounding
  * UI from accidentally applying the legacy two-sided "both limits required"
  * rule.
+ *
+ * All known-value entry points preserve two independent native-unit offsets:
+ * riskAverage represents nominal + UUT bias; calBias is the net measurement
+ * system residual. Forward both unchanged to riskAdapter8, which alone converts
+ * them to workbook K/L. Combining them here would erase the distinction between
+ * true UUT nonconformance and measurement error and give incorrect PFA/PFR even
+ * if the observed mean stayed the same. TUR is supplied from physical geometry.
  */
 
 import { runRisk8FromApp } from "./riskAdapter8";

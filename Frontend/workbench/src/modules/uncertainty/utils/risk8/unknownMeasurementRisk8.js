@@ -41,8 +41,15 @@ export function computeUnknownMeasurementBoundary8({
   const direction = singleSided.direction === "low" ? "low" : "high";
   const limit = singleSided.limit;
   if (limit == null || String(limit).trim() === "" || !Number.isFinite(Number(limit)) || !Number.isFinite(Number(calBias))) return { computed: false };
-  // Shift into observed-reading coordinates before resolution snapping, so
-  // achieved PFA is recomputed on the actual measurement grid.
+  // APP EXTENSION, not literal Beta.7 parity for nonzero bias: workbook Types
+  // 5/6 ignore K/L. With reading Y = true value + bCal + noise, the acceptance
+  // boundary in reading coordinates is L+bCal-sigma*z(PFA) (lower) or
+  // U+bCal+sigma*z(PFA) (upper). Translate the limit BEFORE the workbook's inward
+  // resolution snap; adding bias after snapping would leave the measurement grid
+  // and misstate achieved PFA. Keep the original true limit below for derivations.
+  // At bCal=0 this is exactly the dedicated workbook boundary procedure. At
+  // nonzero bias we compare to Excel with an explicitly translated limit, and
+  // separately test/document the difference from its unchanged physical input.
   const observedLimit = Number(limit) + Number(calBias);
   const lowerLimit = direction === "low" ? limit : "";
   const upperLimit = direction === "high" ? limit : "";

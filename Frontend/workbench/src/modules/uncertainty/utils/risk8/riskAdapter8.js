@@ -13,11 +13,14 @@
  *
  *   1. AVERAGE -> mu.  8.0 centers the UUT truth distribution with a normalized
  *      UUT bias `mu` and cal bias `xcal` (both in units of the tolerance
- *      half-span). We map the app's measured operating point (riskAverage) to
+ *      half-span). We map the app's modeled UUT mean (riskAverage) to
  *      mu by normalizing its offset from nominal:
  *          mu = (riskAverage - center) / halfSpan
  *      and default xcal to calBias/halfSpan (0 unless a cal-bias field is set).
- *      For a symmetric, centered, no-MC point this is 0 — identical to today.
+ *      Explicit UUT bias sets riskAverage = nominal + bUUT; without an authored
+ *      bias the existing calculated/MC mean is retained for saved-session parity.
+ *      The physical measurementAverage used for TUR/TAR is kept separately by
+ *      callers: a population-mean shift must not change the tolerance geometry.
  *
  *   2. FIELD SEMANTICS.  The 8.0 workbook separates the reliability used to
  *      evaluate the current point (`Assumed_REOP`) from the required reliability
@@ -55,7 +58,7 @@ const num = (v, dflt = NaN) => {
  * frame for a given tolerance geometry, so a physical value can be mapped to a
  * normalized offset (value - center) / halfSpan.
  *
- *   - two-sided (1,2): center = (upper+lower)/2, halfSpan = (upper-lower)/2
+ *   - two-sided (1,2): center = nominal, halfSpan = (upper-lower)/2
  *   - single-sided lower (3): center = nominal, halfSpan = nominal - lower
  *   - single-sided upper (4): center = nominal, halfSpan = upper - nominal
  *
@@ -151,7 +154,7 @@ export function buildRisk8Contract(appInputs) {
 
   const frame = normalizeToleranceFrame(tolType, nominal, lowerLimit, upperLimit);
 
-  // AVERAGE -> mu: normalized offset of the measured average from the tolerance
+  // AVERAGE -> mu: normalized offset of the modeled UUT mean from the tolerance
   // nominal. xcal: normalized cal bias. Both 0 when there is no usable frame.
   let mu = "";
   let xcal = "";

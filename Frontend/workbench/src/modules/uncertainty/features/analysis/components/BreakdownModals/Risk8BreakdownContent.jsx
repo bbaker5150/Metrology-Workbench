@@ -815,6 +815,9 @@ const Risk8BreakdownContent = ({ modalType, results }) => {
     const inputs = results.gbInputs || {};
     const lower = finite(results.LLow);
     const limit = lower ? results.LLow : results.LUp;
+    // The wrapper preserves the TRUE specification limit while its engine input
+    // uses limit+bCal in observed-reading coordinates. Display that translation
+    // explicitly once; using the translated input here would count bias twice.
     const calBias = results.risk8?.calBias || 0;
     const acceptance = lower ? results.gbLow ?? results.ALow : results.gbHigh ?? results.AUp;
     const uncertainty = results.expandedUncertainty;

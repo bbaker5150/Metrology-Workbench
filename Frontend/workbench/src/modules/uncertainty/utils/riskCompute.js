@@ -581,10 +581,16 @@ export function computePointRiskMetrics(
     if (Number.isFinite(mcMeanNative)) riskAverage = mcMeanNative;
   }
 
-  // A modeled population bias must not change the physical TUR/TAR geometry.
+  // Freeze the physical measurement before applying an authored UUT population
+  // shift. TUR/TAR use this value; riskAverage is the separate mean normalized
+  // into workbook K. System bias travels independently to L, never into TUR.
   const measurementAverage = riskAverage;
   const bias = resolveMeasurementBias(point, sessionData, riskAverage, { includeSources: false });
-  if (bias.error) { onStatus?.({ core: "Bias input error", gb: "Bias input error", interval: "Bias input error", message: bias.error }); return null; }
+  if (bias.error) {
+    // Clear all sidebar risk outputs together; invalid bias is not zero risk.
+    onStatus?.({ core: "Bias input error", gb: "Bias input error", interval: "Bias input error", message: bias.error });
+    return null;
+  }
   riskAverage = bias.riskAverage;
   const tmdeLimits = computePointTmdeLimits(point, sessionData);
   const tmdeToleranceLow_Native = tmdeLimits.low == null ? NaN : tmdeLimits.low - nominalValue;

@@ -26,7 +26,10 @@ window.renderRiskCase = (id, metric) => {
     ...(type <= 4 ? toKnownMeasurementSummary(result) : toUnknownMeasurementSummary(result)),
     LLow: input.lowerLimit === '' ? undefined : input.lowerLimit,
     LUp: input.upperLimit === '' ? undefined : input.upperLimit,
-    nominalValue: input.nominal, riskAverage: input.nominal + (input.mu || 0) * halfSpan,
+    // Synthetic measured value is the nominal. Only the modeled UUT population
+    // mean carries mu; a bias must not move physical TUR/TAR geometry.
+    nominalValue: input.nominal, measurementAverage: input.nominal,
+    riskAverage: input.nominal + (input.mu || 0) * halfSpan,
     expandedUncertainty: type <= 4 ? halfSpan / input.tur : input.uCal,
     nativeUnit: 'V', tmdeToleranceSpan: .2, tar: 10,
     gbInputs: { reqPFA: input.pfaTarget, measRelTarget: input.reopTarget,

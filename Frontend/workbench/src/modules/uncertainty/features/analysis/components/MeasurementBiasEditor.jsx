@@ -7,6 +7,13 @@ import { isUnknownMeasurementTolerance } from "../../../utils/risk8/unknownMeasu
 
 const display = value => Number.isFinite(value) ? `${value > 0 ? "+" : ""}${Number(value.toPrecision(7))}` : "Not set";
 
+/** Point-owned overrides over live instrument defaults. No computed contribution
+ * is persisted: the shared resolver recalculates it at this point's current
+ * equation inputs. Deleting an override restores inheritance; writing zero is a
+ * deliberate override. Switching to manual net keeps source settings available
+ * for restoration but the resolver excludes them from the manual result.
+ * Native <details> owns only expansion state; opening it never changes the model.
+ */
 export default function MeasurementBiasEditor({ point, session, calculatedAverage, onChange }) {
   const result = useMemo(() => resolveMeasurementBias(point, session, calculatedAverage), [point, session, calculatedAverage]);
   const unit = point.testPointInfo?.parameter?.unit || "";

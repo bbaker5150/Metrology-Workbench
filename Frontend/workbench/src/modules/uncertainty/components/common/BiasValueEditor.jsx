@@ -3,6 +3,13 @@ import InlineMenuSelect from "./InlineMenuSelect";
 import { getUnitDisplayLabel } from "../../utils/uncertaintyMath";
 import "./MeasurementBias.css";
 
+/** Shared instrument/budget editor; the persisted spec is the source of truth.
+ * Draft text permits intermediate signed decimals without recalculating risk on
+ * every keystroke. Blur (including Enter) validates and commits the whole spec,
+ * preserving provenance/mode/correction fields; blank and explicit zero differ.
+ * Changing the display basis does not perform a hidden numerical conversion:
+ * the current number is reinterpreted in native units or percent as selected.
+ */
 export default function BiasValueEditor({ value, unit, onChange, label = "Bias", allowCorrection = false }) {
   const spec = value || {};
   const [draft, setDraft] = useState(spec.value ?? "");

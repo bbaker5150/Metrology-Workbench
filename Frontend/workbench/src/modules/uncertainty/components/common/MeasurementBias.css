@@ -1,3 +1,7 @@
+/* Keep the inline instrument and budget editors on the same 24px control grid.
+ * Scoped input specificity overrides generic form inputs without changing other
+ * table cells. Hover/focus changes paint only, never border width or geometry;
+ * inherited colors/theme tokens preserve instrument tint in both app themes. */
 .bias-value-editor { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: inherit; }
 .bias-value-editor input.bias-value-input { width: 100px; min-width: 70px; flex: 0 0 100px; height: 24px; box-sizing: border-box; padding: 2px 6px; border: 1px solid var(--border-color, #d4ddeb); border-radius: 4px; background: transparent; color: inherit; font: inherit; }
 .bias-value-editor input.bias-value-input:hover, .bias-value-editor input.bias-value-input:focus { border-color: var(--primary-color, #007bff); outline: none; background: transparent; box-shadow: none; }

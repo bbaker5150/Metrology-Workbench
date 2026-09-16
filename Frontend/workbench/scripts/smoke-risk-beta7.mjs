@@ -6,6 +6,7 @@ import os from 'node:os';
 import assert from 'node:assert/strict';
 
 const output = fs.mkdtempSync(path.join(os.tmpdir(), 'risk-beta7-browser-'));
+const workbookVectors = JSON.parse(fs.readFileSync(new URL('../src/modules/uncertainty/utils/risk8/beta7Vectors.json', import.meta.url), 'utf8'));
 const server = await createServer({
   server: { host: '127.0.0.1', port: 0, open: false },
   plugins: [{ name: 'risk-beta7-preview', configureServer(vite) {
@@ -36,6 +37,12 @@ try {
     }
     for (const model of ['E2','D','W1','W2'])
       for (const metric of ['calint','gbcalint']) cases.push([`${shape}/${model}/centered/tur1-ref4/res0.01`, metric]);
+    // Exercise signed biases in the actual rendered derivations as well as the
+    // workbook numeric matrix. Both signs must render without invalid KaTeX or
+    // leaked undefined values, including single-sided physical TUR/TAR displays.
+    for (const bias of ['positive', 'negative'])
+      for (const metric of ['inputs', 'tur', 'tar', 'pfa', 'pfr', 'gbpfa', 'gbcalint'])
+        cases.push([`${shape}/E1/${bias}/tur1-ref4/res0.01`, metric]);
   }
   for (const shape of ['lowerUnknown','upperUnknown'])
     cases.push([`${shape}/resolution`, 'pfa'], [`${shape}/resolution`, shape === 'lowerUnknown' ? 'gblow' : 'gbhigh']);
@@ -50,9 +57,23 @@ try {
     const text = await body.innerText();
     assert(!/Risk 8|engine status|mitigation status|REOP-only status/i.test(text), `${id}/${metric}: implementation wording`);
     assert(!/NaN|undefined/.test(text), `${id}/${metric}: invalid display value`);
-    if (!['symmetric/assumed-0.99', 'lower/target-0.5'].includes(id)) assert(await body.locator('.katex').count() > 0, `${id}/${metric}: equations not rendered`);
+    // An infeasible workbook recommendation intentionally renders a constraint
+    // explanation instead of equations. Derive this expectation from Excel's
+    // captured status, not from whether the app happened to omit its equations.
+    const expected = workbookVectors.cases.find(vector => vector.id === id).expected;
+    const interval = /^(nogb|calint|measrel)/.test(metric);
+    const mitigation = /^(gb|nogb|calint|measrel)/.test(metric) && metric !== 'gbinputs';
+    // Successful Beta.7 status text has multiple forms (including "GB +
+    // interval solution..."). Presence of its numeric probability is the
+    // authoritative distinction from a blank, unavailable recommendation.
+    const recommendationAvailable = typeof expected[interval ? 'intPfa' : 'mitPfa'] === 'number';
+    const infeasible = expected.statusCore !== 'OK' ||
+      (mitigation && !recommendationAvailable);
+    const explanationOnly = expected.tolType <= 4 && infeasible && !['tur', 'tar', 'maxreop'].includes(metric);
+    if (explanationOnly) assert(text.includes('Calculation requirements'), `${id}/${metric}: missing feasibility explanation`);
+    else assert(await body.locator('.katex').count() > 0, `${id}/${metric}: equations not rendered`);
     assert.equal(await body.locator('.katex-error').count(), 0, `${id}/${metric}: invalid equation`);
-    if (metric === 'gbcalint' && ['lower','upper'].some(shape => id.startsWith(`${shape}/E1/`)))
+    if (!explanationOnly && metric === 'gbcalint' && ['lower','upper'].some(shape => id.startsWith(`${shape}/E1/`)))
       assert(text.includes('2R − 1'), 'Missing single-sided reliability floor');
     if (id === 'symmetric/assumed-0.99') assert(text.includes('reference TUR can support'));
     if (id === 'lower/target-0.5') assert(text.includes('must exceed 50%'));

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { computeOneRow } from './computeOneRow8';
-import vectors from './beta7Vectors.json';
+import committedVectors from './beta7Vectors.json';
 import { computeRiskRow8 } from './riskBridge8';
 import { buildKnownMeasurementDiagnostics, buildKnownTwoSidedDiagnostics, toKnownMeasurementSummary, toKnownRiskDistribution } from './knownMeasurementRisk8';
 
@@ -8,6 +9,11 @@ import { buildKnownMeasurementDiagnostics, buildKnownTwoSidedDiagnostics, toKnow
 // the workbook hash and reads Value2 (full precision), including empty cells and
 // status strings. Test tolerances cover floating-point evaluation order only;
 // they never round probabilities to their displayed percentages.
+// Audit runs may compare a fresh read-only Excel capture directly, without
+// replacing committed evidence or regenerating expected outputs from app code.
+const vectors = process.env.RISK_BETA7_CAPTURE
+  ? JSON.parse(readFileSync(process.env.RISK_BETA7_CAPTURE, 'utf8').replace(/^\uFEFF/, ''))
+  : committedVectors;
 describe('Beta.7 workbook parity', () => {
   it('matches every core and mitigation output across the captured matrix', () => {
     const failures = [];
