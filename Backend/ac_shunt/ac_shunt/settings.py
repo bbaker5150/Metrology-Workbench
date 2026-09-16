@@ -351,16 +351,31 @@ AC_SHUNT_WORKSTATION_ID = os.environ.get('AC_SHUNT_WORKSTATION_ID', '').strip()
 # ---------------------------------------------------------
 # 5. LOGGING CONFIGURATION
 # ---------------------------------------------------------
+DIAGNOSTICS_DIR = Path(os.environ.get("AC_SHUNT_DIAGNOSTICS_DIR", str(CREDENTIALS_DIR / "diagnostics")))
+try:
+    DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    import tempfile
+    DIAGNOSTICS_DIR = Path(tempfile.gettempdir()) / "ac-shunt-diagnostics"
+    DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
+        'diagnostic': {'()': 'api.diagnostics.DiagnosticFormatter'},
         'verbose': {
             'format': '{levelname} {asctime} {module} - {message}',
             'style': '{',
         },
     },
     'handlers': {
+        'diagnostics': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(DIAGNOSTICS_DIR / f'backend-{os.getpid()}.jsonl'),
+            'maxBytes': 10 * 1024 * 1024, 'backupCount': 5, 'encoding': 'utf-8',
+            'formatter': 'diagnostic', 'level': 'INFO',
+        },
         'console': {
             'level': 'INFO',
             'class': 'logging.StreamHandler',
@@ -368,15 +383,16 @@ LOGGING = {
         },
     },
     'loggers': {
+        'api.diagnostics': {'handlers': ['diagnostics'], 'level': 'INFO', 'propagate': False},
         # This catches all loggers (including your consumers and outbox)
         '': {
-            'handlers': ['console'],
+            'handlers': ['console', 'diagnostics'],
             'level': 'INFO',
             'propagate': True,
         },
         # Keeps Django's internal HTTP request logs from getting too noisy
         'django.server': {
-            'handlers': ['console'],
+            'handlers': ['console', 'diagnostics'],
             'level': 'INFO',
             'propagate': False,
         },

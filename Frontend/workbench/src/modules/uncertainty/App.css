@@ -20961,3 +20961,27 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 }
 .uncertainty-module .point-value-editing .point-unit-chevron { opacity: 1; }
 .uncertainty-module .measurement-group-container .point-value-number:hover { border-color: var(--sidebar-function-color, var(--primary-color)) !important; background: color-mix(in srgb, var(--sidebar-function-color, var(--primary-color)) 10%, transparent) !important; }
+
+/* Explicit column widths never redistribute spare panel space. */
+.uncertainty-module .budget-resizable-table { overflow: visible; }
+.uncertainty-module .budget-resizable-table.has-custom-widths { min-width: 0; }
+.uncertainty-module .instrument-equipment-table > tbody > tr.instrument-function-row > td,
+.uncertainty-module .budget-resizable-table.has-custom-widths > tbody > tr > td {
+  overflow: hidden; white-space: nowrap; overflow-wrap: normal; text-overflow: clip;
+}
+.uncertainty-module .budget-resizable-table > tbody > tr > .action-cell,
+.uncertainty-module .budget-resizable-table > thead > tr > [data-budget-column="actions"] {
+  position: sticky; right: 0; z-index: 5; background: var(--panel-background, var(--background-color));
+}
+.uncertainty-module .uncertainty-budget-table .budget-row-actions .delete-action { opacity: 1; }
+.uncertainty-module .analysis-content { scrollbar-gutter: stable; }
+.sidebar-filter-dropdown:has(.point-column-menu-body) { overflow-y: auto; }
+.point-column-menu-body { position: relative; align-items: start; }
+.point-column-menu-body .sidebar-column-order-list { max-height: none; overflow: visible; }
+.point-column-menu-body .point-column-available .sidebar-filter-sections {
+  overflow-y: auto; max-height: max(120px, calc(var(--column-menu-height, 600px) - 95px)); scrollbar-gutter: stable;
+}
+.point-column-available { min-width: 0; }
+.point-column-available .sidebar-column-order-heading { padding-right: 45px; }
+.point-column-reset { position: absolute; top: 12px; right: 12px; border: 0; background: transparent; color: var(--primary-color); font-size: .75rem; font-weight: 600; cursor: pointer; }
+.point-column-reset:hover { background: var(--primary-color-light); }

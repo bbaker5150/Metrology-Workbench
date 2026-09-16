@@ -88,6 +88,17 @@ it.each(["table", "equation"])("re-evaluates a copied %s component at the destin
   expect(source.testPointInfo.parameter.value).toBe(3000);
 });
 
+it.each(["table", "equation"])("preserves destination derived nominals when pasting a shared %s budget", kind => {
+  const definition = { ...createDynamicDefinition(kind, { value: 2, unit: 'ozf' }), mode: 'standard', equation: 'x/10', pointVariable: 'x' };
+  definition.rows = [2,3].map(value => ({ id:String(value), point:value, values:{[definition.columns[0].id]:{value:value/10}} }));
+  const source = { measurementType:'derived', equationString:'w*l', variableMappings:{w:'Weight',l:'Length'}, variableNominals:{w:{value:2,unit:'ozf'},l:{value:2,unit:'in'}}, components:[createDynamicComponent(definition,null,{kind:'input',variableType:'Weight'})] };
+  const destination = {...source, testPointInfo:{parameter:{value:6,unit:'in-ozf'}}, variableNominals:{w:{value:3,unit:'ozf'},l:{value:2,unit:'in'}}, components:[]};
+  const pasted = pastePointBudget(destination,copyPointBudget(source));
+  expect(pasted.variableNominals.w.value).toBe(3);
+  expect(resolveDynamicComponents(pasted.components,pasted,{dynamicBudgetDefinitions:[definition]})[0].value_native).toBe(.3);
+  expect(source.variableNominals.w.value).toBe(2);
+});
+
 
 it("recalculates copied Fahrenheit equation budgets and edited point copies without carrying source results", () => {
   const definition = { ...createDynamicDefinition("equation", { unit: "degF" }),

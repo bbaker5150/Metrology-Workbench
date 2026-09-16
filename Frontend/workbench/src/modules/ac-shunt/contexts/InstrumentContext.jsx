@@ -1,3 +1,4 @@
+import { readObservation, saveObservation, reportLifecycle } from "../utils/observationState";
 // src/contexts/InstrumentContext.js
 import React, {
   createContext,
@@ -23,7 +24,8 @@ const initialLiveReadings = {
 export const InstrumentContext = createContext();
 
 export const InstrumentContextProvider = ({ children }) => {
-  const [selectedSessionId, setSelectedSessionId] = useState(null);
+  const [restoredObservation] = useState(readObservation);
+  const [selectedSessionId, setSelectedSessionId] = useState(restoredObservation);
   const [selectedSessionName, setSelectedSessionName] = useState("");
   const [discoveredInstruments, setDiscoveredInstruments] = useState([]);
 
@@ -158,8 +160,8 @@ export const InstrumentContextProvider = ({ children }) => {
   // Observer mode is an explicit per-session choice. A browser can be connected
   // to a remote host over the network and still act as an operator for its own
   // calibration session.
-  const [isRemoteViewer, setIsRemoteViewer] = useState(false);
-  const [observedSessionId, setObservedSessionId] = useState(null);
+  const [isRemoteViewer, setIsRemoteViewer] = useState(Boolean(restoredObservation));
+  const [observedSessionId, setObservedSessionId] = useState(restoredObservation);
 
   // Tracks whether the host-sync WebSocket has delivered at least one
   // ``session_changed`` message since mount. The SessionManager dropdown
@@ -247,12 +249,38 @@ export const InstrumentContextProvider = ({ children }) => {
     }
   }, [switchDriverAddress, switchDriverModel]);
 
+  useEffect(() => {
+    saveObservation(isRemoteViewer ? observedSessionId : null);
+  }, [isRemoteViewer, observedSessionId]);
+  useEffect(() => {
+    const details = { session_id: selectedSessionId, role: isRemoteViewer ? "remote" : "host" };
+    reportLifecycle("view_attached", details);
+    const pagehide = () => reportLifecycle("pagehide", details);
+    const visibility = () => reportLifecycle("visibility_changed", details);
+    const error = event => reportLifecycle("frontend_error", { ...details, reason: event.message || "Unhandled frontend error" });
+    const rejection = event => reportLifecycle("unhandled_rejection", { ...details, reason: event.reason?.message || String(event.reason) });
+    window.addEventListener("pagehide", pagehide);
+    window.addEventListener("error", error);
+    window.addEventListener("unhandledrejection", rejection);
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      reportLifecycle("view_detached", details);
+      window.removeEventListener("pagehide", pagehide);
+      window.removeEventListener("error", error);
+      window.removeEventListener("unhandledrejection", rejection);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, [selectedSessionId, isRemoteViewer]);
+
   // --- Host Session Auto-Sync Logic ---
   useEffect(() => {
+    let disposed = false, retry = null;
     const connectHostSync = () => {
+      if (disposed) return;
       hostSyncWs.current = new WebSocket(`${WS_BASE_URL}/host-sync/`);
 
       hostSyncWs.current.onopen = () => {
+        if (disposed) return;
         // Announce our role first thing so the server can place us into the
         // presence registry. Host-only broadcasts (e.g. viewer_presence)
         // gate on this, so the identify has to land before anything else.
@@ -283,6 +311,7 @@ export const InstrumentContextProvider = ({ children }) => {
       };
 
       hostSyncWs.current.onmessage = (event) => {
+        if (disposed) return;
         const data = JSON.parse(event.data);
 
         if (data.type === "session_changed") {
@@ -336,7 +365,9 @@ export const InstrumentContextProvider = ({ children }) => {
         }
       };
 
-      hostSyncWs.current.onclose = () => {
+      hostSyncWs.current.onclose = (event) => {
+        reportLifecycle("socket_closed", { socket: "host-sync", code: event.code, reason: event.reason, session_id: selectedSessionIdRef.current });
+        if (disposed) return;
         // Clear stale presence on disconnect; a reconnect will refill it
         // from the next viewer_presence broadcast the server sends.
         setObservers([]);
@@ -349,13 +380,15 @@ export const InstrumentContextProvider = ({ children }) => {
         // initial mount: picking a session against stale active_sessions
         // data is how the race silently downgrades us to observer.
         setHostSyncSynced(false);
-        setTimeout(connectHostSync, 3000);
+        retry = setTimeout(connectHostSync, 3000);
       };
     };
 
     connectHostSync();
 
     return () => {
+      disposed = true;
+      clearTimeout(retry);
       if (hostSyncWs.current) {
         hostSyncWs.current.onclose = null;
         hostSyncWs.current.close();
@@ -502,9 +535,12 @@ export const InstrumentContextProvider = ({ children }) => {
     }`;
 
     readingWs.current = new WebSocket(socketUrl);
+    const socket = readingWs.current;
+    reportLifecycle("socket_connecting", { socket: "readings", session_id: selectedSessionId, role: isRemoteViewer ? "remote" : "host" });
     setReadingWsState(readingWs.current.readyState);
 
     readingWs.current.onopen = () => {
+      if (readingWs.current !== socket) return;
       setReadingWsState(readingWs.current.readyState);
       
       // Hydrate from the authoritative server buffer. This is essential for
@@ -513,7 +549,9 @@ export const InstrumentContextProvider = ({ children }) => {
       readingWs.current.send(JSON.stringify({ command: "request_live_sync" }));
     };
 
-    readingWs.current.onclose = () => {
+    readingWs.current.onclose = (event) => {
+      reportLifecycle("socket_closed", { socket: "readings", session_id: selectedSessionId, code: event.code, reason: event.reason });
+      if (readingWs.current !== socket) return;
       if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
       setReadingWsState(WebSocket.CLOSED);
       if (selectedSessionId)
@@ -524,14 +562,14 @@ export const InstrumentContextProvider = ({ children }) => {
       setReadingWsState(readingWs.current.readyState);
 
     readingWs.current.onmessage = (event) => {
+      if (readingWs.current !== socket) return;
       if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
       heartbeatTimeout.current = setTimeout(() => {
         console.log(
           "Heartbeat timeout: No message received in 75s. Reconnecting."
         );
-        if (readingWs.current) {
-          readingWs.current.close();
-        }
+        reportLifecycle("heartbeat_timeout", { socket: "readings", session_id: selectedSessionId });
+        if (readingWs.current === socket) socket.close();
       }, 75000);
 
       const data = JSON.parse(event.data);
@@ -1063,6 +1101,7 @@ export const InstrumentContextProvider = ({ children }) => {
     if (selectedSessionId) connectWebSocket();
     return () => {
       if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+      if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
       if (readingWs.current) {
         readingWs.current.onclose = null;
         readingWs.current.close();

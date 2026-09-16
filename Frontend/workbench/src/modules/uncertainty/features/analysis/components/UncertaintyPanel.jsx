@@ -2688,6 +2688,7 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
   return {
     widthFor: (key) =>
       widths.__absolute ? `${resolvedWidths[key] || 160}px` : `${((resolvedWidths[key] || 160) / totalWidth) * 100}%`,
+    tableWidth: widths.__absolute ? `${totalWidth}px` : "100%",
     minimumTableWidth: widths.__absolute ? totalWidth : keys.reduce((sum, key) => sum + minimumWidth(key), 0),
     startResize,
     resizeBy: (key, delta, table) =>
@@ -8816,7 +8817,7 @@ const SummaryDashboard = ({
             }}
             style={{
               tableLayout: "fixed",
-              width: "100%",
+              width: uutTableColumns.tableWidth,
               minWidth: `${uutTableColumns.minimumTableWidth}px`,
             }}
           >
@@ -9344,7 +9345,7 @@ const SummaryDashboard = ({
             }}
             style={{
               tableLayout: "fixed",
-              width: "100%",
+              width: tmdeTableColumns.tableWidth,
               minWidth: `${tmdeTableColumns.minimumTableWidth}px`,
             }}
           >
@@ -13576,9 +13577,12 @@ function DetailedView({
     const masterId = tmde?.sourceId ?? tmde?.id;
     const master = (sessionData.tmdes || []).find((m) => m.id === masterId);
     const name = String(
-      master?.nickname ?? tmde?.nickname ?? master?.name ?? tmde?.name ?? "",
+      master?.nickname || tmde?.nickname || master?.tag || tmde?.tag || "",
     ).trim();
-    return name || formatInstrumentIdentity(master || tmde, "Unnamed TMDE");
+    const source = master || tmde;
+    const instrument = source.instrument || source;
+    const identity = [instrument.model || source.model, source.description || instrument.description || source.name].filter(Boolean).join(" ");
+    return [name ? `(${name})` : "", identity].filter(Boolean).join(" ") || "Unnamed TMDE";
   };
 
   const getBudgetTmdeDetail = (tmde, requestedRange = null) => {
@@ -14207,7 +14211,7 @@ function DetailedView({
               {budgetTmdePicker.canAddManual && <>
                 {availableDynamicDefinitions(sessionData).flatMap((definition, definitionIndex) => {
                   const nominal = budgetTmdePicker.scope?.kind === "input" ? budgetTmdePicker.scope.nominalPoint : uutNominal;
-                  if (!canUseDynamicDefinition(definition, nominal, uutNominal)) return [];
+                  if (!canUseDynamicDefinition(definition, nominal)) return [];
                   return definition.columns.map(column => <button type="button" key={`${definition.id}:${column.id}`} style={itemStyle}
                     onClick={() => { onAddManualComponent?.(budgetTmdePicker.scope || null, definition.kind, definition, column.id); setBudgetTmdePicker(null); }}>
                     <FontAwesomeIcon icon={faPlus}/><span>{dynamicDefinitionLabel(definition, definitionIndex)}{definition.columns.length > 1 ? ` — ${column.name}` : ''}</span>
@@ -14811,7 +14815,7 @@ function DetailedView({
             }}
             style={{
               tableLayout: "fixed",
-              width: "100%",
+              width: uutTableColumns.tableWidth,
               minWidth: `${uutTableColumns.minimumTableWidth}px`,
             }}
           >
@@ -15642,7 +15646,7 @@ function DetailedView({
               }}
               style={{
                 tableLayout: "fixed",
-                width: "100%",
+                width: tmdeTableColumns.tableWidth,
                 minWidth: `${tmdeTableColumns.minimumTableWidth}px`,
               }}
             >

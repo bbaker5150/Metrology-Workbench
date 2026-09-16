@@ -1,3 +1,4 @@
+import ToolbarLayoutIcon from "../../shared/ToolbarLayoutIcon";
 import { clearDynamicComponentResults } from "./utils/dynamicBudgetComponents";
 import { decisionRiskColor } from "./utils/decisionRiskStatus";
 import UiSettings, { isUiScaleLocked } from "../../shared/UiSettings";
@@ -235,6 +236,19 @@ export const pastePointBudget = (point = {}, budget = {}) => {
       next[field] = clonePointSettingValue(budget[field]);
     }
   });
+  // A budget brings its equation and shared sources, but existing destination
+  // nominals belong to that point. Match by variable name when symbols differ.
+  if (point.measurementType === "derived" && budget.variableMappings) {
+    const nominals = { ...(next.variableNominals || {}) };
+    for (const [symbol, name] of Object.entries(budget.variableMappings)) {
+      const destinationSymbol = Object.keys(point.variableMappings || {}).find(key =>
+        name ? point.variableMappings[key] === name : key === symbol);
+      if (destinationSymbol && point.variableNominals?.[destinationSymbol]) {
+        nominals[symbol] = clonePointSettingValue(point.variableNominals[destinationSymbol]);
+      }
+    }
+    next.variableNominals = nominals;
+  }
   if (next.components) next.components = next.components.map(clearDynamicComponentResults);
   return next;
 };
@@ -1185,7 +1199,7 @@ export const SidebarPointItem = ({
 
   const limitsData = React.useMemo(() => {
     const ptParam = point.testPointInfo?.parameter;
-    const limits = getAbsoluteLimits(point.uutTolerance, ptParam);
+    const limits = getAbsoluteLimits(point.uutTolerance, ptParam, { snap: false });
     if (!limits || limits.low === "N/A") {
       return { low: "-", high: "-", fullLow: "-", fullHigh: "-" };
     }
@@ -6011,7 +6025,7 @@ function App({ showThemeToggle = false }) {
                         <div className="sidebar-column-menu" ref={columnMenuRef}>
                           <button title="Columns" aria-label="Columns" aria-haspopup="dialog" aria-expanded={isColumnMenuOpen}
                             data-tour="sidebar-columns" className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
-                            onClick={() => setIsColumnMenuOpen(open => !open)}><FontAwesomeIcon icon={faSlidersH} /></button>
+                            onClick={() => setIsColumnMenuOpen(open => !open)}><ToolbarLayoutIcon reorder /></button>
                           {isColumnMenuOpen && <SidebarColumnPopover anchorRef={columnMenuRef} onClose={() => setIsColumnMenuOpen(false)}>
                             <PointColumnMenu sections={[
                             {

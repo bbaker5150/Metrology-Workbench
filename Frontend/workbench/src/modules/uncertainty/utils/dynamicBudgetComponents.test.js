@@ -110,27 +110,20 @@ it.each([["degF", "°F"], ["degC", "°C"], ["Ohm", "Ω"], ["um", "µm"]])("forma
 });
 
 
-it("binds an input-budget equation to the selected 20 F point, not its 1 F input nominal", () => {
-  const d = { ...createDynamicDefinition('equation', { unit: 'degF' }), mode: 'standard', equation: 'x/10', pointVariable: 'x', variables: { x: { value: 1 } } };
-  const c = createDynamicComponent(d, null, { kind: 'input', variableType: 'Sensor' });
-  const p = { ...point(20, c), measurementType: 'derived', equationString: 'a*20', variableMappings: { a: 'Sensor' }, variableNominals: { a: { value: 1, unit: 'degF' } }, testPointInfo: { parameter: { value: 20, unit: 'degF' } } };
-  const session = { dynamicBudgetDefinitions: [d], uncReq: { uncertaintyConfidence: 95 } };
-  expect(resolveDynamicComponents(p.components, p, session)[0].value_native).toBe(2);
-  p.testPointInfo.parameter.value = 40;
-  expect(resolveDynamicComponents(p.components, p, session)[0].value_native).toBe(4);
-  expect(p.variableNominals.a.value).toBe(1);
-});
-
-it("keeps equation measurement units separate from the input budget output units", () => {
-  const p = { id: 'power-point', components: [], measurementType: 'derived', variableMappings: { a: 'Voltage' }, variableNominals: { a: { value: 1, unit: 'V' } }, testPointInfo: { parameter: { value: 20, unit: 'W' } } };
-  const attached = attachDynamicComponent({ testPoints: [p] }, p.id, 'equation', { kind: 'input', variableType: 'Voltage' });
-  const definition = { ...attached.session.dynamicBudgetDefinitions[0], mode: 'standard', equation: 'x/10', pointVariable: 'x' };
-  expect(definition.measurementUnit).toBe('W');
-  expect(definition.outputUnit).toBe('V');
-  const session = updateDynamicDefinition(attached.session, definition);
-  const resolved = resolveDynamicComponents(session.testPoints[0].components, p, session)[0];
-  expect(resolved.value_native).toBe(2);
-  expect(resolved.unit_native).toBe('V');
+it("binds shared input budgets to their own live nominal and final budgets to the point", () => {
+  const points = [2,3].map((w,i) => ({ id: String(i), measurementType: 'derived', equationString: 'w*l', variableMappings: { w: 'Weight', l: 'Length' }, variableNominals: { w: { value:w,unit:'ozf' }, l:{value:2,unit:'in'} }, testPointInfo:{parameter:{value:w*2,unit:'in-ozf'}}, components: [] }));
+  let session = attachDynamicComponent({testPoints:points},'0','equation',{kind:'input',variableType:'Weight'}).session;
+  const definition = {...session.dynamicBudgetDefinitions[0],equation:'x/10',pointVariable:'x',mode:'standard'};
+  session = updateDynamicDefinition(session,definition);
+  session = attachDynamicComponent(session,'1','equation',{kind:'input',variableType:'Weight'},definition).session;
+  expect(definition.measurementUnit).toBe('ozf');
+  expect(session.testPoints.map(p=>resolveDynamicComponents(p.components,p,session)[0].value_native)).toEqual([.2,.3]);
+  session.testPoints[1].variableNominals.w.value=5;
+  expect(resolveDynamicComponents(session.testPoints[1].components,session.testPoints[1],session)[0].value_native).toBe(.5);
+  const noUnit={...session.testPoints[0],variableNominals:{w:{value:2,unit:''}}};
+  expect(resolveDynamicComponents(noUnit.components,noUnit,session)[0].pendingReason).toMatch(/No unit is set for Weight/);
+  const final=attachDynamicComponent(session,'1','equation').session;
+  expect(final.dynamicBudgetDefinitions.at(-1).measurementUnit).toBe('in-ozf');
 });
 
 it.each(['table', 'equation'])("reuses one named %s draft across points and avoids duplicate budget rows", kind => {
@@ -145,6 +138,20 @@ it.each(['table', 'equation'])("reuses one named %s draft across points and avoi
   expect(session.testPoints.map(p => p.components.length)).toEqual([1, 1]);
   expect(session.testPoints[0].components[0].dynamicDefinitionId).toBe(session.testPoints[1].components[0].dynamicDefinitionId);
   if (kind === 'table') expect(session.dynamicBudgetDefinitions[0].rows.map(row => row.point)).toEqual([100, 200]);
+});
+
+it("repairs a legacy equation bound to the final point's different physical quantity", () => {
+  const definition = { ...createDynamicDefinition('equation', {unit:'ozf'}, {unit:'in-ozf'}), equation:'x/10', pointVariable:'x', mode:'standard' };
+  expect(resolveDynamicComponent(createDynamicComponent(definition), definition, {value:3,unit:'ozf'}).value_native).toBe(.3);
+});
+
+it.each(['table','equation'])("keeps a unitless %s draft reusable and reports its missing unit", kind => {
+  const p = {id:'p',components:[],measurementType:'derived',variableMappings:{w:'Weight'},variableNominals:{w:{value:2,unit:''}}};
+  let session = attachDynamicComponent({testPoints:[p]}, 'p', kind, {kind:'input',variableType:'Weight'}).session;
+  session = attachDynamicComponent(session, 'p', kind, {kind:'input',variableType:'Weight'}).session;
+  expect(session.dynamicBudgetDefinitions).toHaveLength(1);
+  expect(session.testPoints[0].components).toHaveLength(1);
+  expect(resolveDynamicComponents(session.testPoints[0].components,p,session)[0].pendingReason).toMatch(/No unit is set for Weight/);
 });
 
 it("reuses an authored table at a new point and shares later edits without altering other rows", () => {

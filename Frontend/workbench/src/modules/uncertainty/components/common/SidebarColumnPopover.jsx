@@ -1,9 +1,11 @@
-import React, { useLayoutEffect, useState } from "react";
+import React, { useLayoutEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { getAnchoredMenuPlacement } from "../../utils/anchoredMenuPosition";
 
 export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
   const [placement, setPlacement] = useState(null);
+  const menuRef = useRef(null);
+  const placed = Boolean(placement);
   useLayoutEffect(() => {
     const update = () => {
       const rect = anchorRef.current?.getBoundingClientRect();
@@ -14,34 +16,38 @@ export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
         preferredWidth: 480,
         preferredMaxHeight: 600,
       });
-      // This is a longer checklist: use the larger side when that exposes
-      // more choices without scrolling, rather than a short-menu threshold.
+      // Grow with the displayed list, then reposition the whole menu so its
+      // top remains reachable. Only the available list normally scrolls.
       const below = window.innerHeight - (rect?.bottom || 0) - 14;
-      const above = (rect?.top || 0) - 14;
-      if (below < 600 && above > below) {
-        next.top = undefined;
-        next.bottom = window.innerHeight - rect.top + 6;
-        next.maxHeight = Math.min(600, above);
-      }
-      setPlacement(next);
+      const height = Math.min(menuRef.current?.offsetHeight || 600, window.innerHeight - 28);
+      next.top = Math.max(14, Math.min(window.innerHeight - height - 14,
+        below >= height ? (rect?.bottom || 0) + 6 : (rect?.top || 0) - height - 6));
+      next.bottom = undefined;
+      next.maxHeight = Math.min(600, window.innerHeight - 28);
+      setPlacement(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
     };
     update();
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
+    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    if (menuRef.current) resize?.observe(menuRef.current);
     return () => {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
+      resize?.disconnect();
     };
-  }, [anchorRef]);
+  }, [anchorRef, placed]);
   if (!placement) return null;
   return createPortal(
     <div
+      ref={menuRef}
       className="sidebar-filter-dropdown"
       role="dialog"
       aria-label="Visible measurement point columns"
       style={{
         width: placement.width,
-        maxHeight: placement.maxHeight,
+        maxHeight: "calc(100vh - 28px)",
+        "--column-menu-height": `${placement.maxHeight}px`,
         left: placement.left,
         boxSizing: "border-box",
         position: "fixed",

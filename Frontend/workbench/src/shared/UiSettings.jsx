@@ -1,3 +1,4 @@
+import ToolbarLayoutIcon from "./ToolbarLayoutIcon";
 import React, { useEffect, useRef, useState } from "react";
 import { faCheck, faRotateLeft } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -35,10 +36,7 @@ export default function UiSettings() {
   }, []);
   return <details className="ui-settings" ref={menuRef}>
     <summary className="app-chrome-meta-icon" title="UI scaling" aria-label="UI Settings">
-      <svg className="ui-scaling-icon" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
-        <path d="M9 4h11v11M20 4l-8 8M14 4h6v6M9 4H7v13h13v-2" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-        <rect x="3" y="15" width="7" height="7" rx="1" fill="var(--background-color, #fff)" stroke="currentColor" strokeWidth="2.5" />
-      </svg>
+      <ToolbarLayoutIcon />
     </summary>
     <div className="ui-settings-menu" role="group" aria-label="UI scaling">
       <div className="ui-scaling-heading"><strong>UI scaling</strong><span>Ctrl + scroll</span></div>

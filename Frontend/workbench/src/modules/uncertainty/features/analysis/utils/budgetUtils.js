@@ -451,6 +451,7 @@ export const getBudgetComponentsFromTolerance = (
         distribution: resDistLabel,
         distributionDivisor: resDistRaw,
         isResolution: true,
+        resolution: resVal, resolutionUnit: resUnit,
       });
     }
   }
@@ -947,14 +948,14 @@ export const getUutResolutionComponent = (
   if (!hasValidNominal) return null;
 
   const resVal = parseFloat(
-    tol.measuringResolution ?? tol.resolution ?? nested.measuringResolution
+    tol.measuringResolution ?? tol.resolution ?? nested.measuringResolution ?? nested.resolution
   );
   if (isNaN(resVal) || resVal <= 0) return null;
 
   const nominalValue = parseFloat(referenceMeasurementPoint.value);
   const nominalUnit = referenceMeasurementPoint.unit;
   const resUnit =
-    tol.measuringResolutionUnit || nested.measuringResolutionUnit || nominalUnit;
+    tol.measuringResolutionUnit || tol.resolutionUnit || nested.measuringResolutionUnit || nested.resolutionUnit || nominalUnit;
   const resBase = unitSystem.toBaseUnit(resVal, resUnit);
   if (isNaN(resBase) || resBase <= 0) return null;
 
@@ -1002,6 +1003,7 @@ export const getUutResolutionComponent = (
     distribution: resDistLabel,
     distributionDivisor: resDistRaw,
     isResolution: true,
+    resolution: resVal, resolutionUnit: resUnit,
     sourcePointLabel: `${resVal} ${resUnit} LSD`,
   };
 };

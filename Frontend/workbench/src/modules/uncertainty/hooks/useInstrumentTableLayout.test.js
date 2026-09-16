@@ -10,9 +10,9 @@ describe("temporary instrument column widths", () => {
   });
 });
 
-it("fills wider panels proportionally and preserves saved widths in narrow panels", () => {
+it("preserves explicit widths regardless of available panel space", () => {
   const fitted = expandedInstrumentWidths([60, 200, 180], 1200, [], true);
-  expect(fitted.reduce((sum, width) => sum + width, 0)).toBeCloseTo(1200);
+  expect(fitted).toEqual([60, 200, 180]);
   expect(fitted[0] / fitted[1]).toBeCloseTo(60 / 200);
   expect(expandedInstrumentWidths([60, 200, 180], 300, [140], true)).toEqual([140, 200, 180]);
 });

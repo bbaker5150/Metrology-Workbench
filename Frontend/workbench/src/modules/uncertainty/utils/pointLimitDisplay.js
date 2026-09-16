@@ -1,4 +1,7 @@
-import { unitSystem } from "./uncertaintyMath";
+import { getUutResolutionComponent, getBudgetComponentsFromTolerance } from "../features/analysis/utils/budgetUtils";
+import { refreshTmdeInstancesFromMasters, reconcileTmdeInstances } from "./tmdeReconcile";
+import { resolvePointBudgetComponents } from "./resolvePointBudgetComponents";
+import { unitSystem, distributionDivisorValue } from "./uncertaintyMath";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 import { dynamicMeasurementValue } from "./dynamicBudgetComponents";
 
@@ -41,10 +44,23 @@ export function resolutionRange(master, snapshot = {}, nominal = {}) {
 }
 
 export function pointDisplayResolution(point, session = {}, unit = point.testPointInfo?.parameter?.unit) {
+  const components = resolvePointBudgetComponents(point, session);
   const nominal = point.testPointInfo?.parameter || {};
-  const uutId = point.activeUutId || point.associatedUutIds?.[0];
-  const uut = (session.uuts || []).find(item => String(item.id) === String(uutId));
-  return matchingResolution(resolutionRange(uut, point.uutTolerance || {}, nominal), unit);
+  const uutResolution = getUutResolutionComponent(point.uutTolerance || session.uutTolerance, nominal);
+  if (uutResolution) components.push(uutResolution);
+  const tmdes = refreshTmdeInstancesFromMasters(reconcileTmdeInstances(point.tmdeTolerances || [], session.tmdes || []), session.tmdes || []);
+  for (const tmde of tmdes) {
+    const symbol = Object.keys(point.variableMappings || {}).find(key => point.variableMappings[key] === tmde.variableType);
+    const reference = point.measurementType === 'derived' ? point.variableNominals?.[symbol] : nominal;
+    if (reference?.unit) components.push(...getBudgetComponentsFromTolerance(tmde.tolerance || tmde, reference));
+  }
+  return finest(components.filter(component => component.isResolution && !component.pendingReason).map(component => {
+    if (Number(component.resolution) > 0) return matchingResolution(component, unit);
+    const divisor = distributionDivisorValue(component.distributionDivisor);
+    const usesFullLsd = ["3.464", "4.899"].includes(String(component.distributionDivisor));
+    const lsd = Number(component.value_native) * divisor * (usesFullLsd ? 1 : 2);
+    return matchingResolution({ resolution: lsd, resolutionUnit: component.unit_native }, unit);
+  }));
 }
 
 export function formatPointLimit(value, resolution = 0) {

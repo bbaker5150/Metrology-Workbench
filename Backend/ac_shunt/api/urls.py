@@ -25,7 +25,10 @@ shunt_report_router.register(r'reports', ShuntReportViewSet, basename='shunt-rep
 tvc_report_router = routers.NestedSimpleRouter(router, r'tvcs', lookup='tvc')
 tvc_report_router.register(r'reports', TVCReportViewSet, basename='tvc-report')
 
+from .diagnostics import client_event
+
 urlpatterns = [
+    path("diagnostics/events/", client_event, name="diagnostic-event"),
     path('calibration_sessions/<int:session_pk>/test_points/<int:pk>/clear_readings/',
          TestPointViewSet.as_view({'post': 'clear_readings'}),
          name='testpoint-clear-readings'),

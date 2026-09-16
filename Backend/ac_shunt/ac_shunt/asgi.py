@@ -30,3 +30,7 @@ application = ProtocolTypeRouter({
         )
     ),
 })
+
+from api.diagnostics import DiagnosticASGI, start_lifecycle
+start_lifecycle()
+application = DiagnosticASGI(application)

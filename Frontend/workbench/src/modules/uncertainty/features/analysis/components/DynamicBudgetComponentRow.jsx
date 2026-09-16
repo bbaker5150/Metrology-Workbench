@@ -5,14 +5,14 @@ import { faPlus, faTimes, faArrowUp, faArrowDown, faLink, faExclamationTriangle 
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import { unitSystem, getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
-import { resolveDynamicComponent, validateBudgetEquation, dynamicMeasurementValue, findDynamicTableRow } from "../../../utils/dynamicBudgetComponents";
+import { resolveDynamicComponent, validateBudgetEquation, dynamicMeasurementValue, dynamicMeasurementUnit, findDynamicTableRow } from "../../../utils/dynamicBudgetComponents";
 
 const emptyRow = () => ({ id: uuid(), point: "", values: {} });
 const DISTRIBUTIONS = oldErrorDistributions.map(option => ({ value: option.value, label: option.label }));
 const UNIT_OPTIONS = Object.keys(unitSystem.units).map(unit => ({ value: unit, label: getUnitDisplayLabel(unit) }));
 const FallbackUnitSelect = props => <InlineMenuSelect {...props} options={UNIT_OPTIONS} width="max-content" />;
 const isEditorPortal = target => target instanceof Element && Boolean(target.closest(".inline-unit-menu"));
-const implicitUnits = (definition, point, measurementPoint) => definition && ({ ...definition, measurementUnit: definition.measurementUnit || (definition.kind === "equation" ? measurementPoint?.unit : point?.unit) || "", outputUnit: definition.outputUnit || point?.unit || "" });
+const implicitUnits = (definition, point) => definition && ({ ...definition, measurementUnit: dynamicMeasurementUnit(definition, point), outputUnit: definition.outputUnit || point?.unit || "" });
 
 export default function DynamicBudgetComponentRow({
   component, referencePoint, measurementPoint = referencePoint, showDof, onCommit, onRemove, onMoveUp, onMoveDown,
@@ -329,7 +329,7 @@ export default function DynamicBudgetComponentRow({
         {DISTRIBUTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select> : <button type="button" className={`inline-tolerance-summary${draft.distribution ? "" : " is-empty"}`} aria-label="Edit error limit distribution" onClick={() => setDistributionEditing(true)}>{draft.mode === "standard" ? "Standard uncertainty (k=1)" : DISTRIBUTIONS.find(option => option.value === draft.distribution)?.label || "Not Set"}</button>}</td>
       <td>B</td>{showDof && <td>∞</td>}
-      <td>{/incompatible/i.test(preview.pendingReason || "") ? <span role="img" aria-label={preview.pendingReason} title={preview.pendingReason} className="budget-pending-uncertainty" style={{ color: "var(--status-warning, #b58100)" }}><FontAwesomeIcon icon={faExclamationTriangle} /></span> : <span className={preview.value_native == null ? "inline-tolerance-summary is-empty budget-inline-not-set" : "budget-standard-uncertainty"} title={preview.pendingReason || undefined}>{preview.value_native == null ? "Not Set" : `± ${Number(preview.value_native.toPrecision(6))} ${getUnitDisplayLabel(preview.unit_native)}`}</span>}</td>
+      <td>{/incompatible|No unit is set/i.test(preview.pendingReason || "") ? <span role="img" aria-label={preview.pendingReason} title={preview.pendingReason} className="budget-pending-uncertainty" style={{ color: "var(--status-warning, #b58100)" }}><FontAwesomeIcon icon={faExclamationTriangle} /></span> : <span className={preview.value_native == null ? "inline-tolerance-summary is-empty budget-inline-not-set" : "budget-standard-uncertainty"} title={preview.pendingReason || undefined}>{preview.value_native == null ? "Not Set" : `± ${Number(preview.value_native.toPrecision(6))} ${getUnitDisplayLabel(preview.unit_native)}`}</span>}</td>
       <td className="action-cell"><button type="button" title="Remove component from this budget" aria-label="Remove dynamic component" onClick={() => onRemove?.(component.id, component)}><FontAwesomeIcon icon={faTimes} /></button></td>
     </tr>
   );

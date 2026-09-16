@@ -13,7 +13,7 @@ export const instrumentMutationAffectsLayout = record =>
 
 export const expandedInstrumentWidths = (weights, baseline, requirements, absolute = false) => {
   const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
-  const scale = absolute ? Math.max(1, baseline / total) : baseline / total;
+  const scale = absolute ? 1 : baseline / total;
   return weights.map((weight, index) => Math.max(weight * scale, requirements[index] || 0));
 };
 
@@ -51,8 +51,8 @@ export default function useInstrumentTableLayout(containerRef) {
       if (!container.getClientRects().length) return;
       const cols = [...table.querySelectorAll(":scope > colgroup > col")];
       const absolute = cols.every(col => col.style.width.endsWith("px"));
-      // Reset proportions against the full available panel, not its last saved
-      // pixel width. Distribute spare space so the full-width card stays filled.
+      // Proportional defaults use the panel; explicit pixel widths never stretch
+      // to fill spare space. Editor requirements grow only their own columns.
       card?.style.removeProperty("--instrument-panel-width");
       const requirements = [];
       if (!absolute) {

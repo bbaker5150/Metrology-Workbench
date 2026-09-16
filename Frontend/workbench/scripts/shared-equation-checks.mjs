@@ -4,7 +4,7 @@ export function prepareSharedEquationSession(session) {
   prepareDynamicEquationSession(session);
   session.testPoints.forEach((point, index) => Object.assign(point, {
     measurementType: 'derived', equationString: `a*${20 * (index + 1)}`,
-    variableMappings: { a: 'Sensor' }, variableNominals: { a: { value: 1, unit: 'degF' } },
+    variableMappings: { a: 'Sensor' }, variableNominals: { a: { value: index + 1, unit: 'degF' } },
     testPointInfo: { parameter: { name: 'Temperature', value: 20 * (index + 1), unit: 'degF' } },
   }));
 }
@@ -30,13 +30,13 @@ export async function checkSharedEquations({ frame, page, saved, until, check })
   await frame.getByLabel('Uncertainty equation', { exact: true }).fill('x/10');
   await frame.getByRole('button', { name: 'Edit error limit distribution', exact: true }).click();
   await frame.getByLabel('Error limit distribution', { exact: true }).selectOption('1.000');
-  check('input-budget equation binds selected 20 F point instead of 1 F input nominal', await bound() === '20 °F');
+  check('input-budget equation binds its 1 F input nominal', await bound() === '1 °F');
   await outside();
   check('input-budget equation saves under Sensor scope', await until(() => saved().testPoints[0].components.some(c => c.dynamicDefinitionId && c.variableType === 'Sensor')));
   await select(1);
   await picker();
   await frame.getByRole('button', { name: 'Equation component 1', exact: true }).click();
-  check('shared equation on second point binds 40 F', await bound() === '40 °F');
+  check('shared equation on second point binds its 2 F nominal', await bound() === '2 °F');
   await frame.getByLabel('Uncertainty equation', { exact: true }).fill('x/20');
   await outside();
   check('both points share a single equation definition', await until(() => {
@@ -49,7 +49,7 @@ export async function checkSharedEquations({ frame, page, saved, until, check })
   check('reselecting a shared component does not duplicate its budget row', saved().testPoints[1].components.length === 1);
   await select(0);
   await frame.locator('.budget-dynamic-row .dynamic-tolerance-cell button').click();
-  check('shared edit preserves first point binding and recalculates its limit', await bound() === '20 °F' && await frame.locator('.dynamic-editor-preview').innerText().then(t => t.includes('1 °F')));
+  check('shared edit preserves first point binding and recalculates its limit', await bound() === '1 °F' && await frame.locator('.dynamic-editor-preview').innerText().then(t => t.includes('0.05 °F')));
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/shared-equation-20F.png` });
   await outside();
   // Unfinished creation resumes the same draft on repeated Add clicks.

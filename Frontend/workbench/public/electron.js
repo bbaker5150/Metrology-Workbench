@@ -3,6 +3,19 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 
+function lifecycle(event, details = {}) {
+    try {
+        const folder = path.join(app.getPath('userData'), 'diagnostics');
+        fs.mkdirSync(folder, { recursive: true });
+        const file = path.join(folder, 'electron-lifecycle.jsonl');
+        if (fs.existsSync(file) && fs.statSync(file).size > 5 * 1024 * 1024) fs.renameSync(file, file + '.previous');
+        fs.appendFileSync(file, JSON.stringify({ time: new Date().toISOString(), pid: process.pid, event, ...details }) + '\n');
+    } catch (_) { /* Logging must never interrupt the application. */ }
+}
+lifecycle('electron_started');
+app.on('before-quit', () => lifecycle('electron_before_quit'));
+app.on('child-process-gone', (_, details) => lifecycle('child_process_gone', details));
+
 let mainWindow;
 let backendProcess;
 
@@ -150,6 +163,11 @@ function createWindow() {
         ? `http://localhost:${devPort}`
         : `file://${path.join(__dirname, '../build/index.html')}`;
 
+    mainWindow.webContents.on('render-process-gone', (_, details) => lifecycle('renderer_gone', details));
+    mainWindow.webContents.on('did-start-navigation', (_, url, isInPlace, isMainFrame) => {
+        if (isMainFrame) lifecycle('navigation', { url: url.split('?')[0], isInPlace });
+    });
+    mainWindow.on('unresponsive', () => lifecycle('renderer_unresponsive'));
     mainWindow.loadURL(startUrl);
     
     if (isDev) mainWindow.webContents.openDevTools();
@@ -218,6 +236,9 @@ function startBackend() {
         windowsHide: true
     });
 
+    lifecycle('backend_spawned', { backend_pid: backendProcess.pid });
+    backendProcess.on('exit', (code, signal) => lifecycle('backend_exit', { code, signal }));
+    backendProcess.on('error', (error) => lifecycle('backend_error', { message: error.message }));
     backendProcess.stdout.on('data', (data) => {
         console.log(`Backend: ${data}`);
     });

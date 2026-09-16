@@ -1309,7 +1309,7 @@ export const getToleranceErrorSummary = (toleranceObject, referencePoint) => {
   )} / ${totalLowDeviation.toPrecision(3)} ${nominalUnitLabel}`;
 };
 
-export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
+export const getAbsoluteLimits = (toleranceObject, referencePoint, { snap = true } = {}) => {
   if (
     !toleranceObject ||
     !referencePoint ||
@@ -1391,7 +1391,7 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
   const { low: snappedLow, high: snappedHigh } = snapLimitsToResolution(
     finalLowLimit,
     finalHighLimit,
-    resolveResolutionNative(toleranceObject, nominalUnit)
+    snap ? resolveResolutionNative(toleranceObject, nominalUnit) : 0
   );
 
   return {
