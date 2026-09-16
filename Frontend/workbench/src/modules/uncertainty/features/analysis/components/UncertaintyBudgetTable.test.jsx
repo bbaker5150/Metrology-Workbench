@@ -73,6 +73,17 @@ const derivedApproximationGroups = (finalOverrides = {}) => [
 ];
 
 describe("UncertaintyBudgetTable direct budget actions", () => {
+  it("shows contributions by default and removes the entire support row when hidden", async () => {
+    const view = renderDirectBudget({ calcResults: {
+      combined_uncertainty: 1, expanded_uncertainty: 2, k_value: 2,
+      calculatedBudgetComponents: [{ id: 'source', name: 'Source', value_native: 1 }],
+    } });
+    expect(screen.getByRole('button', { name: 'Hide contribution chart' })).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(view.container.querySelector('.budget-final-support')).not.toBeNull());
+    view.rerender(<UncertaintyBudgetTable {...view} showContribution={false} />);
+    expect(view.container.querySelector('.budget-final-support')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Show contribution chart' })).toHaveAttribute('aria-pressed', 'false');
+  });
   it("shows propagation details in the table warning triangle", () => {
     const warning = 'The linear budget may understate this input.';
     renderDirectBudget({ measurementType: 'derived', propagationWarnings: [warning],
@@ -938,7 +949,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
 
   it("uses a compact chart control beside Add for contribution display", () => {
     const setShowContribution = vi.fn();
-    renderDirectBudget({ setShowContribution });
+    renderDirectBudget({ setShowContribution, showContribution: false });
 
     expect(document.querySelector(".budget-stack-final-display")).not.toBeInTheDocument();
     expect(screen.queryByText("Expanded Uncertainty (U)")).not.toBeInTheDocument();

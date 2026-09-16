@@ -1,3 +1,4 @@
+import GrowingNumericInput from "../common/GrowingNumericInput";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTimes, faMinus, faExchangeAlt, faCopy, faRightLeft } from "@fortawesome/free-solid-svg-icons";
@@ -133,7 +134,7 @@ const UnitConverter = ({ isOpen, onClose }) => {
         <div className="conv-grid">
             <div className="conv-side">
                 <label>From</label>
-                <input 
+                <GrowingNumericInput
                     type="number" 
                     value={inputValue} 
                     onChange={(e) => setInputValue(e.target.value)} 

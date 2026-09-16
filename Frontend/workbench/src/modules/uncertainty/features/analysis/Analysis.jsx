@@ -123,7 +123,7 @@ function Analysis({
   onRangeSelectionChange,
   preferredAnalysisMode = "overview",
   onAnalysisModeChange = () => {},
-  preferredShowContribution = false,
+  preferredShowContribution = true,
   onShowContributionChange = () => {},
   overviewCollapsedFunctionKeys,
   setOverviewCollapsedFunctionKeys,

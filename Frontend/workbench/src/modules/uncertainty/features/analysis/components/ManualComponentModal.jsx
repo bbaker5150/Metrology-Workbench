@@ -1,3 +1,4 @@
+import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import { normalizeInlineManualComponent } from "../utils/manualComponentUtils";
 import React, { useState, useEffect, useMemo } from "react";
 import ReactDOM from "react-dom";
@@ -297,7 +298,7 @@ const ManualComponentModal = ({
 
   const renderUnitInput = (name, value, placeholder) => (
     <div className="input-with-unit">
-      <input
+      <GrowingNumericInput
         type="number"
         step="any"
         name={name}
@@ -439,7 +440,7 @@ const ManualComponentModal = ({
                 <span>Use finite DoF</span>
               </label>
               {component.useFiniteDof && (
-                <input
+                <GrowingNumericInput
                   type="number"
                   step="1"
                   min="1"

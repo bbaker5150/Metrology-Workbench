@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
-import { resolveMeasurementBias } from "../../../utils/measurementBias";
+import { resolveMeasurementBias, getUutBiasDefault } from "../../../utils/measurementBias";
 import { getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
 import { isUnknownMeasurementTolerance } from "../../../utils/risk8/unknownMeasurementRisk8";
 
@@ -21,6 +21,15 @@ export default function MeasurementBiasEditor({ point, session, calculatedAverag
   const settings = point.measurementBias || {};
   const unknown = isUnknownMeasurementTolerance(point.uutTolerance || session.uutTolerance);
   const patch = changes => onChange({ measurementBias: { ...settings, ...changes } });
+  // Visibility follows authored configuration, not its computed sum: explicit
+  // zero, corrected sources and cancelling biases must remain editable. Keep
+  // overrides/manual mode visible while being cleared so focus is not lost.
+  const configured = spec => spec?.value != null && String(spec.value).trim() !== "";
+  const hasBias = configured(getUutBiasDefault(point, session)) ||
+    point.uutBias?.mode === "override" || settings.mode === "manual" ||
+    Object.keys(settings.sources || {}).length > 0 ||
+    result.sources.some(row => configured(row.spec) || configured(row.inherited));
+  if (!hasBias && !result.error) return null;
   return <details className="measurement-bias-panel">
     <summary><span>Bias settings</span><span className="measurement-bias-summary">
       {result.error ? "Check bias settings" : `UUT: ${unknown ? "Not applicable" : `${display(result.uutBias)} ${unitLabel}`} · System: ${display(result.calBias)} ${unitLabel}`}

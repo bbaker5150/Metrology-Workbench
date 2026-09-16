@@ -1,0 +1,8 @@
+/* Supersede narrow legacy field widths without changing vertical geometry.
+   Apply in both the app tree and portaled instrument/budget editors. */
+input.growing-numeric-input {
+  min-width: var(--numeric-content-width) !important;
+  max-width: none !important;
+  flex-shrink: 0 !important;
+  field-sizing: content;
+}

@@ -1,3 +1,4 @@
+import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import InlineSourceNameEditor from "../../../components/common/InlineSourceNameEditor";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
@@ -324,7 +325,7 @@ const ManualValueCell = ({ component, onCommit, suffix }) => {
   }
 
   return (
-    <input
+    <GrowingNumericInput
       autoFocus
       type="number"
       className="mini-input"
@@ -580,7 +581,7 @@ const InlineManualComponentRow = ({
 
   const magnitudeInput = (field, label) => (
     <div className="budget-inline-magnitude">
-      <input
+      <GrowingNumericInput
         type="number"
         step="any"
         min="0"
@@ -734,7 +735,7 @@ const MonteCarloTrialsInput = ({ value, onCommit, disabled = false }) => {
       onClick={(event) => event.stopPropagation()}
     >
       <span>N</span>
-      <input
+      <GrowingNumericInput
         type="number"
         min="100"
         step="1"
@@ -836,7 +837,7 @@ const UncertaintyBudgetTable = ({
   isDerivedBreakdownOpen = false,
   isCorrelationOpen = false,
   onShowRiskBreakdown,
-  showContribution,
+  showContribution = true,
   setShowContribution,
   onAddManualComponent,
   onAddTmdeToBudget,
@@ -1668,7 +1669,7 @@ const UncertaintyBudgetTable = ({
                   ? renderEquationTable(group)
                   : renderComponentTable(group)}
               </div>
-              {group.kind === "final" && calcResults && (
+              {group.kind === "final" && calcResults && contributionChart && (
                 <div className="budget-final-support">
                   {contributionChart && (
                     <Suspense

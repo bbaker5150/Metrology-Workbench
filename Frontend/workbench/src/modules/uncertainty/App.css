@@ -10316,7 +10316,9 @@ body.theme-cyberpunk .notification-window .window-header {
 
 .uut-measurement-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  /* The instrument card has one full workspace row, like a budget with its
+     results card. Do not leave an implicit second slot on wider displays. */
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 18px;
   min-width: 0;
@@ -12498,6 +12500,7 @@ input.inline-function-input:focus {
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  width: 100%;
 }
 
 .detail-workspace-section-toggle {

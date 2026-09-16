@@ -1,3 +1,4 @@
+import GrowingNumericInput from "./GrowingNumericInput";
 import React, { useEffect, useState } from "react";
 import InlineMenuSelect from "./InlineMenuSelect";
 import { getUnitDisplayLabel } from "../../utils/uncertaintyMath";
@@ -25,7 +26,7 @@ export default function BiasValueEditor({ value, unit, onChange, label = "Bias",
     if (text !== String(spec.value ?? "")) onChange({ ...spec, value: text, unit: spec.unit || unit });
   };
   return <span className="bias-value-editor">
-    <input aria-label={label} className="bias-value-input" type="text" inputMode="decimal" placeholder="0"
+    <GrowingNumericInput aria-label={label} className="bias-value-input" type="text" inputMode="decimal" placeholder="0"
       value={draft} onChange={event => { event.target.setCustomValidity(""); setDraft(event.target.value); }} onBlur={commit}
       onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />
     <InlineMenuSelect ariaLabel={`${label} units`} value={spec.kind || "absolute"} width="auto" showOptionMeta={false}

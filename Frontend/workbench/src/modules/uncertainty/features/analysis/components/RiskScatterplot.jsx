@@ -1,3 +1,4 @@
+import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import { useMemo, useState } from "react";
 import { useTheme } from "../../../context/ThemeContext";
 import Plotly from 'plotly.js-dist';
@@ -411,7 +412,7 @@ const RiskScatterplot = ({ results, inputs }) => {
           {vizMode === 'monteCarlo' && (
             <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <label htmlFor="numPlotPoints" style={{fontSize: '0.75rem', marginBottom: '2px', fontWeight: 'bold'}}>Points:</label>
-                <input
+                <GrowingNumericInput
                     type="number"
                     id="numPlotPoints"
                     step="500"

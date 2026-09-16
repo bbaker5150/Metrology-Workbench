@@ -1,3 +1,4 @@
+import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import React, { useState, useLayoutEffect, useEffect } from "react";
 import ReactDOM from "react-dom";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
@@ -701,7 +702,7 @@ const EditSessionModal = ({
                       aria-hidden="true"
                     />
                   </label>
-                  <input
+                  <GrowingNumericInput
                     type="number"
                     name={field.name}
                     value={formData.uncReq?.[field.name] || ""}

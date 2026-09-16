@@ -1,3 +1,4 @@
+import GrowingNumericInput from "./GrowingNumericInput";
 import React, { useMemo, useEffect, useState, useRef } from "react";
 import ReactDOM from "react-dom";
 import Select from "react-select";
@@ -404,7 +405,7 @@ const ToleranceForm = ({
       <div className="input-group-asymmetric">
         <div>
           <label>Lower Limit</label>
-          <input
+          <GrowingNumericInput
             type="number"
             step="any"
             data-component-key={key}
@@ -417,7 +418,7 @@ const ToleranceForm = ({
         </div>
         <div>
           <label>Upper Limit</label>
-          <input
+          <GrowingNumericInput
             type="number"
             step="any"
             data-component-key={key}
@@ -511,7 +512,7 @@ const ToleranceForm = ({
           <div className="config-stack">
             <div>
                 <label>Range (FS) Value</label>
-                <input
+                <GrowingNumericInput
                 type="number"
                 step="any"
                 data-component-key="range"
@@ -532,7 +533,7 @@ const ToleranceForm = ({
             <div className="input-group-asymmetric">
                 <div>
                     <label>dB Equation Multiplier</label>
-                    <input
+                    <GrowingNumericInput
                     type="number"
                     step="any"
                     data-component-key="db"
@@ -543,7 +544,7 @@ const ToleranceForm = ({
                 </div>
                 <div>
                     <label>dB Reference Value</label>
-                    <input
+                    <GrowingNumericInput
                     type="number"
                     step="any"
                     data-component-key="db"
@@ -812,7 +813,7 @@ const ToleranceForm = ({
                               ? "Standard Uncertainty (±)"
                               : "Tolerance Limit (±)"}
                           </label>
-                          <input
+                          <GrowingNumericInput
                             type="number"
                             step="any"
                             value={
@@ -935,7 +936,7 @@ const ToleranceForm = ({
                   gap: "10px",
                 }}
               >
-                <input
+                <GrowingNumericInput
                   type="number"
                   step="any"
                   name="measuringResolution"

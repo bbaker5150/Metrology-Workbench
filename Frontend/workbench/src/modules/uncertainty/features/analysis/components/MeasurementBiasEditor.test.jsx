@@ -19,6 +19,20 @@ const enter = (label, value) => {
   fireEvent.blur(input);
 };
 
+it("hides unused bias settings and retains explicit zero and manual overrides", () => {
+  const point = { testPointInfo: { parameter: { value: 10, unit: "V" } } };
+  const { container, rerender } = render(<MeasurementBiasEditor point={point} session={{}} onChange={vi.fn()} />);
+  expect(container.querySelector('.measurement-bias-panel')).toBeNull();
+  for (const patch of [
+    { uutTolerance: { bias: { value: "0", unit: "V" } } },
+    { uutBias: { mode: "override", value: "" } },
+    { measurementBias: { mode: "manual", value: "0", unit: "V" } },
+  ]) {
+    rerender(<MeasurementBiasEditor point={{ ...point, ...patch }} session={{}} onChange={vi.fn()} />);
+    expect(container.querySelector('.measurement-bias-panel')).not.toBeNull();
+  }
+});
+
 it("edits source overrides, corrections, manual mode and a separate UUT override inline", () => {
   const fixture = biasFixture();
   let saved;

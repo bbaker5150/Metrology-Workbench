@@ -1,3 +1,4 @@
+import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
 import MeasurementBiasEditor from "./MeasurementBiasEditor";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
@@ -1679,7 +1680,7 @@ export const MeasurementInputNominalCell = ({
     <div ref={rootRef} className="measurement-input-cell-editor">
       {editing ? (
         <div className="inline-resolution-editor measurement-input-nominal">
-          <input
+          <GrowingNumericInput
             autoFocus
             type="number"
             step="any"
@@ -3309,7 +3310,7 @@ export const ResolutionCellInput = ({
         dismissResolutionEditor();
       }}
     >
-      <input
+      <GrowingNumericInput
         type="text"
         inputMode="decimal"
         value={v}
@@ -3852,9 +3853,9 @@ const componentUnitLabel = (typeKey, component = {}, activeRange = {}) => {
   if (typeKey === "db") return "dB";
   return "";
 };
-const toleranceInputStyleFor = (value, { minCh = 5, maxCh = 12 } = {}) => {
+const toleranceInputStyleFor = (value, { minCh = 5 } = {}) => {
   const length = String(value ?? "").trim().length || minCh;
-  const ch = Math.min(Math.max(length + 2, minCh), maxCh);
+  const ch = Math.max(length + 2, minCh);
   return {
     width: `${ch}ch`,
     flexBasis: `${ch}ch`,
@@ -4125,7 +4126,7 @@ const ToleranceTermEditor = ({
         {termMode === "symmetric" && (
           <>
             {showHighSign && <span className="inline-tolerance-symbol">±</span>}
-            <input
+            <GrowingNumericInput
               type="text"
               inputMode="decimal"
               value={highValue}
@@ -4151,7 +4152,7 @@ const ToleranceTermEditor = ({
             {showHighSign && (
               <span className="inline-tolerance-symbol">{singleNeg ? "−" : "+"}</span>
             )}
-            <input
+            <GrowingNumericInput
               type="text"
               inputMode="decimal"
               value={singleValue}
@@ -4177,7 +4178,7 @@ const ToleranceTermEditor = ({
         {termMode === "asymmetric" && (
           <>
             <span className="inline-tolerance-symbol">−</span>
-            <input
+            <GrowingNumericInput
               type="text"
               inputMode="decimal"
               value={lowValue}
@@ -4189,7 +4190,7 @@ const ToleranceTermEditor = ({
               style={toleranceInputStyleFor(lowValue)}
             />
             {showHighSign && <span className="inline-tolerance-symbol">+</span>}
-            <input
+            <GrowingNumericInput
               type="text"
               inputMode="decimal"
               value={highValue}
@@ -4261,7 +4262,7 @@ const ToleranceTermEditor = ({
       {typeKey === "range" && (
         <span className="inline-tolerance-fs">
           <span>(FS=</span>
-          <input
+          <GrowingNumericInput
             type="text"
             inputMode="decimal"
             value={fullScale}
@@ -4270,7 +4271,7 @@ const ToleranceTermEditor = ({
             onBlur={(e) => commitFullScale(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
             className="inline-tolerance-input inline-tolerance-input--fs"
-            style={toleranceInputStyleFor(fullScale, { minCh: 6, maxCh: 14 })}
+            style={toleranceInputStyleFor(fullScale, { minCh: 6 })}
           />
           <span>{getUnitDisplayLabel(activeRange?.unit || "")}</span>
           <span>)</span>
@@ -4428,7 +4429,7 @@ const SingleSidedToleranceEditor = ({
         <span className="inline-tolerance-symbol" title={limitLabel}>
           {direction === "low" ? "≥" : "≤"}
         </span>
-        <input
+        <GrowingNumericInput
           type="text"
           inputMode="decimal"
           value={isSelected ? limit : ""}
@@ -4922,7 +4923,7 @@ export const RangeCell = ({
       }}
     >
       <div className="inline-range-main">
-            <input
+            <GrowingNumericInput
               key={`min-${rangeIdOf(activeRange) || "new"}`}
               type="text"
               inputMode="decimal"
@@ -4933,7 +4934,7 @@ export const RangeCell = ({
               className="inline-tolerance-input inline-range-bound-input"
             />
             <span style={{ color: "var(--text-color-muted)" }}>–</span>
-            <input
+            <GrowingNumericInput
               key={`max-${rangeIdOf(activeRange) || "new"}`}
               type="text"
               inputMode="decimal"
@@ -5040,7 +5041,7 @@ export const GhostRangeRow = ({
         <div className="range-row-cell range-row-cell--ghost">
           <div className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
             <div className="inline-range-main">
-                  <input
+                  <GrowingNumericInput
                     type="text"
                     inputMode="decimal"
                     value={min}
@@ -5051,7 +5052,7 @@ export const GhostRangeRow = ({
                     className="inline-tolerance-input inline-range-bound-input"
                   />
                   <span style={{ color: "var(--text-color-muted)" }}>–</span>
-                  <input
+                  <GrowingNumericInput
                     type="text"
                     inputMode="decimal"
                     value={max}

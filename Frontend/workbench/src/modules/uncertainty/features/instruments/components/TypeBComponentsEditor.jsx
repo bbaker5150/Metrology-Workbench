@@ -1,3 +1,4 @@
+import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 /**
  * TypeBComponentsEditor
  *
@@ -323,7 +324,7 @@ const TypeBComponentsEditor = ({
                 {isStandard ? (
                   <label className="typeb-field typeb-scope-field">
                     <span>Std. Uncertainty (uᵢ)</span>
-                    <input
+                    <GrowingNumericInput
                       type="number"
                       step="any"
                       value={mc.standardUncertainty || ""}

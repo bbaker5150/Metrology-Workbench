@@ -1,3 +1,4 @@
+import GrowingNumericInput from "../common/GrowingNumericInput";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { 
@@ -290,7 +291,7 @@ const ReverseTraceabilityTool = ({ isOpen, onClose }) => {
         }}>
             <div>
                 <div style={labelStyle}>Initial</div>
-                <input 
+                <GrowingNumericInput
                     type="number" step="any" placeholder="0.00"
                     value={initialValue} onChange={e => setInitialValue(e.target.value)}
                     style={inputStyle}
@@ -298,7 +299,7 @@ const ReverseTraceabilityTool = ({ isOpen, onClose }) => {
             </div>
             <div>
                 <div style={labelStyle}>Limit (Tol)</div>
-                <input 
+                <GrowingNumericInput
                     type="number" step="any" placeholder="±"
                     value={limitValue} onChange={e => setLimitValue(e.target.value)}
                     style={inputStyle}
@@ -306,7 +307,7 @@ const ReverseTraceabilityTool = ({ isOpen, onClose }) => {
             </div>
             <div>
                 <div style={labelStyle}>OOT Value</div>
-                <input 
+                <GrowingNumericInput
                     type="number" step="any" placeholder="found"
                     value={ootValue} onChange={e => setOotValue(e.target.value)}
                     style={{ 
@@ -338,7 +339,7 @@ const ReverseTraceabilityTool = ({ isOpen, onClose }) => {
             </div>
             <div>
                 <div style={labelStyle}>Interval (Mos)</div>
-                <input 
+                <GrowingNumericInput
                     type="number" 
                     value={stdInterval} onChange={e => setStdInterval(e.target.value)}
                     placeholder="12"

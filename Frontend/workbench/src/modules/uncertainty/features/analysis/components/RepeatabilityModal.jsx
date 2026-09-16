@@ -1,3 +1,4 @@
+import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import Select from "react-select";
@@ -202,7 +203,7 @@ const RepeatabilityModal = ({
               Measurement
             </label>
             <div className="repeatability-input-row">
-              <input
+              <GrowingNumericInput
                 id="repeatability-reading"
                 ref={inputRef}
                 type="number"

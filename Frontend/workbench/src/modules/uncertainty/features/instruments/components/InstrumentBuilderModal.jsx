@@ -1,3 +1,4 @@
+import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
 import { instrumentMatchesSearch } from "../../../utils/functionGrouping";
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
@@ -695,14 +696,14 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                               {activeFunction.ranges.map(range => (
                                 <tr key={range.id}>
                                   <td>
-                                    <input type="number" step="any" value={range.min} onChange={e => updateRangeBounds(range.id, 'min', e.target.value)} />
+                                    <GrowingNumericInput type="number" step="any" value={range.min} onChange={e => updateRangeBounds(range.id, 'min', e.target.value)} />
                                   </td>
                                   <td>
-                                    <input type="number" step="any" value={range.max} onChange={e => updateRangeBounds(range.id, 'max', e.target.value)} />
+                                    <GrowingNumericInput type="number" step="any" value={range.max} onChange={e => updateRangeBounds(range.id, 'max', e.target.value)} />
                                   </td>
                                   <td>
                                     <div className="range-resolution-control">
-                                      <input type="number" step="any" value={range.resolution ?? 0} onChange={e => updateRangeBounds(range.id, 'resolution', e.target.value)} />
+                                      <GrowingNumericInput type="number" step="any" value={range.resolution ?? 0} onChange={e => updateRangeBounds(range.id, 'resolution', e.target.value)} />
                                       <label
                                         className="range-resolution-budget-toggle"
                                         title="Include this range's resolution as a Type B uncertainty component"

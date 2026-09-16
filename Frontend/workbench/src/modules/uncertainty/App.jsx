@@ -2354,7 +2354,7 @@ function App({ showThemeToggle = false }) {
   const [analysisMode, setAnalysisMode] = useState("overview");
   const analysisScrollPositionsRef = useRef({});
   const lastSelectedPointBySessionRef = useRef({});
-  const [showContribution, setShowContribution] = useState(false);
+  const [showContribution, setShowContribution] = useState(true);
   const [scopedZoomLevels, setScopedZoomLevels] = useState(
     () => readUiSizingPreferences().scopedZoomLevels || {},
   );
@@ -2806,7 +2806,7 @@ function App({ showThemeToggle = false }) {
     );
     setActiveRangeIndices(preferences.activeRangeIndices || {});
     setAnalysisMode(preferences.analysisMode || "overview");
-    setShowContribution(preferences.showContribution ?? false);
+    setShowContribution(preferences.showContribution ?? true);
     setScopedZoomLevels(
       sizingPreferences.scopedZoomLevels || preferences.scopedZoomLevels || {},
     );

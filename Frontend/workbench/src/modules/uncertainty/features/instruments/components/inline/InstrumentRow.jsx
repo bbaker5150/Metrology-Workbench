@@ -1,3 +1,4 @@
+import GrowingNumericInput from "../../../../components/common/GrowingNumericInput";
 import React, { useState, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrashAlt, faLink, faLinkSlash } from "@fortawesome/free-solid-svg-icons";
@@ -189,7 +190,7 @@ const InstrumentRow = ({
 
       {/* Quantity */}
       <td>
-        <input
+        <GrowingNumericInput
           type="number"
           min="1"
           className="inline-cell-input inline-qty-input"

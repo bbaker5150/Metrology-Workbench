@@ -1,3 +1,4 @@
+import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import React, { useState, useEffect, useMemo } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -189,7 +190,7 @@ const CorrelationMatrixModal = ({ isOpen, onClose, components = [], correlations
                     const rho = getCorrelation(matrix, rowC.id, colC.id);
                     return (
                       <td key={colC.id} style={{ padding: "4px", textAlign: "center" }}>
-                        <input
+                        <GrowingNumericInput
                           type="number"
                           step="0.1"
                           min="-1"
