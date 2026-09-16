@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faTimes, faArrowUp, faArrowDown, faLink, faExclamationTriangle } from "@fortawesome/free-solid-svg-icons";
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
+import InlineSourceNameEditor from "../../../components/common/InlineSourceNameEditor";
 import { unitSystem, getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 import { resolveDynamicComponent, validateBudgetEquation, dynamicMeasurementValue, dynamicMeasurementUnit, findDynamicTableRow } from "../../../utils/dynamicBudgetComponents";
@@ -207,12 +208,16 @@ export default function DynamicBudgetComponentRow({
       }}
       onKeyDown={event => {
         if (event.defaultPrevented || isEditorPortal(event.target)) return;
+        const restoreTriggerFocus = () => requestAnimationFrame(() => {
+          const trigger = naming ? rowRef.current?.querySelector('[aria-label="Edit error source name"]') : triggerRef.current;
+          trigger?.focus({ preventScroll: true });
+        });
         if (event.key === "Escape") {
           event.preventDefault(); event.stopPropagation(); finish(true);
-          requestAnimationFrame(() => triggerRef.current?.focus());
-        } else if (event.key === "Enter" && event.target.tagName === "INPUT") {
+          restoreTriggerFocus();
+        } else if (event.key === "Enter" && ["INPUT", "TEXTAREA"].includes(event.target.tagName)) {
           event.preventDefault(); event.stopPropagation(); finish();
-          requestAnimationFrame(() => triggerRef.current?.focus());
+          restoreTriggerFocus();
         }
       }}>
       <td className="budget-source-cell has-order-controls">
@@ -220,9 +225,11 @@ export default function DynamicBudgetComponentRow({
           <button type="button" title="Move component up" aria-label="Move component up" onClick={onMoveUp}><FontAwesomeIcon icon={faArrowUp} /></button>
           <button type="button" title="Move component down" aria-label="Move component down" onClick={onMoveDown}><FontAwesomeIcon icon={faArrowDown} /></button>
         </div>
-        <div className={naming ? "dynamic-source-editor" : "dynamic-source-content"} data-budget-editor={naming ? "source" : undefined}>
+        {/* Names wrap within their existing column; they never request the
+            temporary column expansion used by multi-control limit editors. */}
+        <div className={naming ? "dynamic-source-editor" : "dynamic-source-content"}>
         {naming ? (
-          <input autoFocus className="budget-inline-input budget-inline-name dynamic-source-name" aria-label="Error source name" placeholder="Not Set" value={draft.name}
+          <InlineSourceNameEditor autoFocus className="budget-inline-input budget-inline-name dynamic-source-name" aria-label="Error source name" placeholder="Not Set" value={draft.name}
             onBlur={() => editing ? setNaming(false) : finish()}
             onFocus={() => { if (!editing) setNaming(true); }}
             onChange={event => { if (!editing) setNaming(true); change({ name: event.target.value }); }} />

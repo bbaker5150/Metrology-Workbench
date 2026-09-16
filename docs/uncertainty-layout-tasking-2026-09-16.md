@@ -52,3 +52,24 @@ node scripts/smoke-forge-srcdoc.mjs
 ```
 
 The helper is `scripts/independent-columns-checks.mjs`. It uses synthetic sessions and the smoke host's in-memory SharePoint routes, preserving real user sessions.
+
+## Follow-up: stable input focus and inline editing
+
+Reported behavior: clicking between fields sometimes shrank a row or indented its text.
+
+- Reproduced in the production HTML: entering a measurement value reduced its row from 42.47px to 38px, changed Consolas 600 to Inter 400, and moved the adjacent unit approximately 38px. Read/edit wrappers now share typography and layout. Hidden, non-accessible text mirrors reserve the same intrinsic field dimensions for Value, Section, and Qualifier; only typing a different value can change that footprint.
+- Session metadata had different line boxes and an overriding input rule that inherited the parent 16px font. Read and edit states now share height, inset, weight, size, and line height, including the session title. Transitions affect paint properties only.
+- Removed edit-only budget cell padding and source-name centering. Manual, tabular, and equation source names use a wrapped textarea over a matching text mirror, preserving narrow-column wrapping and row height. Enter still commits; Escape/Tab behavior is retained. Pasted line breaks normalize to spaces so the source-name data remains a single-line value.
+- Source-name focus preserves table scroll position and restores focus to the source-name trigger. Name editing does not request the temporary column expansion intended for multi-control limit editors.
+- Matched distribution labels and triggers, reserved a consistent compact summary line box, and replaced a plot-input focus border with an inset underline that cannot add height. The browser audit additionally caught a narrow TMDE distribution label changing from a wrapped 14.4px label to a 12.48px, 24px-high trigger. Opening that field now captures its CSS-pixel box and typography; both views reserve the same chevron space, and longer newly selected labels can grow naturally.
+- Validation: 90 targeted sidebar, budget, layout, and inline-navigation tests passed. All 17 dynamic component tests passed, including new table/equation source-name commit and focus-return regressions. The existing large unit-picker test exceeded its normal 30-second timeout under concurrent browser/build load; the complete file passed with a 90-second limit. Production single-file build passed.
+- After the distribution follow-up, 67 tests across `TaskingLayoutAudit`, `GhostRangeRow`, and `UncertaintyPanel.toleranceModes` passed, including portaled selection, focus restoration, and Tab navigation.
+- Final production HTML/Forge run: **110 checks passed**, with no uncaught errors or browser dialogs. The previously failing distribution field retained exactly the same 81.75px width, 46.31px height, 14.4px font, text inset, and 75px row height before and after activation.
+
+Rendered regression coverage is in `scripts/field-stability-checks.mjs`, using the existing synthetic SharePoint host. It compares actual row/control rectangles and computed typography in light/dark themes and at different UI scales, including narrow budget source columns and focus changes within UUT/TMDE, tabular, and equation editors. It also runs the existing hover, height-handle, range add/delete, persistence, and archive checks.
+
+```powershell
+npm run build:singlefile
+$env:FIELD_STABILITY_SMOKE = '1'
+node scripts/smoke-forge-srcdoc.mjs
+```

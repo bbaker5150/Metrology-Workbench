@@ -2211,14 +2211,16 @@ body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
   color: var(--text-color);
   font-weight: 500;
   cursor: text;
-  min-height: 1.3em;
+  height: 26px;
+  line-height: 20px;
+  box-sizing: border-box;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 1px 4px;
+  padding: 2px 4px;
   border: 1px solid transparent;
   border-radius: 3px;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .session-header-value:hover {
@@ -2230,13 +2232,16 @@ body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
 .session-header-input {
   width: 100%;
   font-size: 0.8rem;
+  font-weight: 500;
+  height: 26px;
+  line-height: 20px;
   padding: 2px 4px;
   border-radius: 3px;
   border: 1px solid var(--primary-color);
   background: var(--input-background);
   color: var(--text-color);
   font-family: inherit;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
   box-sizing: border-box;
 }
 
@@ -5134,8 +5139,6 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
 
 .budget-inline-manual-row.is-editing > td {
   vertical-align: middle;
-  padding-top: 9px;
-  padding-bottom: 9px;
 }
 
 .budget-inline-input {
@@ -7490,7 +7493,11 @@ body.dark-mode .scatterplot-container {
 .plot-floating-control input:focus {
   outline: none;
   box-shadow: none;
-  border-bottom: 1px dashed var(--primary-color);
+  /* Paint the underline inside the existing box instead of adding height. */
+  background-image: linear-gradient(var(--primary-color), var(--primary-color));
+  background-size: 100% 1px;
+  background-position: bottom;
+  background-repeat: no-repeat;
   border-radius: 0;
 }
 
@@ -13734,6 +13741,9 @@ input.inline-function-input:focus {
 .inline-tolerance-summary {
   display: inline-flex;
   align-items: center;
+  box-sizing: border-box;
+  min-height: 24px;
+  line-height: 18px;
   border: 1px solid transparent;
   background: transparent;
   color: inherit;
@@ -14349,20 +14359,28 @@ input.inline-resolution-input {
    resolution selector. Keep the trigger compact while giving the TMDE tables
    enough room to show the selected distribution label. */
 .inline-menu-select.inline-distribution-select {
-  flex: 0 0 var(--inline-unit-width, 118px);
-  width: var(--inline-unit-width, 118px);
-  min-width: var(--inline-unit-width, 118px);
-  max-width: var(--inline-unit-width, 118px);
-  height: 24px;
-  min-height: 24px;
-  max-height: 24px;
+  flex: 0 0 var(--distribution-field-width, 118px);
+  width: var(--distribution-field-width, 118px);
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  min-height: var(--distribution-field-height, 24px);
+  max-height: none;
+  font: inherit;
   box-sizing: border-box;
 }
 
+.inline-tolerance-summary.inline-distribution-summary { padding-right: 20px; }
 .inline-menu-select.inline-distribution-select .inline-menu-select-trigger {
+  position: relative;
   border-radius: 4px;
-  padding: 0 6px;
+  padding: 2px 20px 2px 5px;
+  font: inherit;
+  height: auto;
+  min-height: var(--distribution-field-height, 24px);
 }
+.inline-distribution-select .inline-menu-select-trigger > span { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.inline-distribution-select .inline-menu-select-trigger > svg { position: absolute; right: 5px; }
 
 /* Resolution-cell distribution picker (its rounding distribution for the
    budget). Wide enough for complete distribution names. */
@@ -17126,11 +17144,14 @@ body.theme-cyberpunk .theme-selector-minimal {
   border: 1px solid transparent;
   padding: 2px 4px;
   border-radius: 4px;
-  font-weight: inherit;
-  font-size: inherit;
+  font-weight: 500;
+  font-size: .8rem;
   color: inherit;
   width: 100%;
+  display: block;
 }
+
+.sidebar-session-header-organic .session-header-name-input { font-size: .9rem; font-weight: 700; }
 
 .sidebar-session-header-organic .session-header-input:hover {
   background-color: var(--input-background);
@@ -17197,7 +17218,7 @@ body.theme-cyberpunk .theme-selector-minimal {
 
 .session-header-field .session-header-value {
   font-size: 0.8rem;
-  line-height: 1.2;
+  line-height: 20px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -19963,8 +19984,8 @@ body.uncertainty-active .context-menu li:not(.context-menu-divider):hover {
   max-width: none;
 }
 .uncertainty-module .instrument-equipment-table .inline-distribution-editor {
-  width: max-content;
-  min-width: 160px;
+  width: var(--distribution-field-width, max-content);
+  min-width: 0;
 }
 
 .uncertainty-module .context-menu li.destructive:hover,
@@ -20393,13 +20414,13 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .uncertainty-module .instrument-area-entry { margin: 0; }
 
 .budget-inline-manual-row.is-editing:not(.is-editing-name) .budget-source-cell {
-  text-align: center;
+  text-align: left;
   vertical-align: middle;
 }
 .budget-inline-manual-row .inline-tolerance-summary { font: inherit; }
 
 .uncertainty-budget-table .budget-source-cell .inline-tolerance-summary { text-align: left; padding-left: 0; padding-right: 0; border-left: 0; border-right: 0; }
-.budget-inline-manual-row.is-editing:not(.is-editing-name) .budget-source-cell .inline-tolerance-summary { text-align: center; }
+.budget-inline-manual-row.is-editing:not(.is-editing-name) .budget-source-cell .inline-tolerance-summary { text-align: left; }
 .instrument-function-row[draggable="true"] { cursor: grab; }
 .instrument-function-row[draggable="true"]:active { cursor: grabbing; }
 
@@ -20451,7 +20472,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 }
 .uncertainty-module .budget-dynamic-row input:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--function-input-accent) 16%, transparent); }
 .uncertainty-module .budget-dynamic-row .dynamic-source-name { width: 190px; }
-.dynamic-source-editor { width: 190px; }
+.dynamic-source-editor { width: auto; }
 .dynamic-component-kind { display: block; margin-top: 4px; color: var(--text-color-muted); font-size: .65rem; }
 .uncertainty-module .budget-dynamic-row .dynamic-source-label { text-align: left; padding: 0; max-width: 100%; white-space: inherit; overflow-wrap: inherit; }
 .uncertainty-module .budget-dynamic-row.is-editing > td { vertical-align: middle; }
@@ -20933,8 +20954,8 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 }
 
 /* Dynamic budgets and measurement inputs share instrument editing surfaces. */
-.uncertainty-module .budget-dynamic-row.is-editing .budget-source-cell { text-align: center; }
-.uncertainty-module .budget-dynamic-row.is-editing .dynamic-source-label { text-align: center; }
+.uncertainty-module .budget-dynamic-row.is-editing .budget-source-cell { text-align: left; }
+.uncertainty-module .budget-dynamic-row.is-editing .dynamic-source-label { text-align: left; }
 .uncertainty-module .budget-dynamic-row input { font-size: inherit; }
 .uncertainty-module .measurement-inputs-table { table-layout: auto; }
 .uncertainty-module .measurement-inputs-table .measurement-input-cell-editor { width: max-content; min-width: 100%; }
@@ -20949,10 +20970,32 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .uncertainty-module .measurement-group-container .point-value-editing .point-edit-affordance { border-color: transparent !important; background: transparent !important; box-shadow: none !important; padding: 0; gap: 4px; align-items: center; }
 .uncertainty-module .measurement-group-container .point-value-editing { --function-input-accent: var(--sidebar-function-color, var(--primary-color)); }
 .uncertainty-module .measurement-group-container .point-value-editing .sidebar-inline-input.value {
-  height: 24px; width: 58px; min-width: 38px; flex: 0 1 58px; padding: 2px 5px; border-radius: 4px;
+  position: absolute; inset: 0; height: 100%; width: 100%; min-width: 0; padding: 2px 6px; border-radius: 4px;
   border: 1px solid var(--function-input-accent) !important; background: color-mix(in srgb, var(--function-input-accent) 10%, transparent) !important;
-  color: var(--text-color); outline: none !important; box-shadow: none !important; font: inherit; font-weight: 400;
+  color: var(--text-color); outline: none !important; box-shadow: none !important; font: inherit;
 }
+.point-value-input-slot { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
+.point-value-input-slot > .point-value-number { visibility: hidden; }
+.point-label-editing { position: relative; }
+.point-label-editing > .point-grouped-cell-label { visibility: hidden; }
+.uncertainty-module .point-grid-item :is(.point-section, .point-qualifier) .point-label-editing > .sidebar-inline-input {
+  position: absolute; inset: -1px; width: calc(100% + 2px); max-width: none; height: calc(100% + 2px);
+  padding: 1px 2px; margin: 0; font: inherit; text-align: center;
+}
+
+/* Preserve a source label's wrapping and text origin when it becomes editable.
+   The focus indication is an inset paint effect, never added padding/borders. */
+.inline-source-name-slot { position: relative; display: block; max-width: 100%; min-width: 0; }
+.inline-source-name-slot > .inline-tolerance-summary { visibility: hidden; }
+.uncertainty-module .budget-source-cell .inline-source-name-input {
+  position: absolute; inset: 0; width: 100%; max-width: 100%; min-width: 0; height: 100%;
+  resize: none; overflow: hidden; box-sizing: border-box; margin: 0;
+  padding: 2px 0; border: 1px solid transparent; border-inline: 0;
+  font: inherit; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--input-background); color: var(--text-color);
+  outline: none; box-shadow: inset 0 0 0 1px var(--primary-color);
+}
+.uncertainty-module .budget-dynamic-row .inline-source-name-input { padding-block: 0; }
 .uncertainty-module .measurement-group-container .point-unit-control .point-unit-select { height: 24px; min-height: 24px; padding: 0 16px 0 5px; border-radius: 4px; font-family: inherit; font-weight: 400; }
 .uncertainty-module .measurement-group-container .point-unit-control .point-unit-select:is(:hover, :focus, :focus-visible),
 .uncertainty-module .measurement-group-container .point-value-editing .point-unit-select {

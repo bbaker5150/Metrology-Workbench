@@ -1,4 +1,5 @@
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
+import InlineSourceNameEditor from "../../../components/common/InlineSourceNameEditor";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 import ResizableBudgetTable from "./ResizableBudgetTable";
 import DecisionRiskCards from "./DecisionRiskCards";
@@ -386,7 +387,7 @@ const InlineManualComponentRow = ({
   useEffect(() => {
     if (!component.inlineDraft) return;
     setEditing(true);
-    const frame = window.requestAnimationFrame(() => nameInputRef.current?.focus());
+    const frame = window.requestAnimationFrame(() => nameInputRef.current?.focus({ preventScroll: true }));
     return () => window.cancelAnimationFrame(frame);
   }, [component.inlineDraft]);
 
@@ -477,7 +478,7 @@ const InlineManualComponentRow = ({
   useEffect(() => {
     if (!editing) return;
     const frame = window.requestAnimationFrame(() => {
-      rowRef.current?.querySelector(`[data-budget-field="${activeField}"] input, [data-budget-field="${activeField}"] select`)?.focus();
+      rowRef.current?.querySelector(`[data-budget-field="${activeField}"] input, [data-budget-field="${activeField}"] textarea, [data-budget-field="${activeField}"] select`)?.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [activeField, editing]);
@@ -490,7 +491,7 @@ const InlineManualComponentRow = ({
     if (event.key !== "Tab") return;
     const cell = event.target.closest("[data-budget-field]");
     if (!cell) return;
-    const controls = [...cell.querySelectorAll("input:not([disabled]), select:not([disabled]), button:not([disabled])")]
+    const controls = [...cell.querySelectorAll("input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])")]
       .filter(control => control.tabIndex !== -1);
     const boundary = event.shiftKey ? controls[0] : controls.at(-1);
     if (event.target !== boundary) return;
@@ -619,9 +620,8 @@ const InlineManualComponentRow = ({
     >
       <td className="budget-source-cell has-order-controls" data-budget-field="name">
         <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
-        {activeField === "name" ? <input
+        {activeField === "name" ? <InlineSourceNameEditor
           ref={nameInputRef}
-          type="text"
           className="budget-inline-input budget-inline-name"
           aria-label="Error source name"
           value={draft.name}

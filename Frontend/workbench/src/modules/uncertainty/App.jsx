@@ -1421,6 +1421,8 @@ export const SidebarPointItem = ({
                 cellGroups.section,
                 "section",
                 editingField === "section" ? (
+                  <span className="point-edit-affordance point-label-editing">
+                  <span className="point-grouped-cell-label" aria-hidden="true">{tempValue || "-"}</span>
                   <input
                     autoFocus
                     className="sidebar-inline-input section"
@@ -1433,6 +1435,7 @@ export const SidebarPointItem = ({
                     onClick={(e) => e.stopPropagation()}
                     placeholder="-"
                   />
+                  </span>
                 ) : (
                   <span className="point-edit-affordance">
                     <span
@@ -1460,9 +1463,14 @@ export const SidebarPointItem = ({
       {/* Col 2: Value */}
       {visibleColumns.value &&
         (editingField === "value" ? (
-          <div className="sidebar-inline-input-wrapper sidebar-value-sticky point-value-editing">
+          <span className="point-value point-value-with-unit sidebar-value-sticky point-value-editing">
             {visibleColumns.warningIcons !== false && <span className="point-diagnostics" aria-hidden="true" />}
-            <span className="point-edit-affordance inline-resolution-editor">
+            <span className="point-edit-affordance">
+            {/* The mirror preserves the read field's intrinsic width/wrapping.
+                Focus only paints an input over that same box; it cannot move
+                the unit or change the row's height/font. Typing may resize it. */}
+            <span className="point-value-input-slot">
+            <span className="point-value-number" aria-hidden="true">{tempValue || "-"}</span>
             <input
               autoFocus
               className="sidebar-inline-input value inline-tolerance-input inline-resolution-input"
@@ -1473,9 +1481,10 @@ export const SidebarPointItem = ({
               onKeyDown={handleKeyDown}
               onClick={(e) => e.stopPropagation()}
             />
+            </span>
             {pointUnitControl(true)}
             </span>
-          </div>
+          </span>
         ) : (
           <span
             className="point-value point-value-with-unit sidebar-value-sticky"
@@ -1537,6 +1546,8 @@ export const SidebarPointItem = ({
                 cellGroups.qualifier,
                 "qualifier",
                 editingField === "qualifier" ? (
+                  <span className="point-edit-affordance point-label-editing">
+                  <span className="point-grouped-cell-label" aria-hidden="true">{tempValue || "-"}</span>
                   <input
                     autoFocus
                     className="sidebar-inline-input value qualifier-editor"
@@ -1549,6 +1560,7 @@ export const SidebarPointItem = ({
                     onClick={(e) => e.stopPropagation()}
                     placeholder="-"
                   />
+                  </span>
                 ) : (
                   <span className="point-edit-affordance">
                     <span

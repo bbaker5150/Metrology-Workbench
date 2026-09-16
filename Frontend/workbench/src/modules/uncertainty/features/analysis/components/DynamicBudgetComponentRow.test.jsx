@@ -12,6 +12,21 @@ const setup = (kind) => {
   fireEvent.change(screen.getByLabelText('Error limit distribution'), { target: { value: '1.000' } });
   return {onCommit,definition};
 };
+it.each(['table', 'equation'])("keeps %s source-name editing single-line and commits with Enter", async kind => {
+  const definition = createDynamicDefinition(kind, {unit:'V'});
+  definition.name = 'Shared source';
+  const onCommit = vi.fn();
+  render(<table><tbody><DynamicBudgetComponentRow component={createDynamicComponent(definition)} referencePoint={{value:1,unit:'V'}} onCommit={onCommit}/></tbody></table>);
+  fireEvent.click(screen.getByRole('button', {name:'Edit error source name'}));
+  const editor=screen.getByRole('textbox', {name:'Error source name'});
+  expect(editor).toHaveFocus();
+  fireEvent.change(editor, {target:{value:'Renamed\nshared source'}});
+  expect(editor).toHaveValue('Renamed shared source');
+  fireEvent.keyDown(editor, {key:'Enter'});
+  expect(onCommit.mock.calls.at(-1)[0].name).toBe('Renamed shared source');
+  expect(screen.queryByRole('textbox', {name:'Error source name'})).not.toBeInTheDocument();
+  await waitFor(()=>expect(screen.getByRole('button', {name:'Edit error source name'})).toHaveFocus());
+});
 it("starts with two columns and one row, grows with Tab, and commits on Enter",async()=>{
   const {onCommit}=setup('table');
   fireEvent.change(screen.getByLabelText('Measurement point row 1'),{target:{value:'100'}});

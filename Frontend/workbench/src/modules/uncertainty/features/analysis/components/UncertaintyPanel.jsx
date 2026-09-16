@@ -3353,6 +3353,7 @@ export const ResolutionCellInput = ({
 // actually carries a spec band (a divisor); otherwise it renders a static "—".
 export const InlineDistributionCell = ({ divisor, editable = true, onChange }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [fieldGeometry, setFieldGeometry] = useState({});
   const containerRef = useRef(null);
   const isUnset =
     !divisor || String(divisor) === String(DISTRIBUTION_NOT_SET);
@@ -3382,13 +3383,23 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
   if (!isEditing) {
     const open = (e) => {
       e.stopPropagation();
+      // A label can wrap in an authored narrow column. Preserve its actual
+      // CSS-pixel box and typography when replacing it with the menu trigger;
+      // fixed 118x24 sizing otherwise shrinks/recenters the text on click.
+      const style = getComputedStyle(e.currentTarget);
+      setFieldGeometry({
+        '--distribution-field-width': style.width,
+        '--distribution-field-height': style.height,
+        fontSize: style.fontSize, fontWeight: style.fontWeight, fontStyle: style.fontStyle,
+        fontFamily: style.fontFamily, lineHeight: style.lineHeight,
+      });
       setIsEditing(true);
     };
     return (
       <span className="inline-tolerance-readview">
         <button
           type="button"
-          className={`inline-tolerance-summary${isUnset ? " is-empty" : ""}`}
+          className={`inline-tolerance-summary inline-distribution-summary${isUnset ? " is-empty" : ""}`}
           title={
             isUnset ? "Set distribution" : "Edit distribution"
           }
@@ -3428,6 +3439,7 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
     <span
       ref={containerRef}
       className="inline-distribution-editor"
+      style={fieldGeometry}
       onMouseDown={(e) => e.stopPropagation()}
       onBlur={handleBlur}
       onKeyDownCapture={(event) => {
