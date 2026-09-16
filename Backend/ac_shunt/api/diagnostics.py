@@ -44,6 +44,7 @@ def start_lifecycle():
     _started = True
     event("backend_started", parent_pid=os.getppid(), python=sys.version.split()[0],
           executable=sys.executable, autoreload_child=os.environ.get("RUN_MAIN", "false"))
+    print(f"Backend diagnostics active: {Path(settings.DIAGNOSTICS_DIR) / f'backend-{os.getpid()}.jsonl'}", flush=True)
     try:
         folder = Path(settings.DIAGNOSTICS_DIR)
         folder.mkdir(parents=True, exist_ok=True)

@@ -10,6 +10,7 @@ function lifecycle(event, details = {}) {
         const file = path.join(folder, 'electron-lifecycle.jsonl');
         if (fs.existsSync(file) && fs.statSync(file).size > 5 * 1024 * 1024) fs.renameSync(file, file + '.previous');
         fs.appendFileSync(file, JSON.stringify({ time: new Date().toISOString(), pid: process.pid, event, ...details }) + '\n');
+        if (event === 'electron_started') console.info(`Electron diagnostics active: ${file}`);
     } catch (_) { /* Logging must never interrupt the application. */ }
 }
 lifecycle('electron_started');

@@ -59,8 +59,14 @@ and an isolated in-memory Django configuration. It does not establish the cause
 of the original incident or substitute for a physical overnight run.
 
 Deploy the updated backend between runs so logging is active before the next
-overnight observation. For a long unattended run, use the packaged backend or
-`runserver --noreload`; the development file watcher can restart a backend when
-source files change. After an incident, copy the log folder before investigating
+overnight observation. Both `npm run electron:dev` and
+`npm run electron:dev:remote` (including their mock variants) enable diagnostics
+automatically and launch the backend with `--noreload`. The packaged backend
+also uses `--noreload`. The terminal prints `Backend diagnostics active:` and
+`Electron diagnostics active:` with the actual log paths; no extra flag or UI
+setting is needed. Restart the full launch command between runs to load these
+changes. The frontend still uses Vite during development, so avoid source edits
+during an unattended run. Ordinary browser `dev` commands retain backend reloads.
+After an incident, copy the log folder before investigating
 or starting more runs. Use the recorded cause to address the specific source
 (frontend reload, network loss, OS/service termination, or host-role overlap).
