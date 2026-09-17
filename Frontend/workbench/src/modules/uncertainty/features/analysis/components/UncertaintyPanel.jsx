@@ -1,6 +1,6 @@
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
-import MeasurementBiasEditor from "./MeasurementBiasEditor";
+import LegacyPointBiasNotice from "./LegacyPointBiasNotice";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
 import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
@@ -16369,7 +16369,7 @@ function DetailedView({
         }`}
         style={detailSectionStyle("budget", 1)}
       >
-      <MeasurementBiasEditor point={testPointData} session={sessionData}
+      <LegacyPointBiasNotice point={testPointData} session={sessionData}
         calculatedAverage={calcResults?.calculatedNominalValue}
         onChange={onUpdateTestPoint} />
       {!hasMeasurementPoint && <p className="form-section-warning" role="status">Enter a measurement value when ready. You can build the uncertainty budget now; value-dependent components will show a warning until a value is assigned.</p>}

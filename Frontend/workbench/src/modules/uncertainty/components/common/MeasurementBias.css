@@ -8,18 +8,9 @@
 .bias-correction { display: inline-flex; align-items: center; gap: 4px; color: inherit; font-size: inherit; cursor: pointer; }
 .bias-correction input { accent-color: var(--primary-color, #007bff); }
 .instrument-bias-editor { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 5px; border-top: 1px solid var(--border-color, #d4ddeb); }
-.measurement-bias-panel { margin: 8px 0 16px; border: 1px solid var(--border-color, #d4ddeb); border-radius: 6px; color: var(--text-color); font-size: 12px; }
-.measurement-bias-panel > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 9px 12px; cursor: pointer; list-style: none; }
-.measurement-bias-panel > summary::before { content: "›"; transition: transform .12s; }
-.measurement-bias-panel[open] > summary::before { transform: rotate(90deg); }
-.measurement-bias-panel[open] > summary { border-bottom: 1px solid var(--border-color, #d4ddeb); color: var(--primary-color, #007bff); }
-.measurement-bias-summary { margin-left: auto; color: var(--text-color-muted, #718096); }
-.measurement-bias-body { padding: 10px 12px; display: grid; gap: 12px; }
-.measurement-bias-setting { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-.measurement-bias-label { min-width: 165px; font-weight: 600; }
-.measurement-bias-help { color: var(--text-color-muted, #718096); font-size: 11px; margin: 0; }
-.measurement-bias-sources { display: grid; gap: 8px; }
-.measurement-bias-source { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border-color, #d4ddeb); }
-.measurement-bias-source-name { flex: 1 1 200px; overflow-wrap: anywhere; }
+/* Only legacy point overrides need a migration affordance; normal budgets have
+ * no duplicate bias controls or reserved panel space. Wrap at narrow widths. */
+.legacy-point-bias-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 8px 0 12px; color: var(--text-color-muted, #718096); font-size: 12px; }
+.legacy-point-bias-notice > span { overflow-wrap: anywhere; }
 .bias-reset { border: 0; background: transparent; color: var(--primary-color, #007bff); font: inherit; padding: 4px; cursor: pointer; }
 .bias-reset:hover { text-decoration: underline; }

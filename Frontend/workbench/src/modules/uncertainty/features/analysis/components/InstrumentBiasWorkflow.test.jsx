@@ -1,64 +1,57 @@
 import React, { useMemo, useState } from "react";
 import { fireEvent, render, screen, renderHook, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import MeasurementBiasEditor from "./MeasurementBiasEditor";
+import LegacyPointBiasNotice from "./LegacyPointBiasNotice";
 import { InlineToleranceCell, applyToleranceCaseChange } from "./UncertaintyPanel";
 import { biasFixture } from "../../../utils/measurementBias.fixtures";
 import { computePointRiskMetrics } from "../../../utils/riskCompute";
 import { resolvePointBudgetComponents } from "../../../utils/resolvePointBudgetComponents";
 import { useUncertaintyCalculation } from "../hooks/useUncertaintyCalculation";
 import { useRiskCalculation } from "../hooks/useRiskCalculation";
+import { resolveMeasurementBias } from "../../../utils/measurementBias";
 
-const choose = (label, option) => {
-  fireEvent.click(screen.getByRole("button", { name: label, exact: true }));
-  fireEvent.click(screen.getByRole("option", { name: option, exact: true }));
-};
 const enter = (label, value) => {
   const input = screen.getByRole("textbox", { name: label, exact: true });
   fireEvent.change(input, { target: { value } });
   fireEvent.blur(input);
 };
 
-it("hides unused bias settings and retains explicit zero and manual overrides", () => {
-  const point = { testPointInfo: { parameter: { value: 10, unit: "V" } } };
-  const { container, rerender } = render(<MeasurementBiasEditor point={point} session={{}} onChange={vi.fn()} />);
-  expect(container.querySelector('.measurement-bias-panel')).toBeNull();
-  for (const patch of [
-    { uutTolerance: { bias: { value: "0", unit: "V" } } },
-    { uutBias: { mode: "override", value: "" } },
-    { measurementBias: { mode: "manual", value: "0", unit: "V" } },
-  ]) {
-    rerender(<MeasurementBiasEditor point={{ ...point, ...patch }} session={{}} onChange={vi.fn()} />);
-    expect(container.querySelector('.measurement-bias-panel')).not.toBeNull();
-  }
+it("shows no additional bias UI for populated instrument biases or zero/corrected defaults", () => {
+  const { point, session } = biasFixture();
+  const { container, rerender } = render(<LegacyPointBiasNotice point={point} session={session} onChange={vi.fn()} />);
+  expect(container).toBeEmptyDOMElement();
+  const changed = { ...point, uutTolerance: { bias: { value: "0", unit: "A" } }, measurementBias: { mode: "sources", sources: { stale: null } } };
+  session.tmdes[0].instrument.functions[0].ranges[0].tolerances.bias.corrected = true;
+  rerender(<LegacyPointBiasNotice point={changed} session={session} onChange={vi.fn()} />);
+  expect(container).toBeEmptyDOMElement();
 });
 
-it("edits source overrides, corrections, manual mode and a separate UUT override inline", () => {
+it.each([
+  { uutBias: { mode: "override", value: "0", unit: "A" } },
+  { measurementBias: { mode: "manual", value: ".5", unit: "A" } },
+  { measurementBias: { sources: { "tmde:voltage::voltage-range:Voltage": { value: ".02", unit: "V" } } } },
+])("preserves a saved override until explicit reset to instrument biases: %j", overrides => {
   const fixture = biasFixture();
+  const initial = { ...fixture.point, ...overrides };
+  const initialRisk = computePointRiskMetrics(initial, fixture.session, true);
+  const instrumentSnapshot = JSON.stringify(fixture.session);
   let saved;
   const Harness = () => {
-    const [point, setPoint] = useState(fixture.point);
+    const [point, setPoint] = useState(initial);
     saved = point;
-    return <MeasurementBiasEditor point={point} session={fixture.session} onChange={patch => setPoint(previous => ({ ...previous, ...patch }))} />;
+    return <LegacyPointBiasNotice point={point} session={fixture.session} onChange={patch => setPoint(previous => ({ ...previous, ...patch }))} />;
   };
   const { container } = render(<Harness />);
-  const details = container.querySelector("details");
-  expect(details.open).toBe(false);
-  fireEvent.click(screen.getByText("Bias settings"));
-  enter("Bias for voltage", ".02");
-  expect(Object.values(saved.measurementBias.sources)[0].value).toBe(".02");
-  fireEvent.click(screen.getAllByRole("checkbox", { name: "Already corrected" })[0]);
-  expect(Object.values(saved.measurementBias.sources)[0].corrected).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "Use source default" }));
-  expect(saved.measurementBias.sources).toEqual({});
-  choose("Measurement system bias source", "Enter net bias");
-  enter("Net measurement system bias", "-.5");
-  expect(saved.measurementBias.value).toBe("-.5");
-  choose("UUT bias source", "This point");
-  enter("Point UUT bias", "0");
-  expect(saved.uutBias).toMatchObject({ mode: "override", value: "0" });
-  choose("UUT bias source", "Use UUT range");
-  expect(saved.uutBias).toBeUndefined();
+  expect(screen.getByRole("status")).toHaveTextContent("Saved point bias overrides are active");
+  expect(screen.queryByRole("textbox")).toBeNull();
+  expect(computePointRiskMetrics(saved, fixture.session, true)).toEqual(initialRisk);
+  fireEvent.click(screen.getByRole("button", { name: "Use instrument biases" }));
+  expect(container).toBeEmptyDOMElement();
+  expect(saved).toEqual({ ...fixture.point, uutBias: null, measurementBias: null });
+  const reloaded = JSON.parse(JSON.stringify(saved));
+  expect(resolveMeasurementBias(reloaded, fixture.session).calBias).toBeCloseTo(-.1);
+  expect(computePointRiskMetrics(reloaded, fixture.session, true)).toEqual(computePointRiskMetrics(fixture.point, fixture.session, true));
+  expect(JSON.stringify(fixture.session)).toBe(instrumentSnapshot);
 });
 
 it("stores a range default without changing its tolerance or distribution", () => {

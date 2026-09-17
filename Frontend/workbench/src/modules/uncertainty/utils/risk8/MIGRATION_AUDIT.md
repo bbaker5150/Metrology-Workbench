@@ -93,6 +93,12 @@ copying reevaluates the model at destination inputs and preserves destination
 UUT ownership. These semantics, temperature interval conversion, error handling,
 and the absence-of-bias fast path are explained beside the production code.
 
+As of the September 17 UI simplification, users author biases only in UUT
+tolerance and TMDE error-limit cells. The former point bias menu is removed.
+Stored overrides retain the audited calculation semantics above; only affected
+points show a compact notice and an explicit reset to instrument inheritance.
+No risk equations or captured workbook expectations change with this UI update.
+
 **Unknown-value exception:** Beta.7's dedicated Types 5/6 boundary routine ignores
 K/L. The app shifts the physical limit into observed-reading coordinates by adding
 system bias before inward resolution rounding. Zero bias matches the workbook's
@@ -194,5 +200,5 @@ was modified by these tests.
 The 253-test selection is reproducible from `Frontend/workbench`:
 
 ```powershell
-npx vitest run src/modules/uncertainty/utils/risk8 src/modules/uncertainty/utils/measurementBias.test.js src/modules/uncertainty/features/analysis/components/MeasurementBiasEditor.test.jsx src/modules/uncertainty/utils/riskCompute.test.js src/modules/uncertainty/features/analysis/hooks/useRiskCalculation.test.jsx src/modules/uncertainty/features/analysis/components/BreakdownModals/RiskBreakdownModals.test.jsx src/modules/uncertainty/features/analysis/components/UnknownMeasurementRiskDashboard.test.jsx src/modules/uncertainty/App.sidebarRisk.test.jsx
+npx vitest run src/modules/uncertainty/utils/risk8 src/modules/uncertainty/utils/measurementBias.test.js src/modules/uncertainty/features/analysis/components/InstrumentBiasWorkflow.test.jsx src/modules/uncertainty/utils/riskCompute.test.js src/modules/uncertainty/features/analysis/hooks/useRiskCalculation.test.jsx src/modules/uncertainty/features/analysis/components/BreakdownModals/RiskBreakdownModals.test.jsx src/modules/uncertainty/features/analysis/components/UnknownMeasurementRiskDashboard.test.jsx src/modules/uncertainty/App.sidebarRisk.test.jsx
 ```

@@ -15,6 +15,10 @@
  * System ownership: manual net replaces all sources; otherwise source overrides
  * replace inherited defaults, then signed source contributions are summed.
  * Blank means no authored bias; explicit zero is meaningful and stops inheritance.
+ * The UI authors instrument-range defaults only. Point overrides below are a
+ * compatibility contract for saved sessions from the former bias menu; opening
+ * a session must not alter its results. LegacyPointBiasNotice offers an explicit
+ * reset to instrument inheritance, rather than silently ignoring those values.
  * Unknown-value limits have no UUT population mean; their separate system-bias
  * extension is documented in unknownMeasurementRisk8, not claimed as VBA parity.
  */
