@@ -2005,7 +2005,7 @@ const SidebarSessionHeader = ({
   const startEdit = (e, field, val) => {
     e.stopPropagation();
     setEditingField(field);
-    setTempValue(val || "");
+    setTempValue(val ?? "");
   };
 
   const commitEdit = (nextField = null) => {
@@ -2068,6 +2068,10 @@ const SidebarSessionHeader = ({
             />
           )}
         </span>
+        <span className="session-field-size">
+          {/* The same text mirror sizes read/edit states. Focus never changes
+              the box; typing alone grows it, without clipping adjacent fields. */}
+          <span className="session-field-size-text" aria-hidden="true">{inputType === "date" ? (formatDate(value) === "-" ? "mm/dd/yyyy" : formatDate(value)) : (editingField === field && !isRequirement ? tempValue : value) || "-"}</span>
         {editingField === field ? (
           <input
             type={inputType}
@@ -2082,7 +2086,7 @@ const SidebarSessionHeader = ({
                 setTempValue(e.target.value);
               }
             }}
-            onBlur={commitEdit}
+            onBlur={() => commitEdit()}
             onKeyDown={handleKeyDown}
             onClick={(e) => e.stopPropagation()}
             className="session-header-input"
@@ -2099,9 +2103,10 @@ const SidebarSessionHeader = ({
             className="session-header-value"
             title={helpText}
           >
-            {inputType === "date" ? formatDate(value) : value || "-"}
+            {inputType === "date" ? formatDate(value) : value === "" || value == null ? "-" : value}
           </div>
         )}
+        </span>
       </div>
     );
   };
@@ -2132,14 +2137,15 @@ const SidebarSessionHeader = ({
         {isSessionInfoOpen && (
           <div className="session-info-content">
             {/* TITLE / NAME */}
-            <div style={{ marginBottom: "4px" }}>
+            <div className="session-field-size session-field-size--name" style={{ marginBottom: "4px" }}>
+              <span className="session-field-size-text" aria-hidden="true">{(editingField === "name" ? tempValue : sessionData.name) || "Untitled Session"}</span>
               {editingField === "name" ? (
                 <input
                   autoFocus
                   aria-label="Session Name"
                   value={tempValue}
                   onChange={(e) => setTempValue(e.target.value)}
-                  onBlur={commitEdit}
+                  onBlur={() => commitEdit()}
                   onKeyDown={handleKeyDown}
                   onClick={(e) => e.stopPropagation()}
                   className="session-header-input session-header-name-input"

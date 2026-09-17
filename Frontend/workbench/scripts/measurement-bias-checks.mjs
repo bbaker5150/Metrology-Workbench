@@ -8,12 +8,33 @@ export function prepareBiasSession(session) {
   // Exercise imported overrides only in this smoke; other feature fixtures use
   // instrument-owned defaults. Opening the old point must not change its math.
   if (process.env.MEASUREMENT_BIAS_SMOKE) {
+    Object.assign(session, { name: 'Smoke', organization: 'Lab', analyst: 'A', document: 'D', documentDate: '2026-09-17' });
+    Object.assign(session.testPoints[0], { measurementType: 'derived', equationString: 'a', variableMappings: { a: 'Voltage' },
+      variableNominals: { a: { value: 5, unit: 'V' } } });
+    session.testPoints[0].components[0].variableType = 'Voltage';
     session.testPoints[0].uutBias = { mode: 'override', value: -.2, unit: 'V' };
     session.testPoints[0].measurementBias = { mode: 'manual', value: .15, unit: 'V' };
   }
 }
 
 export async function checkMeasurementBias({ frame, page, saved, until, check }) {
+  const info = frame.getByRole('button', { name: 'Session Info', exact: true });
+  if (await info.getAttribute('aria-expanded') === 'false') await info.click();
+  const sizes = await frame.locator('.session-field-size').evaluateAll(nodes => nodes.map(node => node.offsetWidth));
+  check('Session Info, Risk and Mitigation share a compact default field width', sizes.length === 11 && sizes.every(width => Math.abs(width - sizes[0]) < 1), JSON.stringify(sizes));
+  const geometry = locator => locator.evaluate(node => { const r = node.getBoundingClientRect(), s = getComputedStyle(node); return { x:r.x, y:r.y, width:r.width, height:r.height, font:s.font }; });
+  for (const [label, longText, initial] of [['Session Name', 'Torque calibration laboratory and reference setup', 'Smoke'], ['Organization', 'Measurement standards laboratory long name', 'Lab'], ['Confidence (%)', '95.123456789123456', '95'], ['PFA Required', '2.123456789123456', '2']]) {
+    const row = label === 'Session Name' ? frame.locator('.session-field-size--name') : frame.locator('.session-header-field').filter({ has: frame.locator('.session-header-label > span', { hasText: label }) });
+    const before = await geometry(row.locator('.session-header-value'));
+    await row.locator('.session-header-value').click();
+    const input = row.locator('input');
+    const after = await geometry(input);
+    check(`${label} focus preserves size, position and typography`, JSON.stringify(before) === JSON.stringify(after), JSON.stringify({before,after}));
+    await input.fill(longText);
+    check(`${label} grows to show all entered text`, await input.evaluate(node => { const s=getComputedStyle(node), ctx=document.createElement('canvas').getContext('2d'); ctx.font=s.font; return node.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight)-20 >= ctx.measureText(node.value).width; }) && (await geometry(input)).width > before.width);
+    await input.fill(initial); await input.press('Enter');
+    check(`${label} returns to its compact width`, Math.abs((await geometry(row.locator('.session-header-value'))).width - before.width) < 1);
+  }
   const expand = frame.getByRole('button', { name: 'Expand measurement area', exact: true });
   if (await expand.count()) await expand.first().click();
   await frame.locator('.point-grid-item').first().click();
@@ -24,27 +45,39 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
   const cards = frame.locator('.budget-decision-card dd[aria-label]');
   check('both risk cards are populated before bias edits', await until(async () => (await cards.count()) === 2 && !(await cards.allTextContents()).some(text => /Unavailable/.test(text))));
   const riskBeforeReset = await cards.allTextContents();
-  await notice.getByRole('button', { name: 'Use instrument biases', exact: true }).click();
+  await notice.getByRole('button', { name: 'Use UUT instrument bias', exact: true }).click();
+  check('resetting a UUT override preserves the editable net bias', await until(() => saved().testPoints[0].uutBias === null && saved().testPoints[0].measurementBias.value === .15));
+  await frame.getByRole('button', { name: 'Remove Net Bias', exact: true }).click();
   check('explicit reset clears overrides through the SharePoint adapter', await until(() => saved().testPoints[0].uutBias === null && saved().testPoints[0].measurementBias === null));
   check('instrument biases need no separate panel or notice', await until(async () => await notice.count() === 0) && await frame.locator('.measurement-bias-panel').count() === 0);
   check('risk recalculates after returning to instrument defaults', await until(async () => JSON.stringify(await cards.allTextContents()) !== JSON.stringify(riskBeforeReset)));
+
+  const automaticRisk = await cards.allTextContents();
+  await frame.getByRole('button', { name: 'Add Net Bias', exact: true }).click();
+  check('measurement-input plus adds one net-bias row initialized from sources', await until(() => saved().testPoints[0].measurementBias?.mode === 'manual') && Math.abs(Number(saved().testPoints[0].measurementBias.value)-.05)<1e-9 && await frame.locator('.measurement-net-bias-row').count() === 1 && await frame.getByRole('button',{name:'Add Net Bias',exact:true}).count() === 0);
+  check('adding net bias alone leaves risk unchanged', JSON.stringify(await cards.allTextContents()) === JSON.stringify(automaticRisk));
+  const net = frame.getByRole('textbox', { name: 'Net measurement system bias', exact: true });
+  await net.fill('-.6'); await net.press('Enter');
+  check('net bias saves and updates the current risk', await until(() => saved().testPoints[0].measurementBias?.value === '-.6') && await until(async () => JSON.stringify(await cards.allTextContents()) !== JSON.stringify(automaticRisk)));
+  check('net bias is not inserted into equation inputs or uncertainty components', Object.keys(saved().testPoints[0].variableMappings).join() === 'a' && saved().testPoints[0].components.length === 1 && saved().testPoints[0].equationString === 'a');
+  await frame.getByRole('button', { name: 'Remove Net Bias', exact: true }).click();
+  check('removing net bias restores automatic risk', await until(async () => JSON.stringify(await cards.allTextContents()) === JSON.stringify(automaticRisk)) && await frame.locator('.measurement-net-bias-row').count() === 0);
 
   // Author both roles in their existing instrument cells, then verify changes
   // reach the current point's risk results without a navigation-triggered refresh.
   const tmde = frame.locator('.instrument-equipment-table').nth(1);
   await tmde.locator('.cell-tolerance .inline-tolerance-summary').first().click();
+  check('TMDE bias is hidden until its toggle is clicked', await frame.getByRole('textbox', { name: 'Range source bias', exact: true }).count() === 0);
+  const biasToggle = tmde.getByRole('button', { name: 'Bias', exact: true });
+  await biasToggle.click();
+  check('Bias toggle uses the same compact styling as DS/SS', await biasToggle.evaluate(button => button.parentElement.classList.contains('inline-tolerance-mini-toggle')) && await biasToggle.getAttribute('aria-pressed') === 'true');
+  check('whichever checkbox sits below tolerance terms and correction checkbox is removed', await tmde.locator('.inline-tolerance-footer').getByRole('checkbox', { name: 'Whichever is greater' }).count() === 1 && await tmde.getByRole('checkbox', { name: 'Already corrected' }).count() === 0);
   const sourceInput = frame.getByRole('textbox', { name: 'Range source bias', exact: true });
   const riskBeforeSource = await cards.allTextContents();
   await sourceInput.fill('-.8');
   await sourceInput.press('Enter');
   check('TMDE range bias saves in its error-limit column', await until(() => saved().tmdes[0].ranges[0].tolerances.bias?.value === '-.8'));
   check('current point risk picks up the changed TMDE bias', await until(async () => JSON.stringify(await cards.allTextContents()) !== JSON.stringify(riskBeforeSource)));
-  const biasedRisk = await cards.allTextContents();
-  await tmde.getByRole('checkbox', { name: 'Already corrected', exact: true }).check();
-  check('corrected flag persists on the TMDE range', await until(() => saved().tmdes[0].ranges[0].tolerances.bias?.corrected === true));
-  check('corrected source changes risk without removing its uncertainty component', await until(async () => JSON.stringify(await cards.allTextContents()) !== JSON.stringify(biasedRisk)) && saved().testPoints[0].components.length === 1);
-  await tmde.getByRole('checkbox', { name: 'Already corrected', exact: true }).uncheck();
-  check('restoring the source restores its biased risk', await until(async () => JSON.stringify(await cards.allTextContents()) === JSON.stringify(biasedRisk)));
   const panel = tmde.locator('.instrument-bias-editor');
   for (const theme of ['light', 'dark']) {
     await frame.evaluate(theme => { document.body.classList.remove('light-mode', 'dark-mode'); document.body.classList.add(`${theme}-mode`); }, theme);
@@ -57,8 +90,11 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
     if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/measurement-bias-${theme}.png` });
   }
   await frame.evaluate(() => { document.body.classList.remove('dark-mode'); document.body.classList.add('light-mode'); });
+  await biasToggle.click();
+  check('clicking Bias again hides its inputs without clearing the value', await sourceInput.count() === 0 && saved().tmdes[0].ranges[0].tolerances.bias.value === '-.8' && await biasToggle.getAttribute('aria-pressed') === 'false');
   const tolerance = frame.locator('.instrument-equipment-table').first().locator('.cell-tolerance .inline-tolerance-summary').first();
   await tolerance.click();
+  await frame.locator('.instrument-equipment-table').first().getByRole('button', { name: 'Bias', exact: true }).click();
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/measurement-bias-range.png` });
   const rangeBias = frame.getByRole('textbox', { name: 'Range UUT bias', exact: true });
   const riskBeforeUut = await cards.allTextContents();

@@ -1,6 +1,8 @@
 # Bias settings
 
-The expanded UUT tolerance editor stores a signed range bias. Measurement
+The expanded UUT tolerance editor stores a signed range bias behind its **Bias**
+toggle, styled like DS/SS. **Whichever is greater** sits below the tolerance
+terms. The same arrangement applies to the TMDE error-limit editor. Measurement
 points inherit the selected range's live bias; there is no separate budget bias menu.
 Positive UUT bias shifts the modeled UUT population toward larger values.
 
@@ -23,18 +25,26 @@ large biases and strongly nonlinear equations need a suitable corrected
 measurement model. Unmapped output components contribute directly in output
 units. Resolution rows do not inherit an instrument's bias a second time.
 
-**Already corrected** excludes a source's bias from the net offset. It does not
-apply a correction to the measurement equation or remove the uncertainty of
-that correction. Use it only when the correction is already represented in
-the measurement.
+Enter residual errors after any corrections already applied. The former
+**Already corrected** checkbox is removed. Previously saved corrected entries
+remain excluded until edited, with a short inline explanation; editing that bias
+makes the entered residual active. Uncertainty components remain unchanged.
+
+The **+** at the top right of **Measurement Inputs** adds one **Net Bias** row.
+It starts at the current combined source bias, in output units, so adding it
+alone does not change risk. Its signed value replaces the source total, without
+changing UUT bias, the equation, or any uncertainty component. Removing the row
+restores automatic source propagation. Source overrides are retained underneath
+the manual value for saved-session compatibility. Copying a budget carries this
+net setting using the existing audited manual-net contract.
 
 Sessions saved with the former point menu retain their UUT/source overrides or
 manual net bias so opening a session cannot silently change its risk results.
 Only these points show a compact notice with the effective UUT/system biases
 and **Use instrument biases**. That action explicitly clears the point overrides
 and resumes live instrument inheritance without changing any instrument or
-uncertainty component. A legacy manual net bias still replaces, rather than adds
-to, the source sum until reset. New biases are authored in instrument cells only.
+uncertainty component. When the Measurement Inputs table is present, manual net
+entries appear there; resetting a separate UUT override preserves that net row.
 
 Budget copying includes the system-bias model and source overrides, retaining
 the destination's UUT bias and input values. Full point/session copying retains
@@ -55,7 +65,9 @@ sources, native/relative/temperature units, copy and JSON round trips, public
 risk calculations, panel/sidebar agreement, and unknown boundaries. Legacy reset
 coverage verifies unchanged results before reset and instrument inheritance after
 a JSON round trip. The browser check edits UUT/TMDE biases and the corrected flag
-in instrument cells, checks live risk updates, and confirms there is no extra menu. The
+in instrument cells, checks live risk updates, the optional net row, and confirms
+there is no extra bias menu. It also checks uniform starting sizes, growth, and
+focus stability in Session Info/Risk/Mitigation. The
 production HTML integration check runs with `MEASUREMENT_BIAS_SMOKE=1 node
 scripts/smoke-forge-srcdoc.mjs` from `Frontend/workbench` after
 `npm run build:singlefile`; it uses an isolated mock SharePoint site.

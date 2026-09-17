@@ -64,8 +64,13 @@ it("stores a range default without changing its tolerance or distribution", () =
       onCommit={(type, value) => setTolerance(previous => applyToleranceCaseChange(previous, type, value))} />;
   };
   render(<Harness />);
+  expect(screen.queryByRole("textbox", { name: "Range UUT bias" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Bias", exact: true }));
   enter("Range UUT bias", "-.25");
-  expect(saved).toEqual({ ...initial, bias: { value: "-.25", unit: "V" } });
+  expect(saved).toEqual({ ...initial, bias: { value: "-.25", unit: "V", corrected: false } });
+  fireEvent.click(screen.getByRole("button", { name: "Bias", exact: true }));
+  expect(screen.queryByRole("textbox", { name: "Range UUT bias" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Bias", exact: true })).toHaveAttribute("aria-pressed", "false");
 });
 
 it("keeps the open risk panel and sidebar identical as biases change", async () => {

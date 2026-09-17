@@ -17305,6 +17305,19 @@ body.theme-cyberpunk .theme-selector-minimal {
   margin-top: 10px;
 }
 
+/* One compact minimum and one text mirror for metadata, risk and mitigation.
+ * Only authored text grows the controls; read/edit swaps retain identical
+ * geometry. The sidebar scrolls rather than clipping long values or allowing
+ * them to overlap a neighbouring field. Space for native date/number controls
+ * is reserved in both states, including before those controls receive focus. */
+.session-info-content { overflow-x: auto; }
+.session-info-content :is(.session-header-grid, .session-requirements-grid) { grid-template-columns: repeat(2, max-content); }
+.session-info-content .session-header-field { overflow: visible; }
+.session-field-size { position: relative; display: inline-block; min-width: 120px; width: max-content; max-width: none; vertical-align: top; font-size: .8rem; font-weight: 500; }
+.session-field-size--name { font-size: .9rem; font-weight: 700; }
+.session-field-size-text { display: block; visibility: hidden; white-space: pre; height: 26px; box-sizing: border-box; padding: 2px 28px 2px 4px; border: 1px solid transparent; line-height: 20px; }
+.sidebar-session-header-organic .session-field-size > :is(.session-header-value, .session-header-input) { position: absolute; inset: 0; width: 100%; min-width: 0; max-width: none; margin: 0; }
+
 /* --- ORGANIC QUICK ADD --- */
 .sidebar-quick-add-container {
   background-color: transparent;

@@ -8,6 +8,10 @@
 .bias-correction { display: inline-flex; align-items: center; gap: 4px; color: inherit; font-size: inherit; cursor: pointer; }
 .bias-correction input { accent-color: var(--primary-color, #007bff); }
 .instrument-bias-editor { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 5px; border-top: 1px solid var(--border-color, #d4ddeb); }
+.inline-tolerance-footer { padding: 5px; border-top: 1px solid var(--border-color, #d4ddeb); }
+.instrument-bias-legacy-correction, .measurement-net-bias-help { display: block; color: var(--text-color-muted); font-size: .7rem; }
+.measurement-net-bias-value { display: flex; align-items: center; gap: 6px; }
+.measurement-net-bias-value > .btn-add-item { margin-left: auto; flex-shrink: 0; }
 /* Only legacy point overrides need a migration affordance; normal budgets have
  * no duplicate bias controls or reserved panel space. Wrap at narrow widths. */
 .legacy-point-bias-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 8px 0 12px; color: var(--text-color-muted, #718096); font-size: 12px; }

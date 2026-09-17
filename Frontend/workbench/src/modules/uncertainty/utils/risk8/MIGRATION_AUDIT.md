@@ -99,6 +99,15 @@ Stored overrides retain the audited calculation semantics above; only affected
 points show a compact notice and an explicit reset to instrument inheritance.
 No risk equations or captured workbook expectations change with this UI update.
 
+The subsequent September 17 tasking exposes the existing manual-net contract
+through a single optional row in Measurement Inputs. Its + button seeds the row
+from the current source total; edits replace that total, and removal restores
+source propagation. The row is not an equation variable or uncertainty term.
+UUT bias remains independently owned. The removed corrected checkbox does not
+reactivate saved corrected biases on load; entering a new residual makes it
+active. Unit and browser checks exercise these transitions without changing the
+workbook oracle or numerical risk code.
+
 **Unknown-value exception:** Beta.7's dedicated Types 5/6 boundary routine ignores
 K/L. The app shifts the physical limit into observed-reading coordinates by adding
 system bias before inward resolution rounding. Zero bias matches the workbook's

@@ -1,6 +1,7 @@
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
 import LegacyPointBiasNotice from "./LegacyPointBiasNotice";
+import { AddNetBiasButton, NetBiasRow } from "./NetMeasurementBias";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
 import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
@@ -4486,11 +4487,13 @@ export const InlineToleranceCell = ({
   const inferredMode = inferToleranceEditorMode(tolerance);
   const [shapeMode, setShapeMode] = useState(inferredMode.shape);
   const [sidedness, setSidedness] = useState(inferredMode.sidedness);
+  const [showBias, setShowBias] = useState(false);
 
   useLayoutEffect(() => {
     const next = inferToleranceEditorMode(tolerance);
     setShapeMode(next.shape);
     setSidedness(next.sidedness);
+    setShowBias(false);
   }, [rangeIdOf(activeRange), tolerance?._editorMode?.shape, tolerance?._editorMode?.sidedness]);
 
   useLayoutEffect(() => {
@@ -4507,12 +4510,13 @@ export const InlineToleranceCell = ({
     onEditingChangeRef.current?.(isEditing);
   }, [isEditing]);
 
-  // Put focus in the first field when the editor opens so a later click-away
-  // reliably produces a focusout (and commits the in-progress value).
+  // Focus the first mode control on opening. Focusing a numeric draft here
+  // causes an untouched value's blur commit to race a portaled unit selection;
+  // moving the checkbox to the footer must not change which value gets saved.
   useLayoutEffect(() => {
     if (!isEditing || !containerRef.current) return;
-    const firstInput = containerRef.current.querySelector("input");
-    firstInput?.focus();
+    const firstControl = containerRef.current.querySelector("button, input");
+    firstControl?.focus();
   }, [isEditing]);
 
   const dismissToleranceEditor = useCallback(() => setIsEditing(false), []);
@@ -4645,11 +4649,11 @@ export const InlineToleranceCell = ({
             SS
           </button>
         </div>
-        <label className="inline-tolerance-greater-toggle">
-          <input type="checkbox" checked={Boolean(tolerance.whicheverIsGreater)}
-            onChange={event => onCommit("__replace__", { ...tolerance, whicheverIsGreater: event.target.checked })} />
-          <span>Whichever is greater</span>
-        </label>
+        {biasRole && <div className="inline-tolerance-mini-toggle" role="group" aria-label="Bias controls">
+          <button type="button" className={showBias ? "is-active" : ""}
+            aria-pressed={showBias} aria-expanded={showBias}
+            title="Edit bias" onClick={() => setShowBias(value => !value)}>Bias</button>
+        </div>}
       </div>
       {(sidedness === "single"
         ? TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key === "singleSided")
@@ -4682,12 +4686,18 @@ export const InlineToleranceCell = ({
           instrument editors supply biasRole; editing a budget error limit must
           not accidentally author a new shared instrument default. __replace__
           retains every tolerance field while atomically updating its bias. */}
-      {biasRole && <div className="instrument-bias-editor">
-        <span>Bias</span>
+      <div className="inline-tolerance-footer">
+        <label className="inline-tolerance-greater-toggle">
+          <input type="checkbox" checked={Boolean(tolerance.whicheverIsGreater)}
+            onChange={event => onCommit("__replace__", { ...tolerance, whicheverIsGreater: event.target.checked })} />
+          <span>Whichever is greater</span>
+        </label>
+      </div>
+      {biasRole && showBias && <div className="instrument-bias-editor">
         <BiasValueEditor label={biasRole === "uut" ? "Range UUT bias" : "Range source bias"}
           value={tolerance.bias} unit={activeRange.unit || referencePoint?.unit}
-          allowCorrection={biasRole !== "uut"}
-          onChange={bias => onCommit("__replace__", { ...tolerance, bias })} />
+          onChange={bias => onCommit("__replace__", { ...tolerance, bias: { ...bias, corrected: false } })} />
+        {tolerance.bias?.corrected && <span className="instrument-bias-legacy-correction">Saved as corrected; editing the bias makes it active.</span>}
       </div>}
     </div>
   );
@@ -14809,6 +14819,7 @@ function DetailedView({
                 </td>
               </tr>
             ))}
+            <NetBiasRow point={testPointData} onChange={onUpdateTestPoint} />
           </tbody>
         </table>
       </div>
@@ -15588,6 +15599,7 @@ function DetailedView({
                 <FontAwesomeIcon icon={faFlask} />
                 <span>Measurement Inputs</span>
               </div>
+              <AddNetBiasButton point={testPointData} session={sessionData} onChange={onUpdateTestPoint} />
             </div>
             <div className="measurement-equation-inputs-card">
                 {equationVariableInputs}
@@ -16370,6 +16382,7 @@ function DetailedView({
         style={detailSectionStyle("budget", 1)}
       >
       <LegacyPointBiasNotice point={testPointData} session={sessionData}
+        netBiasEditable={hasUsableEquation && equationDisplayData.variables.length > 0}
         calculatedAverage={calcResults?.calculatedNominalValue}
         onChange={onUpdateTestPoint} />
       {!hasMeasurementPoint && <p className="form-section-warning" role="status">Enter a measurement value when ready. You can build the uncertainty budget now; value-dependent components will show a warning until a value is assigned.</p>}
