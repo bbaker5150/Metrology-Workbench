@@ -71,6 +71,12 @@ export const useRiskCalculation = (
   // Ref to store the last calculated metrics to prevent infinite loops
   const prevRiskMetricsRef = useRef(null);
   const dismissNotification = useCallback(() => setNotification(null), []);
+  const publishRiskMetrics = useCallback((nextMetrics) => {
+    if (JSON.stringify(prevRiskMetricsRef.current) === JSON.stringify(nextMetrics)) return;
+    prevRiskMetricsRef.current = nextMetrics;
+    setRiskResults(nextMetrics);
+    onRiskResultsChange?.(nextMetrics);
+  }, [onRiskResultsChange]);
 
   // --- 1. Auto-Populate Limits from UUT Tolerance ---
   useEffect(() => {
@@ -147,6 +153,14 @@ export const useRiskCalculation = (
 
   // --- 2. The Heavy Calculation Logic ---
   const calculateRiskMetrics = useCallback(() => {
+    // Removing the last component invalidates the uncertainty calculation.
+    // Publish that transition too, including the de-duplication cache, so the
+    // cards/parent clear immediately and restoring the same budget recalculates.
+    if (!calcResults) {
+      publishRiskMetrics(null);
+      setNotification(null);
+      return;
+    }
     const LLow = parseFloat(riskInputs.LLow);
     const LUp = parseFloat(riskInputs.LUp);
     const unknownMeasurement = isUnknownMeasurementTolerance(uutToleranceData);
@@ -165,21 +179,12 @@ export const useRiskCalculation = (
     const turNeeded = parseFloat(sessionData.uncReq.neededTUR);
     const uutName = sessionData.uutDescription || "UUT";
 
-    const publishRiskMetrics = (nextMetrics) => {
-      const prevJSON = JSON.stringify(prevRiskMetricsRef.current);
-      const nextJSON = JSON.stringify(nextMetrics);
-      if (prevJSON === nextJSON) return;
-      prevRiskMetricsRef.current = nextMetrics;
-      setRiskResults(nextMetrics);
-      onRiskResultsChange?.(nextMetrics);
-    };
-
     // Workbook Types 3-6 legitimately have exactly one physical limit. The
     // legacy two-sided path is the only one that requires both limits.
     if (unknownMeasurement) {
-      if (hasLowerLimit === hasUpperLimit) return;
+      if (hasLowerLimit === hasUpperLimit) { publishRiskMetrics(null); return; }
     } else if (knownSingleSided) {
-      if (hasLowerLimit === hasUpperLimit) return;
+      if (hasLowerLimit === hasUpperLimit) { publishRiskMetrics(null); return; }
       const geometry = validateKnownSingleSidedGeometry(
         uutToleranceData,
         uutNominal?.value,
@@ -197,14 +202,10 @@ export const useRiskCalculation = (
       }
       if (isNaN(reliability) || reliability <= 0 || reliability >= 1) { publishRiskMetrics(null); return; }
     } else {
-      if (!hasLowerLimit || !hasUpperLimit || LUp === LLow) return;
+      if (!hasLowerLimit || !hasUpperLimit || LUp === LLow) { publishRiskMetrics(null); return; }
       if (isNaN(reliability) || reliability <= 0 || reliability >= 1) { publishRiskMetrics(null); return; }
     }
     setNotification(null);
-    if (!calcResults) {
-      return;
-    }
-
     const nominalUnit = uutNominal?.unit;
     const targetUnitInfo = unitSystem.units[nominalUnit];
     let uCal_Native = calcResults.combined_uncertainty_absolute_base / targetUnitInfo?.to_si;
@@ -223,6 +224,7 @@ export const useRiskCalculation = (
         title: "Calculation Error",
         message: `Invalid UUT unit (${nominalUnit}) for risk analysis.`,
       });
+      publishRiskMetrics(null);
       return;
     }
 
@@ -855,6 +857,7 @@ export const useRiskCalculation = (
     testPointData?.budgetPropagationMethod,
     testPointData?.monteCarloTrials,
     onRiskResultsChange,
+    publishRiskMetrics,
   ]);
 
   // --- 3. Trigger Calculation ---
@@ -864,18 +867,10 @@ export const useRiskCalculation = (
       analysisMode === "uncertaintyTool" ||
       analysisMode === "riskmitigation";
 
-    if (shouldCalculate && calcResults) {
+    if (shouldCalculate) {
       calculateRiskMetrics();
-    }
-
-    if (!shouldCalculate) {
-      setRiskResults((prevResults) => {
-        if (prevResults !== null) {
-          onRiskResultsChange?.(null);
-          return null;
-        }
-        return prevResults;
-      });
+    } else {
+      publishRiskMetrics(null);
     }
   }, [
     analysisMode,
@@ -889,6 +884,7 @@ export const useRiskCalculation = (
     riskInputs.LLow,
     riskInputs.LUp,
     calculateRiskMetrics,
+    publishRiskMetrics,
     onRiskResultsChange,
   ]);
 

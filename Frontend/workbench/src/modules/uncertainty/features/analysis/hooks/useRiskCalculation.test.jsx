@@ -17,6 +17,30 @@ const session = {
 };
 
 describe("useRiskCalculation single-sided validation", () => {
+  test("clears risk on an empty budget and restores identical results without changing points", async () => {
+    const tolerance = { floor: { high: 1, low: -1, unit: 'V', symmetric: true } };
+    const nominal = { value: 10, unit: 'V' };
+    const point = { id: 'same-point', uutTolerance: tolerance };
+    const tmde = [];
+    const calc = { combined_uncertainty_absolute_base: .1, expanded_uncertainty_absolute_base: .196, calculatedNominalValue: null };
+    const changed = vi.fn();
+    const { result, rerender } = renderHook(({ calculation, mode }) =>
+      useRiskCalculation(session, point, tolerance, tmde, nominal, calculation, mode, changed),
+      { initialProps: { calculation: calc, mode: 'uncertaintyTool' } });
+    await waitFor(() => expect(result.current.riskResults?.pfa).toBeTypeOf('number'));
+    const original = result.current.riskResults;
+    rerender({ calculation: null, mode: 'uncertaintyTool' });
+    await waitFor(() => expect(result.current.riskResults).toBeNull());
+    expect(changed).toHaveBeenLastCalledWith(null);
+    rerender({ calculation: calc, mode: 'uncertaintyTool' });
+    await waitFor(() => expect(result.current.riskResults).toEqual(original));
+    expect(changed).toHaveBeenLastCalledWith(original);
+    // Leaving/reentering risk must reset the same de-duplication cache too.
+    rerender({ calculation: calc, mode: 'other' });
+    await waitFor(() => expect(result.current.riskResults).toBeNull());
+    rerender({ calculation: calc, mode: 'uncertaintyTool' });
+    await waitFor(() => expect(result.current.riskResults).toEqual(original));
+  });
   test("routes the workbook Type 1 pressure mitigation row through Risk 8.0", async () => {
     const symmetricSession = {
       ...session,

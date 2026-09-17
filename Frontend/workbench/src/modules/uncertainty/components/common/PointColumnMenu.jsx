@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 export default function PointColumnMenu({ sections, columns, setColumns, selectedGroups, moveGroup, onReset }) {
+  const menuRef = useRef(null);
   const draggedKey = useRef(null);
   const pointerCleanup = useRef(null);
   const suppressClick = useRef(false);
@@ -39,14 +40,19 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
     const move = next => {
       if (!moved && Math.hypot(next.clientX - startX, next.clientY - startY) < 4) return;
       next.preventDefault();
-      moved = true;
-      draggedKey.current = key;
-      setDragging(key);
-      document.body.classList.add('point-columns-dragging');
+      if (!moved) {
+        moved = true;
+        draggedKey.current = key;
+        setDragging(key);
+        document.body.classList.add('point-columns-dragging');
+      }
       const row = document.elementFromPoint(next.clientX, next.clientY)?.closest('[data-column-key]');
-      destination = row ? { key: row.dataset.columnKey,
+      destination = row && menuRef.current?.contains(row) ? { key: row.dataset.columnKey,
         position: next.clientY < row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2 ? 'before' : 'after' } : null;
-      setDropTarget(destination);
+      // Pointer moves within one insertion zone should not repaint the menu.
+      // CSS also suspends hover fills/buttons until release; only the boundary
+      // marker changes as the pointer crosses a different insertion zone.
+      setDropTarget(previous => previous?.key === destination?.key && previous?.position === destination?.position ? previous : destination);
     };
     const cleanup = () => {
       window.removeEventListener('pointermove', move);
@@ -77,7 +83,7 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
     pointerCleanup.current = cleanup;
   };
   const available = sections.map(section => ({ ...section, cols: section.cols.filter(col => !(col.keys || [col.key]).every(key => columns[key])) })).filter(section => section.cols.length);
-  return <div className="point-column-menu-body">
+  return <div ref={menuRef} className="point-column-menu-body">
     <button type="button" className="point-column-reset" onClick={() => { finishDrag(); onReset(); }}>Reset</button>
     <section className="point-column-selected">
       <div className="sidebar-column-order-heading"><strong>Displayed columns</strong></div>

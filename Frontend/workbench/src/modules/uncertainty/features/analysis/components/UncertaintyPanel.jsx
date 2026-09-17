@@ -63,6 +63,7 @@ import { resizeTableColumn } from "../../../utils/fillTrailingColumn";
 export { getBudgetRangeWarnings } from "../../../utils/pointDiagnostics";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
 import { getNextInstrumentSelection } from "../../../utils/instrumentSelection";
+import { reorderInstrumentRows, instrumentDropPosition } from "../../../utils/instrumentReorder";
 import {
   assessRangeCompatibility,
 } from "../../../utils/tmdeCompatibility";
@@ -7215,7 +7216,7 @@ const SummaryDashboard = ({
     setDragOverFunctionTarget(`${kind}:${fn.key}`);
   };
 
-  const handleInstrumentDropOnFunction = (kind, targetFunction) => (event) => {
+  const handleInstrumentDropOnFunction = (kind, targetFunction, targetId = null) => (event) => {
     event.preventDefault();
     event.stopPropagation();
     let payload;
@@ -7224,6 +7225,15 @@ const SummaryDashboard = ({
     setDragOverFunctionTarget(null);
     instrumentDragSelectionRef.current = null;
     if (!onSessionSave || !Array.isArray(payload?.items) || !payload.items.every(entry => entry.item?.id != null && ["uut", "tmde"].includes(entry.kind))) return;
+    // Same-area drops reorder the original objects. Cutting/pasting here would
+    // split multi-area memberships and could create new IDs for existing rows.
+    if (payload.items.every(entry => entry.kind === kind && makeFunctionKey(entry.sourceFunctionKey) === targetFunction.key)) {
+      const current = latestSessionDataRef.current;
+      const next = reorderInstrumentRows(current, kind, targetFunction.key,
+        payload.items.map(entry => entry.item.id), targetId, targetId == null ? 'after' : instrumentDropPosition(event));
+      if (next !== current) onSessionSave(next);
+      return;
+    }
     const items = payload.items.filter(entry => entry.kind !== kind || makeFunctionKey(entry.sourceFunctionKey) !== targetFunction.key);
     if (!items.length) return;
     const { session: next, rows } = pasteInstrumentIntoSession(latestSessionDataRef.current, { items, mode: "cut" }, kind, targetFunction.key);
@@ -8982,7 +8992,8 @@ const SummaryDashboard = ({
                               onDragEnd={handleInstrumentDragEnd}
                               data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
-                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area)(event); }}
+                        data-instrument-id={uut.id}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area, uut.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(uutFnKey, {
                                 cursor: "pointer",
@@ -9070,7 +9081,8 @@ const SummaryDashboard = ({
                         }
                         data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
-                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area)(event); }}
+                        data-instrument-id={uut.id}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area, uut.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(uutFnKey, {
                           cursor: "pointer",
@@ -9318,7 +9330,8 @@ const SummaryDashboard = ({
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
-                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area)(event); }}
+                        data-instrument-id={uut.id}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area, uut.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(uutFnKey, {
                             cursor: "pointer",
@@ -9470,7 +9483,8 @@ const SummaryDashboard = ({
                               onDragEnd={handleInstrumentDragEnd}
                               data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
-                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area)(event); }}
+                        data-instrument-id={tmde.id}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area, tmde.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(tmdeFnKey, {
                                 cursor: "pointer",
@@ -9558,7 +9572,8 @@ const SummaryDashboard = ({
                         }
                         data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
-                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area)(event); }}
+                        data-instrument-id={tmde.id}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area, tmde.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(tmdeFnKey, {
                           cursor: "pointer",
@@ -9837,7 +9852,8 @@ const SummaryDashboard = ({
                           className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === tmde.id ? "hovered-spec-row" : ""}`}
                           data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
-                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area)(event); }}
+                        data-instrument-id={tmde.id}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area, tmde.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                               style={functionRowStyle(tmdeFnKey, {
                             cursor: "pointer",
@@ -10349,7 +10365,7 @@ function DetailedView({
   }, []);
 
 
-  const handleDetailInstrumentDropOnFunction = (kind, targetFunction) => (event) => {
+  const handleDetailInstrumentDropOnFunction = (kind, targetFunction, targetId = null) => (event) => {
     event.preventDefault();
     event.stopPropagation();
     let payload;
@@ -10358,6 +10374,14 @@ function DetailedView({
     setDetailDragOverFunctionTarget(null);
     instrumentDragSelectionRef.current = null;
     if (!onSessionSave || !Array.isArray(payload?.items) || !payload.items.every(entry => entry.item?.id != null && ["uut", "tmde"].includes(entry.kind))) return;
+    // Use the same identity-preserving reorder path as the overview tables.
+    if (payload.items.every(entry => entry.kind === kind && makeFunctionKey(entry.sourceFunctionKey) === targetFunction.key)) {
+      const current = latestSessionDataRef.current;
+      const next = reorderInstrumentRows(current, kind, targetFunction.key,
+        payload.items.map(entry => entry.item.id), targetId, targetId == null ? 'after' : instrumentDropPosition(event));
+      if (next !== current) onSessionSave(next);
+      return;
+    }
     const items = payload.items.filter(entry => entry.kind !== kind || makeFunctionKey(entry.sourceFunctionKey) !== targetFunction.key);
     if (!items.length) return;
     const { session: next, rows } = pasteInstrumentIntoSession(latestSessionDataRef.current, { items, mode: "cut" }, kind, targetFunction.key);
@@ -14961,7 +14985,8 @@ function DetailedView({
                               onDragEnd={handleDetailInstrumentDragEnd}
                               data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
-                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area)(event); }}
+                        data-instrument-id={uut.id}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area, uut.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                               style={{
                                 ...functionBadgeStyle(uutFnKey),
@@ -15052,7 +15077,8 @@ function DetailedView({
                         }
                         data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
-                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area)(event); }}
+                        data-instrument-id={uut.id}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area, uut.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                         style={{
                           ...functionBadgeStyle(uutFnKey),
@@ -15334,7 +15360,8 @@ function DetailedView({
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
-                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area)(event); }}
+                        data-instrument-id={uut.id}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area, uut.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
                           style={{
                             ...functionBadgeStyle(uutFnKey),
@@ -15798,7 +15825,8 @@ function DetailedView({
                                   onDragEnd={handleDetailInstrumentDragEnd}
                                   data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
-                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleDetailInstrumentDropOnFunction("tmde", area)(event); }}
+                        data-instrument-id={masterTmde.id}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleDetailInstrumentDropOnFunction("tmde", area, masterTmde.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                                   style={{
                                     ...functionBadgeStyle(tmdeFnKey),
@@ -15888,7 +15916,8 @@ function DetailedView({
                             }
                             data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
-                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleDetailInstrumentDropOnFunction("tmde", area)(event); }}
+                        data-instrument-id={masterTmde.id}
+                        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleDetailInstrumentDropOnFunction("tmde", area, masterTmde.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
                             style={{
                               ...functionBadgeStyle(tmdeFnKey),

@@ -21119,6 +21119,18 @@ body.point-columns-dragging, body.point-columns-dragging * { cursor: grabbing !i
 .point-column-order-row.is-drop-target.drop-before::after { top: -1px; }
 .point-column-order-row.is-drop-target.drop-after::after { bottom: -1px; }
 
+/* While sorting, transient :hover/:focus fills and remove buttons must not
+   flash beneath the pointer. Keep the source fill and insertion line stable;
+   normal hover and keyboard focus styling returns immediately after release. */
+body.point-columns-dragging .point-column-menu-body :is(.point-column-order-row, .point-column-add) {
+  background: transparent; box-shadow: none; outline: none; transition: none;
+}
+body.point-columns-dragging .point-column-menu-body :is(.point-column-order-row, .point-column-add).is-dragging {
+  background: var(--primary-color-light);
+}
+body.point-columns-dragging .point-column-menu-body .point-column-remove,
+body.point-columns-dragging .point-column-menu-body .point-column-add > span:last-child { opacity: 0; }
+
 /* Library removal is a separate hit target from adding a component. Reserve
    its space at rest so revealing the red action never shifts the option. */
 .budget-dynamic-picker-entry { display: flex; align-items: flex-start; gap: 4px; }
