@@ -1,3 +1,4 @@
+import useSelectInputText from "./hooks/useSelectInputText";
 import PointSelectionOutline from "./components/common/PointSelectionOutline";
 import PointNumericInput from "./components/common/PointNumericInput";
 import PointRequirementCell from "./components/common/PointRequirementCell";
@@ -337,6 +338,7 @@ const getFunctionPointSettings = (sessionData, functionId) => {
 };
 
 const SIDEBAR_COLUMN_GROUPS = [
+  { key: "warnings", label: "Warnings", columns: ["warningIcons"] },
   {
     key: "measurement",
     label: "Measurement",
@@ -388,6 +390,7 @@ export const DEFAULT_SIDEBAR_COLUMN_ORDER = SIDEBAR_COLUMN_GROUPS.flatMap(
 );
 
 const SIDEBAR_COLUMN_TRACKS = {
+  warningIcons: "70px",
   uut: "minmax(200px, 1.35fr)",
   section: "50px",
   value: "80px",
@@ -420,6 +423,7 @@ const SIDEBAR_COLUMN_TRACKS = {
 };
 
 const SIDEBAR_COLUMN_LABELS = {
+  warningIcons: "Point Information",
   uut: "UUT",
   section: "Section",
   value: "Value",
@@ -488,6 +492,9 @@ export const getSidebarRiskColumnWidths = (columnWidths, riskMetricsMap) => {
     (risk) => risk?.riskMethod === "risk8-pfa-boundary",
   )) return columnWidths;
   const custom = Number(columnWidths.pfa);
+  // Only automatic sizing reserves the full badge. Authored narrow columns
+  // use its compact marker, keeping both the value and boundary meaning visible.
+  if (Number.isFinite(custom) && custom > 0) return columnWidths;
   return {
     ...columnWidths,
     pfa: Math.max(128, Number.isFinite(custom) ? custom : 0),
@@ -546,6 +553,7 @@ const INSTRUMENT_SIZE_STORAGE_KEYS = [
   "uncertalytics:detail:tmde:instrument-table-height:v1",
 ];
 const DEFAULT_SIDEBAR_COLUMNS = {
+  warningIcons: true,
   uut: true,
   section: false,
   value: true,
@@ -575,6 +583,11 @@ const DEFAULT_SIDEBAR_COLUMNS = {
   noGbPfr: false,
   noGbCalInt: false,
   noGbMeasRel: false,
+};
+const POINT_COLUMN_DEFAULTS_KEY = "uncertalytics.pointColumnDefaults.v1";
+const readPointColumnDefaults = () => {
+  try { const saved = JSON.parse(window.localStorage.getItem(POINT_COLUMN_DEFAULTS_KEY) || "{}"); return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {}; }
+  catch { return {}; }
 };
 const getUiPreferencesStorageKey = (sessionId) =>
   `${UNCERTAINTY_UI_PREFERENCES_PREFIX}:${sessionId}`;
@@ -728,15 +741,9 @@ const getScopedZoomContents = (surface) => {
 // own font, so the smaller header font and bold selected-row font produced
 // different physical column widths from the exact same template string.
 const getSidebarValueColumnWidth = (points = []) => {
-  const longest = (points || []).reduce((max, point) => {
-    const parameter = point?.testPointInfo?.parameter || {};
-    const valueLength = String(parameter.value ?? "").length;
-    const unitLength = (parameter.unit ? getUnitDisplayLabel(parameter.unit) : "Units").length;
-    // Reserve the independent value/unit borders, unit chevron and diagnostic
-    // icons. The unit select must retain enough space for its selected label.
-    return Math.max(max, valueLength * 8 + unitLength * 13 + 76);
-  }, 0);
-  return `${Math.max(128, longest)}px`;
+  const numberWidth = Math.max(3, ...points.map(point => String(point?.testPointInfo?.parameter?.value ?? "").length)) * 8 + 14;
+  const unitWidth = Math.max(2, ...points.map(point => getUnitDisplayLabel(point?.testPointInfo?.parameter?.unit || "Units").length)) * 13 + 22;
+  return `${Math.max(128, numberWidth + unitWidth + 25)}px`;
 };
 
 const readUiSizingPreferences = () => {
@@ -1014,7 +1021,8 @@ export const SidebarPointItem = ({
 
   const pointUnitControl = (editing = false) => <span className="point-unit-control" onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
     <select className="inline-unit-combobox point-unit-select" aria-label="Measurement point unit"
-      style={{ width: `calc(${Math.max(2, getUnitDisplayLabel(displayUnit || "Units").length)}ch + 22px)` }}
+      title={displayUnit && !unitOptions.includes(displayUnit) ? `${getUnitDisplayLabel(displayUnit)} (unavailable)` : getUnitDisplayLabel(displayUnit || "Units")}
+      style={{ width: `calc(${Math.max(2, getUnitDisplayLabel(displayUnit || "Units").length) * .85}em + 28px)` }}
       value={displayUnit || ""}
       onBlur={event => { if (editing && !event.relatedTarget?.closest('.point-edit-affordance')) commitEdit(); }}
       onChange={event => {
@@ -1024,7 +1032,7 @@ export const SidebarPointItem = ({
         if (editing) setEditingField(null);
       }}>
       <option value="">Units</option>
-      {displayUnit && !unitOptions.includes(displayUnit) && <option value={displayUnit} disabled>{getUnitDisplayLabel(displayUnit)} (unavailable)</option>}
+      {displayUnit && !unitOptions.includes(displayUnit) && <option value={displayUnit} disabled title="Unavailable for this measurement area">{getUnitDisplayLabel(displayUnit)}</option>}
       {unitOptions.map(unit => <option key={unit} value={unit}>{getUnitDisplayLabel(unit)}</option>)}
     </select>
     <FontAwesomeIcon icon={faChevronDown} className="point-unit-chevron" aria-hidden="true" />
@@ -1175,9 +1183,7 @@ export const SidebarPointItem = ({
     const numeric = Number(val);
     if (!Number.isFinite(numeric)) return "var(--text-color-muted)";
     if (numeric >= limit) return "var(--status-good)";
-    return numeric < Math.min(1, limit / 4)
-      ? "var(--status-bad)"
-      : "var(--status-warning)";
+    return "var(--status-bad)";
   };
 
   const getPfaColor = (val) => decisionRiskColor(val, riskRequirements?.reqPFA, "pfa");
@@ -1350,6 +1356,25 @@ export const SidebarPointItem = ({
       }}
       onContextMenu={(e) => onContextMenu(e, point)}
     >
+            {visibleColumns.warningIcons && (
+              <span className="point-diagnostics point-information">
+                {[
+                  { category: "input", label: "Missing inputs", icon: faPenToSquare },
+                  { category: "warning", label: "Calculation warning", icon: faExclamationTriangle },
+                  { category: "refresh", label: "Recalculation needed", icon: faRotate },
+                  { category: "info", label: "Information", icon: faCircleInfo },
+                ].map(({ category, label, icon }) => {
+                  const messages = diagnostics.filter(entry => entry.category === category).map(entry => entry.message);
+                  return messages.length > 0 && <button key={category} type="button"
+                    className={`point-diagnostic-warning point-diagnostic--${category}`}
+                    aria-label={`${label}: ${messages.join(" ")}`} title={`${label}\n\n${messages.join("\n\n")}`}
+                    onClick={event => { event.stopPropagation(); onSelect?.(event, point); }}>
+                    <FontAwesomeIcon icon={icon} aria-hidden="true" />
+                  </button>;
+                })}
+              </span>
+            )}
+
       {visibleColumns.uut && (
         <>
           <span
@@ -1484,7 +1509,6 @@ export const SidebarPointItem = ({
       {visibleColumns.value &&
         (editingField === "value" ? (
           <span className="point-value point-value-with-unit sidebar-value-sticky point-value-editing">
-            {visibleColumns.warningIcons !== false && <span className="point-diagnostics" aria-hidden="true" />}
             <span className="point-edit-affordance">
             <PointNumericInput
               autoFocus
@@ -1500,31 +1524,12 @@ export const SidebarPointItem = ({
         ) : (
           <span
             className="point-value point-value-with-unit sidebar-value-sticky"
-            onClick={(e) => handleSingleClickEdit(e, "value", displayValue)}
             title={`${displayValue ?? "-"}${
               displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
             }`}
           >
-            {visibleColumns.warningIcons !== false && (
-              <span className="point-diagnostics">
-                {[
-                  { category: "input", label: "Missing inputs", icon: faPenToSquare },
-                  { category: "warning", label: "Calculation warning", icon: faExclamationTriangle },
-                  { category: "refresh", label: "Recalculation needed", icon: faRotate },
-                  { category: "info", label: "Information", icon: faCircleInfo },
-                ].map(({ category, label, icon }) => {
-                  const messages = diagnostics.filter(entry => entry.category === category).map(entry => entry.message);
-                  return messages.length > 0 && <button key={category} type="button"
-                    className={`point-diagnostic-warning point-diagnostic--${category}`}
-                    aria-label={`${label}: ${messages.join(" ")}`} title={`${label}\n\n${messages.join("\n\n")}`}
-                    onClick={event => { event.stopPropagation(); onSelect?.(event, point); }}>
-                    <FontAwesomeIcon icon={icon} aria-hidden="true" />
-                  </button>;
-                })}
-              </span>
-            )}
             <span className="point-edit-affordance">
-              <span className="point-value-number">
+              <span className="point-value-number" onClick={(e) => handleSingleClickEdit(e, "value", displayValue)}>
                 {displayValue || <span className="point-placeholder">-</span>}
               </span>
               {pointUnitControl()}
@@ -1743,7 +1748,8 @@ export const SidebarPointItem = ({
           {risk.pfa !== undefined ? `${Number(risk.pfa).toFixed(2)}%` : "-"}
           {riskMethodMark && (
             <span
-              className={`point-method-badge ${riskMethodMark.className}`}
+              className={`point-method-badge ${Number(columnWidths.pfa) > 0 && Number(columnWidths.pfa) < 128 ? "is-compact" : ""} ${riskMethodMark.className}`}
+              aria-label="Boundary"
               title={riskMethodMark.note}
             >
               {riskMethodMark.label}
@@ -2205,6 +2211,7 @@ const SidebarSessionHeader = ({
 };
 
 function App({ showThemeToggle = false }) {
+  useSelectInputText();
   const confirmRecordDeletes = useConfirmRecordDeletes();
   const workbenchIssues = useWorkbenchIssues();
   const {
@@ -2336,43 +2343,8 @@ function App({ showThemeToggle = false }) {
   const zoomRootRef = useRef(null);
 
   // --- SIDEBAR PREFERENCES ---
-  const [sidebarColumns, setSidebarColumns] = useState({
-    uut: true,
-    section: false,
-    value: true,
-    // Optional secondary parameter (e.g. Frequency); off by default.
-    qualifier: false,
-    tolerance: false,
-    lowLimit: true,
-    highLimit: true,
-    standardUncertainty: true,
-    measurementUncertainty: true,
-    tmdeLow: false,
-    tmdeHigh: false,
-    pfa: true,
-    pfr: true,
-    tur: true,
-    tar: false,
-    observedReop: false,
-    maxReop: false,
-    trueReop: false,
-    // Guardband columns (off by default; guardband is only computed when at
-    // least one of these is enabled — see pointRiskMap below).
-    gbPfa: false,
-    gbPfr: false,
-    gbMult: false,
-    gbLow: false,
-    gbHigh: false,
-    gbCalInt: false,
-    gbMeasRel: false,
-    noGbPfa: false,
-    noGbPfr: false,
-    noGbCalInt: false,
-    noGbMeasRel: false,
-  });
-  const [sidebarColumnOrder, setSidebarColumnOrder] = useState(
-    DEFAULT_SIDEBAR_COLUMN_ORDER,
-  );
+  const [sidebarColumns, setSidebarColumns] = useState(() => ({ ...DEFAULT_SIDEBAR_COLUMNS, ...readPointColumnDefaults().columns }));
+  const [sidebarColumnOrder, setSidebarColumnOrder] = useState(() => normalizeSidebarColumnOrder(readPointColumnDefaults().order));
   // Keep explicitly enabled columns visible even if their current values are
   // blank. Hiding Section in that state made its filter appear broken and
   // prevented users from entering the first section value.
@@ -2757,10 +2729,11 @@ function App({ showThemeToggle = false }) {
     const sizingPreferences = readUiSizingPreferences();
     setSidebarColumns({
       ...DEFAULT_SIDEBAR_COLUMNS,
+      ...readPointColumnDefaults().columns,
       ...(preferences.sidebarColumns || {}),
     });
     setSidebarColumnOrder(
-      normalizeSidebarColumnOrder(preferences.sidebarColumnOrder),
+      normalizeSidebarColumnOrder(preferences.sidebarColumnOrder || readPointColumnDefaults().order),
     );
     setSidebarWidth(
       Number.isFinite(sizingPreferences.sidebarWidth)
@@ -5352,6 +5325,7 @@ function App({ showThemeToggle = false }) {
       return runs;
     }, []);
     const headerConfig = {
+      warningIcons: ["Info", { title: "Point Information", align: "center" }],
       uut: ["UUT"],
       section: ["Sect.", { align: "center", title: "Section" }],
       value: [
@@ -6074,6 +6048,7 @@ function App({ showThemeToggle = false }) {
                             onClick={() => setIsColumnMenuOpen(open => !open)}><ToolbarLayoutIcon reorder /></button>
                           {isColumnMenuOpen && <SidebarColumnPopover anchorRef={columnMenuRef} onClose={() => setIsColumnMenuOpen(false)}>
                             <PointColumnMenu sections={[
+                              { group: "Warnings", cols: [{ key: "warningIcons", label: "Point Information" }] },
                             {
                               group: "Measurement",
                               cols: [
@@ -6139,7 +6114,11 @@ function App({ showThemeToggle = false }) {
                             { group: "Mitigation Inputs", cols: MITIGATION_INPUT_FIELDS.map(field => ({ key: requirementColumn(field), label: field.sidebarLabel })) },
                           ]} columns={sidebarColumns} setColumns={setSidebarColumns}
                               selectedGroups={sidebarSortGroups} moveGroup={moveSidebarSortGroup}
-                              onReset={() => { setSidebarColumnOrder([...DEFAULT_SIDEBAR_COLUMN_ORDER]); setSidebarColumns({ ...DEFAULT_SIDEBAR_COLUMNS }); }} />
+                              onReset={() => { const defaults = readPointColumnDefaults(); setSidebarColumnOrder(normalizeSidebarColumnOrder(defaults.order)); setSidebarColumns({ ...DEFAULT_SIDEBAR_COLUMNS, ...defaults.columns }); }}
+                              onSetDefault={() => {
+                                try { window.localStorage.setItem(POINT_COLUMN_DEFAULTS_KEY, JSON.stringify({ columns: sidebarColumns, order: sidebarColumnOrder })); showToast("Default point columns saved"); }
+                                catch { showToast("Unable to save default columns", "error"); }
+                              }} />
                           </SidebarColumnPopover>}
                         </div>
                       </>
@@ -6160,7 +6139,7 @@ function App({ showThemeToggle = false }) {
                 )}
 
                 <div className="sidebar-points-scroll-wrapper measurement-points-table" role="region" aria-label="Measurement points"
-                  style={{ "--point-diagnostics-width": `${Math.max(1, ...Object.values(pointDiagnosticsMap).map(entries => new Set(entries.map(entry => entry.category)).size)) * 17 - 1}px` }}>
+                  style={{ "--point-value-number-width": `${Math.max(3, ...currentTestPoints.map(point => String(point.testPointInfo?.parameter?.value ?? "").length)) * 8 + 14}px`, "--point-diagnostics-width": `${Math.max(1, ...Object.values(pointDiagnosticsMap).map(entries => new Set(entries.map(entry => entry.category)).size)) * 17 - 1}px` }}>
                   <div className="measurement-points-table-content">
                     <PointSelectionOutline />
                     {sidebarData.length > 0 && renderSidebarColumnHeaders()}

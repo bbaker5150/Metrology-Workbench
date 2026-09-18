@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 
-export default function PointColumnMenu({ sections, columns, setColumns, selectedGroups, moveGroup, onReset }) {
+export default function PointColumnMenu({ sections, columns, setColumns, selectedGroups, moveGroup, onReset, onSetDefault }) {
   const menuRef = useRef(null);
   const draggedKey = useRef(null);
   const pointerCleanup = useRef(null);
@@ -84,7 +84,10 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
   };
   const available = sections.map(section => ({ ...section, cols: section.cols.filter(col => !(col.keys || [col.key]).every(key => columns[key])) })).filter(section => section.cols.length);
   return <div ref={menuRef} className="point-column-menu-body">
-    <button type="button" className="point-column-reset" onClick={() => { finishDrag(); onReset(); }}>Reset</button>
+    <div className="point-column-menu-actions">
+      <button type="button" onClick={() => { finishDrag(); onReset(); }}>Reset Columns</button>
+      <button type="button" onClick={onSetDefault}>Set as Default</button>
+    </div>
     <section className="point-column-selected">
       <div className="sidebar-column-order-heading"><strong>Displayed columns</strong></div>
       <div className="sidebar-column-order-list" onDragOver={event => { if (draggedKey.current) event.preventDefault(); }} onDrop={event => dropColumn(event, null)}>
@@ -118,8 +121,7 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
         </section>)}
       </div>
     </section>
-    <button type="button" className="point-column-indicators" aria-pressed={columns.warningIcons !== false}
-      onClick={() => toggle(["warningIcons"], columns.warningIcons === false)}><span>Point indicators</span><span aria-hidden="true">{columns.warningIcons !== false ? "−" : "+"}</span></button>
+
 
   </div>;
 }

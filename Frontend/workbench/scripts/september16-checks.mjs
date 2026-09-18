@@ -46,7 +46,7 @@ export async function checkSeptember16({ frame, page, check }) {
     const before = selected.getBoundingClientRect().top;
     available.scrollTop = available.scrollHeight;
     return { fixed: selected.getBoundingClientRect().top === before, scroll: getComputedStyle(available).overflowY,
-      selectedScroll: getComputedStyle(selected).overflowY, reset: node.querySelector('.point-column-reset').getBoundingClientRect().top - node.getBoundingClientRect().top };
+      selectedScroll: getComputedStyle(selected).overflowY, reset: node.querySelector('.point-column-menu-actions button').getBoundingClientRect().top - node.getBoundingClientRect().top };
   });
   check('available columns scroll independently and displayed columns stay fixed', layout.fixed && layout.scroll === 'auto' && layout.selectedScroll === 'visible', JSON.stringify(layout));
   check('Reset is at the top of the column chooser', layout.reset < 40);

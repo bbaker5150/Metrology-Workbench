@@ -6,7 +6,7 @@ import DecisionRiskCards from "./DecisionRiskCards";
 const formatValue = value => Number(value).toPrecision(4);
 it("updates both card colors when the session threshold changes", () => {
   const { rerender } = render(<DecisionRiskCards results={{ pfa: 3, pfr: 6 }} requiredPfa={2} formatValue={formatValue} />);
-  expect(screen.getByText("PFA").parentElement).toHaveClass("is-warning");
+  expect(screen.getByText("PFA").parentElement).toHaveClass("is-bad");
   expect(screen.getByText("PFR").parentElement).toHaveClass("is-bad");
   rerender(<DecisionRiskCards results={{ pfa: 3, pfr: 6 }} requiredPfa={8} formatValue={formatValue} />);
   expect(screen.getByText("PFA").parentElement).toHaveClass("is-good");

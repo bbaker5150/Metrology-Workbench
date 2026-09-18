@@ -377,7 +377,7 @@ describe("UncertaintyApp", () => {
     expect(within(menu).queryByRole("checkbox")).not.toBeInTheDocument();
     fireEvent.click(within(menu).getByRole("button", { name: "Hide PFA" }));
     expect(within(menu).getByRole("button", { name: "Add PFA column" })).toBeInTheDocument();
-    fireEvent.click(within(menu).getByRole("button", { name: "Reset" }));
+    fireEvent.click(within(menu).getByRole("button", { name: "Reset Columns" }));
     expect(within(menu).getByRole("button", { name: "Hide PFA" })).toBeInTheDocument();
     expect(within(menu).queryByRole("button", { name: "Add PFA column" })).not.toBeInTheDocument();
     expect(
@@ -1491,12 +1491,14 @@ describe("UncertaintyApp", () => {
       document.querySelectorAll(".sidebar-column-group"),
     );
     expect(columnGroups.map((group) => group.textContent.trim())).toEqual([
+      "Warnings",
       "Measurement",
       "Risk",
       "Mitigation (GB + Int)",
       "Mitigation (Int Only)",
     ]);
     expect(columnGroups.map((group) => group.style.gridColumn)).toEqual([
+      "span 1",
       "span 7",
       "span 2",
       "span 1",
@@ -1540,7 +1542,7 @@ describe("UncertaintyApp", () => {
       columnHeader.style.gridTemplateColumns,
     );
     // The UUT track starts wide enough for a full instrument identity.
-    expect(pointRow.style.gridTemplateColumns).toMatch(/^minmax\(200px, 1\.35fr\) /);
+    expect(pointRow.style.gridTemplateColumns).toMatch(/^70px minmax\(200px, 1\.35fr\) /);
     expect(pointRow.style.gridTemplateColumns).not.toContain("ch");
     fireEvent.click(pointRow);
     expect(pointRow).toHaveClass("active-point");
@@ -1938,4 +1940,21 @@ test("deletes a standalone SharePoint session without the workbench confirmation
   fireEvent.click(await screen.findByTitle("Delete Session"));
   await waitFor(() => expect(apiMock.delete).toHaveBeenCalledWith(expect.stringContaining("/sessions/120/")));
   expect(screen.queryByRole("alertdialog", { name: "Delete Session" })).not.toBeInTheDocument();
+});
+
+
+test("uses personal column defaults for an unconfigured session and preserves session overrides", async () => {
+  localStorage.setItem("uncertalytics.pointColumnDefaults.v1", JSON.stringify({ columns: { warningIcons: false, pfa: false, section: true }, order: ["value", "section"] }));
+  localStorage.setItem("uncertalytics.uiPreferences.v1:905", JSON.stringify({ sidebarColumns: { pfa: true } }));
+  apiMock.state.sessions = [{ id: 905, name: "Personal defaults", measurementAreas: [], uuts: [], tmdes: [], testPoints: [], uncReq: {} }];
+  render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);
+  await screen.findByTitle("Delete Session");
+  fireEvent.click(screen.getByTitle("Columns"));
+  const menu = screen.getByRole("dialog", { name: "Visible measurement point columns" });
+  expect(within(menu).getByRole("button", { name: "Add Point Information column" })).toBeInTheDocument();
+  expect(within(menu).getByRole("button", { name: "Hide Section" })).toBeInTheDocument();
+  expect(within(menu).getByRole("button", { name: "Hide PFA" })).toBeInTheDocument();
+  fireEvent.click(within(menu).getByRole("button", { name: "Reset Columns" }));
+  expect(within(menu).getByRole("button", { name: "Add PFA column" })).toBeInTheDocument();
+  expect(within(menu).getAllByLabelText(/^Move /).slice(0, 2).map(row => row.getAttribute("aria-label"))).toEqual(["Move Value", "Move Section"]);
 });

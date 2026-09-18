@@ -54,7 +54,7 @@ export async function checkTaskingLayout({ frame, page, check, saved, until }) {
   await page.mouse.up(); await settle();
   const reordered = await rows.evaluateAll(nodes => nodes.map(node => node.dataset.columnKey));
   check('dropping reorders at the marked boundary', reordered[0] === original[1] && reordered[1] === original[0]);
-  await frame.getByRole('button', { name: 'Reset', exact: true }).click();
+  await frame.getByRole('button', { name: 'Reset Columns', exact: true }).click();
   await page.keyboard.press('Escape');
 
   const expand = frame.getByRole('button', { name: 'Expand measurement area', exact: true });

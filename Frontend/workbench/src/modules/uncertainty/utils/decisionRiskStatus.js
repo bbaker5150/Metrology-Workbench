@@ -13,7 +13,7 @@ export const decisionRiskStatus = (value, requiredPfa, metric = "pfa") => {
   const numeric = Number(value);
   const limit = decisionRiskLimit(requiredPfa);
   if (numeric <= limit || (metric === "pfa" && pfaPassesAtDisplayedPrecision(numeric / 100, limit / 100))) return "good";
-  return numeric > Math.max(limit * 2.5, limit + 3) ? "bad" : "warning";
+  return "bad";
 };
 
 export const decisionRiskColor = (value, requiredPfa, metric) => {

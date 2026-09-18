@@ -21217,3 +21217,34 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .uncertainty-module .point-selection-outline { inset: 0; width: 100%; height: 100%; z-index: 8; }
 .budget-decision-zoom-surface { grid-column: 1; justify-self: center; min-width: 0; }
 .budget-decision-zoom-surface > .scoped-zoom-content { width: fit-content; }
+
+/* Separate editing from row selection: compact text targets leave the rest of
+   every cell available for selecting its measurement point. */
+.uncertainty-module .point-uut-summary,
+.uncertainty-module .point-grid-item .point-grouped-cell-label {
+  width: fit-content; max-width: 100%;
+}
+.uncertainty-module .point-uut-summary { flex: 0 1 auto; }
+.uncertainty-module .measurement-group-container .point-value-with-unit > .point-edit-affordance {
+  display: grid; grid-template-columns: minmax(var(--point-value-number-width, 38px), max-content) max-content;
+  justify-content: start; flex: 0 1 auto; gap: 5px;
+}
+.uncertainty-module .point-value-with-unit .point-value-number,
+.uncertainty-module .point-value-with-unit .point-value-input-slot { justify-self: end; }
+.uncertainty-module .point-value-with-unit .point-value-number { text-align: right; }
+.uncertainty-module .point-information { width: auto; min-width: 0; margin: 0; justify-content: center; }
+/* Equal flexible tracks spread compact fields under the session selector while
+   their text mirrors retain intrinsic editor sizing and focus geometry. */
+.session-info-content :is(.session-header-grid, .session-requirements-grid) {
+  grid-template-columns: repeat(2, minmax(max-content, 1fr)); column-gap: 20px;
+}
+.point-column-menu-actions { display: flex; justify-content: flex-end; gap: 14px; grid-column: 1 / -1; }
+.point-column-menu-actions button { border: 0; border-radius: 4px; background: transparent; color: var(--primary-color); font-family: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; padding: 4px 6px; }
+.point-column-menu-actions button:is(:hover, :focus-visible) { background: var(--primary-color-light); }
+/* A manually narrowed PFA column retains an accessible boundary marker below
+   its percentage. Automatic width still displays the full Boundary pill. */
+.uncertainty-module .point-risk-metric:has(.point-method-badge.is-compact) { display: flex; align-items: center; flex-direction: column; gap: 1px; }
+.uncertainty-module .point-method-badge.is-compact { font-size: 0; margin: 0; padding: 1px 4px; align-self: center; }
+.uncertainty-module .point-method-badge.is-compact::before { content: "B"; font-size: 9px; line-height: 10px; }
+
+.uncertainty-module .sidebar-sort-header--value { padding-left: 0; }

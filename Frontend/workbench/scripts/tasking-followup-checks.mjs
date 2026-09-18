@@ -116,7 +116,7 @@ export async function checkTaskingFollowup({ frame, page, saved, until, check })
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
   check('column-menu headings and borderless Reset share typography', await frame.locator('.point-column-menu-body').evaluate(menu => {
     const heading = [...menu.querySelectorAll('.sidebar-column-order-heading strong')].map(n => getComputedStyle(n));
-    const reset = getComputedStyle(menu.querySelector('footer button'));
+    const reset = getComputedStyle(menu.querySelector('.point-column-menu-actions button'));
     return heading.every(s => s.fontSize === heading[0].fontSize) && reset.fontSize === heading[0].fontSize && reset.borderTopWidth === '0px';
   }));
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) {

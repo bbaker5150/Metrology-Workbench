@@ -23,13 +23,13 @@ import {
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
-  test("shows all point warnings beside Value without falling back to stale saved risk", () => {
+  test("shows all point warnings in Point Information without falling back to stale saved risk", () => {
     const onSelect = vi.fn();
-    const { container } = render(<SidebarPointItem point={{ id: "warning", testPointInfo: { parameter: { value: 5, unit: "V" } }, riskMetrics: { pfa: 87.123 } }} liveRiskMetrics={null} diagnostics={[{ category: "input", message: "No error sources in this budget." }, { category: "input", message: "Enter the input Current nominal." }, { category: "info", message: "The other bound is not used." }]} visibleColumns={{ value: true, pfa: true }} onSelect={onSelect} onSave={vi.fn()} />);
+    const { container } = render(<SidebarPointItem point={{ id: "warning", testPointInfo: { parameter: { value: 5, unit: "V" } }, riskMetrics: { pfa: 87.123 } }} liveRiskMetrics={null} diagnostics={[{ category: "input", message: "No error sources in this budget." }, { category: "input", message: "Enter the input Current nominal." }, { category: "info", message: "The other bound is not used." }]} visibleColumns={{ warningIcons: true, value: true, pfa: true }} onSelect={onSelect} onSave={vi.fn()} />);
     const warning = screen.getByRole("button", { name: /Missing inputs/ });
-    expect(warning.closest(".point-value")).not.toBeNull();
+    expect(warning.closest(".point-information")).not.toBeNull();
     expect(screen.getByRole("button", { name: /Information:/ })).toBeInTheDocument();
-    expect(warning.closest(".point-value").firstElementChild).toHaveClass("point-diagnostics");
+    expect(warning.closest(".point-information")).toHaveAttribute("data-sidebar-column", "warningIcons");
     expect(warning).toHaveAttribute("title", "Missing inputs\n\nNo error sources in this budget.\n\nEnter the input Current nominal.");
     expect(container.textContent).not.toContain("87.123");
     fireEvent.click(warning);
@@ -38,8 +38,8 @@ describe("measurement-point value editing", () => {
 
   test("reserves the indicator space for points without warnings and removes it with the filter", () => {
     const props = { point: { id: "plain", testPointInfo: { parameter: { value: 5, unit: "V" } } }, diagnostics: [], onSave: vi.fn(), onSelect: vi.fn() };
-    const { container, rerender } = render(<SidebarPointItem {...props} visibleColumns={{ value: true }} />);
-    expect(container.querySelector(".point-value").firstElementChild).toHaveClass("point-diagnostics");
+    const { container, rerender } = render(<SidebarPointItem {...props} visibleColumns={{ warningIcons: true, value: true }} />);
+    expect(container.querySelector(".point-information")).toHaveAttribute("data-sidebar-column", "warningIcons");
     expect(container.querySelector(".point-diagnostics")).toBeEmptyDOMElement();
     rerender(<SidebarPointItem {...props} visibleColumns={{ value: true, warningIcons: false }} />);
     expect(container.querySelector(".point-diagnostics")).toBeNull();
@@ -66,7 +66,7 @@ describe("measurement-point value editing", () => {
     expect(getSidebarColumnMinWidth("section")).toBe(44);
   });
 
-  test("reserves shared PFA space for boundary pills without changing saved or neighboring widths", () => {
+  test("preserves authored narrow PFA widths and shows a compact boundary marker", () => {
     const saved = { pfa: 44, pfr: 63 };
     const risks = { unknown: { riskMethod: "risk8-pfa-boundary", pfa: 1.55 }, known: { pfa: 0.8 } };
     const widths = getSidebarRiskColumnWidths(saved, risks);
@@ -76,7 +76,7 @@ describe("measurement-point value editing", () => {
         onSave={vi.fn()} onSelect={vi.fn()} />
     ))}</>);
     const rows = [...container.querySelectorAll(".point-grid-item")];
-    expect(rows.map(row => row.style.gridTemplateColumns)).toEqual(["128px 63px", "128px 63px"]);
+    expect(rows.map(row => row.style.gridTemplateColumns)).toEqual(["44px 63px", "44px 63px"]);
     expect(screen.getByText("Boundary")).toHaveAttribute("title", expect.stringContaining("Measured value unknown"));
     expect(saved).toEqual({ pfa: 44, pfr: 63 });
     expect(getSidebarRiskColumnWidths(saved, { known: risks.known, invalid: null })).toBe(saved);
@@ -771,7 +771,7 @@ describe("measurement-point value editing", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("25 psi"));
+    fireEvent.click(screen.getByTitle("25 psi").querySelector(".point-value-number"));
 
     expect(onSelect).toHaveBeenCalledOnce();
     const input = document.querySelector(".sidebar-inline-input.value");
@@ -797,7 +797,7 @@ describe("measurement-point value editing", () => {
       />,
     );
 
-    fireEvent.click(document.querySelector(".point-value"));
+    fireEvent.click(document.querySelector(".point-value-number"));
     const input = document.querySelector(".sidebar-inline-input.value");
     fireEvent.change(input, { target: { value: "10" } });
     fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
@@ -829,7 +829,7 @@ describe("measurement-point value editing", () => {
       />,
     );
 
-    fireEvent.click(document.querySelector(".point-value"));
+    fireEvent.click(document.querySelector(".point-value-number"));
     const input = document.querySelector(".sidebar-inline-input.value");
     fireEvent.change(input, { target: { value: "10" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -890,10 +890,10 @@ describe("measurement-point Risk 8 metric interactions", () => {
     expect(screen.getByTitle("3")).toHaveStyle({ "--metric-status-color": "var(--status-good)" });
 
     rerender(<SidebarPointItem {...common} riskRequirements={{ reqPFA: 1, neededTUR: 4 }} />);
-    expect(screen.getByTitle("1.5")).toHaveStyle({ "--metric-status-color": "var(--status-warning)" });
-    expect(screen.getByTitle("1.6")).toHaveStyle({ "--metric-status-color": "var(--status-warning)" });
-    expect(screen.getByTitle("3")).toHaveStyle({ "--metric-status-color": "var(--status-warning)" });
-    expect(screen.getByTitle("3.1")).toHaveStyle({ "--metric-status-color": "var(--status-warning)" });
+    expect(screen.getByTitle("1.5")).toHaveStyle({ "--metric-status-color": "var(--status-bad)" });
+    expect(screen.getByTitle("1.6")).toHaveStyle({ "--metric-status-color": "var(--status-bad)" });
+    expect(screen.getByTitle("3")).toHaveStyle({ "--metric-status-color": "var(--status-bad)" });
+    expect(screen.getByTitle("3.1")).toHaveStyle({ "--metric-status-color": "var(--status-bad)" });
   });
 
   test("uses the same displayed PFA precision as mitigation", () => {
@@ -903,7 +903,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
     const { rerender } = render(<SidebarPointItem {...common} />);
     expect(screen.getByTitle('2.0049')).toHaveStyle({ '--metric-status-color': 'var(--status-good)' });
     rerender(<SidebarPointItem {...common} point={{ ...common.point, riskMetrics: { pfa: 2.005 } }} />);
-    expect(screen.getByTitle('2.005')).toHaveStyle({ '--metric-status-color': 'var(--status-warning)' });
+    expect(screen.getByTitle('2.005')).toHaveStyle({ '--metric-status-color': 'var(--status-bad)' });
   });
 
   test("does not show a Risk 8 badge and Ctrl-click requests the PFA breakdown", () => {
@@ -1096,4 +1096,17 @@ describe("measurement-point Risk 8 metric interactions", () => {
     expect(screen.getByTitle("3.141592653589793")).toHaveTextContent("3.14");
     expect(screen.getByTitle("0.123456789012345")).toHaveTextContent("0.12%");
   });
+});
+
+
+test("blank UUT and value cell clicks select the point while text clicks edit", () => {
+  const onSelect = vi.fn();
+  const { container } = render(<SidebarPointItem point={{ id: "blank-target", testPointInfo: { parameter: { value: 10, unit: "V" } } }} uutName="DMM" onSelect={onSelect} onSave={vi.fn()} visibleColumns={{ uut: true, value: true }} />);
+  fireEvent.click(container.querySelector(".point-uut-name"));
+  fireEvent.click(container.querySelector(".point-value"));
+  expect(onSelect).toHaveBeenCalledTimes(2);
+  expect(container.querySelector("input")).toBeNull();
+  expect(screen.queryByRole("listbox")).toBeNull();
+  fireEvent.click(container.querySelector(".point-value-number"));
+  expect(container.querySelector("input.sidebar-inline-input.value")).toHaveValue("10");
 });

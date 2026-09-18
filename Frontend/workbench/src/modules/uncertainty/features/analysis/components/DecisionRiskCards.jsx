@@ -2,7 +2,7 @@ import React from "react";
 import { decisionRiskLimit, decisionRiskStatus } from "../../../utils/decisionRiskStatus";
 
 const names = { pfa: "Probability of false acceptance", pfr: "Probability of false rejection" };
-const statusLabels = { good: "Within threshold", warning: "Above threshold", bad: "High risk", neutral: "Unavailable" };
+const statusLabels = { good: "Within threshold", warning: "Above threshold", bad: "Above threshold", neutral: "Unavailable" };
 
 export default function DecisionRiskCards({ results, requiredPfa, formatValue }) {
   const boundary = results?.riskMethod === "risk8-pfa-boundary";
