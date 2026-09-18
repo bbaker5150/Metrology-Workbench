@@ -40,3 +40,7 @@ Both independent rectangular components have error limits `2.5 / sqrt(2)` V. The
 Validation includes the complete Vitest suite, npm high-severity audit, single-file production build, baseline Forge iframe smoke and the three feature smokes above. Browser fixtures use mocked SharePoint records and do not modify a user's application session.
 
 Final local validation: **2,134 tests / 171 files passed**, zero audit vulnerabilities, successful single-file production build, **54** baseline Forge checks, **153** multi-source bias/tasking checks, **95** bias workflow checks and **75** area/layout tasking checks. Light and dark screenshots were visually inspected.
+
+## Typography follow-up
+
+Subsequent feedback removes the risk glow. Risk metrics now use uniform 13 px bold text with the existing requirement-based colors; value and requirement fields share the point list's font. `PointNumericInput` supplies the same mirror-based sizing for measurement values and all six risk/mitigation inputs. Browser checks cover matching read/edit geometry, growth while typing, compact sizing on cancel, both themes, and reduced UI scale. The column-menu portal also compensates for global CSS zoom so its toggle stays reachable.

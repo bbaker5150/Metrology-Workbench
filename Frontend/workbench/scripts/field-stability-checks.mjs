@@ -46,6 +46,37 @@ export async function checkFieldStability({ frame, page, check }) {
     check(`${theme} point unit stays in place on value edit`, Math.abs(unitBefore.x-unitAfter.x)<.6 && Math.abs(unitBefore.y-unitAfter.y)<.6, JSON.stringify({unitBefore,unitAfter}));
     await row.locator('.sidebar-inline-input.value').press('Escape');
   }
+  const requirementFields = [
+    ['Confidence (%)', 'Uncertainty Confidence (%)'], ['Assumed REOP', 'Assumed REOP'],
+    ['TUR Needed', 'TUR Needed'], ['PFA Required', 'PFA Required'],
+    ['REOP Required', 'REOP Required'], ['Cal Int for assumed REOP', 'Cal Int for assumed REOP'],
+  ];
+  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  for (const [label] of requirementFields) {
+    const add = frame.getByRole('button', { name: `Add ${label} column`, exact: true });
+    if (await add.count()) await add.click();
+  }
+  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  for (const theme of ['light', 'dark']) {
+    await frame.evaluate(theme => { document.body.classList.remove('light-mode', 'dark-mode'); document.body.classList.add(`${theme}-mode`); }, theme);
+    await settle();
+    const row = frame.locator('.point-grid-item').first();
+    const valueFont = (await metrics(row.locator('.point-value-with-unit .point-value-number'))).font;
+    for (const [label, inputLabel] of requirementFields) {
+      const trigger = row.getByRole('button', { name: `Edit ${inputLabel}`, exact: true });
+      await trigger.scrollIntoViewIfNeeded(); await settle();
+      const before = await metrics(trigger);
+      await trigger.click(); await settle();
+      const input = row.getByRole('textbox', { name: inputLabel, exact: true });
+      const after = await metrics(input);
+      check(`${theme} ${label} shares value typography and stable edit geometry`, before.font === valueFont && after.font === valueFont && Math.abs(before.width-after.width)<.6 && Math.abs(before.height-after.height)<.6 && Math.abs(before.rowHeight-after.rowHeight)<.6 && Math.abs(before.textX-after.textX)<.6, JSON.stringify({valueFont,before,after}));
+      await input.fill('85.12345'); await settle();
+      check(`${theme} ${label} grows with its numeric draft`, await input.evaluate((node, width) => { const css=getComputedStyle(node), ctx=document.createElement('canvas').getContext('2d'); ctx.font=css.font; return node.getBoundingClientRect().width > width && node.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight) >= ctx.measureText(node.value).width; }, after.width));
+      await input.press('Escape');
+      check(`${theme} ${label} cancellation restores its compact width`, Math.abs((await metrics(trigger)).width-before.width)<.6);
+    }
+    check(`${theme} every risk metric is uniformly larger and bold with no glow`, await row.locator('.point-risk-metric').evaluateAll(nodes => nodes.length > 0 && nodes.every(node => { const css=getComputedStyle(node); return css.fontSize === '13px' && css.fontWeight === '700' && css.textShadow === 'none'; })));
+  }
   await frame.locator('body').press('Control+='); await settle();
   for(const name of ['section','qualifier']) {
     const cell=frame.locator('.point-grid-item').first().locator(`.point-${name}`);

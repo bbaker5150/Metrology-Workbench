@@ -19835,14 +19835,6 @@ body.dark-mode
       ) !important;
 }
 
-/* Failure metrics need to remain immediately legible against the more vivid
-   function-colour surfaces in dark mode. The restrained halo brightens the
-   readout without changing its layout or weight. */
-body.dark-mode
-  .uncertainty-module
-  .point-risk-metric[style*="status-bad"] {
-  text-shadow: 0 0 5px color-mix(in srgb, var(--status-bad) 55%, transparent);
-}
 
 body.dark-mode
   .uncertainty-module
@@ -21187,13 +21179,16 @@ body.point-columns-dragging .point-column-menu-body .point-column-add > span:las
 
 
 
-/* Keep numeric information readable while retaining requirement-relative hue. */
-.uncertainty-module { --numeric-text: #000; }
+/* Shared numeric typography; risk retains its requirement-relative text color. */
+.uncertainty-module { --numeric-text: #000; --point-number-size: 13px; --point-number-weight: 600; }
 body.dark-mode .uncertainty-module { --numeric-text: #fff; }
-.uncertainty-module .point-grid-item > :is(.point-metric, .point-risk-metric, .point-requirement-cell) { color: var(--numeric-text); font-size: 12px; }
-.uncertainty-module .point-grid-item > [style*="--metric-status-color"] { color: var(--numeric-text); font-weight: 700; text-shadow: 0 0 4px var(--metric-status-color), 0 0 9px var(--metric-status-color); }
-.uncertainty-module .point-requirement-cell :is(button, input) { width: 100%; box-sizing: border-box; min-height: 26px; padding: 3px 6px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--numeric-text); font: inherit; text-align: left; }
-.uncertainty-module .point-requirement-cell :is(button:hover, input:focus) { border-color: var(--function-input-accent, var(--primary-color)); background: var(--input-bg); outline: none; }
+.uncertainty-module .point-grid-item > :is(.point-value, .point-metric, .point-risk-metric, .point-requirement-cell) { color: var(--numeric-text); font-size: var(--point-number-size); font-weight: var(--point-number-weight); font-family: inherit; line-height: 18px; text-shadow: none; }
+/* Requirement fields reuse the value box, including the mirror overlay and
+   area-colored hover/focus treatment. No full-column button or number spinner. */
+.uncertainty-module .point-requirement-cell { display: flex; align-items: center; }
+.uncertainty-module .point-requirement-cell .point-edit-affordance { padding: 0; border: 0; background: transparent; box-shadow: none; gap: 4px; min-width: 0; }
+.uncertainty-module .point-grid-item :is(.point-value-number, .sidebar-inline-input.value) { font-family: inherit; font-size: var(--point-number-size); font-weight: var(--point-number-weight); line-height: 18px; color: var(--numeric-text); text-align: left; margin: 0; }
+.uncertainty-module .point-requirement-cell .point-value-number { font: inherit; line-height: 18px; cursor: text; }
 .point-requirement-override { color: var(--status-warning); }
 .uncertainty-module .measurement-net-bias-remove { border: 0; box-shadow: none; background: transparent; color: var(--status-bad); border-radius: 4px; }
 .uncertainty-module .measurement-net-bias-remove:hover { background: color-mix(in srgb, var(--status-bad) 12%, transparent); }
@@ -21202,3 +21197,8 @@ body.dark-mode .uncertainty-module { --numeric-text: #fff; }
 .uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table, .measurement-inputs-table) td { color: var(--numeric-text); }
 
 .uncertainty-module .point-grid-item > [data-sidebar-column]:not([data-sidebar-column="uut"]):not([data-sidebar-column="value"]) { color: var(--numeric-text); }
+
+/* Last in the cascade so plain-number colors cannot override risk status. */
+.uncertainty-module .point-grid-item > .point-risk-metric[data-sidebar-column][style*="--metric-status-color"] { color: var(--metric-status-color); font-size: var(--point-number-size); font-weight: 700; text-shadow: none; }
+
+.uncertainty-module .point-grid-item > .point-risk-metric { font-weight: 700; }

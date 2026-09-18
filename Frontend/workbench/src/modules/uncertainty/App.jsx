@@ -1,3 +1,4 @@
+import PointNumericInput from "./components/common/PointNumericInput";
 import PointRequirementCell from "./components/common/PointRequirementCell";
 import { POINT_REQUIREMENT_FIELDS, requirementColumn, getPointRequirements } from "./utils/pointRequirements";
 import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "./utils/workspaceSelection";
@@ -1478,22 +1479,14 @@ export const SidebarPointItem = ({
           <span className="point-value point-value-with-unit sidebar-value-sticky point-value-editing">
             {visibleColumns.warningIcons !== false && <span className="point-diagnostics" aria-hidden="true" />}
             <span className="point-edit-affordance">
-            {/* The mirror preserves the read field's intrinsic width/wrapping.
-                Focus only paints an input over that same box; it cannot move
-                the unit or change the row's height/font. Typing may resize it. */}
-            <span className="point-value-input-slot">
-            <span className="point-value-number" aria-hidden="true">{tempValue || "-"}</span>
-            <input
+            <PointNumericInput
               autoFocus
-              className="sidebar-inline-input value inline-tolerance-input inline-resolution-input"
-              size={Math.max(1, String(tempValue ?? "").length)}
               value={tempValue}
               onChange={(e) => setTempValue(e.target.value)}
               onBlur={event => { if (!event.relatedTarget?.closest('.point-unit-control')) commitEdit(); }}
               onKeyDown={handleKeyDown}
               onClick={(e) => e.stopPropagation()}
             />
-            </span>
             {pointUnitControl(true)}
             </span>
           </span>
@@ -1699,7 +1692,7 @@ export const SidebarPointItem = ({
       {visibleColumns.tur && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          style={{ "--metric-status-color": getTurColor(risk.tur), fontWeight: 600 }}
+          style={{ "--metric-status-color": getTurColor(risk.tur) }}
           title={fullMetricTitle("TUR", risk.tur, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "tur")}
         >
@@ -1732,7 +1725,7 @@ export const SidebarPointItem = ({
       {visibleColumns.pfa && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          style={{ "--metric-status-color": getPfaColor(risk.pfa), fontWeight: 600 }}
+          style={{ "--metric-status-color": getPfaColor(risk.pfa) }}
           title={fullMetricTitle("PFA", risk.pfa, {
             suffix: "%",
             action: true,
@@ -1817,7 +1810,7 @@ export const SidebarPointItem = ({
       {visibleColumns.gbPfa && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          style={{ "--metric-status-color": getPfaColor(risk.gbPfa), fontWeight: 600 }}
+          style={{ "--metric-status-color": getPfaColor(risk.gbPfa) }}
           title={fullMetricTitle("PFA with Guardband", risk.gbPfa, {
             suffix: "%",
             action: true,

@@ -59,7 +59,7 @@ export async function checkMultiSourceBias({ frame, page, saved, until, check })
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
   check('column menu trigger remains clickable after adding many columns', await frame.getByRole('dialog', { name: 'Visible measurement point columns' }).count() === 0);
   await first.getByRole('button', { name: 'Edit Uncertainty Confidence (%)', exact: true }).click();
-  const confidence = first.getByRole('spinbutton', { name: 'Uncertainty Confidence (%)', exact: true });
+  const confidence = first.getByRole('textbox', { name: 'Uncertainty Confidence (%)', exact: true });
   await confidence.fill('90'); await confidence.press('Enter');
   check('point requirement edit persists only on that point', await until(() => saved().testPoints[0].riskRequirements?.uncertaintyConfidence === '90') && saved().uncReq.uncertaintyConfidence === 95 && !saved().testPoints[1].riskRequirements);
   check('point override recalculates risk and displays a default-deviation indicator', await until(async () => (await read(first)).tur !== before.tur) && await first.getByLabel('Differs from session default', { exact: true }).count() === 1);
@@ -72,9 +72,9 @@ export async function checkMultiSourceBias({ frame, page, saved, until, check })
   for (const dark of [false, true]) {
     await frame.evaluate(dark => { document.body.classList.remove('light-mode', 'dark-mode'); document.body.classList.add(dark ? 'dark-mode' : 'light-mode'); }, dark);
     await page.waitForTimeout(250);
-    check(`${dark ? 'dark' : 'light'} risk text keeps contrast with status glow`, await first.locator('[data-sidebar-column="pfa"]').evaluate((node, dark) => {
+    check(`${dark ? 'dark' : 'light'} risk text uses uniform bold sizing without glow`, await first.locator('[data-sidebar-column="pfa"]').evaluate((node, dark) => {
       const css = getComputedStyle(node);
-      return css.color === (dark ? 'rgb(255, 255, 255)' : 'rgb(0, 0, 0)') && Number(css.fontWeight) >= 600 && css.textShadow !== 'none';
+      return css.fontSize === '13px' && css.fontWeight === '700' && css.textShadow === 'none' && css.getPropertyValue('--metric-status-color').trim() !== '';
     }, dark));
     if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/bias-followup-${dark ? 'dark' : 'light'}.png` });
   }

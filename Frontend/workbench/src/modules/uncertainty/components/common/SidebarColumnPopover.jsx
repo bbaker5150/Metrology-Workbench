@@ -9,10 +9,15 @@ export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
   useLayoutEffect(() => {
     const update = () => {
       const rect = anchorRef.current?.getBoundingClientRect();
+      // Fixed portal coordinates are CSS pixels; the trigger rect is already
+      // scaled by global UI zoom. Convert both into the portal's coordinate
+      // space so its growing list cannot cover the toggle at reduced zoom.
+      const zoom = (parseFloat(getComputedStyle(document.documentElement).zoom) || 1) *
+        (parseFloat(getComputedStyle(document.body).zoom) || 1);
       const next = getAnchoredMenuPlacement({
-        anchorRect: rect,
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
+        anchorRect: rect && Object.fromEntries(["top", "right", "bottom", "left"].map(key => [key, rect[key] / zoom])),
+        viewportWidth: window.innerWidth / zoom,
+        viewportHeight: window.innerHeight / zoom,
         preferredWidth: 480,
         preferredMaxHeight: 600,
       });
