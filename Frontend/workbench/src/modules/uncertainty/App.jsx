@@ -1303,22 +1303,24 @@ export const SidebarPointItem = ({
   // applied to the run's cells directly. Holding it in React state instead
   // would re-render the whole workspace - analysis panel included - every time
   // the pointer crossed a row.
-  const setRunHover = (row, isHovering) => {
+  const setRunHover = (row, target) => {
     const list = row?.closest?.(".sidebar-points-scroll-wrapper");
     if (!list) return;
-    // Leaving clears the whole list, so a run can never be left lit behind.
-    list
-      .querySelectorAll(".is-run-hovered")
-      .forEach((cell) => cell.classList.remove("is-run-hovered"));
-    if (!isHovering) return;
-    const keys = new Set(
-      ["uut", "section", "qualifier"]
-        .map((column) => groupedCellRunKey(cellGroups[column], column))
-        .filter(Boolean),
-    );
-    if (keys.size === 0) return;
-    list.querySelectorAll("[data-run]").forEach((cell) => {
-      if (keys.has(cell.dataset.run)) cell.classList.add("is-run-hovered");
+    const hovered = target?.closest?.("[data-sidebar-column]");
+    const column = hovered?.dataset.sidebarColumn;
+    // Match the instrument table's whole-column hover without rerendering
+    // the workspace. Measure only when the pointer enters a different column.
+    if (hovered?.classList.contains("is-cell-hovered")) return;
+    list.querySelectorAll(".is-cell-hovered").forEach(cell => cell.classList.remove("is-cell-hovered"));
+    if (!column) return;
+    const bounds = row.getBoundingClientRect();
+    const cellBounds = hovered.getBoundingClientRect();
+    const scale = bounds.width / row.offsetWidth || 1;
+    const halfGap = parseFloat(getComputedStyle(row).columnGap) / 2 || 0;
+    list.style.setProperty("--point-hover-left", `${(cellBounds.left - bounds.left) / scale - halfGap}px`);
+    list.style.setProperty("--point-hover-right", `${(cellBounds.right - bounds.left) / scale + halfGap}px`);
+    list.querySelectorAll(".point-grid-item > [data-sidebar-column]").forEach(cell => {
+      if (cell.dataset.sidebarColumn === column) cell.classList.add("is-cell-hovered");
     });
   };
 
@@ -1328,8 +1330,8 @@ export const SidebarPointItem = ({
       data-point-id={point.id}
       tabIndex={0}
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
-      onMouseEnter={(e) => setRunHover(e.currentTarget, true)}
-      onMouseLeave={(e) => setRunHover(e.currentTarget, false)}
+      onMouseOver={(e) => setRunHover(e.currentTarget, e.target)}
+      onMouseLeave={(e) => setRunHover(e.currentTarget, null)}
       style={{
         gridTemplateColumns: getSidebarGridTemplate(
           visibleColumns,
@@ -2643,7 +2645,14 @@ function App({ showThemeToggle = false }) {
   const [selectedPointArea, setSelectedPointArea] = useState(null);
   useEffect(() => {
     const deselectArea = event => {
-      if (event.key !== "Escape" || selectedPointArea == null) return;
+      if (event.key !== "Escape") return;
+      // Editors/popovers own the first Escape (cancel or dismiss). Outside
+      // those controls, clear both the multi-selection and the active point;
+      // clearing only the former leaves the active-point glow behind.
+      if (event.target.closest?.('input, textarea, [contenteditable="true"], [role="dialog"], [role="listbox"], [role="menu"]')) return;
+      setSelectedTestPointId(null);
+      setSelectedTestPointContextUutId(null);
+      setSidebarSelectionAnchor(null);
       setSelectedPointArea(null);
       setSelectedSidebarPointIds([]);
       setSelectedTablePointIds([]);
@@ -6245,7 +6254,7 @@ function App({ showThemeToggle = false }) {
                               }
                             }}
                           >{fnGroup.name}</span>
-                          <span className="function-header-unit-chip">{[...new Set(getMeasurementAreaUnits(currentSessionData, fnGroup.name).map(getUnitDisplayLabel))].join(", ")}</span>
+                          <span className="function-header-unit-chip">{[...new Set((fnGroup.points || []).map(point => point.testPointInfo?.parameter?.unit).filter(Boolean).map(getUnitDisplayLabel))].join(", ")}</span>
                           {renderFunctionPointActions(fnGroup)}
                         </div>
 

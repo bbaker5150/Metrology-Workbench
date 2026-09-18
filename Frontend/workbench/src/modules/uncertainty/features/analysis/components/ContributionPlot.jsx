@@ -12,6 +12,7 @@ const formatMagnitude = (value) => {
 // in the same React commit and avoids stale Plotly text/layout during resize.
 const PercentageBarGraph = ({
   data,
+  color,
   unit = "",
   valueMode = "magnitude",
   title = "Uncertainty contribution",
@@ -48,6 +49,7 @@ const PercentageBarGraph = ({
     <section
       className="bargraph-container contribution-plot contribution-plot-native"
       aria-label={title}
+      style={{ "--contribution-color": color || "var(--primary-color)" }}
     >
       <h5 className="contribution-plot-title">{title}</h5>
       <div className="contribution-plot-list">

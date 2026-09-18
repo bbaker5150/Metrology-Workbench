@@ -32,14 +32,15 @@ describe("ContributionPlot", () => {
 
   it("updates labels and bars synchronously when values change", () => {
     const view = render(
-      <PercentageBarGraph data={{ Accuracy: 1, Resolution: 1 }} unit="V" />,
+      <PercentageBarGraph data={{ Accuracy: 1, Resolution: 1 }} unit="V" color="#aabbcc" />,
     );
     expect(shares(view.container)).toEqual({ Accuracy: 50, Resolution: 50 });
 
     view.rerender(
-      <PercentageBarGraph data={{ Accuracy: 1, Resolution: 3 }} unit="V" />,
+      <PercentageBarGraph data={{ Accuracy: 1, Resolution: 3 }} unit="V" color="#c23b8a" />,
     );
     expect(shares(view.container)).toEqual({ Resolution: 75, Accuracy: 25 });
+    expect(view.container.querySelector(".contribution-plot").style.getPropertyValue("--contribution-color")).toBe("#c23b8a");
   });
 
   it("renders Monte Carlo influence as percentages without physical units", () => {

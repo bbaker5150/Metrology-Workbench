@@ -23,6 +23,7 @@ export default function PointSelectionOutline() {
       if (!bounds.width) return;
       const scale = bounds.width / content.offsetWidth || 1;
       const groups = new Map();
+      const areas = new Map();
       content.querySelectorAll(".point-grid-item").forEach(row => {
         const rowBounds = row.getBoundingClientRect();
         const selected = row.matches(".active, .active-point, .table-highlight");
@@ -31,6 +32,17 @@ export default function PointSelectionOutline() {
           .filter(cell => cell.getClientRects().length)
           .sort((a, b) => columnOrder.indexOf(a.dataset.sidebarColumn) - columnOrder.indexOf(b.dataset.sidebarColumn));
         const boxes = cells.map(cell => cell.getBoundingClientRect());
+        // Draw one full-height rule per visual boundary, independent of
+        // row padding or clipped metric cells. Reuse measured row geometry.
+        const area = row.closest(".measurement-area-points");
+        if (area && cells.length) {
+          if (!areas.has(area)) areas.set(area, {
+            top: (rowBounds.top - bounds.top) / scale,
+            xs: boxes.slice(0, -1).map((box, index) =>
+              ((box.right + boxes[index + 1].left) / 2 - bounds.left) / scale),
+          });
+          areas.get(area).bottom = (rowBounds.bottom - bounds.top) / scale;
+        }
         const color = getComputedStyle(row).getPropertyValue("--sidebar-function-color").trim() || "var(--primary-color)";
         cells.forEach((cell, index) => {
           if (!selected && !cell.classList.contains("point-grouped-cell--highlighted")) return;
@@ -49,10 +61,17 @@ export default function PointSelectionOutline() {
       const paths = [...groups].map(([color, rectangles]) => ({ color,
         d: selectionPerimeter(rectangles).map(([x1, y1, x2, y2]) => `M${x1},${y1}L${x2},${y2}`).join(" "),
       }));
-      const signature = JSON.stringify(paths);
+      const guides = [...areas.values()].flatMap(({ top, bottom, xs }) =>
+        xs.map(x => ({ x, top, bottom })));
+      const signature = JSON.stringify({ paths, guides });
       if (signature === previous) return;
       previous = signature;
-      overlay.replaceChildren(...paths.map(({ color, d }) => {
+      overlay.replaceChildren(...guides.map(({ x, top, bottom }) => {
+        const line = document.createElementNS(SVG_NS, "line");
+        line.classList.add("point-column-guide");
+        Object.entries({ x1: x, x2: x, y1: top, y2: bottom }).forEach(([name, value]) => line.setAttribute(name, value));
+        return line;
+      }), ...paths.map(({ color, d }) => {
         const path = document.createElementNS(SVG_NS, "path");
         path.style.setProperty("--instrument-function-color", color);
         path.setAttribute("d", d);

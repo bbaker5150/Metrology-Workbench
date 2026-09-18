@@ -824,6 +824,7 @@ const ResultsCard = ({
 };
 
 const UncertaintyBudgetTable = ({
+  measurementAreaColor,
   components,
   onRemove,
   onEdit,
@@ -1681,6 +1682,7 @@ const UncertaintyBudgetTable = ({
                       }
                     >
                       <PercentageBarGraph
+                        color={measurementAreaColor}
                         data={contributionChart.data}
                         revision={contributionChart.revision}
                         unit={contributionChart.unit}

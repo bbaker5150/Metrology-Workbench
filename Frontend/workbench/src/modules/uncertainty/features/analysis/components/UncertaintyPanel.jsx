@@ -16502,6 +16502,9 @@ function DetailedView({
         ) : (
           <>
             <UncertaintyBudgetTable
+              measurementAreaColor={resolveSessionMeasurementAreas(sessionData).find(area =>
+                area.key === measurementAreaKeyOf(testPointData)
+              )?.color}
               budgetInstruments={sessionData.tmdes || []}
               budgetUut={(sessionData.uuts || []).find(uut => String(uut.id) === String(testPointData.activeUutId || testPointData.associatedUutIds?.[0]))}
               components={calcResults?.calculatedBudgetComponents || []}

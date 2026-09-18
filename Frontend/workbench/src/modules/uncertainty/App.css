@@ -7611,10 +7611,10 @@ body.dark-mode .plot-floating-control input {
   border-radius: inherit;
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--primary-color) 82%, white),
-    var(--primary-color)
+    color-mix(in srgb, var(--contribution-color, var(--primary-color)) 82%, white),
+    var(--contribution-color, var(--primary-color))
   );
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--primary-color) 28%, transparent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--contribution-color, var(--primary-color)) 28%, transparent);
   transition: width 180ms ease-out;
 }
 
@@ -20956,14 +20956,15 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .uncertainty-module .inline-range-editor:not(.is-editing) > .inline-range-main { width: 100%; }
 .uncertainty-module .instrument-equipment-table td.cell-sync { border-left: 1px solid var(--table-divider-color); }
 .uncertainty-module .instrument-equipment-table td[data-before-sync] { border-right: 0; }
-.uncertainty-module .instrument-column-insert-button { top: -10px; bottom: auto; z-index: 8; }
+/* Keep insertion controls inside the header now that its extra top gap is gone. */
+.uncertainty-module .instrument-column-insert-button { top: 2px; bottom: auto; z-index: 8; }
 .point-column-menu-footer button { color: var(--primary-color); border: 0; background: transparent; padding: 4px 0; }
 .point-column-menu-body .sidebar-column-order-heading strong,
 .point-column-menu-footer button { font-size: .75rem; font-weight: 600; }
 .point-column-add > span:last-child { opacity: 0; }
 .point-column-add:is(:hover, :focus-visible) > span:last-child { opacity: 1; }
 
-.uncertainty-module .instrument-panel-table-container { padding-top: 10px; }
+.uncertainty-module .instrument-panel-table-container { padding-top: 0; }
 .uncertainty-module .instrument-custom-field-input { min-width: 150px; }
 :is(.context-menu-item, .point-column-add, .point-column-order-row, .add-point-symbol-button, .ui-scaling-mode):is(:hover, :focus-visible) {
   background-color: color-mix(in srgb, var(--primary-color) 14%, var(--input-background));
@@ -21248,3 +21249,41 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .uncertainty-module .point-method-badge.is-compact::before { content: "B"; font-size: 9px; line-height: 10px; }
 
 .uncertainty-module .sidebar-sort-header--value { padding-left: 0; }
+
+/* Continuous column rules are painted once per area, independent of row
+   height, clipped metric text, merged cells, selection, and visual order. */
+.uncertainty-module .point-grid-item > [data-sidebar-column]::before,
+.uncertainty-module .point-grid-item > [data-sidebar-column]:not([data-sidebar-column-last="true"])::before { content: none; }
+.point-column-guide { stroke: color-mix(in srgb, #94a3b8 35%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+/* Cell hover matches instrument tables. Keep the row's base/selected surface
+   stable and tint only the cell beneath the cursor (all tiles of a merged cell). */
+.uncertainty-module .measurement-group-container .point-grid-item:hover:not(.active):not(.active-point):not(.table-highlight) { background: var(--sidebar-point-surface) !important; }
+.uncertainty-module .measurement-group-container .point-grid-item > .is-cell-hovered {
+  background: var(--sidebar-point-surface-hover) !important;
+  --sidebar-point-cell-fill: var(--sidebar-point-surface-hover);
+}
+.uncertainty-module .measurement-group-container .point-grid-item:is(.active, .active-point) > .is-cell-hovered,
+.uncertainty-module .measurement-group-container .point-grid-item > .point-grouped-cell--highlighted.is-cell-hovered {
+  background: color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) !important;
+  --sidebar-point-cell-fill: color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color));
+}
+/* Recoloring is one session update; color transitions on just the header made
+   it lag behind the selection perimeter. Apply area colors in the same paint. */
+.uncertainty-module .measurement-group-container :is(.area-header-sticky, .area-label, .sidebar-area-color-swatch, .point-grid-item, [data-sidebar-column]),
+.uncertainty-module .instrument-area-section-row,
+.uncertainty-module .instrument-area-section-row :is(td, th, input, span) { transition: none; }
+
+/* Tint the full column band through row padding as well as its cells. The
+   gradient paints only; its bounds never change table or editor geometry. */
+.uncertainty-module .measurement-group-container .point-grid-item:has(> .is-cell-hovered) {
+  background: linear-gradient(to right, transparent var(--point-hover-left), var(--sidebar-point-surface-hover) var(--point-hover-left), var(--sidebar-point-surface-hover) var(--point-hover-right), transparent var(--point-hover-right)) var(--sidebar-point-surface) !important;
+}
+.uncertainty-module .measurement-group-container .point-grid-item:is(.active, .active-point):has(> .is-cell-hovered) {
+  background: linear-gradient(to right, transparent var(--point-hover-left), color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) var(--point-hover-left), color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) var(--point-hover-right), transparent var(--point-hover-right)) var(--sidebar-point-surface-selected) !important;
+}
+/* Header rules use the same continuous line, with the wider invisible drag
+   target retained. The visual last column has no extra trailing rule. */
+.uncertainty-module .sidebar-column-header-cell::before { content: none; }
+.uncertainty-module .sidebar-column-resizer { top: -7px; bottom: -6px; right: calc(-1 * var(--sidebar-point-column-gap)); }
+.uncertainty-module .sidebar-column-resizer::after { top: 0; bottom: 0; height: auto; transform: none; background: color-mix(in srgb, #94a3b8 35%, transparent); }
+.uncertainty-module .sidebar-column-header-cell:last-child .sidebar-column-resizer:not(:hover):not(:active)::after { background: transparent; }

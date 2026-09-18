@@ -795,6 +795,7 @@ describe("UncertaintyApp", () => {
     const sidebar = document.querySelector(".measurement-group-container");
     expect(sidebar.querySelector(".area-label").textContent).toBe("Torque");
     expect(sidebar.style.getPropertyValue("--sidebar-function-color")).toBe("#abcdef");
+    expect(sidebar.querySelector(".function-header-unit-chip").textContent).toBe("N·m");
     expect([...document.querySelectorAll(".area-label")].map(node => node.textContent)).toEqual(["Torque"]);
     const area = screen.getAllByLabelText("Measurement area subsection name")[0];
     area.textContent = "Lever calibration";
@@ -1546,6 +1547,10 @@ describe("UncertaintyApp", () => {
     expect(pointRow.style.gridTemplateColumns).not.toContain("ch");
     fireEvent.click(pointRow);
     expect(pointRow).toHaveClass("active-point");
+    fireEvent.keyDown(pointRow, { key: "Escape" });
+    await waitFor(() => expect(pointRow).not.toHaveClass("active-point"));
+    expect(document.querySelectorAll(".point-grid-item.active")).toHaveLength(0);
+    fireEvent.click(pointRow);
     expect(
       await screen.findByRole("button", { name: "Uncertainty Budget" }),
     ).toBeInTheDocument();

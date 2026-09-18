@@ -1,3 +1,4 @@
+import { preparePointPolish, checkPointPolish } from './point-polish-checks.mjs';
 import { preparePointUsability, checkPointUsability } from "./point-usability-checks.mjs";
 import { preparePointHighlight, checkPointHighlight } from "./point-highlight-checks.mjs";
 import { prepareMultiSourceBias, checkMultiSourceBias } from "./multi-source-bias-checks.mjs";
@@ -131,6 +132,7 @@ if (process.env.GROWING_INPUTS_SMOKE) for (const session of sessions.values()) p
 if (process.env.INSTRUMENT_INTERACTION_SMOKE) for (const session of sessions.values()) prepareInstrumentInteractions(session);
 if (process.env.SEPTEMBER17_INTERACTION_SMOKE) for (const session of sessions.values()) prepareSeptember17Interactions(session);
 if (process.env.MEASUREMENT_BIAS_SMOKE) for (const session of sessions.values()) prepareBiasSession(session);
+if (process.env.POINT_POLISH_SMOKE) for (const session of sessions.values()) preparePointPolish(session);
 if (process.env.POINT_USABILITY_SMOKE) for (const session of sessions.values()) preparePointUsability(session);
 if (process.env.POINT_HIGHLIGHT_SMOKE) for (const session of sessions.values()) preparePointHighlight(session);
 if (process.env.SEPTEMBER18_SMOKE) for (const session of sessions.values()) prepareSeptember18(session);
@@ -302,6 +304,7 @@ if (/not set up yet/i.test(frameText)) {
   if (process.env.GROWING_INPUTS_SMOKE) await checkGrowingInputs({ frame, page, saved, until, check });
   if (process.env.INSTRUMENT_INTERACTION_SMOKE) await checkInstrumentInteractions({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER17_INTERACTION_SMOKE) await checkSeptember17Interactions({ frame, page, saved, until, check });
+  if (process.env.POINT_POLISH_SMOKE) await checkPointPolish({ frame, page, saved, until, check });
   if (process.env.POINT_USABILITY_SMOKE) await checkPointUsability({ frame, page, saved, until, check });
   if (process.env.POINT_HIGHLIGHT_SMOKE) await checkPointHighlight({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER18_SMOKE) await checkSeptember18({ frame, page, saved, until, check });
