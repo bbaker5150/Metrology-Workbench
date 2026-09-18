@@ -25,7 +25,7 @@ const compareOutputs = (actual, vector) => {
 function makeWorkflow(id) {
   let { point, session } = biasFixture();
   session.uuts = [{ id: 'uut', ranges: [{ id: 'range', unit: 'A',
-    tolerances: { bias: { value: 1, kind: 'percent', unit: 'A' } } }] }];
+    tolerances: { bias: { value: 5, kind: 'percent', unit: 'A' } } }] }];
   point.activeUutId = 'uut';
   point.uutTolerance.rangeId = 'range';
   if (id === 'point-negative' || id === 'point-zero')
@@ -38,13 +38,16 @@ function makeWorkflow(id) {
   };
   if (id === 'copied-point' || id === 'edited-copy') {
     point.measurementBias = { mode: 'sources', sources: {
-      'tmde:voltage::voltage-range:Voltage': { value: 1, kind: 'percent', unit: 'V' },
+      'tmde:voltage::voltage-range:Voltage': { value: 10, kind: 'percent', unit: 'V' },
     } };
     const target = { ...point, id: 'destination', uutBias: { mode: 'override', value: .4, unit: 'A' },
       variableNominals: { V: { value: 2, unit: 'V' }, R: { value: .1, unit: 'Ohm' } },
       testPointInfo: { parameter: { value: 20, unit: 'A' } } };
     point = pastePointBudget(target, copyPointBudget(point));
     if (id === 'edited-copy') {
+      // Preserve this immutable Excel oracle's +.3 A source contribution:
+      // 15% of the 2 A final UUT tolerance frame, not 1% of 3 V.
+      point.measurementBias.sources['tmde:voltage::voltage-range:Voltage'].value = 15;
       point.variableNominals.V.value = 3;
       point.testPointInfo.parameter.value = 30;
     }

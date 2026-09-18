@@ -586,7 +586,7 @@ export function computePointRiskMetrics(
   // shift. TUR/TAR use this value; riskAverage is the separate mean normalized
   // into workbook K. System bias travels independently to L, never into TUR.
   const measurementAverage = riskAverage;
-  const bias = resolveMeasurementBias(point, sessionData, riskAverage, { includeSources: false });
+  const bias = resolveMeasurementBias(point, sessionData, riskAverage, { includeSources: false, limits: { lower: LLow, upper: LUp } });
   if (bias.error) {
     // Clear all sidebar risk outputs together; invalid bias is not zero risk.
     onStatus?.({ core: "Bias input error", gb: "Bias input error", interval: "Bias input error", message: bias.error });

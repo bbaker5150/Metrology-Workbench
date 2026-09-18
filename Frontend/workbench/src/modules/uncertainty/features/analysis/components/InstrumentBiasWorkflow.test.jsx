@@ -89,10 +89,11 @@ it("keeps the open risk panel and sidebar identical as biases change", async () 
     }
   };
   await check(point);
-  const changed = { ...point, uutBias: { mode: "override", value: .15, unit: "A" }, measurementBias: { mode: "manual", value: .2, unit: "A" } };
+  // h=2 A: 7.5% UUT => .15 A and 10% cal => .2 A in BOTH entry points.
+  const changed = { ...point, uutBias: { mode: "override", value: 7.5, kind: "percent", unit: "A" }, measurementBias: { mode: "manual", value: 10, kind: "percent", unit: "A" } };
   rerender({ current: changed });
   await check(changed);
-  expect(result.current.riskResults.risk8.meta.xcal).not.toBe(0);
+  expect(result.current.riskResults.risk8.meta.xcal).toBeCloseTo(.1);
 });
 
 it.each(["known", "unknown"])("keeps biased %s single-sided panel, sidebar, and breakdown inputs aligned", async measurement => {
@@ -113,5 +114,26 @@ it.each(["known", "unknown"])("keeps biased %s single-sided panel, sidebar, and 
     expect(result.current.riskResults.tur).toBeCloseTo(sidebar.tur, 8);
     expect(result.current.riskResults.measurementAverage).toBeCloseTo(10);
     expect(result.current.riskResults.riskAverage).toBeCloseTo(10.2);
-  } else expect(result.current.riskResults.risk8.calBias).toBe(.1);
+  } else expect(result.current.riskResults.risk8.calBias).toBe(0);
+});
+
+
+it.each([0, -100])("keeps numeric nominal %s valid for workbook-normalized percentages in the open panel", async nominal => {
+  const point = { id: "p", measurementType: "direct", testPointInfo: { parameter: { value: nominal, unit: "V" } },
+    uutTolerance: { floor: { low: -10, high: 10, unit: "V" } },
+    uutBias: { mode: "override", value: 50, kind: "percent" },
+    measurementBias: { mode: "manual", value: 20, kind: "percent" },
+    components: [{ id: "c", name: "Reference", type: "B", value: 1, value_native: 1, unit_native: "V", distribution: "1" }] };
+  const { session } = biasFixture();
+  const save = vi.fn();
+  const emptySources = [];
+  const { result } = renderHook(() => {
+    const { calcResults } = useUncertaintyCalculation(point, session, emptySources, point.uutTolerance, point.testPointInfo.parameter, point.components, save);
+    return useRiskCalculation(session, point, point.uutTolerance, emptySources, point.testPointInfo.parameter, calcResults, "riskmitigation");
+  });
+  const sidebar = computePointRiskMetrics(point, session, true);
+  expect(sidebar).not.toBeNull();
+  await waitFor(() => expect(result.current.riskResults?.pfa).toBeCloseTo(sidebar.pfa, 8));
+  expect(result.current.riskResults.risk8.meta.mu).toBeCloseTo(.5);
+  expect(result.current.riskResults.risk8.meta.xcal).toBeCloseTo(.2);
 });

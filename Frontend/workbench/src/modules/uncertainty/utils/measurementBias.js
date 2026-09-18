@@ -17,16 +17,18 @@
  * Blank means no authored bias; explicit zero is meaningful and stops inheritance.
  * The UI authors instrument-range defaults plus an optional Measurement Inputs
  * net-bias row using the manual contract below. Other point overrides are a
- * compatibility contract for saved sessions from the former bias menu; opening
- * a session must not alter its results. LegacyPointBiasNotice offers an explicit
+ * compatibility contract for saved sessions from the former bias menu; ownership
+ * remains intact, with the corrected percentage basis below. LegacyPointBiasNotice offers an explicit
  * reset to instrument inheritance, rather than silently ignoring those values.
- * Unknown-value limits have no UUT population mean; their separate system-bias
- * extension is documented in unknownMeasurementRisk8, not claimed as VBA parity.
+ * Percent entries use the final UUT tolerance frame for both UUT and cal bias,
+ * including source entries inside derived equations. Absolute source entries
+ * retain signed sensitivity propagation. Types 5/6 ignore both biases like VBA.
  */
 import { calculateDerivedUncertainty, unitSystem } from "./uncertaintyMath";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 import { resolvePointBudgetComponents } from "./resolvePointBudgetComponents";
 import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters } from "./tmdeReconcile";
+import { getBiasToleranceFrame } from "./biasToleranceFrame";
 
 const present = value => value !== undefined && value !== null && String(value).trim() !== "";
 const configured = spec => present(spec?.value);
@@ -36,25 +38,28 @@ const biasOf = source => source?.bias ?? source?.tolerances?.bias ?? source?.tol
 /**
  * Convert a residual error, not an absolute temperature coordinate. Subtracting
  * base(0) from base(1) cancels affine offsets (1.8 degF error = 1 degC error).
- * A percentage uses |reference value| so the entered sign alone controls bias.
+ * A percentage uses the workbook UUT tolerance frame, supplied explicitly by
+ * the owning point. A stale unit saved beside a percentage is only a UI hint.
  * Corrected sources contribute zero systematic error; their original uncertainty
  * is untouched because this module does not mutate budget components.
  */
-export function biasInUnit(spec, reference, outputUnit = reference?.unit) {
+export function biasInUnit(spec, reference, outputUnit = reference?.unit, toleranceFrame) {
   if (!configured(spec) || spec.corrected) return 0;
   const value = Number(spec.value);
   if (!Number.isFinite(value)) throw new Error("Enter a finite signed bias.");
+  if (spec.kind === "percent") {
+    // Explicit zero remains usable while an instrument's limits are incomplete.
+    if (value === 0) return 0;
+    if (!(toleranceFrame?.halfSpan > 0)) throw new Error("Set valid UUT tolerance limits to calculate percentage bias.");
+    return biasInUnit({ value: value / 100 * toleranceFrame.halfSpan, unit: toleranceFrame.unit },
+      { value: toleranceFrame.center, unit: toleranceFrame.unit }, outputUnit);
+  }
   const sourceUnit = spec.unit || reference?.unit;
   const unitless = !sourceUnit && !outputUnit && !reference?.unit;
   const fromQuantity = unitless ? "Unitless" : unitSystem.getQuantity(sourceUnit);
   const toQuantity = unitless ? "Unitless" : unitSystem.getQuantity(outputUnit);
   if (!fromQuantity || !toQuantity || fromQuantity !== toQuantity) throw new Error("Bias units must match the measured quantity.");
   const scale = unit => unitSystem.toBaseUnit(1, unit) - unitSystem.toBaseUnit(0, unit);
-  if (spec.kind === "percent") {
-    if (!present(reference?.value) || !Number.isFinite(Number(reference.value))) throw new Error("A measurement value is needed for a relative bias.");
-    if (!unitless && unitSystem.getQuantity(reference.unit) !== toQuantity) throw new Error("Bias units must match the measured quantity.");
-    return value / 100 * Math.abs(Number(reference.value)) * scale(reference.unit) / scale(outputUnit);
-  }
   return value * scale(sourceUnit) / scale(outputUnit);
 }
 
@@ -115,19 +120,22 @@ export function getPointBiasSources(point = {}, session = {}) {
   return sources;
 }
 
-export function resolveMeasurementBias(point = {}, session = {}, calculatedAverage, { includeSources = true } = {}) {
+export function resolveMeasurementBias(point = {}, session = {}, calculatedAverage, { includeSources = true, limits, ignoreManual = false } = {}) {
   const reference = point.testPointInfo?.parameter || {};
   const nominal = Number(reference.value);
   const result = { uutBias: 0, calBias: 0, riskAverage: Number.isFinite(calculatedAverage) ? calculatedAverage : nominal, sources: [], error: null, uutOrigin: "assumed" };
   try {
     const tolerance = point.uutTolerance || session.uutTolerance;
     const unknown = (tolerance?.singleSided || tolerance?.tolerances?.singleSided)?.measurement === "unknown";
+    // Workbook ComputeOneRow types 5/6 ignore BOTH K and L: there is no known
+    // measurement/tolerance normalization frame. Retain authored values for a
+    // later switch to known measurement, but do not translate this boundary.
+    if (unknown) { result.uutOrigin = "unavailable"; return result; }
+    let frame;
+    const frameFor = spec => spec?.kind === "percent" ? (frame ||= getBiasToleranceFrame(point, session, limits)) : undefined;
     const spec = point.uutBias?.mode === "override" ? point.uutBias : getUutBiasDefault(point, session);
-    if (unknown) {
-      result.uutBias = 0;
-      result.uutOrigin = "unavailable";
-    } else if (point.uutBias?.mode === "override" || configured(spec)) {
-      result.uutBias = biasInUnit(spec, reference);
+    if (point.uutBias?.mode === "override" || configured(spec)) {
+      result.uutBias = biasInUnit(spec, reference, reference.unit, frameFor(spec));
       result.riskAverage = nominal + result.uutBias;
       result.uutOrigin = point.uutBias?.mode === "override" ? "point" : "range";
     } else {
@@ -135,10 +143,10 @@ export function resolveMeasurementBias(point = {}, session = {}, calculatedAvera
       result.uutBias = result.riskAverage - nominal;
       result.uutOrigin = result.uutBias ? "calculated" : "assumed";
     }
-    if (point.measurementBias?.mode === "manual") {
+    if (point.measurementBias?.mode === "manual" && !ignoreManual) {
       // This is the measured/estimated NET residual. Adding source offsets here
       // would count those effects twice; saved source settings remain restorable.
-      result.calBias = biasInUnit(point.measurementBias, reference);
+      result.calBias = biasInUnit(point.measurementBias, reference, reference.unit, frameFor(point.measurementBias));
       return result;
     }
     // Most existing sessions have no authored source biases. Avoid resolving
@@ -168,7 +176,19 @@ export function resolveMeasurementBias(point = {}, session = {}, calculatedAvera
       const referencePoint = input ? { value: input.nominal, unit: input.unit } : reference;
       // Convert b_i to the derivative's input unit before multiplication; ci then
       // produces output units. An output-level/direct source has sensitivity 1.
-      row.contribution = biasInUnit(row.spec, referencePoint, input?.unit || reference.unit) * (input?.ci ?? 1) * row.quantity;
+      row.sensitivity = input?.ci ?? 1;
+      row.inputUnit = input?.unit || reference.unit;
+      if (row.spec.kind === "percent") {
+        // Workbook Cal_Bias is ALREADY normalized in final-output tolerance
+        // units. Multiplying by df/dx again would change its meaning (and sign).
+        // The input-equivalent value below is display-only; never feed it back
+        // into the output sum, especially at zero sensitivity.
+        row.contribution = biasInUnit(row.spec, reference, reference.unit, frameFor(row.spec)) * row.quantity;
+        row.inputBias = row.sensitivity === 0 ? null : row.contribution / row.sensitivity;
+      } else {
+        row.inputBias = biasInUnit(row.spec, referencePoint, row.inputUnit) * row.quantity;
+        row.contribution = row.inputBias * row.sensitivity;
+      }
       result.calBias += row.contribution;
     }
     if (!Number.isFinite(result.calBias)) throw new Error("The measurement system bias could not be calculated.");

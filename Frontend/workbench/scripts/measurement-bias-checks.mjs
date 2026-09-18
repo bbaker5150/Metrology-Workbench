@@ -105,4 +105,30 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
   check('UUT range bias saves through instrument inline editing', await until(() => saved().uuts[0].ranges[0].tolerances.bias?.value === '.3'));
   check('current point risk picks up the changed UUT range bias', await until(async () => JSON.stringify(await cards.allTextContents()) !== JSON.stringify(riskBeforeUut)));
   check('editing instrument biases does not create point overrides or a menu', saved().testPoints[0].uutBias == null && saved().testPoints[0].measurementBias == null && await frame.locator('.measurement-bias-panel,.legacy-point-bias-notice').count() === 0);
+  // Independent equivalence in the shipped HTML: UUT h=2 V, regardless of the
+  // 5 V nominal or the TMDE's own .2 V error limit. Percent mode is workbook K/L.
+  const absoluteCards = JSON.stringify(await cards.allTextContents());
+  await rangeBias.fill('15'); await rangeBias.press('Enter');
+  await frame.getByRole('button', { name: 'Range UUT bias units', exact: true }).click();
+  await frame.getByRole('option', { name: '%', exact: true }).click();
+  check('UUT percentage selection persists', await until(() => saved().uuts[0].ranges[0].tolerances.bias.kind === 'percent'));
+  await page.waitForTimeout(600);
+  check('15% UUT bias equals .3 V for h=2 V in built HTML', await until(async () => JSON.stringify(await cards.allTextContents()) === absoluteCards));
+  const tmdeSummary = tmde.locator('.cell-tolerance .inline-tolerance-summary').first();
+  if (await tmdeSummary.count()) await tmdeSummary.click();
+  if (!await sourceInput.count()) await tmde.getByRole('button', { name: 'Bias', exact: true }).click();
+  await sourceInput.fill('-40'); await sourceInput.press('Enter');
+  await frame.getByRole('button', { name: 'Range source bias units', exact: true }).click();
+  await frame.getByRole('option', { name: '%', exact: true }).click();
+  check('source percentage selection persists', await until(() => saved().tmdes[0].ranges[0].tolerances.bias.kind === 'percent'));
+  await page.waitForTimeout(600);
+  check('-40% cal bias equals -.8 V using final UUT tolerance in built HTML', await until(async () => JSON.stringify(await cards.allTextContents()) === absoluteCards));
+  await frame.getByRole('button', { name: 'Add Net Bias', exact: true }).click();
+  const netPercent = frame.getByRole('textbox', { name: 'Net measurement system bias', exact: true });
+  await netPercent.fill('-40'); await netPercent.press('Enter');
+  await frame.getByRole('button', { name: 'Net measurement system bias units', exact: true }).click();
+  await frame.getByRole('option', { name: '%', exact: true }).click();
+  check('manual net percentage persists', await until(() => saved().testPoints[0].measurementBias?.kind === 'percent'));
+  await page.waitForTimeout(600);
+  check('manual net % uses the same workbook frame and replaces source bias', await until(async () => JSON.stringify(await cards.allTextContents()) === absoluteCards));
 }

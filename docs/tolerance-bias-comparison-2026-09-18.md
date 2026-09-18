@@ -2,13 +2,28 @@
 
 The supplied files describe different bias inputs. The risk engine matches all 12 populated workbook cases after making those inputs equivalent. All populated cached risk, guardband, interval, TUR and TAR fields were compared (up to 20 outputs per case); maximum absolute difference was 4.82e-11. The six unknown-value rows have blank risk results in the workbook, so this file cannot establish numerical parity for them.
 
-## Why the original results differ
+## Percentage interpretation corrected after this comparison
 
-1. **UUT percentage basis:** Excel MAIN AC12:AC17 contains 0.5. Its risk backend interprets this as 50% of the tolerance half-span (or nominal-to-limit distance for known single-sided tolerances). Here that distance is 10 V, so the UUT bias is +5 V. The PDF session stores 50% of the 100 V nominal, giving +50 V. Enter **+5 V**, or **5%** of nominal, in the relevant UUT Bias field to reproduce these workbook inputs. The app percentage contract is unchanged.
+The following findings describe the original supplied session and the app before
+the percentage-parity correction. Uncertalytics now interprets BOTH bias
+percentages as percentages of the final UUT tolerance scale, matching Excel.
+Use **50% UUT** and **20% cal** directly for these cases, or +5 V and +2 V.
+The source-link and missing-distribution findings still apply: select the intended
+biased TMDE in the budget, set its entry to percent mode, and choose Rectangular.
+A saved absolute value of 20 remains +20 V; an instrument nickname is not a unit.
+Existing saved percent entries use the corrected basis without changing the number.
+Unknown-value types 5/6 now ignore both biases like the workbook.
+
+See [current bias behavior](uncertainty-bias.md). The regression now uses the
+workbook percentages directly; all 12 populated known-value cases still match.
+
+## Why the original results differed
+
+1. **UUT percentage basis:** Excel MAIN AC12:AC17 contains 0.5. Its risk backend interprets this as 50% of the tolerance half-span (or nominal-to-limit distance for known single-sided tolerances). Here that distance is 10 V, so the UUT bias is +5 V. The PDF session stores 50% of the 100 V nominal, giving +50 V. Under the old app contract, +5 V corresponded to 5% of nominal. Under the corrected contract, enter **50%**, matching Excel, or **+5 V**.
 
 2. **Cal source selection:** Every point in the PDF’s “20% Cal Bias” area still links to the instrument named “Unbiased TMDE.” Their effective cal bias is therefore **0 V**. Creating a separately named biased instrument does not replace an existing budget source. Select the intended TMDE in each receiving budget.
 
-3. **Cal entry basis:** The unused “20% Biased TMDE” stores the number 20 without a percent kind, so it is an absolute **+20 V** entry. Excel MAIN AD19:AD24 contains 0.2 of the 10 V tolerance scale: **+2 V**. Set that source’s Bias to **+2 V** (or 2% of the 100 V nominal), choose its error-limit distribution (currently Not Set), and use that source in the budgets. A nickname does not determine units or percentage basis.
+3. **Cal entry basis:** The unused “20% Biased TMDE” stores the number 20 without a percent kind, so it is an absolute **+20 V** entry. Excel MAIN AD19:AD24 contains 0.2 of the 10 V tolerance scale: **+2 V**. Under the corrected contract, set that source’s Bias to **20%** (or **+2 V**), choose its error-limit distribution (currently Not Set), and use that source in the budgets. A nickname does not determine units or percentage basis.
 
 ## Equivalent-input results
 
@@ -31,7 +46,7 @@ All values below are percentages. App and workbook agree to the numerical tolera
 
 ## Unknown-value limits
 
-The app reports an acceptance boundary for types 5/6; it cannot infer a UUT population mean from an unknown measured value. UUT bias is inapplicable there. The app’s existing cal-bias extension translates the acceptance boundary by the signed system bias. Excel’s literal type-5/6 backend ignores its bias fields. These are intentionally different contracts, already covered by `biasWorkflowParity.test.js`; the blank cells in the supplied workbook are not treated as zeros or a parity oracle.
+The app reports an acceptance boundary for types 5/6; it cannot infer a UUT population mean from an unknown measured value. UUT bias is inapplicable there. At the time of the original comparison, the app’s cal-bias extension translated the acceptance boundary by the signed system bias. Excel’s literal type-5/6 backend ignores its bias fields. That historical extension is now disabled in the app for workbook parity; the blank cells in the supplied workbook are not treated as zeros or a parity oracle.
 
 ## Audit trail
 

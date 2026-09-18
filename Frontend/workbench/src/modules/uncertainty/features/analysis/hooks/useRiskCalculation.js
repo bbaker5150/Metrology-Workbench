@@ -84,7 +84,9 @@ export const useRiskCalculation = (
       uutToleranceData?.singleSided || uutToleranceData?.tolerances?.singleSided;
     const hasSingleSidedLimit = Number.isFinite(parseFloat(singleSided?.limit));
 
-    if (!uutToleranceData || (!hasSingleSidedLimit && (!uutNominal || !uutNominal.value))) {
+    // Numeric zero is a valid nominal and has a valid percentage-bias frame
+    // when absolute tolerance limits exist (including imported JSON numbers).
+    if (!uutToleranceData || (!hasSingleSidedLimit && (uutNominal?.value == null || uutNominal.value === ""))) {
       setRiskInputs((prev) => ({ ...prev, LLow: "", LUp: "" }));
       return;
     }
@@ -264,7 +266,7 @@ export const useRiskCalculation = (
     // Use the effective selected tolerance/nominal so live edits and inherited
     // defaults cannot disagree with the open point's displayed budget.
     const measurementAverage = riskAverage;
-    const bias = resolveMeasurementBias({ ...testPointData, uutTolerance: uutToleranceData, testPointInfo: { ...testPointData?.testPointInfo, parameter: uutNominal } }, sessionData, riskAverage, { includeSources: false });
+    const bias = resolveMeasurementBias({ ...testPointData, uutTolerance: uutToleranceData, testPointInfo: { ...testPointData?.testPointInfo, parameter: uutNominal } }, sessionData, riskAverage, { includeSources: false, limits: { lower: LLow, upper: LUp } });
     if (bias.error) {
       setNotification({ title: "Check bias settings", message: bias.error });
       publishRiskMetrics(null);

@@ -211,3 +211,26 @@ The 253-test selection is reproducible from `Frontend/workbench`:
 ```powershell
 npx vitest run src/modules/uncertainty/utils/risk8 src/modules/uncertainty/utils/measurementBias.test.js src/modules/uncertainty/features/analysis/components/InstrumentBiasWorkflow.test.jsx src/modules/uncertainty/utils/riskCompute.test.js src/modules/uncertainty/features/analysis/hooks/useRiskCalculation.test.jsx src/modules/uncertainty/features/analysis/components/BreakdownModals/RiskBreakdownModals.test.jsx src/modules/uncertainty/features/analysis/components/UnknownMeasurementRiskDashboard.test.jsx src/modules/uncertainty/App.sidebarRisk.test.jsx
 ```
+
+## September 18: exact bias percentage semantics
+
+The app now maps entered UUT and cal percentages to the same final UUT frame as
+workbook K/L: b = percent/100 * h. This replaces nominal-magnitude percentages,
+including saved percent entries. The active acceptance limits are passed from
+both risk callers; the UI resolver uses the same tolerance expansion, resolution
+snapping and `normalizeToleranceFrame`. Derived source percentages are already
+output-normalized, while native source biases retain signed derivatives. A manual
+net entry replaces the sum. Measurement Inputs percentage display uses this same
+output frame, not nominal magnitude.
+
+The historical unknown-boundary exception above is superseded: the app resolver
+returns zero UUT and cal bias for types 5/6, exactly as the workbook ignores K/L.
+The low-level translated-boundary utility and its captured historical tests remain
+for audit provenance; the application no longer supplies a translation to it.
+
+No captured workbook expected values were regenerated. The 12 populated supplied
+cases now use literal workbook percentages (50% UUT / 20% cal), plus native-entry
+equivalence. Legacy workflow fixture inputs are expressed in the new percentage
+basis to preserve their independently captured physical K/L cases: 5% of 2 A is
+.1 A; copied-source 10% / 15% of 2 A gives .2 A / .3 A. Separate tests assert fixed
+percentages follow destination tolerance geometry rather than nominal magnitude.

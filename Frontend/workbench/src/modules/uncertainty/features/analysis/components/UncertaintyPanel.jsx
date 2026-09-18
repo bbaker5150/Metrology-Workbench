@@ -1,4 +1,5 @@
 import MeasurementInputBias from "./MeasurementInputBias";
+import { resolveMeasurementBias } from "../../../utils/measurementBias";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
 import LegacyPointBiasNotice from "./LegacyPointBiasNotice";
@@ -14774,6 +14775,11 @@ function DetailedView({
   }, [activeResolvedTolerance, uutToleranceData, onUpdateTestPoint]);
 
   const [inputBiasDisplay, setInputBiasDisplay] = useState("bias");
+  // Resolve signed source contributions once, not once per equation-input row.
+  // The optional net replacement belongs to the output and stays out of this view.
+  const inputBiasCalculation = useMemo(() => equationDisplayData?.variables.length
+    ? resolveMeasurementBias(testPointData, sessionData, undefined, { ignoreManual: true }) : null,
+  [testPointData, sessionData, equationDisplayData]);
 
   const equationVariableInputs =
     equationDisplayData?.variables.length > 0 ? (
@@ -14844,7 +14850,7 @@ function DetailedView({
                     }
                   />
                 </td>
-                <td><MeasurementInputBias point={testPointData} session={sessionData} variable={variable} mode={inputBiasDisplay} /></td>
+                <td><MeasurementInputBias point={testPointData} session={sessionData} variable={variable} mode={inputBiasDisplay} resolved={inputBiasCalculation} /></td>
               </tr>
             ))}
             <NetBiasRow point={testPointData} onChange={onUpdateTestPoint} />

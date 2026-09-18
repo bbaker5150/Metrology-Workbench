@@ -11,7 +11,7 @@ describe("measurement bias", () => {
   it("uses interval conversions for temperatures, signed percentages, and rejects incompatible units", () => {
     expect(biasInUnit({ value: 1.8, unit: "degF" }, { value: 20, unit: "degC" })).toBeCloseTo(1);
     expect(biasInUnit({ value: .01, unit: "ohm" }, { value: 1, unit: "Ohm" })).toBeCloseTo(.01);
-    expect(biasInUnit({ value: -2, kind: "percent", unit: "V" }, { value: -10, unit: "V" })).toBeCloseTo(-.2);
+    expect(biasInUnit({ value: -2, kind: "percent", unit: "V" }, { value: -10, unit: "V" }, "V", { halfSpan: 10, center: -10, unit: "V" })).toBeCloseTo(-.2);
     expect(() => biasInUnit({ value: 1, unit: "V" }, { value: 1, unit: "A" })).toThrow(/units/);
     expect(() => biasInUnit({ value: "abc", unit: "V" }, { value: 1, unit: "V" })).toThrow(/finite/);
   });
@@ -25,7 +25,7 @@ describe("measurement bias", () => {
     const { point, session } = biasFixture();
     session.uuts = [{ id: "uut", ranges: [{ id: "range", unit: "A", tolerances: { bias: { value: 1, kind: "percent", unit: "A" } } }] }];
     Object.assign(point, { activeUutId: "uut", uutTolerance: { ...point.uutTolerance, rangeId: "range" } });
-    expect(resolveMeasurementBias(point, session).uutBias).toBeCloseTo(.1);
+    expect(resolveMeasurementBias(point, session).uutBias).toBeCloseTo(.02);
     point.uutBias = { mode: "override", value: -.2, unit: "A" };
     expect(resolveMeasurementBias(point, session).uutBias).toBe(-.2);
   });
@@ -54,11 +54,11 @@ describe("measurement bias", () => {
     const target = { ...point, id: "target", uutBias: { mode: "override", value: .4, unit: "A" }, variableNominals: { ...point.variableNominals, V: { value: 2, unit: "V" } }, testPointInfo: { parameter: { value: 20, unit: "A" } } };
     const pasted = pastePointBudget(target, copyPointBudget(point));
     expect(pasted.uutBias).toEqual(target.uutBias);
-    expect(resolveMeasurementBias(pasted, session).calBias).toBeCloseTo(-.2);
+    expect(resolveMeasurementBias(pasted, session).calBias).toBeCloseTo(-.38);
     pasted.variableNominals.V.value = 3;
-    expect(resolveMeasurementBias(pasted, session).calBias).toBeCloseTo(-.3);
+    expect(resolveMeasurementBias(pasted, session).calBias).toBeCloseTo(-.58);
     expect(point.variableNominals.V.value).toBe(1);
-    expect(resolveMeasurementBias(JSON.parse(JSON.stringify(pasted)), JSON.parse(JSON.stringify(session))).calBias).toBeCloseTo(-.3);
+    expect(resolveMeasurementBias(JSON.parse(JSON.stringify(pasted)), JSON.parse(JSON.stringify(session))).calBias).toBeCloseTo(-.58);
   });
   it("changes PFA/PFR through the public calculation without changing budget uncertainty", () => {
     const { point, session } = biasFixture();

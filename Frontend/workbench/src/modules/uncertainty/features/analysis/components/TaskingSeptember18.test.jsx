@@ -59,7 +59,7 @@ it('displays input bias before sensitivity propagation and keeps the output over
   point.measurementBias = { mode: 'manual', value: 500, unit: 'A' };
   expect(measurementInputBias(point, session, variable)).toBeCloseTo(.01);
   const view = render(<MeasurementInputBias point={point} session={session} variable={variable} mode="percent" />);
-  expect(screen.getByText('1 %')).toBeInTheDocument();
+  expect(screen.getByText('5 %')).toBeInTheDocument();
   view.rerender(<MeasurementInputBias point={point} session={session} variable={variable} mode="adjusted" />);
   expect(screen.getByText('1.01 V')).toBeInTheDocument();
 });
