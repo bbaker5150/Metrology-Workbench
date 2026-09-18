@@ -433,7 +433,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     fireEvent.click(emptyTolerance);
 
     expect(screen.queryByText("Tolerance / Error Limits")).not.toBeInTheDocument();
-    expect(screen.getByText(/IV %/)).toBeInTheDocument();
+    expect(screen.getByText(/% IV/)).toBeInTheDocument();
     expect(screen.getByText("% FS")).toBeInTheDocument();
     expect(screen.getByText("dB")).toBeInTheDocument();
     expect(screen.getByTitle("Single-sided tolerances are asymmetric")).toBeDisabled();
@@ -537,10 +537,10 @@ describe("UniversalInstrumentModal library synchronization", () => {
 
     // IV can use %, ppm, or ppb; Floor remains a non-editable physical unit.
     const ivUnit = screen.getByTitle(/IV unit/i);
-    expect(ivUnit).toHaveTextContent("IV V");
+    expect(ivUnit).toHaveTextContent("V IV");
     fireEvent.click(ivUnit);
     fireEvent.click(screen.getByRole("option", { name: "ppm" }));
-    expect(screen.getByTitle(/IV unit/i)).toHaveTextContent("IV ppm");
+    expect(screen.getByTitle(/IV unit/i)).toHaveTextContent("ppm IV");
 
     fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
 

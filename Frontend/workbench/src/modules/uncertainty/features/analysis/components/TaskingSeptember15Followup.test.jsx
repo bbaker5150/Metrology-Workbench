@@ -50,7 +50,11 @@ it("keeps variable mappings committed until the equation loses focus", () => {
 it("offers an authored TMDE before a nominal unit has been assigned", () => {
   const range = { id: "r", min: 0, max: 10, unit: "V", tolerances: { floor: { high: 1, low: -1, unit: "V", distribution: "1.732" } } };
   expect(getUsableBudgetRangeChoices({ instrument: { functions: [{ unit: "V", ranges: [range] }] } }, { value: 5, unit: "" })).toHaveLength(1);
-  expect(getBudgetComponentsFromTolerance(range, { value: 5, unit: "" })[0]).toMatchObject({ value_native: null, pendingReason: "Assign a measurement unit to calculate uncertainty." });
+  // September 18 permits a unitless numeric frame, so a populated source no
+  // longer stays pending merely because the point's unit label is blank.
+  const component = getBudgetComponentsFromTolerance(range, { value: 5, unit: "" })[0];
+  expect(component.pendingReason).toBeFalsy();
+  expect(component.value_native).toBeCloseTo(1 / Math.sqrt(3), 12);
 });
 it("moves a distribution highlight without selecting until Enter", async () => {
   const change = vi.fn();

@@ -1188,7 +1188,7 @@ const UncertaintyBudgetTable = ({
                       const max = range.max ?? range.value ?? "";
                       const single = range.isSingleValue || String(min) === String(max) || min === "" || max === "";
                       const rangeLabel = `${single ? (min !== "" ? min : max !== "" ? max : "Not Set") : `${min} to ${max}`} ${getUnitDisplayLabel(range.unit || range.functionUnit)}`.trim();
-                      return { value: String(index), rangeLabel, label: `${range.functionName ? `${range.functionName} · ` : ""}${rangeLabel} | ${getToleranceErrorSummary(range, manualReferencePoint)}` };
+                      return { value: String(index), rangeLabel, label: `${rangeLabel} | ${getToleranceErrorSummary(range, manualReferencePoint)}` };
                     })}
                     onChange={index => onComponentUpdate?.(component.id, { selectedBudgetRange: component.budgetRangeOptions[Number(index)] }, component)} />
                 )}

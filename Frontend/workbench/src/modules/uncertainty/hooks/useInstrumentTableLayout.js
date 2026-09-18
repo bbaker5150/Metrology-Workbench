@@ -12,12 +12,14 @@ export const instrumentMutationAffectsLayout = record =>
   record.type !== 'attributes' || record.attributeName !== 'class' ||
   layoutClasses(record.oldValue) !== layoutClasses(record.target.getAttribute('class'));
 
-export const expandedInstrumentWidths = (weights, baseline, requirements, absolute = false) => {
+export const expandedInstrumentWidths = (weights, baseline, requirements, absolute = false, fillIndex = weights.length - 1) => {
   const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
   const scale = absolute ? 1 : baseline / total;
-  // Default proportions fill the viewport. Authored pixel widths do not: the
-  // panel follows their sum, so shrinking one column cannot stretch a neighbor.
-  return weights.map((weight, index) => Math.max(weight * scale, requirements[index] || 0));
+  // Preserve authored peers and editor requirements. Only the designated
+  // trailing column absorbs unused viewport space; excess content scrolls.
+  const widths = weights.map((weight, index) => Math.max(weight * scale, requirements[index] || 0));
+  if (fillIndex >= 0) widths[fillIndex] += Math.max(0, baseline - widths.reduce((sum, width) => sum + width, 0));
+  return widths;
 };
 
 // Keep saved proportional widths untouched. Only the live colgroup receives
@@ -68,8 +70,8 @@ export default function useInstrumentTableLayout(containerRef) {
       if (!container.getClientRects().length) return;
       const cols = [...table.querySelectorAll(":scope > colgroup > col")];
       const absolute = cols.every(col => col.style.width.endsWith("px"));
-      // Editor requirements grow only their own columns. The panel may shrink
-      // below the workspace width, or cap at it and scroll for wider content.
+      // Editor requirements grow only their own columns. The panel fills the
+      // workspace and scrolls when authored/editor widths exceed the viewport.
       const requirements = [];
       if (!absolute) {
         // Preserve wrapping in descriptions, but reserve space for their badges.
@@ -107,17 +109,12 @@ export default function useInstrumentTableLayout(containerRef) {
       });
       const zoom = parseFloat(getComputedStyle(table).zoom) || 1;
       const baseline = Math.max(container.clientWidth / zoom, parseFloat(table.style.minWidth) || 1200);
-      const widths = expandedInstrumentWidths(cols.map(col => parseFloat(col.style.width) || 1), baseline, requirements, absolute);
+      const fillIndex = cols.findIndex(col => col.dataset.fill === "true");
+      const widths = expandedInstrumentWidths(cols.map(col => parseFloat(col.style.width) || 1), baseline, requirements, absolute, fillIndex < 0 ? cols.length - 1 : fillIndex);
       cols.forEach((col, index) => setProperty(col, "--instrument-live-column-width", `${widths[index]}px`));
       const tableWidth = widths.reduce((sum, width) => sum + width, 0);
       setProperty(table, "--instrument-live-table-width", `${tableWidth}px`);
-      if (card) {
-        if (absolute) {
-          const style = getComputedStyle(card);
-          const edges = (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.borderRightWidth) || 0);
-          setProperty(card, "--instrument-panel-width", `${tableWidth * zoom + edges}px`);
-        } else card.style.removeProperty("--instrument-panel-width");
-      }
+      card?.style.removeProperty("--instrument-panel-width");
 
       // Sticky cells normally stop at their own scroller's top, even when that
       // scroller has moved behind the analysis tabs. Offset them to the visible

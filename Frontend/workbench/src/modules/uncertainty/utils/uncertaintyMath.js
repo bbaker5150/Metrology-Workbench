@@ -565,8 +565,8 @@ export const convertToPPM = (
     parsedNominal = parseFloat(fallbackReferenceValue);
   }
 
-  const nominalQuantity = unitSystem.getQuantity(nominalUnit);
-  const valueQuantity = unitSystem.getQuantity(unit);
+  const nominalQuantity = nominalUnit ? unitSystem.getQuantity(nominalUnit) : "Unitless";
+  const valueQuantity = unit ? unitSystem.getQuantity(unit) : "Unitless";
 
   if (!nominalQuantity)
     return getExplanation
@@ -1050,8 +1050,7 @@ export const calculateUncertaintyFromToleranceObject = (
   if (
     !toleranceObject ||
     !referenceMeasurementPoint ||
-    !hasValidValue ||
-    !referenceMeasurementPoint.unit
+    !hasValidValue
   ) {
     console.warn("⚠️ Missing valid inputs for calculation");
     console.groupEnd();

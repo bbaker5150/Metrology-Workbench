@@ -45,13 +45,14 @@ export function biasInUnit(spec, reference, outputUnit = reference?.unit) {
   const value = Number(spec.value);
   if (!Number.isFinite(value)) throw new Error("Enter a finite signed bias.");
   const sourceUnit = spec.unit || reference?.unit;
-  const fromQuantity = unitSystem.getQuantity(sourceUnit);
-  const toQuantity = unitSystem.getQuantity(outputUnit);
+  const unitless = !sourceUnit && !outputUnit && !reference?.unit;
+  const fromQuantity = unitless ? "Unitless" : unitSystem.getQuantity(sourceUnit);
+  const toQuantity = unitless ? "Unitless" : unitSystem.getQuantity(outputUnit);
   if (!fromQuantity || !toQuantity || fromQuantity !== toQuantity) throw new Error("Bias units must match the measured quantity.");
   const scale = unit => unitSystem.toBaseUnit(1, unit) - unitSystem.toBaseUnit(0, unit);
   if (spec.kind === "percent") {
     if (!present(reference?.value) || !Number.isFinite(Number(reference.value))) throw new Error("A measurement value is needed for a relative bias.");
-    if (unitSystem.getQuantity(reference.unit) !== toQuantity) throw new Error("Bias units must match the measured quantity.");
+    if (!unitless && unitSystem.getQuantity(reference.unit) !== toQuantity) throw new Error("Bias units must match the measured quantity.");
     return value / 100 * Math.abs(Number(reference.value)) * scale(reference.unit) / scale(outputUnit);
   }
   return value * scale(sourceUnit) / scale(outputUnit);

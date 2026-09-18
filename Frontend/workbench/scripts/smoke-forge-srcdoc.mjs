@@ -1,3 +1,4 @@
+import { prepareSeptember18, checkSeptember18 } from "./september18-checks.mjs";
 import { prepareTaskingLayout, checkTaskingLayout } from "./tasking-layout-checks.mjs";
 import { prepareGrowingInputs, checkGrowingInputs } from "./growing-inputs-checks.mjs";
 import { prepareInstrumentInteractions, checkInstrumentInteractions } from "./instrument-interaction-checks.mjs";
@@ -127,6 +128,7 @@ if (process.env.GROWING_INPUTS_SMOKE) for (const session of sessions.values()) p
 if (process.env.INSTRUMENT_INTERACTION_SMOKE) for (const session of sessions.values()) prepareInstrumentInteractions(session);
 if (process.env.SEPTEMBER17_INTERACTION_SMOKE) for (const session of sessions.values()) prepareSeptember17Interactions(session);
 if (process.env.MEASUREMENT_BIAS_SMOKE) for (const session of sessions.values()) prepareBiasSession(session);
+if (process.env.SEPTEMBER18_SMOKE) for (const session of sessions.values()) prepareSeptember18(session);
 const instrumentItems = [301, 302].map(id => ({
   Id: id, AuthorId: 7, RecordId: `instrument-${id}`,
   PayloadJson: JSON.stringify({ id: `instrument-${id}`, manufacturer: 'Smoke', model: `DMM-${id}`, description: 'Archive smoke instrument', scope: 'validated', functions: [] }),
@@ -294,6 +296,7 @@ if (/not set up yet/i.test(frameText)) {
   if (process.env.GROWING_INPUTS_SMOKE) await checkGrowingInputs({ frame, page, saved, until, check });
   if (process.env.INSTRUMENT_INTERACTION_SMOKE) await checkInstrumentInteractions({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER17_INTERACTION_SMOKE) await checkSeptember17Interactions({ frame, page, saved, until, check });
+  if (process.env.SEPTEMBER18_SMOKE) await checkSeptember18({ frame, page, saved, until, check });
   for (const view of ['overview', 'point']) {
     if (view === 'overview') await frame.locator('[data-tour="tab-overview"]').click();
     else {

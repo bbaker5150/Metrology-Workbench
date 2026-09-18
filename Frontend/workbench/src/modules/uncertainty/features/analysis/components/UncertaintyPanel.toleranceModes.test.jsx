@@ -87,7 +87,7 @@ describe("inline tolerance global modes", () => {
     fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
     fireEvent.click(screen.getByTitle("Single-sided tolerance"));
 
-    expect(screen.queryByText("IV %")).not.toBeInTheDocument();
+    expect(screen.queryByText("% IV")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Single-sided direction")).toBeInTheDocument();
   });
 

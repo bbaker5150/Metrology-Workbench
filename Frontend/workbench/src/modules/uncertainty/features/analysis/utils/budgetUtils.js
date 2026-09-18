@@ -92,7 +92,9 @@ export const getBudgetComponentsFromTolerance = (
   scopeContext = undefined,
 ) => {
 
-  if (referenceMeasurementPoint && (!hasNominalValue(referenceMeasurementPoint) || !referenceMeasurementPoint.unit)) {
+  // A blank unit is a valid scale-one numeric frame. Missing VALUES still
+  // defer relative terms; do not require a display unit to evaluate numbers.
+  if (referenceMeasurementPoint && !hasNominalValue(referenceMeasurementPoint)) {
     const unit = referenceMeasurementPoint.unit || rawToleranceObject?.unit || "V";
     return getBudgetComponentsFromTolerance(rawToleranceObject, { ...referenceMeasurementPoint, value: 1, unit }, instrumentTypeBComponents, scopeContext)
       .map(component => {
@@ -156,8 +158,7 @@ export const getBudgetComponentsFromTolerance = (
   if (
     !toleranceObject ||
     !referenceMeasurementPoint ||
-    !hasValidValue ||
-    !referenceMeasurementPoint.unit
+    !hasValidValue
   ) {
     return [];
   }
@@ -926,6 +927,8 @@ export const getUutResolutionComponent = (
   uutTolerance,
   referenceMeasurementPoint
 ) => {
+  // A blank unit is a valid scale-one numeric frame. Missing VALUES still
+  // defer relative terms; do not require a display unit to evaluate numbers.
   if (referenceMeasurementPoint && !hasNominalValue(referenceMeasurementPoint)) {
     const component = getUutResolutionComponent(uutTolerance, { ...referenceMeasurementPoint, value: 1 });
     return component ? absoluteBudgetComponent(component, unitSystem) : null;

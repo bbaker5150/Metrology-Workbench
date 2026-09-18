@@ -27,11 +27,11 @@ export function NetBiasRow({ point, onChange }) {
   return <tr className="measurement-net-bias-row">
     <td aria-label="Not an equation variable">—</td>
     <td>Net Bias <span className="measurement-net-bias-help">Replaces combined source bias</span></td>
-    <td><div className="measurement-net-bias-value">
+    <td colSpan={2}><div className="measurement-net-bias-value">
       <BiasValueEditor label="Net measurement system bias" value={spec}
         unit={point.testPointInfo?.parameter?.unit || ""}
         onChange={bias => onChange({ measurementBias: { ...bias, corrected: false } })} />
-      <button type="button" className="btn-add-item" title="Remove Net Bias and use source biases"
+      <button type="button" className="btn-add-item measurement-net-bias-remove" title="Remove Net Bias and use source biases"
         aria-label="Remove Net Bias" onClick={() => onChange({ measurementBias:
           Object.values(spec.sources || {}).some(value => value != null)
             ? { mode: "sources", sources: spec.sources } : null })}>

@@ -1,3 +1,4 @@
+import MeasurementInputBias from "./MeasurementInputBias";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
 import LegacyPointBiasNotice from "./LegacyPointBiasNotice";
@@ -536,7 +537,7 @@ const UnitSelect = ({
   // "Base" label and chevron; other unit selectors retain their roomier size.
   const prefixSelectWidth = selectedModel ? (compact ? "70px" : "74px") : "58px";
   const openMenu = (initialQuery = "") => {
-    const rect = rootRef.current?.getBoundingClientRect();
+    const rect = (rootRef.current?.querySelector(".inline-unit-base-button") || rootRef.current)?.getBoundingClientRect();
     const accentColor = rootRef.current
       ? window
           .getComputedStyle(rootRef.current)
@@ -1930,7 +1931,7 @@ const useInlineColumnDismiss = ({
       if (isRelatedTarget?.(target, rootRef.current)) return;
       if (
         target instanceof Element &&
-        target.closest(".instrument-size-control")
+        target.closest(".instrument-size-control, .instrument-column-insert-button")
       ) {
         return;
       }
@@ -2692,6 +2693,7 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
   );
 
   return {
+    fillColumn: widths.__fillColumn || keys[keys.length - 1],
     widthFor: (key) =>
       widths.__absolute ? `${resolvedWidths[key] || 160}px` : `${((resolvedWidths[key] || 160) / totalWidth) * 100}%`,
     tableWidth: widths.__absolute ? `${totalWidth}px` : "100%",
@@ -2703,6 +2705,9 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
       const measured = measureTableColumnWidths(table, "instrumentColumn");
       const current = renderedInstrumentColumnWidths(table) || resolvedWidths;
       const next = { ...resizeTableColumn(widths.__absolute ? resolvedWidths : null, current, key, (measured[key] || current[key]) - current[key], minimumWidth(key)), __absolute: true };
+      // Autofitting the final column keeps that measured width; its immediate
+      // left neighbour becomes the sole viewport filler until a different fit.
+      next.__fillColumn = key === keys[keys.length - 1] ? keys[keys.length - 2] : keys[keys.length - 1];
       setWidths(next); saveWidths(next);
     },
     resetWidths: () => {
@@ -2766,7 +2771,7 @@ const ResizableInstrumentHeader = ({
 const InstrumentTableColgroup = ({ kind, customColumns, columns }) => (
   <colgroup>
     {getInstrumentColumnOrder(kind, customColumns).map((columnKey) => (
-      <col key={columnKey} style={{ width: columns.widthFor(columnKey) }} />
+      <col key={columnKey} data-fill={columns.fillColumn === columnKey} style={{ width: columns.widthFor(columnKey) }} />
     ))}
   </colgroup>
 );
@@ -4226,7 +4231,7 @@ const ToleranceTermEditor = ({
           </>
         )}
       </span>
-      {typeLabel &&
+      {(typeLabel || typeKey === "floor") &&
         (typeKey === "reading" || typeKey === "range" ? (
           <InlineMenuSelect
             value={activeComponentUnit}
@@ -4240,7 +4245,7 @@ const ToleranceTermEditor = ({
             showOptionMeta={false}
             getDisplayLabel={() =>
               typeKey === "reading"
-                ? `IV ${activeComponentUnit}`
+                ? `${activeComponentUnit} IV`
                 : `${activeComponentUnit} FS`
             }
           />
@@ -4487,14 +4492,22 @@ export const InlineToleranceCell = ({
   const inferredMode = inferToleranceEditorMode(tolerance);
   const [shapeMode, setShapeMode] = useState(inferredMode.shape);
   const [sidedness, setSidedness] = useState(inferredMode.sidedness);
-  const [showBias, setShowBias] = useState(false);
+  // Reopening a configured range returns to its bias editor. Tolerance mode
+  // remains independent, so toggling Bias never rewrites or clears limits.
+  const [showBias, setShowBias] = useState(() => Boolean(biasRole && tolerance.bias?.value != null && tolerance.bias.value !== ""));
 
   useLayoutEffect(() => {
     const next = inferToleranceEditorMode(tolerance);
     setShapeMode(next.shape);
     setSidedness(next.sidedness);
-    setShowBias(false);
   }, [rangeIdOf(activeRange), tolerance?._editorMode?.shape, tolerance?._editorMode?.sidedness]);
+  useLayoutEffect(() => {
+    setShowBias(Boolean(biasRole && tolerance.bias?.value != null && tolerance.bias.value !== ""));
+    // Range navigation restores its configured bias; editing a number or mode
+    // does not override an intentional local toggle back to tolerance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeIdOf(activeRange)]);
+
 
   useLayoutEffect(() => {
     if (!openRequested) return;
@@ -4553,13 +4566,17 @@ export const InlineToleranceCell = ({
           }}
           onClick={openEditor}
         >
-          <StackedToleranceSummary text={hasValue ? summary : "Not Set"} />
+          <span className="inline-tolerance-spec-summary"><StackedToleranceSummary text={hasValue ? summary : "Not Set"} /></span>
+          {biasRole && tolerance.bias?.value != null && tolerance.bias.value !== "" && <span className="instrument-bias-summary">
+            {Number(tolerance.bias.value) >= 0 ? "+" : "−"}{Math.abs(Number(tolerance.bias.value))}{tolerance.bias.kind === "percent" ? "%" : ` ${getUnitDisplayLabel(tolerance.bias.unit || activeRange.unit || referencePoint?.unit || "")}`} bias{tolerance.bias.corrected ? " (corrected)" : ""}
+          </span>}
         </button>
       </span>
     );
   }
 
   const commitEditorMode = (nextShape, nextSidedness) => {
+    setShowBias(false);
     const normalizedSidedness =
       nextShape === "asymmetric" && nextSidedness === "single"
         ? "single"
@@ -4655,7 +4672,7 @@ export const InlineToleranceCell = ({
             title="Edit bias" onClick={() => setShowBias(value => !value)}>Bias</button>
         </div>}
       </div>
-      {(sidedness === "single"
+      {!showBias && (sidedness === "single"
         ? TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key === "singleSided")
         : TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key !== "singleSided")
       ).map((opt) => (
@@ -4686,13 +4703,13 @@ export const InlineToleranceCell = ({
           instrument editors supply biasRole; editing a budget error limit must
           not accidentally author a new shared instrument default. __replace__
           retains every tolerance field while atomically updating its bias. */}
-      <div className="inline-tolerance-footer">
+      {!showBias && sidedness !== "single" && <div className="inline-tolerance-footer">
         <label className="inline-tolerance-greater-toggle">
           <input type="checkbox" checked={Boolean(tolerance.whicheverIsGreater)}
             onChange={event => onCommit("__replace__", { ...tolerance, whicheverIsGreater: event.target.checked })} />
           <span>Whichever is greater</span>
         </label>
-      </div>
+      </div>}
       {biasRole && showBias && <div className="instrument-bias-editor">
         <BiasValueEditor label={biasRole === "uut" ? "Range UUT bias" : "Range source bias"}
           value={tolerance.bias} unit={activeRange.unit || referencePoint?.unit}
@@ -5136,11 +5153,9 @@ export const getUsableBudgetRangeChoices = (
         return false;
       }
     }
-    return getBudgetComponentsFromTolerance(range, nominalPoint || {}).some(
-      (component) =>
-        !component.isResolution &&
-        (component.pendingReason || Number.isFinite(Number(component.value_native ?? component.value))),
-    );
+    // Incomplete ranges are selectable; the linked budget row explains what
+    // must be supplied before a valid uncertainty/risk can be calculated.
+    return true;
   });
 
 export const getVisibleRangeRows = (ranges = [], activeIndex = 0, activeRange = {}, showAll = false) => {
@@ -5378,7 +5393,7 @@ export const getCollapsedSpecRows = (tolerance = {}, referencePoint) => {
     .some(unit => budgetUnitMismatch(unit, referencePoint?.unit, unitSystem));
   if (unitWarning) return ["Unit mismatch"];
   if (!referencePoint || referencePoint.value === "" || referencePoint.value == null || !Number.isFinite(Number(referencePoint.value))) {
-    return ["Point-dependent"];
+    return ["Whichever is greater"];
   }
   return getSpecRows(selectGreatestTolerance(source, referencePoint));
 };
@@ -7721,6 +7736,13 @@ const SummaryDashboard = ({
           : ""
       }`}
       data-measurement-area={fn.key}
+      tabIndex={0}
+      onClick={event => {
+        if (event.target.closest('button, input, [contenteditable="true"]')) return;
+        pasteDestinationRef.current = { kind, areaKey: fn.key, targetId: null };
+        setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
+        event.currentTarget.focus();
+      }}
       onContextMenuCapture={(e) => openAreaRowMenu(e, kind, fn)}
       style={functionRowStyle(fn.key)}
       onDragOver={handleInstrumentDragOverFunction(kind, fn)}
@@ -7827,7 +7849,7 @@ const SummaryDashboard = ({
     };
     const onDown = (e) => {
       // Resizing is a layout action, not a click-away from the active editor.
-      if (e.target?.closest?.(".instrument-size-control")) return;
+      if (e.target?.closest?.(".instrument-size-control, .instrument-column-insert-button")) return;
       // UnitSelect renders its options in a body-level portal. Selecting an
       // option is still an interaction with this range group, not a click-away
       // that should collapse the expanded table.
@@ -7946,7 +7968,7 @@ const SummaryDashboard = ({
   };
   const selectRangeRow = (event, kind, item, index, rangeId, stateItemId = item.id) => {
     if (event.button !== undefined && event.button !== 0) return;
-    if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .instrument-row-tools, .instrument-order-controls')) return;
+    if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .instrument-row-tools button, .instrument-order-controls')) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
     selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(event, item);
     const next = instrumentRowSelectionFromEvent(event, selectedRangeIds, lastSelectionTarget === "range" ? "range" : "instrument", rangeSelectionAnchorRef.current);
@@ -11291,7 +11313,7 @@ function DetailedView({
     };
     const onDown = (e) => {
       // Resizing is a layout action, not a click-away from the active editor.
-      if (e.target?.closest?.(".instrument-size-control")) return;
+      if (e.target?.closest?.(".instrument-size-control, .instrument-column-insert-button")) return;
       // UnitSelect renders its options in a body-level portal. Selecting an
       // option is still an interaction with this range group, not a click-away
       // that should collapse the expanded table.
@@ -11412,7 +11434,7 @@ function DetailedView({
   };
   const selectRangeRowDetail = (event, kind, item, index, rangeId, stateItemId = item.id) => {
     if (event.button !== undefined && event.button !== 0) return;
-    if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .instrument-row-tools, .instrument-order-controls')) return;
+    if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .instrument-row-tools button, .instrument-order-controls')) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
     selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(event, item);
     const next = instrumentRowSelectionFromEvent(event, selectedRangeIds, lastSelectionTarget === "range" ? "range" : "instrument", rangeSelectionAnchorRef.current);
@@ -12267,6 +12289,13 @@ function DetailedView({
           : ""
       }`}
       data-measurement-area={fn.key}
+      tabIndex={0}
+      onClick={event => {
+        if (event.target.closest('button, input, [contenteditable="true"]')) return;
+        pasteDestinationRef.current = { kind, areaKey: fn.key, targetId: null };
+        setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
+        event.currentTarget.focus();
+      }}
       onContextMenuCapture={(e) => openAreaRowMenu(e, kind, fn)}
       style={functionBadgeStyle(fn.key)}
       onDragOver={(event) => {
@@ -13911,24 +13940,16 @@ function DetailedView({
           : null) ||
         findRangeForFunction(sourceTmde, budgetTmdePicker.functionKey) ||
         {};
-      if (warnIfTmdeAccuracyIncomplete(activeRange)) {
-        setBudgetTmdePicker(null);
-        return;
-      }
+      // Keep a linked pending row when the source is incomplete. Its stable
+      // range provenance lets resolvePointBudgetComponents resolve later edits.
       const resolvedComponents = getBudgetComponentsFromTolerance(
-        activeRange,
-        nominalPoint || {},
-      ).filter((component) => !component.isResolution);
-
-      if (resolvedComponents.length === 0) {
-        setNotification?.({
-          title: "Nothing to Add",
-          message:
-            "This TMDE range has no usable error limit at the equation input's nominal value.",
-        });
-        setBudgetTmdePicker(null);
-        return;
-      }
+        activeRange, nominalPoint || {},
+      ).filter(component => !component.isResolution);
+      if (!resolvedComponents.length) resolvedComponents.push({
+        name: "TMDE - Error Limit", value: null, value_native: null,
+        unit_native: activeRange.unit || nominalPoint?.unit || "",
+        pendingReason: "Set an error limit for the selected TMDE range.",
+      });
 
       const sourceName = formatErrorSourceDescription(sourceTmde);
       const nominalLabel = [nominalPoint?.value, nominalPoint?.unit]
@@ -14374,9 +14395,7 @@ function DetailedView({
                   {choices.map((range, rangeIndex) => {
                 const detail = getBudgetTmdeDetail(tmde, range);
                 const unitWarning = budgetUnitMismatch(range.unit || range.functionUnit, (isDerived ? scope.nominalPoint : uutNominal)?.unit, unitSystem);
-                const functionLabel = range?.functionName
-                  ? `${range.functionName} · `
-                  : "";
+
                 return (
                 <button
                   key={`${tmde.id}:${rangeIdOf(range || {}) || rangeIndex}`}
@@ -14403,7 +14422,7 @@ function DetailedView({
                   >
                     {detail && (
                       <span className="budget-tmde-picker-detail">
-                        {unitWarning && <FontAwesomeIcon icon={faExclamationTriangle} role="img" aria-label={unitWarning} style={{ color: "var(--status-warning, #b58100)", marginRight: 5 }} />}{functionLabel}{detail}
+                        {unitWarning && <FontAwesomeIcon icon={faExclamationTriangle} role="img" aria-label={unitWarning} style={{ color: "var(--status-warning, #b58100)", marginRight: 5 }} />}{detail}
                       </span>
                     )}
                   </span>
@@ -14754,6 +14773,8 @@ function DetailedView({
     }
   }, [activeResolvedTolerance, uutToleranceData, onUpdateTestPoint]);
 
+  const [inputBiasDisplay, setInputBiasDisplay] = useState("bias");
+
   const equationVariableInputs =
     equationDisplayData?.variables.length > 0 ? (
       <div
@@ -14763,14 +14784,20 @@ function DetailedView({
         <table className="instrument-summary-table industry-table measurement-inputs-table">
           <colgroup>
             <col style={{ width: "12%" }} />
-            <col style={{ width: "40%" }} />
-            <col style={{ width: "48%" }} />
+            <col style={{ width: "30%" }} />
+            <col style={{ width: "33%" }} />
+            <col style={{ width: "25%" }} />
           </colgroup>
           <thead>
             <tr>
               <th>Variable</th>
               <th>Name</th>
               <th>Nominal</th>
+              <th><InlineMenuSelect ariaLabel="Input bias display" value={inputBiasDisplay} onChange={setInputBiasDisplay}
+                width="auto" showOptionMeta={false} options={[
+                  { value: "bias", label: "Bias" }, { value: "percent", label: "Bias %" },
+                  { value: "adjusted", label: "Nominal + Bias" },
+                ]} /></th>
             </tr>
           </thead>
           <tbody>
@@ -14817,6 +14844,7 @@ function DetailedView({
                     }
                   />
                 </td>
+                <td><MeasurementInputBias point={testPointData} session={sessionData} variable={variable} mode={inputBiasDisplay} /></td>
               </tr>
             ))}
             <NetBiasRow point={testPointData} onChange={onUpdateTestPoint} />

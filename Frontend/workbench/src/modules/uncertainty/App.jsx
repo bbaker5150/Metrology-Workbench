@@ -2711,6 +2711,7 @@ function App({ showThemeToggle = false }) {
 
   // --- NEW: Sidebar Multi-Select State ---
   const [selectedSidebarPointIds, setSelectedSidebarPointIds] = useState([]);
+  const [selectedPointArea, setSelectedPointArea] = useState(null);
   // Anchor for shift-click range selection. Context disambiguates a point that
   // is rendered under more than one UUT branch.
   const [sidebarSelectionAnchor, setSidebarSelectionAnchor] = useState(null);
@@ -3055,7 +3056,7 @@ function App({ showThemeToggle = false }) {
   }, [handleDeleteTestPoint]);
 
   const handlePastePoint = useCallback(
-    (targetUutId, targetAreaId, targetRange = null, insertAfterPointId = null) => {
+    (targetUutId, targetAreaId, targetRange = null, insertAfterPointId = null, targetAreaName = null) => {
       if (
         clipboardKind !== "point" ||
         !clipboardPoint ||
@@ -3134,6 +3135,9 @@ function App({ showThemeToggle = false }) {
           targetAreaId: resolvedAreaId,
           targetTolerance: resolvedTolerance,
         });
+        if (targetAreaName) {
+          newPointData.testPointInfo = { ...newPointData.testPointInfo, measurementArea: targetAreaName };
+        }
         if (insertionPoint) {
           newPointData.testPointInfo = {
             ...newPointData.testPointInfo,
@@ -3192,6 +3196,41 @@ function App({ showThemeToggle = false }) {
       showToast,
     ],
   );
+
+  const pointAreaHeaderProps = (area, points) => {
+    const select = event => {
+      setSelectedPointArea(area.id); setSelectedUutId(null);
+      setSelectedSidebarPointIds(points.map(point => point.id));
+      event.currentTarget.focus();
+    };
+    const paste = () => {
+      const stored = currentSessionData.measurementAreas?.find(item => item.name === area.name);
+      handlePastePoint(null, stored?.id || null, null, null, area.name);
+      setContextMenu(null);
+    };
+    return {
+      tabIndex: 0, 'aria-label': `${area.name} measurement area`,
+      'data-area-selected': selectedPointArea === area.id,
+      onClick: event => { if (!event.target.closest('button, input, [contenteditable="true"]')) select(event); },
+      onKeyDown: event => {
+        if (event.target !== event.currentTarget || !(event.ctrlKey || event.metaKey)) return;
+        const key = event.key.toLowerCase();
+        if (!['c', 'x', 'v'].includes(key)) return;
+        event.preventDefault(); event.stopPropagation();
+        if (key === 'v') paste();
+        else if (points.length) (key === 'x' ? handleCutPoint : handleCopyPoint)(points);
+      },
+      onContextMenu: event => {
+        if (event.target.closest('input, [contenteditable="true"]')) return;
+        event.preventDefault(); event.stopPropagation(); select(event);
+        setContextMenu({ x: event.pageX, y: event.pageY, items: [
+          { label: 'Copy Points', icon: faCopy, disabled: !points.length, action: () => points.length && handleCopyPoint(points) },
+          { label: 'Cut Points', icon: faCut, disabled: !points.length, action: () => points.length && handleCutPoint(points) },
+          { label: 'Paste Points', icon: faPaste, disabled: clipboardKind !== 'point' || !clipboardPoint?.length, action: paste },
+        ] });
+      },
+    };
+  };
 
   const handleCopyBudget = useCallback((point) => {
     if (!point) return;
@@ -3589,6 +3628,7 @@ function App({ showThemeToggle = false }) {
   };
 
   const handleSelectTestPoint = (e, tpId, contextUutId = null) => {
+    setSelectedPointArea(null);
     setRiskResults(null);
     // Multi-Select Logic
     let newSelection = [];
@@ -6157,7 +6197,7 @@ function App({ showThemeToggle = false }) {
                               fnGroup.color || "var(--primary-color)",
                           }}
                         >
-                          <div className="area-header-sticky">
+                          <div className="area-header-sticky" {...pointAreaHeaderProps(fnGroup, pts)}>
 {pts.length > 0 && (
                             <button
                               type="button"
@@ -6204,7 +6244,7 @@ function App({ showThemeToggle = false }) {
                             fnGroup.color || "var(--primary-color)",
                         }}
                       >
-                        <div className="area-header-sticky">
+                        <div className="area-header-sticky" {...pointAreaHeaderProps(fnGroup, points)}>
 {points.length > 0 && (
                           <button
                             type="button"

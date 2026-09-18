@@ -19,7 +19,7 @@ it("shows the winning authored term while preserving every alternative in the ed
   expect(getCollapsedSpecRows({ tolerances: tolerance }, { value: 50, unit: "V" })[0]).toBe("± 10% IV");
   expect(getCollapsedSpecRows(tolerance, { value: 0, unit: "V" })[0]).toBe("± 2 V");
   expect(getCollapsedSpecRows(tolerance, { value: -50, unit: "V" })[0]).toBe("± 10% IV");
-  expect(getCollapsedSpecRows(tolerance)[0]).toBe("Point-dependent");
+  expect(getCollapsedSpecRows(tolerance)[0]).toBe("Whichever is greater");
   expect(getCollapsedSpecRows(tolerance, { value: 50, unit: "A" })[0]).toBe("Unit mismatch");
   expect(getSpecRows(tolerance)[0]).toMatch(/10% IV, or ±2 V, whichever is greater/);
   expect(JSON.stringify(tolerance)).toBe(before);

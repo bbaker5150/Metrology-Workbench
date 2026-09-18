@@ -459,7 +459,7 @@ export function computePointRiskMetrics(
 ) {
   if (!point || !sessionData) return null;
   const uutNominal = point.testPointInfo?.parameter;
-  if (!uutNominal || !isFilledNumber(uutNominal.value) || !uutNominal.unit) {
+  if (!uutNominal || !isFilledNumber(uutNominal.value)) {
     return null;
   }
 
@@ -474,7 +474,7 @@ export function computePointRiskMetrics(
   // before the legacy two-sided limit derivation (which requires both limits
   // and would otherwise discard this valid tolerance case).
   if (isUnknownMeasurementTolerance(uutToleranceData)) {
-    const targetUnitInfo = unitSystem.units[uutNominal.unit];
+    const targetUnitInfo = uutNominal.unit ? unitSystem.units[uutNominal.unit] : { to_si: 1 };
     const reqPFA = parseFloat(sessionData.uncReq?.reqPFA) / 100;
     if (!targetUnitInfo || !Number.isFinite(targetUnitInfo.to_si)) return null;
 
@@ -556,7 +556,8 @@ export function computePointRiskMetrics(
   if (isNaN(reliability) || reliability <= 0 || reliability >= 1) return null;
 
   const nominalUnit = uutNominal.unit;
-  const targetUnitInfo = unitSystem.units[nominalUnit];
+  // Blank units are a coherent native-number frame (scale 1); unknown named units still fail.
+  const targetUnitInfo = nominalUnit ? unitSystem.units[nominalUnit] : { to_si: 1 };
   if (!targetUnitInfo || isNaN(targetUnitInfo.to_si)) return null;
 
   const uCal_Native =

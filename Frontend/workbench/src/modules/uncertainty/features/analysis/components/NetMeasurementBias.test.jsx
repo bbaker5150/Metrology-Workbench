@@ -56,7 +56,7 @@ it("keeps old corrected TMDE biases inert until edited, without exposing a corre
       onCommit={(type, value) => setTolerance(previous => applyToleranceCaseChange(previous, type, value))} />;
   };
   render(<Harness />);
-  fireEvent.click(screen.getByRole("button", { name: "Bias", exact: true }));
+  expect(screen.getByRole("button", { name: "Bias", exact: true })).toHaveAttribute("aria-pressed", "true");
   expect(saved.bias.corrected).toBe(true);
   expect(screen.queryByRole("checkbox", { name: "Already corrected" })).toBeNull();
   expect(screen.getByText(/Saved as corrected/)).toBeInTheDocument();
@@ -64,6 +64,8 @@ it("keeps old corrected TMDE biases inert until edited, without exposing a corre
   fireEvent.change(input, { target: { value: ".3" } });
   fireEvent.blur(input);
   expect(saved).toEqual({ ...initial, bias: { value: ".3", unit: "V", corrected: false } });
+  expect(screen.queryByRole("checkbox", { name: "Whichever is greater" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Bias", exact: true }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Whichever is greater" }));
   expect(saved.whicheverIsGreater).toBe(true);
   expect(saved.floor).toEqual(initial.floor);

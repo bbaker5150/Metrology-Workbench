@@ -18,3 +18,10 @@
 .legacy-point-bias-notice > span { overflow-wrap: anywhere; }
 .bias-reset { border: 0; background: transparent; color: var(--primary-color, #007bff); font: inherit; padding: 4px; cursor: pointer; }
 .bias-reset:hover { text-decoration: underline; }
+
+.instrument-bias-summary { display: block; font-style: italic; color: var(--text-color-muted); font-size: .9em; }
+.measurement-net-bias-remove { opacity: 0; color: var(--danger-color, #dc3545) !important; }
+.measurement-net-bias-row:hover .measurement-net-bias-remove,
+.measurement-net-bias-row:focus-within .measurement-net-bias-remove { opacity: 1; }
+
+.inline-tolerance-summary:has(.instrument-bias-summary) { flex-direction: column; align-items: flex-start; gap: 2px; }

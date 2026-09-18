@@ -207,7 +207,8 @@ export const useRiskCalculation = (
     }
     setNotification(null);
     const nominalUnit = uutNominal?.unit;
-    const targetUnitInfo = unitSystem.units[nominalUnit];
+    // Blank units are a coherent native-number frame (scale 1); unknown named units still fail.
+    const targetUnitInfo = nominalUnit ? unitSystem.units[nominalUnit] : { to_si: 1 };
     let uCal_Native = calcResults.combined_uncertainty_absolute_base / targetUnitInfo?.to_si;
     let U_Native = calcResults.expanded_uncertainty_absolute_base / targetUnitInfo?.to_si;
     const calculatedAverage = parseFloat(calcResults.calculatedNominalValue);

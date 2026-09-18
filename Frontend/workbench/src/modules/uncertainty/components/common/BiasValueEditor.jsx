@@ -29,8 +29,8 @@ export default function BiasValueEditor({ value, unit, onChange, label = "Bias",
     <GrowingNumericInput aria-label={label} className="bias-value-input" type="text" inputMode="decimal" placeholder="0"
       value={draft} onChange={event => { event.target.setCustomValidity(""); setDraft(event.target.value); }} onBlur={commit}
       onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />
-    <InlineMenuSelect ariaLabel={`${label} units`} value={spec.kind || "absolute"} width="auto" showOptionMeta={false}
-      options={[{ value: "absolute", label: getUnitDisplayLabel(spec.unit || unit) || "Native unit" }, { value: "percent", label: "% of value" }]}
+    <InlineMenuSelect ariaLabel={`${label} units`} title={spec.kind === "percent" ? "Percent of the nominal magnitude" : "Signed bias in native units"} value={spec.kind || "absolute"} width="auto" showOptionMeta={false}
+      options={[{ value: "absolute", label: getUnitDisplayLabel(spec.unit || unit) || "Native unit" }, { value: "percent", label: "%" }]}
       onChange={kind => onChange({ ...spec, kind, unit: unit || spec.unit })} />
     {allowCorrection && <label className="bias-correction"><input type="checkbox" checked={!!spec.corrected}
       onChange={event => onChange({ ...spec, corrected: event.target.checked })} />Already corrected</label>}

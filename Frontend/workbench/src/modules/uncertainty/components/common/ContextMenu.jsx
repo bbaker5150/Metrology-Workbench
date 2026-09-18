@@ -25,8 +25,11 @@ const ContextMenu = ({ menu, onClose }) => {
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
+        const handleEscape = event => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } };
+        document.addEventListener('keydown', handleEscape);
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleEscape);
         };
     }, [onClose]);
 
@@ -50,7 +53,9 @@ const ContextMenu = ({ menu, onClose }) => {
                             <li
                                 key={index}
                                 className={item.className || ''}
-                                onClick={() => { item.action(); onClose(); }}
+                                aria-disabled={item.disabled || undefined}
+                                style={item.disabled ? { opacity: .45, cursor: 'default' } : undefined}
+                                onClick={() => { if (!item.disabled) { item.action(); onClose(); } }}
                             >
                                 {item.icon && <FontAwesomeIcon icon={item.icon} className="context-menu-icon" />}
                                 <span>{item.label}</span>

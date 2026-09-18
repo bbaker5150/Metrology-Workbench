@@ -21158,3 +21158,32 @@ body.point-columns-dragging .point-column-menu-body .point-column-add > span:las
 .budget-picker-section .budget-dynamic-picker-delete:is(:hover, :focus-visible) {
   background: color-mix(in srgb, var(--status-bad) 12%, var(--content-background)) !important;
 }
+
+/* September tasking: use the same column/picker language throughout. */
+.uncertainty-module .instrument-custom-column-label,
+.uncertainty-module .instrument-custom-column-name-input { text-transform: uppercase; }
+.budget-picker-section > button,
+.budget-dynamic-picker-choices > button { border-left: 3px solid transparent !important; }
+.budget-picker-section > button:is(:hover, :focus-visible),
+.budget-dynamic-picker-choices > button:is(:hover, :focus-visible) { border-left-color: var(--primary-color) !important; }
+.uncertainty-module .instrument-equipment-table thead { position: sticky; top: var(--instrument-header-offset, 0px); z-index: 6; background: var(--component-bg); }
+.uncertainty-module .instrument-equipment-table thead th { position: relative; top: auto; background: var(--component-bg); }
+
+/* The point list owns both axes: the horizontal scrollbar is always at the
+   visible bottom and the single header remains inside the same scroll frame. */
+.uncertainty-module .measurement-point-list { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.uncertainty-module .sidebar-session-info-zoom-surface { flex: 0 1 auto; max-height: 45%; overflow-y: auto; }
+.uncertainty-module .measurement-points-zoom-surface,
+.uncertainty-module .measurement-points-zoom-surface > .scoped-zoom-content { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
+.uncertainty-module .measurement-points-table { flex: 1 1 0; min-height: 0; overflow: auto; }
+.uncertainty-module .measurement-points-table .sidebar-column-header-stack { top: 0; background: var(--component-bg); }
+/* Reuse the existing gap divider and visual-last marker, including reordered
+   and selected columns; adding cell borders would create duplicate seams. */
+.uncertainty-module .measurement-group-container { --sidebar-point-divider-color: color-mix(in srgb, #94a3b8 35%, transparent); }
+.uncertainty-module .point-grid-item > [data-sidebar-column]:not([data-sidebar-column-last="true"])::before { background: var(--sidebar-point-divider-color) !important; }
+.uncertainty-module .area-header-sticky[data-area-selected="true"] { outline: 1px solid var(--primary-color); outline-offset: -1px; }
+
+.uncertainty-module .measurement-points-zoom-surface > .scoped-zoom-content { padding-bottom: 4px; }
+
+/* Keep the complete add-column hit target inside the sticky header viewport. */
+.uncertainty-module .instrument-column-insert-button { top: 2px; bottom: auto; }

@@ -19,6 +19,7 @@ export async function checkIndependentColumns({ frame, page, saved, until, check
     return [...node.tHead.rows[0].cells].map(cell => ({ width: cell.getBoundingClientRect().width / scale, x: cell.getBoundingClientRect().left / scale }));
   });
   const equalPeers = (before, after, target) => before.every((cell, index) => index === target || Math.abs(cell.width - after[index].width) < 1);
+  const equalInstrumentPeers = (before, after, target) => before.every((cell, index) => index === target || index === before.length - 1 || Math.abs(cell.width - after[index].width) < 1);
   const drag = async (handle, delta) => {
     await handle.scrollIntoViewIfNeeded();
     const box = await handle.boundingBox();
@@ -39,9 +40,9 @@ export async function checkIndependentColumns({ frame, page, saved, until, check
     const before = await geometry(table);
     await drag(range, -900);
     const narrow = await geometry(table);
-    check(`${label} extreme shrink preserves every other column`, equalPeers(before, narrow, 1) && narrow[1].width <= 81, JSON.stringify({ before, narrow }));
+    check(`${label} extreme shrink preserves every non-filler column`, equalInstrumentPeers(before, narrow, 1) && narrow[1].width <= 81, JSON.stringify({ before, narrow }));
     const panel = await matchesPanel(table);
-    check(`${label} panel shrinks to its columns without an empty strip`, panel.noStrip && Math.abs(panel.tableWidth - panel.viewportWidth) < 3, JSON.stringify(panel));
+    check(`${label} trailing column fills its panel without an empty strip`, panel.noStrip && Math.abs(panel.tableWidth - panel.viewportWidth) < 3, JSON.stringify(panel));
     for (let attempt = 0; attempt < 3; attempt++) {
       await range.press('ArrowRight'); await range.press('ArrowLeft');
     }
@@ -50,15 +51,23 @@ export async function checkIndependentColumns({ frame, page, saved, until, check
     // Growing the target pushes only columns to its right, eventually scrolling.
     await drag(range, 1000);
     const wide = await geometry(table);
-    check(`${label} growth pushes right without redistributing peer widths`, equalPeers(narrow, wide, 1) && wide[1].width > narrow[1].width + 900, JSON.stringify({ narrow, wide }));
+    check(`${label} growth pushes right without redistributing peer widths`, equalInstrumentPeers(narrow, wide, 1) && wide[1].width > narrow[1].width + 900, JSON.stringify({ narrow, wide }));
     check(`${label} wide table scrolls inside its panel`, await table.evaluate(node => node.parentElement.scrollWidth > node.parentElement.clientWidth + 10));
     await drag(range, -1000);
     for (const key of ['Control+-', 'Control+=']) {
       await frame.locator('body').press(key); await settle();
       const zoomed = await geometry(table);
-      check(`${label} zoom preserves authored column widths`, zoomed.every((cell, i) => Math.abs(cell.width - narrow[i].width) < 1));
+      check(`${label} zoom preserves authored column widths`, equalInstrumentPeers(narrow, zoomed, -1));
       check(`${label} zoom leaves no trailing panel strip`, (await matchesPanel(table)).noStrip);
     }
+    const beforeFit = await geometry(table);
+    await table.getByRole('button', { name: 'Resize Sync column', exact: true }).dblclick();
+    await settle();
+    const afterFit = await geometry(table);
+    check(`${label} fitting the final column fills only its left neighbour`,
+      beforeFit.slice(0, -2).every((cell, i) => Math.abs(cell.width - afterFit[i].width) < 1) &&
+      await table.locator('colgroup col').nth(afterFit.length - 2).getAttribute('data-fill') === 'true' &&
+      await table.locator('colgroup col').last().evaluate((node, actual) => Math.abs(parseFloat(node.style.width) - actual) < 1, afterFit.at(-1).width));
   }
   const expand = frame.getByRole('button', { name: 'Expand measurement area', exact: true });
   if (await expand.count()) await expand.first().click();
@@ -70,7 +79,7 @@ export async function checkIndependentColumns({ frame, page, saved, until, check
     const before = await geometry(table);
     await drag(handle, -900);
     const narrow = await geometry(table);
-    check(`budget ${index} extreme shrink preserves every other column`, equalPeers(before, narrow, 0) && narrow[0].width <= 61, JSON.stringify({ before, narrow }));
+    check(`budget ${index} extreme shrink preserves every non-filler column`, equalPeers(before, narrow, 0) && narrow[0].width <= 61, JSON.stringify({ before, narrow }));
     check(`budget ${index} has no trailing panel strip`, (await matchesPanel(table)).noStrip);
     for (let step = 0; step < 3; step++) { await handle.press('ArrowRight'); await handle.press('ArrowLeft'); }
     await settle();
