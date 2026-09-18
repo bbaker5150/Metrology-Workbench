@@ -1,3 +1,4 @@
+import { getPointRequirementOverrides, sessionForPoint } from "./pointRequirements";
 import { resolveDynamicComponents } from "./dynamicBudgetComponents";
 import { getMitigationDiagnostics, explainRiskConstraint } from "./mitigationDiagnostics";
 import {
@@ -105,6 +106,9 @@ export function getPointDiagnosticEntries(
   const add = (message, category = "input") => {
     if (!warnings.some(entry => entry.message === message)) warnings.push({ message, category });
   };
+  const overrides = getPointRequirementOverrides(point, session);
+  if (overrides.length) add(`Point requirements differ from session defaults: ${overrides.map(field => field.sidebarLabel).join(", ")}.`);
+  session = sessionForPoint(point, session);
   const validNominal =
     filled(nominal.value) && Boolean(unitSystem.units[nominal.unit]);
   if (nominal.unavailableUnit) add(`The previously selected unit ${getUnitDisplayLabel(nominal.unavailableUnit)} is no longer defined in this Measurement Area. Choose a unit or keep Unassigned.`);

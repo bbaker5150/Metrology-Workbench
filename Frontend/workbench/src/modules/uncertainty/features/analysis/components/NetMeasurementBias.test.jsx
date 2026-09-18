@@ -64,7 +64,7 @@ it("keeps old corrected TMDE biases inert until edited, without exposing a corre
   fireEvent.change(input, { target: { value: ".3" } });
   fireEvent.blur(input);
   expect(saved).toEqual({ ...initial, bias: { value: ".3", unit: "V", corrected: false } });
-  expect(screen.queryByRole("checkbox", { name: "Whichever is greater" })).toBeNull();
+  expect(screen.getByRole("checkbox", { name: "Whichever is greater" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Bias", exact: true }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Whichever is greater" }));
   expect(saved.whicheverIsGreater).toBe(true);

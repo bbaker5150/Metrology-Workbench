@@ -21,9 +21,9 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
   const info = frame.getByRole('button', { name: 'Session Info', exact: true });
   if (await info.getAttribute('aria-expanded') === 'false') await info.click();
   const sizes = await frame.locator('.session-field-size').evaluateAll(nodes => nodes.map(node => node.offsetWidth));
-  check('Session Info, Risk and Mitigation share a compact default field width', sizes.length === 11 && sizes.every(width => Math.abs(width - sizes[0]) < 1), JSON.stringify(sizes));
+  check('Session metadata retains compact default field widths', sizes.length === 5 && sizes.every(width => Math.abs(width - sizes[0]) < 1), JSON.stringify(sizes));
   const geometry = locator => locator.evaluate(node => { const r = node.getBoundingClientRect(), s = getComputedStyle(node); return { x:r.x, y:r.y, width:r.width, height:r.height, font:s.font }; });
-  for (const [label, longText, initial] of [['Session Name', 'Torque calibration laboratory and reference setup', 'Smoke'], ['Organization', 'Measurement standards laboratory long name', 'Lab'], ['Confidence (%)', '95.123456789123456', '95'], ['PFA Required', '2.123456789123456', '2']]) {
+  for (const [label, longText, initial] of [['Session Name', 'Torque calibration laboratory and reference setup', 'Smoke'], ['Organization', 'Measurement standards laboratory long name', 'Lab']]) {
     const row = label === 'Session Name' ? frame.locator('.session-field-size--name') : frame.locator('.session-header-field').filter({ has: frame.locator('.session-header-label > span', { hasText: label }) });
     await row.locator('.session-header-value').scrollIntoViewIfNeeded();
     const before = await geometry(row.locator('.session-header-value'));
@@ -73,7 +73,7 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
   check('Configured TMDE bias opens its dedicated editor', await frame.getByRole('textbox', { name: 'Range source bias', exact: true }).count() === 1);
   const biasToggle = tmde.getByRole('button', { name: 'Bias', exact: true });
   check('Bias toggle uses the same compact styling as DS/SS', await biasToggle.evaluate(button => button.parentElement.classList.contains('inline-tolerance-mini-toggle')) && await biasToggle.getAttribute('aria-pressed') === 'true');
-  check('Bias mode hides tolerance terms and correction checkbox is removed', await tmde.locator('.inline-tolerance-term-group,.inline-tolerance-footer').count() === 0 && await tmde.getByRole('checkbox', { name: 'Already corrected' }).count() === 0);
+  check('Bias displays beneath tolerance terms without a correction checkbox', await tmde.locator('.inline-tolerance-term-group').count() > 0 && await tmde.locator('.inline-tolerance-footer').count() === 1 && await tmde.getByRole('checkbox', { name: 'Already corrected' }).count() === 0);
   const sourceInput = frame.getByRole('textbox', { name: 'Range source bias', exact: true });
   const riskBeforeSource = await cards.allTextContents();
   await sourceInput.fill('-.8');
@@ -131,4 +131,11 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
   check('manual net percentage persists', await until(() => saved().testPoints[0].measurementBias?.kind === 'percent'));
   await page.waitForTimeout(600);
   check('manual net % uses the same workbook frame and replaces source bias', await until(async () => JSON.stringify(await cards.allTextContents()) === absoluteCards));
+  await page.keyboard.press('Escape');
+  const onlyPoint = frame.locator('.point-grid-item');
+  check('clipboard regression fixture contains one point', saved().testPoints.length === 1);
+  await onlyPoint.locator('[data-sidebar-column="pfa"]').click();
+  await page.keyboard.press('Control+c'); await page.keyboard.press('Control+v');
+  check('one selected point copies and pastes after instrument editing', await until(() => saved().testPoints.length === 2));
+
 }

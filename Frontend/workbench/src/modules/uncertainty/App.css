@@ -21181,9 +21181,24 @@ body.point-columns-dragging .point-column-menu-body .point-column-add > span:las
    and selected columns; adding cell borders would create duplicate seams. */
 .uncertainty-module .measurement-group-container { --sidebar-point-divider-color: color-mix(in srgb, #94a3b8 35%, transparent); }
 .uncertainty-module .point-grid-item > [data-sidebar-column]:not([data-sidebar-column-last="true"])::before { background: var(--sidebar-point-divider-color) !important; }
-.uncertainty-module .area-header-sticky[data-area-selected="true"] { outline: 1px solid var(--primary-color); outline-offset: -1px; }
+.uncertainty-module .area-header-sticky[data-area-selected="true"] { outline: 1px solid var(--sidebar-function-color, var(--primary-color)); outline-offset: -1px; }
 
 .uncertainty-module .measurement-points-zoom-surface > .scoped-zoom-content { padding-bottom: 4px; }
 
-/* Keep the complete add-column hit target inside the sticky header viewport. */
-.uncertainty-module .instrument-column-insert-button { top: 2px; bottom: auto; }
+
+
+/* Keep numeric information readable while retaining requirement-relative hue. */
+.uncertainty-module { --numeric-text: #000; }
+body.dark-mode .uncertainty-module { --numeric-text: #fff; }
+.uncertainty-module .point-grid-item > :is(.point-metric, .point-risk-metric, .point-requirement-cell) { color: var(--numeric-text); font-size: 12px; }
+.uncertainty-module .point-grid-item > [style*="--metric-status-color"] { color: var(--numeric-text); font-weight: 700; text-shadow: 0 0 4px var(--metric-status-color), 0 0 9px var(--metric-status-color); }
+.uncertainty-module .point-requirement-cell :is(button, input) { width: 100%; box-sizing: border-box; min-height: 26px; padding: 3px 6px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--numeric-text); font: inherit; text-align: left; }
+.uncertainty-module .point-requirement-cell :is(button:hover, input:focus) { border-color: var(--function-input-accent, var(--primary-color)); background: var(--input-bg); outline: none; }
+.point-requirement-override { color: var(--status-warning); }
+.uncertainty-module .measurement-net-bias-remove { border: 0; box-shadow: none; background: transparent; color: var(--status-bad); border-radius: 4px; }
+.uncertainty-module .measurement-net-bias-remove:hover { background: color-mix(in srgb, var(--status-bad) 12%, transparent); }
+.uncertainty-module .instrument-equipment-table tr[data-area-selected="true"] { outline: 1px solid var(--instrument-function-color, var(--primary-color)); outline-offset: -1px; }
+
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table, .measurement-inputs-table) td { color: var(--numeric-text); }
+
+.uncertainty-module .point-grid-item > [data-sidebar-column]:not([data-sidebar-column="uut"]):not([data-sidebar-column="value"]) { color: var(--numeric-text); }

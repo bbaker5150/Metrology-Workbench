@@ -1,3 +1,4 @@
+import { claimWorkspaceSelection } from "../utils/workspaceSelection";
 import { updateInstrumentCellHighlights } from "../utils/instrumentCellSelection";
 import { attachInstrumentPointerDrag } from "../utils/instrumentPointerDrag";
 import { useCallback, useLayoutEffect, useState } from "react";
@@ -33,6 +34,8 @@ export default function useInstrumentTableLayout(containerRef) {
   useLayoutEffect(() => {
     const table = container?.querySelector(":scope > table");
     if (!table) return undefined;
+    const claim = () => claimWorkspaceSelection("instruments");
+    table.addEventListener("pointerdown", claim, true);
     const releaseTextSelection = preserveTableTextSelection(table);
     const releasePointerDrag = attachInstrumentPointerDrag(table);
     // A sibling overlay stays outside the table observer and cannot trigger
@@ -165,6 +168,7 @@ export default function useInstrumentTableLayout(containerRef) {
       table.removeEventListener("pointerover", hover);
       table.removeEventListener("pointermove", hover);
       table.removeEventListener("pointerleave", leave);
+      table.removeEventListener("pointerdown", claim, true);
       releaseTextSelection();
       releasePointerDrag();
       selectionOutline.destroy();

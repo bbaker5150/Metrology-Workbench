@@ -1,3 +1,5 @@
+import { sessionForPoint } from "../../../utils/pointRequirements";
+import { useMemo } from "react";
 import { formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
 import { hasNominalValue } from "../../../utils/incompleteBudget";
 import { useState, useEffect } from "react";
@@ -197,13 +199,14 @@ const componentStandardUncertaintyBase = (
 
 export const useUncertaintyCalculation = (
   testPointData,
-  sessionData,
+  originalSessionData,
   tmdeTolerancesData,
   uutToleranceData,
   uutNominal,
   manualComponents,
   onDataSave
 ) => {
+  const sessionData = useMemo(() => sessionForPoint(testPointData, originalSessionData), [testPointData?.riskRequirements, originalSessionData]);
   const [calcResults, setCalcResults] = useState(null);
   const [calculationError, setCalculationError] = useState(null);
 

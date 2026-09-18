@@ -1,3 +1,5 @@
+import { getPointRequirements } from "../../../utils/pointRequirements";
+import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "../../../utils/workspaceSelection";
 import MeasurementInputBias from "./MeasurementInputBias";
 import { resolveMeasurementBias } from "../../../utils/measurementBias";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
@@ -4507,7 +4509,7 @@ export const InlineToleranceCell = ({
     // Range navigation restores its configured bias; editing a number or mode
     // does not override an intentional local toggle back to tolerance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangeIdOf(activeRange)]);
+  }, [rangeIdOf(activeRange), isEditing]);
 
 
   useLayoutEffect(() => {
@@ -4577,7 +4579,6 @@ export const InlineToleranceCell = ({
   }
 
   const commitEditorMode = (nextShape, nextSidedness) => {
-    setShowBias(false);
     const normalizedSidedness =
       nextShape === "asymmetric" && nextSidedness === "single"
         ? "single"
@@ -4673,7 +4674,7 @@ export const InlineToleranceCell = ({
             title="Edit bias" onClick={() => setShowBias(value => !value)}>Bias</button>
         </div>}
       </div>
-      {!showBias && (sidedness === "single"
+      {(sidedness === "single"
         ? TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key === "singleSided")
         : TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key !== "singleSided")
       ).map((opt) => (
@@ -4704,7 +4705,7 @@ export const InlineToleranceCell = ({
           instrument editors supply biasRole; editing a budget error limit must
           not accidentally author a new shared instrument default. __replace__
           retains every tolerance field while atomically updating its bias. */}
-      {!showBias && sidedness !== "single" && <div className="inline-tolerance-footer">
+      {sidedness !== "single" && <div className="inline-tolerance-footer">
         <label className="inline-tolerance-greater-toggle">
           <input type="checkbox" checked={Boolean(tolerance.whicheverIsGreater)}
             onChange={event => onCommit("__replace__", { ...tolerance, whicheverIsGreater: event.target.checked })} />
@@ -6697,21 +6698,10 @@ const SummaryDashboard = ({
     setEditingCustomColumnKey(null);
   };
   const requestDeleteCustomColumn = (kind, column) => {
-    confirmViaNotification(setNotification, {
-      title: `Delete ${column.label || "Custom"} Column`,
-      message: `Delete the “${column.label || "Custom"}” column? All values saved in this column will also be removed.`,
-      confirmText: "Delete",
-      onConfirm: () => {
-        const nextSession = removeInstrumentCustomColumn(
-          latestSessionDataRef.current,
-          kind,
-          column.key,
-        );
-        latestSessionDataRef.current = nextSession;
-        onSessionSave?.(nextSession);
-        setEditingCustomColumnKey(null);
-      },
-    });
+    const nextSession = removeInstrumentCustomColumn(latestSessionDataRef.current, kind, column.key);
+    latestSessionDataRef.current = nextSession;
+    onSessionSave?.(nextSession);
+    setEditingCustomColumnKey(null);
   };
   const renderCustomColumnHeader = (kind, column) => (
     <EditableCustomColumnHeader
@@ -7738,11 +7728,10 @@ const SummaryDashboard = ({
       }`}
       data-measurement-area={fn.key}
       tabIndex={0}
+      data-area-selected={selectedInstrumentArea === `${kind}:${fn.key}`}
       onClick={event => {
         if (event.target.closest('button, input, [contenteditable="true"]')) return;
-        pasteDestinationRef.current = { kind, areaKey: fn.key, targetId: null };
-        setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
-        event.currentTarget.focus();
+        selectInstrumentArea(event, kind, fn);
       }}
       onContextMenuCapture={(e) => openAreaRowMenu(e, kind, fn)}
       style={functionRowStyle(fn.key)}
@@ -7969,6 +7958,7 @@ const SummaryDashboard = ({
   };
   const selectRangeRow = (event, kind, item, index, rangeId, stateItemId = item.id) => {
     if (event.button !== undefined && event.button !== 0) return;
+    setSelectedInstrumentArea(null);
     if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .instrument-row-tools button, .instrument-order-controls')) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
     selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(event, item);
@@ -8391,6 +8381,7 @@ const SummaryDashboard = ({
     pasteDestinationRef.current = { kind: "uut", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
     selectedInstrumentAreasRef.current[`uut:${id}`] = pasteAreaFromEvent(e, {});
     if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
+      setSelectedInstrumentArea(null);
       onInstrumentSelection();
       if (!(e.ctrlKey || e.metaKey || e.shiftKey)) setSelectedTmdeIds([]);
       tmdeSelectionAnchorRef.current = null;
@@ -8409,6 +8400,7 @@ const SummaryDashboard = ({
     pasteDestinationRef.current = { kind: "tmde", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
     selectedInstrumentAreasRef.current[`tmde:${id}`] = pasteAreaFromEvent(e, {});
     if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
+      setSelectedInstrumentArea(null);
       onInstrumentSelection();
       if (!(e.ctrlKey || e.metaKey || e.shiftKey)) setSelectedUutIds([]);
       uutSelectionAnchorRef.current = null;
@@ -8519,6 +8511,16 @@ const SummaryDashboard = ({
 
   // --- Cut / copy / paste of instrument rows (context menu + ctrl-c/x/v) ---
   const [rowMenu, setRowMenu] = useState(null);
+  const [selectedInstrumentArea, setSelectedInstrumentArea] = useState(null);
+  useEffect(() => {
+    const clear = event => {
+      if (event.detail?.owner !== "points") return;
+      setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
+      setSelectedInstrumentArea(null); pasteDestinationRef.current = null;
+    };
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, clear);
+    return () => window.removeEventListener(WORKSPACE_SELECTION_EVENT, clear);
+  }, []);
   const pasteDestinationRef = useRef(null);
   const selectedInstrumentAreasRef = useRef({});
   const instrumentDragSelectionRef = useRef(null);
@@ -8581,14 +8583,40 @@ const SummaryDashboard = ({
     onSessionSave(next);
   };
 
-  const openAreaRowMenu = (event, kind, area) => {
+  const areaInstrumentEntries = (kind, area) =>
+    (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || [])
+      .filter(item => instrumentHasMeasurementArea(item, area.key))
+      .map(item => ({ kind, item, sourceFunctionKey: area.key }));
+  const selectInstrumentArea = (event, kind, area) => {
+    claimWorkspaceSelection("instruments");
+    const entries = areaInstrumentEntries(kind, area);
     pasteDestinationRef.current = { kind, areaKey: area.key, targetId: null };
-    event.preventDefault();
-    event.stopPropagation();
-    setRowMenu({ x: event.clientX, y: event.clientY, items: [{
-      label: "Paste Instrument", icon: faPaste, disabled: !instrumentClipboard,
-      action: () => pasteInstrument(kind, area.key),
-    }] });
+    setSelectedInstrumentArea(`${kind}:${area.key}`);
+    setSelectedUutIds(kind === "uut" ? entries.map(entry => entry.item.id) : []);
+    setSelectedTmdeIds(kind === "tmde" ? entries.map(entry => entry.item.id) : []);
+    setSelectedRangeIds({}); setLastSelectionTarget(kind);
+    entries.forEach(entry => { selectedInstrumentAreasRef.current[`${kind}:${entry.item.id}`] = area.key; });
+    event.currentTarget.focus();
+  };
+  const copyInstrumentArea = (kind, area, mode) => {
+    const items = areaInstrumentEntries(kind, area);
+    if (!items.length) return;
+    rangeClipboard = null;
+    instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
+    if (mode === "cut") {
+      onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
+      setSelectedUutIds([]); setSelectedTmdeIds([]);
+    }
+  };
+  const openAreaRowMenu = (event, kind, area) => {
+    event.preventDefault(); event.stopPropagation();
+    selectInstrumentArea(event, kind, area);
+    const empty = !areaInstrumentEntries(kind, area).length;
+    setRowMenu({ x: event.clientX, y: event.clientY, items: [
+      { label: "Copy Instruments", icon: faCopy, disabled: empty, action: () => copyInstrumentArea(kind, area, "copy") },
+      { label: "Cut Instruments", icon: faScissors, disabled: empty, action: () => copyInstrumentArea(kind, area, "cut") },
+      { label: "Paste Instruments", icon: faPaste, disabled: !instrumentClipboard, action: () => pasteInstrument(kind, area.key) },
+    ] });
   };
 
   const openInstrumentRowMenu = (e, kind, item) => {
@@ -8750,7 +8778,7 @@ const SummaryDashboard = ({
   useEffect(() => {
     if (!keyboardShortcutsEnabled) return undefined;
     const onKey = (e) => {
-      if (!onSessionSave || !(e.ctrlKey || e.metaKey)) return;
+      if (e.defaultPrevented || e.target?.closest?.(".measurement-point-list") || !onSessionSave || !(e.ctrlKey || e.metaKey)) return;
       const ae = document.activeElement;
       if (
         ae &&
@@ -10223,21 +10251,10 @@ function DetailedView({
     setEditingCustomColumnKey(null);
   };
   const requestDeleteCustomColumn = (kind, column) => {
-    confirmViaNotification(setNotification, {
-      title: `Delete ${column.label || "Custom"} Column`,
-      message: `Delete the “${column.label || "Custom"}” column? All values saved in this column will also be removed.`,
-      confirmText: "Delete",
-      onConfirm: () => {
-        const nextSession = removeInstrumentCustomColumn(
-          latestSessionDataRef.current,
-          kind,
-          column.key,
-        );
-        latestSessionDataRef.current = nextSession;
-        onSessionSave?.(nextSession);
-        setEditingCustomColumnKey(null);
-      },
-    });
+    const nextSession = removeInstrumentCustomColumn(latestSessionDataRef.current, kind, column.key);
+    latestSessionDataRef.current = nextSession;
+    onSessionSave?.(nextSession);
+    setEditingCustomColumnKey(null);
   };
   const renderCustomColumnHeader = (kind, column) => (
     <EditableCustomColumnHeader
@@ -10426,6 +10443,16 @@ function DetailedView({
 
   // --- Cut / copy / paste of instrument rows (shared module clipboard) ---
   const [rowMenu, setRowMenu] = useState(null);
+  const [selectedInstrumentArea, setSelectedInstrumentArea] = useState(null);
+  useEffect(() => {
+    const clear = event => {
+      if (event.detail?.owner !== "points") return;
+      setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
+      setSelectedInstrumentArea(null); pasteDestinationRef.current = null;
+    };
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, clear);
+    return () => window.removeEventListener(WORKSPACE_SELECTION_EVENT, clear);
+  }, []);
   const pasteDestinationRef = useRef(null);
   const selectedInstrumentAreasRef = useRef({});
   const instrumentDragSelectionRef = useRef(null);
@@ -10475,14 +10502,40 @@ function DetailedView({
     onSessionSave(next);
   };
 
-  const openAreaRowMenu = (event, kind, area) => {
+  const areaInstrumentEntries = (kind, area) =>
+    (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || [])
+      .filter(item => instrumentHasMeasurementArea(item, area.key))
+      .map(item => ({ kind, item, sourceFunctionKey: area.key }));
+  const selectInstrumentArea = (event, kind, area) => {
+    claimWorkspaceSelection("instruments");
+    const entries = areaInstrumentEntries(kind, area);
     pasteDestinationRef.current = { kind, areaKey: area.key, targetId: null };
-    event.preventDefault();
-    event.stopPropagation();
-    setRowMenu({ x: event.clientX, y: event.clientY, items: [{
-      label: "Paste Instrument", icon: faPaste, disabled: !instrumentClipboard,
-      action: () => pasteInstrument(kind, area.key),
-    }] });
+    setSelectedInstrumentArea(`${kind}:${area.key}`);
+    setSelectedUutIds(kind === "uut" ? entries.map(entry => entry.item.id) : []);
+    setSelectedTmdeIds(kind === "tmde" ? entries.map(entry => entry.item.id) : []);
+    setSelectedRangeIds({}); setLastSelectionTarget(kind);
+    entries.forEach(entry => { selectedInstrumentAreasRef.current[`${kind}:${entry.item.id}`] = area.key; });
+    event.currentTarget.focus();
+  };
+  const copyInstrumentArea = (kind, area, mode) => {
+    const items = areaInstrumentEntries(kind, area);
+    if (!items.length) return;
+    rangeClipboard = null;
+    instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
+    if (mode === "cut") {
+      onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
+      setSelectedUutIds([]); setSelectedTmdeIds([]);
+    }
+  };
+  const openAreaRowMenu = (event, kind, area) => {
+    event.preventDefault(); event.stopPropagation();
+    selectInstrumentArea(event, kind, area);
+    const empty = !areaInstrumentEntries(kind, area).length;
+    setRowMenu({ x: event.clientX, y: event.clientY, items: [
+      { label: "Copy Instruments", icon: faCopy, disabled: empty, action: () => copyInstrumentArea(kind, area, "copy") },
+      { label: "Cut Instruments", icon: faScissors, disabled: empty, action: () => copyInstrumentArea(kind, area, "cut") },
+      { label: "Paste Instruments", icon: faPaste, disabled: !instrumentClipboard, action: () => pasteInstrument(kind, area.key) },
+    ] });
   };
   const openInstrumentRowMenu = (e, kind, item) => {
     if (!onSessionSave) return;
@@ -10637,7 +10690,7 @@ function DetailedView({
   useEffect(() => {
     if (!keyboardShortcutsEnabled) return undefined;
     const onKey = (e) => {
-      if (!onSessionSave || !(e.ctrlKey || e.metaKey)) return;
+      if (e.defaultPrevented || e.target?.closest?.(".measurement-point-list") || !onSessionSave || !(e.ctrlKey || e.metaKey)) return;
       const ae = document.activeElement;
       if (
         ae &&
@@ -11435,6 +11488,7 @@ function DetailedView({
   };
   const selectRangeRowDetail = (event, kind, item, index, rangeId, stateItemId = item.id) => {
     if (event.button !== undefined && event.button !== 0) return;
+    setSelectedInstrumentArea(null);
     if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .instrument-row-tools button, .instrument-order-controls')) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
     selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(event, item);
@@ -11769,6 +11823,7 @@ function DetailedView({
     pasteDestinationRef.current = { kind: "uut", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
     selectedInstrumentAreasRef.current[`uut:${id}`] = pasteAreaFromEvent(e, {});
     if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
+      setSelectedInstrumentArea(null);
       onInstrumentSelection();
       if (!(e.ctrlKey || e.metaKey || e.shiftKey)) setSelectedTmdeIds([]);
       tmdeSelectionAnchorRef.current = null;
@@ -11787,6 +11842,7 @@ function DetailedView({
     pasteDestinationRef.current = { kind: "tmde", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
     selectedInstrumentAreasRef.current[`tmde:${id}`] = pasteAreaFromEvent(e, {});
     if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
+      setSelectedInstrumentArea(null);
       onInstrumentSelection();
       if (!(e.ctrlKey || e.metaKey || e.shiftKey)) setSelectedUutIds([]);
       uutSelectionAnchorRef.current = null;
@@ -12291,11 +12347,10 @@ function DetailedView({
       }`}
       data-measurement-area={fn.key}
       tabIndex={0}
+      data-area-selected={selectedInstrumentArea === `${kind}:${fn.key}`}
       onClick={event => {
         if (event.target.closest('button, input, [contenteditable="true"]')) return;
-        pasteDestinationRef.current = { kind, areaKey: fn.key, targetId: null };
-        setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
-        event.currentTarget.focus();
+        selectInstrumentArea(event, kind, fn);
       }}
       onContextMenuCapture={(e) => openAreaRowMenu(e, kind, fn)}
       style={functionBadgeStyle(fn.key)}
@@ -14423,7 +14478,7 @@ function DetailedView({
                   >
                     {detail && (
                       <span className="budget-tmde-picker-detail">
-                        {unitWarning && <FontAwesomeIcon icon={faExclamationTriangle} role="img" aria-label={unitWarning} style={{ color: "var(--status-warning, #b58100)", marginRight: 5 }} />}{detail}
+                        {unitWarning && <FontAwesomeIcon icon={faExclamationTriangle} role="img" aria-label={unitWarning} className="budget-picker-warning" style={{ color: "var(--status-warning, #b58100)", marginRight: 8 }} />}{detail}
                       </span>
                     )}
                   </span>
@@ -16441,12 +16496,12 @@ function DetailedView({
               formatToleranceSummary={getSpecRows}
               calcResults={calcResults}
               referencePoint={uutNominal}
-              uncertaintyConfidence={sessionData.uncReq.uncertaintyConfidence}
+              uncertaintyConfidence={getPointRequirements(testPointData, sessionData).uncertaintyConfidence}
               onRowContextMenu={onBudgetRowContextMenu}
               equationString={testPointData.equationString}
               measurementType={testPointData.measurementType}
               riskResults={riskResults}
-              riskRequirements={sessionData.uncReq}
+              riskRequirements={getPointRequirements(testPointData, sessionData)}
               budgetPropagationMethod={
                 isDerived &&
                 testPointData.budgetPropagationMethod === "montecarlo"

@@ -1,3 +1,4 @@
+import { sessionForPoint } from "./pointRequirements";
 import { resolveMeasurementBias } from "./measurementBias";
 import { computePointTmdeLimits } from "./pointTmdeLimits";
 import { updateDynamicDefinition } from "./dynamicBudgetComponents";
@@ -105,6 +106,7 @@ const componentStandardUncertaintyBase = (
 // Returns { combined_uncertainty_absolute_base, expanded_uncertainty_absolute_base }
 // or null when the point isn't ready to evaluate.
 export function computeUncertaintyForPoint(point, sessionData) {
+  sessionData = sessionForPoint(point, sessionData);
   const uutNominal = point.testPointInfo?.parameter;
   if (!uutNominal || !isFilledNumber(uutNominal.value) || (!uutNominal.unit && point.measurementType === "derived")) {
     return null;
@@ -458,6 +460,7 @@ export function computePointRiskMetrics(
   point, sessionData, includeGuardband = false, onStatus,
 ) {
   if (!point || !sessionData) return null;
+  sessionData = sessionForPoint(point, sessionData);
   const uutNominal = point.testPointInfo?.parameter;
   if (!uutNominal || !isFilledNumber(uutNominal.value)) {
     return null;

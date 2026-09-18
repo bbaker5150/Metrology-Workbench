@@ -1,3 +1,5 @@
+import { sessionForPoint } from "../../../utils/pointRequirements";
+import { useMemo } from "react";
 import { resolveMeasurementBias } from "../../../utils/measurementBias";
 import { computePointTmdeLimits } from "../../../utils/pointTmdeLimits";
 /**
@@ -52,7 +54,7 @@ import {
 } from "../../../utils/risk8/knownMeasurementRisk8";
 
 export const useRiskCalculation = (
-  sessionData,
+  originalSessionData,
   testPointData,
   uutToleranceData,
   tmdeTolerancesData,
@@ -61,6 +63,7 @@ export const useRiskCalculation = (
   analysisMode,
   onRiskResultsChange
 ) => {
+  const sessionData = useMemo(() => sessionForPoint(testPointData, originalSessionData), [testPointData?.riskRequirements, originalSessionData]);
   const [riskInputs, setRiskInputs] = useState({
     LLow: "",
     LUp: "",

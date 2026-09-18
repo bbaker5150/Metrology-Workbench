@@ -28,7 +28,7 @@ it('adds a TMDE without an error limit, retains its warning, and resolves a late
   expect(resolved.value_native).toBeCloseTo(2.5 / Math.sqrt(3), 10);
 });
 
-it('restores bias-only editing on remount, and returns to the saved SS editor without showing the greater checkbox', () => {
+it('restores configured bias alongside the saved SS tolerance without showing the greater checkbox', () => {
   const initial = { singleSided: { direction: 'high', measurement: 'known', limit: 10 }, bias: { value: 2, unit: 'V' } };
   function Harness() {
     const [tolerance, setTolerance] = useState(initial);
@@ -38,7 +38,7 @@ it('restores bias-only editing on remount, and returns to the saved SS editor wi
   const view = render(<Harness />);
   expect(screen.getByRole('button', { name: 'Bias', exact: true })).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByRole('textbox', { name: 'Range UUT bias' })).toHaveValue('2');
-  expect(document.querySelector('.inline-tolerance-term-group')).toBeNull();
+  expect(document.querySelector('.inline-tolerance-term-group')).not.toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Bias', exact: true }));
   expect(screen.queryByRole('checkbox', { name: 'Whichever is greater' })).toBeNull();
   expect(document.querySelector('.inline-tolerance-term-group')).not.toBeNull();

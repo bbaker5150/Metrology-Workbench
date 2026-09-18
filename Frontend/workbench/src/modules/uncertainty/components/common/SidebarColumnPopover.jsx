@@ -16,14 +16,8 @@ export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
         preferredWidth: 480,
         preferredMaxHeight: 600,
       });
-      // Grow with the displayed list, then reposition the whole menu so its
-      // top remains reachable. Only the available list normally scrolls.
-      const below = window.innerHeight - (rect?.bottom || 0) - 14;
-      const height = Math.min(menuRef.current?.offsetHeight || 600, window.innerHeight - 28);
-      next.top = Math.max(14, Math.min(window.innerHeight - height - 14,
-        below >= height ? (rect?.bottom || 0) + 6 : (rect?.top || 0) - height - 6));
-      next.bottom = undefined;
-      next.maxHeight = Math.min(600, window.innerHeight - 28);
+      // Constrain the menu to one side of its trigger. Growing the selected
+      // column list must never cover the toggle needed to close the menu.
       setPlacement(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
     };
     update();
@@ -46,7 +40,7 @@ export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
       aria-label="Visible measurement point columns"
       style={{
         width: placement.width,
-        maxHeight: "calc(100vh - 28px)",
+        maxHeight: placement.maxHeight,
         "--column-menu-height": `${placement.maxHeight}px`,
         left: placement.left,
         boxSizing: "border-box",

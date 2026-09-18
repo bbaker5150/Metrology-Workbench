@@ -1,3 +1,7 @@
+import PointRequirementCell from "./components/common/PointRequirementCell";
+import { POINT_REQUIREMENT_FIELDS, requirementColumn, getPointRequirements } from "./utils/pointRequirements";
+import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "./utils/workspaceSelection";
+import { rawDecimal, exposeDecimalOnHover } from "./utils/rawDecimal";
 import ToolbarLayoutIcon from "../../shared/ToolbarLayoutIcon";
 import { clearDynamicComponentResults } from "./utils/dynamicBudgetComponents";
 import { decisionRiskColor } from "./utils/decisionRiskStatus";
@@ -375,6 +379,8 @@ const SIDEBAR_COLUMN_GROUPS = [
   },
 ];
 
+SIDEBAR_COLUMN_GROUPS.push({ key: "risk-inputs", label: "Risk Inputs", columns: RISK_INPUT_FIELDS.map(requirementColumn) }, { key: "mitigation-inputs", label: "Mitigation Inputs", columns: MITIGATION_INPUT_FIELDS.map(requirementColumn) });
+
 export const DEFAULT_SIDEBAR_COLUMN_ORDER = SIDEBAR_COLUMN_GROUPS.flatMap(
   (group) => group.columns,
 );
@@ -442,6 +448,8 @@ const SIDEBAR_COLUMN_LABELS = {
   noGbCalInt: "Cal Int w/o GB",
   noGbMeasRel: "Targeted REOP w/o GB",
 };
+
+POINT_REQUIREMENT_FIELDS.forEach(field => { SIDEBAR_COLUMN_TRACKS[requirementColumn(field)] = "110px"; SIDEBAR_COLUMN_LABELS[requirementColumn(field)] = field.sidebarLabel; });
 
 export const normalizeSidebarColumnOrder = (order) => {
   const valid = new Set(DEFAULT_SIDEBAR_COLUMN_ORDER);
@@ -773,6 +781,7 @@ export const SidebarPointItem = ({
   diagnostics = [],
   isLiveRiskTarget = false,
   riskRequirements = {},
+  requirementSession = {},
   onSelect,
   onSave,
   onContextMenu,
@@ -1192,7 +1201,7 @@ export const SidebarPointItem = ({
     value !== null &&
     value !== "" &&
     Number.isFinite(Number(value))
-      ? String(value)
+      ? rawDecimal(value)
       : "-";
 
   // Calculate Metrics
@@ -1302,6 +1311,8 @@ export const SidebarPointItem = ({
   return (
     <div
       ref={pointRowRef}
+      data-point-id={point.id}
+      tabIndex={0}
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
       onMouseEnter={(e) => setRunHover(e.currentTarget, true)}
       onMouseLeave={(e) => setRunHover(e.currentTarget, false)}
@@ -1317,6 +1328,7 @@ export const SidebarPointItem = ({
       onClick={(e) => {
         if (!editingField) {
           e.stopPropagation();
+          if (!e.target.closest("input, textarea, button, [contenteditable=true]")) e.currentTarget.focus({ preventScroll: true });
           onSelect(e, point);
         }
       }}
@@ -1687,7 +1699,7 @@ export const SidebarPointItem = ({
       {visibleColumns.tur && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          style={{ color: getTurColor(risk.tur), fontWeight: 600 }}
+          style={{ "--metric-status-color": getTurColor(risk.tur), fontWeight: 600 }}
           title={fullMetricTitle("TUR", risk.tur, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "tur")}
         >
@@ -1697,7 +1709,7 @@ export const SidebarPointItem = ({
       {visibleColumns.tar && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          style={{ color: getTarColor(risk.tar) }}
+          style={{ "--metric-status-color": getTarColor(risk.tar) }}
           title={fullMetricTitle("TAR", risk.tar, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "tar")}
         >
@@ -1707,6 +1719,7 @@ export const SidebarPointItem = ({
       {visibleColumns.observedReop && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          style={{ "--metric-status-color": higherIsBetterColor(risk.observedReop, Number(riskRequirements.reliability) || 85) }}
           title={fullMetricTitle("REOP at test-point TUR", risk.observedReop, {
             suffix: "%",
             action: true,
@@ -1719,7 +1732,7 @@ export const SidebarPointItem = ({
       {visibleColumns.pfa && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          style={{ color: getPfaColor(risk.pfa), fontWeight: 600 }}
+          style={{ "--metric-status-color": getPfaColor(risk.pfa), fontWeight: 600 }}
           title={fullMetricTitle("PFA", risk.pfa, {
             suffix: "%",
             action: true,
@@ -1741,7 +1754,7 @@ export const SidebarPointItem = ({
       {visibleColumns.pfr && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          style={{ color: getPfrColor(risk.pfr) }}
+          style={{ "--metric-status-color": getPfrColor(risk.pfr) }}
           title={fullMetricTitle("PFR", risk.pfr, { suffix: "%", action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "pfr")}
         >
@@ -1751,6 +1764,7 @@ export const SidebarPointItem = ({
       {visibleColumns.maxReop && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          style={{ "--metric-status-color": higherIsBetterColor(risk.maxReop, Number(riskRequirements.reliability) || 85) }}
           title={fullMetricTitle("Maximum REOP", risk.maxReop, {
             suffix: "%",
             action: true,
@@ -1763,6 +1777,7 @@ export const SidebarPointItem = ({
       {visibleColumns.trueReop && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          style={{ "--metric-status-color": higherIsBetterColor(risk.trueReop, Number(riskRequirements.reliability) || 85) }}
           title={fullMetricTitle("R_meas", risk.trueReop, { suffix: "%", action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "truereop")}
         >
@@ -1802,7 +1817,7 @@ export const SidebarPointItem = ({
       {visibleColumns.gbPfa && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          style={{ color: getPfaColor(risk.gbPfa), fontWeight: 600 }}
+          style={{ "--metric-status-color": getPfaColor(risk.gbPfa), fontWeight: 600 }}
           title={fullMetricTitle("PFA with Guardband", risk.gbPfa, {
             suffix: "%",
             action: true,
@@ -1815,7 +1830,7 @@ export const SidebarPointItem = ({
       {visibleColumns.gbPfr && (
         <span
           className={`point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
-          style={{ color: getPfrColor(risk.gbPfr) }}
+          style={{ "--metric-status-color": getPfrColor(risk.gbPfr) }}
           title={fullMetricTitle("PFR with Guardband", risk.gbPfr, {
             suffix: "%",
             action: true,
@@ -1833,12 +1848,13 @@ export const SidebarPointItem = ({
           })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbcalint")}
         ><span className="point-metric-content">
-          {formatMitigationNumber(risk.gbCalInt)}
+          {formatMitigationNumber(risk.gbCalInt, 2)}
         </span></span>
       )}
       {visibleColumns.gbMeasRel && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          style={{ "--metric-status-color": higherIsBetterColor(risk.gbMeasRel, Number(riskRequirements.reliability) || 85) }}
           title={fullMetricTitle("Targeted REOP with GB", risk.gbMeasRel, {
             suffix: "%",
             action: true,
@@ -1851,6 +1867,7 @@ export const SidebarPointItem = ({
       {visibleColumns.noGbPfa && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          style={{ "--metric-status-color": getPfaColor(risk.noGbPfa) }}
           title={fullMetricTitle("PFA without GB", risk.noGbPfa, {
             suffix: "%",
             action: true,
@@ -1863,6 +1880,7 @@ export const SidebarPointItem = ({
       {visibleColumns.noGbPfr && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          style={{ "--metric-status-color": getPfrColor(risk.noGbPfr) }}
           title={fullMetricTitle("PFR without GB", risk.noGbPfr, {
             suffix: "%",
             action: true,
@@ -1882,12 +1900,13 @@ export const SidebarPointItem = ({
           )}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "calint")}
         ><span className="point-metric-content">
-          {formatMitigationNumber(risk.noGbCalInt)}
+          {formatMitigationNumber(risk.noGbCalInt, 2)}
         </span></span>
       )}
       {visibleColumns.noGbMeasRel && (
         <span
           className={`point-metric point-risk-metric${boundaryOnly ? "" : " point-risk-metric-clickable"}`}
+          style={{ "--metric-status-color": higherIsBetterColor(risk.noGbMeasRel, Number(riskRequirements.reliability) || 85) }}
           title={fullMetricTitle("Targeted REOP without GB", risk.noGbMeasRel, {
             suffix: "%",
             action: true,
@@ -1897,6 +1916,7 @@ export const SidebarPointItem = ({
           {formatMitigationPercent(risk.noGbMeasRel, 2)}
         </span></span>
       )}
+      {POINT_REQUIREMENT_FIELDS.filter(field => visibleColumns[requirementColumn(field)]).map(field => <PointRequirementCell key={field.name} field={field} point={point} session={requirementSession} onSave={onSave} />)}
     </div>
   );
 };
@@ -1989,12 +2009,6 @@ const SidebarSessionHeader = ({
     "analyst",
     "document",
     "documentDate",
-    ...(isRiskInputsOpen
-      ? RISK_INPUT_FIELDS.map((field) => `uncReq.${field.name}`)
-      : []),
-    ...(isMitigationInputsOpen
-      ? MITIGATION_INPUT_FIELDS.map((field) => `uncReq.${field.name}`)
-      : []),
   ];
 
   const valueForField = (field) =>
@@ -2182,65 +2196,7 @@ const SidebarSessionHeader = ({
                 "date",
               )}
             </div>
-            <div className="session-collapsible-block session-subsection-block">
-              <button
-                type="button"
-                className="session-section-toggle session-subsection-toggle"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRiskInputsOpenChange(!isRiskInputsOpen);
-                }}
-                aria-expanded={isRiskInputsOpen}
-              >
-                <span>Risk Inputs</span>
-                <FontAwesomeIcon
-                  icon={isRiskInputsOpen ? faChevronDown : faChevronRight}
-                />
-              </button>
-              {isRiskInputsOpen && (
-                <div className="session-requirements-grid">
-                  {RISK_INPUT_FIELDS.map((field) =>
-                    renderEditableField(
-                      `uncReq.${field.name}`,
-                      requirements[field.name],
-                      field.sidebarLabel,
-                      "number",
-                      field.tooltip,
-                    ),
-                  )}
-                </div>
-              )}
-            </div>
 
-            <div className="session-collapsible-block session-subsection-block">
-              <button
-                type="button"
-                className="session-section-toggle session-subsection-toggle"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMitigationInputsOpenChange(!isMitigationInputsOpen);
-                }}
-                aria-expanded={isMitigationInputsOpen}
-              >
-                <span>Mitigation Inputs</span>
-                <FontAwesomeIcon
-                  icon={isMitigationInputsOpen ? faChevronDown : faChevronRight}
-                />
-              </button>
-              {isMitigationInputsOpen && (
-                <div className="session-requirements-grid">
-                  {MITIGATION_INPUT_FIELDS.map((field) =>
-                    renderEditableField(
-                      `uncReq.${field.name}`,
-                      requirements[field.name],
-                      field.sidebarLabel,
-                      "number",
-                      field.tooltip,
-                    ),
-                  )}
-                </div>
-              )}
-            </div>
           </div>
         )}
       </div>
@@ -2455,6 +2411,7 @@ function App({ showThemeToggle = false }) {
       // so editing an instrument invalidates the sidebar risk map even when
       // the point's own snapshot array is unchanged.
       currentSessionData?.tmdes,
+      currentSessionData?.uuts,
       currentSessionData?.dynamicBudgetDefinitions,
       mitigationColumnsEnabled,
     ],
@@ -2712,6 +2669,12 @@ function App({ showThemeToggle = false }) {
   // --- NEW: Sidebar Multi-Select State ---
   const [selectedSidebarPointIds, setSelectedSidebarPointIds] = useState([]);
   const [selectedPointArea, setSelectedPointArea] = useState(null);
+  useEffect(() => {
+    const clear = event => { if (event.detail?.owner === "instruments") { setSelectedPointArea(null); setSelectedSidebarPointIds([]); setSelectedTablePointIds([]); setSelectedUutId(null); } };
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, clear);
+    document.addEventListener("mouseover", exposeDecimalOnHover);
+    return () => { window.removeEventListener(WORKSPACE_SELECTION_EVENT, clear); document.removeEventListener("mouseover", exposeDecimalOnHover); };
+  }, []);
   // Anchor for shift-click range selection. Context disambiguates a point that
   // is rendered under more than one UUT branch.
   const [sidebarSelectionAnchor, setSidebarSelectionAnchor] = useState(null);
@@ -3199,6 +3162,8 @@ function App({ showThemeToggle = false }) {
 
   const pointAreaHeaderProps = (area, points) => {
     const select = event => {
+      claimWorkspaceSelection("points");
+      setSelectedTablePointIds([]);
       setSelectedPointArea(area.id); setSelectedUutId(null);
       setSelectedSidebarPointIds(points.map(point => point.id));
       event.currentTarget.focus();
@@ -3320,7 +3285,7 @@ function App({ showThemeToggle = false }) {
       // The Universal Instrument editor owns keyboard input while it is open.
       // Its list has its own Delete behavior; allowing this background handler
       // to run would delete the previously selected analysis UUT/point instead.
-      if (isInstrumentBuilderOpen) return;
+      if (isInstrumentBuilderOpen || e.defaultPrevented) return;
 
       const key = e.key.toLowerCase();
       const isTextEntry =
@@ -3628,6 +3593,7 @@ function App({ showThemeToggle = false }) {
   };
 
   const handleSelectTestPoint = (e, tpId, contextUutId = null) => {
+    claimWorkspaceSelection("points");
     setSelectedPointArea(null);
     setRiskResults(null);
     // Multi-Select Logic
@@ -5231,7 +5197,8 @@ function App({ showThemeToggle = false }) {
       liveTmdeLimits={computePointTmdeLimits(tp, currentSessionData)}
       limitResolution={pointDisplayResolution(tp, currentSessionData)}
       diagnostics={pointDiagnosticsMap[tp.id]}
-      riskRequirements={currentSessionData?.uncReq || {}}
+      riskRequirements={getPointRequirements(tp, currentSessionData)}
+      requirementSession={currentSessionData}
       isLiveRiskTarget={true}
       onSelect={(e) => handleSelectTestPoint(e, tp.id, contextUutId)}
       onShowRiskBreakdown={(key) => setPendingRiskBreakdown(key)}
@@ -5434,6 +5401,7 @@ function App({ showThemeToggle = false }) {
       ],
     };
 
+    POINT_REQUIREMENT_FIELDS.forEach(field => { headerConfig[requirementColumn(field)] = [field.sidebarLabel, { title: field.tooltip }]; });
     return (
       <div className="sidebar-column-header-stack">
         <div
@@ -6035,7 +6003,7 @@ function App({ showThemeToggle = false }) {
               </div>
 
               {/* === SIDEBAR LIST === */}
-              <div className="measurement-point-list">
+              <div className="measurement-point-list" onPointerDownCapture={() => claimWorkspaceSelection("points")}>
                 <div className="sidebar-session-info-zoom-surface">
                   <div className="scoped-zoom-content">
                     {/* Session metadata stays in the sidebar; Instrument Overview
@@ -6152,6 +6120,8 @@ function App({ showThemeToggle = false }) {
                                 },
                               ],
                             },
+                          { group: "Risk Inputs", cols: RISK_INPUT_FIELDS.map(field => ({ key: requirementColumn(field), label: field.sidebarLabel })) },
+                            { group: "Mitigation Inputs", cols: MITIGATION_INPUT_FIELDS.map(field => ({ key: requirementColumn(field), label: field.sidebarLabel })) },
                           ]} columns={sidebarColumns} setColumns={setSidebarColumns}
                               selectedGroups={sidebarSortGroups} moveGroup={moveSidebarSortGroup}
                               onReset={() => { setSidebarColumnOrder([...DEFAULT_SIDEBAR_COLUMN_ORDER]); setSidebarColumns({ ...DEFAULT_SIDEBAR_COLUMNS }); }} />
@@ -6352,6 +6322,7 @@ function App({ showThemeToggle = false }) {
                     selectedTablePointIds={selectedTablePointIds}
                     setSelectedTablePointIds={setSelectedTablePointIds}
                     onInstrumentSelection={() => {
+                      setSelectedPointArea(null);
                       setSelectedSidebarPointIds([]);
                       setSelectedTablePointIds([]);
                       setSelectedUutId(null);

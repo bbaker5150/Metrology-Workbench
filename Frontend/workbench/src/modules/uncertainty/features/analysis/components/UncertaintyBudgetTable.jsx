@@ -1,3 +1,4 @@
+import { rawDecimal } from "../../../utils/rawDecimal";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import InlineSourceNameEditor from "../../../components/common/InlineSourceNameEditor";
@@ -85,7 +86,7 @@ const fullPrecisionValue = (value) => {
   if (value === undefined || value === null || value === "") return "N/A";
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return numeric === Infinity ? "Infinity" : "N/A";
-  return String(value);
+  return rawDecimal(value);
 };
 
 const BudgetOrderControls = ({ onMoveUp, onMoveDown }) => (
@@ -1214,7 +1215,7 @@ const UncertaintyBudgetTable = ({
               <td>{renderDistributionCell(component)}</td>
               <td>{component.type || "B"}</td>
               {showDof && <td>{formatDof(component.dof)}</td>}
-              <td>
+              <td title={fullPrecisionValue(std.value)}>
                 {component.pendingReason ? <PendingUncertainty reason={component.pendingReason} /> : editableStd ? (
                   <ManualValueCell
                     component={component}
@@ -1255,12 +1256,12 @@ const UncertaintyBudgetTable = ({
           <tr key={row.id}>
             <td>{row.name}</td>
             {showDof && <td>{formatDof(row.dof)}</td>}
-            <td>
+            <td title={fullPrecisionValue(row.standardUncertainty)}>
               ± {formatNumber(row.standardUncertainty, getGroupSigFigs(group))}{" "}
               {getUnitDisplayLabel(row.unit)}
             </td>
-            <td>{formatNumber(row.sensitivityCoefficient, 4)}</td>
-            <td>
+            <td title={fullPrecisionValue(row.sensitivityCoefficient)}>{formatNumber(row.sensitivityCoefficient, 4)}</td>
+            <td title={fullPrecisionValue(row.contribution)}>
               {formatNumber(row.contribution, getGroupSigFigs(group))}{" "}
               {derivedUnit}
             </td>

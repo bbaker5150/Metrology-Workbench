@@ -388,7 +388,7 @@ describe("UncertaintyApp", () => {
     ).not.toBeInTheDocument();
   });
 
-  test("nests expanded risk and mitigation inputs inside Session Info", async () => {
+  test("moves risk and mitigation controls out of Session Info into optional columns", async () => {
     apiMock.state.sessions = [
       {
         id: 101,
@@ -439,57 +439,14 @@ describe("UncertaintyApp", () => {
     ).not.toBeInTheDocument();
     const sessionInfoToggle = screen.getByRole("button", { name: /Session Info/i });
     expect(sessionInfoToggle).toHaveAttribute("aria-expanded", "true");
-    expect(await screen.findByText("Risk Inputs")).toBeInTheDocument();
-    expect(screen.getByText("Mitigation Inputs")).toBeInTheDocument();
-    expect(document.querySelector(".session-info-content")).toContainElement(
-      screen.getByText("Risk Inputs"),
-    );
-    expect(document.querySelector(".session-info-content")).toContainElement(
-      screen.getByText("Mitigation Inputs"),
-    );
-    expect(screen.getByRole("button", { name: /Risk Inputs/i })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
-    expect(
-      screen.getByRole("button", { name: /Mitigation Inputs/i }),
-    ).toHaveAttribute("aria-expanded", "true");
+    expect(document.querySelector(".session-info-content")).not.toHaveTextContent("Risk Inputs");
+    expect(document.querySelector(".session-info-content")).not.toHaveTextContent("Mitigation Inputs");
     expect(screen.getByText("Document Date")).toBeInTheDocument();
-    expect(screen.getByText("Confidence (%)")).toBeInTheDocument();
-    expect(screen.getByText("Assumed REOP")).toBeInTheDocument();
-    expect(screen.getByText("TUR Needed")).toBeInTheDocument();
-    expect(screen.getByText("PFA Required")).toBeInTheDocument();
-    expect(screen.getByText("REOP Required")).toBeInTheDocument();
-    expect(screen.getByText("Cal Int for assumed REOP")).toBeInTheDocument();
-    const assumedReliabilityHelp = screen
-      .getByText("Assumed REOP")
-      .closest(".session-header-label");
-    expect(assumedReliabilityHelp.title).toMatch(/probability/i);
-    expect(assumedReliabilityHelp.title).not.toMatch(/workbook/i);
-    expect(screen.queryByText("Uncertainty Requirements")).not.toBeInTheDocument();
-    expect(screen.queryByText("Add your first Measurement Point")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Add a Measurement Area to get started.")).toHaveLength(3);
-    fireEvent.click(screen.getByRole("button", { name: "Uncertainty Budget", exact: true }));
-    expect(screen.queryByText("Select a Measurement Point.")).not.toBeInTheDocument();
-    expect(overviewTab).toHaveClass("active");
-    fireEvent.click(overviewTab);
+    fireEvent.click(screen.getByRole("button", { name: "Columns", exact: true }));
+    for (const label of ["Confidence (%)", "Assumed REOP", "TUR Needed", "PFA Required", "REOP Required", "Cal Int for assumed REOP"]) {
+      expect(screen.getByRole("button", { name: `Add ${label} column`, exact: true })).toBeInTheDocument();
+    }
 
-    fireEvent.click(screen.getByRole("button", { name: /Risk Inputs/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Mitigation Inputs/i }));
-    fireEvent.click(sessionInfoToggle);
-    expect(screen.queryByText("Risk Inputs")).not.toBeInTheDocument();
-    expect(screen.queryByText("Mitigation Inputs")).not.toBeInTheDocument();
-
-    fireEvent.click(sessionInfoToggle);
-    expect(screen.getByRole("button", { name: /Risk Inputs/i })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
-    expect(
-      screen.getByRole("button", { name: /Mitigation Inputs/i }),
-    ).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("Confidence (%)")).toBeInTheDocument();
-    expect(screen.getByText("PFA Required")).toBeInTheDocument();
   });
 
   test("tabs directly through the editable Session Info fields", async () => {
@@ -542,8 +499,9 @@ describe("UncertaintyApp", () => {
     expect(dateInput).toHaveFocus();
 
     fireEvent.keyDown(dateInput, { key: "Tab" });
-    const confidenceInput = screen.getByRole("spinbutton", { name: "Confidence (%)" });
-    expect(confidenceInput).toHaveFocus();
+    expect(screen.queryByRole("spinbutton", { name: "Confidence (%)" })).not.toBeInTheDocument();
+    fireEvent.keyDown(dateInput, { key: "Tab", shiftKey: true });
+    expect(screen.getByRole("textbox", { name: "Doc ID" })).toHaveFocus();
   });
 
   test("keeps measurement-point actions visible without a redundant accordion", async () => {

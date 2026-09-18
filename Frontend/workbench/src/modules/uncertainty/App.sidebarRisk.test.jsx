@@ -886,14 +886,14 @@ describe("measurement-point Risk 8 metric interactions", () => {
     const { rerender } = render(
       <SidebarPointItem {...common} riskRequirements={{ reqPFA: 2, neededTUR: 3 }} />,
     );
-    expect(screen.getByTitle("1.5")).toHaveStyle({ color: "var(--status-good)" });
-    expect(screen.getByTitle("3")).toHaveStyle({ color: "var(--status-good)" });
+    expect(screen.getByTitle("1.5")).toHaveStyle({ "--metric-status-color": "var(--status-good)" });
+    expect(screen.getByTitle("3")).toHaveStyle({ "--metric-status-color": "var(--status-good)" });
 
     rerender(<SidebarPointItem {...common} riskRequirements={{ reqPFA: 1, neededTUR: 4 }} />);
-    expect(screen.getByTitle("1.5")).toHaveStyle({ color: "var(--status-warning)" });
-    expect(screen.getByTitle("1.6")).toHaveStyle({ color: "var(--status-warning)" });
-    expect(screen.getByTitle("3")).toHaveStyle({ color: "var(--status-warning)" });
-    expect(screen.getByTitle("3.1")).toHaveStyle({ color: "var(--status-warning)" });
+    expect(screen.getByTitle("1.5")).toHaveStyle({ "--metric-status-color": "var(--status-warning)" });
+    expect(screen.getByTitle("1.6")).toHaveStyle({ "--metric-status-color": "var(--status-warning)" });
+    expect(screen.getByTitle("3")).toHaveStyle({ "--metric-status-color": "var(--status-warning)" });
+    expect(screen.getByTitle("3.1")).toHaveStyle({ "--metric-status-color": "var(--status-warning)" });
   });
 
   test("uses the same displayed PFA precision as mitigation", () => {
@@ -901,9 +901,9 @@ describe("measurement-point Risk 8 metric interactions", () => {
       riskMetrics: { pfa: 2.0049 } }, visibleColumns: { pfa: true }, onSelect: vi.fn(), onSave: vi.fn(),
       riskRequirements: { reqPFA: 2 } };
     const { rerender } = render(<SidebarPointItem {...common} />);
-    expect(screen.getByTitle('2.0049')).toHaveStyle({ color: 'var(--status-good)' });
+    expect(screen.getByTitle('2.0049')).toHaveStyle({ '--metric-status-color': 'var(--status-good)' });
     rerender(<SidebarPointItem {...common} point={{ ...common.point, riskMetrics: { pfa: 2.005 } }} />);
-    expect(screen.getByTitle('2.005')).toHaveStyle({ color: 'var(--status-warning)' });
+    expect(screen.getByTitle('2.005')).toHaveStyle({ '--metric-status-color': 'var(--status-warning)' });
   });
 
   test("does not show a Risk 8 badge and Ctrl-click requests the PFA breakdown", () => {
@@ -1039,12 +1039,12 @@ describe("measurement-point Risk 8 metric interactions", () => {
     expect(screen.getByTitle("85.69")).toHaveTextContent("85.69%");
     expect(screen.getByTitle("86.47")).toHaveTextContent("86.47%");
     expect(screen.getByTitle("5.40849")).toHaveTextContent(
-      "5.40849",
+      "5.41",
     );
     expect(screen.getByTitle("2.01")).toHaveTextContent("2.01%");
     expect(screen.getByTitle("3.61")).toHaveTextContent("3.61%");
     expect(screen.getByTitle("4.69473132")).toHaveTextContent(
-      "4.69473132",
+      "4.69",
     );
     expect(screen.getByTitle("88.27")).toHaveTextContent("88.27%");
 

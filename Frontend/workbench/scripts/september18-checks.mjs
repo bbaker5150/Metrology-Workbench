@@ -3,6 +3,7 @@ import { prepareBiasSession } from './measurement-bias-checks.mjs';
 export function prepareSeptember18(session) {
   prepareBiasSession(session);
   session.uuts[0].ranges.push({ ...structuredClone(session.uuts[0].ranges[0]), id: 'uut-second', min: 10, max: 20 });
+  const sibling = structuredClone(session.uuts[0]); sibling.id = 'uut-sibling'; sibling.description = 'Sibling instrument'; sibling.ranges = sibling.ranges.map((range, i) => ({ ...range, id: `sibling-${i}` })); session.uuts.push(sibling);
   session.measurementAreas.push({ id: 'empty-area', name: 'Empty area' });
   session.measurementAreaGroups.push({ name: 'Empty area', color: '#3080cc' });
   const point = session.testPoints[0];
@@ -66,8 +67,12 @@ export async function checkSeptember18({ frame, page, saved, until, check }) {
   }
   check('custom header names render uppercase', await table.locator('.instrument-custom-column-label,.instrument-custom-column-name-input').first().evaluate(node => getComputedStyle(node).textTransform === 'uppercase'));
 
+  await table.locator('.instrument-custom-column-header').first().hover();
+  await table.getByRole('button', { name: 'Delete Audit column', exact: true }).click();
+  check('custom column deletes immediately without a confirmation', await until(async () => await table.locator('thead th').count() === oldHeaders) && await frame.getByRole('dialog', { name: /Delete.*Column/ }).count() === 0);
+  check('add-column control sits above the header border', await table.locator('.instrument-column-insert-button').first().evaluate(button => button.getBoundingClientRect().top < button.closest('th').getBoundingClientRect().top));
   await table.locator('.cell-tolerance .inline-tolerance-summary').first().click();
-  check('configured bias opens alone', await table.locator('.instrument-bias-editor').count() === 1 && await table.locator('.inline-tolerance-term-group').count() === 0);
+  check('configured bias reopens below the tolerance terms', await table.locator('.instrument-bias-editor').count() === 1 && await table.locator('.inline-tolerance-term-group').count() > 0);
   await table.getByRole('button', { name: 'Bias', exact: true }).click();
   const unit = table.getByRole('button', { name: 'Tolerance unit base unit', exact: true }).first();
   await unit.click(); await settle();
@@ -86,5 +91,20 @@ export async function checkSeptember18({ frame, page, saved, until, check }) {
   await emptyInstrumentArea.click({ position: { x: 5, y: 5 } });
   await emptyInstrumentArea.press('Control+v');
   check('instrument header accepts keyboard paste into an empty area', await until(() => saved().uuts.some(uut => uut.measurementAreaNames?.includes('Empty area'))));
+  const sourceArea = table.locator('.instrument-area-section-row').filter({ hasText: 'Voltage' }).first();
+  await sourceArea.click({ position: { x: 5, y: 5 } });
+  check('instrument area selects all instruments and clears point selection', await table.locator('tr[data-range-selected="true"]').count() >= 4 && await frame.locator('.point-grid-item.active').count() === 0);
+  await sourceArea.press('Control+c');
+  const beforeAreaPaste = saved().uuts.length;
+  await emptyInstrumentArea.click({ position: { x: 5, y: 5 } }); await emptyInstrumentArea.press('Control+v');
+  check('instrument area keyboard copy pastes every source instrument', await until(() => saved().uuts.length === beforeAreaPaste + 2));
+  await sourceArea.click({ button: 'right', position: { x: 5, y: 5 } });
+  check('instrument area offers copy and cut commands', await frame.getByText('Copy Instruments', { exact: true }).count() === 1 && await frame.getByText('Cut Instruments', { exact: true }).count() === 1);
+  await page.keyboard.press('Escape');
+  await area.click({ position: { x: 5, y: 5 } });
+  check('point area takes clipboard ownership from instruments', await table.locator('tr[data-range-selected="true"]').count() === 0);
+  check('point area selection follows its area color', await area.evaluate(node => getComputedStyle(node).outlineColor === getComputedStyle(node).getPropertyValue('--sidebar-function-color').trim() || getComputedStyle(node).outlineColor === 'rgb(204, 48, 48)'));
+  await area.press('Control+c'); await destination.click({ position: { x: 5, y: 5 } }); await destination.press('Control+v');
+  check('point area copy wins after prior instrument selection', await until(() => saved().testPoints.filter(p => p.testPointInfo?.measurementArea === 'Empty area').length === 70));
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/september18-layout.png` });
 }
