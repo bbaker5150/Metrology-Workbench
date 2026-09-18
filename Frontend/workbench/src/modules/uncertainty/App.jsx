@@ -1,3 +1,4 @@
+import PointSelectionOutline from "./components/common/PointSelectionOutline";
 import PointNumericInput from "./components/common/PointNumericInput";
 import PointRequirementCell from "./components/common/PointRequirementCell";
 import { POINT_REQUIREMENT_FIELDS, requirementColumn, getPointRequirements } from "./utils/pointRequirements";
@@ -525,6 +526,7 @@ const SCOPED_ZOOM_SURFACE_SELECTOR = [
   ".measurement-points-zoom-surface",
   ".measurement-equation-zoom-surface",
   ".budget-results-zoom-surface",
+  ".budget-decision-zoom-surface",
   ".panel-table-container",
   ".instrument-table-container",
   ".budget-section-table-wrap",
@@ -591,7 +593,9 @@ const readUiPreferences = (sessionId) => {
 
 const getScopedZoomKey = (surface) => {
   if (surface.dataset.scopedZoomKey) {
-    return surface.dataset.scopedZoomKey;
+    // Budget/result scaling belongs to the family, including future variables.
+    const key = surface.dataset.scopedZoomKey;
+    return /^(budget-table|budget-results):/.test(key) ? key.split(":")[0] : key;
   }
   if (surface.classList.contains("app-chrome-zoom-surface")) {
     return "app-header";
@@ -628,7 +632,8 @@ const SCOPED_ZOOM_LABELS = {
   "measurement-points": "Point list",
   "measurement-equation": "Equation",
   "measurement-inputs": "Measurement inputs",
-  "budget-results": "Results card",
+  "budget-results": "Results tables",
+  "budget-decision": "PFA / PFR",
   "budget-table": "Budget table",
   "panel-table-container": "Table",
   "instrument-table-container": "Instrument table",
@@ -644,7 +649,7 @@ const getScopedZoomLabel = (zoomKey) => {
 
 // Default scoped-zoom level (when the user hasn't set one) keyed by surface
 // class. Surfaces omitted here default to 100%.
-const SCOPED_ZOOM_DEFAULTS = {};
+const SCOPED_ZOOM_DEFAULTS = { "budget-results": 0.8 };
 const getDefaultScopedZoom = (zoomKey) => {
   if (!zoomKey) return 1;
   return SCOPED_ZOOM_DEFAULTS[zoomKey.split(":")[0]] ?? 1;
@@ -675,7 +680,8 @@ const getScopedZoomTarget = (eventTarget) => {
     surface.classList.contains("sidebar-session-info-zoom-surface") ||
     surface.classList.contains("measurement-points-zoom-surface") ||
     surface.classList.contains("measurement-equation-zoom-surface") ||
-    surface.classList.contains("budget-results-zoom-surface")
+    surface.classList.contains("budget-results-zoom-surface") ||
+    surface.classList.contains("budget-decision-zoom-surface")
   ) {
     const content = surface.querySelector(":scope > .scoped-zoom-content");
     return content ? { surface, content } : null;
@@ -699,7 +705,8 @@ const getScopedZoomContents = (surface) => {
     surface.classList.contains("sidebar-session-info-zoom-surface") ||
     surface.classList.contains("measurement-points-zoom-surface") ||
     surface.classList.contains("measurement-equation-zoom-surface") ||
-    surface.classList.contains("budget-results-zoom-surface")
+    surface.classList.contains("budget-results-zoom-surface") ||
+    surface.classList.contains("budget-decision-zoom-surface")
   ) {
     const content = surface.querySelector(":scope > .scoped-zoom-content");
     return content ? [content] : [];
@@ -2663,6 +2670,16 @@ function App({ showThemeToggle = false }) {
   const [selectedSidebarPointIds, setSelectedSidebarPointIds] = useState([]);
   const [selectedPointArea, setSelectedPointArea] = useState(null);
   useEffect(() => {
+    const deselectArea = event => {
+      if (event.key !== "Escape" || selectedPointArea == null) return;
+      setSelectedPointArea(null);
+      setSelectedSidebarPointIds([]);
+      setSelectedTablePointIds([]);
+    };
+    window.addEventListener("keydown", deselectArea, true);
+    return () => window.removeEventListener("keydown", deselectArea, true);
+  }, [selectedPointArea]);
+  useEffect(() => {
     const clear = event => { if (event.detail?.owner === "instruments") { setSelectedPointArea(null); setSelectedSidebarPointIds([]); setSelectedTablePointIds([]); setSelectedUutId(null); } };
     window.addEventListener(WORKSPACE_SELECTION_EVENT, clear);
     document.addEventListener("mouseover", exposeDecimalOnHover);
@@ -2859,7 +2876,12 @@ function App({ showThemeToggle = false }) {
     const applyZoomLevels = () => {
       root.querySelectorAll(SCOPED_ZOOM_SURFACE_SELECTOR).forEach((surface) => {
         const key = getScopedZoomKey(surface);
-        const zoom = scopedZoomLevels[key] || getDefaultScopedZoom(key);
+        // Honor a previously saved per-table scale once; subsequent edits write
+        // the shared family key so existing and newly mounted tables agree.
+        const legacyZoom = ["budget-results", "budget-table"].includes(key)
+          ? Object.entries(scopedZoomLevels).find(([savedKey]) => savedKey.startsWith(`${key}:`))?.[1]
+          : undefined;
+        const zoom = scopedZoomLevels[key] || legacyZoom || getDefaultScopedZoom(key);
         const contents = getScopedZoomContents(surface);
         if (contents.length === 0) return;
 
@@ -3481,8 +3503,8 @@ function App({ showThemeToggle = false }) {
 
       const { surface, content, linkedContents = [] } = zoomTarget;
       // The applied default is written to dataset.zoomLevel by applyZoomLevels;
-      // fall back to 1 only for surfaces that haven't been initialized yet.
-      const currentZoom = parseFloat(surface.dataset.zoomLevel || "1");
+      // use the same family default if the surface has just mounted.
+      const currentZoom = parseFloat(surface.dataset.zoomLevel || String(getDefaultScopedZoom(getScopedZoomKey(surface))));
       const zoomDirection = e.deltaY < 0 ? 1 : -1;
       const nextZoom = Math.max(
         0.6,
@@ -6140,6 +6162,7 @@ function App({ showThemeToggle = false }) {
                 <div className="sidebar-points-scroll-wrapper measurement-points-table" role="region" aria-label="Measurement points"
                   style={{ "--point-diagnostics-width": `${Math.max(1, ...Object.values(pointDiagnosticsMap).map(entries => new Set(entries.map(entry => entry.category)).size)) * 17 - 1}px` }}>
                   <div className="measurement-points-table-content">
+                    <PointSelectionOutline />
                     {sidebarData.length > 0 && renderSidebarColumnHeaders()}
                 {sidebarData.map((fnGroup) => {
                     const isFnExpanded = expandedFunctions.has(fnGroup.id);

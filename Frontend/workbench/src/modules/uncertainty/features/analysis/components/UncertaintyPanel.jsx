@@ -8513,6 +8513,16 @@ const SummaryDashboard = ({
   const [rowMenu, setRowMenu] = useState(null);
   const [selectedInstrumentArea, setSelectedInstrumentArea] = useState(null);
   useEffect(() => {
+    const deselectArea = event => {
+      if (event.key !== "Escape" || !selectedInstrumentArea) return;
+      setSelectedInstrumentArea(null);
+      setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
+      pasteDestinationRef.current = null;
+    };
+    window.addEventListener("keydown", deselectArea, true);
+    return () => window.removeEventListener("keydown", deselectArea, true);
+  }, [selectedInstrumentArea]);
+  useEffect(() => {
     const clear = event => {
       if (event.detail?.owner !== "points") return;
       setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
@@ -10444,6 +10454,16 @@ function DetailedView({
   // --- Cut / copy / paste of instrument rows (shared module clipboard) ---
   const [rowMenu, setRowMenu] = useState(null);
   const [selectedInstrumentArea, setSelectedInstrumentArea] = useState(null);
+  useEffect(() => {
+    const deselectArea = event => {
+      if (event.key !== "Escape" || !selectedInstrumentArea) return;
+      setSelectedInstrumentArea(null);
+      setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
+      pasteDestinationRef.current = null;
+    };
+    window.addEventListener("keydown", deselectArea, true);
+    return () => window.removeEventListener("keydown", deselectArea, true);
+  }, [selectedInstrumentArea]);
   useEffect(() => {
     const clear = event => {
       if (event.detail?.owner !== "points") return;

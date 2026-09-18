@@ -270,8 +270,10 @@ export const useUncertaintyCalculation = (
           ...tmdeTolerancesData.filter(t => !derived || t.variableType === variableType).flatMap((tmde, index) =>
             getBudgetComponentsFromTolerance(tmde, nominal || {}).map((c, i) => ({ ...qualifyTmdeComponent(c, tmde, index), id: `${c.id}_${index}_${i}`, sourceTmdeId: tmde.id }))),
         ];
+        // Input identity comes from the equation symbol, even before its optional
+        // display name is entered. A blank name must never make it the final budget.
         const groups = derived ? Object.entries(testPointData.variableMappings || {}).map(([symbol, name]) =>
-          groupFor(testPointData.variableNominals?.[symbol] || {}, sourceRows(testPointData.variableNominals?.[symbol] || {}, name), `${name || symbol} Uncertainty Budget`, `input_${symbol}`, name)) : [];
+          ({ ...groupFor(testPointData.variableNominals?.[symbol] || {}, sourceRows(testPointData.variableNominals?.[symbol] || {}, name), `${name || symbol} Uncertainty Budget`, `input_${symbol}`, name), kind: "input" })) : [];
         const finalRows = sourceRows(uutNominal || {}, "");
         const resolution = getUutResolutionComponent(uutToleranceData, uutNominal || {});
         if (resolution) finalRows.push(resolution);

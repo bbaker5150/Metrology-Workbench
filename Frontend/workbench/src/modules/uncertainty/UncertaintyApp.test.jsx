@@ -1855,8 +1855,8 @@ describe("UncertaintyApp", () => {
       clientX: 10,
       clientY: 10,
     });
-    expect(resultsSurface.dataset.zoomLevel).toBe("1.1");
-    expect(resultsContent.style.zoom).toBe("1.1");
+    expect(resultsSurface.dataset.zoomLevel).toBe("0.9");
+    expect(resultsContent.style.zoom).toBe("0.9");
 
     window.localStorage.setItem(
       "uncertalytics:uut:instrument-column-widths:v2",

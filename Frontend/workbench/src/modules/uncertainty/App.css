@@ -21202,3 +21202,18 @@ body.dark-mode .uncertainty-module { --numeric-text: #fff; }
 .uncertainty-module .point-grid-item > .point-risk-metric[data-sidebar-column][style*="--metric-status-color"] { color: var(--metric-status-color); font-size: var(--point-number-size); font-weight: 700; text-shadow: none; }
 
 .uncertainty-module .point-grid-item > .point-risk-metric { font-weight: 700; }
+
+/* Point selection uses the same single outer perimeter as instrument tables.
+   Remove the old dark row shadows and one-pixel gaps: they produced uneven
+   horizontal rules beside merged cells, especially at fractional scaling. */
+.uncertainty-module .measurement-group-container { --sidebar-point-row-seam: 0px; }
+.uncertainty-module .measurement-group-container .point-grid-item,
+body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item:is(.active, .active-point, :hover) {
+  margin-bottom: 0;
+  box-shadow: none !important;
+}
+body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item { box-shadow: none !important; }
+.uncertainty-module .measurement-points-table-content { position: relative; }
+.uncertainty-module .point-selection-outline { inset: 0; width: 100%; height: 100%; z-index: 8; }
+.budget-decision-zoom-surface { grid-column: 1; justify-self: center; min-width: 0; }
+.budget-decision-zoom-surface > .scoped-zoom-content { width: fit-content; }

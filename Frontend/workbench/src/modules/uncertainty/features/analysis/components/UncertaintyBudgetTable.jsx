@@ -1664,7 +1664,7 @@ const UncertaintyBudgetTable = ({
               </div>
               <div
                 className="budget-section-table-wrap"
-                data-scoped-zoom-key={`budget-table:${group.kind}:${group.variableType || group.id}`}
+                data-scoped-zoom-key="budget-table"
               >
                 {group.kind === "equation"
                   ? renderEquationTable(group)
@@ -1695,15 +1695,15 @@ const UncertaintyBudgetTable = ({
             </div>
             <div
               className="budget-results-zoom-surface"
-              data-scoped-zoom-key={`budget-results:${group.kind}:${group.variableType || group.id}`}
+              data-scoped-zoom-key="budget-results"
             >
               <div className="scoped-zoom-content">
                 <ResultsCard
-                  title={group.kind === "final" ? "Final Results" : "Results"}
+                  title={group === groups.at(-1) ? "Final Results" : "Results"}
                   results={group.results}
                   unit={group.kind === "final" ? derivedUnit : group.unit || derivedUnit}
                   sigFigs={getGroupSigFigs(group)}
-                  isFinal={group.kind === "final"}
+                  isFinal={group === groups.at(-1)}
                   useEffectiveDof={
                     (useEffectiveDofByGroup[groupDofKey(group)] ?? true) !== false
                   }
@@ -1713,7 +1713,13 @@ const UncertaintyBudgetTable = ({
                 />
               </div>
             </div>
-            {group === groups.at(-1) && <DecisionRiskCards results={riskResults} requiredPfa={riskRequirements?.reqPFA} formatValue={value => formatNumber(value, 4)} />}
+            {group === groups.at(-1) && (
+              <div className="budget-decision-zoom-surface" data-scoped-zoom-key="budget-decision">
+                <div className="scoped-zoom-content">
+                  <DecisionRiskCards results={riskResults} requiredPfa={riskRequirements?.reqPFA} formatValue={value => formatNumber(value, 4)} />
+                </div>
+              </div>
+            )}
           </section>
         </React.Fragment>
       ))}

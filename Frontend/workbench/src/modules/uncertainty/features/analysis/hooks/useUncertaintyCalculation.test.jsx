@@ -286,3 +286,15 @@ it("calculates a manual unitless direct budget without instruments", async () =>
   await waitFor(() => expect(result.current.calcResults.combined_uncertainty_absolute_base).toBe(2));
   expect(result.current.calcResults.expanded_uncertainty_absolute_base).toBeCloseTo(3.9199, 3);
 });
+
+
+it("keeps unnamed incomplete equation inputs distinct from the final measurement budget", async () => {
+  const { result } = renderDirectCalculation({ measurementType: "derived", equationString: "x*y",
+    variableMappings: { x: "", y: "Force" }, variableNominals: { x: { value: "", unit: "m" }, y: { value: 5, unit: "N" } },
+  }, { nominal: { value: "", unit: "N-m" }, tmdeTolerances: [], uutTolerance: {}, manualComponents: [] });
+  await waitFor(() => expect(result.current.calcResults).not.toBeNull());
+  const groups = result.current.calcResults.calculatedBudgetGroups;
+  expect(groups.map(group => group.kind)).toEqual(["input", "input", "final"]);
+  expect(groups[0]).toMatchObject({ id: "input_x", label: "x Uncertainty Budget", unit: "m" });
+  expect(groups.at(-1)).toMatchObject({ id: "final_budget", unit: "N-m" });
+});
