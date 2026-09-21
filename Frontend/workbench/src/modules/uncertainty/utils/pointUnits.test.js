@@ -39,6 +39,15 @@ describe("missing point unit inheritance", () => {
   });
 });
 
+it("replaces the Units placeholder when the first UUT is added after the point, but respects a later opt-out", () => {
+  const previous = { uuts: [], testPoints: [{ id: "p", associatedUutIds: [], testPointInfo: { measurementArea: "Fresh", parameter: { value: 5, unit: "", unitSelectionExplicit: true } } }] };
+  const current = { ...previous, uuts: [{ id: "new", measurementAreaNames: ["Fresh"], ranges: [{ id: "v", unit: "V" }] }] };
+  const next = inheritMissingPointUnits(current, previous);
+  expect(next.testPoints[0].testPointInfo.parameter).toMatchObject({ value: 5, unit: "V", unitSelectionExplicit: false });
+  const optOut = { ...next, testPoints: [{ ...next.testPoints[0], testPointInfo: { ...next.testPoints[0].testPointInfo, parameter: { value: 5, unit: "", unitSelectionExplicit: true } } }] };
+  expect(inheritMissingPointUnits(optOut, next)).toBe(optOut);
+});
+
 it("keeps an explicit Unassigned choice after instruments are defined", () => {
   const data = { uuts: [{ id: "u", measurementAreaNames: ["Bench"], instrument: { functions: [{ unit: "V", ranges: [{ unit: "V" }] }] } }], testPoints: [{ associatedUutIds: ["u"], testPointInfo: { measurementArea: "Bench", parameter: { unit: "", unitSelectionExplicit: true } } }] };
   expect(inheritMissingPointUnits(data)).toBe(data);

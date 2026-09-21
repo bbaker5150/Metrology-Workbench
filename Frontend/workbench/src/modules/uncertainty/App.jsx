@@ -1,4 +1,5 @@
 import { claimWorkspaceClipboard, ownsWorkspaceClipboard, WORKSPACE_CLIPBOARD_EVENT } from "./utils/workspaceClipboard";
+import { normalizeSizingPreferences, physicalScopedZoom } from "./utils/scopedZoom";
 import useSelectInputText from "./hooks/useSelectInputText";
 import PointSelectionOutline from "./components/common/PointSelectionOutline";
 import PointNumericInput from "./components/common/PointNumericInput";
@@ -213,6 +214,7 @@ const POINT_DERIVED_BUDGET_FIELDS = [
   // expression and input metadata with the component rows so the pasted
   // budget can be evaluated immediately.
   "equationString",
+  "outputQuantityName",
   "variableMappings",
   "variableNominals",
 ];
@@ -663,7 +665,7 @@ const getScopedZoomLabel = (zoomKey) => {
 
 // Default scoped-zoom level (when the user hasn't set one) keyed by surface
 // class. Surfaces omitted here default to 100%.
-const SCOPED_ZOOM_DEFAULTS = { "budget-results": 0.8 };
+const SCOPED_ZOOM_DEFAULTS = {};
 const getDefaultScopedZoom = (zoomKey) => {
   if (!zoomKey) return 1;
   return SCOPED_ZOOM_DEFAULTS[zoomKey.split(":")[0]] ?? 1;
@@ -749,9 +751,9 @@ const getSidebarValueColumnWidth = (points = []) => {
 
 const readUiSizingPreferences = () => {
   try {
-    return JSON.parse(
+    return normalizeSizingPreferences(JSON.parse(
       window.localStorage.getItem(UNCERTAINTY_UI_SIZING_KEY) || "{}",
-    );
+    ));
   } catch (error) {
     console.warn("Unable to read uncertainty sizing preferences", error);
     return {};
@@ -2012,13 +2014,15 @@ const SidebarSessionHeader = ({
 
   if (!sessionData) return null;
 
-  const requirements = sessionData.uncReq || {};
+  const requirements = getPointRequirements(null, sessionData);
   const editableFieldOrder = [
     "name",
     "organization",
     "analyst",
     "document",
     "documentDate",
+    ...(isRiskInputsOpen ? RISK_INPUT_FIELDS : []).map(field => `uncReq.${field.name}`),
+    ...(isMitigationInputsOpen ? MITIGATION_INPUT_FIELDS : []).map(field => `uncReq.${field.name}`),
   ];
 
   const valueForField = (field) =>
@@ -2206,7 +2210,21 @@ const SidebarSessionHeader = ({
                 "date",
               )}
             </div>
-
+            {/* These are session defaults, not a projection of the selected
+                point. Point-only overrides remain on riskRequirements. */}
+            {[
+              { label: "Risk Inputs", fields: RISK_INPUT_FIELDS, open: isRiskInputsOpen, toggle: onRiskInputsOpenChange },
+              { label: "Mitigation Inputs", fields: MITIGATION_INPUT_FIELDS, open: isMitigationInputsOpen, toggle: onMitigationInputsOpenChange },
+            ].map(group => <div className="session-default-inputs" key={group.label}>
+              <button type="button" className="session-section-toggle" aria-expanded={group.open}
+                onClick={event => { event.stopPropagation(); group.toggle(!group.open); }}>
+                <span>{group.label}</span><FontAwesomeIcon icon={group.open ? faChevronDown : faChevronRight} />
+              </button>
+              {group.open && <div className="session-default-input-fields" aria-label={`Default ${group.label}`}>
+                <span className="session-default-input-help">Defaults for points without overrides</span>
+                {group.fields.map(field => renderEditableField(`uncReq.${field.name}`, requirements[field.name], field.label, "text", field.tooltip))}
+              </div>}
+            </div>)}
           </div>
         )}
       </div>
@@ -2774,7 +2792,7 @@ function App({ showThemeToggle = false }) {
     setAnalysisMode(preferences.analysisMode || "overview");
     setShowContribution(preferences.showContribution ?? true);
     setScopedZoomLevels(
-      sizingPreferences.scopedZoomLevels || preferences.scopedZoomLevels || {},
+      sizingPreferences.scopedZoomLevels || normalizeSizingPreferences(preferences).scopedZoomLevels || {},
     );
     setSidebarColumnWidths(sizingPreferences.sidebarColumnWidths || {});
     setLoadedPreferencesSessionId(selectedSessionId);
@@ -2841,7 +2859,7 @@ function App({ showThemeToggle = false }) {
     try {
       window.localStorage.setItem(
         UNCERTAINTY_UI_SIZING_KEY,
-        JSON.stringify({ sidebarWidth, scopedZoomLevels, sidebarColumnWidths }),
+        JSON.stringify({ sidebarWidth, scopedZoomLevels, sidebarColumnWidths, resultsScaleVersion: 2 }),
       );
     } catch (error) {
       console.warn("Unable to save uncertainty sizing preferences", error);
@@ -2873,7 +2891,8 @@ function App({ showThemeToggle = false }) {
 
         if (surface.dataset.zoomLevel !== String(zoom)) surface.dataset.zoomLevel = String(zoom);
         contents.forEach((content) => {
-          if (content.style.zoom !== String(zoom)) content.style.zoom = String(zoom);
+          const physical = physicalScopedZoom(key, zoom);
+          if (content.style.zoom !== String(physical)) content.style.zoom = String(physical);
         });
       });
     };
@@ -3520,9 +3539,9 @@ function App({ showThemeToggle = false }) {
       const logicalY = (surface.scrollTop + cursorY) / currentZoom;
 
       surface.dataset.zoomLevel = String(nextZoom);
-      content.style.zoom = String(nextZoom);
+      content.style.zoom = String(physicalScopedZoom(getScopedZoomKey(surface), nextZoom));
       linkedContents.forEach((linkedContent) => {
-        linkedContent.style.zoom = String(nextZoom);
+        linkedContent.style.zoom = String(physicalScopedZoom(getScopedZoomKey(surface), nextZoom));
       });
       const zoomKey = getScopedZoomKey(surface);
       if (zoomKey) {

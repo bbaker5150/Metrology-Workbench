@@ -391,7 +391,7 @@ describe("UncertaintyApp", () => {
     ).not.toBeInTheDocument();
   });
 
-  test("moves risk and mitigation controls out of Session Info into optional columns", async () => {
+  test("offers session risk defaults alongside optional point override columns", async () => {
     apiMock.state.sessions = [
       {
         id: 101,
@@ -442,8 +442,9 @@ describe("UncertaintyApp", () => {
     ).not.toBeInTheDocument();
     const sessionInfoToggle = screen.getByRole("button", { name: /Session Info/i });
     expect(sessionInfoToggle).toHaveAttribute("aria-expanded", "true");
-    expect(document.querySelector(".session-info-content")).not.toHaveTextContent("Risk Inputs");
-    expect(document.querySelector(".session-info-content")).not.toHaveTextContent("Mitigation Inputs");
+    expect(document.querySelector(".session-info-content")).toHaveTextContent("Risk Inputs");
+    expect(document.querySelector(".session-info-content")).toHaveTextContent("Mitigation Inputs");
+    expect(screen.getByRole("button", { name: "Risk Inputs", exact: true })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Document Date")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Columns", exact: true }));
     for (const label of ["Confidence (%)", "Assumed REOP", "TUR Needed", "PFA Required", "REOP Required", "Cal Int for assumed REOP"]) {
@@ -502,8 +503,10 @@ describe("UncertaintyApp", () => {
     expect(dateInput).toHaveFocus();
 
     fireEvent.keyDown(dateInput, { key: "Tab" });
-    expect(screen.queryByRole("spinbutton", { name: "Confidence (%)" })).not.toBeInTheDocument();
-    fireEvent.keyDown(dateInput, { key: "Tab", shiftKey: true });
+    const confidenceInput = screen.getByRole("textbox", { name: "Uncertainty Confidence (%)" });
+    expect(confidenceInput).toHaveFocus();
+    fireEvent.keyDown(confidenceInput, { key: "Tab", shiftKey: true });
+    fireEvent.keyDown(screen.getByLabelText("Document Date"), { key: "Tab", shiftKey: true });
     expect(screen.getByRole("textbox", { name: "Doc ID" })).toHaveFocus();
   });
 
@@ -1865,8 +1868,8 @@ describe("UncertaintyApp", () => {
       clientX: 10,
       clientY: 10,
     });
-    expect(resultsSurface.dataset.zoomLevel).toBe("0.9");
-    expect(resultsContent.style.zoom).toBe("0.9");
+    expect(resultsSurface.dataset.zoomLevel).toBe("1.1");
+    expect(resultsContent.style.zoom).toBe("0.88");
 
     window.localStorage.setItem(
       "uncertalytics:uut:instrument-column-widths:v2",

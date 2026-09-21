@@ -40,7 +40,7 @@ export async function checkPointHighlight({ frame, page, until, check, saved }) 
   check('Escape clears point-area selection', await until(async () => await area.getAttribute('data-area-selected') === 'false' && await frame.locator('.point-grid-item.active').count() === 0), JSON.stringify({selected: await area.getAttribute('data-area-selected'), rows: await frame.locator('.point-grid-item.active').count()}));
   await point.locator('[data-sidebar-column="pfa"]').click();
   const results = frame.locator('.budget-results-zoom-surface');
-  check('results default to 80 percent', await until(async () => await results.evaluateAll(nodes => nodes.length > 2 && nodes.every(node => node.dataset.zoomLevel === '0.8'))));
+  check('compact results default to 100 percent', await until(async () => await results.evaluateAll(nodes => nodes.length > 2 && nodes.every(node => node.dataset.zoomLevel === '1' && node.querySelector('.scoped-zoom-content').style.zoom === '0.8'))));
   check('only the final measurement result has the Final Results title', await results.evaluateAll(nodes => nodes.every((node, index) => node.textContent.includes(index === nodes.length - 1 ? 'Final Results' : 'Results') && (index === nodes.length - 1 || !node.textContent.includes('Final Results')))));
   // Dispatch the same bubbling Ctrl+wheel event consumed by scoped scaling.
   // This avoids coupling the regression to the OS's Ctrl+wheel interception.
@@ -52,10 +52,10 @@ export async function checkPointHighlight({ frame, page, until, check, saved }) 
     }
   };
   await zoom(results.first(), 2);
-  check('scaling one Results table scales every Results table to 60 percent', await results.evaluateAll(nodes => nodes.every(node => node.dataset.zoomLevel === '0.6')));
+  check('scaling one Results table scales every Results table to 80 percent', await results.evaluateAll(nodes => nodes.every(node => node.dataset.zoomLevel === '0.8')));
   const budgets = frame.locator('.budget-section-table-wrap');
   await zoom(budgets.first(), 2);
-  check('budget table scales are linked independently of Results', await budgets.evaluateAll(nodes => nodes.every(node => node.dataset.zoomLevel === '0.8')) && await results.first().getAttribute('data-zoom-level') === '0.6');
+  check('budget table scales are linked independently of Results', await budgets.evaluateAll(nodes => nodes.every(node => node.dataset.zoomLevel === '0.8')) && await results.first().getAttribute('data-zoom-level') === '0.8');
   const decision = frame.locator('.budget-decision-zoom-surface');
   await zoom(decision, 2);
   check('PFA/PFR cards support their own shared scale', await decision.getAttribute('data-zoom-level') === '0.8' && await decision.locator('.budget-decision-card').count() === 2);
@@ -64,7 +64,7 @@ export async function checkPointHighlight({ frame, page, until, check, saved }) 
   await frame.getByLabel('Measurement equation', { exact: true }).fill('a+b+c');
   await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
   check('new equation variable creates another results table', await until(async () => saved().testPoints.find(p => p.id === 'merged-1').equationString === 'a+b+c' && (await frame.locator(".budget-section-title-row h4").allTextContents()).some(title => !previousHeadings.includes(title) && /^c uncertainty budget$/i.test(title.trim()))));
-  check('new Results and budget tables inherit shared scales', await results.evaluateAll(nodes => nodes.every(node => node.dataset.zoomLevel === '0.6')) && await budgets.evaluateAll(nodes => nodes.every(node => node.dataset.zoomLevel === '0.8')));
+  check('new Results and budget tables inherit shared scales', await results.evaluateAll(nodes => nodes.every(node => node.dataset.zoomLevel === '0.8')) && await budgets.evaluateAll(nodes => nodes.every(node => node.dataset.zoomLevel === '0.8')));
   check('unnamed variable has Results while only the last table has Final Results', await results.evaluateAll(nodes => nodes.filter(node => node.textContent.includes('Final Results')).length === 1 && nodes.at(-1).textContent.includes('Final Results')));
   if (!await frame.getByLabel('Measurement equation', { exact: true }).count()) await frame.getByRole('button', { name: 'Edit measurement equation', exact: true }).click();
   await frame.getByLabel('Measurement equation', { exact: true }).fill('a+b');

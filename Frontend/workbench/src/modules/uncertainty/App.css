@@ -21297,6 +21297,19 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 
 /* Preserve the author's equation-symbol case while keeping heading typography. */
 .uncertainty-module .budget-section-title-row h4.budget-symbol-heading { text-transform: none; }
+.uncertainty-module .budget-symbol-heading .budget-heading-suffix { text-transform: uppercase; }
+.uncertainty-module .measurement-output-row .is-empty { color: var(--text-color-muted); font-style: italic; }
+.uncertainty-module .measurement-net-bias-add,
+.uncertainty-module .measurement-net-bias-remove { opacity: 1; visibility: visible; }
+.uncertainty-module .measurement-net-bias-add:disabled { opacity: .45; cursor: default; }
+.uncertainty-module .point-requirement-cell.is-inherited .point-value-number,
+.uncertainty-module .point-requirement-cell.is-inherited .sidebar-inline-input.value { color: var(--text-color-muted); font-style: italic; }
+.uncertainty-module .point-requirement-cell.is-override .point-value-number,
+.uncertainty-module .point-requirement-cell.is-override .sidebar-inline-input.value { color: var(--numeric-text); font-style: normal; }
+.session-default-inputs { border-top: 1px solid var(--border-color); margin-top: 10px; padding-top: 6px; }
+.session-default-input-fields { display: grid; gap: 7px; padding: 4px 0 8px; }
+.session-default-input-help { color: var(--text-color-muted); font-size: 11px; }
+.session-default-input-fields .session-header-field { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
 .uncertainty-module .measurement-output-row > td { background: var(--table-header-bg, var(--component-bg)); border-bottom: 1px solid var(--border-color); }
 /* Paint area selection on its cell: collapsed-table row outlines can be hidden
    by an adjacent selected instrument. This has no effect on row geometry. */

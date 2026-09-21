@@ -25,7 +25,7 @@ export async function checkInputTasking({ frame, page, check, until, saved }) {
   await tmde.getByRole('button', { name: 'Bias', exact: true }).click();
   const bias = frame.getByRole('textbox', { name: 'Range source bias', exact: true });
   await bias.fill('0'); await bias.press('Enter');
-  check('an authored zero source bias reveals the column', await until(async () => await inputs.locator('thead th').count() === 4));
+  check('instrument bias alone does not add the optional table column', await until(async () => await inputs.locator('thead th').count() === 3));
   await bias.fill(''); await bias.press('Enter');
   check('clearing the last source bias hides the column again', await until(async () => await inputs.locator('thead th').count() === 3));
   await frame.getByRole('button', { name: 'Add Net Bias', exact: true }).click();

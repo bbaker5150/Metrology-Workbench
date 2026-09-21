@@ -83,7 +83,7 @@ it("one clipboard owner replaces every older payload type", () => {
   }
 });
 
-it("output symbol and nominal edit the point without adding an equation input", () => {
+it("output name is editable while symbol and nominal remain owned by equation and point", () => {
   let saved;
   const initial = { id: "p", measurementType: "derived", equationString: "R*L", variableMappings: { R: "Force", L: "Length" },
     variableNominals: { R: { value: 10, unit: "lbf" }, L: { value: 2, unit: "ft" } },
@@ -97,14 +97,16 @@ it("output symbol and nominal edit the point without adding an equation input", 
   const table = document.querySelector(".measurement-inputs-table");
   expect(table.tBodies[0].rows[0]).toHaveClass("measurement-output-row");
   expect(within(table.tBodies[0].rows[0]).getByText("Torque")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Edit output variable" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Output variable" }), { target: { value: "τ" } });
-  fireEvent.keyDown(screen.getByRole("textbox", { name: "Output variable" }), { key: "Enter" });
-  expect(saved.equationString).toBe("τ = R*L");
+  expect(screen.queryByRole("button", { name: "Edit output variable" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Edit nominal for equation variable output" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Edit name for equation variable output" }));
+  const name = screen.getByRole("textbox", { name: "Display name for equation variable output" });
+  fireEvent.change(name, { target: { value: "Applied torque" } });
+  fireEvent.blur(name);
+  expect(saved.outputQuantityName).toBe("Applied torque");
+  expect(saved.equationString).toBe("R*L");
+  expect(saved.testPointInfo.parameter.value).toBe(20);
   expect(Object.keys(saved.variableMappings).sort()).toEqual(["L", "R"]);
-  fireEvent.click(screen.getByRole("button", { name: "Edit nominal for equation variable output" }));
-  fireEvent.change(screen.getByRole("spinbutton", { name: "Nominal value for equation variable output" }), { target: { value: "40" } });
-  expect(saved.testPointInfo.parameter.value).toBe("40");
   expect(saved.variableNominals).toEqual(initial.variableNominals);
   expect(screen.queryByText(/Name every variable/)).toBeNull();
 });

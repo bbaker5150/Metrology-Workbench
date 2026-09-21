@@ -11,8 +11,8 @@ import { resolveMeasurementBias } from "../../../utils/measurementBias";
  * from the current source total avoids changing risk merely by enabling the field.
  */
 export function AddNetBiasButton({ point, session, onChange }) {
-  if (point.measurementBias?.mode === "manual") return null;
-  return <button type="button" className="btn-add-item" title="Add Net Bias" aria-label="Add Net Bias"
+  const added = point.measurementBias?.mode === "manual";
+  return <button type="button" className="btn-add-item measurement-net-bias-add" title={added ? "Net bias already added" : "Add Net Bias"} aria-label="Add Net Bias" disabled={added}
     onClick={() => {
       const { calBias } = resolveMeasurementBias(point, session);
       onChange({ measurementBias: { ...point.measurementBias, mode: "manual",

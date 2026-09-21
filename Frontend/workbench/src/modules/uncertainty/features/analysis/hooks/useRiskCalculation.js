@@ -272,7 +272,7 @@ export const useRiskCalculation = (
     const measurementAverage = riskAverage;
     const bias = resolveMeasurementBias({ ...testPointData, uutTolerance: uutToleranceData, testPointInfo: { ...testPointData?.testPointInfo, parameter: uutNominal } }, sessionData, riskAverage, { includeSources: false, limits: { lower: LLow, upper: LUp } });
     if (bias.error) {
-      setNotification({ title: "Check bias settings", message: bias.error });
+      if (!bias.missingInputs) setNotification({ title: "Check bias settings", message: bias.error });
       publishRiskMetrics(null);
       return;
     }

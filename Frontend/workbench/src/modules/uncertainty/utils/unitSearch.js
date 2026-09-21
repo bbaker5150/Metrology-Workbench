@@ -33,7 +33,7 @@ export const flattenUnitGroups = (groups = []) =>
     const options = group?.options ? group.options : [group];
     return options
       .filter(Boolean)
-      .map((option) => ({ ...option, functionName: group?.label || "" }));
+      .map((option) => ({ ...option, functionName: group?.options ? group.label || "" : option.functionName || "" }));
   });
 
 const MATCH_NONE = 0;

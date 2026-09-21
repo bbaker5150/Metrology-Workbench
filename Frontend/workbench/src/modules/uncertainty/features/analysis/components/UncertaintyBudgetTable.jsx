@@ -1611,7 +1611,9 @@ const UncertaintyBudgetTable = ({
               className={`budget-stack-section ${group.kind === "final" ? "final" : ""}`}
             >
               <div className="budget-section-title-row">
-                <h4 className={group.kind === "input" && !group.variableType ? "budget-symbol-heading" : undefined}>{simplifyBudgetLabel(group.label)}</h4>
+                <h4 className={group.kind === "input" && !group.variableType ? "budget-symbol-heading" : undefined}>{group.kind === "input" && !group.variableType
+                  ? <>{simplifyBudgetLabel(group.label).replace(/\s+uncertainty budget$/i, "")} <span className="budget-heading-suffix">Uncertainty Budget</span></>
+                  : simplifyBudgetLabel(group.label)}</h4>
                 <div className="budget-section-title-actions">
                   {group.kind === "equation" && propagationWarnings.length > 0 && (
                     <span className="budget-range-warning" tabIndex={0} role="img"

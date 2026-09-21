@@ -96,6 +96,29 @@ it("keeps the open risk panel and sidebar identical as biases change", async () 
   expect(result.current.riskResults.risk8.meta.xcal).toBeCloseTo(.1);
 });
 
+it("clears risk without a modal while a biased equation input is being edited", async () => {
+  const { point, session } = biasFixture();
+  const save = vi.fn();
+  const { result, rerender } = renderHook(({ current }) => {
+    const sources = useMemo(() => resolvePointBudgetComponents(current, session), [current]);
+    const { calcResults } = useUncertaintyCalculation(current, session, current.tmdeTolerances, current.uutTolerance, current.testPointInfo.parameter, sources, save);
+    return useRiskCalculation(session, current, current.uutTolerance, current.tmdeTolerances, current.testPointInfo.parameter, calcResults, "riskmitigation");
+  }, { initialProps: { current: point } });
+  await waitFor(() => expect(result.current.riskResults?.pfa).toBeTypeOf("number"));
+  const symbol = Object.keys(point.variableMappings)[0];
+  const incomplete = { ...point, variableMappings: { ...point.variableMappings, [symbol]: "" } };
+  const pending = resolveMeasurementBias(incomplete, session);
+  expect(pending.missingInputs).toBe(true);
+  expect(pending.error).toContain(symbol);
+  expect(pending.calBias).toBeNaN();
+  rerender({ current: incomplete });
+  await waitFor(() => expect(result.current.riskResults).toBeNull());
+  expect(result.current.notification).toBeNull();
+  rerender({ current: point });
+  await waitFor(() => expect(result.current.riskResults?.pfa).toBeCloseTo(computePointRiskMetrics(point, session, true).pfa, 8));
+  expect(result.current.notification).toBeNull();
+});
+
 it.each(["known", "unknown"])("keeps biased %s single-sided panel, sidebar, and breakdown inputs aligned", async measurement => {
   const { point, session } = biasFixture();
   point.uutTolerance = { singleSided: { direction: "high", measurement, limit: 12, unit: "A" } };

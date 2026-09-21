@@ -20,7 +20,7 @@ export function prepareBiasSession(session) {
 export async function checkMeasurementBias({ frame, page, saved, until, check }) {
   const info = frame.getByRole('button', { name: 'Session Info', exact: true });
   if (await info.getAttribute('aria-expanded') === 'false') await info.click();
-  const sizes = await frame.locator('.session-field-size').evaluateAll(nodes => nodes.map(node => node.offsetWidth));
+  const sizes = await frame.locator('.session-info-content > .session-field-size, .session-header-grid .session-field-size').evaluateAll(nodes => nodes.map(node => node.offsetWidth));
   check('Session metadata retains compact default field widths', sizes.length === 5 && sizes.every(width => Math.abs(width - sizes[0]) < 1), JSON.stringify(sizes));
   const geometry = locator => locator.evaluate(node => { const r = node.getBoundingClientRect(), s = getComputedStyle(node); return { x:r.x, y:r.y, width:r.width, height:r.height, font:s.font }; });
   for (const [label, longText, initial] of [['Session Name', 'Torque calibration laboratory and reference setup', 'Smoke'], ['Organization', 'Measurement standards laboratory long name', 'Lab']]) {
@@ -56,7 +56,7 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
 
   const automaticRisk = await cards.allTextContents();
   await frame.getByRole('button', { name: 'Add Net Bias', exact: true }).click();
-  check('measurement-input plus enables one output-row bias initialized from sources', await until(() => saved().testPoints[0].measurementBias?.mode === 'manual') && Math.abs(Number(saved().testPoints[0].measurementBias.value)-.05)<1e-9 && await frame.locator('.measurement-output-row:has(.bias-value-editor)').count() === 1 && await frame.getByRole('button',{name:'Add Net Bias',exact:true}).count() === 0);
+  check('measurement-input plus enables one output-row bias initialized from sources', await until(() => saved().testPoints[0].measurementBias?.mode === 'manual') && Math.abs(Number(saved().testPoints[0].measurementBias.value)-.05)<1e-9 && await frame.locator('.measurement-output-row:has(.bias-value-editor)').count() === 1 && await frame.getByRole('button',{name:'Add Net Bias',exact:true}).isDisabled());
   check('adding net bias alone leaves risk unchanged', JSON.stringify(await cards.allTextContents()) === JSON.stringify(automaticRisk));
   const net = frame.getByRole('textbox', { name: 'Net measurement system bias', exact: true });
   await net.fill('-.6'); await net.press('Enter');

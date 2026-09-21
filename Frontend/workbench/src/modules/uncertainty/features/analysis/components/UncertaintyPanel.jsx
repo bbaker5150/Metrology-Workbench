@@ -2,7 +2,7 @@ import useExclusiveMenu from "../../../hooks/useExclusiveMenu";
 import { claimWorkspaceClipboard, ownsWorkspaceClipboard } from "../../../utils/workspaceClipboard";
 import { getPointRequirements } from "../../../utils/pointRequirements";
 import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "../../../utils/workspaceSelection";
-import MeasurementInputBias, { hasMeasurementInputBias } from "./MeasurementInputBias";
+import MeasurementInputBias from "./MeasurementInputBias";
 import { resolveMeasurementBias } from "../../../utils/measurementBias";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
@@ -523,10 +523,10 @@ const UnitSelect = ({
   // One ranked list rather than a stack of function groups: a search puts the
   // units that answer it at the top, and each row names its own function.
   const visibleOptions = useMemo(
-    // Browse base units, but search every concrete unit so a full name such
-    // as micrometer selects both the meter base and its micro prefix.
-    () => rankUnitOptions(query.trim() ? groupedUnitOptions : baseOptionsByCategory, query),
-    [baseOptionsByCategory, groupedUnitOptions, query],
+    // Prefixes have their own control. Search uses the same base-only choices
+    // as browsing, rather than reintroducing mV/µV as separate units.
+    () => rankUnitOptions(baseOptionsByCategory, query),
+    [baseOptionsByCategory, query],
   );
   const unitWidth = useMemo(() => {
     const longestLabelLength = Math.max(
@@ -2329,7 +2329,7 @@ export const EditableDescriptionCell = ({
 // standard assumption for a least-significant-digit / quantization error.
 const RESOLUTION_DIST_DEFAULT = "3.464";
 
-const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel, expandOnFocus = false }) => {
+const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel, expandOnFocus = true }) => {
   const [draft, setDraft] = useState(value ?? "");
   const [editing, setEditing] = useState(false);
   useEffect(() => setDraft(value ?? ""), [value]);
@@ -2808,7 +2808,7 @@ const InstrumentTableHeader = ({
   const labelFor = (columnKey) => {
     const custom = customByKey.get(columnKey);
     if (custom) return custom.label || "Name";
-    if (kind === "tmde" && columnKey === "tolerance") return "Error Limit";
+    if (kind === "tmde" && columnKey === "tolerance") return "Uncertainty";
     return INSTRUMENT_COLUMN_LABELS[columnKey] || columnKey;
   };
   return (
@@ -3480,6 +3480,7 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
         value={String(divisor || DISTRIBUTION_NOT_SET)}
         options={errorDistributions}
         ariaLabel="Spec band distribution"
+        getDisplayLabel={option => option?.label}
         title="Distribution used for this tolerance band"
         // Keep the field mounted after selection; InlineMenuSelect restores its
         // trigger focus. Blur/Tab dismisses it after focus reaches the next cell.
@@ -12632,6 +12633,9 @@ function DetailedView({
       });
       patch.variableMappings = reconciled.mappings;
       patch.variableNominals = reconciled.nominals;
+      // A committed deletion ends that variable's lifetime. Invalid partial
+      // expressions retain mappings above; re-added variables start unnamed.
+      rememberedVariableNamesRef.current = { ...reconciled.mappings };
       if (reconciled.simpleRename && reconciled.mappings[reconciled.simpleRename.to]) {
         rememberedVariableNamesRef.current[reconciled.simpleRename.to] =
           reconciled.mappings[reconciled.simpleRename.to];
@@ -12701,8 +12705,8 @@ function DetailedView({
     const newMappings = {};
     Object.entries(equation.variables).forEach(([symbol, suggestedName]) => {
       newMappings[symbol] =
-        currentMappings[symbol] ||
-        rememberedVariableNamesRef.current[symbol] ||
+        currentMappings[symbol] ??
+        rememberedVariableNamesRef.current[symbol] ??
         suggestedName;
     });
     rememberedVariableNamesRef.current = {
@@ -14861,8 +14865,9 @@ function DetailedView({
     ? resolveMeasurementBias(testPointData, sessionData, undefined, { ignoreManual: true }) : null,
   [testPointData, sessionData, equationDisplayData]);
 
-  const showInputBias = Boolean(equationDisplayData?.variables.length &&
-    hasMeasurementInputBias(testPointData, sessionData, equationDisplayData.variables, inputBiasCalculation));
+  // Instrument biases still participate in the calculation. The optional
+  // table column is authored here with + and removed with the output-row ×.
+  const showInputBias = testPointData.measurementBias?.mode === "manual";
 
   const equationVariableInputs =
     equationDisplayData?.variables.length > 0 ? (
@@ -14893,15 +14898,11 @@ function DetailedView({
             {/* The output uses the point's own nominal and optional equation LHS.
                 It is never added to the RHS input mappings or source sum. */}
             <tr className="measurement-output-row">
-              <td><MeasurementInputSymbolCell output
-                symbol={testPointData.equationString?.includes("=") ? testPointData.equationString.split("=")[0].trim() : ""}
-                onCommit={symbol => handleEquationChange(`${symbol ? `${symbol} = ` : ""}${stripEquationPrefix(testPointData.equationString)}`)} /></td>
-              <td>{uutNominal?.name || testPointData.testPointInfo?.measurementArea || testPointData.measurementAreaName || "Output"}</td>
-              <td><MeasurementInputNominalCell symbol="output" value={uutNominal?.value ?? ""} unit={uutNominal?.unit || ""}
-                onValueChange={value => onUpdateTestPoint({ testPointInfo: { ...testPointData.testPointInfo,
-                  parameter: { ...testPointData.testPointInfo?.parameter, value } } })}
-                onUnitChange={unit => onUpdateTestPoint({ testPointInfo: { ...testPointData.testPointInfo,
-                  parameter: { ...testPointData.testPointInfo?.parameter, unit, unitSelectionExplicit: true } } })} /></td>
+              <td>{testPointData.equationString?.includes("=") ? formatEquationVariableSymbol(testPointData.equationString.split("=")[0].trim()) : <span className="is-empty">Not Set</span>}</td>
+              <td><MeasurementInputNameCell symbol="output"
+                value={testPointData.outputQuantityName ?? uutNominal?.name ?? testPointData.testPointInfo?.measurementArea ?? "Output"}
+                onChange={outputQuantityName => onUpdateTestPoint({ outputQuantityName })} /></td>
+              <td>{uutNominal?.value === "" || uutNominal?.value == null ? <span className="is-empty">Not Set</span> : `${uutNominal.value}${uutNominal.unit ? ` ${getUnitDisplayLabel(uutNominal.unit)}` : ""}`}</td>
               {showInputBias && <td><NetBiasCell point={testPointData} onChange={onUpdateTestPoint} /></td>}
             </tr>
             {equationDisplayData.variables.map((variable) => (

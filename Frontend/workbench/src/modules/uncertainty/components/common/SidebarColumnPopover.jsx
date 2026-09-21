@@ -1,7 +1,6 @@
 import useExclusiveMenu from "../../hooks/useExclusiveMenu";
 import React, { useLayoutEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { getAnchoredMenuPlacement } from "../../utils/anchoredMenuPosition";
 
 export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
   useExclusiveMenu(true, onClose);
@@ -22,15 +21,14 @@ export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
         left: right + 8, top: 8, width: 480, maxHeight: viewportHeight - 16,
       } : left - 8 - 480 >= 8 ? {
         left: left - 8 - 480, top: 8, width: 480, maxHeight: viewportHeight - 16,
-      } : getAnchoredMenuPlacement({
-        anchorRect: rect && Object.fromEntries(["top", "right", "bottom", "left"].map(key => [key, rect[key] / zoom])),
-        viewportWidth: window.innerWidth / zoom,
-        viewportHeight: window.innerHeight / zoom,
-        preferredWidth: 480,
-        preferredMaxHeight: viewportHeight - 16,
-      });
-      // Constrain the menu to one side of its trigger. Growing the selected
-      // column list must never cover the toggle needed to close the menu.
+      } : {
+        // A narrow viewport cannot fit the menu beside the trigger. Keep the
+        // entire vertical budget instead of clipping it to the space below.
+        left: Math.max(8, Math.min(left || 8, viewportWidth - Math.min(480, viewportWidth - 16) - 8)),
+        top: 8, width: Math.min(480, viewportWidth - 16), maxHeight: viewportHeight - 16,
+      };
+      // Prefer either side of the trigger; narrow screens retain Escape and
+      // outside-click dismissal while using the available viewport height.
       setPlacement(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
     };
     update();

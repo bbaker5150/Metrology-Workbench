@@ -15,9 +15,9 @@ export async function checkSeptember21({ frame, page, check, until, saved }) {
   await point.locator('[data-sidebar-column="pfa"]').click();
   const inputs = frame.locator('.measurement-inputs-table');
   check('output is the first row, with its nominal and no extra input', await inputs.locator('tbody tr').first().getAttribute('class') === 'measurement-output-row' && await inputs.locator('tbody tr').count() === 2);
-  await frame.getByRole('button', { name: 'Edit output variable', exact: true }).click();
-  const output = frame.getByRole('textbox', { name: 'Output variable', exact: true });
-  await output.fill('τ'); await output.press('Enter');
+  await frame.getByRole('button', { name: 'Edit measurement equation', exact: true }).click();
+  await frame.getByLabel('Measurement equation', { exact: true }).fill('τ = a');
+  await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
   check('optional Unicode output symbol saves on the LHS only', await until(() => saved().testPoints[0].equationString === 'τ = a') && Object.keys(saved().testPoints[0].variableMappings).join() === 'a');
   await frame.getByRole('button', { name: 'Rename equation variable a', exact: true }).focus();
   const symbol = frame.getByRole('textbox', { name: 'Equation variable a', exact: true });
@@ -40,6 +40,7 @@ export async function checkSeptember21({ frame, page, check, until, saved }) {
   await equation.fill('τ = π'); await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
   const greekHeading = frame.locator('.budget-section-title-row h4').filter({ hasText: /^π Uncertainty Budget$/ });
   check('unnamed Greek budget heading retains lowercase π', await until(async () => await greekHeading.count() === 1) && await greekHeading.evaluate(node => getComputedStyle(node).textTransform === 'none'));
+  check('editing incomplete equation inputs does not launch a bias warning', await frame.getByRole('alertdialog').count() === 0);
   await frame.getByRole('button', { name: 'Edit measurement equation', exact: true }).click();
   await equation.fill('τ = E'); await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
   // Restore a complete input before inspecting linked TMDE limits.

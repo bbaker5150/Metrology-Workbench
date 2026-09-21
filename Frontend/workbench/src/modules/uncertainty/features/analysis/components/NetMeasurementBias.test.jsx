@@ -25,7 +25,7 @@ it("adds one net output bias, replaces source contributions, and restores them o
   };
   render(<Harness />);
   fireEvent.click(screen.getByRole("button", { name: "Add Net Bias" }));
-  expect(screen.queryByRole("button", { name: "Add Net Bias" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Add Net Bias" })).toBeDisabled();
   expect(screen.getAllByRole("textbox", { name: "Net measurement system bias" })).toHaveLength(1);
   expect(resolveMeasurementBias(saved, session).calBias).toBeCloseTo(originalCal, 12);
   expect(computePointRiskMetrics(saved, session, true)).toEqual(originalRisk);

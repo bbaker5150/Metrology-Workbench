@@ -166,6 +166,10 @@ export function resolveMeasurementBias(point = {}, session = {}, calculatedAvera
       // and not f(x+b)-f(x). Large biases/nonlinear equations need user review.
       const derived = calculateDerivedUncertainty(point.equationString, point.variableMappings, instances,
         { ...reference, variableNominals: point.variableNominals || {} }, resolvePointBudgetComponents(point, session), { allowFiniteDifference: true });
+      // Editing a variable's name/nominal temporarily leaves its sensitivity
+      // unresolved. Preserve that pending state for the UI: risk still fails
+      // closed, but ordinary inline editing must not launch a modal warning.
+      if (derived.missingInputs) result.missingInputs = true;
       if (derived.error || derived.missingInputs) throw new Error(derived.error || "Set equation input values to calculate source bias.");
       breakdown = derived.breakdown || [];
     }

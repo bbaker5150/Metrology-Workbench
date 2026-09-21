@@ -3,7 +3,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
-import { getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
+import { getUnitDisplayLabel, unitSystem } from "../../../utils/uncertaintyMath";
+import { SI_PREFIX_OPTIONS, prefixedUnitKey } from "../../../utils/siPrefixes";
+import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
 import {
   flattenUnitGroups,
@@ -31,15 +33,27 @@ const BuilderUnitSelect = ({
   const searchRef = useRef(null);
   const selectedRef = useRef(null);
   const activeRef = useRef(null);
-  const flatOptions = useMemo(() => flattenUnitGroups(options), [options]);
+  const baseOptions = useMemo(() => {
+    const seen = new Set();
+    return flattenUnitGroups(options).flatMap(option => {
+      const base = unitSystem.units[option.value]?.prefixBase || option.value;
+      if (seen.has(base)) return [];
+      seen.add(base);
+      return [{ ...option, value: base, label: getUnitDisplayLabel(base) }];
+    });
+  }, [options]);
+  const flatOptions = baseOptions;
+  const model = unitSystem.units[value];
+  const baseValue = model?.prefixBase || value;
+  const prefix = model?.prefixKey || "";
   const selectedOption =
-    flatOptions.find((option) => option.value === value) ||
+    flatOptions.find((option) => option.value === baseValue) ||
     (value ? { value, label: getUnitDisplayLabel(value) || value } : null);
   // One ranked list rather than a stack of function groups: a search puts the
   // units that answer it at the top, and each row names its own function.
   const visibleOptions = useMemo(
-    () => rankUnitOptions(options, query),
-    [options, query],
+    () => rankUnitOptions(baseOptions, query),
+    [baseOptions, query],
   );
 
   const closeMenu = () => setIsOpen(false);
@@ -58,7 +72,7 @@ const BuilderUnitSelect = ({
       }));
     }
     setQuery("");
-    setActiveValue(value || flatOptions[0]?.value || "");
+    setActiveValue(baseValue || flatOptions[0]?.value || "");
     setIsOpen(true);
   };
 
@@ -107,7 +121,7 @@ const BuilderUnitSelect = ({
   return (
     <div
       ref={rootRef}
-      className="inline-unit-select builder-unit-select"
+      className={`inline-unit-select builder-unit-select${model ? " inline-unit-split-select" : ""}`}
       onMouseDown={(event) => event.stopPropagation()}
       aria-label={ariaLabel}
       style={{ "--inline-unit-width": width }}
@@ -130,6 +144,12 @@ const BuilderUnitSelect = ({
         <span>{selectedOption?.label || value || "Unit"}</span>
         <FontAwesomeIcon icon={faChevronDown} size="xs" />
       </button>
+      {model && <InlineMenuSelect ariaLabel={`${ariaLabel} prefix`} value={prefix}
+        width="58px" prefixTable options={SI_PREFIX_OPTIONS.map(item => ({ value: item.key, label: item.label, shortLabel: item.shortLabel }))}
+        onChange={nextPrefix => {
+          const key = prefixedUnitKey(baseValue, nextPrefix);
+          onChange(unitSystem.units[key]?.prefixBase === baseValue ? key : `${nextPrefix}(${baseValue})`);
+        }} />}
       {isOpen &&
         menuRect &&
         ReactDOM.createPortal(
@@ -190,7 +210,7 @@ const BuilderUnitSelect = ({
                 <div className="inline-unit-empty">No matching units</div>
               ) : (
                 visibleOptions.map((option) => {
-                  const isSelected = option.value === value;
+                  const isSelected = option.value === baseValue;
                   const isActive = option.value === activeValue;
                   return (
                     <button

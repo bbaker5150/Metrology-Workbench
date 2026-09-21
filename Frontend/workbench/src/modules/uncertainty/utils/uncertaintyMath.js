@@ -634,7 +634,7 @@ export const errorDistributions = [
   { value: "2.576", label: "Normal (99%)", shortLabel: "k = 2.576" },
   { value: "3.000", label: "Normal (99.73%)", shortLabel: "k = 3.000" },
   { value: "4.179", label: "Rayleigh", shortLabel: "k = 4.179" },
-  { value: "1.000", label: "Normal", shortLabel: "k = 1.000" },
+  { value: "1.000", label: "Normal (Std. Unc.)", shortLabel: "k = 1.000" },
 ];
 
 // The UI and persisted instrument schema intentionally retain the historical
@@ -2269,7 +2269,7 @@ export const calculateDerivedUncertainty = (
     const missingSymbols = variables.filter(sym => nominalScope[sym] === undefined);
 
     if (missingSymbols.length > 0) {
-      const missingTypes = missingSymbols.map(sym => variableMappings[sym]);
+      const missingTypes = missingSymbols.map(sym => variableMappings[sym] || sym);
       return {
         combinedUncertaintyNative: NaN,
         breakdown: [],

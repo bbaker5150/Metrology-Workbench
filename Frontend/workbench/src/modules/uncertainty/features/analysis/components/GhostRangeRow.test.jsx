@@ -294,9 +294,9 @@ describe("GhostRangeRow", () => {
     }, { openTolerance: true });
   });
 
-  it.each([["gram", "g"], ["micrometer", "um"], ["millivolt", "mV"]])(
-    "selects the complete unit from its full name %s",
-    (query, unit) => {
+  it.each([["gram", "g", null], ["meter", "um", "Micro"], ["volt", "mV", "Milli"]])(
+    "selects the base unit by name %s and applies prefixes separately",
+    (query, unit, prefix) => {
       const onMaterialize = vi.fn();
       renderGhost(onMaterialize);
       fireEvent.click(screen.getByRole("button", { name: "New range unit base unit" }));
@@ -304,6 +304,10 @@ describe("GhostRangeRow", () => {
         target: { value: query },
       });
       fireEvent.click(screen.getAllByRole("option")[0]);
+      if (prefix) {
+        fireEvent.click(screen.getByLabelText("New range unit prefix"));
+        fireEvent.click(screen.getByRole("option", { name: new RegExp(`^${prefix} `) }));
+      }
       fireEvent.change(screen.getByLabelText("New range minimum"), {
         target: { value: "0" },
       });

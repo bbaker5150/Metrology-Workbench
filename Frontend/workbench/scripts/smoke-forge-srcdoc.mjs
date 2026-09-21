@@ -1,4 +1,5 @@
 import { prepareSeptember21, checkSeptember21 } from "./september21-checks.mjs";
+import { prepareSeptember21Followup, checkSeptember21Followup } from "./september21-followup-checks.mjs";
 import { prepareInputTasking, checkInputTasking } from './input-tasking-checks.mjs';
 import { preparePointPolish, checkPointPolish } from './point-polish-checks.mjs';
 import { preparePointUsability, checkPointUsability } from "./point-usability-checks.mjs";
@@ -135,6 +136,7 @@ if (process.env.INSTRUMENT_INTERACTION_SMOKE) for (const session of sessions.val
 if (process.env.SEPTEMBER17_INTERACTION_SMOKE) for (const session of sessions.values()) prepareSeptember17Interactions(session);
 if (process.env.MEASUREMENT_BIAS_SMOKE) for (const session of sessions.values()) prepareBiasSession(session);
 if (process.env.SEPTEMBER21_SMOKE) for (const session of sessions.values()) prepareSeptember21(session);
+if (process.env.SEPTEMBER21_FOLLOWUP_SMOKE) for (const session of sessions.values()) prepareSeptember21Followup(session);
 if (process.env.INPUT_TASKING_SMOKE) for (const session of sessions.values()) prepareInputTasking(session);
 if (process.env.POINT_POLISH_SMOKE) for (const session of sessions.values()) preparePointPolish(session);
 if (process.env.POINT_USABILITY_SMOKE) for (const session of sessions.values()) preparePointUsability(session);
@@ -309,6 +311,7 @@ if (/not set up yet/i.test(frameText)) {
   if (process.env.INSTRUMENT_INTERACTION_SMOKE) await checkInstrumentInteractions({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER17_INTERACTION_SMOKE) await checkSeptember17Interactions({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER21_SMOKE) await checkSeptember21({ frame, page, saved, until, check });
+  if (process.env.SEPTEMBER21_FOLLOWUP_SMOKE) await checkSeptember21Followup({ frame, page, saved, until, check });
   if (process.env.INPUT_TASKING_SMOKE) await checkInputTasking({ frame, page, saved, until, check });
   if (process.env.POINT_POLISH_SMOKE) await checkPointPolish({ frame, page, saved, until, check });
   if (process.env.POINT_USABILITY_SMOKE) await checkPointUsability({ frame, page, saved, until, check });

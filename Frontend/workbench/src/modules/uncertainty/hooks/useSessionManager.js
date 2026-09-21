@@ -696,10 +696,10 @@ const useSessionManager = () => {
   // --- 5. CRUD Operations ---
   const updateSession = useCallback(
     (updatedSession, newImages = []) => {
-      updatedSession = inheritMissingPointUnits(migrateMeasurementAreas(updatedSession));
       const previousSession = sessionsRef.current.find(
         (session) => session.id === updatedSession.id,
       );
+      updatedSession = inheritMissingPointUnits(migrateMeasurementAreas(updatedSession), previousSession);
       updatedSession = syncPointTolerances(updatedSession, previousSession);
       updatedSession = trackInstrumentOnboarding(updatedSession, previousSession);
       const changeGroup = getSessionChangeGroup(previousSession, updatedSession);

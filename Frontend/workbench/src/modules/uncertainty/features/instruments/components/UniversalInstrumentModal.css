@@ -797,7 +797,7 @@
 
 .function-spec-header {
     display: grid;
-    grid-template-columns: minmax(180px, 1fr) minmax(120px, 180px) 32px;
+    grid-template-columns: minmax(180px, 1fr) minmax(124px, 180px) 32px;
     gap: 8px;
     align-items: center;
     padding: 10px 12px;
@@ -868,6 +868,14 @@
     width: 9ch;
     min-width: 9ch;
     flex-basis: 9ch;
+}
+
+/* A selected base and its independent prefix occupy one reserved slot. The
+   legacy 9ch single-selector width would overlap the adjacent range action. */
+.function-unit-control .builder-unit-select.inline-unit-split-select {
+    width: max(var(--inline-unit-width, 124px), 124px);
+    min-width: max(var(--inline-unit-width, 124px), 124px);
+    flex-basis: max(var(--inline-unit-width, 124px), 124px);
 }
 
 .builder-ranges-table-container {

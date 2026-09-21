@@ -56,7 +56,7 @@ export const toleranceUnitMismatch = (raw, target, unitSystem) => {
   const tolerance = { ...outer, ...(outer.tolerance || outer.tolerances || {}) };
   // A percent used as the measured quantity is not a relative spec: an
   // instrument range in % or dB cannot silently become a voltage range.
-  for (const unit of [outer.unit, tolerance.unit]) {
+  for (const unit of [outer.unit, outer.functionUnit, tolerance.unit, tolerance.functionUnit]) {
     const quantity = unit && unitSystem.getQuantity(unit);
     const targetQuantity = target && unitSystem.getQuantity(target);
     if (quantity && targetQuantity && quantity !== targetQuantity)
