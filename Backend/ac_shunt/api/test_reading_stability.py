@@ -46,6 +46,9 @@ class ReadingStabilityTests(TestCase):
         self.assertIsNone(self.results.cycles.get(cycle_index=2).delta_uut_ppm)
         self.assertIsNone(self.results.delta_uut_ppm_avg)
         self.assertIsNone(self.results.type_a_uncertainty_ppm)
+        self.assertIsNone(self.results.ti_ac_open_avg)
+        self.assertIsNone(self.results.ti_ac_open_stddev)
+        self.assertIsNone(self.results.delta_uut_ppm)
 
     def test_rejects_ambiguous_cycle_invalid_ranges_and_boolean_strings(self):
         for data in [dict(cycle=None),dict(cycle=3),dict(start_index=4,end_index=4),dict(start_index='x'),dict(is_stable='false'),dict(cycle=True),dict(reading_key='id')]:
@@ -59,6 +62,45 @@ class ReadingStabilityTests(TestCase):
         self.edit(cycle=None)
         self.readings.refresh_from_db()
         self.assertFalse(self.readings.ti_ac_open_readings[2]['is_stable'])
+
+    def test_legacy_numeric_readings_are_included_and_can_be_restored(self):
+        self.readings.ti_ac_open_readings = [1., 2., 3.]
+        self.readings.save(update_fields=['ti_ac_open_readings'])
+        self.edit(cycle=1)
+        self.assertEqual(self.results.cycles.get(cycle_index=1).ti_ac_open_avg, 1.5)
+        self.edit(cycle=1, is_stable=True)
+        self.assertEqual(self.results.cycles.get(cycle_index=1).ti_ac_open_avg, 2.)
+
+    def test_one_remaining_stable_sample_does_not_reintroduce_exclusions(self):
+        self.edit(cycle=1, start_index=1)
+        self.edit(cycle=2, start_index=2)
+        self.results.refresh_from_db()
+        self.assertIsNone(self.results.ti_ac_open_avg)
+        self.assertIsNone(self.results.delta_uut_ppm)
+
+    def test_characterization_edit_refreshes_all_cycles_and_clears_invalid_gain(self):
+        for phase, values in [('plus1', [1.001, 1.001, 1.004]),
+                              ('minus', [1., 1., 1.]),
+                              ('plus2', [1.001, 1.001, 1.001])]:
+            setattr(self.readings, f'ti_char_{phase}_readings', [{'value':v} for v in values])
+        self.readings.save()
+        self.edit(reading_key='ti_char_plus1_readings', cycle=1)
+        self.results.refresh_from_db()
+        self.assertAlmostEqual(self.results.eta_ti, 0.001 / 0.00100050025)
+        for cycle in self.results.cycles.all():
+            self.assertIsNotNone(cycle.delta_uut_ppm)
+        self.edit(reading_key='ti_char_plus1_readings', cycle=1, start_index=1)
+        self.results.refresh_from_db()
+        self.assertIsNone(self.results.eta_ti)
+        self.assertIsNone(self.results.delta_uut_ppm)
+        self.assertIsNone(self.results.delta_uut_ppm_avg)
+        self.assertTrue(all(c.delta_uut_ppm is None for c in self.results.cycles.all()))
+        self.edit(is_stable=True)
+        self.assertTrue(all(c.delta_uut_ppm is None for c in self.results.cycles.all()))
+        self.edit(reading_key='ti_char_plus1_readings', cycle=1, start_index=1, is_stable=True)
+        self.results.refresh_from_db()
+        self.assertIsNotNone(self.results.eta_ti)
+        self.assertTrue(all(c.delta_uut_ppm is not None for c in self.results.cycles.all()))
 
     def test_auto_filter_is_default_and_explicit_off_persists(self):
         self.assertEqual(self.results.outlier_filter_mode, 'auto')

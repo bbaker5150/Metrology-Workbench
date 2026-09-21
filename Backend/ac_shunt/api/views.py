@@ -14,6 +14,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.conf import settings
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from .corrections_auth import require_corrections_authorization
 import json
 import os
 from channels.layers import get_channel_layer
@@ -285,12 +287,30 @@ class MessageViewSet(viewsets.ModelViewSet):
     queryset = Message.objects.all().order_by('-created_at')
     serializer_class = MessageSerializer
 
-class ShuntViewSet(viewsets.ModelViewSet):
+class _CorrectionDeviceWriteMixin:
+    def perform_create(self, serializer):
+        if serializer.validated_data.get('is_manual') is not True:
+            raise PermissionDenied('Imported devices must be created by the server import process.')
+        serializer.save()
+
+    def perform_update(self, serializer):
+        device = serializer.instance
+        require_corrections_authorization(self.request, device)
+        if serializer.validated_data.get('is_manual', device.is_manual) != device.is_manual:
+            raise ValidationError('A device cannot change between imported and manual through this API.')
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        require_corrections_authorization(self.request, instance)
+        instance.delete()
+
+
+class ShuntViewSet(_CorrectionDeviceWriteMixin, viewsets.ModelViewSet):
     queryset = Shunt.objects.prefetch_related('reports__corrections').all()
     serializer_class = ShuntSerializer
 
 
-class TVCViewSet(viewsets.ModelViewSet):
+class TVCViewSet(_CorrectionDeviceWriteMixin, viewsets.ModelViewSet):
     queryset = TVC.objects.prefetch_related('reports__corrections', 'sensitivities').all()
     serializer_class = TVCSerializer
 
@@ -309,7 +329,7 @@ class _ReportViewSetMixin:
     parent_field = None         # e.g. 'shunt'
 
     def _parent(self):
-        return self.parent_model.objects.get(pk=self.kwargs[self.parent_lookup_kwarg])
+        return get_object_or_404(self.parent_model, pk=self.kwargs[self.parent_lookup_kwarg])
 
     def get_queryset(self):
         return (
@@ -320,6 +340,7 @@ class _ReportViewSetMixin:
 
     def perform_create(self, serializer):
         parent = self._parent()
+        require_corrections_authorization(self.request, parent)
         report = serializer.save(**{self.parent_field: parent})
         parent.refresh_active_report()
         # refresh_active_report may have flipped is_active on this row; reload
@@ -327,12 +348,14 @@ class _ReportViewSetMixin:
         report.refresh_from_db()
 
     def perform_update(self, serializer):
+        require_corrections_authorization(self.request, self._parent())
         report = serializer.save()
         getattr(report, self.parent_field).refresh_active_report()
         report.refresh_from_db()
 
     def perform_destroy(self, instance):
         parent = getattr(instance, self.parent_field)
+        require_corrections_authorization(self.request, parent)
         instance.delete()
         parent.refresh_active_report()
 
@@ -345,6 +368,7 @@ class _ReportViewSetMixin:
         """
         report = self.get_object()
         parent = getattr(report, self.parent_field)
+        require_corrections_authorization(request, parent)
         should_pin = bool(request.data.get('pinned', True))
         # Only one pin at a time per device.
         parent.reports.exclude(pk=report.pk).update(is_pinned=False)

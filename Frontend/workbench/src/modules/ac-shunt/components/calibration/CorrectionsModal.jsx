@@ -132,6 +132,7 @@ const PasswordModal = ({
   message,
   onConfirm,
   onCancel,
+  busy = false,
   overlayClassName = "modal-overlay modal-overlay--nested",
 }) => {
   const [password, setPassword] = useState("");
@@ -144,7 +145,7 @@ const PasswordModal = ({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onConfirm(password);
+    if (!busy) onConfirm(password);
   };
 
   return (
@@ -175,6 +176,9 @@ const PasswordModal = ({
             <p className="confirm-modal-message">{message}</p>
             <input
               type="password"
+              aria-label="Authorization password"
+              autoComplete="current-password"
+              disabled={busy}
               className="corrections-points-input"
               style={{ width: "100%", padding: "10px", boxSizing: "border-box" }}
               value={password}
@@ -189,6 +193,7 @@ const PasswordModal = ({
               className="cal-results-excel-icon-btn"
               title="Verify"
               aria-label="Verify"
+              disabled={busy}
             >
               <FaCheck aria-hidden />
             </button>
@@ -265,6 +270,45 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, kind: null, payload: null });
   const [addPointsConfirm, setAddPointsConfirm] = useState({ isOpen: false, row: null, headers: null, isMismatch: false });
   const [passwordGate, setPasswordGate] = useState({ isOpen: false, action: null });
+  const [isVerifyingPassword, setIsVerifyingPassword] = useState(false);
+  const authorizationRef = useRef(new Map());
+  const authorizationRequestRef = useRef(0);
+
+  const cancelAuthorization = () => {
+    authorizationRequestRef.current += 1;
+    setIsVerifyingPassword(false);
+    setPasswordGate({ isOpen: false, action: null });
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      authorizationRef.current.clear();
+      cancelAuthorization();
+    }
+    return () => { authorizationRequestRef.current += 1; };
+  }, [isOpen]);
+
+  const ensureAuthorization = (type, device, action) => {
+    if (device?.is_manual) return true;
+    const key = `${type}:${device?.id}`;
+    const grant = authorizationRef.current.get(key);
+    if (grant && grant.expiresAt > Date.now()) return true;
+    authorizationRef.current.delete(key);
+    setPasswordGate({ isOpen: true, type, device, action });
+    return false;
+  };
+
+  const authorizationConfig = (type, deviceId) => {
+    const grant = authorizationRef.current.get(`${type}:${deviceId}`);
+    return grant ? { headers: { Authorization: `Corrections ${grant.token}` } } : {};
+  };
+
+  const retryAuthorization = (error, type, device, action) => {
+    if (error.response?.status !== 403 || device?.is_manual) return false;
+    authorizationRef.current.delete(`${type}:${device?.id}`);
+    ensureAuthorization(type, device, action);
+    return true;
+  };
 
   const notify = useCallback((msg, type = "info") => {
     if (showNotification) showNotification(msg, type);
@@ -305,6 +349,9 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
   // Close the whole modal and reset any transient sub-state so a later
   // reopen starts clean (no stale editor / password prompt left behind).
   const handleShellClose = useCallback(() => {
+    authorizationRef.current.clear();
+    authorizationRequestRef.current += 1;
+    setIsVerifyingPassword(false);
     setPasswordGate({ isOpen: false, action: null });
     setDeleteConfirm({ isOpen: false, kind: null, payload: null });
     setAddPointsConfirm({ isOpen: false, row: null, headers: null, isMismatch: false });
@@ -319,7 +366,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     const onKeyDown = (e) => {
       if (e.key !== "Escape") return;
       if (passwordGate.isOpen) {
-        setPasswordGate({ isOpen: false, action: null });
+        cancelAuthorization();
       } else if (deleteConfirm.isOpen) {
         setDeleteConfirm({ isOpen: false, kind: null, payload: null });
       } else if (addPointsConfirm.isOpen) {
@@ -360,7 +407,9 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         const base = sizeLabel && !hasRangeInName
           ? `[${displayModel}] ${info.serial_number} (${sizeLabel})`
           : `[${displayModel}] ${info.serial_number}`;
-        return { value: info.key, label: info.is_manual ? `${base} — Manual` : base };
+        const notes = pickActiveReport(info.reports)?.notes?.trim();
+        const label = notes ? `${base}, ${notes}` : base;
+        return { value: info.key, label: info.is_manual ? `${label} — Manual` : label };
       }),
     [shuntDevices]
   );
@@ -539,6 +588,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
   const openNewReport = (type) => {
     const device = type === "shunt" ? selectedShuntDevice : selectedTvc;
     if (!device) return;
+    if (!ensureAuthorization(type, device, () => openNewReport(type))) return;
     const templateReport = type === "shunt" ? selectedShuntReport : selectedTvcReport;
     const points =
       type === "shunt"
@@ -605,21 +655,34 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     const device = type === "shunt" ? selectedShuntDevice : selectedTvc;
     const report = type === "shunt" ? selectedShuntReport : selectedTvcReport;
     if (!device || !report) return;
-    // Editing imported (system) reports is gated behind the admin password.
-    if (!device.is_manual) {
-      setPasswordGate({ isOpen: true, action: () => proceedEditReport(type, device, report) });
-      return;
-    }
+    if (!ensureAuthorization(type, device, () => proceedEditReport(type, device, report))) return;
     proceedEditReport(type, device, report);
   };
 
-  const handlePasswordVerify = (password) => {
-    if (password === "admin123") {
-      const action = passwordGate.action;
+  const handlePasswordVerify = async (password) => {
+    if (isVerifyingPassword) return;
+    const requestId = ++authorizationRequestRef.current;
+    const { type, device, action } = passwordGate;
+    setIsVerifyingPassword(true);
+    try {
+      const { data } = await axios.post(`${API_BASE_URL}/corrections/authorize/`, {
+        password, device_type: type, device_id: device.id,
+      });
+      if (requestId !== authorizationRequestRef.current) return;
+      if (typeof data?.token !== "string" || !data.token || !(data.expires_in > 0)) {
+        throw new Error("The server did not return a valid authorization. Please try again.");
+      }
+      authorizationRef.current.set(`${type}:${device.id}`, {
+        token: data.token, expiresAt: Date.now() + data.expires_in * 1000,
+      });
       setPasswordGate({ isOpen: false, action: null });
       if (typeof action === "function") action();
-    } else {
-      notify("Incorrect password. Access denied.", "error");
+    } catch (error) {
+      if (requestId === authorizationRequestRef.current) {
+        notify(error.response?.data?.detail || "Unable to verify authorization. Check the backend connection and configuration.", "error");
+      }
+    } finally {
+      if (requestId === authorizationRequestRef.current) setIsVerifyingPassword(false);
     }
   };
 
@@ -628,6 +691,9 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
   // =====================================================================
   const handleSaveEditor = async () => {
     const isShunt = editorType === "shunt";
+    const device = { id: editorForm.deviceId, is_manual: editorForm.is_manual };
+    if (editorMode !== "device-new" && !ensureAuthorization(editorType, device, handleSaveEditor)) return;
+    const authConfig = authorizationConfig(editorType, editorForm.deviceId);
 
     const validPoints = editorForm.points.filter(
       (p) => p.frequency !== "" && p.frequency !== null && (!isShunt || (p.current !== "" && p.current !== null))
@@ -689,7 +755,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         }
       } else if (editorMode === "report-new") {
         const base = `${API_BASE_URL}/${isShunt ? "shunts" : "tvcs"}/${editorForm.deviceId}/reports/`;
-        const res = await axios.post(base, reportPayload);
+        const res = await axios.post(base, reportPayload, authConfig);
         await fetchData();
         if (isShunt) setSelectedShuntReportId(res.data?.id ?? null);
         else setSelectedTvcReportId(res.data?.id ?? null);
@@ -708,10 +774,11 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
             };
         await axios.patch(
           `${API_BASE_URL}/${isShunt ? "shunts" : "tvcs"}/${editorForm.deviceId}/`,
-          devicePayload
+          devicePayload,
+          authConfig
         );
         const base = `${API_BASE_URL}/${isShunt ? "shunts" : "tvcs"}/${editorForm.deviceId}/reports/${editorForm.reportId}/`;
-        await axios.put(base, reportPayload);
+        await axios.put(base, reportPayload, authConfig);
         await fetchData();
         if (isShunt) {
           setSelectedShuntKey(
@@ -733,7 +800,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       setIsEditorOpen(false);
       setEditorForm(initialEditorState);
     } catch (err) {
-      notify(`Error saving: ${extractError(err)}`, "error");
+      if (!retryAuthorization(err, editorType, device, handleSaveEditor)) notify(`Error saving: ${extractError(err)}`, "error");
     } finally {
       setIsSaving(false);
     }
@@ -741,36 +808,45 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
   const executeDelete = async () => {
     const { kind, payload } = deleteConfirm;
+    const devices = payload.type === "shunt" ? shuntDevices : tvcsData;
+    const device = devices.find(item => item.id === payload.deviceId);
+    if (!device || !ensureAuthorization(payload.type, device, executeDelete)) return;
+    const authConfig = authorizationConfig(payload.type, payload.deviceId);
+    let reauthorizing = false;
     try {
       if (kind === "report") {
         const { type, deviceId, reportId } = payload;
-        await axios.delete(`${API_BASE_URL}/${type === "shunt" ? "shunts" : "tvcs"}/${deviceId}/reports/${reportId}/`);
+        await axios.delete(`${API_BASE_URL}/${type === "shunt" ? "shunts" : "tvcs"}/${deviceId}/reports/${reportId}/`, authConfig);
         notify("Report of Calibration deleted.", "success");
       } else if (kind === "device") {
         const { type, deviceId } = payload;
-        await axios.delete(`${API_BASE_URL}/${type === "shunt" ? "shunts" : "tvcs"}/${deviceId}/`);
+        await axios.delete(`${API_BASE_URL}/${type === "shunt" ? "shunts" : "tvcs"}/${deviceId}/`, authConfig);
         notify(`${type === "shunt" ? "AC Shunt" : "TVC"} entry deleted.`, "success");
         if (type === "shunt") setSelectedShuntKey("");
         else setAuxiliaryTvcSn("");
       }
       await fetchData();
     } catch (err) {
-      notify(`Error deleting: ${extractError(err)}`, "error");
+      reauthorizing = retryAuthorization(err, payload.type, device, executeDelete);
+      if (!reauthorizing) notify(`Error deleting: ${extractError(err)}`, "error");
     } finally {
-      setDeleteConfirm({ isOpen: false, kind: null, payload: null });
+      if (!reauthorizing) setDeleteConfirm({ isOpen: false, kind: null, payload: null });
     }
   };
 
   const handlePinReport = async (type, device, report, shouldPin) => {
+    const retry = () => handlePinReport(type, device, report, shouldPin);
+    if (!ensureAuthorization(type, device, retry)) return;
     try {
       await axios.post(
         `${API_BASE_URL}/${type === "shunt" ? "shunts" : "tvcs"}/${device.id}/reports/${report.id}/pin/`,
-        { pinned: shouldPin }
+        { pinned: shouldPin },
+        authorizationConfig(type, device.id)
       );
       notify(shouldPin ? "Report pinned as active." : "Pin removed — latest-dated report is active.", "success");
       await fetchData();
     } catch (err) {
-      notify(`Error updating active report: ${extractError(err)}`, "error");
+      if (!retryAuthorization(err, type, device, retry)) notify(`Error updating active report: ${extractError(err)}`, "error");
     }
   };
 
@@ -1676,7 +1752,8 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
           title="Admin Authentication Required"
           message="You are modifying imported system parameters. Please input your authorization key:"
           onConfirm={handlePasswordVerify}
-          onCancel={() => setPasswordGate({ isOpen: false, action: null })}
+          onCancel={cancelAuthorization}
+          busy={isVerifyingPassword}
         />
 
         <ConfirmationModal

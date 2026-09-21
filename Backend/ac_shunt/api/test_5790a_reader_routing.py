@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from django.test import SimpleTestCase, TestCase
 from rest_framework.test import APIRequestFactory
 
-from npsl_tools.instruments import Instrument11713C, Instrument5790A
+from npsl_tools.instruments import Instrument11713C, Instrument5790A, Instrument5790B
 
 from .consumers import (
     CalibrationConsumer,
@@ -26,6 +26,16 @@ from .views import TestPointViewSet
 
 
 class Instrument5790ACompatibilityTests(SimpleTestCase):
+    def test_auto_range_reaches_both_instrument_models(self):
+        profile = _5790_profile_settings({'f5790_range_mode': 'AUTO'})
+        self.assertEqual(profile['range_mode'], 'AUTO')
+        for instrument_class in (Instrument5790A, Instrument5790B):
+            with self.subTest(model=instrument_class.__name__):
+                instrument = instrument_class.__new__(instrument_class)
+                instrument.resource = Mock(timeout=1000)
+                instrument.configure_acquisition(**profile)
+                instrument.resource.write.assert_any_call('RANGE AUTO')
+
     def test_model_is_registered_for_acquisition(self):
         self.assertIs(INSTRUMENT_CLASS_MAP["5790A"], Instrument5790A)
 

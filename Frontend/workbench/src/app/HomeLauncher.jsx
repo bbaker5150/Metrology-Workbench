@@ -59,7 +59,7 @@ export default function HomeLauncher() {
           </div>
         </div>
         <div className="workbench-home-heading">
-          <span className="workbench-home-eyebrow">Navy Primary Standard Lab</span>
+          <span className="workbench-home-eyebrow">Navy Primary Standards Laboratory</span>
           <h1 className="workbench-home-title">Metrology Workbench</h1>
           <p className="workbench-home-subtitle">
             Choose a tool to get started

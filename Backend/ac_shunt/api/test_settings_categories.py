@@ -66,15 +66,28 @@ class SettingsCategoryTests(TestCase):
         self.assertEqual(self.point_set.points.get(current='0.2', direction='Forward').settings.f5790_filter_mode, 'OFF')
         self.assertEqual(self.point_set.points.get(current='0.2', direction='Reverse').settings.f5790_filter_mode, 'MEDIUM')
 
-    def test_apply_all_excludes_warmup_and_point_save_limits_it_to_first(self):
+    def test_apply_all_excludes_warmup_and_later_points_save_their_own(self):
         CalibrationSettings.objects.update(initial_warm_up_time=123)
         self.save('stability', scope='all', values={**VALUES['stability'], 'initial_warm_up_time':999})
         self.assertEqual(set(CalibrationSettings.objects.values_list('initial_warm_up_time', flat=True)), {123})
         result = save_category(self.session.pk, {'category':'stability', 'scope':'point',
             'current':'0.2', 'frequency':60, 'direction':'Forward', 'settings':{**VALUES['stability'], 'initial_warm_up_time':999}})
-        self.assertEqual(result['settings']['initial_warm_up_time'], 0)
-        self.assertEqual(self.point_set.points.get(current='0.2', direction='Forward').settings.initial_warm_up_time, 0)
+        self.assertEqual(result['settings']['initial_warm_up_time'], 999)
+        self.assertEqual(self.point_set.points.get(current='0.2', direction='Forward').settings.initial_warm_up_time, 999)
         self.assertEqual(self.point_set.points.get(current='0.2', direction='Reverse').settings.initial_warm_up_time, 123)
+
+    def test_warmup_remains_with_point_after_reordering_and_other_category_save(self):
+        CalibrationSettings.objects.update(initial_warm_up_time=0)
+        self.save('stability', values={**VALUES['stability'], 'initial_warm_up_time':10})
+        self.point_set.points.filter(current='0.1').update(order=2)
+        self.point_set.points.filter(current='0.2').update(order=1)
+        self.save('5790')
+        self.assertEqual(self.point_set.points.get(current='0.1', direction='Forward').settings.initial_warm_up_time, 10)
+        self.assertEqual(self.point_set.points.get(current='0.2', direction='Forward').settings.initial_warm_up_time, 0)
+
+    def test_auto_range_round_trip(self):
+        self.save('5790', values={**VALUES['5790'], 'f5790_range_mode':'AUTO'})
+        self.assertEqual(self.point_set.points.get(current='0.1', direction='Forward').settings.f5790_range_mode, 'AUTO')
 
     def test_new_reader_profile_preserves_pair_cycle_count(self):
         self.point_set.points.get(current='0.1', direction='Forward').settings.delete()

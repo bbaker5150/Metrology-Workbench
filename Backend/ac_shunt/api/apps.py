@@ -40,7 +40,8 @@ class ApiConfig(AppConfig):
 
         argv = sys.argv or []
         skip_commands = {'makemigrations', 'migrate', 'collectstatic',
-                         'showmigrations', 'sqlmigrate', 'flush'}
+                         'showmigrations', 'sqlmigrate', 'flush',
+                         'configure_corrections_password'}
         if any(cmd in argv for cmd in skip_commands):
             return
 

@@ -30,7 +30,7 @@ class ShuntCorrectionSerializer(serializers.ModelSerializer):
 
 class ShuntReportSerializer(serializers.ModelSerializer):
     """ Serializes a dated Report of Calibration and its nested points. """
-    id = serializers.IntegerField(required=False, allow_null=True)
+    id = serializers.IntegerField(read_only=True)
     corrections = ShuntCorrectionSerializer(many=True, required=False)
 
     class Meta:
@@ -162,7 +162,7 @@ class TVCCorrectionSerializer(serializers.ModelSerializer):
 
 class TVCReportSerializer(serializers.ModelSerializer):
     """ Serializes a dated TVC Report of Calibration and its nested points. """
-    id = serializers.IntegerField(required=False, allow_null=True)
+    id = serializers.IntegerField(read_only=True)
     corrections = TVCCorrectionSerializer(many=True, required=False)
 
     class Meta:
@@ -557,8 +557,8 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
 
     def validate_f5790_range_mode(self, value):
         value = str(value).upper()
-        if value not in {"0.022", "0.07", "0.22", "0.7", "2.2"}:
-            raise serializers.ValidationError("Select a supported Y5020 range.")
+        if value not in {"AUTO", "0.022", "0.07", "0.22", "0.7", "2.2"}:
+            raise serializers.ValidationError("Select Auto or a supported Y5020 range.")
         return value
 
     def validate_f5790_input_switch_settling_time(self, value):

@@ -12266,6 +12266,7 @@ body.dark-mode .pfr-card .risk-value {
 }
 
 .status-bar-content {
+  font-variant-numeric: tabular-nums;
   flex-grow: 1;
   display: flex;
   padding: 0; /* Removed padding to let dividers stretch */
@@ -12278,7 +12279,7 @@ body.dark-mode .pfr-card .risk-value {
   justify-content: center;
   padding: 15px 20px; /* Moved padding here */
   border-right: 1px solid var(--border-color);
-  min-height: 100%;
+  min-height: 0;
 }
 
 /* Remove border from the last dynamic section before the action button */

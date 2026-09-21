@@ -52,3 +52,5 @@ Backend/ac_shunt/api/NPSL_Tools/*.egg-info/
 # Since you use the Documents/Portal folder for real creds, 
 # keep any local mock creds out of the repo.
 *.txt
+corrections-admin-password.hash
+.corrections-password-*
