@@ -1,6 +1,6 @@
 import { getPointRequirements } from "../../../utils/pointRequirements";
 import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "../../../utils/workspaceSelection";
-import MeasurementInputBias from "./MeasurementInputBias";
+import MeasurementInputBias, { hasMeasurementInputBias } from "./MeasurementInputBias";
 import { resolveMeasurementBias } from "../../../utils/measurementBias";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
@@ -2740,6 +2740,9 @@ const ResizableInstrumentHeader = ({
       <button
         type="button"
         className="instrument-column-insert-button"
+        // Preserve the pressed target until click: blurring an expanded editor
+        // can shrink its column and move this button between down and up.
+        onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
         title={`Add column between ${label} and ${nextLabel}`}
         aria-label={`Add column between ${label} and ${nextLabel}`}
         onClick={(event) => {
@@ -14856,6 +14859,9 @@ function DetailedView({
     ? resolveMeasurementBias(testPointData, sessionData, undefined, { ignoreManual: true }) : null,
   [testPointData, sessionData, equationDisplayData]);
 
+  const showInputBias = Boolean(equationDisplayData?.variables.length &&
+    hasMeasurementInputBias(testPointData, sessionData, equationDisplayData.variables, inputBiasCalculation));
+
   const equationVariableInputs =
     equationDisplayData?.variables.length > 0 ? (
       <div
@@ -14865,20 +14871,20 @@ function DetailedView({
         <table className="instrument-summary-table industry-table measurement-inputs-table">
           <colgroup>
             <col style={{ width: "12%" }} />
-            <col style={{ width: "30%" }} />
-            <col style={{ width: "33%" }} />
-            <col style={{ width: "25%" }} />
+            <col style={{ width: showInputBias ? "30%" : "40%" }} />
+            <col style={{ width: showInputBias ? "33%" : "48%" }} />
+            {showInputBias && <col style={{ width: "25%" }} />}
           </colgroup>
           <thead>
             <tr>
               <th>Variable</th>
               <th>Name</th>
               <th>Nominal</th>
-              <th><InlineMenuSelect ariaLabel="Input bias display" value={inputBiasDisplay} onChange={setInputBiasDisplay}
+              {showInputBias && <th><InlineMenuSelect ariaLabel="Input bias display" value={inputBiasDisplay} onChange={setInputBiasDisplay}
                 width="auto" showOptionMeta={false} options={[
                   { value: "bias", label: "Bias" }, { value: "percent", label: "Bias %" },
                   { value: "adjusted", label: "Nominal + Bias" },
-                ]} /></th>
+                ]} /></th>}
             </tr>
           </thead>
           <tbody>
@@ -14925,7 +14931,7 @@ function DetailedView({
                     }
                   />
                 </td>
-                <td><MeasurementInputBias point={testPointData} session={sessionData} variable={variable} mode={inputBiasDisplay} resolved={inputBiasCalculation} /></td>
+                {showInputBias && <td><MeasurementInputBias point={testPointData} session={sessionData} variable={variable} mode={inputBiasDisplay} resolved={inputBiasCalculation} /></td>}
               </tr>
             ))}
             <NetBiasRow point={testPointData} onChange={onUpdateTestPoint} />

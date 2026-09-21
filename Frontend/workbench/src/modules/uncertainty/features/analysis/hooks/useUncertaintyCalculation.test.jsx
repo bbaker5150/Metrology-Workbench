@@ -298,3 +298,13 @@ it("keeps unnamed incomplete equation inputs distinct from the final measurement
   expect(groups[0]).toMatchObject({ id: "input_x", label: "x Uncertainty Budget", unit: "m" });
   expect(groups.at(-1)).toMatchObject({ id: "final_budget", unit: "N-m" });
 });
+
+it('clears cached totals and shows the incompatible UUT unit reason', async () => {
+  const { result, onDataSave } = renderDirectCalculation({ is_detailed_uncertainty_calculated: true }, {
+    uutTolerance: { unit: 'A', reading: { high: 1, low: -1, unit: '%' } },
+  });
+  await waitFor(() => expect(result.current.calculationError).toMatch(/Unit mismatch/));
+  const final = result.current.calcResults.calculatedBudgetGroups.at(-1);
+  expect(final.results).toMatchObject({ combined: null, expanded: null, pendingReason: expect.stringMatching(/Unit mismatch/) });
+  expect(onDataSave).toHaveBeenCalledWith(expect.objectContaining({ combined_uncertainty_absolute_base: null, expanded_uncertainty_absolute_base: null, is_detailed_uncertainty_calculated: false }));
+});

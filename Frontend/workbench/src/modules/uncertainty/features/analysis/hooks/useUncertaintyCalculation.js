@@ -1,7 +1,7 @@
 import { sessionForPoint } from "../../../utils/pointRequirements";
 import { useMemo } from "react";
 import { formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
-import { hasNominalValue } from "../../../utils/incompleteBudget";
+import { hasNominalValue, toleranceUnitMismatch } from "../../../utils/incompleteBudget";
 import { useState, useEffect } from "react";
 import {
   unitSystem,
@@ -228,10 +228,12 @@ export const useUncertaintyCalculation = (
       // Keep authored source rows available before a nominal is supplied.
       // Partial totals never flow into risk: only independent absolute terms
       // may be displayed, and any unresolved row suppresses the total.
+      const uutUnitError = toleranceUnitMismatch(uutToleranceData, uutNominal?.unit, unitSystem);
+      if (uutUnitError) setCalculationError(uutUnitError);
       const incompleteInputs = testPointData.measurementType === "derived" &&
         Object.keys(testPointData.variableMappings || {}).some(symbol =>
           !hasNominalValue(testPointData.variableNominals?.[symbol]) || !testPointData.variableNominals?.[symbol]?.unit);
-      if (!hasNominalValue(uutNominal) || (!uutNominal?.unit && testPointData.measurementType === "derived") || incompleteInputs || manualComponents.some(c => c.pendingReason || c.inlineValidation) || getUutResolutionComponent(uutToleranceData, uutNominal)?.pendingReason || tmdeTolerancesData.some(tmde => {
+      if (uutUnitError || !hasNominalValue(uutNominal) || (!uutNominal?.unit && testPointData.measurementType === "derived") || incompleteInputs || manualComponents.some(c => c.pendingReason || c.inlineValidation) || getUutResolutionComponent(uutToleranceData, uutNominal)?.pendingReason || tmdeTolerancesData.some(tmde => {
         const symbol = Object.entries(testPointData.variableMappings || {}).find(([, name]) => name === tmde.variableType)?.[0];
         const nominal = testPointData.measurementType === "derived" ? (testPointData.variableNominals?.[symbol] || tmde.measurementPoint) : uutNominal;
         return getBudgetComponentsFromTolerance(tmde, nominal || {}).some(c => c.pendingReason);
@@ -279,6 +281,7 @@ export const useUncertaintyCalculation = (
         if (resolution) finalRows.push(resolution);
         const final = groupFor(uutNominal, finalRows, `${uutNominal?.name || "Final"} Uncertainty Budget`, "final_budget");
         if (derived) final.results = { combined: null, expanded: null, pendingReason: "Complete the equation input values and units to calculate total uncertainty." };
+        if (uutUnitError) final.results = { ...final.results, combined: null, expanded: null, pendingReason: uutUnitError };
         groups.push(final);
         setCalcResults({ calculatedBudgetComponents: groups.flatMap(g => g.components), calculatedBudgetGroups: groups, is_detailed_uncertainty_calculated: false });
         if (testPointData.is_detailed_uncertainty_calculated) onDataSave({

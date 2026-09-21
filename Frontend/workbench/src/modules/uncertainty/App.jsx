@@ -1515,6 +1515,7 @@ export const SidebarPointItem = ({
             <PointNumericInput
               autoFocus
               value={tempValue}
+              placeholder="Value"
               onChange={(e) => setTempValue(e.target.value)}
               onBlur={event => { if (!event.relatedTarget?.closest('.point-unit-control')) commitEdit(); }}
               onKeyDown={handleKeyDown}
@@ -1526,13 +1527,13 @@ export const SidebarPointItem = ({
         ) : (
           <span
             className="point-value point-value-with-unit sidebar-value-sticky"
-            title={`${displayValue ?? "-"}${
+            title={`${displayValue || "Value"}${
               displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
             }`}
           >
             <span className="point-edit-affordance">
               <span className="point-value-number" onClick={(e) => handleSingleClickEdit(e, "value", displayValue)}>
-                {displayValue || <span className="point-placeholder">-</span>}
+                {displayValue || <span className="point-placeholder">Value</span>}
               </span>
               {pointUnitControl()}
             </span>
@@ -4435,7 +4436,7 @@ function App({ showThemeToggle = false }) {
       _skipUutAutofill: !uutId,
       measurementType: settings.mode,
       uutTolerance: fnRange || null,
-      testPointInfo: { measurementArea: fnGroup?.name || "Measurement", parameter: { name: fnRange?.functionName || fnGroup?.name || "", value: "", unit, unitSelectionExplicit: true } },
+      testPointInfo: { measurementArea: fnGroup?.name || "Measurement", parameter: { name: fnRange?.functionName || fnGroup?.name || "", value: "", unit, unitSelectionExplicit: Boolean(unit) } },
     }, fnGroup, settings);
   };
 

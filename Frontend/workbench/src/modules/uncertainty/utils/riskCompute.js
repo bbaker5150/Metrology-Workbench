@@ -1,3 +1,4 @@
+import { toleranceUnitMismatch } from "./incompleteBudget";
 import { sessionForPoint } from "./pointRequirements";
 import { resolveMeasurementBias } from "./measurementBias";
 import { computePointTmdeLimits } from "./pointTmdeLimits";
@@ -108,6 +109,7 @@ const componentStandardUncertaintyBase = (
 export function computeUncertaintyForPoint(point, sessionData) {
   sessionData = sessionForPoint(point, sessionData);
   const uutNominal = point.testPointInfo?.parameter;
+  if (toleranceUnitMismatch(point.uutTolerance || sessionData.uutTolerance, uutNominal?.unit, unitSystem)) return null;
   if (!uutNominal || !isFilledNumber(uutNominal.value) || (!uutNominal.unit && point.measurementType === "derived")) {
     return null;
   }
@@ -462,6 +464,7 @@ export function computePointRiskMetrics(
   if (!point || !sessionData) return null;
   sessionData = sessionForPoint(point, sessionData);
   const uutNominal = point.testPointInfo?.parameter;
+  if (toleranceUnitMismatch(point.uutTolerance || sessionData.uutTolerance, uutNominal?.unit, unitSystem)) return null;
   if (!uutNominal || !isFilledNumber(uutNominal.value)) {
     return null;
   }

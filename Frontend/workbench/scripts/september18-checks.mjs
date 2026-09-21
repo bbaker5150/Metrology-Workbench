@@ -70,7 +70,7 @@ export async function checkSeptember18({ frame, page, saved, until, check }) {
   await table.locator('.instrument-custom-column-header').first().hover();
   await table.getByRole('button', { name: 'Delete Audit column', exact: true }).click();
   check('custom column deletes immediately without a confirmation', await until(async () => await table.locator('thead th').count() === oldHeaders) && await frame.getByRole('dialog', { name: /Delete.*Column/ }).count() === 0);
-  check('add-column control sits above the header border', await table.locator('.instrument-column-insert-button').first().evaluate(button => button.getBoundingClientRect().top < button.closest('th').getBoundingClientRect().top));
+  check('add-column control stays inside the gap-free header', await table.locator('.instrument-column-insert-button').first().evaluate(button => button.getBoundingClientRect().top >= button.closest('th').getBoundingClientRect().top && button.getBoundingClientRect().bottom <= button.closest('th').getBoundingClientRect().bottom));
   await table.locator('.cell-tolerance .inline-tolerance-summary').first().click();
   check('configured bias reopens below the tolerance terms', await table.locator('.instrument-bias-editor').count() === 1 && await table.locator('.inline-tolerance-term-group').count() > 0);
   await table.getByRole('button', { name: 'Bias', exact: true }).click();

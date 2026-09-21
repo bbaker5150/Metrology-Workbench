@@ -44,3 +44,27 @@ export const budgetUnitMismatch = (unit, target, unitSystem) => {
     ? `Unit mismatch: ${unit} cannot be combined in a ${target} uncertainty budget.`
     : null;
 };
+
+/** Validate the physical frame BEFORE evaluating any UUT limit or uncertainty.
+ * Relative terms (%/ppm/ppb/dB) are dimensionless specifications; their parent
+ * range unit still has to match the measured quantity. Only authored terms
+ * participate, so an unused blank editor with an old unit cannot block results.
+ * Empty native frames remain supported for the workbook's unitless cases.
+ */
+export const toleranceUnitMismatch = (raw, target, unitSystem) => {
+  const outer = (Array.isArray(raw) ? raw[0] : raw) || {};
+  const tolerance = { ...outer, ...(outer.tolerance || outer.tolerances || {}) };
+  // A percent used as the measured quantity is not a relative spec: an
+  // instrument range in % or dB cannot silently become a voltage range.
+  for (const unit of [outer.unit, tolerance.unit]) {
+    const quantity = unit && unitSystem.getQuantity(unit);
+    const targetQuantity = target && unitSystem.getQuantity(target);
+    if (quantity && targetQuantity && quantity !== targetQuantity)
+      return `Unit mismatch: ${unit} cannot be combined in a ${target} uncertainty budget.`;
+  }
+  const units = [];
+  const authored = term => term && [term.high, term.low, term.limit].some(value => value != null && String(value).trim() !== "");
+  for (const key of ["reading", "range", "floor", "readings_iv", "singleSided"])
+    if (authored(tolerance[key])) units.push(tolerance[key].unit);
+  return units.map(unit => budgetUnitMismatch(unit, target, unitSystem)).find(Boolean) || null;
+};

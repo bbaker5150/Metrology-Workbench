@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, MenuItem, ipcMain, nativeTheme } = require('el
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { startMemoryDiagnostics } = require('./memory-diagnostics.cjs');
 
 function lifecycle(event, details = {}) {
     try {
@@ -13,7 +14,7 @@ function lifecycle(event, details = {}) {
         if (event === 'electron_started') console.info(`Electron diagnostics active: ${file}`);
     } catch (_) { /* Logging must never interrupt the application. */ }
 }
-lifecycle('electron_started');
+lifecycle('electron_started', { versions: process.versions, diagnosticsVersion: 2 });
 app.on('before-quit', () => lifecycle('electron_before_quit'));
 app.on('child-process-gone', (_, details) => lifecycle('child_process_gone', details));
 
@@ -164,6 +165,10 @@ function createWindow() {
         ? `http://localhost:${devPort}`
         : `file://${path.join(__dirname, '../build/index.html')}`;
 
+    const stopMemoryDiagnostics = startMemoryDiagnostics({
+        app, window: mainWindow, systemMemory: () => process.getSystemMemoryInfo(), record: lifecycle,
+    });
+    mainWindow.once('closed', stopMemoryDiagnostics);
     mainWindow.webContents.on('render-process-gone', (_, details) => lifecycle('renderer_gone', details));
     mainWindow.webContents.on('did-start-navigation', (_, url, isInPlace, isMainFrame) => {
         if (isMainFrame) lifecycle('navigation', { url: url.split('?')[0], isInPlace });
@@ -171,7 +176,9 @@ function createWindow() {
     mainWindow.on('unresponsive', () => lifecycle('renderer_unresponsive'));
     mainWindow.loadURL(startUrl);
     
-    if (isDev) mainWindow.webContents.openDevTools();
+    // Long bench runs should not retain DevTools network/console history by
+    // default. F12 and Inspect Element still open it when troubleshooting.
+    if (isDev && process.env.ELECTRON_OPEN_DEVTOOLS === '1') mainWindow.webContents.openDevTools();
 
     mainWindow.on('closed', () => (mainWindow = null));
 }

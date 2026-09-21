@@ -21257,7 +21257,7 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .point-column-guide { stroke: color-mix(in srgb, #94a3b8 35%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; }
 /* Cell hover matches instrument tables. Keep the row's base/selected surface
    stable and tint only the cell beneath the cursor (all tiles of a merged cell). */
-.uncertainty-module .measurement-group-container .point-grid-item:hover:not(.active):not(.active-point):not(.table-highlight) { background: var(--sidebar-point-surface) !important; }
+.uncertainty-module .measurement-group-container .point-grid-item:hover:not(.active):not(.active-point):not(.table-highlight) { background-color: var(--sidebar-point-surface) !important; }
 .uncertainty-module .measurement-group-container .point-grid-item > .is-cell-hovered {
   background: var(--sidebar-point-surface-hover) !important;
   --sidebar-point-cell-fill: var(--sidebar-point-surface-hover);
@@ -21287,3 +21287,10 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .uncertainty-module .sidebar-column-resizer { top: -7px; bottom: -6px; right: calc(-1 * var(--sidebar-point-column-gap)); }
 .uncertainty-module .sidebar-column-resizer::after { top: 0; bottom: 0; height: auto; transform: none; background: color-mix(in srgb, #94a3b8 35%, transparent); }
 .uncertainty-module .sidebar-column-header-cell:last-child .sidebar-column-resizer:not(:hover):not(:active)::after { background: transparent; }
+
+/* The row gradient owns the complete hovered column band, including padding.
+   Painting a second fill on its centered text-height child creates a smaller
+   rectangle inside the cell. Merged cells keep their full-height ::after fill. */
+.uncertainty-module .measurement-group-container .point-grid-item > .is-cell-hovered:not(.point-grouped-cell) {
+  background: transparent !important;
+}

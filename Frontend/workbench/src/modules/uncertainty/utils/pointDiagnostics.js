@@ -1,3 +1,4 @@
+import { toleranceUnitMismatch } from "./incompleteBudget";
 import { getPointRequirementOverrides, sessionForPoint } from "./pointRequirements";
 import { resolveDynamicComponents } from "./dynamicBudgetComponents";
 import { getMitigationDiagnostics, explainRiskConstraint } from "./mitigationDiagnostics";
@@ -106,6 +107,8 @@ export function getPointDiagnosticEntries(
   const add = (message, category = "input") => {
     if (!warnings.some(entry => entry.message === message)) warnings.push({ message, category });
   };
+  const unitError = toleranceUnitMismatch(tolerance, nominal.unit, unitSystem);
+  if (unitError) add(`UUT tolerance ${unitError} Choose compatible measurement-point and UUT units to calculate limits, uncertainty, and risk.`);
   const overrides = getPointRequirementOverrides(point, session);
   if (overrides.length) add(`Point requirements differ from session defaults: ${overrides.map(field => field.sidebarLabel).join(", ")}.`);
   session = sessionForPoint(point, session);

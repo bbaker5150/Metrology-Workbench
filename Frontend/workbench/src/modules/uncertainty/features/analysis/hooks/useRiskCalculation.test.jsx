@@ -265,3 +265,16 @@ describe("useRiskCalculation single-sided validation", () => {
     expect(result.current.notification).toBeNull();
   });
 });
+
+test('clears limits and risk immediately on a UUT unit mismatch, even with stale calculated totals', async () => {
+  const nominal = { value: 10, unit: 'V' }, point = { id: 'unit-check' }, tmdes = [];
+  const valid = { unit: 'V', floor: { high: 1, low: -1, unit: 'V' } };
+  const calc = { combined_uncertainty_absolute_base: .1, expanded_uncertainty_absolute_base: .196 };
+  const { result, rerender } = renderHook(({ tolerance }) => useRiskCalculation(session, point, tolerance, tmdes, nominal, calc, 'uncertaintyTool'), { initialProps: { tolerance: valid } });
+  await waitFor(() => expect(result.current.riskResults?.pfa).toBeTypeOf('number'));
+  rerender({ tolerance: { ...valid, unit: 'A' } });
+  await waitFor(() => expect(result.current.riskResults).toBeNull());
+  expect(result.current.riskInputs).toMatchObject({ LLow: '', LUp: '' });
+  rerender({ tolerance: valid });
+  await waitFor(() => expect(result.current.riskResults?.pfa).toBeTypeOf('number'));
+});

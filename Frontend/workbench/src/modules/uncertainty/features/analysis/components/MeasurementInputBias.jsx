@@ -1,7 +1,17 @@
 import React from "react";
-import { biasInUnit, resolveMeasurementBias } from "../../../utils/measurementBias";
+import { biasInUnit, resolveMeasurementBias, getPointBiasSources } from "../../../utils/measurementBias";
 import { getBiasToleranceFrame } from "../../../utils/biasToleranceFrame";
 import { getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
+
+// Visibility follows authored input-source biases, including explicit zero and
+// invalid entries needing correction, not their sum (opposite biases can cancel).
+// UUT bias belongs to the final measurement and does not create an input column.
+export function hasMeasurementInputBias(point, session, variables, resolved) {
+  if (point.measurementBias?.mode === "manual") return true;
+  const sources = resolved?.sources?.length ? resolved.sources : getPointBiasSources(point, session);
+  return sources.some(source => source.spec?.value != null && String(source.spec.value).trim() !== "" &&
+    variables.some(variable => source.variableType === (variable.name || variable.symbol)));
+}
 
 /** Native display is the input-equivalent signed offset. Percentage display
  * is that input's OUTPUT contribution divided by the final UUT tolerance frame,

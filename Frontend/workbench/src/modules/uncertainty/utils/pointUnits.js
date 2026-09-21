@@ -18,9 +18,12 @@ export const inheritMissingPointUnits = (session) => {
     const ids = point.activeUutId
       ? [point.activeUutId]
       : point.associatedUutIds || [];
-    const uuts = (session.uuts || []).filter((uut) =>
-      ids.some((id) => String(id) === String(uut.id)),
-    );
+    // Area-created points may not have a UUT assignment yet. A single unit
+    // across that area's UUTs is unambiguous; TMDE units and other areas must
+    // never decide the measurement point's output unit.
+    const uuts = (session.uuts || []).filter((uut) => ids.length
+      ? ids.some((id) => String(id) === String(uut.id))
+      : instrumentHasMeasurementArea(uut, point.testPointInfo?.measurementArea || parameter.name));
     const units = new Set();
     for (const uut of uuts) {
       const rows = getInstrumentRangeRows(uut);

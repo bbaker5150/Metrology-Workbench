@@ -111,3 +111,24 @@ describe("workbook percentage bias frame", () => {
     expect(measurementInputBias(point, session, variable)).toBeNaN();
   });
 });
+
+// Regression for the reported 2 -> 20 and 4.2 -> 42 discrepancy. Excel stores
+// 2% as .02 and 4.2% as .042. For a 100 V point with +/-10 V tolerance, their
+// native offsets are .2 V and .42 V; using nominal as the base gives a 10x error.
+it.each([2, 4.2, -2, -4.2])('keeps an entered %s percent equal to the workbook fraction for UUT and cal', value => {
+  for (const role of ['uut', 'cal']) {
+    const { point, session } = suppliedCase(vectors.cases.find(row => row.type === 1 && row.uutBias === 0 && row.calBias === 0));
+    if (role === 'uut') point.uutBias = { mode: 'override', kind: 'percent', value };
+    else session.tmdes[0].ranges[0].tolerances.bias = { kind: 'percent', value };
+    const bias = resolveMeasurementBias(point, session);
+    const offset = role === 'uut' ? bias.uutBias : bias.calBias;
+    expect(offset).toBeCloseTo(value / 100 * 10, 12);
+    const contract = buildRisk8Contract({ nominal: 100, uutLowerLimit: 90, uutUpperLimit: 110, riskAverage: bias.riskAverage, calBias: bias.calBias });
+    expect(role === 'uut' ? contract.input.mu : contract.input.xcal).toBeCloseTo(value / 100, 12);
+    const percentRisk = computePointRiskMetrics(point, session, true);
+    expect(percentRisk).not.toBeNull();
+    if (role === 'uut') point.uutBias = { mode: 'override', value: value / 10, kind: 'absolute', unit: 'V' };
+    else session.tmdes[0].ranges[0].tolerances.bias = { value: value / 10, kind: 'absolute', unit: 'V' };
+    expect(computePointRiskMetrics(point, session, true)).toEqual(percentRisk);
+  }
+});

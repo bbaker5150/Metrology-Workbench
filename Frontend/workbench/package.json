@@ -84,7 +84,8 @@
     "productName": "AC Shunt Calibration",
     "files": [
       "build/**/*",
-      "public/electron.js"
+      "public/electron.js",
+      "public/memory-diagnostics.cjs"
     ],
     "directories": {
       "buildResources": "public"

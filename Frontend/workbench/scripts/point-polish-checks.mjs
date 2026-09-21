@@ -26,8 +26,23 @@ export async function checkPointPolish({ frame, page, check, until, saved }) {
   await first.locator('[data-sidebar-column="value"]').hover();
   check('hover tints the target cell without tinting its siblings', await first.evaluate(row => {
     const target = row.querySelector('[data-sidebar-column="value"]'), sibling = row.querySelector('[data-sidebar-column="pfa"]');
-    return target.classList.contains('is-cell-hovered') && !sibling.classList.contains('is-cell-hovered') && getComputedStyle(target).backgroundColor !== getComputedStyle(sibling).backgroundColor;
+    return target.classList.contains('is-cell-hovered') && !sibling.classList.contains('is-cell-hovered') && getComputedStyle(row).backgroundImage.includes('linear-gradient') && getComputedStyle(target).backgroundColor === 'rgba(0, 0, 0, 0)' && getComputedStyle(sibling).backgroundImage === 'none';
   }));
+  for (const theme of ['light', 'dark']) {
+    await frame.locator('body').evaluate((body, theme) => { body.classList.toggle('dark-mode', theme === 'dark'); body.classList.toggle('light-mode', theme === 'light'); }, theme);
+    for (const column of ['standardUncertainty', 'measurementUncertainty', 'pfa']) {
+      const cell = first.locator(`[data-sidebar-column="${column}"]`);
+      if (!await cell.count()) continue;
+      await cell.hover();
+      check(`${theme} ${column} has one full-height hover fill`, await cell.evaluate(node => {
+        const row = node.closest('.point-grid-item');
+        return getComputedStyle(row).backgroundImage.includes('linear-gradient') &&
+          getComputedStyle(node).backgroundColor === 'rgba(0, 0, 0, 0)' &&
+          [...node.querySelectorAll('.point-metric-content')].every(child => getComputedStyle(child).backgroundColor === 'rgba(0, 0, 0, 0)');
+      }));
+    }
+  }
+  await frame.locator('body').evaluate(body => { body.classList.remove('dark-mode'); body.classList.add('light-mode'); });
   await first.locator('[data-sidebar-column="uut"] .point-uut-summary').hover();
   check('hovering UUT highlights the full column, including merged cells', await frame.locator('.is-cell-hovered').evaluateAll(cells => cells.length === 7 && cells.every(cell => cell.dataset.sidebarColumn === 'uut')));
   const verifyGuides = async label => {

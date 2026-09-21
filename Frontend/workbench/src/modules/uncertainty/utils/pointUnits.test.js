@@ -47,3 +47,16 @@ it("unassigns a removed unit without choosing another range's unit", () => {
   const data = { uuts: [{ id: "u", measurementAreaNames: ["Bench"], instrument: { functions: [{ unit: "A", ranges: [{ unit: "A" }] }] } }], testPoints: [{ associatedUutIds: ["u"], testPointInfo: { measurementArea: "Bench", parameter: { unit: "V", unitSelectionExplicit: true } } }] };
   expect(inheritMissingPointUnits(data).testPoints[0].testPointInfo.parameter).toMatchObject({ unit: "", unavailableUnit: "V" });
 });
+
+it('inherits the first area UUT unit for a new unassigned point but preserves an explicit Units choice', () => {
+  const point = { testPointInfo: { measurementArea: 'Fresh', parameter: { value: 5, unit: '', unitSelectionExplicit: false } }, associatedUutIds: [] };
+  const data = { testPoints: [point], uuts: [
+    { id: 'new', measurementAreaNames: ['Fresh'], ranges: [{ unit: '' }] },
+    { id: 'other', measurementAreaNames: ['Elsewhere'], ranges: [{ unit: 'A' }] },
+  ], tmdes: [{ measurementAreaNames: ['Fresh'], ranges: [{ unit: 'Ohm' }] }] };
+  expect(inheritMissingPointUnits(data)).toBe(data);
+  data.uuts[0].ranges[0].unit = 'V';
+  expect(inheritMissingPointUnits(data).testPoints[0].testPointInfo.parameter.unit).toBe('V');
+  point.testPointInfo.parameter.unitSelectionExplicit = true;
+  expect(inheritMissingPointUnits(data)).toBe(data);
+});

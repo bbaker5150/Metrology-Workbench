@@ -1,3 +1,4 @@
+import { toleranceUnitMismatch } from "./incompleteBudget";
 import { unitSystem } from "./uncertaintyMath";
 
 const parseNumericValue = (value) => {
@@ -19,6 +20,9 @@ const parseNumericValue = (value) => {
  */
 export const getSidebarUncertaintyDisplayValue = (point, kind) => {
   const unit = point?.testPointInfo?.parameter?.unit || "";
+  // Imported/unopened points can still carry cached totals. Never display a
+  // number from an incompatible UUT frame while waiting for recalculation.
+  if (toleranceUnitMismatch(point?.uutTolerance, unit, unitSystem)) return null;
   const absoluteBase = point?.[`${kind}_uncertainty_absolute_base`];
   const baseValue = Number(absoluteBase);
   const nativeValue =

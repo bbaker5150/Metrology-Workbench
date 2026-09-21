@@ -13,6 +13,7 @@ import { computePointTmdeLimits } from "../../../utils/pointTmdeLimits";
  * - calculateRiskMetrics: Function to force recalculation.
  */
 
+import { toleranceUnitMismatch } from "../../../utils/incompleteBudget";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { 
   unitSystem, 
@@ -89,7 +90,7 @@ export const useRiskCalculation = (
 
     // Numeric zero is a valid nominal and has a valid percentage-bias frame
     // when absolute tolerance limits exist (including imported JSON numbers).
-    if (!uutToleranceData || (!hasSingleSidedLimit && (uutNominal?.value == null || uutNominal.value === ""))) {
+    if (toleranceUnitMismatch(uutToleranceData, uutNominal?.unit, unitSystem) || !uutToleranceData || (!hasSingleSidedLimit && (uutNominal?.value == null || uutNominal.value === ""))) {
       setRiskInputs((prev) => ({ ...prev, LLow: "", LUp: "" }));
       return;
     }
@@ -161,7 +162,7 @@ export const useRiskCalculation = (
     // Removing the last component invalidates the uncertainty calculation.
     // Publish that transition too, including the de-duplication cache, so the
     // cards/parent clear immediately and restoring the same budget recalculates.
-    if (!calcResults) {
+    if (!calcResults || toleranceUnitMismatch(uutToleranceData, uutNominal?.unit, unitSystem)) {
       publishRiskMetrics(null);
       setNotification(null);
       return;

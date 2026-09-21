@@ -1,3 +1,4 @@
+import { toleranceUnitMismatch } from "./incompleteBudget";
 import { registerUnitPrefixes } from "./siPrefixes";
 import { getUnitSearchNames } from "./unitNames";
 import * as math from "mathjs";
@@ -1057,6 +1058,8 @@ export const calculateUncertaintyFromToleranceObject = (
     return { standardUncertainty: 0, totalToleranceForTar: 0, breakdown: [] };
   }
 
+  const unitError = toleranceUnitMismatch(toleranceObject, referenceMeasurementPoint.unit, unitSystem);
+  if (unitError) return { standardUncertainty: NaN, totalToleranceForTar: NaN, breakdown: [], error: unitError };
   toleranceObject = selectGreatestTolerance(toleranceObject, referenceMeasurementPoint);
   const nominalValue = parseFloat(referenceMeasurementPoint.value);
   const nominalUnit = referenceMeasurementPoint.unit;
@@ -1309,6 +1312,8 @@ export const getToleranceErrorSummary = (toleranceObject, referencePoint) => {
 };
 
 export const getAbsoluteLimits = (toleranceObject, referencePoint, { snap = true } = {}) => {
+  const unitError = toleranceUnitMismatch(toleranceObject, referencePoint?.unit, unitSystem);
+  if (unitError) return { high: "N/A", low: "N/A", reason: unitError };
   if (
     !toleranceObject ||
     !referencePoint ||
