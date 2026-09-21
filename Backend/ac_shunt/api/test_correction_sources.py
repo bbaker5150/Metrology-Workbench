@@ -1,4 +1,9 @@
 from decimal import Decimal
+import os
+import secrets
+from unittest.mock import patch
+from django.contrib.auth.hashers import make_password
+from django.core.cache import cache
 
 from django.test import TestCase
 from rest_framework.test import APIClient
@@ -43,6 +48,16 @@ class CorrectionSourceTests(TestCase):
             correction=7.25,
             uncertainty=0.4,
         )
+        password = secrets.token_urlsafe(24)
+        env = patch.dict(os.environ, {'AC_SHUNT_CORRECTIONS_PASSWORD_HASH':make_password(password)})
+        env.start()
+        self.addCleanup(env.stop)
+        cache.clear()
+        response = self.client.post('/api/corrections/authorize/', {
+            'password':password, 'device_type':'shunt', 'device_id':self.imported.pk,
+        }, format='json')
+        self.assertEqual(response.status_code,200)
+        self.client.credentials(HTTP_AUTHORIZATION='Corrections '+response.data['token'])
 
     def test_generated_point_uses_its_exact_imported_report(self):
         self.session.standard_instrument_serial = 'different-session-serial'

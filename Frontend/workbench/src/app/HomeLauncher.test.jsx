@@ -85,7 +85,7 @@ afterEach(() => {
 describe("layout", () => {
   it("renders the lab heading", () => {
     renderLauncher();
-    expect(screen.getByText("Navy Primary Standard Lab")).toBeInTheDocument();
+    expect(screen.getByText("Navy Primary Standards Laboratory")).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Metrology Workbench" }),
     ).toBeInTheDocument();

@@ -46,4 +46,14 @@ def mark_stability(test_point, data):
     readings.update_related_results()
     if '_char_' not in key:
         readings.recompute_cycle(cycle)
+    else:
+        # Characterization changes gain factors used by every stored cycle.
+        results = readings.test_point.results
+        results.refresh_from_db()
+        if readings.has_invalid_characterization(results):
+            results.cycles.update(delta_uut_ppm=None)
+        else:
+            results.recompute_cycle_deltas()
+        results.recompute_cycle_aggregates()
+        results.recompute_pair_aggregate()
     return {'message': f'Updated {end - start + 1} readings in cycle {cycle} and recalculated statistics.'}

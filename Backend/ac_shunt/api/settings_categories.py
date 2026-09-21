@@ -21,7 +21,7 @@ CATEGORY_FIELDS = {
 }
 
 
-def initial_defaults(frequency, first_point, preset):
+def initial_defaults(frequency, preset):
     """Match the form's effective defaults when the first settings row is created."""
     hz = abs(float(frequency))
     ac_filter = 10 if hz < 40 else 40 if hz < 100 else 100
@@ -31,7 +31,7 @@ def initial_defaults(frequency, first_point, preset):
         'input_switch_settling_time': 12.5 if ac_filter == 10 else 5,
         'f8508_ac_filter_hz': ac_filter, 'f8508_ac_dc_coupled': hz < 40,
         'enable_11hz_filter': False, 'n_cycles': 15, **preset,
-        'initial_warm_up_time': preset.get('initial_warm_up_time', 1800) if first_point else 0,
+        'initial_warm_up_time': preset.get('initial_warm_up_time', 0),
     }
 
 
@@ -84,8 +84,6 @@ def save_category(session_id, data):
         source = point_set.points.filter(**coordinates).first()
         if source is None:
             raise ValidationError('The selected point is no longer in this session. Refresh and try again.')
-        first = point_set.points.order_by('order', 'id').first()
-        first_key = (first.current, first.frequency)
         pairs = list(point_set.points.values('current', 'frequency', 'order')) if scope == 'all' else [{**coordinates, 'order': source.order}]
         unique = {(pair['current'], pair['frequency']): pair for pair in pairs}
         updated = 0
@@ -98,10 +96,7 @@ def save_category(session_id, data):
                 existing = CalibrationSettings.objects.filter(test_point=point).first()
                 changes = dict(values)
                 if existing is None:
-                    changes = {**initial_defaults(pair['frequency'], (pair['current'], pair['frequency']) == first_key, preset), **changes}
-                if scope == 'point' and category == 'stability' and (pair['current'], pair['frequency']) != first_key:
-                    changes['initial_warm_up_time'] = 0
-                    values['initial_warm_up_time'] = 0
+                    changes = {**initial_defaults(pair['frequency'], preset), **changes}
                 if existing is None and 'n_cycles' not in values:
                     # Creating a reader/stability profile must not reset the pair's cycle count.
                     sibling = CalibrationSettings.objects.filter(test_point__test_point_set=point_set,

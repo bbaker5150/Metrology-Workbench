@@ -254,7 +254,7 @@ def _5790_profile_settings(measurement_params):
         'filter_mode': mode if mode in {'OFF', 'FAST', 'MEDIUM', 'SLOW'} else 'MEDIUM',
         'filter_restart': restart if restart in {'FINE', 'MEDIUM', 'COARSE'} else 'MEDIUM',
         'hires_enabled': bool(params.get('f5790_hires_enabled', True)),
-        'range_mode': range_mode if range_mode in {'0.022', '0.07', '0.22', '0.7', '2.2'} else '2.2',
+        'range_mode': range_mode if range_mode in {'AUTO', '0.022', '0.07', '0.22', '0.7', '2.2'} else '2.2',
         'input_switch_delay': max(
             0.0,
             min(300.0, float(switch_delay)),

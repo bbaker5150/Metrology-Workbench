@@ -1402,9 +1402,6 @@ function Calibration({
       : null;
     if (!currentFocusedTP) return;
 
-    const isFirstTestPoint =
-      orderedTestPoints.length > 0 &&
-      currentFocusedTP.key === orderedTestPoints[0].key;
     const frequency = Number(currentFocusedTP.frequency) || 0;
     const smart8508Defaults = get8508SmartDefaults(frequency);
     const recommended8508Delay = get8508RecommendedSwitchDelay(
@@ -1416,7 +1413,7 @@ function Calibration({
       ...DEFAULT_CALIBRATION_SETTINGS,
       ...smart8508Defaults,
       input_switch_settling_time: recommended8508Delay,
-      initial_warm_up_time: isFirstTestPoint ? 1800 : 0,
+      initial_warm_up_time: 0,
       num_samples: 6,
       settling_time: 45,
       nplc: 100,
@@ -1445,7 +1442,6 @@ function Calibration({
     const sessionNCycles = resolveSessionNCycles([{ forward: pointForDirection }], null);
 
     const applyIncoming = incoming => {
-      if (!isFirstTestPoint) incoming = { ...incoming, initial_warm_up_time: 0 };
       const baseline = settingsBaselineRef.current?.identity === settingsIdentity
         ? settingsBaselineRef.current.settings : null;
       settingsBaselineRef.current = { identity: settingsIdentity, settings: incoming };
@@ -2469,9 +2465,8 @@ function Calibration({
     const defaults = {
       ...DEFAULT_CALIBRATION_SETTINGS, ...smartDefaults,
       input_switch_settling_time: get8508RecommendedSwitchDelay(smartDefaults, frequency),
-      initial_warm_up_time: focusedTP.key === orderedTestPoints[0]?.key ? 1800 : 0,
+      initial_warm_up_time: 0,
       ...readDefaultSettingsPreset(),
-      ...(focusedTP.key !== orderedTestPoints[0]?.key ? { initial_warm_up_time: 0 } : {}),
     };
     setConfirmationModal({ isOpen: true, title: `Reset ${SETTING_SECTION_LABELS[section]} Settings?`,
       message: `Restore this category from your default setup (or system defaults when unset) and save to this ${activeDirection} point.${section === "general" ? " The opposite direction stays unchanged." : ""}`,
@@ -2483,7 +2478,7 @@ function Calibration({
   const handleApplySettingsToAll = (section = "general") => {
     if (isRemoteViewer || isSavingSettings || !focusedTP || !selectedSessionId) return;
     setConfirmationModal({ isOpen: true, title: `Apply ${SETTING_SECTION_LABELS[section]} Settings to All ${activeDirection} Points?`,
-      message: `Save all settings in this category to every ${activeDirection} point in this session. The opposite direction stays unchanged.${section === "stability" ? " Initial warm-up is excluded; save it separately on the first point." : ""}`,
+      message: `Save all settings in this category to every ${activeDirection} point in this session. The opposite direction stays unchanged.${section === "stability" ? " Initial warm-up is excluded; save it separately for each point." : ""}`,
       onConfirm: () => { setConfirmationModal({ isOpen: false }); saveSettingsCategory(section, "all"); },
       onCancel: () => setConfirmationModal({ isOpen: false }),
     });
@@ -3077,7 +3072,7 @@ function Calibration({
                                   name="initial_warm_up_time"
                                   min="0"
                                   step="1"
-                                  value={focusedTP?.key === orderedTestPoints[0]?.key ? calibrationSettings.initial_warm_up_time ?? "" : 0}
+                                  value={calibrationSettings.initial_warm_up_time ?? ""}
                                   onChange={(e) =>
                                     setCalibrationSettings((prev) => ({
                                       ...prev,
@@ -3085,8 +3080,8 @@ function Calibration({
                                     }))
                                   }
                                   onBlur={handleSettingBlur("initial_warm_up_time")}
-                                  title="Initial warm-up is only used for the first point in this direction."
-                                  disabled={isRemoteViewer || focusedTP?.key !== orderedTestPoints[0]?.key}
+                                  title="Saved for this point and direction. Used when a run starts at this point."
+                                  disabled={isRemoteViewer}
                                 />
                               </div>
                               <div className="form-section">
@@ -3641,12 +3636,13 @@ function Calibration({
                                     <div className="form-section reader-setting-tooltip-trigger">
                                       <label htmlFor="f5790_range_mode">Range
                                         <ReaderSettingTooltip>
-                                          Select the physical Y5020 input range used by the 5790.
+                                          Select a physical Y5020 input range, or let the 5790 select its range automatically.
                                         </ReaderSettingTooltip>
                                       </label>
                                       <select id="f5790_range_mode" value={calibrationSettings.f5790_range_mode || "2.2"}
                                         onChange={(e) => setCalibrationSettings((prev) => ({ ...prev, f5790_range_mode: e.target.value }))}
                                         disabled={isRemoteViewer}>
+                                        <option value="AUTO">Auto range</option>
                                         <option value="0.022">22 mV</option>
                                         <option value="0.07">70 mV</option>
                                         <option value="0.22">220 mV</option>
@@ -3938,8 +3934,7 @@ function Calibration({
                           )}
 
                           <SettingsPresets settings={calibrationSettings} keys={Object.keys(DEFAULT_CALIBRATION_SETTINGS)} disabled={isRemoteViewer}
-                            onApply={preset => setCalibrationSettings(previous => ({ ...previous, ...preset,
-                              ...(focusedTP?.key !== orderedTestPoints[0]?.key ? { initial_warm_up_time: 0 } : {}) }))} />
+                            onApply={preset => setCalibrationSettings(previous => ({ ...previous, ...preset }))} />
 
                           </fieldset>
                         </form>

@@ -583,6 +583,15 @@ class CalibrationReadings(models.Model):
     def __str__(self):
         return f"Calibration Readings for TestPoint ID: {self.test_point.id} | Session: {self.test_point.test_point_set.session.session_name}"
 
+    def has_invalid_characterization(self, results):
+        return any(
+            getattr(self, f'{prefix}_char_plus1_readings')
+            and getattr(self, f'{prefix}_char_minus_readings')
+            and getattr(self, f'{prefix}_char_plus2_readings')
+            and getattr(results, f'eta_{prefix}') is None
+            for prefix in ('std', 'ti')
+        )
+
     def recompute_cycle(self, cycle_index):
         """Rebuild one cycle from stable raw samples and refresh its aggregates."""
         results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
@@ -599,19 +608,17 @@ class CalibrationReadings(models.Model):
             raw = getattr(self, f"{phase}_readings", None) or []
             # Treat un-tagged legacy readings as cycle 1 so old data still renders.
             cycle_vals = [
-                r['value']
+                r.get('value') if isinstance(r, dict) else r
                 for r in raw
-                if isinstance(r, dict)
-                and 'value' in r
-                and r.get('is_stable', True)
-                and int(r.get('cycle', 1)) == cycle_index
+                if (r.get('is_stable', True) and int(r.get('cycle', 1)) == cycle_index
+                    if isinstance(r, dict) else cycle_index == 1)
             ]
             mean_val, std_dev = welford_mean_stddev(cycle_vals)
             setattr(cycle_row, f"{phase}_avg", mean_val)
             setattr(cycle_row, f"{phase}_stddev", std_dev)
             phase_avgs[f"{phase}_avg"] = mean_val
 
-        cycle_row.delta_uut_ppm = compute_delta_uut_ppm(
+        cycle_row.delta_uut_ppm = None if self.has_invalid_characterization(results) else compute_delta_uut_ppm(
             phase_avgs,
             eta_std=results.eta_std,
             eta_ti=results.eta_ti,
@@ -635,38 +642,13 @@ class CalibrationReadings(models.Model):
         results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
         
         def calculate_stats(readings, label="Reading"):
-            import math
-            if not readings:
-                return None, None
-            
-            stable_values = [
-                r['value'] for r in readings
-                if isinstance(r, dict) and r.get('is_stable', True)
-            ]
-
-            # Fallback if no stable readings exist
-            if len(stable_values) < 2:
-                # print(f"[MODELS - {label}] Warning: < 2 stable readings. Using all {len(readings)} readings as fallback.", flush=True)
-                all_values = [r['value'] for r in readings if isinstance(r, dict) and 'value' in r]
-                
-                if len(all_values) < 2:
-                    # print(f"[MODELS - {label}] Insufficient readings to calculate stats. Aborting.", flush=True)
-                    return None, None
-                stable_values = all_values
-
-            # Welford's Algorithm for strict parity with Frontend/Excel
-            mean_val = 0.0
-            M2 = 0.0
-            for index, val in enumerate(stable_values):
-                delta = val - mean_val
-                mean_val += delta / (index + 1)
-                M2 += delta * (val - mean_val)
-
-            variance = M2 / (len(stable_values) - 1)
-            std_dev = math.sqrt(variance)
-            
-            # print(f"[MODELS - {label}] Calculated from {len(stable_values)} points: Mean = {mean_val:.6f}, StdDev = {std_dev:.6e}", flush=True)
-            return mean_val, std_dev
+            # Never reintroduce samples the operator explicitly excluded.
+            # Bare numbers are legacy stable readings in cycle one.
+            return welford_mean_stddev(
+                r.get('value') if isinstance(r, dict) else r
+                for r in (readings or [])
+                if not isinstance(r, dict) or r.get('is_stable', True)
+            )
 
         # --- 1. Standard Averages Update ---
         # print("[MODELS] Calculating Standard Instrument AC/DC Averages...", flush=True)
@@ -685,6 +667,7 @@ class CalibrationReadings(models.Model):
         # ONLY run this if characterization readings actually exist
         has_std_char = bool(self.std_char_plus1_readings and self.std_char_minus_readings and self.std_char_plus2_readings)
         has_ti_char = bool(self.ti_char_plus1_readings and self.ti_char_minus_readings and self.ti_char_plus2_readings)
+        invalid_characterization = False
 
         if has_std_char or has_ti_char:
             print("[MODELS] Characterization data detected. Calculating Averages and Eta...", flush=True)
@@ -712,8 +695,8 @@ class CalibrationReadings(models.Model):
                 std_char_plus2_avg, _ = calculate_stats(self.std_char_plus2_readings, "STD Char +500ppm (2)")
 
                 new_eta_std = calculate_eta(std_char_plus1_avg, std_char_minus_avg, std_char_plus2_avg, "STD TVC")
-                if new_eta_std is not None and (results.eta_std is None or abs(results.eta_std - new_eta_std) > 1e-9):
-                    results.eta_std = new_eta_std
+                results.eta_std = new_eta_std
+                invalid_characterization |= new_eta_std is None
 
             # Process Test Instrument TVC Characterization
             if has_ti_char:
@@ -722,12 +705,18 @@ class CalibrationReadings(models.Model):
                 ti_char_plus2_avg, _ = calculate_stats(self.ti_char_plus2_readings, "TI Char +500ppm (2)")
 
                 new_eta_ti = calculate_eta(ti_char_plus1_avg, ti_char_minus_avg, ti_char_plus2_avg, "TI TVC")
-                if new_eta_ti is not None and (results.eta_ti is None or abs(results.eta_ti - new_eta_ti) > 1e-9):
-                    results.eta_ti = new_eta_ti
+                results.eta_ti = new_eta_ti
+                invalid_characterization |= new_eta_ti is None
 
         # --- 4. Final Save and Math Trigger ---
         results.save()
-        results.calculate_ac_dc_difference()
+        if invalid_characterization:
+            # An excluded characterization phase must not silently reuse its
+            # previous gain or be replaced by the uncharacterized gain of 1.
+            results.delta_uut_ppm = None
+            results.save(update_fields=['delta_uut_ppm'])
+        else:
+            results.calculate_ac_dc_difference()
         print(f"[MODELS] --- Result Calculation Complete ---", flush=True)
 
 class CalibrationResults(models.Model):
@@ -868,6 +857,8 @@ class CalibrationResults(models.Model):
             self.ti_dc_pos_avg, self.ti_dc_neg_avg, self.ti_ac_open_avg, self.ti_ac_close_avg
         ]
         if any(v is None for v in required_avgs):
+            self.delta_uut_ppm = None
+            self.save(update_fields=['delta_uut_ppm'])
             return None  # Not ready to calculate yet
 
         # 2. Fetch corrections automatically if not already set
@@ -894,9 +885,6 @@ class CalibrationResults(models.Model):
             delta_ti=self.delta_ti,
             delta_std_known=self.delta_std_known,
         )
-        if delta is None:
-            return None
-
         self.delta_uut_ppm = delta
         self.save(update_fields=['delta_uut_ppm'])
         return self.delta_uut_ppm
@@ -1451,8 +1439,8 @@ class TVCCorrection(models.Model):
     """
     report = models.ForeignKey(TVCReport, on_delete=models.CASCADE, related_name='corrections')
     frequency = models.IntegerField()
-    ac_dc_difference = models.IntegerField()
-    expanded_uncertainty = models.IntegerField()
+    ac_dc_difference = models.FloatField()
+    expanded_uncertainty = models.FloatField()
 
     class Meta:
         unique_together = ('report', 'frequency')

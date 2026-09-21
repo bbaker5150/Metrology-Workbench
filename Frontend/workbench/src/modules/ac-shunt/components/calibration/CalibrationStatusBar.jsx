@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import { gsap } from "gsap";
 import {
   FaStop,
   FaPlay,
@@ -56,12 +55,6 @@ const CalibrationStatusBar = ({
   const passDirection = pairedRun?.pass; // 'Forward' | 'Reverse' | null
   const [isRunDropdownOpen, setIsRunDropdownOpen] = useState(false);
   const runDropdownRef = useRef(null);
-  const progressBarRef = useRef(null);
-  const progressWidthTweenRef = useRef(null);
-  const shimmerTweenRef = useRef(null);
-  const stageLabelRef = useRef(null);
-  const stageValueRef = useRef(null);
-  const stageDetailRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -100,12 +93,6 @@ const CalibrationStatusBar = ({
   // to grab a perfect cycle boundary.
   const collectionProgressPercent = Math.min((currentCount / targetSamples) * 100, 100);
 
-  const stageLabelText = timerState.isActive
-    ? `${timerState.label}`
-    : stabilizationStatus
-      ? "Stabilizing"
-      : "Collecting";
-
   const stageValueText = timerState.isActive
     ? (timerState.isIndeterminate ? "In progress" : `${countdown}s`)
     : getStageName();
@@ -116,80 +103,6 @@ const CalibrationStatusBar = ({
     : stabilizationStatus && stabilizationInfo
       ? `Attempt: ${stabilizationInfo.count}`
       : `${currentCount} / ${targetSamples} Samples`;
-
-  useEffect(() => {
-    const animateNode = (node) => {
-      if (!node) return;
-      gsap.fromTo(
-        node,
-        { autoAlpha: 0, y: 4 },
-        { autoAlpha: 1, y: 0, duration: 0.2, ease: "power2.out" }
-      );
-    };
-
-    animateNode(stageLabelRef.current);
-    animateNode(stageValueRef.current);
-    animateNode(stageDetailRef.current);
-  }, [stageLabelText, stageValueText, stageDetailText]);
-
-  useEffect(() => {
-    if (!progressBarRef.current) return;
-    const targetPercent = showRunActivity
-      ? Math.max(0, Math.min(collectionProgressPercent, 100))
-      : 0;
-    progressWidthTweenRef.current?.kill();
-
-    if (showRunActivity && targetPercent >= 99.9) {
-      progressWidthTweenRef.current = gsap.timeline({ overwrite: "auto" });
-      progressWidthTweenRef.current
-        .to(progressBarRef.current, {
-          width: "100.6%",
-          duration: 0.16,
-          ease: "power2.out",
-        })
-        .to(progressBarRef.current, {
-          width: "100%",
-          duration: 0.18,
-          ease: "power2.inOut",
-        });
-      return;
-    }
-
-    progressWidthTweenRef.current = gsap.to(progressBarRef.current, {
-      width: `${targetPercent}%`,
-      duration: 0.45,
-      ease: "power2.out",
-      overwrite: "auto",
-    });
-  }, [collectionProgressPercent, showRunActivity]);
-
-  useEffect(() => {
-    if (!progressBarRef.current) return;
-
-    if (showRunActivity) {
-      shimmerTweenRef.current?.kill();
-      gsap.set(progressBarRef.current, { backgroundPosition: "100% 0%" });
-      shimmerTweenRef.current = gsap.to(progressBarRef.current, {
-        backgroundPosition: "-100% 0%",
-        duration: 1.8,
-        ease: "none",
-        repeat: -1,
-      });
-      return;
-    }
-
-    shimmerTweenRef.current?.kill();
-    shimmerTweenRef.current = null;
-    gsap.set(progressBarRef.current, { backgroundPosition: "0% 0%" });
-  }, [showRunActivity]);
-
-  useEffect(
-    () => () => {
-      shimmerTweenRef.current?.kill();
-      progressWidthTweenRef.current?.kill();
-    },
-    []
-  );
 
   if (!activeRunningTP) return null;
 
@@ -233,7 +146,7 @@ const CalibrationStatusBar = ({
               </div>
             )}
             <div className="status-section">
-              <span className="status-label" ref={stageLabelRef}>
+              <span className="status-label">
                 {timerState.isActive ? (
                   <>
                     <FaHourglassHalf /> {timerState.label}
@@ -248,12 +161,12 @@ const CalibrationStatusBar = ({
                   </>
                 )}
               </span>
-              <span className="status-value" ref={stageValueRef}>
+              <span className="status-value">
                 {stageValueText}
               </span>
 
               {/* --- CLEANED UP JSX --- */}
-              <span className="status-detail" ref={stageDetailRef}>
+              <span className="status-detail">
                 {stageDetailText}
               </span>
             </div>
@@ -320,7 +233,9 @@ const CalibrationStatusBar = ({
       {showRunActivity ? (
         <>
           <div className="status-bar-progress-container">
-            <div ref={progressBarRef} className="status-bar-progress"></div>
+            <div className="status-bar-progress" role="progressbar" aria-label="Samples collected"
+              aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.max(0, collectionProgressPercent)}
+              style={{ width: `${Math.max(0, collectionProgressPercent)}%` }} />
           </div>
           {!isRemoteViewer && (
             <div className="status-bar-action">
