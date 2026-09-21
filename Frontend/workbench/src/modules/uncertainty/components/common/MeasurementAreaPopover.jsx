@@ -1,9 +1,11 @@
+import useExclusiveMenu from "../../hooks/useExclusiveMenu";
 import React, { useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { getAnchoredMenuPlacement } from "../../utils/anchoredMenuPosition";
 
 // Area menus must escape the shared table's scrolling/clipping boundary.
-export default function MeasurementAreaPopover({ anchorRef, children }) {
+export default function MeasurementAreaPopover({ anchorRef, children, onClose }) {
+  useExclusiveMenu(true, onClose);
   const [placement, setPlacement] = useState(null);
   useLayoutEffect(() => {
     const update = () => {

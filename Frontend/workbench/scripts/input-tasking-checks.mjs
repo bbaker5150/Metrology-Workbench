@@ -29,7 +29,7 @@ export async function checkInputTasking({ frame, page, check, until, saved }) {
   await bias.fill(''); await bias.press('Enter');
   check('clearing the last source bias hides the column again', await until(async () => await inputs.locator('thead th').count() === 3));
   await frame.getByRole('button', { name: 'Add Net Bias', exact: true }).click();
-  check('a manual net bias retains a correctly aligned four-column table', await until(async () => await inputs.locator('thead th').count() === 4 && await inputs.locator('.measurement-net-bias-row td[colspan="2"]').count() === 1));
+  check('a manual net bias retains a correctly aligned four-column table', await until(async () => await inputs.locator('thead th').count() === 4 && await inputs.locator('.measurement-output-row > td').count() === 4 && await inputs.locator('.measurement-output-row .bias-value-editor').count() === 1));
   await frame.getByRole('button', { name: 'Remove Net Bias', exact: true }).click();
   check('removing net bias restores the compact inputs table', await until(async () => await inputs.locator('thead th').count() === 3));
 
@@ -92,7 +92,9 @@ export async function checkInputTasking({ frame, page, check, until, saved }) {
     await page.mouse.down(); await page.mouse.up();
     check(`one press creates a column while ${column} is expanded`, await until(async () => await uut.locator('thead th').count() === count + 1));
     const name = uut.locator('.instrument-custom-column-name-input').first();
-    if (await name.count()) { await name.fill(`Audit ${column}`); await name.press('Enter'); }
+    check(`new ${column} custom-column name is immediately ready for typing`, await until(async () => await name.count() === 1 && await name.evaluate(node => node === document.activeElement)));
+    await name.fill(`Audit ${column}`); await name.press('Enter');
+    check(`new ${column} custom-column name persists`, await until(() => saved().instrumentCustomColumns?.uut?.some(item => item.label === `Audit ${column}`) === true));
   }
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/input-tasking.png` });
   await frame.locator('[data-tour="tab-overview"]').click();

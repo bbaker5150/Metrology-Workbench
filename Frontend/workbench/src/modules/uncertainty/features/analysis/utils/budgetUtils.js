@@ -663,7 +663,15 @@ export const getBudgetComponentsFromTolerance = (
     .map(unit => budgetUnitMismatch(unit, nominalUnit, unitSystem)).find(Boolean);
   return budgetComponents.map(component => {
     const resolutionMismatch = component.isResolution ? budgetUnitMismatch(toleranceObject.resolutionUnit || toleranceObject.measuringResolutionUnit, nominalUnit, unitSystem) : null;
-    if (resolutionMismatch || mismatch) return unresolvedComponent(component, resolutionMismatch || mismatch);
+    if (resolutionMismatch || mismatch) {
+      // Preserve the source specification for display. Numeric uncertainty stays
+      // unresolved: incompatible dimensions must never be relabeled as the UUT.
+      const authoredTolerance = component.isResolution
+        ? { floor: { high: toleranceObject.resolution ?? toleranceObject.measuringResolution,
+            symmetric: true, unit: toleranceObject.resolutionUnit || toleranceObject.measuringResolutionUnit || toleranceObject.unit } }
+        : toleranceObject;
+      return unresolvedComponent({ ...component, authoredTolerance }, resolutionMismatch || mismatch);
+    }
     if (!Number.isFinite(Number(component.value_native)) || component.distribution === "Not Set" || (component.name.endsWith(" - Accuracy") && missingAccuracyDistribution)) {
       return unresolvedComponent(component, "Choose an error limit distribution to calculate standard uncertainty.");
     }

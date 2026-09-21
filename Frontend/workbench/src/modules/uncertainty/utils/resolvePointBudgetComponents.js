@@ -143,7 +143,10 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
         ) || (/^(Accuracy|Tolerance|Error Limit|TMDE Error|dB.*)$/i.test(component.tmdeBudgetComponentKind || "")
           ? resolved.find(candidate => !candidate.isResolution && !candidate.isManual)
           : null);
-        if (!replacement) return component.tmdeBudgetComponentKind === "Resolution" ? null : unresolvedComponent(component, "Set an error limit for the selected TMDE range.");
+        if (!replacement) return component.tmdeBudgetComponentKind === "Resolution" ? null : unresolvedComponent({
+          ...component, toleranceLimit_native: null, authoredTolerance: null,
+          unit_native: selectedRange.unit || "",
+        }, "Set an error limit for the selected TMDE range.");
         const divisor = replacement.distributionDivisor;
         const numericDivisor = Number(divisor);
         const toleranceLimit =

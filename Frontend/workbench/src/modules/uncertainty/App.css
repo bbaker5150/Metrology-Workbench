@@ -21294,3 +21294,21 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .uncertainty-module .measurement-group-container .point-grid-item > .is-cell-hovered:not(.point-grouped-cell) {
   background: transparent !important;
 }
+
+/* Preserve the author's equation-symbol case while keeping heading typography. */
+.uncertainty-module .budget-section-title-row h4.budget-symbol-heading { text-transform: none; }
+.uncertainty-module .measurement-output-row > td { background: var(--table-header-bg, var(--component-bg)); border-bottom: 1px solid var(--border-color); }
+/* Paint area selection on its cell: collapsed-table row outlines can be hidden
+   by an adjacent selected instrument. This has no effect on row geometry. */
+.uncertainty-module .instrument-equipment-table tr[data-area-selected="true"] > td {
+  box-shadow: inset 0 0 0 1px var(--instrument-function-color, var(--primary-color));
+}
+/* The column header is opaque and owns the stacking order over all row actions.
+   A small upward bleed closes fractional-pixel seams at non-default UI zoom. */
+.uncertainty-module .instrument-equipment-table thead { z-index: 20; background: linear-gradient(var(--component-bg), var(--component-bg)), var(--background-color); }
+.uncertainty-module .instrument-equipment-table thead::before {
+  content: ""; position: absolute; inset: -2px 0 0; background: linear-gradient(var(--component-bg), var(--component-bg)), var(--background-color); pointer-events: none;
+}
+/* Use the whole available viewport before scrolling either column list. */
+.sidebar-filter-dropdown:has(.point-column-menu-body) { overflow-y: auto; }
+.point-column-menu-body .point-column-available .sidebar-filter-sections { max-height: none; overflow: visible; }

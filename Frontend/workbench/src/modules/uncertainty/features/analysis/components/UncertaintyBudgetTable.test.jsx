@@ -1,6 +1,6 @@
 import { createDynamicDefinition, createDynamicComponent, resolveDynamicComponent } from "../../../utils/dynamicBudgetComponents";
 import { useState } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
 
@@ -1015,6 +1015,21 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.getByTitle("Remove Component")).toBeInTheDocument();
   });
 
+  it("renders imported linked TMDE limits as source data, not an empty manual editor", () => {
+    const { container } = renderDirectBudget({ components: [{
+      id: "linked", name: "Imported reference - Error Limit", type: "B",
+      tmdeBudgetSourceId: "reference", tmdeBudgetRangeId: "range", tmdeBudgetComponentKind: "Accuracy",
+      value: 10000, value_native: .1, unit_native: "V", toleranceLimit_native: .2,
+      distribution: "Normal", distributionDivisor: "2", isCore: false,
+      originalInput: { toleranceLimit: .2, unit: "V", errorDistributionDivisor: "2" },
+    }] });
+    const row = container.querySelector('.uncertainty-budget-table tbody tr');
+    expect(row.cells[1].textContent).toMatch(/± 0\.2000+ V/);
+    expect(row.cells[2].textContent).toBe("Normal");
+    expect(row.cells[1].querySelector('button,input')).toBeNull();
+    expect(screen.queryByTitle('Edit Component')).toBeNull();
+  });
+
   it("keeps TMDE accuracy distribution read-only in the budget table", () => {
     renderDirectBudget({
       components: [
@@ -1034,7 +1049,8 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       ],
     });
 
-    expect(screen.getByText("Not Set")).toBeInTheDocument();
+    const row = screen.getByText("F-Class Weight - TMDE Error").closest("tr");
+    expect(within(row).getAllByText("Not Set")).toHaveLength(2);
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 

@@ -75,6 +75,11 @@ describe.each(["session", "point"])("instrument selection in %s view", viewMode 
     session = JSON.parse(screen.getByTestId("session-state").textContent);
     expect(session.uuts).toHaveLength(0);
     expect(session.tmdes.map(item => item.id)).toEqual(["t2", "u1", "u2", "t1"]);
+    fireEvent.keyDown(window, { key: "v", ctrlKey: true });
+    session = JSON.parse(screen.getByTestId("session-state").textContent);
+    expect(session.tmdes).toHaveLength(7);
+    expect(new Set(session.tmdes.map(item => item.id)).size).toBe(7);
+
   });
 
   it("preserves Ctrl and Shift instrument selection on multi-range rows", () => {

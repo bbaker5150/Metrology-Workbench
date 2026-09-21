@@ -1,3 +1,4 @@
+import useExclusiveMenu from "../../hooks/useExclusiveMenu";
 import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -47,6 +48,7 @@ const InlineMenuSelect = ({
     setIsOpen(false);
     onOpenChange?.(false);
   };
+  useExclusiveMenu(isOpen, closeMenu);
   const positionMenu = () => {
     const rect = rootRef.current?.getBoundingClientRect();
     const accentColor = rootRef.current
@@ -122,7 +124,7 @@ const InlineMenuSelect = ({
       const target = event.target;
       if (
         rootRef.current?.contains(target) ||
-        target?.closest?.(".inline-unit-menu")
+        menuRef.current?.contains(target)
       ) {
         return;
       }

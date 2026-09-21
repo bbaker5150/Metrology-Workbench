@@ -1,3 +1,5 @@
+import useExclusiveMenu from "../../../hooks/useExclusiveMenu";
+import { claimWorkspaceClipboard, ownsWorkspaceClipboard } from "../../../utils/workspaceClipboard";
 import { getPointRequirements } from "../../../utils/pointRequirements";
 import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "../../../utils/workspaceSelection";
 import MeasurementInputBias, { hasMeasurementInputBias } from "./MeasurementInputBias";
@@ -5,7 +7,7 @@ import { resolveMeasurementBias } from "../../../utils/measurementBias";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
 import LegacyPointBiasNotice from "./LegacyPointBiasNotice";
-import { AddNetBiasButton, NetBiasRow } from "./NetMeasurementBias";
+import { AddNetBiasButton, NetBiasCell } from "./NetMeasurementBias";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
 import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
@@ -111,6 +113,7 @@ import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
 import EquationLibraryMenu from "./EquationLibraryMenu";
 import {
   validateEquation,
+  extractEquationVariables,
   stripEquationPrefix,
 } from "../../../utils/equationValidation";
 import {
@@ -169,6 +172,8 @@ let instrumentClipboard = null;
 // either clears the other, so shortcuts and menus always paste the latest copy.
 // Range payload: { kind: "uut"|"tmde", range, ranges: [{ range, customFields }] }
 let rangeClipboard = null;
+const currentInstrumentClipboard = () => ownsWorkspaceClipboard("instrument") ? instrumentClipboard : null;
+const currentRangeClipboard = () => ownsWorkspaceClipboard("range") ? rangeClipboard : null;
 
 export const insertAfterId = (rows, row, targetId, idOf = candidate => candidate.id) => {
   const index = rows.findIndex(candidate => String(idOf(candidate)) === String(targetId));
@@ -563,6 +568,7 @@ const UnitSelect = ({
     setIsOpen(true);
   };
   const closeMenu = () => setIsOpen(false);
+  useExclusiveMenu(isOpen, closeMenu);
   const focusBaseControl = () => {
     requestAnimationFrame(() => {
       rootRef.current
@@ -1544,7 +1550,7 @@ const useMeasurementInputEditor = ({ closeOnOutside = true } = {}) => {
 };
 
 export const isValidEquationVariableSymbol = (value) =>
-  /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(value || "").trim());
+  /^[\p{L}_][\p{L}\p{N}_]*$/u.test(String(value || "").trim());
 
 export const renameEquationVariable = (equationString, oldSymbol, newSymbol) => {
   const source = String(equationString || "");
@@ -1558,7 +1564,7 @@ export const renameEquationVariable = (equationString, oldSymbol, newSymbol) => 
   const prefix = equalsIndex >= 0 ? source.slice(0, equalsIndex + 1) : "";
   const expression = equalsIndex >= 0 ? source.slice(equalsIndex + 1) : source;
   const escaped = oldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const token = new RegExp(`(^|[^A-Za-z0-9_])${escaped}(?=$|[^A-Za-z0-9_])`, "g");
+  const token = new RegExp(`(^|[^\\p{L}\\p{N}_])${escaped}(?=$|[^\\p{L}\\p{N}_])`, "gu");
   return `${prefix}${expression.replace(token, (_match, before) => `${before}${newName}`)}`;
 };
 
@@ -1587,9 +1593,9 @@ export const reconcileEquationVariableState = ({
   variables.forEach((symbol) => {
     const sourceSymbol = simpleRename?.to === symbol ? simpleRename.from : symbol;
     mappings[symbol] =
-      currentMappings[sourceSymbol] ||
-      rememberedMappings[symbol] ||
-      rememberedMappings[sourceSymbol] ||
+      currentMappings[sourceSymbol] ??
+      rememberedMappings[symbol] ??
+      rememberedMappings[sourceSymbol] ??
       "";
     if (currentNominals[sourceSymbol] !== undefined) {
       nominals[symbol] = currentNominals[sourceSymbol];
@@ -1599,7 +1605,7 @@ export const reconcileEquationVariableState = ({
   return { mappings, nominals, simpleRename };
 };
 
-export const MeasurementInputSymbolCell = ({ symbol, onCommit }) => {
+export const MeasurementInputSymbolCell = ({ symbol, onCommit, output = false }) => {
   const { editing, setEditing, rootRef } = useMeasurementInputEditor({
     closeOnOutside: false,
   });
@@ -1611,7 +1617,7 @@ export const MeasurementInputSymbolCell = ({ symbol, onCommit }) => {
 
   const commit = () => {
     const next = String(draft || "").trim();
-    if (isValidEquationVariableSymbol(next)) onCommit?.(next);
+    if ((output && !next) || isValidEquationVariableSymbol(next)) onCommit?.(next);
     else setDraft(symbol || "");
     setEditing(false);
   };
@@ -1636,17 +1642,19 @@ export const MeasurementInputSymbolCell = ({ symbol, onCommit }) => {
               setEditing(false);
             }
           }}
-          aria-label={`Equation variable ${symbol}`}
+          aria-label={output ? "Output variable" : `Equation variable ${symbol}`}
+          onFocus={event => event.currentTarget.select()}
         />
       ) : (
         <button
           type="button"
           className="inline-tolerance-summary"
           title="Rename variable"
-          aria-label={`Rename equation variable ${symbol}`}
+          aria-label={output ? "Edit output variable" : `Rename equation variable ${symbol}`}
+          onFocus={() => setEditing(true)}
           onClick={() => setEditing(true)}
         >
-          {formatEquationVariableSymbol(symbol)}
+          {formatEquationVariableSymbol(symbol) || "Not Set"}
         </button>
       )}
     </div>
@@ -1659,7 +1667,7 @@ export const MeasurementInputNameCell = ({
   onChange,
 }) => {
   return <div className="measurement-input-cell-editor"><EditableCustomFieldCell value={value}
-    onCommit={onChange} ariaLabel={`Display name for equation variable ${symbol}`}
+    expandOnFocus onCommit={onChange} ariaLabel={`Display name for equation variable ${symbol}`}
     editLabel={`Edit name for equation variable ${symbol}`} /></div>;
 };
 
@@ -1700,6 +1708,7 @@ export const MeasurementInputNominalCell = ({
                 setEditing(false);
               }
             }}
+            onFocus={event => event.currentTarget.select()}
             aria-label={`Nominal value for equation variable ${symbol}`}
           />
           <UnitSelect
@@ -1716,6 +1725,7 @@ export const MeasurementInputNominalCell = ({
             summary ? "" : " is-empty"
           }`}
           aria-label={`Edit nominal for equation variable ${symbol}`}
+          onFocus={() => setEditing(true)}
           title="Edit nominal"
           onClick={() => setEditing(true)}
         >
@@ -2319,7 +2329,7 @@ export const EditableDescriptionCell = ({
 // standard assumption for a least-significant-digit / quantization error.
 const RESOLUTION_DIST_DEFAULT = "3.464";
 
-const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel }) => {
+const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel, expandOnFocus = false }) => {
   const [draft, setDraft] = useState(value ?? "");
   const [editing, setEditing] = useState(false);
   useEffect(() => setDraft(value ?? ""), [value]);
@@ -2337,6 +2347,7 @@ const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel })
         type="button"
         className={`inline-tolerance-summary${value ? "" : " is-empty"}`}
         title="Edit field"
+        onFocus={() => { if (expandOnFocus) setEditing(true); }}
         aria-label={editLabel}
         onMouseDown={(event) => { event.stopPropagation(); event.preventDefault(); setEditing(true); }}
         onClick={(event) => {
@@ -2353,6 +2364,7 @@ const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel })
       autoFocus
       className="instrument-custom-field-input"
       aria-label={ariaLabel}
+      onFocus={event => event.currentTarget.select()}
       style={{ width: `${Math.max(150, String(draft).length * 8 + 22)}px` }}
       value={draft}
       placeholder="Not Set"
@@ -4674,7 +4686,14 @@ export const InlineToleranceCell = ({
         {biasRole && <div className="inline-tolerance-mini-toggle" role="group" aria-label="Bias controls">
           <button type="button" className={showBias ? "is-active" : ""}
             aria-pressed={showBias} aria-expanded={showBias}
-            title="Edit bias" onClick={() => setShowBias(value => !value)}>Bias</button>
+            title="Edit bias" onClick={() => {
+              // Turning Bias off removes the offset, rather than merely hiding it.
+              if (showBias) {
+                const { bias: removedBias, ...withoutBias } = tolerance;
+                onCommit("__replace__", withoutBias);
+              }
+              setShowBias(value => !value);
+            }}>Bias</button>
         </div>}
       </div>
       {(sidedness === "single"
@@ -5265,8 +5284,8 @@ export const getSpecRows = (tolerance) => {
     const unit = getUnitDisplayLabel(singleSided.unit || "");
     const measurement =
       singleSided.measurement === "unknown"
-        ? "measurement unknown"
-        : "measurement known";
+        ? "unknown value"
+        : "known value";
     return [
       `${isLow ? "≥" : "≤"} ${singleSided.limit}${unit ? ` ${unit}` : ""} (${measurement})`,
     ];
@@ -5392,15 +5411,9 @@ export const getSpecRows = (tolerance) => {
 export const getUutSpecRows = (tolerance) => getSpecRows(tolerance);
 
 export const getCollapsedSpecRows = (tolerance = {}, referencePoint) => {
-  const source = { ...tolerance, ...(tolerance.tolerance || tolerance.tolerances || {}) };
-  if (!source.whicheverIsGreater) return getSpecRows(source);
-  const unitWarning = [source.unit || source.functionUnit, ...["reading", "range", "floor", "readings_iv"].map(key => source[key]?.unit)]
-    .some(unit => budgetUnitMismatch(unit, referencePoint?.unit, unitSystem));
-  if (unitWarning) return ["Unit mismatch"];
-  if (!referencePoint || referencePoint.value === "" || referencePoint.value == null || !Number.isFinite(Number(referencePoint.value))) {
-    return ["Whichever is greater"];
-  }
-  return getSpecRows(selectGreatestTolerance(source, referencePoint));
+  // Describe the authored specification. Selecting the largest term belongs
+  // to the point calculation, never to the instrument's read-view summary.
+  return getSpecRows({ ...tolerance, ...(tolerance.tolerance || tolerance.tolerances || {}) });
 };
 
 const formatResolutionLabel = (range = {}) => {
@@ -8517,7 +8530,7 @@ const SummaryDashboard = ({
   const [selectedInstrumentArea, setSelectedInstrumentArea] = useState(null);
   useEffect(() => {
     const deselectArea = event => {
-      if (event.key !== "Escape" || !selectedInstrumentArea) return;
+      if (event.key !== "Escape") return;
       setSelectedInstrumentArea(null);
       setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
       pasteDestinationRef.current = null;
@@ -8566,6 +8579,7 @@ const SummaryDashboard = ({
         const ids = selectedRangeIds[itemStateKey(entry.kind, entry.item.id)];
         return ids?.length ? { ...entry, item: instrumentWithSelectedRanges(entry.item, ids), selectedRangeIds: ids } : entry;
       });
+    claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
     if (mode === "cut") {
       onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
@@ -8586,9 +8600,10 @@ const SummaryDashboard = ({
   };
 
   const pasteInstrument = (kind, areaKey, targetId) => {
-    if (!onSessionSave || !instrumentClipboard) return;
+    if (!onSessionSave || !currentInstrumentClipboard()) return;
     const { session: next, row, rows } = pasteInstrumentIntoSession(latestSessionDataRef.current, instrumentClipboard, kind, areaKey, targetId);
-    if (instrumentClipboard.mode === "cut") instrumentClipboard = null;
+    // The originals are already removed. Retain the snapshot for repeated paste.
+    if (instrumentClipboard.mode === "cut") instrumentClipboard = { ...instrumentClipboard, mode: "copy" };
     pasteDestinationRef.current = { kind, areaKey, targetId: row.id };
     setSelectedRangeIds({});
     setSelectedUutIds(kind === "uut" ? rows.map(item => item.id) : []);
@@ -8615,6 +8630,7 @@ const SummaryDashboard = ({
     const items = areaInstrumentEntries(kind, area);
     if (!items.length) return;
     rangeClipboard = null;
+    claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
     if (mode === "cut") {
       onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
@@ -8628,7 +8644,7 @@ const SummaryDashboard = ({
     setRowMenu({ x: event.clientX, y: event.clientY, items: [
       { label: "Copy Instruments", icon: faCopy, disabled: empty, action: () => copyInstrumentArea(kind, area, "copy") },
       { label: "Cut Instruments", icon: faScissors, disabled: empty, action: () => copyInstrumentArea(kind, area, "cut") },
-      { label: "Paste Instruments", icon: faPaste, disabled: !instrumentClipboard, action: () => pasteInstrument(kind, area.key) },
+      { label: "Paste Instruments", icon: faPaste, disabled: !currentInstrumentClipboard(), action: () => pasteInstrument(kind, area.key) },
     ] });
   };
 
@@ -8651,7 +8667,7 @@ const SummaryDashboard = ({
       }
     }
     setLastSelectionTarget(kind);
-    const canPaste = !!instrumentClipboard;
+    const canPaste = !!currentInstrumentClipboard();
     const items = [
       { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
       { label: "Cut Instrument", icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
@@ -8690,6 +8706,7 @@ const SummaryDashboard = ({
     });
     if (!ranges.length) return;
     instrumentClipboard = null;
+    claimWorkspaceClipboard("range");
     rangeClipboard = { kind, range: ranges[0].range, ranges };
   };
   const cutRange = (kind, item, range) => {
@@ -8699,7 +8716,7 @@ const SummaryDashboard = ({
     else if (rangeId) handleRemoveRange(kind, item, rangeId);
   };
   const pasteRange = (kind, item, activeRangeId) => {
-    if (!onSessionSave || !rangeClipboard) return;
+    if (!onSessionSave || !currentRangeClipboard()) return;
     let updated = item, newRangeId = activeRangeId;
     for (const entry of rangeClipboard.ranges || [{ range: rangeClipboard.range }]) {
       const result = pasteRangeIntoItem(updated, newRangeId, entry.range);
@@ -8744,12 +8761,12 @@ const SummaryDashboard = ({
         ? { [itemStateKey(kind, item.id)]: [String(rangeId)] }
         : {},
     );
-    const canPaste = !!rangeClipboard;
+    const canPaste = !!currentRangeClipboard();
     const canDelete = Boolean(rangeId);
     const items = [
       { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
       { label: "Copy Range", icon: faCopy, action: () => copyRange(kind, item, rangeId) },
-      ...(instrumentClipboard ? [{ label: "Paste Instrument", icon: faPaste,
+      ...(currentInstrumentClipboard() ? [{ label: "Paste Instrument", icon: faPaste,
         action: () => pasteInstrument(kind, pasteAreaFromEvent(e, item), item.id) }] : []),
     ];
     if (canDelete) {
@@ -8812,7 +8829,7 @@ const SummaryDashboard = ({
 
       // When the selected instrument is expanded (view-all-ranges), copy/cut/
       // paste act on the ACTIVE RANGE rather than the whole instrument.
-      if (kind && (lastSelectionTarget === "range" || (key === "v" && rangeClipboard))) {
+      if (kind && (lastSelectionTarget === "range" || (key === "v" && currentRangeClipboard()))) {
         const target = getSelectedRangeTarget(kind);
         if (target?.activeRange) {
           if (key === "c" || key === "x") {
@@ -8822,7 +8839,7 @@ const SummaryDashboard = ({
             if (key === "x") handleDeleteSelectedRanges();
             return;
           }
-          if (key === "v" && rangeClipboard) {
+          if (key === "v" && currentRangeClipboard()) {
             e.preventDefault();
             e.stopImmediatePropagation();
             pasteRange(kind, target.item, rangeIdOf(target.activeRange));
@@ -8838,7 +8855,7 @@ const SummaryDashboard = ({
           e.stopImmediatePropagation();
           copyInstrument(kind, item, key === "x" ? "cut" : "copy");
         }
-      } else if (key === "v" && instrumentClipboard) {
+      } else if (key === "v" && currentInstrumentClipboard()) {
         const destination = pasteDestinationRef.current;
         const pasteKind = destination?.kind || kind;
         if (!pasteKind) return;
@@ -10172,6 +10189,7 @@ function DetailedView({
   const [showIrrelevantTmdeFunctions, setShowIrrelevantTmdeFunctions] =
     useState(false);
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
+  useExclusiveMenu(Boolean(budgetTmdePicker), () => setBudgetTmdePicker(null));
   const budgetTmdeMenuRef = useRef(null);
   useEffect(() => {
     if (!budgetTmdePicker) return;
@@ -10459,7 +10477,7 @@ function DetailedView({
   const [selectedInstrumentArea, setSelectedInstrumentArea] = useState(null);
   useEffect(() => {
     const deselectArea = event => {
-      if (event.key !== "Escape" || !selectedInstrumentArea) return;
+      if (event.key !== "Escape") return;
       setSelectedInstrumentArea(null);
       setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
       pasteDestinationRef.current = null;
@@ -10496,6 +10514,7 @@ function DetailedView({
         const ids = selectedRangeIds[itemStateKey(entry.kind, entry.item.id)];
         return ids?.length ? { ...entry, item: instrumentWithSelectedRanges(entry.item, ids), selectedRangeIds: ids } : entry;
       });
+    claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
     if (mode === "cut") {
       onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
@@ -10515,9 +10534,10 @@ function DetailedView({
     if (updated !== sessionData) onSessionSave?.(updated);
   };
   const pasteInstrument = (kind, areaKey, targetId) => {
-    if (!onSessionSave || !instrumentClipboard) return;
+    if (!onSessionSave || !currentInstrumentClipboard()) return;
     const { session: next, row, rows } = pasteInstrumentIntoSession(latestSessionDataRef.current, instrumentClipboard, kind, areaKey, targetId);
-    if (instrumentClipboard.mode === "cut") instrumentClipboard = null;
+    // The originals are already removed. Retain the snapshot for repeated paste.
+    if (instrumentClipboard.mode === "cut") instrumentClipboard = { ...instrumentClipboard, mode: "copy" };
     pasteDestinationRef.current = { kind, areaKey, targetId: row.id };
     setSelectedRangeIds({});
     setSelectedUutIds(kind === "uut" ? rows.map(item => item.id) : []);
@@ -10544,6 +10564,7 @@ function DetailedView({
     const items = areaInstrumentEntries(kind, area);
     if (!items.length) return;
     rangeClipboard = null;
+    claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
     if (mode === "cut") {
       onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
@@ -10557,7 +10578,7 @@ function DetailedView({
     setRowMenu({ x: event.clientX, y: event.clientY, items: [
       { label: "Copy Instruments", icon: faCopy, disabled: empty, action: () => copyInstrumentArea(kind, area, "copy") },
       { label: "Cut Instruments", icon: faScissors, disabled: empty, action: () => copyInstrumentArea(kind, area, "cut") },
-      { label: "Paste Instruments", icon: faPaste, disabled: !instrumentClipboard, action: () => pasteInstrument(kind, area.key) },
+      { label: "Paste Instruments", icon: faPaste, disabled: !currentInstrumentClipboard(), action: () => pasteInstrument(kind, area.key) },
     ] });
   };
   const openInstrumentRowMenu = (e, kind, item) => {
@@ -10579,7 +10600,7 @@ function DetailedView({
       }
     }
     setLastSelectionTarget(kind);
-    const canPaste = !!instrumentClipboard;
+    const canPaste = !!currentInstrumentClipboard();
 
     const items = [
       { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
@@ -10619,6 +10640,7 @@ function DetailedView({
     });
     if (!ranges.length) return;
     instrumentClipboard = null;
+    claimWorkspaceClipboard("range");
     rangeClipboard = { kind, range: ranges[0].range, ranges };
   };
   const cutRange = (kind, item, range) => {
@@ -10628,7 +10650,7 @@ function DetailedView({
     else if (rangeId) handleRemoveRangeDetail(kind, item, rangeId);
   };
   const pasteRange = (kind, item, activeRangeId) => {
-    if (!onSessionSave || !rangeClipboard) return;
+    if (!onSessionSave || !currentRangeClipboard()) return;
     let updated = item, newRangeId = activeRangeId;
     for (const entry of rangeClipboard.ranges || [{ range: rangeClipboard.range }]) {
       const result = pasteRangeIntoItem(updated, newRangeId, entry.range);
@@ -10666,12 +10688,12 @@ function DetailedView({
         ? { [itemStateKey(kind, item.id)]: [String(rangeId)] }
         : {},
     );
-    const canPaste = !!rangeClipboard;
+    const canPaste = !!currentRangeClipboard();
     const canDelete = Boolean(rangeId);
     const items = [
       { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
       { label: "Copy Range", icon: faCopy, action: () => copyRange(kind, item, rangeId) },
-      ...(instrumentClipboard ? [{ label: "Paste Instrument", icon: faPaste,
+      ...(currentInstrumentClipboard() ? [{ label: "Paste Instrument", icon: faPaste,
         action: () => pasteInstrument(kind, pasteAreaFromEvent(e, item), item.id) }] : []),
     ];
     if (canDelete) {
@@ -10733,7 +10755,7 @@ function DetailedView({
         );
 
       // Expanded instrument → copy/cut/paste act on the active range.
-      if (kind && (lastSelectionTarget === "range" || (key === "v" && rangeClipboard))) {
+      if (kind && (lastSelectionTarget === "range" || (key === "v" && currentRangeClipboard()))) {
         const target = getSelectedRangeTargetDetail(kind);
         if (target?.activeRange) {
           if (key === "c" || key === "x") {
@@ -10743,7 +10765,7 @@ function DetailedView({
             if (key === "x") handleDeleteSelectedRanges();
             return;
           }
-          if (key === "v" && rangeClipboard) {
+          if (key === "v" && currentRangeClipboard()) {
             e.preventDefault();
             e.stopImmediatePropagation();
             pasteRange(kind, target.item, rangeIdOf(target.activeRange));
@@ -10759,7 +10781,7 @@ function DetailedView({
           e.stopImmediatePropagation();
           copyInstrument(kind, item, key === "x" ? "cut" : "copy");
         }
-      } else if (key === "v" && instrumentClipboard) {
+      } else if (key === "v" && currentInstrumentClipboard()) {
         const destination = pasteDestinationRef.current;
         const pasteKind = destination?.kind || kind;
         if (!pasteKind) return;
@@ -11767,6 +11789,8 @@ function DetailedView({
   const libraryButtonRef = useRef(null);
   const libraryMenuRef = useRef(null);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  useExclusiveMenu(isLibraryOpen, () => setIsLibraryOpen(false));
+  useExclusiveMenu(isSymbolMenuOpen, () => setIsSymbolMenuOpen(false));
   const [libraryMenuPosition, setLibraryMenuPosition] = useState({
     top: 0,
     left: 0,
@@ -12590,18 +12614,7 @@ function DetailedView({
       variables = [];
     } else {
       try {
-        const node = math.parse(expressionToParse);
-        const varsSet = new Set();
-        node.traverse(function (node) {
-          if (
-            node.isSymbolNode &&
-            !math[node.name] &&
-            !["e", "pi", "i"].includes(node.name.toLowerCase())
-          ) {
-            varsSet.add(node.name);
-          }
-        });
-        variables = Array.from(varsSet).sort();
+        variables = extractEquationVariables(expressionToParse);
       } catch {
         variables = null;
       }
@@ -12802,9 +12815,8 @@ function DetailedView({
     // Store the raw text so multi-word names ("Applied Weight") can be typed;
     // comparisons elsewhere always trim.
     const newMappings = { ...currentMappings, [symbol]: newName };
-    if (trimmedNewName) {
-      rememberedVariableNamesRef.current[symbol] = trimmedNewName;
-    }
+    // Explicit clears remain authoritative after removing/readding the symbol.
+    rememberedVariableNamesRef.current[symbol] = trimmedNewName;
 
     const patch = { variableMappings: newMappings };
     const currentNominal = testPointData.variableNominals?.[symbol];
@@ -14756,16 +14768,6 @@ function DetailedView({
       uutNominal.value !== undefined &&
       uutNominal.value !== "" &&
       uutNominal.value !== null);
-  const hasUnassignedVariables =
-    isDerived &&
-    equationDisplayData?.variables.some((v) => {
-      if (!String(v.name || "").trim()) return true;
-      if (v.value === "" || v.value === null || v.value === undefined) {
-        return true;
-      }
-      return !v.unit;
-    });
-
   const isBackendMappingError =
     calculationError &&
     (calculationError.includes("Variable mappings are missing") ||
@@ -14888,6 +14890,20 @@ function DetailedView({
             </tr>
           </thead>
           <tbody>
+            {/* The output uses the point's own nominal and optional equation LHS.
+                It is never added to the RHS input mappings or source sum. */}
+            <tr className="measurement-output-row">
+              <td><MeasurementInputSymbolCell output
+                symbol={testPointData.equationString?.includes("=") ? testPointData.equationString.split("=")[0].trim() : ""}
+                onCommit={symbol => handleEquationChange(`${symbol ? `${symbol} = ` : ""}${stripEquationPrefix(testPointData.equationString)}`)} /></td>
+              <td>{uutNominal?.name || testPointData.testPointInfo?.measurementArea || testPointData.measurementAreaName || "Output"}</td>
+              <td><MeasurementInputNominalCell symbol="output" value={uutNominal?.value ?? ""} unit={uutNominal?.unit || ""}
+                onValueChange={value => onUpdateTestPoint({ testPointInfo: { ...testPointData.testPointInfo,
+                  parameter: { ...testPointData.testPointInfo?.parameter, value } } })}
+                onUnitChange={unit => onUpdateTestPoint({ testPointInfo: { ...testPointData.testPointInfo,
+                  parameter: { ...testPointData.testPointInfo?.parameter, unit, unitSelectionExplicit: true } } })} /></td>
+              {showInputBias && <td><NetBiasCell point={testPointData} onChange={onUpdateTestPoint} /></td>}
+            </tr>
             {equationDisplayData.variables.map((variable) => (
               <tr key={variable.symbol}>
                 <td>
@@ -14934,7 +14950,6 @@ function DetailedView({
                 {showInputBias && <td><MeasurementInputBias point={testPointData} session={sessionData} variable={variable} mode={inputBiasDisplay} resolved={inputBiasCalculation} /></td>}
               </tr>
             ))}
-            <NetBiasRow point={testPointData} onChange={onUpdateTestPoint} />
           </tbody>
         </table>
       </div>
@@ -15718,12 +15733,6 @@ function DetailedView({
             </div>
             <div className="measurement-equation-inputs-card">
                 {equationVariableInputs}
-                {hasUnassignedVariables && (
-                  <div className="equation-workflow-notice is-incomplete" role="status">
-                    Name every variable and enter its nominal value and unit to
-                    populate the budget tables.
-                  </div>
-                )}
                 {calcStatus !== "neutral" && (
                   <div
                     className="measurement-equation-status"

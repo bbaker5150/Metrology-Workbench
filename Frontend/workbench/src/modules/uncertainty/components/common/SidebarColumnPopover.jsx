@@ -1,8 +1,10 @@
+import useExclusiveMenu from "../../hooks/useExclusiveMenu";
 import React, { useLayoutEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { getAnchoredMenuPlacement } from "../../utils/anchoredMenuPosition";
 
 export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
+  useExclusiveMenu(true, onClose);
   const [placement, setPlacement] = useState(null);
   const menuRef = useRef(null);
   const placed = Boolean(placement);
@@ -14,12 +16,18 @@ export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
       // space so its growing list cannot cover the toggle at reduced zoom.
       const zoom = (parseFloat(getComputedStyle(document.documentElement).zoom) || 1) *
         (parseFloat(getComputedStyle(document.body).zoom) || 1);
-      const next = getAnchoredMenuPlacement({
+      const viewportWidth = window.innerWidth / zoom, viewportHeight = window.innerHeight / zoom;
+      const right = rect?.right / zoom, left = rect?.left / zoom;
+      const next = right + 8 + 480 <= viewportWidth - 8 ? {
+        left: right + 8, top: 8, width: 480, maxHeight: viewportHeight - 16,
+      } : left - 8 - 480 >= 8 ? {
+        left: left - 8 - 480, top: 8, width: 480, maxHeight: viewportHeight - 16,
+      } : getAnchoredMenuPlacement({
         anchorRect: rect && Object.fromEntries(["top", "right", "bottom", "left"].map(key => [key, rect[key] / zoom])),
         viewportWidth: window.innerWidth / zoom,
         viewportHeight: window.innerHeight / zoom,
         preferredWidth: 480,
-        preferredMaxHeight: 600,
+        preferredMaxHeight: viewportHeight - 16,
       });
       // Constrain the menu to one side of its trigger. Growing the selected
       // column list must never cover the toggle needed to close the menu.

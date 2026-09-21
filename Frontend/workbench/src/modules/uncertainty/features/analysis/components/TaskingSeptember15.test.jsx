@@ -13,18 +13,16 @@ vi.mock("plotly.js-dist", () => ({ default: {} }));
 const term = (high, unit) => ({ high, low: -high, unit, symmetric: true, distribution: "1.732" });
 const tolerance = { whicheverIsGreater: true, reading: term(10, "%"), floor: term(2, "V") };
 
-it("shows the winning authored term while preserving every alternative in the editor and picker", () => {
+it("shows every authored alternative in the collapsed view, editor and picker", () => {
   const before = JSON.stringify(tolerance);
-  expect(getCollapsedSpecRows(tolerance, { value: 5, unit: "V" })[0]).toBe("± 2 V");
-  expect(getCollapsedSpecRows({ tolerances: tolerance }, { value: 50, unit: "V" })[0]).toBe("± 10% IV");
-  expect(getCollapsedSpecRows(tolerance, { value: 0, unit: "V" })[0]).toBe("± 2 V");
-  expect(getCollapsedSpecRows(tolerance, { value: -50, unit: "V" })[0]).toBe("± 10% IV");
-  expect(getCollapsedSpecRows(tolerance)[0]).toBe("Whichever is greater");
-  expect(getCollapsedSpecRows(tolerance, { value: 50, unit: "A" })[0]).toBe("Unit mismatch");
+  for (const reference of [{ value: 5, unit: "V" }, { value: -50, unit: "V" }, undefined, { value: 50, unit: "A" }]) {
+    expect(getCollapsedSpecRows(tolerance, reference)).toEqual(getSpecRows(tolerance));
+    expect(getCollapsedSpecRows(tolerance, reference)[0]).toMatch(/10% IV, or ±2 V, whichever is greater/);
+  }
   expect(getSpecRows(tolerance)[0]).toMatch(/10% IV, or ±2 V, whichever is greater/);
   expect(JSON.stringify(tolerance)).toBe(before);
   render(<InlineToleranceCell tolerance={tolerance} activeRange={{ unit: "V" }} referencePoint={{ value: 5, unit: "V" }} editable onCommit={vi.fn()} />);
-  expect(screen.getByText("± 2 V")).toBeInTheDocument();
+  expect(screen.getByText(/10% IV, or ±2 V, whichever is greater/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button"));
   expect(screen.getByRole("checkbox", { name: /whichever is greater/i })).toBeChecked();
 });

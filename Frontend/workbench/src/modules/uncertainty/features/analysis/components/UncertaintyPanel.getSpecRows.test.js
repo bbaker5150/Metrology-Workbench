@@ -72,7 +72,7 @@ describe("getSpecRows compact spec line", () => {
           unit: "degF",
         },
       })[0],
-    ).toBe("≤ 300 °F (measurement unknown)");
+    ).toBe("≤ 300 °F (unknown value)");
     expect(
       getSpecRows({
         singleSided: {
@@ -82,7 +82,7 @@ describe("getSpecRows compact spec line", () => {
           unit: "V",
         },
       })[0],
-    ).toBe("≥ 10 V (measurement known)");
+    ).toBe("≥ 10 V (known value)");
   });
 
   it("keeps measurement state out of ordinary two-sided UUT tolerances", () => {

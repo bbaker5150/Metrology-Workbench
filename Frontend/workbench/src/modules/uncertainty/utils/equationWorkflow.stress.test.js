@@ -64,6 +64,7 @@ const runBothEngines = (expression, nominals, spans = {}) => {
 
 describe("sophisticated equations run through BOTH engines and agree", () => {
   const CASES = [
+    { name: "capital E electrical input", expression: "E/R", nominals: { E: 20, R: 4 } },
     {
       name: "buoyancy-corrected deadweight pressure",
       expression: "m * g * (1 - rhoA / rhoM) / Ap",

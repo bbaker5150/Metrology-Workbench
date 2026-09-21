@@ -153,3 +153,8 @@ describe("extractEquationVariables — editor-rule parity", () => {
     expect(extractEquationVariables("sqrt(x) + pi + e")).toEqual(["x"]);
   });
 });
+
+it("capital E is an input while lowercase e remains Euler's constant", () => {
+  expect(extractEquationVariables("E/R + e")).toEqual(["E", "R"]);
+  expect(validateEquation("E/R")).toMatchObject({ status: "ok", variables: ["E", "R"], warnings: [] });
+});

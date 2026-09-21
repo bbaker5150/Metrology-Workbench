@@ -187,10 +187,14 @@ const isInstrumentLinkedTypeB = (component = {}) =>
       component.fromInstrument,
   );
 
+// Persistent range links are sufficient provenance even in older imports that
+// do not carry the transient sourceTmdeId/identity used by calculated rows.
+const isTmdeSource = (component = {}) => component.sourceTmdeId != null || component.tmdeBudgetSourceId != null || Boolean(component.tmdeIdentity);
+
 const isStandaloneManualComponent = (component = {}) =>
   !component.isPropagationSummary &&
   !component.isResolution &&
-  !component.sourceTmdeId &&
+  !isTmdeSource(component) &&
   !isInstrumentLinkedTypeB(component) &&
   Boolean(
     component.dynamicDefinitionId || component.isInlineManual ||
@@ -947,7 +951,7 @@ const UncertaintyBudgetTable = ({
     // instrument editor. The budget is an inclusion surface only, so never
     // expose a second distribution override here (which could leave one of the
     // paired TMDE error-limit rows out of sync with the instrument spec).
-    if (component.sourceTmdeId) {
+    if (isTmdeSource(component)) {
       return <span>{component.distribution || "Not Set"}</span>;
     }
 
@@ -1037,12 +1041,12 @@ const UncertaintyBudgetTable = ({
         </div>
       );
     }
-    if (component.isCore && !component.sourceTmdeId) return null;
+    if (component.isCore && !isTmdeSource(component)) return null;
     // A TMDE-sourced row's tolerance is edited directly on the instrument tables
     // now, so it only gets a remove control here — no edit pencil.
     const showEdit =
       !component.missingTolerance &&
-      !component.sourceTmdeId &&
+      !isTmdeSource(component) &&
       !isInstrumentLinkedTypeB(component) &&
       !isStandaloneManualComponent(component);
     return (
@@ -1155,8 +1159,8 @@ const UncertaintyBudgetTable = ({
           // The entered magnitude of a manual Type-B is editable inline. A
           // tolerance-mode entry edits the Tolerance Limit cell; a directly-
           // entered standard uncertainty edits the Standard Uncertainty cell.
-          const editableTolerance = component.isManual && !isStdEntry;
-          const editableStd = component.isManual && isStdEntry;
+          const editableTolerance = component.isManual && !isTmdeSource(component) && !isStdEntry;
+          const editableStd = component.isManual && !isTmdeSource(component) && isStdEntry;
           const commitManualValue = (value) =>
             onComponentUpdate?.(component.id, { manualValue: value }, component);
           return (
@@ -1209,6 +1213,8 @@ const UncertaintyBudgetTable = ({
                   `± ${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`
                 ) : isStdEntry ? (
                   ""
+                ) : tolLimit.value == null || !Number.isFinite(Number(tolLimit.value)) ? (
+                  "Not Set"
                 ) : (
                   `± ${formatNumber(tolLimit.value, uiSigFigs)} ${getUnitDisplayLabel(tolLimit.unit)}`
                 )}
@@ -1605,7 +1611,7 @@ const UncertaintyBudgetTable = ({
               className={`budget-stack-section ${group.kind === "final" ? "final" : ""}`}
             >
               <div className="budget-section-title-row">
-                <h4>{simplifyBudgetLabel(group.label)}</h4>
+                <h4 className={group.kind === "input" && !group.variableType ? "budget-symbol-heading" : undefined}>{simplifyBudgetLabel(group.label)}</h4>
                 <div className="budget-section-title-actions">
                   {group.kind === "equation" && propagationWarnings.length > 0 && (
                     <span className="budget-range-warning" tabIndex={0} role="img"

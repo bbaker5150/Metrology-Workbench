@@ -1,3 +1,4 @@
+import useExclusiveMenu from "../../../hooks/useExclusiveMenu";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -42,6 +43,7 @@ const BuilderUnitSelect = ({
   );
 
   const closeMenu = () => setIsOpen(false);
+  useExclusiveMenu(isOpen, closeMenu);
   const openMenu = () => {
     const rect = rootRef.current?.getBoundingClientRect();
     if (rect) {

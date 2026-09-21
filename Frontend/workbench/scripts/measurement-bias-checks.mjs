@@ -48,7 +48,7 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
   const riskBeforeReset = await cards.allTextContents();
   await notice.getByRole('button', { name: 'Use UUT instrument bias', exact: true }).click();
   check('resetting a UUT override preserves the editable net bias', await until(() => saved().testPoints[0].uutBias === null && saved().testPoints[0].measurementBias.value === .15));
-  await frame.locator('.measurement-net-bias-row').hover();
+  await frame.locator('.measurement-output-row:has(.bias-value-editor)').hover();
   await frame.getByRole('button', { name: 'Remove Net Bias', exact: true }).click();
   check('explicit reset clears overrides through the SharePoint adapter', await until(() => saved().testPoints[0].uutBias === null && saved().testPoints[0].measurementBias === null));
   check('instrument biases need no separate panel or notice', await until(async () => await notice.count() === 0) && await frame.locator('.measurement-bias-panel').count() === 0);
@@ -56,15 +56,15 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
 
   const automaticRisk = await cards.allTextContents();
   await frame.getByRole('button', { name: 'Add Net Bias', exact: true }).click();
-  check('measurement-input plus adds one net-bias row initialized from sources', await until(() => saved().testPoints[0].measurementBias?.mode === 'manual') && Math.abs(Number(saved().testPoints[0].measurementBias.value)-.05)<1e-9 && await frame.locator('.measurement-net-bias-row').count() === 1 && await frame.getByRole('button',{name:'Add Net Bias',exact:true}).count() === 0);
+  check('measurement-input plus enables one output-row bias initialized from sources', await until(() => saved().testPoints[0].measurementBias?.mode === 'manual') && Math.abs(Number(saved().testPoints[0].measurementBias.value)-.05)<1e-9 && await frame.locator('.measurement-output-row:has(.bias-value-editor)').count() === 1 && await frame.getByRole('button',{name:'Add Net Bias',exact:true}).count() === 0);
   check('adding net bias alone leaves risk unchanged', JSON.stringify(await cards.allTextContents()) === JSON.stringify(automaticRisk));
   const net = frame.getByRole('textbox', { name: 'Net measurement system bias', exact: true });
   await net.fill('-.6'); await net.press('Enter');
   check('net bias saves and updates the current risk', await until(() => saved().testPoints[0].measurementBias?.value === '-.6') && await until(async () => JSON.stringify(await cards.allTextContents()) !== JSON.stringify(automaticRisk)));
   check('net bias is not inserted into equation inputs or uncertainty components', Object.keys(saved().testPoints[0].variableMappings).join() === 'a' && saved().testPoints[0].components.length === 1 && saved().testPoints[0].equationString === 'a');
-  await frame.locator('.measurement-net-bias-row').hover();
+  await frame.locator('.measurement-output-row:has(.bias-value-editor)').hover();
   await frame.getByRole('button', { name: 'Remove Net Bias', exact: true }).click();
-  check('removing net bias restores automatic risk', await until(async () => JSON.stringify(await cards.allTextContents()) === JSON.stringify(automaticRisk)) && await frame.locator('.measurement-net-bias-row').count() === 0);
+  check('removing net bias restores automatic risk', await until(async () => JSON.stringify(await cards.allTextContents()) === JSON.stringify(automaticRisk)) && await frame.locator('.measurement-output-row:has(.bias-value-editor)').count() === 0);
 
   // Author both roles in their existing instrument cells, then verify changes
   // reach the current point's risk results without a navigation-triggered refresh.
@@ -93,7 +93,12 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
   }
   await frame.evaluate(() => { document.body.classList.remove('dark-mode'); document.body.classList.add('light-mode'); });
   await biasToggle.click();
-  check('clicking Bias again hides its inputs without clearing the value', await sourceInput.count() === 0 && saved().tmdes[0].ranges[0].tolerances.bias.value === '-.8' && await biasToggle.getAttribute('aria-pressed') === 'false');
+  check('clicking Bias again removes its saved value and hides its inputs', await until(() => !saved().tmdes[0].ranges[0].tolerances.bias) && await sourceInput.count() === 0 && await biasToggle.getAttribute('aria-pressed') === 'false');
+  // Restore the absolute source offset for the percent-equivalence cases below.
+  // Bias off now intentionally deletes the value instead of merely hiding it.
+  await biasToggle.click();
+  await sourceInput.fill('-.8'); await sourceInput.press('Enter');
+  check('re-enabled source bias saves the absolute comparison value', await until(() => saved().tmdes[0].ranges[0].tolerances.bias?.value === '-.8'));
   const tolerance = frame.locator('.instrument-equipment-table').first().locator('.cell-tolerance .inline-tolerance-summary').first();
   await tolerance.click();
   check('Configured UUT bias reopens active', await frame.locator('.instrument-equipment-table').first().getByRole('button', { name: 'Bias', exact: true }).getAttribute('aria-pressed') === 'true');

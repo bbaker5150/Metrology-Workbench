@@ -16,7 +16,7 @@
 //
 // The variable-extraction rule here MUST stay identical to the editor's
 // (UncertaintyPanel handleEquationChange): a SymbolNode whose name exists on
-// the mathjs namespace is a constant, not a variable.
+// the mathjs namespace is a constant, except E (the electrical input symbol).
 
 import * as math from "mathjs";
 
@@ -67,7 +67,8 @@ export function extractEquationVariables(expression) {
     if (!n.isSymbolNode) return;
     // A FunctionNode's name is a SymbolNode too — never a variable.
     if (parent && parent.isFunctionNode && parent.fn === n) return;
-    if (math[n.name] || CONSTANT_NAMES.includes(n.name.toLowerCase())) return;
+    // E is an authored electrical input; Euler’s constant remains lowercase e.
+    if (n.name !== "E" && (math[n.name] || CONSTANT_NAMES.includes(n.name))) return;
     vars.add(n.name);
   });
   return Array.from(vars).sort();
@@ -146,7 +147,7 @@ export function validateEquation(rawEquation) {
     } else if (n.isSymbolNode) {
       if (parent && parent.isFunctionNode && parent.fn === n) return;
       const name = n.name;
-      if (CONSTANT_NAMES.includes(name.toLowerCase())) return;
+      if (name === "E" || CONSTANT_NAMES.includes(name)) return;
       const builtin = math[name];
       if (typeof builtin === "function") {
         // e.g. `sin * 2` or a variable named `cos`/`I` (math.I exists? as

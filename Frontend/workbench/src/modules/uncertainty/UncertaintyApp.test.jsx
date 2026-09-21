@@ -1,6 +1,6 @@
 import { ConfirmRecordDeletesContext } from "./contexts/RecordDeletePolicy";
 import { describe, test, expect, vi, beforeAll, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 
@@ -112,7 +112,10 @@ describe("UncertaintyApp", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Start an analysis session")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTitle("Add New Session"));
+    // Follow the real pointer sequence so the walkthrough's document listener
+    // is installed before clicking a dialog that appeared on an async render.
+    await act(async () => {});
+    userEvent.click(screen.getByTitle("Add New Session"));
     expect(await screen.findByRole("combobox", { name: "Analysis Session" })).toBeInTheDocument();
     await waitFor(
       () =>

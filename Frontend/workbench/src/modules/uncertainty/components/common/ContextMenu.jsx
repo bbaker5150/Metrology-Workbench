@@ -1,8 +1,10 @@
+import useExclusiveMenu from "../../hooks/useExclusiveMenu";
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 const ContextMenu = ({ menu, onClose }) => {
+    useExclusiveMenu(Boolean(menu), onClose);
     const menuRef = useRef(null);
     const [position, setPosition] = useState({ x: menu?.x || 0, y: menu?.y || 0 });
 

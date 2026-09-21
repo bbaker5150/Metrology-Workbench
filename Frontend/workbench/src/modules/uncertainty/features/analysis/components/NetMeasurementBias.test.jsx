@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, it } from "vitest";
-import { AddNetBiasButton, NetBiasRow } from "./NetMeasurementBias";
+import { AddNetBiasButton, NetBiasCell } from "./NetMeasurementBias";
 import { biasFixture } from "../../../utils/measurementBias.fixtures";
 import { resolveMeasurementBias } from "../../../utils/measurementBias";
 import { computePointRiskMetrics } from "../../../utils/riskCompute";
@@ -21,12 +21,12 @@ it("adds one net output bias, replaces source contributions, and restores them o
     saved = current;
     const change = patch => setCurrent(previous => ({ ...previous, ...patch }));
     return <><AddNetBiasButton point={current} session={session} onChange={change} />
-      <table><tbody><NetBiasRow point={current} onChange={change} /></tbody></table></>;
+      <table><tbody><tr><td><NetBiasCell point={current} onChange={change} /></td></tr></tbody></table></>;
   };
   render(<Harness />);
   fireEvent.click(screen.getByRole("button", { name: "Add Net Bias" }));
   expect(screen.queryByRole("button", { name: "Add Net Bias" })).toBeNull();
-  expect(screen.getAllByText("Net Bias")).toHaveLength(1);
+  expect(screen.getAllByRole("textbox", { name: "Net measurement system bias" })).toHaveLength(1);
   expect(resolveMeasurementBias(saved, session).calBias).toBeCloseTo(originalCal, 12);
   expect(computePointRiskMetrics(saved, session, true)).toEqual(originalRisk);
   const input = screen.getByRole("textbox", { name: "Net measurement system bias" });

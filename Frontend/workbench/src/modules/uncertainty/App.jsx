@@ -1,3 +1,4 @@
+import { claimWorkspaceClipboard, ownsWorkspaceClipboard, WORKSPACE_CLIPBOARD_EVENT } from "./utils/workspaceClipboard";
 import useSelectInputText from "./hooks/useSelectInputText";
 import PointSelectionOutline from "./components/common/PointSelectionOutline";
 import PointNumericInput from "./components/common/PointNumericInput";
@@ -2653,6 +2654,8 @@ function App({ showThemeToggle = false }) {
       if (event.target.closest?.('input, textarea, [contenteditable="true"], [role="dialog"], [role="listbox"], [role="menu"]')) return;
       setSelectedTestPointId(null);
       setSelectedTestPointContextUutId(null);
+      setSelectedUutId(null);
+      setCurrentUutSelection([]);
       setSidebarSelectionAnchor(null);
       setSelectedPointArea(null);
       setSelectedSidebarPointIds([]);
@@ -2887,6 +2890,17 @@ function App({ showThemeToggle = false }) {
   const [clipboardBudget, setClipboardBudget] = useState(null);
   const [clipboardPointMode, setClipboardPointMode] = useState("copy");
   const [clipboardKind, setClipboardKind] = useState(null);
+  useEffect(() => {
+    const changed = event => {
+      const kind = event.detail.kind;
+      setClipboardKind(kind);
+      if (kind !== "point") setClipboardPoint(null);
+      if (kind !== "budget") setClipboardBudget(null);
+      if (kind !== "uut") setClipboardUut(null);
+    };
+    window.addEventListener(WORKSPACE_CLIPBOARD_EVENT, changed);
+    return () => window.removeEventListener(WORKSPACE_CLIPBOARD_EVENT, changed);
+  }, []);
 
   // Toast Helper — delegates to the shared workbench toast stack so toasts
   // render globally (above all modules) with consistent styling.
@@ -2993,6 +3007,7 @@ function App({ showThemeToggle = false }) {
       : [pointOrPoints];
     setClipboardPoint(points);
     setClipboardPointMode("copy");
+    claimWorkspaceClipboard("point");
     setClipboardKind("point");
     showToast(
       `${points.length} Measurement point${points.length > 1 ? "s" : ""} copied to clipboard`,
@@ -3008,6 +3023,7 @@ function App({ showThemeToggle = false }) {
     // Cut is a copy-then-delete operation. Keep the snapshots reusable so the
     // same point set can be pasted more than once after it leaves the source.
     setClipboardPointMode("copy");
+    claimWorkspaceClipboard("point");
     setClipboardKind("point");
     handleDeleteTestPoint(points.map((point) => point.id), true);
     showToast(
@@ -3019,7 +3035,7 @@ function App({ showThemeToggle = false }) {
   const handlePastePoint = useCallback(
     (targetUutId, targetAreaId, targetRange = null, insertAfterPointId = null, targetAreaName = null) => {
       if (
-        clipboardKind !== "point" ||
+        !ownsWorkspaceClipboard("point") || clipboardKind !== "point" ||
         !clipboardPoint ||
         clipboardPoint.length === 0
       )
@@ -3198,6 +3214,7 @@ function App({ showThemeToggle = false }) {
   const handleCopyBudget = useCallback((point) => {
     if (!point) return;
     setClipboardBudget(copyPointBudget(point));
+    claimWorkspaceClipboard("budget");
     setClipboardKind("budget");
     showToast("Measurement point budget copied");
     setContextMenu(null);
@@ -3206,7 +3223,7 @@ function App({ showThemeToggle = false }) {
   const handlePasteBudget = useCallback(
     (targetPointIds) => {
       if (
-        clipboardKind !== "budget" ||
+        !ownsWorkspaceClipboard("budget") || clipboardKind !== "budget" ||
         !clipboardBudget ||
         !currentSessionData
       ) {
@@ -3245,6 +3262,7 @@ function App({ showThemeToggle = false }) {
 
   const handleCopyUut = useCallback((uut) => {
     setClipboardUut(uut);
+    claimWorkspaceClipboard("uut");
     setClipboardKind("uut");
     showToast(`UUT "${uut.model || "Item"}" copied to clipboard`);
     setContextMenu(null);
@@ -3253,7 +3271,7 @@ function App({ showThemeToggle = false }) {
   const handlePasteUut = useCallback(
     (targetAreaId) => {
       if (
-        clipboardKind !== "uut" ||
+        !ownsWorkspaceClipboard("uut") || clipboardKind !== "uut" ||
         !clipboardUut ||
         !currentSessionData
       )
@@ -5480,7 +5498,7 @@ function App({ showThemeToggle = false }) {
             <FontAwesomeIcon icon={faCog} />
           </button>
           {settingsOpen && (
-            <MeasurementAreaPopover anchorRef={pointSettingsAnchorRef}>
+            <MeasurementAreaPopover anchorRef={pointSettingsAnchorRef} onClose={() => setOpenFunctionSettingsId(null)}>
             <div
               className="function-point-settings-menu"
               data-tour="function-settings-menu"
@@ -5602,7 +5620,7 @@ function App({ showThemeToggle = false }) {
             <FontAwesomeIcon icon={faPlus} size="xs" />
           </button>
           {pendingPointUnitChoice?.functionId === fnGroup.id && (
-              <MeasurementAreaPopover anchorRef={pointUnitAnchorRef}>
+              <MeasurementAreaPopover anchorRef={pointUnitAnchorRef} onClose={() => setPendingPointUnitChoice(null)}>
               <div
                 className="budget-settings-menu point-unit-picker function-point-unit-picker"
                 data-tour="measurement-point-menu"
